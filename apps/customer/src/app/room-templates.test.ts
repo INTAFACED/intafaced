@@ -32,7 +32,15 @@ const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':projectId': 'TEST-launch',
   ':poolId': `0x${'9'.repeat(40)}`,
 };
-const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
+/**
+ * A parameter whose shape differs between the routes that share its name: a wallet holding's `:token` is a token's address
+ * (the router answers anything else not found), where a pay claim's or a shared backtest's `:token` is a link token.
+ */
+const SAMPLE_ROUTE_PARAMS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  '/wallet/tokens/:token': { ':token': `0x${'7'.repeat(40)}` },
+};
+const opened = (route: string) =>
+  route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_ROUTE_PARAMS[route]?.[param] ?? SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 /** The screen file whose `// volt-room:` line says the room has moved onto its template (volt-count.ts). */
 const marks = voltMarks();

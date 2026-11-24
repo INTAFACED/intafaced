@@ -2,7 +2,7 @@
 // feature registry (same arrangement as screens/home/deps.ts). The old kit's parts the rooms not yet in Volt draw are in
 // ./ui-deps.ts, so a room in Volt reaches this file without reaching the old kit.
 
-export { fmtAmount, fmtChangeLine, fmtPct, fmtUsd, refusalCopy, useMarkets } from '../../data';
+export { fmtAmount, fmtChangeLine, fmtPct, fmtUsd, refusalCopy, useMarkets, useTickers } from '../../data';
 export type { Decimal, Loadable, MarketRow } from '../../data';
 export type { BalanceEntry } from '../../data/derive';
 // The activity hook is a new file in the data layer (not yet in the data barrel).

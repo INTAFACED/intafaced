@@ -1,6 +1,7 @@
 import type { Principal } from '@intafaced/auth';
 import type { Sql } from 'postgres';
 import { MerchantOpsError } from './errors.js';
+import { TEAM_ROLES } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
  * TEAM ROLES AND THEIR PERMISSIONS (W15, reusable by later streams).
@@ -18,7 +19,6 @@ import { MerchantOpsError } from './errors.js';
  * (`pay:read` / `pay:write` ...) and the merchant scoping, never instead of
  * them: a role can only narrow what the scope already allows.
  */
-export const TEAM_ROLES = ['admin', 'finance', 'developer', 'viewer'] as const;
 export type TeamRole = (typeof TEAM_ROLES)[number];
 export type MerchantRole = 'owner' | TeamRole;
 
@@ -197,3 +197,4 @@ export async function requireMerchantPermission(
   assertPermission(caller, permission);
   return caller;
 }
+export { TEAM_ROLES };

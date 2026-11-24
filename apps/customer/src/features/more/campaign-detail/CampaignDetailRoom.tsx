@@ -145,14 +145,19 @@ function CampaignBody({
                 </span>
               ),
             },
-            {
-              label: t('budgetLeft'),
-              value: (
-                <span data-testid="campaign-budget-left">
-                  {t('budgetLeftValue', { left: c.budget.left, limit: c.budget.limit, asset: c.budget.asset })}
-                </span>
-              ),
-            },
+            // Budget left only when the owner set a cap: a campaign that pays nothing has no budget line.
+            ...(c.budget
+              ? [
+                  {
+                    label: t('budgetLeft'),
+                    value: (
+                      <span data-testid="campaign-budget-left">
+                        {t('budgetLeftValue', { left: c.budget.left, limit: c.budget.limit, asset: c.budget.asset })}
+                      </span>
+                    ),
+                  },
+                ]
+              : []),
             {
               label: t('reward'),
               value: (

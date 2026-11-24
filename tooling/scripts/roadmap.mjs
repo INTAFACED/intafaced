@@ -199,13 +199,19 @@ export function parseJourneys(text, module, known = null) {
       const cells = line.split('|').map((c) => c.trim());
       const sliceCell = cells[4] ?? '';
       const does = cells[2] ?? '';
-      const slices = known ? sliceIdCandidates(sliceCell).filter((id) => known.has(id)) : sliceIdCandidates(sliceCell, { longest: true });
+      // DEFERRED inside brackets ("D-ops-01 (eligibility reasons: D-account-07, DEFERRED until launch prep)") defers only
+      // the slices it names, and the step stays live; DEFERRED outside brackets defers the whole step.
+      const deferredParts = [...sliceCell.matchAll(/\([^()]*\)/g)].map((m) => m[0]).filter((part) => /\bDEFERRED\b/.test(part));
+      const outside = sliceCell.replace(/\([^()]*\)/g, '');
+      const stepDeferred = /\bDEFERRED\b/.test(outside);
+      const liveCell = stepDeferred ? sliceCell : deferredParts.reduce((cell, part) => cell.replace(part, ''), sliceCell);
+      const slices = known ? sliceIdCandidates(liveCell).filter((id) => known.has(id)) : sliceIdCandidates(liveCell, { longest: true });
       // An empty cell names nothing to build either, so it counts as a step no slice covers yet.
       const step = { n: Number(row[1]), slices, noSlice: /\bNO-SLICE\b/.test(sliceCell) || !slices.length };
       if (LATER_STEP.test(does)) step.later = 'custody';
       else if (LOOKS_LATER_STEP.test(does))
         throw new Error(`roadmap: ${cur.id} #${row[1]} starts with "Later" but not "Later (OWNER 226):"`);
-      if (/\bDEFERRED\b/.test(sliceCell)) step.deferred = true;
+      if (stepDeferred) step.deferred = true;
       if (/\bPARKED\b/.test(sliceCell)) {
         if (!/\bPARKED until\s+\S/.test(sliceCell)) throw new Error(`roadmap: ${cur.id} #${row[1]} says PARKED with no "until <when>"`);
         step.parked = true;

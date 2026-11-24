@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, Select } from '@intafaced/ui/lit';
 import { ScrollTable } from '../../more';
 import { displayAmount, parseAmount, formatAmount } from '../../../shared/money';
 import { usePolled } from '../../protocol';
@@ -286,20 +286,19 @@ function MoveForm({
   return (
     <section className="lt-stack" data-testid="mode-move" aria-label={t('moveTitle')}>
       <h4>{t('moveTitle')}</h4>
-      <label className="lt-field">
-        <span>{t('moveDirection')}</span>
-        <select
-          data-testid="mode-move-direction"
-          value={direction}
-          onChange={(e) => {
-            setDirection(e.target.value as Direction);
-            setStage({ at: 'idle' });
-          }}
-        >
-          <option value="perps_to_spot">{t('perpsToSpot')}</option>
-          <option value="spot_to_perps">{t('spotToPerps')}</option>
-        </select>
-      </label>
+      <Select
+        label={t('moveDirection')}
+        data-testid="mode-move-direction"
+        value={direction}
+        options={[
+          { value: 'perps_to_spot', label: t('perpsToSpot') },
+          { value: 'spot_to_perps', label: t('spotToPerps') },
+        ]}
+        onChange={(value) => {
+          setDirection(value as Direction);
+          setStage({ at: 'idle' });
+        }}
+      />
       <Field
         label={t('moveAmount')}
         inputMode="decimal"
@@ -310,7 +309,7 @@ function MoveForm({
           setStage({ at: 'idle' });
         }}
       />
-      <Button data-testid="mode-move-review" onClick={review}>
+      <Button tone="primary" data-testid="mode-move-review" onClick={review}>
         {t('moveReview')}
       </Button>
       {problem ? (
@@ -324,7 +323,7 @@ function MoveForm({
           <Button tone="primary" data-testid="mode-move-sign" disabled={stage.at === 'sending'} onClick={() => void send(stage, false)}>
             {t('moveSign')}
           </Button>
-          <Button disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
+          <Button tone="primary" disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
             {t('cancel')}
           </Button>
         </div>
@@ -357,7 +356,7 @@ function MoveForm({
             <p data-testid="mode-move-again-same">{t('moveAgainSame')}</p>
           ) : null}
           {accepted ? (
-            <Button data-testid="mode-move-again" onClick={() => void send(stage, true)}>
+            <Button tone="primary" data-testid="mode-move-again" onClick={() => void send(stage, true)}>
               {t('moveAgain')}
             </Button>
           ) : null}
@@ -420,7 +419,7 @@ function SwitchForm({
       <p className="lt-hint">{t('switchLine')}</p>
       <div className="lt-actions">
         {(current ? targets : MODES).map((m) => (
-          <Button key={m} data-testid={`mode-switch-${m}`} onClick={() => ask(m)}>
+          <Button tone="primary" key={m} data-testid={`mode-switch-${m}`} onClick={() => ask(m)}>
             {t('switchTo', { mode: modeWord(t, m) })}
           </Button>
         ))}
@@ -436,7 +435,7 @@ function SwitchForm({
           <Button tone="primary" data-testid="mode-switch-sign" disabled={stage.at === 'sending'} onClick={() => void sign(stage)}>
             {t('switchSign')}
           </Button>
-          <Button disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
+          <Button tone="primary" disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
             {t('cancel')}
           </Button>
         </div>
@@ -590,7 +589,7 @@ export function SpotShortOffer({
   return (
     <div role="alert" className="lt-refusal" data-testid="spot-short" data-state="offer" data-needed={needed}>
       <p>{t('spotShort', { free: spotFree, lock, needed })}</p>
-      <Button data-testid="spot-short-move" disabled={busy} onClick={() => void move()}>
+      <Button tone="primary" data-testid="spot-short-move" disabled={busy} onClick={() => void move()}>
         {t('spotShortSign', { needed })}
       </Button>
       {sent ? <p data-testid="spot-short-result">{resultLine(t, sent.result, venueName)}</p> : null}

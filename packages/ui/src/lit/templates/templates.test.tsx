@@ -422,6 +422,45 @@ describe('states never contradict themselves', () => {
     expect(out).toContain('lt-locked');
   });
 
+  it('a chip that is a button or a link is 24 px tall to touch (WCAG 2.5.8)', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/:is\(button, a\)\.lt-chip \{\s*min-block-size: 24px;[^}]*\}/);
+  });
+
+  it('a text link is an inline block, so its 24 px minimum holds for an <a> too (WCAG 2.5.8)', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    const rule = css.match(/\n\.lt-link \{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/display: inline-block;/);
+    expect(rule).toMatch(/min-block-size: max\(1\.5rem, 24px\);/);
+  });
+
+  it('the line key colours each line by the chart role the chart draws it with, and no raw colour', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    for (const n of [1, 2, 3]) {
+      expect(css).toMatch(new RegExp(`\\.lt-line-key > \\[data-line='${n}'\\] \\{\\s*color: var\\(--if-ma-${n}\\);\\s*\\}`));
+    }
+    const block = css.slice(css.indexOf('.lt-line-key {'), css.indexOf("[data-line='3']") + 60);
+    expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
+  });
+
+  it('a document that prints alone prints on its own A4 page, hides the app around it and its own no-print parts', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/@page lt-print-alone \{\s*size: A4;\s*margin: 1\.5rem;\s*\}/);
+    const print = css.slice(css.indexOf('@media print', css.indexOf('@page lt-print-alone')));
+    expect(print).toMatch(
+      /body:has\(\.lt-print-alone\) \*:not\(:has\(\.lt-print-alone\)\):not\(\.lt-print-alone, \.lt-print-alone \*\) \{\s*display: none !important;/,
+    );
+    // Its frame prints as plain in-flow blocks, so the browser keeps its named page.
+    expect(print).toMatch(
+      /body:has\(\.lt-print-alone\),\s*body:has\(\.lt-print-alone\) \*:has\(\.lt-print-alone\) \{\s*display: block !important;\s*position: static !important;\s*float: none !important;\s*\}/,
+    );
+    expect(print).toMatch(/\.lt-print-alone \{\s*page: lt-print-alone;\s*\}/);
+    expect(print).toMatch(/\.lt-print-alone section \{\s*break-inside: avoid;\s*\}/);
+    expect(print).toMatch(/\.lt-print-alone \.lt-no-print \{\s*display: none;\s*\}/);
+    // Only its own named page is A4: no unnamed @page rule changes how any other room prints.
+    expect(css).not.toMatch(/@page\s*\{/);
+  });
+
   it('the risk band slot tells the focus tracker it covers the top; direction colours stay inside rooms', () => {
     const out = withLegal(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
     expect(out).toContain('class="lt-band-slot" data-obscures="top"');
@@ -532,6 +571,40 @@ describe('record rows', () => {
 describe('gallery fixtures are shaped as the API sends them', () => {
   it('holdings are decimal strings, as ledgerHoldingSchema requires', () => {
     for (const h of HOLDINGS) expect(h.amount).toMatch(/^\d+(\.\d+)?$/);
+  });
+});
+
+describe('the desk on a computer leaves no empty slot beside a panel', () => {
+  const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+  const wide = css.slice(css.indexOf('@container room (min-width: 1024px) {\n  .lt-desk'));
+  // Each pro desk rule in the computer layout: the regions whose absence it needs, and its areas.
+  const rules = [...wide.matchAll(/\.lt-desk\[data-desk='pro'\](:not\(:has\(([^{]*)\)\))? \{([^}]*)\}/g)]
+    .filter((m) => !m[0].includes('[data-arranged]'))
+    .map((m) => ({
+      absent: [...(m[2] ?? '').matchAll(/data-region='([a-z]+)'/g)].map((r) => r[1]!),
+      rows: [...(m[3]!.match(/grid-template-areas:([^;]*);/)?.[1] ?? '').matchAll(/'([^']*)'/g)].map((r) => r[1]!.split(/\s+/)),
+    }));
+  const layoutFor = (present: string[]) => rules.filter((r) => r.absent.every((a) => !present.includes(a))).at(-1)!;
+
+  it.each([
+    ['spot', ['instrument', 'pairs', 'chart', 'book', 'tape', 'ticket', 'orders']],
+    ['a tool desk', ['instrument', 'chart', 'book', 'tape', 'ticket', 'orders']],
+    ['options', ['instrument', 'chart', 'ticket', 'orders']],
+    ['margin signed in', ['instrument', 'chart', 'ticket', 'orders']],
+    ['margin signed out', ['ticket', 'orders']],
+  ])('%s: a row that draws a panel has no empty slot beside it', (_, present) => {
+    expect(rules.length).toBeGreaterThanOrEqual(3);
+    for (const row of layoutFor(present).rows) {
+      if (!row.some((area) => present.includes(area))) continue; // a row of absent regions collapses
+      expect(
+        row.filter((area) => !present.includes(area)),
+        row.join(' '),
+      ).toEqual([]);
+    }
+  });
+
+  it('a desk screen keeps its title and panels off the window edge', () => {
+    expect(css).toMatch(/\.lt-room\[data-template='desk'\]:not\(\.page \.lt-room\) \{\s*padding-inline: var\(--lit-gap-item\);/);
   });
 });
 
