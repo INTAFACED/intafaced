@@ -5,7 +5,7 @@ export const invitationCopy = defineCopy(
   {
     eyebrow: 'ONE ACCOUNT. ONE REFERRAL RELATIONSHIP.',
     title: 'An invitation.\nYour decision.',
-    description: 'Review this link with your personal account. The service checks the invitation and your existing referral relationship.',
+    description: 'Review this link with your personal account before accepting.',
     boundary: 'An existing relationship stays in place. No reward is promised by this link.',
     help: 'Read Help',
     guestEyebrow: 'AN INVITATION TO INTAFACED',
@@ -36,7 +36,7 @@ export const invitationCopy = defineCopy(
     before: 'Before you accept',
     owner: 'Accepting with personal account',
     held: 'This invitation link is held for this review.',
-    consequence: 'The service records a visit, then checks whether a referral can be attached.',
+    consequence: 'Accepting records a visit and checks whether this referrer can be attached to your account.',
     already: 'A successful reply may include a relationship already set by another invitation. Read your current status after the check.',
     lost: 'If the reply is lost, keep the original attempt. Repeating acceptance can record another visit.',
     accept: 'Accept this invitation',
@@ -95,15 +95,14 @@ export const invitationCopy = defineCopy(
     windowOpen: 'Your account can still attach a referrer through an invitation link until {closesAt}.',
     windowClosed: 'The time to attach a referrer through a link ended at {closesAt}.',
     windowUnset: 'Not set: the owner has not set how long after sign-up a referrer can be attached through a link.',
-    windowCreated: 'Your account was created {createdAt}. The time is measured by the service, not this device.',
-    windowReopened:
-      'Your earlier referral relationship ended {reopenedAt}, so the time to join through a link runs again from then. The time is measured by the service, not this device.',
+    windowCreated: 'Your account was created {createdAt}.',
+    windowReopened: 'Your earlier referral relationship ended {reopenedAt}, so the time to join through a link runs again from then.',
   } as const,
   {
     es: {
       eyebrow: 'UNA CUENTA. UNA RELACIÓN DE REFERIDO.',
       title: 'Una invitación.\nTu decisión.',
-      description: 'Revisa este enlace con tu cuenta personal. El servicio comprueba la invitación y tu relación de referido actual.',
+      description: 'Revisa este enlace con tu cuenta personal antes de aceptarlo.',
       boundary: 'La relación existente se mantiene. Este enlace no promete ninguna recompensa.',
       help: 'Leer Ayuda',
       guestEyebrow: 'UNA INVITACIÓN A INTAFACED',
@@ -124,7 +123,7 @@ export const invitationCopy = defineCopy(
       before: 'Antes de aceptar',
       owner: 'Aceptar con la cuenta personal',
       held: 'Este enlace se conserva para esta revisión.',
-      consequence: 'El servicio registra una visita y después comprueba si se puede añadir un referido.',
+      consequence: 'Al aceptar se registra una visita y se comprueba si este referente puede asociarse a tu cuenta.',
       already:
         'Una respuesta correcta puede incluir una relación ya establecida por otra invitación. Lee tu estado actual después de la comprobación.',
       lost: 'Si se pierde la respuesta, conserva el intento original. Repetir la aceptación puede registrar otra visita.',
@@ -173,12 +172,17 @@ export const invitationCopy = defineCopy(
       changed: 'El contexto de esta revisión cambió. No se envió más aceptación desde él.',
       preflight:
         'No se pudo comprobar la cuenta actual antes de aceptar. No se envió la aceptación. Puedes consultar el estado actual y volver a revisar.',
+      windowTitle: 'Plazo para unirte con un enlace',
+      windowOpen: 'Tu cuenta aún puede asociar un referente mediante un enlace de invitación hasta {closesAt}.',
+      windowClosed: 'El plazo para asociar un referente mediante un enlace terminó el {closesAt}.',
+      windowCreated: 'Tu cuenta se creó el {createdAt}.',
+      windowReopened:
+        'Tu relación de referido anterior terminó el {reopenedAt}, así que el plazo para unirte mediante un enlace corre de nuevo desde entonces.',
     },
     fr: {
       eyebrow: 'UN COMPTE. UNE RELATION DE PARRAINAGE.',
       title: 'Une invitation.\nVotre décision.',
-      description:
-        'Examinez ce lien avec votre compte personnel. Le service vérifie l’invitation et votre relation de parrainage actuelle.',
+      description: 'Examinez ce lien avec votre compte personnel avant d’accepter.',
       boundary: 'La relation existante est conservée. Ce lien ne promet aucune récompense.',
       help: 'Lire l’Aide',
       guestEyebrow: 'UNE INVITATION À INTAFACED',
@@ -199,7 +203,7 @@ export const invitationCopy = defineCopy(
       before: 'Avant d’accepter',
       owner: 'Accepter avec le compte personnel',
       held: 'Ce lien est conservé pour cet examen.',
-      consequence: 'Le service enregistre une visite, puis vérifie si un parrainage peut être associé.',
+      consequence: 'Accepter enregistre une visite puis vérifie si ce parrain peut être associé à votre compte.',
       already:
         'Une réponse réussie peut inclure une relation déjà établie par une autre invitation. Lisez votre état actuel après la vérification.',
       lost: 'Si la réponse est perdue, conservez l’essai initial. Répéter l’acceptation peut enregistrer une autre visite.',
@@ -248,6 +252,12 @@ export const invitationCopy = defineCopy(
       changed: 'Le contexte de cet examen a changé. Aucune autre acceptation n’a été envoyée depuis celui-ci.',
       preflight:
         'Le compte actuel n’a pas pu être vérifié avant l’acceptation. Aucune acceptation n’a été envoyée. Vous pouvez lire l’état actuel et recommencer l’examen.',
+      windowTitle: 'Délai pour rejoindre via un lien',
+      windowOpen: 'Votre compte peut encore associer un parrain via un lien d’invitation jusqu’au {closesAt}.',
+      windowClosed: 'Le délai pour associer un parrain via un lien a pris fin le {closesAt}.',
+      windowCreated: 'Votre compte a été créé le {createdAt}.',
+      windowReopened:
+        'Votre parrainage précédent a pris fin le {reopenedAt}, le délai pour rejoindre via un lien court donc à nouveau depuis cette date.',
     },
   },
 );

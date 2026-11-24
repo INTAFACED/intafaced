@@ -35,8 +35,8 @@ export function BusinessVerification() {
                   </li>
                 ))}
               </ol>
+              <p className="lt-muted">{copy.t('boundary')}</p>
             </section>
-            <p className="lt-muted">{copy.t('boundary')}</p>
           </div>
         }
         summary={

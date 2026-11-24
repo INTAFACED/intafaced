@@ -25,7 +25,7 @@ export function AboutPage() {
           <h2>{t('Clear information comes first.')}</h2>
           <p>
             {t(
-              'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
+              'Available funds stay distinct from funds on hold. Missing prices stay blank instead of guessed. When a feature is unavailable, the page explains why before you act.',
             )}
           </p>
           <a className="lt-link lt-link-alone" href="/register">
