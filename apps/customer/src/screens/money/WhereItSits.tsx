@@ -40,17 +40,52 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
   const owner = useOwner();
   return (
     <div data-testid="assets-by-source">
-      {owner ? (
-        <Read owner={owner} status={status} chainId={chainId} t={t} />
-      ) : (
-        <MoneyOverview
-          title={t('Title')}
-          description={t('Lede')}
-          hero={<p className="lt-hint">{t('Connect first')}</p>}
-          watching={<WalletBar />}
-        />
-      )}
+      {owner ? <Read owner={owner} status={status} chainId={chainId} t={t} /> : <BeforeWallet t={t} />}
     </div>
+  );
+}
+
+/**
+ * Assets before a wallet is connected: the partner account needs no wallet to be read, so the money the partner
+ * holds for this person is listed with its total, each figure as the partner reports it with its time, exactly as Home
+ * shows it. The wallet and the venue account join once a wallet is connected, and the line under the total says so.
+ */
+function BeforeWallet({ t }: { t: T }) {
+  const { displayCurrency, hideBalances } = usePreferences();
+  const { partner, standing, pricesFailed, valued } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  const held = partner.state === 'read' || partner.state === 'unread';
+  return (
+    <MoneyOverview
+      title={t('Title')}
+      description={t('Lede')}
+      hero={
+        <div className="lt-stack">
+          {held ? (
+            <section className="lt-stack" aria-labelledby="assets-total-title">
+              <h2 id="assets-total-title">{t('Total title')}</h2>
+              <StandingTotal
+                standing={standing}
+                pricesFailed={pricesFailed}
+                displayCurrency={displayCurrency}
+                hidden={hideBalances}
+                testId="assets-total-before-wallet"
+              />
+            </section>
+          ) : null}
+          <p className="lt-hint" data-testid="assets-connect-first">
+            {t('Connect first')}
+          </p>
+        </div>
+      }
+      sections={
+        partner.state === 'none' ? undefined : (
+          <div className="lt-stack">
+            <PartnerSource read={partner} valued={valued} t={t} />
+          </div>
+        )
+      }
+      watching={<WalletBar />}
+    />
   );
 }
 
