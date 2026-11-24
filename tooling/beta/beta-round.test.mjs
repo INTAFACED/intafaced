@@ -6,7 +6,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { READY_WAIT_MS, betaPaths, frontAction, frontUnitText, readied, round, syncFront } from './beta-host.mjs';
+import { BETA_USER_VENUE, READY_WAIT_MS, betaPaths, frontAction, frontUnitText, readied, round, syncFront } from './beta-host.mjs';
 import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
@@ -20,6 +20,8 @@ function home() {
   fs.writeFileSync(path.join(paths.checkout, '.git'), 'gitdir: x\n');
   fs.mkdirSync(paths.state, { recursive: true });
   fs.writeFileSync(paths.screening, '{}');
+  // The running stack is already on the beta's venue; the venue test below takes this away.
+  fs.writeFileSync(paths.venue, `${BETA_USER_VENUE}\n`);
   return paths;
 }
 const readStatus = (paths) => JSON.parse(fs.readFileSync(paths.status, 'utf8'));
@@ -265,4 +267,40 @@ test('a round on a stack already on its chain restarts nothing', async () => {
   const end = await round(paths, io);
   assert.ok(!seen.some((s) => s.step === 'stop'));
   assert.equal(end.upSince, '2026-11-23T04:00:00Z');
+});
+
+test('the first round wanting the Hyperliquid test network stops the stack on the stand-in venue and starts it whole there, behind the updating page (#10603)', async () => {
+  const paths = home();
+  fs.rmSync(paths.venue);
+  fs.writeFileSync(
+    paths.status,
+    JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z', upSince: '2026-11-23T04:00:00Z' }),
+  );
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.deepEqual(
+    seen.map((s) => s.step),
+    ['stop', 'stop', 'launch', 'check', 'readied', 'readied'],
+  );
+  for (const s of seen) assert.deepEqual([s.state, s.shown], ['updating', 'updating'], s.step);
+  assert.equal(end.state, 'up');
+  assert.equal(fs.readFileSync(paths.venue, 'utf8'), 'hl-testnet\n', 'the launch records the venue it started on');
+  // The next round finds the stack on its venue and restarts nothing.
+  const again = fakes(paths, { head: OLD, target: OLD });
+  await round(paths, again.io);
+  assert.ok(!again.seen.some((s) => s.step === 'stop'));
+});
+
+test('a launch that fails leaves the venue unrecorded, so the next round restarts onto it again', async () => {
+  const paths = home();
+  fs.writeFileSync(paths.venue, 'on\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD, launch: 1 });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'down');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker naming another venue restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.venue, 'utf8'), 'on\n');
 });
