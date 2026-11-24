@@ -1,3 +1,4 @@
+import { VENUE_SPOT_OTHER_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import { formatAmount, parseAmount } from '../../../shared/money';
 import {
   canonicalDecimal,
@@ -89,7 +90,7 @@ export function gtdClientId(orderKey: string): string {
 }
 
 /** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
-export const OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
+export const OTHER_ORDER_TYPES = VENUE_SPOT_OTHER_ORDER_TYPES;
 
 /** Every self-trade mode the desk names (J-cex-spot-03 #8); only the venue's own published rule can be picked. */
 export const SELF_TRADE_MODES: readonly VenueSelfTradeMode[] = ['cancel_resting', 'cancel_new', 'cancel_both'];

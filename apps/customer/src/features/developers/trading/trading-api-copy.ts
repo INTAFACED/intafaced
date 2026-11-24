@@ -13,6 +13,8 @@ export const tradingApiCopy = defineCopy(
     botUnpublishedBody: 'Nothing on this site grants permission to run a bot. A key does only what its permissions allow.',
     typesLead:
       'The spot order types the API accepts: the same list the trading ticket shows, in its order. Each row says how to send it to POST /api/v1/orders.',
+    typesLeadVenue:
+      'The spot order types the venue offers on {symbol}: the same list the trading ticket shows, in its order. Each row says how to send it to POST /api/v1/venue/prepare.',
     typesTitle: 'Accepted order types',
     colType: 'Order type',
     colBodyType: 'Body type',
@@ -21,12 +23,15 @@ export const tradingApiCopy = defineCopy(
     colExample: 'Example body (TEST figures)',
     colNote: 'Note',
     note_market: 'Never rests. GTC here is the engine’s immediate rule; FOK fills whole or not at all.',
+    note_venue_market: 'Sent as IOC at the worst price accepted (the slippage limit).',
     note_bracket:
       'A market entry, or a limit entry with IOC or FOK, resolves inside the request. A GTC limit entry rests only while the login that placed it lasts, is cancelled before that login runs out, and has no stop loss while partly filled.',
     exampleTitle: 'Example bodies',
     noFields: 'none',
     refusedTitle: 'Listed but refused',
     refusedLead: 'The ticket lists these, disabled. The API refuses them with the code shown.',
+    refusedLeadVenue:
+      'The venue ticket lists these, disabled, as not offered by this venue. The venue door refuses them with the code shown.',
     colCode: 'Refusal code',
     loading: 'Loading…',
     loadFailed: 'This could not be read just now.',
@@ -40,6 +45,8 @@ export const tradingApiCopy = defineCopy(
       botUnpublishedBody: 'Nada en este sitio concede permiso para usar un bot. Una clave solo hace lo que permiten sus permisos.',
       typesLead:
         'Los tipos de orden spot que acepta la API: la misma lista que muestra el ticket de trading, en su orden. Cada fila dice cómo enviarlo a POST /api/v1/orders.',
+      typesLeadVenue:
+        'Los tipos de orden spot que ofrece la plaza en {symbol}: la misma lista que muestra el ticket de trading, en su orden. Cada fila dice cómo enviarlo a POST /api/v1/venue/prepare.',
       typesTitle: 'Tipos de orden aceptados',
       colType: 'Tipo de orden',
       colBodyType: 'Tipo en el cuerpo',
@@ -48,12 +55,15 @@ export const tradingApiCopy = defineCopy(
       colExample: 'Cuerpo de ejemplo (cifras TEST)',
       colNote: 'Nota',
       note_market: 'Nunca queda en el libro. GTC aquí es la regla inmediata del motor; FOK se ejecuta entera o nada.',
+      note_venue_market: 'Se envía como IOC al peor precio aceptado (el límite de deslizamiento).',
       note_bracket:
         'Una entrada a mercado, o una entrada límite con IOC o FOK, se resuelve dentro de la solicitud. Una entrada límite GTC queda en el libro solo mientras dure la sesión que la colocó, se cancela antes de que esa sesión caduque y no tiene stop loss mientras está ejecutada en parte.',
       exampleTitle: 'Cuerpos de ejemplo',
       noFields: 'ninguno',
       refusedTitle: 'Listados pero rechazados',
       refusedLead: 'El ticket los lista desactivados. La API los rechaza con el código indicado.',
+      refusedLeadVenue:
+        'El ticket de la plaza los lista desactivados por no ofrecerlos esta plaza. La puerta de la plaza los rechaza con el código indicado.',
       colCode: 'Código de rechazo',
       loading: 'Cargando…',
       loadFailed: 'No se pudo leer ahora mismo.',
@@ -66,6 +76,8 @@ export const tradingApiCopy = defineCopy(
       botUnpublishedBody: 'Rien sur ce site n’autorise à faire tourner un bot. Une clé ne fait que ce que ses autorisations permettent.',
       typesLead:
         'Les types d’ordre spot que l’API accepte : la même liste que le ticket de trading, dans son ordre. Chaque ligne dit comment l’envoyer à POST /api/v1/orders.',
+      typesLeadVenue:
+        'Les types d’ordre spot que la place propose sur {symbol} : la même liste que le ticket de trading, dans son ordre. Chaque ligne dit comment l’envoyer à POST /api/v1/venue/prepare.',
       typesTitle: 'Types d’ordre acceptés',
       colType: 'Type d’ordre',
       colBodyType: 'Type dans le corps',
@@ -74,12 +86,15 @@ export const tradingApiCopy = defineCopy(
       colExample: 'Corps d’exemple (chiffres TEST)',
       colNote: 'Remarque',
       note_market: 'Ne reste jamais au carnet. GTC désigne ici la règle immédiate du moteur ; FOK s’exécute en entier ou pas du tout.',
+      note_venue_market: 'Envoyé en IOC au pire prix accepté (la limite de glissement).',
       note_bracket:
         'Une entrée au marché, ou une entrée limite IOC ou FOK, se résout dans la requête. Une entrée limite GTC ne reste au carnet que tant que dure la session qui l’a placée, est annulée avant que cette session n’expire, et n’a pas de stop loss tant qu’elle est partiellement exécutée.',
       exampleTitle: 'Corps d’exemple',
       noFields: 'aucun',
       refusedTitle: 'Listés mais refusés',
       refusedLead: 'Le ticket les liste, désactivés. L’API les refuse avec le code indiqué.',
+      refusedLeadVenue:
+        'Le ticket de la place les liste, désactivés, comme non proposés par cette place. La porte de la place les refuse avec le code indiqué.',
       colCode: 'Code de refus',
       loading: 'Chargement…',
       loadFailed: 'Lecture impossible pour le moment.',
