@@ -436,7 +436,10 @@ test(`${J} #4 the drop room shows my rank, wave, season points and each limited 
   await expect(row.getByTestId('drop-state')).toHaveText('Open');
   await expect(row.getByRole('button', { name: `Claim TEST drop ${tag}` })).toBeEnabled();
   await stepPicture(page);
-  run.write({ ...run.read(), me, myWalletKey, dropId: drop.id, campaignId: campaign.id });
+  // What my connected wallet holds on the TEST chain while the drop is open and unclaimed, read from the chain itself: #5
+  // proves its value reaches the wallet only when I claim.
+  const walletHeld = await chainBalance(TOKEN_USD.address, myWallet);
+  run.write({ ...run.read(), me, myWalletKey, dropId: drop.id, campaignId: campaign.id, walletHeld: String(walletHeld) });
 });
 
 test(`${J} #5 a limited drop claimed together: exactly the count succeed, the rest see sold out`, async ({ browser, stepPicture }) => {
@@ -446,6 +449,8 @@ test(`${J} #5 a limited drop claimed together: exactly the count succeed, the re
   const claimKey = `drop:${dropId}:`;
   // What my own wallet holds on the TEST chain before I claim, read from the chain itself.
   const before = await chainBalance(TOKEN_USD.address, myWallet);
+  // Nothing reached my wallet between opening the room in #4 and claiming.
+  expect(before).toBe(BigInt(state('walletHeld').walletHeld));
   const page = await customer(browser);
   await signIn(page, me);
   await openRoom(page);
@@ -547,6 +552,8 @@ test(`${J} #6 the TGE claim with a blank schedule refuses; mainnet shows the aud
     };
   };
   const storedBefore = await stored();
+  const myWallet = walletOf(state('myWalletKey').myWalletKey);
+  const walletBefore = await chainBalance(TOKEN_USD.address, myWallet);
   expect(storedBefore.drops?.length).toBeGreaterThan(0);
   // Every write the page sends to campaigns while I press: only the two TGE claims, each refused.
   const writes = [];
@@ -571,6 +578,8 @@ test(`${J} #6 the TGE claim with a blank schedule refuses; mainnet shows the aud
   expect(writes.map((r) => new URL(r.url()).pathname.split('/').pop())).toEqual(['tge.claim', 'tge.claim']);
   for (const w of writes) expect((await w.response())?.status()).toBeGreaterThanOrEqual(400);
   expect(await stored()).toEqual(storedBefore);
+  // And nothing reached my wallet on the TEST chain: its own balance reads the same.
+  expect(await chainBalance(TOKEN_USD.address, myWallet)).toBe(walletBefore);
   const read = await mineApi.get('/api/campaigns/trpc/drops.room');
   expect(read.body?.result?.data?.tge?.schedule).toBeNull();
   await stepPicture(page);
