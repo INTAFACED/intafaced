@@ -6,7 +6,6 @@ import { ownSpotMarket, venueListingWrite } from './own-market.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { confirm, reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { connectWhenAsked } from './dex.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -446,13 +445,10 @@ test(`${J} #7 trades between two non-dollar coins on the venue: no dollar figure
     .toBe(FIRST_FOR_7);
   const firstBefore = toUnits((await venueBalance(s.owner, first.base)).total);
   // Then the second coin bought on its own book, paid in the first: neither leg is in dollars.
-  // The same page and wallet, now on the second coin's desk: the wallet is connected again if the desk asks.
-  await page.goto(`/trade/spot/${second.symbol}`);
-  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  const address = page.getByTestId('venue-wallet-address');
-  await connectWhenAsked(page, address);
-  await expect(address).toHaveText(wallet.address);
-  await deskOrder(page, 'buy', SECOND_PRICE, SECOND_AMOUNT, second.base);
+  // The second coin's desk opens in a tab of its own, with the same TEST wallet connected there.
+  const desk = await page.context().newPage();
+  expect((await openVenueDesk(desk, s.account, `/trade/spot/${second.symbol}`, s.walletKey)).address).toBe(wallet.address);
+  await deskOrder(desk, 'buy', SECOND_PRICE, SECOND_AMOUNT, second.base);
   const bought = () => fillsOf(s.owner, second.symbol, 'buy', since);
   await expect.poll(async () => fromUnits(sumOf(await bought(), (f) => toUnits(f.amount))), { timeout: 30_000 }).toBe(SECOND_AMOUNT);
   // By hand from the venue's own fills and balances: the first coin that paid and the second that arrived.
@@ -471,9 +467,10 @@ test(`${J} #7 trades between two non-dollar coins on the venue: no dollar figure
   await expect(sale.locator('td').nth(0)).toHaveText(fromUnits(paid));
   await expect(sale.locator('td').nth(1)).toHaveText('Not known');
   await expect(sale.locator('[data-col="result"]')).not.toContainText('$');
-  // The second coin that arrived is a bought lot with no dollar cost.
-  await page.goto(`/money/pnl?asset=${second.base}`);
-  const lots = page.getByRole('region', { name: 'Lots', exact: true });
+  // The second coin that arrived is a bought lot with no dollar cost: the lots list, picked for that coin.
+  const lots = main.getByRole('region', { name: 'Lots', exact: true });
+  await lots.getByLabel('Coin for lots', { exact: true }).selectOption(second.base);
+  await expect(page).toHaveURL(new RegExp(`asset=${second.base}`));
   const lot = lots.locator('tbody tr[data-source="trade"]');
   await expect(lot).toHaveCount(1, { timeout: 30_000 });
   await expect(lot.locator('[data-col="qty"]')).toHaveText(fromUnits(got));
