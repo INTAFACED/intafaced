@@ -4,6 +4,7 @@ import { AmountField, AssetIcon, Button, EmptyState, StatusNote, useToast } from
 import { KeyValue, SelectField, Skeleton, TextField } from '@intafaced/ui/lit/templates';
 import {
   addRequest,
+  classifyFailure,
   cleanAmount,
   cleanNote,
   createPersonalPayApi,
@@ -19,6 +20,7 @@ import {
   type RequestEntry,
 } from './deps';
 import { payCopy } from './copy';
+import { SpacesRefused } from './SpacesRefused';
 import { personalCopy } from './personal-copy';
 import { absoluteLink, canShare, copyText, shareLink } from './share';
 import { QrCode } from './QrCode';
@@ -38,14 +40,20 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
   const { t } = personalCopy.useCopy();
-  const [assets, setAssets] = useState<{ owner: string | null; value: 'loading' | 'error' | string[] }>({ owner: null, value: 'loading' });
+  const [assets, setAssets] = useState<{ owner: string | null; value: 'loading' | 'error' | { refused: string } | string[] }>({
+    owner: null,
+    value: 'loading',
+  });
   const [attempt, setAttempt] = useState(0);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     void pay.spaces(controller.signal).then((result) => {
       if (controller.signal.aborted) return;
-      setAssets({ owner: userId, value: result.ok ? receivableAssets(result.data) : 'error' });
+      if (result.ok) return setAssets({ owner: userId, value: receivableAssets(result.data) });
+      // A refusal (a person not yet verified) is said in its own words; only a read that broke is a failure.
+      const failure = classifyFailure(result);
+      setAssets({ owner: userId, value: failure.kind === 'refused' ? { refused: failure.code } : 'error' });
     });
     return () => controller.abort();
   }, [pay, userId, attempt]);
@@ -83,6 +91,7 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
         }
       />
     );
+  if (!Array.isArray(loaded)) return <SpacesRefused code={loaded.refused} />;
   const payeeId = identity.status === 'handles' ? identity.handle : (userId ?? '');
   return (
     <div className="lt-stack" data-testid="request-card">

@@ -198,6 +198,10 @@ describe('marketTarget', () => {
   it('Simple falls back to the desk while both are hidden', () => {
     expect(marketTarget(btc, 'simple', (path) => path === '/coin/:asset' || path === '/trade/buy')).toBe('/trade/spot/BTC-USDT');
   });
+  it('no target while the desk is hidden too (the beta leaves it out), so the row draws its name with no link', () => {
+    expect(marketTarget(btc, 'pro', (path) => path === '/trade/spot/BTC-USDT')).toBeNull();
+    expect(marketTarget(btc, 'simple', () => true)).toBeNull();
+  });
 });
 
 describe('text helpers', () => {

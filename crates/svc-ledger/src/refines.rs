@@ -145,8 +145,9 @@ fn is_negative_zero(s: &str) -> bool {
 const POLICY_UNSET: &str = "ops.control_policy_unset";
 const STATE_ILLEGAL: &str = "ops.control_state_illegal";
 
-/// `queryAccountSetSchema`'s `superRefine`: a rail names its boundary itself (no owner type, no owner id prefix, no kind
-/// but `available` beside it), and a query names at least one predicate.
+/// `queryAccountSetSchema`'s `superRefine`: a rail, or a venue's and partner's reports, name their accounts themselves (no
+/// owner type, no owner id prefix, no kind but `available` beside them; reports name at least one place), and a query
+/// names at least one predicate.
 fn rail_boundary(v: &Value) -> Vec<Added> {
     let set = |k: &str| !matches!(v.get(k), Value::Undefined);
     let mut issues = Vec::new();
@@ -157,7 +158,20 @@ fn rail_boundary(v: &Value) -> Vec<Added> {
     {
         issues.push(Added::saying(POLICY_UNSET, vec![Json::str("rail")]));
     }
+    if set("reports") {
+        let reports = v.get("reports");
+        let named = |k: &str| !matches!(reports.get(k), Value::Undefined);
+        if (!named("venue") && !named("partner"))
+            || set("rail")
+            || set("ownerType")
+            || set("ownerIdPrefix")
+            || (set("kind") && v.get("kind").as_str() != Some("available"))
+        {
+            issues.push(Added::saying(POLICY_UNSET, vec![Json::str("reports")]));
+        }
+    }
     let predicated = [
+        "reports",
         "rail",
         "ownerType",
         "ownerIdPrefix",

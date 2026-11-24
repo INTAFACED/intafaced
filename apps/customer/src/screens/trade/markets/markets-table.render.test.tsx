@@ -1,5 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { betaRoomList, type BetaRooms } from '../../../app/beta-volt';
+import { betaHidden } from '../../../app/feature-registry';
+import { rooms } from '../../../app/navigation';
+import { voltCount } from '../../../app/volt-count';
+import { appPath } from '../../../app/beta-links';
+import { matchPath } from '../../../app/path-match';
 import type { Entry } from './select';
 
 // Server rendering has no browser store or session.
@@ -10,6 +16,7 @@ vi.mock('../../../shared/preferences', async (original) => {
 vi.mock('../../../features/session/session', () => ({ useSession: () => ({ session: null }) }));
 
 import { MarketsTable } from './MarketsTable';
+import { TopCards } from './TopCards';
 
 const entry = (base: string, last: string, change: string): Entry => ({
   market: {
@@ -88,5 +95,55 @@ describe('the markets table on the kit', () => {
       <MarketsTable label="Markets" entries={rows} mode="pro" sort={{ key: 'price', dir: 'desc' }} onSortChange={() => {}} />,
     );
     expect(html).toContain('<th data-col="price" data-testid="mkt-head--num" scope="col" data-align="end" aria-sort="descending">');
+  });
+});
+
+// The beta's build draws a link to a room it hides as nothing, with every word inside it (src/app/beta-links.ts).
+// With the beta's own room list, Pro's desk is hidden; a row must still name its pair, outside any link the beta drops.
+describe("the markets table and top cards in the beta's build", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  // The count reads every room's source once; both cases share it.
+  let real: BetaRooms = [];
+  beforeAll(() => {
+    real = betaRoomList(voltCount().rooms, rooms);
+  }, 60_000);
+  const droppedLinks = (html: string) =>
+    [...html.matchAll(/<a [^>]*href="([^"]+)"/g)]
+      .map((match) => match[1]!)
+      .filter((href) => {
+        const path = appPath(href.replaceAll('&amp;', '&'));
+        return path !== undefined && betaHidden(path);
+      });
+
+  // The beta's real list, now that the desk counts in Volt: Pro links each pair to the desk, and the beta keeps that link.
+  it('links every pair to the desk, in Pro, with no link the beta would drop', () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', real);
+    expect(betaHidden('/trade/spot/BTC-USDT')).toBe(false);
+    const table = renderToStaticMarkup(
+      <MarketsTable label="Markets" entries={rows} mode="pro" columns={['name', 'price', 'action']} sort={null} onSortChange={() => {}} />,
+    );
+    const cards = renderToStaticMarkup(<TopCards cards={[{ id: 'popular', entries: rows }]} mode="pro" onSeeAll={() => {}} />);
+    for (const html of [table, cards]) {
+      expect(droppedLinks(html)).toEqual([]);
+      expect(html).toContain('href="/trade/spot/BTC-USDT"');
+      expect(html).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
+    }
+  });
+
+  // The case the beta walk saw: the same list with the desk held out of Volt.
+  it('names every pair, in Pro, with no link the beta would drop', () => {
+    const withoutDesk = real.map(([route, volt]) => [route, volt && !matchPath(route, '/trade/spot/BTC-USDT')] as const);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', withoutDesk);
+    expect(betaHidden('/trade/spot/BTC-USDT')).toBe(true);
+    const table = renderToStaticMarkup(
+      <MarketsTable label="Markets" entries={rows} mode="pro" columns={['name', 'price', 'action']} sort={null} onSortChange={() => {}} />,
+    );
+    const cards = renderToStaticMarkup(<TopCards cards={[{ id: 'popular', entries: rows }]} mode="pro" onSeeAll={() => {}} />);
+    for (const html of [table, cards]) {
+      expect(droppedLinks(html)).toEqual([]);
+      expect(html).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
+      expect(html).toMatch(/ETH<span[^>]*>\/USDT<\/span>/);
+    }
+    expect(cards.match(/data-testid="mkt-card__row"/g)).toHaveLength(2);
   });
 });

@@ -227,6 +227,7 @@ export function MarketsList({
       cellMarks: () => ({ 'data-col': 'name', 'data-cell': 'name' }),
       cell: (entry) => {
         const { market } = entry;
+        const target = marketTarget(market, mode, isHiddenPath, signedIn);
         const full = assetName(market.base, copy);
         const pair = (
           <>
@@ -248,11 +249,12 @@ export function MarketsList({
             <FavoriteStar asset={market.base} favorite={favorite(market)} />
             <AssetIcon asset={market.base} size={dense ? 'sm' : 'md'} />
             <span className="lt-lines">
-              {/* An announced listing never trades, so its name opens nothing; every other row's name is its link. */}
-              {isAnnounced(market) ? (
+              {/* An announced listing never trades, and a row with nowhere shown to go (the beta's build without the desk) opens
+                  nothing, so its name is plain words; every other row's name is its link. */}
+              {isAnnounced(market) || target === null ? (
                 <span className="lt-lines">{pair}</span>
               ) : (
-                <a className="lt-row-link" data-row-link="" href={marketTarget(market, mode, isHiddenPath, signedIn)}>
+                <a className="lt-row-link" data-row-link="" href={target}>
                   <span className="lt-lines">{pair}</span>
                 </a>
               )}
@@ -392,13 +394,10 @@ export function MarketsList({
           // A shut session is never a tradeable row: an order now is refused and not queued (J-cex-spot-14 #6).
           return refused(t('This market is closed. Orders are not queued while it is closed'));
         if (isPaused(entry)) return refused(t('Orders are paused on this market'), pausedNote);
+        const target = marketTarget(market, mode, isHiddenPath, signedIn);
+        if (target === null) return wrap(null);
         return wrap(
-          <a
-            className="lt-button lt-button-secondary"
-            role="button"
-            href={marketTarget(market, mode, isHiddenPath, signedIn)}
-            aria-label={aria}
-          >
+          <a className="lt-button lt-button-secondary" role="button" href={target} aria-label={aria}>
             {text}
           </a>,
         );
@@ -443,7 +442,8 @@ export function MarketsList({
           onSortChange(sort && sort.columnId === next.columnId && sort.direction !== firstDirection(next.columnId) ? null : next)
         }
         onRowActivate={(entry) => {
-          if (!isAnnounced(entry.market)) navigate(marketTarget(entry.market, mode, isHiddenPath, signedIn));
+          const target = isAnnounced(entry.market) ? null : marketTarget(entry.market, mode, isHiddenPath, signedIn);
+          if (target !== null) navigate(target);
         }}
         rowMarks={(entry) => ({ 'data-testid': 'mkt-row', 'data-symbol': entry.market.symbol })}
         headMarks={{ 'data-testid': 'mkt-header' }}

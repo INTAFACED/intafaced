@@ -72,9 +72,16 @@
 
 .lt-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--lit-gap-item);
+}
+/* The title keeps a readable width: a room action too wide to sit beside it (a long link on a phone) moves under it,
+   never squeezes the title into a narrow column. */
+.lt-title-row > :first-child {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
 }
 
 /* A section's title row that may run out of room (a phone): the title keeps a readable width and the actions move under
@@ -1466,6 +1473,8 @@ button.lt-tab:focus-visible {
   padding: var(--lit-pad-panel);
   inline-size: min(100vw - 1rem, 30rem);
   max-block-size: 85vh;
+  /* a line brought into view inside the sheet (apps/customer shared/reveal.ts) stops clear of its edge, never cut by it */
+  scroll-padding-block: var(--lit-pad-panel);
 }
 
 .lt-sheet::backdrop {
@@ -1518,6 +1527,12 @@ button.lt-tab:focus-visible {
   inline-size: 100%;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
+}
+
+/* Cells wrap at word breaks when the columns need it, even inside an old room whose styles hold a heading on one line,
+   so the table stays inside its card; a table that must not wrap scrolls in its own region (lt-table-scroll). */
+.lt-table :is(th, td) {
+  white-space: normal;
 }
 
 .lt-table th {
@@ -1728,6 +1743,17 @@ button.lt-tab:focus-visible {
     content: attr(data-label);
     color: var(--lit-text-2);
   }
+  /* A stacked row's naming cell heads its block, without the header row's rule under it. */
+  .lt-table:has(td[data-label]) tbody th {
+    display: block;
+    border: 0;
+    padding-inline: 0;
+  }
+  /* A table's caption reads across the phone above its stacked rows, never squeezed into one narrow column. */
+  .lt-table caption {
+    display: block;
+    text-align: start;
+  }
   /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
   .lt-table tr[data-empty] td {
     display: block;
@@ -1774,6 +1800,15 @@ button.lt-tab:focus-visible {
 .lt-table[data-stack='always'] td::before {
   content: attr(data-label);
   color: var(--lit-text-2);
+}
+.lt-table[data-stack='always']:has(td[data-label]) tbody th {
+  display: block;
+  border: 0;
+  padding-inline: 0;
+}
+.lt-table[data-stack='always'] caption {
+  display: block;
+  text-align: start;
 }
 /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
 .lt-table[data-stack='always'] tr[data-empty] td {

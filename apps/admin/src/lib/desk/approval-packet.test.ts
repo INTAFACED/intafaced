@@ -114,9 +114,12 @@ describe('request reading is strict', () => {
       reason: 'LOCAL TEST run the USDT floor control',
     };
     expect(readDeskRequest(run)).toEqual(run);
-    // A run now carries no margin; a past run names one; an instant is only the exact ISO text svc-ledger hashes.
+    // A run now carries no margin; a past run names one or leaves it blank for svc-ledger to answer; an instant is only the
+    // exact ISO text svc-ledger hashes.
     expect(readDeskRequest({ ...run, margin: '30' })).toBeNull();
-    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z' })).toEqual({ ...run, asOf: '2026-10-23T06:30:00.000Z' });
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z', margin: '-1' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z', margin: '' })).toBeNull();
     expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00Z', margin: '0' })).toBeNull();
     expect(readDeskRequest({ ...run, version: '0' })).toBeNull();
     expect(readDeskRequest(null)).toBeNull();
