@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { venueListingOf, venueMarketRow, venueModeOf, type VenueMarketState } from './venue-market-states';
+import { venueListingOf, venueListingStatuses, venueMarketRow, venueModeOf, type VenueMarketState } from './venue-market-states';
 import { pickSource } from '../screens/trade/markets/source';
 import { modesFrom, type MarketMode } from '../features/public/status';
 import type { Loadable, MarketRow } from './types';
@@ -28,7 +28,26 @@ describe('venueModeOf', () => {
   it.each([
     ['open and trading', market(), 'OPEN'],
     ['the venue halted it', market({ status: 'halted' }), 'HALTED'],
+    ['the venue takes limit orders only', market({ status: 'limit_only' }), 'LIMIT_ONLY'],
     ['the venue takes cancels only', market({ status: 'cancel_only' }), 'CANCEL_ONLY'],
+    [
+      'the venue spot session is closed',
+      market({
+        session: {
+          known: true,
+          value: {
+            state: 'closed',
+            homeMarket: 'TEST',
+            offHoursMode: { known: false },
+            offHoursBand: { known: false },
+            offHoursMaxLeverageBps: null,
+            reopensAt: '2026-11-24T12:00:00.000Z',
+            offHoursRule: { known: false },
+          },
+        },
+      }),
+      'HALTED',
+    ],
     ['the venue delisted it', market({ status: 'delisted' }), 'DELISTING'],
     ['our delisting date passed', market({}, { delisted: true, delistsAt: OPENS }), 'DELISTING'],
     ['we stopped routing', market({}, { routing: 'stop' }), 'HALTED'],
@@ -105,5 +124,44 @@ describe('modesFrom (/status)', () => {
   it('keeps the own read only where the venue door is off', () => {
     expect(modesFrom({ status: 'refused', code: 'trade.user_venue_off' }, ownModes)).toBe(ownModes);
     expect(modesFrom({ status: 'error', retry: () => undefined }, ownModes).status).toBe('error');
+  });
+
+  it('maps upcomingMaintenance and closed session into modesFrom and venueListingStatuses', () => {
+    const maint = {
+      status: 'scheduled' as const,
+      noticeId: 'n1',
+      title: 'TEST maintenance',
+      startsAt: '2026-11-24T11:00:00.000Z',
+      endsAt: null,
+    };
+    const closed = market({
+      symbol: 'SHUT-USDC',
+      session: {
+        known: true,
+        value: {
+          state: 'closed',
+          homeMarket: 'TEST',
+          offHoursMode: { known: false },
+          offHoursBand: { known: false },
+          offHoursMaxLeverageBps: null,
+          reopensAt: '2026-11-24T12:00:00.000Z',
+          offHoursRule: { known: false },
+        },
+      },
+      upcomingMaintenance: maint,
+    });
+    const s = states([closed]);
+    const load = modesFrom(s, ownModes);
+    expect(load.status === 'ready' && load.data[0]?.maintenance).toEqual({
+      status: 'scheduled',
+      startsAt: Date.parse(maint.startsAt),
+      endsAt: null,
+    });
+    expect(venueListingStatuses(s.data)['SHUT-USDC']).toMatchObject({
+      separateFromSpot: false,
+      sessionOpen: false,
+      opensAt: Date.parse('2026-11-24T12:00:00.000Z'),
+      maintenance: { status: 'scheduled', endsAt: null },
+    });
   });
 });

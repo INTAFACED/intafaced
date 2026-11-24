@@ -1128,3 +1128,103 @@ describe('TEST venue simulator: candles depth, since filter and seeded history',
     ).toThrow(/above zero/);
   });
 });
+
+describe('TEST venue simulator: market state guards & book sequence (J-cex-spot-14 #3-#8)', () => {
+  it('enforces limit_only, closed spot session, opening window, higher-risk zone + cap, and monotonic book sequence', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:j14');
+    w.sim.deposit(w.other, 'BTC', a('2'), 'chain:o:j14');
+
+    // Sequence starts at >= 0 and bumps monotonically on resting place, cancel, and fill.
+    const seq0 = (await w.sim.book('BTC-USDC', 5)).value.sequence ?? -1;
+    expect(seq0).toBeGreaterThanOrEqual(0);
+    await w.run(w.trader ? w.wallet : w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:seq1'));
+    const seq1 = (await w.sim.book('BTC-USDC', 5)).value.sequence ?? -1;
+    expect(seq1).toBeGreaterThan(seq0);
+    await w.run(w.wallet, w.trader, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:t:seq1' });
+    const seq2 = (await w.sim.book('BTC-USDC', 5)).value.sequence ?? -1;
+    expect(seq2).toBeGreaterThan(seq1);
+
+    // limit_only: market order refused market_limit_only, limit accepted.
+    w.sim.setMarketStatus('BTC-USDC', 'limit_only');
+    expect(
+      await refusal(
+        w.sim.prepare(
+          w.trader,
+          w.wallet.signer,
+          order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:lo-m', { type: 'market', timeInForce: 'IOC' }),
+        ),
+      ),
+    ).toBe('market_limit_only');
+    const lim = await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:lo-l'));
+    expect(lim.outcome).toMatchObject({ definite: true, accepted: true });
+    w.sim.setMarketStatus('BTC-USDC', 'trading');
+    await w.run(w.wallet, w.trader, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:t:lo-l' });
+
+    // Closed spot session: refuses market_closed.
+    w.sim.addMarket({
+      ...SPOT,
+      symbol: 'SES-USDC',
+      baseAsset: 'SES',
+      session: {
+        homeMarket: 'TEST Hours',
+        offHoursMode: 'closed',
+        offHoursBand: a('0.05'),
+        offHoursMaxLeverageBps: null,
+        reopensAfterMs: 3_600_000,
+        offHoursRule: 'Orders are not queued while closed',
+      },
+    });
+    w.sim.setSession('SES-USDC', 'closed');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, order('SES-USDC', 'buy', '10', '1', 'order:t:closed')))).toBe(
+      'market_closed',
+    );
+    w.sim.setSession('SES-USDC', 'open');
+
+    // Opening window: refuses market order with opening_window, accepts limit.
+    w.sim.addMarket({
+      ...SPOT,
+      symbol: 'WIN-USDC',
+      baseAsset: 'WIN',
+      openingWindowEndsAt: new Date(Date.UTC(2026, 10, 9, 12, 0, 0)),
+    });
+    expect(
+      await refusal(
+        w.sim.prepare(
+          w.trader,
+          w.wallet.signer,
+          order('WIN-USDC', 'buy', '10', '1', 'order:t:win-m', { type: 'market', timeInForce: 'IOC' }),
+        ),
+      ),
+    ).toBe('opening_window');
+    expect((await w.run(w.wallet, w.trader, order('WIN-USDC', 'buy', '10', '1', 'order:t:win-l'))).outcome).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+
+    // Higher-risk zone with order cap: refuses market (higher_risk_zone), refuses over-cap limit (zone_cap_exceeded), accepts under-cap limit.
+    w.sim.addMarket({
+      ...SPOT,
+      symbol: 'RSK-USDC',
+      baseAsset: 'RSK',
+      zone: 'higher_risk',
+      zoneOrderCap: a('100'),
+    });
+    expect(
+      await refusal(
+        w.sim.prepare(
+          w.trader,
+          w.wallet.signer,
+          order('RSK-USDC', 'buy', '10', '1', 'order:t:rsk-m', { type: 'market', timeInForce: 'IOC' }),
+        ),
+      ),
+    ).toBe('higher_risk_zone');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, order('RSK-USDC', 'buy', '10', '11', 'order:t:rsk-over')))).toBe(
+      'zone_cap_exceeded',
+    );
+    expect((await w.run(w.wallet, w.trader, order('RSK-USDC', 'buy', '10', '5', 'order:t:rsk-ok'))).outcome).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+  });
+});
