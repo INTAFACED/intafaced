@@ -14,10 +14,10 @@ import type {
   SeasonView,
   TgeSchedule,
 } from '@intafaced/contracts/campaigns-drops';
-import { CAMPAIGN_STATES } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGN_STATES, type ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
 import { campaignLimitsSchema } from '@intafaced/contracts/campaigns-vouchers';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import { effectiveState } from './campaigns.js';
+import { ELIGIBILITY_REFUSAL, effectiveState, eligibilityOf, type CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import type { PayoutSaga } from './payouts.js';
 import { LIMIT_WORDS, drawnOf, limitRefusalOf } from './tasks.js';
@@ -204,6 +204,11 @@ export interface DropServiceOptions {
    * request forwarded, so a claimed drop's reward is paid to that wallet. Absent: it is owed and waits for one.
    */
   payTo?: (accountId: string, forwarded: Record<string, string>) => Promise<boolean>;
+  /**
+   * The campaign's participation rules, read for a claim of a drop with value as a join and a voucher claim read them.
+   * Absent: a drop with value whose campaign's rules need the participant refuses `campaigns.participant_unread`.
+   */
+  campaigns?: Pick<CampaignService, 'eligibility'>;
   log?: (event: string, detail: Record<string, unknown>) => void;
   now?: () => Date;
 }
@@ -396,6 +401,9 @@ export class DropService {
    */
   async claim(input: { dropId: string; accountId: string; forwarded?: Record<string, string> }): Promise<DropClaimResult> {
     const key = claimKeyOf(input.dropId, input.accountId);
+    // A first claim of a drop with value meets its campaign's participation rules. Identity is read here, before the
+    // transaction and never under its locks; the transaction checks the rules it locks are the rules read here.
+    const rulesRead = await this.refuseIneligible(input.dropId, input.accountId, key);
     const outcome = await transaction(
       this.sql,
       async (tx) => {
@@ -411,7 +419,7 @@ export class DropService {
         }
         if (state === 'sold_out') throw new CampaignsError('drop.sold_out', 'This drop is sold out');
         // A drop with value: its campaign is locked after the drop, so its budget and limits cannot move under us.
-        const value = drop.kind === 'value' ? await this.valueRoom(tx, drop, input.accountId) : null;
+        const value = drop.kind === 'value' ? await this.valueRoom(tx, drop, input.accountId, rulesRead) : null;
         await tx`
           INSERT INTO campaigns.drop_claims (claim_key, drop_id, account_id, kind)
           VALUES (${key}, ${input.dropId}, ${input.accountId}, ${drop.kind})`;
@@ -447,15 +455,38 @@ export class DropService {
     return { claim: toClaim(claim!), created: outcome.created, remaining: outcome.remaining };
   }
 
+  /**
+   * Refuses a first claim of a drop with value when the caller does not meet its campaign's participation rules, or
+   * cannot be read against them, as a voucher claim refuses. Returns the rules it read (null: none, or no check owed).
+   */
+  private async refuseIneligible(dropId: string, accountId: string, key: string): Promise<string | null> {
+    const [row] = DropRulesRow.array().parse(
+      await this.sql`
+        SELECT d.kind, c.participation, EXISTS (SELECT 1 FROM campaigns.drop_claims cl WHERE cl.claim_key = ${key}) AS claimed
+        FROM campaigns.drops d LEFT JOIN campaigns.campaigns c ON c.id = d.campaign_id WHERE d.id = ${dropId}`,
+    );
+    if (!row || row.kind !== 'value' || row.claimed || !row.participation) return null;
+    const answer = this.options.campaigns
+      ? await this.options.campaigns.eligibility(row.participation, accountId).catch(() => 'unread' as const)
+      : eligibilityOf(row.participation, null);
+    if (answer !== 'eligible') {
+      const [code, message] = ELIGIBILITY_REFUSAL[answer];
+      throw new CampaignsError(code, message);
+    }
+    return rulesOf(row.participation);
+  }
+
   /** What one claim of a drop with value is owed, once its campaign has room for it; refuses by name otherwise. */
-  private async valueRoom(tx: Queryable, drop: DropRow, accountId: string): Promise<DropValue> {
+  private async valueRoom(tx: Queryable, drop: DropRow, accountId: string, rulesRead: string | null): Promise<DropValue> {
     const [c] = DropCampaignRow.array().parse(
       await tx`
         SELECT id, type, state, starts_at, ends_at, reward_asset, reward_amount::text AS reward_amount, budget_asset,
-          budget_limit::text AS budget_limit, limits
+          budget_limit::text AS budget_limit, limits, participation
         FROM campaigns.campaigns WHERE id = ${drop.campaign_id} FOR UPDATE`,
     );
     if (!c) throw new CampaignsError('drop.campaign_invalid', 'This drop’s campaign is missing');
+    // The rules changed between the read and the lock: the caller was not checked against these, so nothing is claimed.
+    if (rulesOf(c.participation) !== rulesRead) throw new CampaignsError(...ELIGIBILITY_REFUSAL.unread);
     const live = effectiveState(c, this.now());
     if (live !== 'active') throw new CampaignsError('campaign.not_active', `This drop’s campaign is ${live}, so it pays nothing now`);
     if (!c.budget_asset || c.budget_limit === null) {
@@ -477,6 +508,9 @@ export class DropService {
   }
 }
 
+/** One campaign's participation rules as compared between the read and the lock; null when it has none. */
+const rulesOf = (rules: ParticipationRules | null): string | null => (rules ? JSON.stringify(rules) : null);
+
 /** The campaign row a claim of a drop with value reads under its lock, parsed where it is read. */
 const DropCampaignRow = z.object({
   id: z.string(),
@@ -489,7 +523,9 @@ const DropCampaignRow = z.object({
   budget_asset: z.string().nullable(),
   budget_limit: z.string().nullable(),
   limits: campaignLimitsSchema.nullable(),
+  participation: z.custom<ParticipationRules>((v) => typeof v === 'object' && v !== null && !Array.isArray(v)).nullable(),
 });
+const DropRulesRow = z.object({ kind: z.string(), participation: DropCampaignRow.shape.participation, claimed: z.boolean() });
 const DropCampaignOf = DropCampaignRow.pick({ type: true, reward_asset: true, reward_amount: true, budget_asset: true });
 
 /** A drop with value names a `drop` campaign whose reward is set, in its budget's asset. */

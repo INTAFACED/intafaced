@@ -114,7 +114,7 @@ export function wireCampaigns(deps: {
   });
   const payTo = (accountId: string, forwarded: Parameters<TaskService['recordPayTo']>[1]) => tasks.recordPayTo(accountId, forwarded);
   // Limited drops (J-campaigns-20 #5): a drop with value is owed through the saga and paid to the claimer's wallet.
-  const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule, saga, payTo, log: warn });
+  const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule, saga, payTo, campaigns, log: warn });
   /** Referral programmes (CM-referral-02): each invitee once, and their own events that count towards qualifying. */
   const referrals = new ReferralService({ sql, markets });
 

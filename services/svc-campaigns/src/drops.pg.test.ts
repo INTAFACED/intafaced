@@ -293,6 +293,7 @@ if (!db) {
           paidTo.push(accountId);
           return false;
         },
+        campaigns,
         now: () => new Date(),
       });
 
@@ -417,6 +418,33 @@ if (!db) {
       expect(rows.map((r) => r.state)).toEqual(['owed', 'owed']);
       const key = claimKeyOf(drop.id, acct(2));
       expect((await book.balance(rewardOwedAccount(ledgerRewardId(c.id, key)))).amount).toBe(parseAmount('0.01'));
+    });
+
+    it('a claim by an account its campaign’s participation rules leave out refuses and claims or owes nothing', async () => {
+      const c = await dropCampaign({ participation: { exclusions: [], regionScope: 'listed', restrictedRegions: ['DE'] } });
+      const drop = await valuedDrop(c.id, '3');
+      expect(await code(valued().claim({ dropId: drop.id, accountId: acct(1) }))).toBe('campaigns.region_blocked');
+      // With no way to read the rules, the claim refuses rather than skipping them.
+      const blind = new DropService({ sql: db!.sql, tgeSchedule: () => null, saga });
+      expect(await code(blind.claim({ dropId: drop.id, accountId: acct(2) }))).toBe('campaigns.participant_unread');
+      // An account that cannot be read is refused too.
+      const unread = new DropService({
+        sql: db!.sql,
+        tgeSchedule: () => null,
+        saga,
+        campaigns: new CampaignService({
+          sql: db!.sql,
+          timeZone: () => 'UTC',
+          participants: { read: async () => Promise.reject(new Error('identity down')) },
+        }),
+      });
+      expect(await code(unread.claim({ dropId: drop.id, accountId: acct(3) }))).toBe('campaigns.participant_unread');
+      const [row] = await db!.sql<{ remaining: number; claims: number }[]>`
+        SELECT d.remaining, (SELECT count(*)::int FROM campaigns.drop_claims c WHERE c.drop_id = d.id) AS claims
+        FROM campaigns.drops d WHERE d.id = ${drop.id}`;
+      expect(row).toEqual({ remaining: 3, claims: 0 });
+      expect(await intents()).toHaveLength(0);
+      expect(paidTo).toEqual([]);
     });
 
     it('a claim the budget has no room for refuses and claims nothing', async () => {
