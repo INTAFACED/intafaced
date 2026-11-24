@@ -17,7 +17,7 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-export const REPORTS_DIR = 'test-own-reports';
+const REPORTS_DIR = 'test-own-reports';
 export const REPORTERS = Object.freeze(['venue', 'partner']);
 const PLACE = /^[a-z0-9][a-z0-9:_-]{0,63}$/;
 const ASSET = /^[A-Za-z0-9]{2,16}$/;
