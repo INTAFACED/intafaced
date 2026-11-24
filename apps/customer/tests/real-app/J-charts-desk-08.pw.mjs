@@ -374,9 +374,11 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await canvasOf(page, 0).focus();
   await page.keyboard.press('Alt+T');
   await expect(page).toHaveURL(/\/trade\/spot\/ETH-USDT/);
-  // The desk itself is drawn for this market: its ticket buys ETH and its chart is ETH/USDT's, not a page still opening.
-  await expect(page.getByRole('button', { name: 'Buy ETH', exact: true })).toBeVisible();
-  await expect(page.getByTestId('dk-chart').getByRole('img', { name: 'Price chart of ETH/USDT', exact: true }).first()).toBeVisible();
+  // The desk itself is drawn for this market, not a page still opening: its title is ETH/USDT, its order form buys ETH
+  // and its chart is ETH/USDT's.
+  await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'ETH/USDT', exact: true })).toBeVisible();
+  await expect(page.getByRole('form', { name: 'Buy ETH', exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Price chart of ETH/USDT', exact: true }).first()).toBeVisible();
   await page.waitForLoadState('networkidle');
   expect(sent, 'order requests sent by Alt+T').toEqual([]);
   // The step's picture is the desk the last key opened, for this chart's market, with nothing sent.
