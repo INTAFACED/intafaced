@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
-import { awayBid, fundedTrader } from './desk.mjs';
+import { awayBid, fundedTrader, signIn } from './desk.mjs';
 import { OWN_AGENT, createOwnAgent } from './agents.mjs';
 import { body200 } from './answers.mjs';
 import { api, ORIGIN, ROOT, STACK_PORTS, stackFile, tool } from './stack.mjs';
@@ -661,6 +661,7 @@ test(`${J} #7 an account freeze asked from the request is recorded by the identi
   test.setTimeout(240_000);
   // Its own customer, signed in on this page, so the freeze touches no other step's account.
   const who = await fundedTrader(page, 'j20a', '20');
+  await signIn(page, who);
   const client = await api(who);
   // An agent permission the customer gave: their own agent, allowed to use their own data (svc-agents keeps it).
   await createOwnAgent(page);
