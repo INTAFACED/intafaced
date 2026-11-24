@@ -11,7 +11,8 @@
  *                                             TEST mailbox page; after each round it restarts the public front when the
  *                                             checkout's beta-front.mjs changed (syncFront); it exits after a round that
  *                                             changed this file, so systemd starts the new copy
- *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it (at most every 2 hours), launch
+ *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it (at most every 2 hours, or now
+ *                                             when main holds a merge that closed a `beta` issue), launch
  *                                             or update the stack, run the TEST funds check, wait until it is readied,
  *                                             write status.json: `updating` from before the checkout moves until then,
  *                                             so the front shows its updating page, never a half-built app (#10299)
@@ -522,15 +523,64 @@ function run(paths, cmd, args, { cwd, env }) {
  * What a round does, decided from what it found: 'blocked' (no screening file: build nothing), 'update' (main moved:
  * check out, install, launch) or 'launch' (same commit: launch, which restarts only what is down).
  */
-export function decide({ screening, head, target, updatedAt = null, now = Date.now() }) {
+export function decide({ screening, head, target, updatedAt = null, now = Date.now(), betaFix = false }) {
   if (!screening) return 'blocked';
   if (head === target) return 'launch';
-  return nextUpdateAt(updatedAt) <= now ? 'update' : 'launch';
+  return betaFix || nextUpdateAt(updatedAt) <= now ? 'update' : 'launch';
+}
+
+/** The issues a commit message says it closes, in GitHub's closing words ("Closes #10603", "Fixes #10300"). */
+export function closedIssues(message) {
+  return [...new Set([...message.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi)].map((m) => Number(m[1])))];
+}
+
+/** The repository whose `beta` issues move the beta early. Public: its issues are read without a token. */
+const BETA_REPO = 'INTAFACED/intafaced';
+
+/** An issue's state and labels from GitHub, or null when it can't be read (the round then waits for the 2-hour bound). */
+async function issueOf(n) {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${BETA_REPO}/issues/${n}`, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': 'intafaced-beta-host' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    return { closed: j.state === 'closed', pull: Boolean(j.pull_request), labels: (j.labels ?? []).map((l) => l.name) };
+  } catch {
+    return null;
+  }
+}
+
+/** Closed issues already read, so a round reads each one once while the beta stays behind main. */
+const closedSeen = new Map();
+
+/**
+ * The first merge on main after the checkout that closed a `beta` issue (#10612), as { sha, issue }, else null. A fix
+ * for the beta reaches it in the next round instead of waiting out UPDATE_EVERY_MS; everything else keeps the bound.
+ */
+async function betaFixOnMain({ git, checkout, head, target, issue = issueOf, seen = closedSeen }) {
+  const r = git(checkout, 'log', '--format=%H%x00%B%x1e', `${head}..${target}`);
+  if (r.status !== 0) return null;
+  for (const entry of r.stdout.split('\x1e')) {
+    const [sha, message] = entry.trim().split('\x00');
+    if (!sha || message === undefined) continue;
+    for (const n of closedIssues(message)) {
+      let found = seen.get(n);
+      if (!found) {
+        found = await issue(n);
+        if (found?.closed) seen.set(n, found);
+      }
+      if (found?.closed && !found.pull && found.labels.includes('beta')) return { sha, issue: n };
+    }
+  }
+  return null;
 }
 
 /**
  * The beta moves to main at most once every UPDATE_EVERY_MS. An update (checkout, install, rebuild) cost 10 CPU-minutes in
- * one measured round, and main moves nearly every half hour; between updates a round only launches what is down.
+ * one measured round, and main moves nearly every half hour; between updates a round only launches what is down. A merge
+ * that closed a `beta` issue moves it in the next round all the same (betaFixOnMain, #10612).
  */
 export const UPDATE_EVERY_MS = 2 * 3600_000;
 /** When the next update may run: UPDATE_EVERY_MS after the last one, or now when none is recorded. */
@@ -585,12 +635,13 @@ const roundIo = {
   check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS),
   readied: readiedNow,
   anvil: ensureAnvil,
+  issue: issueOf,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Date.now(),
 };
 
 export async function round(paths = betaPaths(), io = {}) {
-  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now } = { ...roundIo, ...io };
+  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now, issue } = { ...roundIo, ...io };
   fs.mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   const noCheckout = ensureCheckout(paths);
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
@@ -599,12 +650,20 @@ export async function round(paths = betaPaths(), io = {}) {
   const target = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
   const prev = readJson(paths.status, {});
-  const step = decide({ screening: fs.existsSync(paths.screening), head, target, updatedAt: prev.updatedAt, now: now() });
+  const screening = fs.existsSync(paths.screening);
+  // Within the bound, a merge that closed a `beta` issue still moves the beta now (#10612).
+  const fix =
+    screening && head !== target && nextUpdateAt(prev.updatedAt) > now()
+      ? await betaFixOnMain({ git, checkout: paths.checkout, head, target, issue })
+      : null;
+  const step = decide({ screening, head, target, updatedAt: prev.updatedAt, now: now(), betaFix: Boolean(fix) });
   const held = step === 'launch' && head !== target;
-  log(
-    paths,
-    `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)}${held ? `; the next update is after ${new Date(nextUpdateAt(prev.updatedAt)).toISOString()}` : ''})`,
-  );
+  const why = fix
+    ? `; main holds ${fix.sha.slice(0, 9)}, which closed beta issue #${fix.issue}`
+    : held
+      ? `; the next update is after ${new Date(nextUpdateAt(prev.updatedAt)).toISOString()}`
+      : '';
+  log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)}${why})`);
   if (step === 'blocked')
     return finish(paths, {
       state: 'blocked',
