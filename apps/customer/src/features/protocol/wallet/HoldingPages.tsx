@@ -2,7 +2,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { EmptyState, Page, Panel } from '../../../shared/ui';
 import { portfolioCopy } from './portfolio-copy';
 import { tokenAmount, usdDisplay } from './portfolio-format';
-import { CONVENTIONS, conventionPath, type Convention } from './portfolio-paths';
+import { conventionPath } from './portfolio-paths';
 import { ReadState, usePortfolio } from './PortfolioPanel';
 
 /**
@@ -64,21 +64,6 @@ export function HoldingPage({ token }: { token: string }) {
           </p>
         </Panel>
       )}
-    </Page>
-  );
-}
-
-/** /wallet/conventions/<id>: one convention the portfolio follows, in plain words. */
-export function ConventionPage({ id }: { id: string }) {
-  const { language } = usePreferences();
-  const { t } = portfolioCopy.forLocale(language);
-  const known = (CONVENTIONS as readonly string[]).includes(id) ? (id as Convention) : null;
-  return (
-    <Page title={known ? t(`conv_${known}`) : t('conventionMissing')}>
-      {known && <p>{t(`conv_${known}_body`)}</p>}
-      <p>
-        <a href="/wallet">{t('tokenBack')}</a>
-      </p>
     </Page>
   );
 }
