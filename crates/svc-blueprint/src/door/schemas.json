@@ -705,8 +705,21 @@
     {
       "t": "object",
       "shape": [
-        ["url", 183],
-        ["bytes", 184]
+        ["kind", 131],
+        ["first_opened", 183],
+        ["last_opened", 184],
+        ["open_count", 185]
+      ]
+    },
+    { "t": "date" },
+    { "t": "date" },
+    { "t": "number" },
+    { "t": "array", "el": 187 },
+    {
+      "t": "object",
+      "shape": [
+        ["url", 188],
+        ["bytes", 189]
       ]
     },
     { "t": "string", "checks": [{ "k": "url" }] },
@@ -728,5 +741,5 @@
     "shares.openers": 156,
     "shares.revoke": 154
   },
-  "rows": { "BlueprintRow": 157, "MentorMatchRow": 168, "ShareRow": 174, "RendererResponse": 181 }
+  "rows": { "BlueprintRow": 157, "MentorMatchRow": 168, "ShareRow": 174, "OpenerRow": 181, "RendererResponse": 186 }
 }

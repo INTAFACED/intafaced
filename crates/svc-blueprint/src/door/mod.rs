@@ -34,6 +34,7 @@ use service_kit::trpc::{self, TrpcError};
 
 use crate::card::renderer::CardRenderer;
 use crate::db::Store;
+use crate::env::Settings;
 use crate::errors::Refusal;
 
 /// The records' published schema: the one list of the calls.
@@ -251,6 +252,7 @@ pub fn not_ported(slice: Slice) -> Refusal {
 fn handle(
     store: &Store,
     renderer: &dyn CardRenderer,
+    settings: &Settings,
     ctx: &Ctx<'_>,
 ) -> Result<Option<Json>, Refusal> {
     match ctx.call.slice {
@@ -260,6 +262,7 @@ fn handle(
         ]))),
         Slice::Profile => crate::profile::handle(store, ctx),
         Slice::Card => crate::card::handle(store, renderer, ctx),
+        Slice::Shares => crate::shares::handle(store, settings, ctx),
         other => Err(not_ported(other)),
     }
 }
@@ -292,6 +295,8 @@ pub struct DoorConfig {
     pub store: Store,
     /// The card rasterizer (`card::renderer::from_env`, as `index.ts` picks it).
     pub renderer: Box<dyn CardRenderer>,
+    /// The owner-published settings (`BlueprintEnv::settings`), blank until published.
+    pub settings: Settings,
 }
 
 pub struct BlueprintDoor {
@@ -302,6 +307,7 @@ pub struct BlueprintDoor {
     edge_key: Option<EdgeKey>,
     store: Store,
     renderer: Box<dyn CardRenderer>,
+    settings: Settings,
 }
 
 /// The system clock.
@@ -331,6 +337,7 @@ impl BlueprintDoor {
             edge_key: None,
             store: config.store,
             renderer: config.renderer,
+            settings: config.settings,
         })
     }
 
@@ -411,13 +418,14 @@ impl BlueprintDoor {
             region: &region,
             now,
         };
-        let answer = handle(&self.store, self.renderer.as_ref(), &ctx).map_err(|r| {
-            if call.mapped {
-                r.mapped()
-            } else {
-                r.unmapped()
-            }
-        })?;
+        let answer =
+            handle(&self.store, self.renderer.as_ref(), &self.settings, &ctx).map_err(|r| {
+                if call.mapped {
+                    r.mapped()
+                } else {
+                    r.unmapped()
+                }
+            })?;
         output(path, answer)
     }
 }
