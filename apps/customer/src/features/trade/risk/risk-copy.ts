@@ -45,6 +45,21 @@ const en = {
   cancelDone: '{count} orders cancelled.',
   cancelPartial: '{count} orders cancelled and {left} are still open. Check the list before trying again.',
   cancelUncertain: 'We could not confirm the result. Nothing was sent again. The list below shows what is open now.',
+  cancelWalletRejected: 'You declined in your wallet. Nothing was cancelled.',
+  cancelWaiting: 'Your wallet is still asking about this request. Answer it there. Until you do, nothing is cancelled.',
+  cancelWalletFailed: 'Your wallet could not sign. Nothing was cancelled. {detail}',
+  cancelNoBatch:
+    'This venue cancels orders one at a time, so they cannot be cancelled in one request here. Cancel them from the trading desk.',
+  cancelRefused: 'The venue refused the request. Nothing was cancelled. {detail}',
+
+  venueLead: 'Your orders and positions on your own venue account, read from the venue. INTAFACED holds none of it.',
+  venueConnect:
+    'Connect the wallet that owns your venue account. Until then your orders and positions are not read, so their counts are unknown.',
+  venueOrdersUnread: 'Your open orders could not be read from the venue, so their count is unknown.',
+  venueCloseConfirm: 'Close {count} selected',
+  venueCloseKeep: 'Keep positions',
+  venueCloseTitle: 'Close the selected positions?',
+  venueCloseIntro: 'Each position closes with a reduce-only order at the market: it never opens or hedges. Orders are not touched.',
 
   reduceHeading: 'Reduce risk',
   reduceLead: 'Choose positions and close them. Each closes reduce-only: it never opens or hedges.',
