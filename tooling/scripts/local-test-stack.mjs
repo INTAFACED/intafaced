@@ -113,6 +113,7 @@ import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
+import { recordOwnReport } from './local-test-own-reports.mjs';
 import {
   hlSource,
   serveTestVenue,
@@ -4265,6 +4266,111 @@ async function cmdFund(rawArgs) {
 }
 
 /**
+ * `seed-own-record <venue|partner> <place> <ASSET> <amount> --ref <id> [--ledger-only]`: one of INTAFACED's own TEST records
+ * with a TEST venue or TEST partner, as J-ops-console-07 starts from ("the ledger holds TEST records of INTAFACED's own
+ * obligations, and the TEST venue simulator and TEST partner report their side"). The stand-in writes its own line first
+ * (local-test-own-reports.mjs: what it owes us, in the ledger's signed form), then the ledger books ours through its real
+ * recipe: `builderFeeEarn` for a venue (a TEST fill `<ref>` on venue account `local-test`), `partnerFeeEarn` for a partner
+ * (a TEST payment `<ref>` at a LOCAL TEST rate of 10000 bps, so the fee is the amount). `--ledger-only` books our side with
+ * no line from the reporter, a break a control must find. The same --ref is the same record. LOCAL TEST money only.
+ */
+async function cmdSeedOwnRecord(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    return value;
+  };
+  const flag = (name) => {
+    const at = args.indexOf(name);
+    if (at !== -1) args.splice(at, 1);
+    return at !== -1;
+  };
+  const ref = option('--ref');
+  const ledgerOnly = flag('--ledger-only');
+  const [reporter, place, assetRaw, amountStr] = args;
+  const usage =
+    'usage: node tooling/scripts/local-test-stack.mjs seed-own-record <venue|partner> <place> <ASSET> <amount> --ref <id> [--ledger-only]';
+  if (!['venue', 'partner'].includes(reporter) || !place || !assetRaw || !amountStr || !ref) fail(usage, 2);
+  if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(place)) fail(`place must be a lower-case id (got "${place}")`, 2);
+  if (!/^[A-Za-z0-9-]{4,48}$/.test(ref)) fail('--ref must be 4-48 letters, digits or dashes', 2);
+  const asset = assetRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 5 or 2.5 (got "${amountStr}")`, 2);
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['ledger'] });
+  const secrets = readJson(P.secrets);
+  const load = (pkg) => import(pathToFileURL(path.join(REPO, 'packages', pkg, 'dist', 'index.js')).href);
+  let ledgerClient, contracts;
+  try {
+    [ledgerClient, contracts] = await Promise.all([load('ledger-client'), load('contracts')]);
+  } catch (err) {
+    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
+  const { recipes, parseAmount, formatAmount } = ledgerClient;
+  let request;
+  try {
+    const amount = parseAmount(amountStr);
+    request =
+      reporter === 'venue'
+        ? recipes.builderFeeEarn({
+            venueId: place,
+            venueAccount: 'local-test',
+            fillId: `TEST-${ref}`,
+            assetId: asset,
+            amount,
+            userId: 'local-test',
+          })
+        : recipes.partnerFeeEarn({
+            partnerId: place,
+            module: 'merchant',
+            paymentId: `TEST-${ref}`,
+            assetId: asset,
+            grossAmount: amount,
+            rate: { bps: 10000 },
+          });
+  } catch (err) {
+    fail(`ledger refused the record: ${err.message}`, 2);
+  }
+  // The outside party's word comes first, in its own file, never read back from the ledger.
+  let reported = null;
+  if (!ledgerOnly) {
+    try {
+      reported = recordOwnReport(STATE, { reporter, place, key: request.idempotencyKey, assetId: asset, amount: `-${amountStr}` });
+    } catch (err) {
+      fail(`the TEST ${reporter} refused the record: ${err.message}`, 2);
+    }
+  }
+  const wire = {
+    idempotencyKey: request.idempotencyKey,
+    module: request.module,
+    reason: request.reason,
+    meta: { ...request.meta, label: 'LOCAL TEST — not real money' },
+    entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: formatAmount(e.amount) })),
+  };
+  const raw = JSON.stringify(wire);
+  const res = await fetch(`${urlOf('ledger')}/trpc/post`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-fund', secrets.internal, raw) },
+    body: raw,
+  });
+  const text = await res.text();
+  if (!res.ok) fail(`ledger post refused (${res.status}): ${text.slice(0, 400)}`);
+  const posted = JSON.parse(text);
+  say(`TEST own record booked through the real ledger (${request.reason}, not real money)`);
+  say(`  ${reporter}    ${place}${ledgerOnly ? '   (no line from the reporter: --ledger-only)' : ''}`);
+  say(`  owed      ${amountStr} ${asset}`);
+  say(`  key       ${request.idempotencyKey}`);
+  if (reported) say(`  reported  ${reported.at}   (the TEST ${reporter}'s own line)`);
+  say(`  ledger tx ${posted.txId ?? JSON.stringify(posted)}`);
+}
+
+/**
  * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent|failed --ref <label>
  * [--failure-code <code>]`: one TEST
  * withdrawal of the person's own funds, in the state a journey starts from (J-wallet-06). Sending out is switched off in
@@ -5055,6 +5161,7 @@ async function runCli() {
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'second-worker') await cmdSecondWorker(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'seed-own-record') await cmdSeedOwnRecord(rest);
   // `custody`: on or off, the switch the running svc-ledger was started with (the journeys workflow's setup reads it).
   else if (cmd === 'custody') process.stdout.write(`${stackCustodyLayer(STATE)}\n`);
   else if (cmd === 'mining-share') await cmdMiningShare(rest);

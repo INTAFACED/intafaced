@@ -129,15 +129,30 @@
 <h2 tabindex="-1">
 <span lang="en" dir="ltr" data-i18n="account.promotions.linkTitle">Your invitation link</span>
 </h2>
-<h3>
-<span lang="en" dir="ltr" data-i18n="account.promotions.noLink">No link to show yet</span>
-</h3>
-<p class="lt-hint">
-<span lang="en" dir="ltr" data-i18n="account.promotions.noLinkBody">Review a request to get your existing live link, or create one if you don’t have one.</span>
-</p>
+<div class="lt-empty" data-first="" data-kind="empty">
+<span class="lt-first-mark" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user-plus" aria-hidden="true">
+<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2">
+</path>
+<circle cx="9" cy="7" r="4">
+</circle>
+<line x1="19" x2="19" y1="8" y2="14">
+</line>
+<line x1="22" x2="16" y1="11" y2="11">
+</line>
+</svg>
+</span>
+<h3 class="lt-empty-title">No link to show yet</h3>
+<p class="lt-empty-body">Review a request to get your existing live link, or create one if you don’t have one.</p>
+<ul class="lt-first-points">
+<li>One link to share with friends</li>
+<li>Friends who join with it are listed as your invitees</li>
+<li>Visits are counted; a visit is not a sign-up</li>
+</ul>
 <button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.promotions.reviewCreate">Review link request</span>
 </button>
+</div>
 <p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.promotions.lifetime">The link stays in this tab and is discarded when account access changes. Getting a link can create one, so it isn’t a read-only status check.</span>
 </p>

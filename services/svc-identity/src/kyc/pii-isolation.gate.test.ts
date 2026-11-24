@@ -2,6 +2,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
+import { kycRecordOutput } from '@intafaced/contracts/identity-call-schemas';
 
 const BANNED_KYC_RECORD_COLUMNS = [
   'document_bytes',
@@ -73,9 +75,13 @@ describe('PII isolation gate (kyc_records)', () => {
 
   it('kyc.status presentation never includes provider_ref or document bytes', () => {
     const routerSrc = readFileSync(join(serviceRoot, 'src/router.ts'), 'utf8');
-    const schemaStart = routerSrc.indexOf('const kycRecordOutput = z.object({');
-    const schema = routerSrc.slice(schemaStart, routerSrc.indexOf('});', schemaStart));
-    expect(schema).not.toMatch(/providerRef|provider_ref|bytes|ciphertext/);
+    // The answer's shape is kyc.status's record: each record it returns, and the record schema it is built from.
+    const recordFields = Object.keys(IDENTITY_KYC_STATUS.output.shape.records.element.shape);
+    expect(recordFields).toEqual(Object.keys(kycRecordOutput.shape));
+    expect(recordFields).toContain('tier');
+    for (const field of [...Object.keys(IDENTITY_KYC_STATUS.output.shape), ...recordFields]) {
+      expect(field).not.toMatch(/providerRef|provider_ref|bytes|ciphertext/i);
+    }
     const fnStart = routerSrc.indexOf('function presentKyc');
     const returned = routerSrc.slice(
       routerSrc.indexOf('return {', fnStart),
@@ -83,8 +89,10 @@ describe('PII isolation gate (kyc_records)', () => {
     );
     expect(returned).not.toMatch(/providerRef|provider_ref|bytes|ciphertext/);
     // The block ends where `kyc.approve` starts; an anchor that is gone would read to the end of the file.
-    expect(routerSrc.indexOf('approve: mountRecord(')).toBeGreaterThan(routerSrc.indexOf('status: scopedProcedure'));
-    const statusBlock = routerSrc.slice(routerSrc.indexOf('status: scopedProcedure'), routerSrc.indexOf('approve: mountRecord('));
+    const statusAt = routerSrc.search(/status: mountRecord\(\s*IDENTITY_KYC_STATUS,/);
+    expect(statusAt).toBeGreaterThanOrEqual(0);
+    expect(routerSrc.indexOf('approve: mountRecord(')).toBeGreaterThan(statusAt);
+    const statusBlock = routerSrc.slice(statusAt, routerSrc.indexOf('approve: mountRecord('));
     expect(statusBlock).toMatch(/presentKyc/);
     expect(statusBlock).not.toMatch(/getFor|ciphertext|bytesBase64/);
   });

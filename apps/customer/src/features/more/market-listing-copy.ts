@@ -54,6 +54,12 @@ const en = {
   categoryNone: 'No category',
   categoryNote: 'Only one-time listings are filed under a category. Strategy subscriptions are not, so a category shows none.',
   categoryEmpty: 'No listing is filed under this category yet.',
+  firstBody: 'Sellers publish one-time items and strategy subscriptions here. Each listing shows its seller, its price and what you get.',
+  firstMineBody: 'Publish a strategy subscription and it is listed here, with its buyers and what you earn from it.',
+  firstPointOneTime: 'One-time items, filed by category',
+  firstPointSubscriptions: 'Strategy subscriptions, paid per period',
+  firstPointSellers: 'Every seller listed, with no ranking',
+  firstAction: 'Publish a strategy subscription',
   cat_bots: 'Bots',
   cat_defi: 'DeFi',
   cat_compliance: 'Compliance',
@@ -127,6 +133,13 @@ const es = {
   cat_data: 'Datos',
   cat_advisory: 'Asesoría',
   cat_partner_integrations: 'Integraciones de socios',
+  firstBody:
+    'Los vendedores publican aquí artículos de pago único y suscripciones a estrategias. Cada anuncio muestra su vendedor, su precio y lo que obtienes.',
+  firstMineBody: 'Publica una suscripción a una estrategia y aparecerá aquí, con sus compradores y lo que ganas con ella.',
+  firstPointOneTime: 'Artículos de pago único, por categoría',
+  firstPointSubscriptions: 'Suscripciones a estrategias, de pago por periodo',
+  firstPointSellers: 'Todos los vendedores, sin clasificación',
+  firstAction: 'Publicar una suscripción a una estrategia',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   doorsTitle: 'Plus dans le Marché',
@@ -192,5 +205,12 @@ const fr = {
   cat_data: 'Données',
   cat_advisory: 'Conseil',
   cat_partner_integrations: 'Intégrations partenaires',
+  firstBody:
+    'Les vendeurs publient ici des articles à achat unique et des abonnements à des stratégies. Chaque annonce indique son vendeur, son prix et ce que vous obtenez.',
+  firstMineBody: 'Publiez un abonnement à une stratégie : il apparaît ici, avec ses acheteurs et ce qu’il vous rapporte.',
+  firstPointOneTime: 'Des articles à achat unique, par catégorie',
+  firstPointSubscriptions: 'Des abonnements à des stratégies, payés par période',
+  firstPointSellers: 'Tous les vendeurs, sans classement',
+  firstAction: 'Publier un abonnement à une stratégie',
 } satisfies Record<keyof typeof en, string>;
 export const marketListingCopy = defineCopy('more.market.listing', en, { es, fr });

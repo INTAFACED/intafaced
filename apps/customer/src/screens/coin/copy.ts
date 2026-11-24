@@ -53,7 +53,7 @@ const messages = {
   'not published': 'not published',
   Networks: 'Networks',
   'Networks rule': 'The networks you can deposit or withdraw this coin on here, as the platform lists them.',
-  'not read': 'not read',
+  'not read': 'couldn’t load, try again soon',
   'not listed': 'not listed',
   'On {network}': 'On {network}',
   'Network detail rule': 'The contract and links the platform lists for this coin on this network. None is shown where none is known.',
