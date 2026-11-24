@@ -1,6 +1,7 @@
 // volt-room: /fees/my-tier
 import { useMemo, type ReactNode } from 'react';
-import { ReadingTemplate } from '@intafaced/ui/lit/templates';
+import { FirstState, ReadingTemplate } from '@intafaced/ui/lit/templates';
+import { BadgePercent } from 'lucide-react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
@@ -103,8 +104,20 @@ function Tier({ tier }: { tier: FeeTier }) {
   const copy = feeTierCopy.useCopy();
   const name = (tierId: string) => (tierId === 'regular' ? copy.t('regular') : tierId);
   const { program, volume } = tier;
+  // A new trader on a programme with no tiers published yet: what this page will track, and where to start.
+  const first = program === null && !tier.lastSnapshot && !tier.trial;
   return (
     <>
+      {first ? (
+        <FirstState
+          level={2}
+          icon={<BadgePercent size={24} />}
+          title={copy.t('firstTitle')}
+          body={copy.t('firstBody')}
+          points={[copy.t('firstPointVolume'), copy.t('firstPointSnapshot'), copy.t('firstPointVip')]}
+          action={{ label: copy.t('firstAction'), href: '/trade/spot/BTC-USDT' }}
+        />
+      ) : null}
       <section aria-label={copy.t('yourTier', { tier: name(tier.tier) })} data-tier-page="tier">
         <h2 data-tier={tier.tier}>{copy.t('yourTier', { tier: name(tier.tier) })}</h2>
         <p>

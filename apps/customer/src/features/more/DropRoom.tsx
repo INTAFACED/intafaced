@@ -5,10 +5,11 @@ import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, Tag } from '@intafaced/ui/lit';
-import { CatalogueTemplate, KeyValue } from '@intafaced/ui/lit/templates';
+import { CatalogueTemplate, FirstState, KeyValue } from '@intafaced/ui/lit/templates';
 import { t as copyText } from './copy';
 import { dropRoomCopy } from './drop-room-copy';
 import { EmptyNote, FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
+import { Sparkles } from 'lucide-react';
 import { IDENTITY_WAITLIST_MINE } from '@intafaced/contracts/identity-waitlist-procedures';
 import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from '@intafaced/contracts/campaigns-drops-procedures';
 import { CAMPAIGNS_TGE_CLAIM } from '@intafaced/contracts/campaigns-tge-procedures';
@@ -56,7 +57,7 @@ export function DropRoom() {
                   <FailureNote result={waitlist.resource.failure} retry={waitlist.reload} />
                 )
               ) : waitlist.resource.data === null ? (
-                <EmptyNote title={t('waitlistNone')} />
+                <EmptyNote title={t('waitlistNone')}>{t('waitlistNoneBody')}</EmptyNote>
               ) : (
                 <KeyValue
                   rows={[
@@ -123,7 +124,13 @@ function Season({ season }: { season: ProcedureOutput<typeof CAMPAIGNS_DROPS_ROO
     <Section title={t('seasonTitle')}>
       <div data-testid="drop-season">
         {season === null ? (
-          <EmptyNote title={t('seasonNone')} />
+          <FirstState
+            icon={<Sparkles size={24} />}
+            title={t('seasonNone')}
+            body={t('seasonNoneBody')}
+            points={[t('firstPointPoints'), t('firstPointDrops'), t('firstPointMoney')]}
+            action={{ label: t('firstAction'), href: '/campaigns' }}
+          />
         ) : (
           <KeyValue
             rows={[

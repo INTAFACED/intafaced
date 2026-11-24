@@ -19,9 +19,11 @@ import { useId, useState, type ComponentProps, type ReactNode } from 'react';
 import { z } from 'zod';
 import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Checkbox, EmptyState, Field, Segmented } from '@intafaced/ui/lit';
+import { Button, Checkbox, Field, Segmented } from '@intafaced/ui/lit';
 import { KitFailure, KitLoading, KitTable } from './kit-parts';
 import { QuotaAwareFailure } from './quota-refusal';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { FlaskConical } from 'lucide-react';
 import { downloadCsv, utcInput, Read, Select } from '../more';
 import { useApi } from '../session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
@@ -170,14 +172,12 @@ export function BacktestRoom() {
             {(data) => {
               if (!data.strategies.length) {
                 return (
-                  <EmptyState
+                  <FirstState
+                    icon={<FlaskConical size={24} />}
                     title={t('strategyNone')}
                     body={t('strategyNoneBody')}
-                    action={
-                      <a className="lt-link" href="/quant/studio">
-                        {t('openStudio')}
-                      </a>
-                    }
+                    points={[t('firstPointHistory'), t('firstPointCosts'), t('firstPointStored')]}
+                    action={{ label: t('openStudio'), href: '/quant/studio' }}
                   />
                 );
               }

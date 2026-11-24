@@ -51,6 +51,13 @@ export const liveCopy = defineCopy(
     filterAll: 'All areas',
     filterBreaking: 'Breaking changes only',
     changelogNone: 'No changelog entry matches.',
+    changelogFirstTitle: 'No changelog entry is published yet',
+    changelogFirstBody:
+      'Each change to the API is listed here with the endpoints and scopes it touches, its dates, and a migration note when you need to act.',
+    changelogFirstArea: 'Filter by area',
+    changelogFirstBreaking: 'Breaking changes flagged',
+    changelogFirstMigration: 'Before and after, with what to change',
+    changelogFirstAction: 'Open the developer docs',
     notInLanguage: 'This entry has no text in your language, so it is shown in English.',
     area_trading: 'Trading',
     area_market_data: 'Market data',
@@ -77,6 +84,8 @@ export const liveCopy = defineCopy(
     upcomingLead:
       'Breaking changes whose date has not passed, soonest first. An entry with no date is not listed here; find it in the changelog.',
     upcomingNone: 'No breaking change with a date is announced.',
+    upcomingFirstBody: 'A breaking change with a date is listed here before it takes effect, soonest first, so you can move in time.',
+    upcomingFirstAction: 'Read the full changelog',
     retiredListTitle: 'Retired endpoints',
     retiredListNone: 'No endpoint has been retired.',
     retiredBy: 'Retired by {title}',

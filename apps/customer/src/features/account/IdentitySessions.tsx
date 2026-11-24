@@ -23,6 +23,9 @@ import {
 } from './identity-session-guards';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
+import { callAs } from '../../shared/api';
+import { IDENTITY_LIST_SESSIONS } from '@intafaced/contracts/identity-list-sessions-procedures';
+import { IDENTITY_REVOKE_SESSION } from '@intafaced/contracts/identity-revoke-session-procedures';
 export type { PrivateSessionSource } from './identity-session-guards';
 type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
 type Response = { original: Review; marker?: RevokeMarker; answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }> };
@@ -38,7 +41,7 @@ export function IdentitySessions() {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'listSessions', { userId, limit }, sessionsFor(userId, limit), { signal })
+        ? callAs(api, IDENTITY_LIST_SESSIONS, { userId, limit }, sessionsFor(userId, limit), { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     // A new session id (the sign-in renews about every 15 minutes) reloads the list, so "This device" never goes stale.
     `identity-seats:${userId}:${limit}:${thisDevice ?? ''}`,
@@ -132,9 +135,9 @@ export function IdentitySessions() {
         }
         const abort = new AbortController();
         controller.current = abort;
-        const fresh = await api.query(
-          'identity',
-          'listSessions',
+        const fresh = await callAs(
+          api,
+          IDENTITY_LIST_SESSIONS,
           { userId: original.owner, limit: original.limit },
           sessionsFor(original.owner, original.limit),
           { signal: abort.signal },
@@ -166,9 +169,9 @@ export function IdentitySessions() {
         }
         updateJournal(original.owner);
         if (!sameContext(original)) return;
-        const answer = await api.mutate(
-          'identity',
-          'revokeSession',
+        const answer = await callAs(
+          api,
+          IDENTITY_REVOKE_SESSION,
           { userId: original.owner, sessionId: original.seat.id },
           revokeResponse.refine((value) => value.userId === original.owner && value.sessionId === original.seat.id),
           { signal: abort.signal },

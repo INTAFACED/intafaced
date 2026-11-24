@@ -29,11 +29,28 @@ export const passkeys = () => [
 export const sessions = () => ({
   userId: owner,
   sessions: [
-    { id: '11111111-1111-4111-8111-111111111111', createdAt: '2026-10-10T09:41:00.000Z', revoked: false },
-    { id: '22222222-2222-4222-8222-222222222222', createdAt: '2026-10-09T09:41:00.000Z', revoked: false },
+    seat('11111111-1111-4111-8111-111111111111', '2026-10-10T09:41:00.000Z'),
+    seat('22222222-2222-4222-8222-222222222222', '2026-10-09T09:41:00.000Z'),
   ],
+  nextCursor: null,
 });
-export const kyc = (tier, records = []) => ({ tier, records });
+/** One live sign-in, every field svc-identity's `listSessions` answers with: last used when it began, on no device it names. */
+function seat(id, createdAt) {
+  return {
+    id,
+    familyId: id,
+    createdAt,
+    lastUsedAt: createdAt,
+    device: null,
+    userAgent: null,
+    ip: null,
+    country: null,
+    isCurrent: false,
+    revoked: false,
+  };
+}
+/** svc-identity's `kyc.status` answer: the tier, the records, and whether the level is the trading checks' alone. */
+export const kyc = (tier, records = []) => ({ tier, tradingOnly: false, records });
 export const kycRecord = () => ({
   id: '33333333-3333-4333-8333-333333333333',
   userId: owner,

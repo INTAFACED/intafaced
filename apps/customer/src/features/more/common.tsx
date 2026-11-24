@@ -8,6 +8,7 @@ import { Sheet } from '@intafaced/ui/lit/templates';
 import { EmptyNote, FailureNote, Waiting } from './volt-parts';
 import { uiCopy } from '../../shared/ui-copy';
 import { renderAuthoredCopy } from '../../shared/i18n';
+import { FirstState, type FirstStateProps } from '@intafaced/ui/lit/templates';
 import { uiDirection } from '../../shared/locale';
 
 export { actionFailurePresentation, presentActionFailure } from './action-state';
@@ -16,11 +17,14 @@ export function Read<T>({
   resource,
   retry,
   empty,
+  first,
   children,
 }: {
   resource: Resource<T>;
   retry: () => void;
   empty?: string;
+  /** With `empty`: the room's first state (what it is for and one action) in place of the bare line. */
+  first?: Omit<FirstStateProps, 'title'>;
   children: (data: T) => ReactNode;
 }) {
   if (resource.status === 'loading') return <Waiting />;
@@ -30,7 +34,8 @@ export function Read<T>({
         <FailureNote result={resource.failure} retry={retry} />
       </div>
     );
-  if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0))) return <EmptyNote title={empty} />;
+  if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0)))
+    return first ? <FirstState title={empty} {...first} /> : <EmptyNote title={empty} />;
   return <>{children(resource.data)}</>;
 }
 export function Select({
