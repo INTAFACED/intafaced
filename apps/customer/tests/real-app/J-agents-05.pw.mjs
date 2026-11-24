@@ -1,6 +1,6 @@
 // World: restart
 import { test, expect } from './journey.mjs';
-import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
+import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, saveDraft, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 import { api, journeyState, tool } from './stack.mjs';
 
@@ -146,8 +146,7 @@ test(`${J} starts: a verified TEST account with an agent of its own that has a t
     .getByRole('dialog', { name: 'Add a tool' })
     .getByRole('option', { name: /support\.ticket\.comment/ })
     .click();
-  await builder.getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder.getByRole('status')).toHaveText('Draft saved.');
+  await saveDraft(builder);
   expect((await ownAgent()).tools).toEqual(expect.arrayContaining(['support.kb.search', 'support.ticket.comment']));
   // A session opens only once the person has set the agent's caps (J-agents-02): the journey sets them here.
   await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Limits', exact: true }).click();

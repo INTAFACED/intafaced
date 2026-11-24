@@ -43,6 +43,7 @@ import {
   marketReviewedListingSchema,
   marketSlotSchema,
   marketStatusEventSchema,
+  type MarketListingDetail,
 } from '@intafaced/contracts/market-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { marketRefusal } from './refusal.js';
@@ -76,6 +77,7 @@ import {
   SIGNAL_NOT_FOUND,
   SIGNAL_TIERS,
   type SignalPublisher,
+  type TrackRecordSource,
 } from './signals/signal-publisher.js';
 import type { PerpProposalService } from './perp-proposal-service.js';
 import {
@@ -264,10 +266,24 @@ function requireSignals(signals: SignalPublisher | undefined): SignalPublisher {
 }
 
 /**
- * A listing stores no copy-leader, bot or signal id, so this read has no
- * performance source. `reported: false` carries no figure.
+ * A listing's performance is its seller's track record from stored fills: svc-trade's count of fills of the seller's
+ * own orders, and the first one's time. A count, never a return. With no source wired, no seller, or a read that fails,
+ * it is `reported: false` and carries no figure: never a zero.
  */
-const NO_LISTING_PERFORMANCE = { reported: false } as const;
+async function listingPerformance(
+  trackRecord: TrackRecordSource | null | undefined,
+  sellerUserId: () => Promise<string | null>,
+): Promise<MarketListingDetail['performance']> {
+  if (!trackRecord) return { reported: false };
+  const userId = await sellerUserId();
+  if (!userId) return { reported: false };
+  try {
+    const record = await trackRecord.recordOf(userId);
+    return { reported: true, basis: 'seller_own_fills', fills: record.fills, firstFillAt: record.firstFillAt };
+  } catch {
+    return { reported: false };
+  }
+}
 
 const categorySetOut = z.object({
   listingId: z.string().guid(),
@@ -285,6 +301,7 @@ export function createMarketRouter(
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   reviews?: ReviewsService,
   signals?: SignalPublisher,
+  trackRecord?: TrackRecordSource | null,
 ) {
   return router({
     /**
@@ -833,7 +850,7 @@ export function createMarketRouter(
      * One shopfront listing by id (MC-market-01). Public, like `listings`.
      * Unknown and not-on-the-shopfront are both `market.listing_not_found`.
      * Blank commission is `market.commission_not_configured`, before the read.
-     * No seller user id. Performance is unreported: there is no source id to read.
+     * No seller user id. Performance is the seller's track record from stored fills (listingPerformance).
      */
     listing: mountRecord(
       MARKET_LISTING,
@@ -855,7 +872,7 @@ export function createMarketRouter(
               price: detail.listing.price,
               periodSeconds: detail.listing.periodSeconds,
             },
-            performance: NO_LISTING_PERFORMANCE,
+            performance: await listingPerformance(trackRecord, () => vendors.userIdOf(detail.listing.vendorId)),
           };
         } catch (err) {
           mapError(err);

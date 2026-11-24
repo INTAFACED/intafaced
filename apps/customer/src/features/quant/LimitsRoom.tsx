@@ -6,6 +6,7 @@ import { useApi } from '../session';
 import { limitsCopy } from './limits-copy';
 import { QuantRooms } from './QuantRooms';
 import { UsagePanel } from './UsagePanel';
+import { limitText, readTime, type LimitUnit, type LimitWords } from './limit-words';
 import { QUANT_LIMITS_GET } from '@intafaced/contracts/quant-limits-procedures';
 
 /**
@@ -30,9 +31,28 @@ export function LimitsRoom({ paper }: { paper: boolean }) {
   );
 }
 
+const UNIT: Record<'wall_clock_ms' | 'memory_bytes' | 'output_bytes', LimitUnit> = {
+  wall_clock_ms: 'milliseconds',
+  memory_bytes: 'bytes',
+  output_bytes: 'bytes',
+};
+
+/** The limit words from the limits copy, for `limitText`. */
+export function limitWords(t: ReturnType<typeof limitsCopy.useCopy>['t']): LimitWords {
+  return {
+    seconds: (n) => t('seconds', { n }),
+    oneSecond: t('oneSecond'),
+    bytes: (n) => t('bytes', { n }),
+    kb: (n) => t('kb', { n }),
+    mb: (n) => t('mb', { n }),
+    characters: (n) => t('characters', { n }),
+  };
+}
+
 function SandboxLimitsPanel() {
   const api = useApi();
-  const { t } = limitsCopy.useCopy();
+  const { t, requestedLocale } = limitsCopy.useCopy();
+  const words = limitWords(t);
   const limits = useResource((signal) => api.call(QUANT_LIMITS_GET, undefined, { signal }), 'quant-limits');
   return (
     <section>
@@ -51,33 +71,39 @@ function SandboxLimitsPanel() {
                   {t('planUnset')}
                 </p>
               )}
-              <div tabIndex={0} role="region" aria-label={t('sandboxTitle')}>
+              <div>
                 <table className="lt-table">
                   <thead>
                     <tr>
                       <th scope="col">{t('limit')}</th>
-                      <th scope="col">{t('value')}</th>
+                      <th scope="col" data-align="end">
+                        {t('value')}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.sandbox.map((row) => (
                       <tr key={row.limit} data-limit={row.limit} data-value={row.value ?? ''}>
                         <th scope="row">{t(row.limit)}</th>
-                        <td>{row.value === null ? t('notSet') : <span lang="zxx">{row.value}</span>}</td>
+                        <td data-align="end">{row.value === null ? t('notSet') : limitText(row.value, UNIT[row.limit], words)}</td>
                       </tr>
                     ))}
                     <tr data-limit="max_ops" data-value={data.ceilings.maxOps ?? ''}>
                       <th scope="row">{t('maxOps')}</th>
-                      <td>{data.ceilings.maxOps === null ? t('notSet') : <span lang="zxx">{data.ceilings.maxOps}</span>}</td>
+                      <td data-align="end">
+                        {data.ceilings.maxOps === null ? t('notSet') : limitText(data.ceilings.maxOps, 'count', words)}
+                      </td>
                     </tr>
                     <tr data-limit="max_source" data-value={data.ceilings.maxSource ?? ''}>
                       <th scope="row">{t('maxSource')}</th>
-                      <td>{data.ceilings.maxSource === null ? t('notSet') : <span lang="zxx">{data.ceilings.maxSource}</span>}</td>
+                      <td data-align="end">
+                        {data.ceilings.maxSource === null ? t('notSet') : limitText(data.ceilings.maxSource, 'characters', words)}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <p className="lt-hint">{t('asOf', { at: data.asOf.slice(0, 16).replace('T', ' ') })}</p>
+              <p className="lt-hint">{t('asOf', { at: readTime(data.asOf, requestedLocale) })}</p>
             </>
           )}
         </ReadView>

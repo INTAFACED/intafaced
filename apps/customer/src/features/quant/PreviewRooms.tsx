@@ -260,12 +260,21 @@ export function TesterRoom({ paper }: { paper: boolean }) {
   // Kept in memory only: a reload starts the sample replay again from the start at 1x.
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(true);
-  const [frame, setFrame] = useState(0);
+  // The frame follows the clock: `speed` frames every 100 ms since the replay last started or changed speed, on top of
+  // the frames before. Under a frozen clock it holds still, so a drawing of the room is the same every time.
+  const [clock, setClock] = useState(() => ({ base: 0, since: Date.now() }));
+  const [now, setNow] = useState(() => Date.now());
+  const frame = playing ? clock.base + Math.floor(Math.max(0, now - clock.since) / 100) * speed : clock.base;
+  const restart = (base: number) => {
+    const at = Date.now();
+    setClock({ base, since: at });
+    setNow(at);
+  };
   useEffect(() => {
     if (!playing) return undefined;
-    const id = setInterval(() => setFrame((n) => n + speed), 100);
+    const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
-  }, [playing, speed]);
+  }, [playing]);
   const tick = (frame % TICKS) + 1;
   return (
     <PreviewShell room="tester" paper={paper}>
@@ -286,18 +295,30 @@ export function TesterRoom({ paper }: { paper: boolean }) {
             value={speed}
             aria-label={t('speed')}
             aria-valuetext={`${speed}x`}
-            onChange={(event) => setSpeed(Number(event.currentTarget.value))}
+            onChange={(event) => {
+              restart(frame);
+              setSpeed(Number(event.currentTarget.value));
+            }}
           />
         </label>
-        <Button variant="secondary" onClick={() => setPlaying((p) => !p)}>
-          {playing ? t('pause') : t('play')}
-        </Button>
-        <Button disabled={engine.waiting} onClick={() => void act('start')}>
-          {t('start')}
-        </Button>
-        <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
-          {t('backtest')}
-        </a>
+        {/* The local replay's control and the engine's Start are one row of equal buttons; the real backtest's link sits apart. */}
+        <div className="lt-actions preview-controls">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              restart(frame);
+              setPlaying(!playing);
+            }}
+          >
+            {playing ? t('pause') : t('play')}
+          </Button>
+          <Button variant="secondary" disabled={engine.waiting} onClick={() => void act('start')}>
+            {t('start')}
+          </Button>
+          <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
+            {t('backtest')}
+          </a>
+        </div>
       </Region>
       <PreviewRefusalAlert refusal={engine.refusal} />
     </PreviewShell>
@@ -366,7 +387,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
         <p role="note">{t('sortNote')}</p>
         {/* The passes are sample rows the person filters and sorts here, so they stay readable; only the engine's output is blurred. */}
         <div data-testid="optimise-passes">
-          <table aria-label={t('passes')}>
+          <table aria-label={t('passes')} className="preview-passes">
             <thead>
               <tr>
                 <th scope="col" aria-sort={sort ?? 'none'}>

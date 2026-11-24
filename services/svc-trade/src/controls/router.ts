@@ -1,8 +1,11 @@
-import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
-import { router, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { TradingControlError, type TradingControls } from './trading-controls.js';
-import { tradeRestrictInputSchema } from '../admin/trading-restrict.js';
-import { TRADE_ACCOUNT_CONTROLS_HISTORY, TRADE_ACCOUNT_CONTROLS_GET_STATE } from '@intafaced/contracts/trade-account-controls-procedures';
+import { tradingRestrictRequiresApproval } from '../admin/trading-restrict.js';
+import {
+  TRADE_ACCOUNT_CONTROLS_CHANGE,
+  TRADE_ACCOUNT_CONTROLS_HISTORY,
+  TRADE_ACCOUNT_CONTROLS_GET_STATE,
+} from '@intafaced/contracts/trade-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { tradeRefusal } from '../record-refusal.js';
 
@@ -44,14 +47,21 @@ export function tradingControlsRouter(controls?: TradingControls) {
       ({ ctx, input }) => call(() => requireControls().history(ctx, input)),
       tradeRefusal,
     ),
-    change: protectedProcedure
-      .input(tradeRestrictInputSchema())
-      .output(accountControlResultSchema)
-      .mutation(({ ctx, input }) => {
-        const approvalId = 'approvalId' in input && typeof input.approvalId === 'string' ? input.approvalId : undefined;
+    change: mountRecord(
+      TRADE_ACCOUNT_CONTROLS_CHANGE,
+      async ({ ctx, input }) => {
+        // The record takes an optional approval id; the four-eyes setting decides whether one is refused or required.
+        const { approvalId, ...command } = input;
+        const requires = tradingRestrictRequiresApproval();
+        if (approvalId !== undefined && !requires)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'An approval id is not taken while four-eyes approval is off' });
+        if (approvalId === undefined && requires)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'An approval id is required while four-eyes approval is on' });
         return call(() =>
-          approvalId === undefined ? requireControls().change(ctx, input) : requireControls().change(ctx, input, approvalId),
+          approvalId === undefined ? requireControls().change(ctx, command) : requireControls().change(ctx, command, approvalId),
         );
-      }),
+      },
+      tradeRefusal,
+    ),
   });
 }

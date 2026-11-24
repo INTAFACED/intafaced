@@ -1144,6 +1144,12 @@ test('the report sorts each hand reason into the kind one script change or one d
     reasonOf('r: s comes from @intafaced/money-math, which contracts does not depend on'),
     'answer or input schema from another package or generic',
   );
+  assert.equal(
+    reasonOf(
+      "svc/a.ts#needsApproval: reads process.env, so its schema changes with the service's settings: a record takes one schema; write it with the setting's field optional and refuse in the handler",
+    ),
+    "schema picked by the service's settings (one record: field optional, handler refuses)",
+  );
   assert.equal(reasonOf('something new'), 'other');
 });
 
@@ -2430,6 +2436,29 @@ test('a generic helper moves with its own type parameter; a package import moves
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: T is not declared anywhere it can be read'], 'a T no helper declares stays');
 });
 
+test("a schema picked by the service's settings is named as such, not as a name nobody declares", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-settings-'));
+  mkdirSync(join(repo, 'packages/contracts/src'), { recursive: true });
+  writeFileSync(join(repo, 'packages/contracts/src/wire.ts'), 'export const unused = 1;\n');
+  writeFileSync(join(repo, 'packages/contracts/package.json'), JSON.stringify({ dependencies: { zod: '^4' } }));
+  mkdirSync(join(repo, 'svc'), { recursive: true });
+  writeFileSync(
+    join(repo, 'svc/router.ts'),
+    [
+      "import { z } from 'zod';",
+      'const base = z.object({ id: z.string() }).strict();',
+      "function needsApproval(): boolean { return process.env.NEEDS_APPROVAL === 'true'; }",
+      'function inputSchema() { return needsApproval() ? base.extend({ approvalId: z.string() }) : base; }',
+      'const a = inputSchema();',
+      '',
+    ].join('\n'),
+  );
+  const p = load(join(repo, 'svc/router.ts'));
+  const { problems } = closureOf(repo, [{ p, node: p.program.body[4].declarations[0].init, where: 'r' }]);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /needsApproval: reads process\.env, so its schema changes with the service's settings/);
+});
+
 test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {
   const { plan } = await import('./portable.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
@@ -2815,6 +2844,41 @@ test("a bank write spec's `procedure: 'x.y'` becomes `record: RECORD`, its hand 
     [...f.imports].map(([spec, names]) => [spec, [...names]]),
     [['@intafaced/contracts/bank-earn-procedures', ['BANK_EARN_DEPOSIT']]],
   );
+});
+
+test("a bank write spec's `procedure:` picked by a `? :` chain is one site per call, written back as one `record: t ? A : B`", async () => {
+  const { fanIn } = await import('./fan.mjs');
+  const { callText } = await import('./index.mjs');
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('call-records-spec-fan-', {
+    [`${money}/contracts-business.ts`]: [
+      "import { z } from 'zod';",
+      "export const businessWrites = { 'business.approve': z.object({ a: z.string() }), 'business.reject': z.object({ ok: z.literal(true) }), 'business.cancel': z.object({ ok: z.literal(true) }) };",
+    ],
+    [`${money}/components.tsx`]: ['export type ActionSpec = { title: string; procedure: string; notes: string[]; input: () => object };'],
+    [`${money}/Approvals.tsx`]: [
+      "import { type ActionSpec } from './components';",
+      "export const act = (open: (s: ActionSpec) => void, action: string) => open({ title: 'Act', procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel', notes: [], input: () => ({}) });",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.shape === 'write-spec');
+  assert.deepEqual(
+    sites.map((s) => `${s.path} ${s.fan.at}/${s.fan.size} ${s.fan.test ?? '-'} ${s.problem ?? 'moves'}`),
+    ["business.approve 0/3 action === 'approve' moves", "business.reject 1/3 action === 'reject' moves", 'business.cancel 2/3 - moves'],
+  );
+  assert.ok(
+    sites.every((s) => s.schema),
+    'each call keeps its hand schema in view',
+  );
+  const changes = new Changes();
+  for (const s of sites)
+    rewriteSite(changes, s, `BANK_${s.path.split('.')[1].toUpperCase()}`, '@intafaced/contracts/bank-business-procedures', false);
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const file = join(repo, `${money}/Approvals.tsx`);
+  const code = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(code, /record: action === 'approve' \? BANK_APPROVE : action === 'reject' \? BANK_REJECT : BANK_CANCEL, notes/);
+  assert.deepEqual(planned.hand, []);
 });
 
 test('dead-hand-schemas deletes only the bank hand schemas no caller spells, each with its own comment', async () => {

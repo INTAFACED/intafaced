@@ -20,6 +20,7 @@ import { mc } from './copy';
 import { useMoneyReason } from '../access/MoneyAction';
 import { refundableAmount } from './model';
 import type { z } from 'zod';
+import { leaveTo } from '../../../../app/location';
 
 type Payment = z.infer<typeof paymentSchema>;
 
@@ -170,7 +171,7 @@ function RefundStep({
               paymentId={paymentId}
               onRecorded={payment.reload}
               onBack={() => {
-                window.location.href = `/pay/refunds?payment=${encodeURIComponent(paymentId)}`;
+                leaveTo(`/pay/refunds?payment=${encodeURIComponent(paymentId)}`);
               }}
             />
           </ExactMoneyScope>

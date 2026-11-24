@@ -211,3 +211,52 @@ export const BANK_TRANSFERS_CANCEL = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * Start a paused standing order again.
+ *
+ * `skipped` is in the OUTPUT, not just the record, because resuming does not
+ * settle up. A client that renders `status: 'active'` and nothing else lets a
+ * user believe the missed months are still coming; they are not, and the
+ * moment to say so is the moment they ask for it. See `resumeSchedule` for
+ * why skipping is the safe direction.
+ */
+export const BANK_TRANSFERS_RESUME = defineProcedure({
+  ...base,
+  name: 'bank.transfers.resume',
+  kind: 'mutation',
+  path: 'transfers.resume',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({
+    status: z.string(),
+    nextRunAt: z.string(),
+    /** Occurrences that came due while paused and will never fire. */
+    skipped: z.array(z.number().int()),
+  }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Hold a standing order. The reversible half of `cancel`.
+ *
+ * Same ownership ordering as `cancel`, for the same reason written there.
+ */
+export const BANK_TRANSFERS_PAUSE = defineProcedure({
+  ...base,
+  name: 'bank.transfers.pause',
+  kind: 'mutation',
+  path: 'transfers.pause',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({ status: z.string(), nextRunAt: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
