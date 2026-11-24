@@ -199,6 +199,42 @@ export function renderEnvFile(values) {
   return `${lines.join('\n')}\n`;
 }
 
+/**
+ * The compose services the tester overlay gives a per-service env file (docker-compose.tester.yml `env_file`), and the
+ * `pnpm local:stack` service each one copies.
+ */
+const TESTER_ENV_FILES = {
+  'svc-identity': 'identity',
+  'svc-edge': 'edge',
+  'svc-ledger': 'ledger',
+  'svc-trade': 'trade',
+  'svc-bank': 'bank',
+};
+/** Those of them that mount the state folder at its own path, so a setting naming a file in it holds there too. */
+const MOUNTS_STATE = new Set(['svc-identity', 'svc-edge']);
+
+/** The host process's own settings a `pnpm local:stack` service inherits; a container has its own. */
+const HOST_PROCESS_KEYS = new Set(['HOME', 'PATH', 'LANG', 'TMPDIR', 'USER', 'SHELL', 'PWD', 'NODE_OPTIONS', 'LOCAL_STACK_STATE']);
+
+/**
+ * One tester service's env file: every setting its `pnpm local:stack` service runs with (`stackEnv`) that no compose
+ * service sets itself (`composeKeys`: so a secret two services must share, such as JWT_ACCESS_SECRET, always keeps
+ * compose's one value), never the host process's own settings, a blank value,
+ * one naming the stack's own host (hostOnly), a path in this checkout (the container's is /app), or a path in the state
+ * folder for a service that does not mount it. Pure.
+ */
+export function testerServiceEnv(stackEnv, composeKeys, { root, state, mountsState }) {
+  const out = {};
+  for (const [key, raw] of Object.entries(stackEnv ?? {})) {
+    if (raw === undefined || raw === null || HOST_PROCESS_KEYS.has(key)) continue;
+    const value = String(raw);
+    if (value === '' || composeKeys.has(key) || hostOnly(value) || value.includes(root)) continue;
+    if (value.includes(state) && !mountsState) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 /** The tester stack's marker file in its state folder, the one every LOCAL TEST tool reads. */
 const MARKER_FILE = 'LOCAL-TEST-STACK.json';
 
@@ -319,6 +355,17 @@ async function main(argv) {
     throw new Error(`refusing: compose shares a variable the stack sets differently per service:\n  ${conflicts.join('\n  ')}`);
   if (unfilled.length) throw new Error(`refusing: compose requires values the stack does not run with: ${unfilled.join(', ')}`);
   fs.writeFileSync(out, renderEnvFile({ ...values, ...testerUser(), LOCAL_TESTER_STACK_ID: stackId }), { mode: 0o600 });
+  const composeKeys = new Set(Object.values(services).flatMap((svc) => Object.keys(svc.environment ?? {})));
+  for (const [svc, name] of Object.entries(TESTER_ENV_FILES)) {
+    const file = path.join(process.env.LOCAL_STACK_STATE, `tester-${name}.env`);
+    const env = testerServiceEnv(stackEnvs[name], composeKeys, {
+      root: ROOT,
+      state: process.env.LOCAL_STACK_STATE,
+      mountsState: MOUNTS_STATE.has(svc),
+    });
+    fs.writeFileSync(file, renderEnvFile(env), { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+  }
   fs.chmodSync(out, 0o600);
   console.log(
     `compose-env: ${Object.keys(values).length} LOCAL TEST values written to ${path.relative(ROOT, out)} (git-ignored, mode 600)`,

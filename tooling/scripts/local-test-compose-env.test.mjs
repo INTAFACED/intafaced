@@ -9,6 +9,7 @@ import {
   blankKeys,
   blankableVariable,
   composeMarker,
+  testerServiceEnv,
   composeEnvValues,
   envFileValue,
   hostOnly,
@@ -152,4 +153,24 @@ test('composeMarker: each LOCAL TEST port is the loopback port compose publishes
     () => composeMarker({ ...services, 'svc-ledger': { ports: loop(4001), environment: { LEDGER_CUSTODY_LAYER: 'maybe' } } }, id),
     /custody/,
   );
+});
+
+test('testerServiceEnv: only the LOCAL TEST settings no compose service sets, never the host or a shared secret', () => {
+  const stack = {
+    IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+    JWT_ACCESS_SECRET: 'the-stack-own-secret',
+    HOME: '/home/me',
+    PATH: '/usr/bin',
+    EMPTY: '',
+    EDGE_URL: 'http://127.0.0.1:14500',
+    BREACHED: '/repo/tooling/data/breached.txt',
+    OUTBOX: '/state/email-outbox.log',
+  };
+  const composeKeys = new Set(['JWT_ACCESS_SECRET', 'HTTP_PORT']);
+  const opts = { root: '/repo', state: '/state' };
+  assert.deepEqual(testerServiceEnv(stack, composeKeys, { ...opts, mountsState: true }), {
+    IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+    OUTBOX: '/state/email-outbox.log',
+  });
+  assert.deepEqual(testerServiceEnv(stack, composeKeys, { ...opts, mountsState: false }), { IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600' });
 });
