@@ -150,7 +150,7 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
     expect(health, `${name} health`).toMatch(ADAPTERS.includes(name) && name !== 'test-wallet-provider' ? /^(ok|off)\b/ : /^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder step (enrol the local test pair, pin it
-  // in identity, confirm their emails), the founders' TEST verification and the test-content seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
+  // in identity, confirm their emails), the founders' TEST verification, the TEST transfer limits and the test-content seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
@@ -160,6 +160,7 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(composeSteps(seed.block)).toEqual([
     'local-tester-founders.mjs enrol',
     'local-test-gates.mjs verify',
+    'local-test-gates.mjs terms',
     'local-test-seed.mjs apply',
     'local-test-seed.mjs home',
     'local-test-seed.mjs status',

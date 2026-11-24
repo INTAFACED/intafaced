@@ -25,8 +25,11 @@ const SCRIPTS = path.dirname(fileURLToPath(import.meta.url));
 export const STEPS = Object.freeze({
   'local-tester-founders.mjs enrol': { script: 'local-tester-founders.mjs', args: ['enrol'], flag: 'LOCAL_TEST', state: true },
   // The founders' own `full` verification requests, approved by the two TEST operators, as `pnpm local:stack`'s gates do:
-  // Home's bank needs it. The gates read their state folder from LOCAL_STACK_STATE, not --state.
+  // Home's bank needs it. The gates steps read their state folder from LOCAL_STACK_STATE, not --state.
   'local-test-gates.mjs verify': { script: 'local-test-gates.mjs', args: ['verify'], flag: 'LOCAL_TEST', stateEnv: true },
+  // The TEST personal transfer limits and fee, published with two-person approval, as the stack's gates do: Home's
+  // payment from founder b to founder a needs them.
+  'local-test-gates.mjs terms': { script: 'local-test-gates.mjs', args: ['terms'], flag: 'LOCAL_TEST', stateEnv: true },
   'local-test-seed.mjs apply': { script: 'local-test-seed.mjs', args: ['apply'], flag: 'LOCAL_TEST', state: true },
   'local-test-seed.mjs home': { script: 'local-test-seed.mjs', args: ['home'], flag: 'LOCAL_TEST', state: true, notice: true },
   'local-test-seed.mjs status': { script: 'local-test-seed.mjs', args: ['status'], flag: 'LOCAL_TEST', state: true },

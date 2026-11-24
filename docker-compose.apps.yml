@@ -2485,7 +2485,8 @@ services:
   # (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded), then
   # runs, in this order: the founder step (enrol the local test founder pair through svc-identity's own doors, wait until
   # identity runs with their ids, confirm their emails), the founders' TEST verification (each submits its own
-  # `full` request, the two TEST operators approve it, as the stack's gates do) and the TEST content seed (apply, home, then status, which prints
+  # `full` request, the two TEST operators approve it, as the stack's gates do), the TEST personal transfer
+  # limits (the gates' `terms`) and the TEST content seed (apply, home, then status, which prints
   # what it made), stopping at the first step that fails. Each script keeps its own guards: they reach the stack only on
   # the loopback ports its compose marker lists (this service shares the host's network), and only once the database on
   # that port holds the marker's stack id. Before `up`, `node tooling/scripts/local-test-compose-env.mjs` writes the env
@@ -2507,6 +2508,7 @@ services:
         'tooling/scripts/local-tester-seed.mjs',
         'local-tester-founders.mjs enrol',
         'local-test-gates.mjs verify',
+        'local-test-gates.mjs terms',
         'local-test-seed.mjs apply',
         'local-test-seed.mjs home',
         'local-test-seed.mjs status',
