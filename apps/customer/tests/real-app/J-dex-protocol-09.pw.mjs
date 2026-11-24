@@ -167,6 +167,11 @@ test(`${J} #2 opens the blocks list and a block: rows down from the finalized he
   stepPicture,
 }) => {
   const orphan = await reorgedBlock(page);
+  // While anvil_reorg runs, anvil can answer eth_getCode with 0x for the long-deployed venue, so an indexer pass in
+  // that window records indexer.venue_not_deployed and the list refuses until a later pass (#10341). Wait for the
+  // block mined after the reorg: the pass that stores it started after the reorg, and the indexer answers it only
+  // once no pass has failed since.
+  await indexedTo(Number(orphan.height) + 1);
   await page.goto('/chain/blocks');
   const table = tableIn(page, 'Blocks');
   const rows = bodyRows(table);
