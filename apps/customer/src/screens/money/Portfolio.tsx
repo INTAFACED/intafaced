@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { AssetIcon, Button, EmptyState, Fold, RefusalBox, Select } from '@intafaced/ui/lit';
 import { AllocationBar } from './allocation-chart';
@@ -613,26 +613,10 @@ export default function Portfolio() {
       <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
     </div>
   );
-  const hero = loading ? null : (
-    <div data-testid="money-head" className="lt-stack">
-      {label}
-      {view ? (
-        <Headline view={view} hidden={hideBalances} copy={copy} />
-      ) : portfolio.status === 'empty' ? (
-        <div data-testid="money-total">
-          {/* The balance call answered with no assets, so zero is correct here and only here. */}
-          <HeroTotal parts={usdParts('0')} hidden={hideBalances} unknownLabel={t('Total unknown')} />
-        </div>
-      ) : null}
-      <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
-    </div>
-  );
-
-  let body;
-  if (portfolio.status === 'loading') {
-    body = null;
-  } else if (portfolio.status === 'error') {
-    body = (
+  // A read that failed or was refused says so where the figure would be, so the balance card is never left blank.
+  let failure: ReactNode = null;
+  if (portfolio.status === 'error') {
+    failure = (
       <div data-testid="money-state" data-slot="state-block" data-kind="error" className="lt-stack">
         <RefusalBox refusal={{ variant: 'unreachable', title: t('Couldn’t load your balance'), body: '' }} />
         <div className="lt-actions">
@@ -645,13 +629,34 @@ export default function Portfolio() {
   } else if (portfolio.status === 'refused') {
     // The raw service code never reaches the screen: only a short reference a customer can quote to support.
     const words = refusalCopy(portfolio.code);
-    body = (
+    failure = (
       <div data-testid="money-state" data-slot="state-block" data-kind="refused">
         <RefusalBox
           refusal={{ variant: 'refused', title: words.title, body: words.body ?? '', reference: words.reference, action: words.action }}
         />
       </div>
     );
+  }
+  const hero = loading ? null : (
+    <div data-testid="money-head" className="lt-stack">
+      {label}
+      {view ? (
+        <Headline view={view} hidden={hideBalances} copy={copy} />
+      ) : portfolio.status === 'empty' ? (
+        <div data-testid="money-total">
+          {/* The balance call answered with no assets, so zero is correct here and only here. */}
+          <HeroTotal parts={usdParts('0')} hidden={hideBalances} unknownLabel={t('Total unknown')} />
+        </div>
+      ) : (
+        failure
+      )}
+      <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
+    </div>
+  );
+
+  let body;
+  if (portfolio.status === 'loading' || failure) {
+    body = null;
   } else if (portfolio.status === 'empty' || !view) {
     body = (
       <>

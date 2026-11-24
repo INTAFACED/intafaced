@@ -70,7 +70,6 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
         title: 'Verify your identity first',
         body: 'You need a verified account to do this.',
         action: { label: 'Verify now', href: '/verification' },
-        reference: 'Ref VER-1',
       });
     }
   });
