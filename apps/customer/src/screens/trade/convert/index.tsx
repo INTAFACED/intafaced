@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { shownCode } from '../../../shared/reference';
 import { ArrowDownUp, ChevronDown, History, Info } from 'lucide-react';
 import '../buy/buy.css';
 import './convert.css';
@@ -40,11 +41,15 @@ import { OTC_DESK_ID, OtcConvert } from './OtcConvert';
 import { RecentConversions } from './RecentConversions';
 import { RouteCard } from './RouteCard';
 import { LimitConvert } from './LimitConvert';
+import { classifyRefusal } from '../../../data';
+import { TradingHoldReason } from '../../../features/account/TradingHoldReason';
 import { useConvertPairs } from './use-pairs';
 import { canAccept, holdProgress, spreadPercent, validUntilClock } from './breakdown';
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
 import { acceptQuote, holdMs, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
 import type { ScreenProps } from '../../../app/screen-types';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueConvertRoom } from './VenueConvert';
 
 const ACTIVITY_HREF = '/money/activity?tab=all';
 /** "Available" shows the whole balance, as Money does (up to 8 places); only Max rounds down to the lot (critic M5). */
@@ -120,9 +125,15 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
       ? { from: asked.from, to: asked.to }
       : null;
   const shown = routeAsked ?? (chosen && edgeFor(all, chosen.from, chosen.to) ? chosen : pair);
+  // Venue mode (the launch money model): the conversion is one order on the person's own venue account, signed by their
+  // wallet. The card and Recent conversions are the venue's; our own book's card is the custodial layer, kept off.
+  const venue = useVenueMode();
 
   let card: React.ReactNode;
-  if (markets.status === 'loading')
+  if (venue.mode === 'on') card = <VenueConvertRoom mode={venue} asked={{ from: asked.from, to: asked.to }} />;
+  else if (venue.mode === 'checking')
+    card = <div data-testid="cvt-card--skeleton" className="cvt-card cvt-card--skeleton" aria-busy="true" />;
+  else if (markets.status === 'loading')
     card = (
       <div data-testid="cvt-card--skeleton" className="cvt-card cvt-card--skeleton" aria-busy="true">
         <Skeleton height={28} width={120} />
@@ -160,20 +171,22 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
 
   return (
     <>
-      <TradeSubNav active="convert" />
       <div data-testid="if-convert" className="if-convert">
+        <TradeSubNav />
         <div className="cvt-grid">
           <header data-testid="cvt-hero" className="cvt-hero">
             <h1>
               <span>{t('Convert')}</span>
-              <span data-testid="headline-pair">{shown ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}</span>
+              <span data-testid="headline-pair">
+                {shown && venue.mode === 'off' ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}
+              </span>
             </h1>
             <p>{t('Convert tagline')}</p>
           </header>
           {card}
         </div>
         <OtcConvert />
-        {signedIn ? <RecentConversions /> : null}
+        {signedIn && venue.mode === 'off' ? <RecentConversions /> : null}
         <section data-testid="cvt-faq" className="cvt-faq" aria-labelledby="cvt-faq-title">
           <h2 id="cvt-faq-title">{t('Questions')}</h2>
           <Accordion>
@@ -227,7 +240,11 @@ function ConvertCard({
   const [picker, setPicker] = useState<'from' | 'to' | null>(null);
   const [reviewing, setReviewing] = useState<Reviewing>(null);
   const [accepting, setAccepting] = useState(false);
-  const [dialogMessage, setDialogMessage] = useState<{ text: string; action?: { label: string; href: string } } | null>(null);
+  const [dialogMessage, setDialogMessage] = useState<{
+    text: string;
+    action?: { label: string; href: string };
+    code?: string | null;
+  } | null>(null);
   const [result, setResult] = useState<Fill | null>(null);
   const [attempt, setAttempt] = useState<{ ref: AcceptRef; id: string } | null>(null);
   const swappedAt = useRef(0);
@@ -427,8 +444,9 @@ function ConvertCard({
       case 'refused': {
         const action = outcome.copy.action;
         setDialogMessage({
-          text: `${outcome.copy.title}. ${outcome.copy.body}${outcome.code ? ` (Ref ${outcome.code.trim().slice(0, 80)})` : ''}`,
+          text: `${outcome.copy.title}. ${outcome.copy.body}${shownCode(outcome.code) ? ` (Ref ${outcome.code!.trim().slice(0, 80)})` : ''}`,
           action,
+          code: outcome.code,
         });
         setAttempt(null);
         // The balance may be why: read it again now rather than in half a minute.
@@ -570,7 +588,7 @@ function ConvertCard({
         <>
           <div className="cvt-fields">
             <div className="cvt-field" data-testid="from-field">
-              <span className="cvt-field__label">{t('From')}</span>
+              <span className="lt-hint">{t('From')}</span>
               <div className="cvt-field__main">
                 <button type="button" className="cvt-asset" onClick={() => setPicker('from')} aria-label={t('Change From asset')}>
                   <CoinIcon asset={from} size={28} />
@@ -608,7 +626,7 @@ function ConvertCard({
             </button>
 
             <div className="cvt-field" data-testid="to-field">
-              <span className="cvt-field__label">{t('To')}</span>
+              <span className="lt-hint">{t('To')}</span>
               <div className="cvt-field__main">
                 <button type="button" className="cvt-asset" onClick={() => setPicker('to')} aria-label={t('Change To asset')}>
                   <CoinIcon asset={to} size={28} />
@@ -639,7 +657,7 @@ function ConvertCard({
           {insufficient ? (
             <div className="cvt-note" role="alert" data-testid="cvt-short">
               <p>{shortText}</p>
-              <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+              <a className="lt-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
                 {t('Deposit {asset}', { asset: from })}
               </a>
             </div>
@@ -649,7 +667,7 @@ function ConvertCard({
               <p>
                 <strong>{t('Paused title')}.</strong> {t('Paused body')}
               </p>
-              <a className="text-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
+              <a className="lt-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
                 {t('Use Spot')}
               </a>
             </div>
@@ -661,7 +679,7 @@ function ConvertCard({
                 {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: market.quote })}
               </p>
               <a
-                className="text-link"
+                className="lt-link"
                 href={`#${OTC_DESK_ID}`}
                 onClick={(event) => {
                   event.preventDefault();
@@ -717,10 +735,11 @@ function ConvertCard({
               className="buy-state"
               title={state.copy.title}
               body={state.copy.body}
-              code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
+              code={state.copy.reference ?? (shownCode(state.code) ? `Ref ${state.code!.trim().slice(0, 80)}` : undefined)}
               action={state.copy.action}
             />
           ) : null}
+          {state.status === 'refused' && !paused && state.kind === 'tradingOnHold' ? <TradingHoldReason /> : null}
           {state.status === 'depth' ? (
             <p data-testid="cvt-note" className="cvt-note">
               {t('Too big')}
@@ -833,6 +852,8 @@ function ConvertCard({
               {dialogMessage.text} {dialogMessage.action ? <a href={dialogMessage.action.href}>{dialogMessage.action.label}</a> : null}
             </p>
           ) : null}
+          {/* J-identity-14 #2: a trading hold gives the restriction's stored reason here too, in the status page's words. */}
+          {dialogMessage && classifyRefusal(dialogMessage.code) === 'tradingOnHold' ? <TradingHoldReason /> : null}
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="secondary" size={40} />} disabled={accepting}>
               {t('Cancel')}

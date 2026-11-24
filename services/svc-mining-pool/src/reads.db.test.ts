@@ -1,3 +1,4 @@
+import type { AnyRouter } from '@trpc/server';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -508,14 +509,9 @@ describe('mining pool reads', () => {
     expect(JSON.stringify(first)).not.toContain('tx-bob');
   });
 
-  it('register refuses and leaves the worker table empty', async () => {
-    await expect(
-      routerFor()
-        .createCaller(signed(ALICE, ['ledger:read']))
-        .workers.register(),
-    ).rejects.toMatchObject({
-      cause: { code: 'mining.worker_registration_scope_unset' },
-    });
+  it('has no call that registers a worker, and the worker table stays empty without shares', async () => {
+    const router: AnyRouter = routerFor();
+    expect(Object.keys(router._def.procedures).filter((path) => /register/i.test(path))).toEqual([]);
     expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.workers`).toEqual([{ n: 0 }]);
   });
 });

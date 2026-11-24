@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { CHECKOUT_LOGO_TYPES, type CheckoutBranding, type CheckoutBrandingSaveInput } from '@intafaced/contracts';
+import type { CheckoutBranding, CheckoutBrandingSaveInput } from '@intafaced/contracts';
+import { CHECKOUT_LOGO_TYPES } from '@intafaced/contracts/merchant-checkout-branding';
 import { decodeImageUpload } from '../catalog/image-bytes.js';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';

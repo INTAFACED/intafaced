@@ -33,7 +33,7 @@ export const SIGNED_SEND_RAIL = 'crypto-native';
 /** Where a TEST signer may be connected: development and test only, by exact name. */
 const TEST_SIGNER_ENVS: readonly string[] = ['dev', 'test'];
 
-/** A network id as a quote and a send name it (`sendNetworkIdSchema`), so a named signer can always be matched. */
+/** A network id as a quote and a send name it (`PAY_WITHDRAWAL_QUOTE` and `PAY_WITHDRAWAL_CREATE`), so a named signer can always be matched. */
 const NETWORK_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export interface WithdrawSignerPosture {

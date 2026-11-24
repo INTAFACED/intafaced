@@ -12,7 +12,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
@@ -50,7 +50,7 @@ async function openH6Admin(): Promise<{ url: string; stop: () => Promise<void> }
     return { url: envUrl, stop: async () => undefined };
   }
   try {
-    const container = await new PostgreSqlContainer(H6_IMAGE)
+    const container = await testPostgres(H6_IMAGE)
       .withDatabase('intafaced_h6_test')
       .withUsername('intafaced')
       .withPassword('intafaced')

@@ -1,0 +1,452 @@
+{
+  "blank GET /markets markets anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets markets founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /spreads spreads anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads spreads founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /health health anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health health founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":22,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth anon": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth svc-execution": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth svc-ledger": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth svc-trade-unbound": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth svc-trade-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth founder": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth reader": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth?limit=10 depth founder-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /operator/in-flight in-flight anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank GET /operator/in-flight in-flight founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "set GET /markets markets anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets markets founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /spreads spreads anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /spreads spreads founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"}]}"
+  },
+  "set GET /health health anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /health health founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":2,\"restingOrders\":2,\"journalRecords\":59,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":117,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"7020000.00\"},\"cancel\":{\"count\":27,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"1620000.00\"},\"depth\":{\"count\":72,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"4320000.00\"}},\"submitByMarket\":{\"BTC-CAL-MAR-JUN\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"BTC-USDT\":{\"count\":108,\"errors\":0,\"p50Ms\":0,\"p99Ms\":0,\"perMinute\":\"6480000.00\"}}}}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /markets/BTC-USDT/depth?limit=10 depth founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"bids\":[],\"asks\":[],\"sequence\":0,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /operator/in-flight in-flight anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set GET /operator/in-flight in-flight svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set GET /operator/in-flight in-flight svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set GET /operator/in-flight in-flight svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set GET /operator/in-flight in-flight svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set GET /operator/in-flight in-flight svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set GET /operator/in-flight in-flight founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"asOf\":\"2026-11-19T00:00:00.000Z\",\"venueHalted\":false,\"venueHaltedCode\":null,\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"marketsCode\":null,\"halted\":[],\"restingOrders\":2,\"restingOrdersCode\":null}"
+  },
+  "set GET /operator/in-flight in-flight reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"asOf\":\"2026-11-19T00:00:00.000Z\",\"venueHalted\":false,\"venueHaltedCode\":null,\"markets\":[\"BTC-CAL-MAR-JUN\",\"BTC-USDT\"],\"marketsCode\":null,\"halted\":[],\"restingOrders\":2,\"restingOrdersCode\":null}"
+  },
+  "set GET /operator/in-flight in-flight founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  }
+}

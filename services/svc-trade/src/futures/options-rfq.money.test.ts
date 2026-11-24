@@ -14,7 +14,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -29,7 +29,8 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
-const matchingRoot = join(here, '..', '..', '..', 'svc-matching');
+// The engine is the Rust crate (crates/svc-matching): its module and test files are named in snake case.
+const matchingRoot = join(here, '..', '..', '..', '..', 'crates', 'svc-matching');
 const migrations = readdirSync(drizzle)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()
@@ -43,7 +44,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -89,7 +90,8 @@ describe('options RFQ hitch (source) — matching not folded, book cap not inher
     expect(routerSrc).not.toMatch(/options-rfq/);
     expect(routerSrc).not.toMatch(/rfq_capacity_unset/);
     const matchingFiles = readdirSync(matchingRoot, { recursive: true, encoding: 'utf8' }) as string[];
-    expect(matchingFiles.some((f) => String(f).includes('options-rfq'))).toBe(false);
+    expect(matchingFiles.length).toBeGreaterThan(0);
+    expect(matchingFiles.some((f) => String(f).includes('options-rfq') || String(f).includes('options_rfq'))).toBe(false);
     // The recursive walk of svc-matching (including node_modules) takes ~3s alone and exceeds 5s under CI/full-suite load.
   }, 30_000);
 });

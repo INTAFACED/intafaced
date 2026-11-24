@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -50,7 +50,7 @@ const SECRET = 'sk_live_provider_secret_do_not_echo';
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_merchant_reads_test')
     .withUsername('intafaced')
     .withPassword('intafaced')

@@ -3,6 +3,7 @@
  * The server decides whether an order can go; the desk only reads its answer. Refusal words always come from
  * `data/refusals.ts` (`refusalCopy`), never from the service's own text or raw codes.
  */
+import { LEAD_ORDER_REFUSALS } from '../../../features/trade/lead-mode';
 import type { ApiResult } from '../../../shared/api';
 import type { Preview } from '../../../features/trade/trade-api';
 import { parseAmount } from '../../../shared/money';
@@ -12,7 +13,9 @@ import type { RefusalCopy } from '../../../data/types';
 
 /** What the person is told when a call failed. `network` means we do not know the outcome of what was sent. */
 /** `tradingHold`: the refusal is a trading hold on this account, so the note adds its stored reason (J-identity-14 #2). */
-export type Failure = { kind: 'refusal'; copy: RefusalCopy; tradingHold?: true } | { kind: 'network' };
+/** `band`: a price band refusal's own edges (`trade.price_band`), so the ticket can offer to move the price to the edge. */
+export type Failure =
+  { kind: 'refusal'; copy: RefusalCopy; tradingHold?: true; band?: { readonly low: string; readonly high: string } } | { kind: 'network' };
 
 /** Refusals that count new resting orders. The order check judges a new order, but a replacement takes the slot its
  * original frees (the service never caps it), so an edit reads the check without them. */
@@ -55,7 +58,10 @@ export function previewFailure(preview: Preview, context: RefusalContext, tickSi
     ...(data.cap !== undefined ? { cap: data.cap } : {}),
     ...(data.open !== undefined ? { open: data.open } : {}),
   };
-  return refusalFailure(first?.code ?? null, named);
+  const failure = refusalFailure(first?.code ?? null, named);
+  if (failure.kind === 'refusal' && first?.code === 'trade.price_band' && data.low !== undefined && data.high !== undefined)
+    return { ...failure, band: { low: data.low, high: data.high } };
+  return failure;
 }
 
 export function refusalFailure(code: string | null | undefined, context: RefusalContext): Failure {
@@ -80,6 +86,9 @@ export function failureOf(result: Extract<ApiResult<unknown>, { ok: false }>, co
   // The platform posting freeze: orders are paused for everyone, not this account.
   if (isLedgerFrozen(result)) return refusalFailure('trade.orders_paused', context);
   if (result.reason === 'unauthorized') return refusalFailure('auth.required', context);
+  // A listed lead's lead trade refused by its own rule (J-copy-bots-otc-04 #5 to #7): its own words and its code.
+  const lead = result.code ? LEAD_ORDER_REFUSALS[result.code] : undefined;
+  if (lead) return { kind: 'refusal', copy: { title: lead.title, body: lead.body, reference: `Reference ${result.code}` } };
   if (result.code) return refusalFailure(result.code, context);
   if (result.reason === 'forbidden') return refusalFailure('scope.denied', context);
   return { kind: 'network' };

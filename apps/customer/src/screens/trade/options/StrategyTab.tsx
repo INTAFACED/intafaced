@@ -145,10 +145,10 @@ export function StrategyTab({
   const money = (value: string) => fmtAmount(value, { places });
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="m-0 text-sm text-fg-2">{t('Strategy intro')}</p>
+    <div className="lt-stack">
+      <p className="lt-hint">{t('Strategy intro')}</p>
 
-      <section aria-label={t('Presets')} className="flex flex-wrap items-end gap-3">
+      <section aria-label={t('Presets')} className="lt-field-row">
         <Field density="dense" label={t('Preset')}>
           <Select
             items={Object.fromEntries(PRESET_IDS.map((id) => [id, t(`Preset ${id}`)]))}
@@ -184,8 +184,8 @@ export function StrategyTab({
         </Button>
       </section>
 
-      {legs.length === 0 ? <p className="m-0 text-sm text-fg-2">{t('No legs')}</p> : null}
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      {legs.length === 0 ? <p className="lt-hint">{t('No legs')}</p> : null}
+      <ul className="lt-list">
         {legs.map((leg, i) => {
           const g = greeks?.[i];
           return (
@@ -236,7 +236,7 @@ export function StrategyTab({
                 </Button>
               </div>
               {g ? (
-                <p className="m-0 text-sm text-fg-2" aria-live="polite">
+                <p className="lt-hint" aria-live="polite">
                   {g.kind === 'ok'
                     ? `${t('Delta')} ${fmtAmount(g.delta, { places })} · ${t('Gamma')} ${fmtAmount(g.gamma, { places })} · ${t('Vega')} ${fmtAmount(g.vega, { places })} · ${t('Theta')} ${fmtAmount(g.theta, { places })} · ${t('Value')} ${fmtAmount(g.npv, { places })}`
                     : `${t('Delta')} —  ${t('Gamma')} —  ${t('Vega')} —  ${t('Theta')} —  · ${g.words.title}. ${g.words.body}`}
@@ -250,8 +250,8 @@ export function StrategyTab({
       {legs.length > 0 && analysis === null ? <p className="m-0 text-sm text-warn">{t('Finish the legs')}</p> : null}
 
       {analysis ? (
-        <section aria-label={t('Result at expiry')} className="flex flex-col gap-3">
-          <p className="m-0 text-xs text-fg-2">{t('Not a quote')}</p>
+        <section aria-label={t('Result at expiry')} className="lt-stack">
+          <p className="lt-hint">{t('Not a quote')}</p>
           <KeyValue
             density="dense"
             items={[
@@ -281,14 +281,14 @@ export function StrategyTab({
             rows={analysis.rows}
             getRowId={(r) => r.spot}
           />
-          <p className="m-0 text-xs text-fg-2">{t('Margin blocker')}</p>
+          <p className="lt-hint">{t('Margin blocker')}</p>
         </section>
       ) : null}
 
-      <section aria-label={t('Greeks')} className="flex flex-col gap-3">
+      <section aria-label={t('Greeks')} className="lt-stack">
         <h3 className="m-0 text-md font-medium text-fg">{t('Greeks')}</h3>
-        <p className="m-0 text-sm text-fg-2">{t('Greeks intro')}</p>
-        <div className="flex flex-wrap items-end gap-3">
+        <p className="lt-hint">{t('Greeks intro')}</p>
+        <div className="lt-field-row">
           <Field density="dense" label={t('Contract size')} hint={t('Contract size hint')}>
             <Input kind="decimal" precision={8} value={multiplier} onValueChange={setMultiplier} className="w-24" />
           </Field>
@@ -349,9 +349,9 @@ export function StrategyTab({
           </Button>
         </div>
         {analysis === null ? (
-          <p className="m-0 text-xs text-fg-2">{t('Greeks need legs')}</p>
+          <p className="lt-hint">{t('Greeks need legs')}</p>
         ) : !inputsReady ? (
-          <p className="m-0 text-xs text-fg-2">{t('Greeks need inputs')}</p>
+          <p className="lt-hint">{t('Greeks need inputs')}</p>
         ) : null}
       </section>
     </div>

@@ -1,10 +1,13 @@
+// volt-room: /dex/orders
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DexOrderCap } from '@intafaced/contracts/protocol-dex-orders';
-import { Button, DataTable, EmptyState, Page, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Panel } from '../volt/parts';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { currentPreferences, usePreferences } from '../../../shared/preferences';
 import type { ApiResult } from '../../../shared/api';
 import { stamp } from '../../../screens/money/time';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { useWallet } from '../wallet/WalletProvider';
 import { ordersCopy, type OrdersTranslate } from './copy';
@@ -17,7 +20,6 @@ import {
   type OrderSession,
   type OrdersApi,
 } from './orders-api';
-import '../protocol.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -58,20 +60,28 @@ export function OrdersRoom() {
   useEffect(() => setSession(address ? (rememberedSession(address) ?? null) : null), [address]);
 
   return (
-    <Page eyebrow={t('eyebrow')} title={t('title')} description={t('description')}>
-      {!address ? (
-        <Panel title={t('connectTitle')}>
-          <EmptyState title={t('connectTitle')} action={<a href="/wallet">{t('connectAction')}</a>}>
-            {t('connectBody')}
-          </EmptyState>
-        </Panel>
-      ) : (
+    <RecordListTemplate
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      summary={<p className="lt-hint">{t('eyebrow')}</p>}
+      list={
         <>
-          <SessionPanel api={api} address={address} session={session} onSession={setSession} t={t} />
-          <OrderList api={api} address={address} session={session} t={t} />
+          {!address ? (
+            <Panel title={t('connectTitle')}>
+              <EmptyState title={t('connectTitle')} action={<a href="/wallet">{t('connectAction')}</a>}>
+                {t('connectBody')}
+              </EmptyState>
+            </Panel>
+          ) : (
+            <>
+              <SessionPanel api={api} address={address} session={session} onSession={setSession} t={t} />
+              <OrderList api={api} address={address} session={session} t={t} />
+            </>
+          )}
         </>
-      )}
-    </Page>
+      }
+    />
   );
 }
 
@@ -79,7 +89,7 @@ function CapRows({ cap, t }: { cap: readonly DexOrderCap[]; t: OrdersTranslate }
   return (
     <>
       {cap.map((row) => (
-        <span key={row.token} className="numeric">
+        <span key={row.token} className="lt-mono">
           {t('sessionCapRow', { max: row.max, symbol: row.symbol })}
           <br />
         </span>
@@ -166,9 +176,9 @@ function SessionPanel({
   const shown = session ?? challenge;
   return (
     <Panel title={t('sessionTitle')} aria-label={t('sessionTitle')}>
-      <p className="muted">{t('sessionIntro')}</p>
+      <p className="lt-hint">{t('sessionIntro')}</p>
       {shown ? (
-        <dl className="kv">
+        <dl className="lt-kv">
           <dt>{t('sessionScope')}</dt>
           <dd>{shown.scope}</dd>
           <dt>{t('sessionExpires')}</dt>
@@ -183,21 +193,21 @@ function SessionPanel({
           </dd>
         </dl>
       ) : (
-        !problem && <p className="muted">{t('sessionLoading')}</p>
+        !problem && <p className="lt-hint">{t('sessionLoading')}</p>
       )}
-      <div className="actions">
+      <div className="lt-actions">
         {!session && (
-          <Button onClick={() => void signSession()} disabled={!challenge || busy}>
+          <Button tone="primary" onClick={() => void signSession()} disabled={!challenge || busy}>
             {busy ? t('sessionSigning') : t('sessionSign')}
           </Button>
         )}
         {last.current && (
-          <Button variant="secondary" onClick={() => void replay()} title={t('sessionReplayHint')}>
+          <Button tone="secondary" onClick={() => void replay()} title={t('sessionReplayHint')}>
             {t('sessionReplay')}
           </Button>
         )}
         {session && (
-          <Button variant="ghost" onClick={() => void signOut()}>
+          <Button tone="quiet" onClick={() => void signOut()}>
             {t('sessionSignOut')}
           </Button>
         )}

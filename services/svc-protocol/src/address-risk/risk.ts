@@ -51,7 +51,11 @@ export interface AddressRiskStore {
    * refusal is counted on the open report.
    */
   insertReport(report: NewReport): Promise<{ kind: 'created'; report: ReportRecord } | { kind: 'duplicate' }>;
+  /** Whether the address is a blocked token, and whether an approved onboarding checklist makes it a permissioned one. */
+  tokenStanding(chainId: number, address: Address): Promise<TokenStanding>;
 }
+
+export type TokenStanding = Pick<ProtocolAddressRisk, 'blocked' | 'permissioned'>;
 
 /** The business idempotency key: one open report per reporter, chain and address. */
 export const reportKey = (reporterId: string, chainId: number, address: Address) =>
@@ -68,7 +72,11 @@ export async function readAddressRisk(
   input: { chainId: number; address: string; screeningLoaded: boolean },
 ): Promise<ProtocolAddressRisk> {
   const address = toChecksum(input.address);
-  const [labels, openReports] = await Promise.all([store.labels(input.chainId, address), store.openReportCount(input.chainId, address)]);
+  const [labels, openReports, standing] = await Promise.all([
+    store.labels(input.chainId, address),
+    store.openReportCount(input.chainId, address),
+    store.tokenStanding(input.chainId, address),
+  ]);
   return {
     chainId: input.chainId,
     address,
@@ -76,6 +84,8 @@ export async function readAddressRisk(
     labels: labels.map((label) => ({ ...label, setAt: label.setAt.toISOString() })),
     openReports,
     screening: input.screeningLoaded ? { status: 'loaded', code: null } : { status: 'not_loaded', code: 'vendor.aml' },
+    blocked: standing.blocked,
+    permissioned: standing.permissioned,
   };
 }
 
@@ -120,7 +130,11 @@ export async function submitReport(
 export class MemoryAddressRiskStore implements AddressRiskStore {
   readonly labelRows: (LabelRecord & { chainId: number; address: Address })[] = [];
   readonly reports: (ReportRecord & { status: 'open' | 'published' | 'dismissed'; duplicatesRefused: number })[] = [];
+  standing: TokenStanding = { blocked: null, permissioned: null };
   private seq = 0;
+  async tokenStanding(): Promise<TokenStanding> {
+    return this.standing;
+  }
   addLabel(chainId: number, address: Address, label: LabelRecord) {
     this.labelRows.push({ ...label, chainId, address: toChecksum(address) });
   }

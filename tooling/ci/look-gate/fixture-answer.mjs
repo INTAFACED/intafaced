@@ -6,6 +6,9 @@
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { trpc as result } from '../../../apps/customer/src/screens/money/money.fixtures.mjs';
 
+/** For a reader that draws rooms as the gate does: which rooms render signed out, and the view a first visit lands on. */
+export const { SIGNED_OUT, VIEW } = world;
+
 /** A fixture run with Date.now() at `now`, the page's frozen time, so a shot never depends on when the gate ran. */
 function atFrozen(now, fn, arg) {
   const real = Date.now;
@@ -47,6 +50,7 @@ function answer(href, method, body, signedIn, now) {
   if (!rest || method !== 'GET') return null;
   const path = rest[1];
   if (path.startsWith('ohlcv/')) return { status: 200, json: atFrozen(now, world.REST['ohlcv/*'], decodeURIComponent(path.slice(6))) };
+  if (Object.hasOwn(world.REST_REFUSED, path)) return world.REST_REFUSED[path];
   const fn = Object.hasOwn(world.REST, path) ? world.REST[path] : null;
   return fn ? { status: 200, json: atFrozen(now, fn) } : null;
 }

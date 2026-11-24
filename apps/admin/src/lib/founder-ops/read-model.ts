@@ -1,5 +1,5 @@
 import type { FounderMerchantSection, FounderMerchantSectionInput } from '@intafaced/contracts';
-import type { ChipSpec } from '@/lib/merchants/chips';
+import type { ChipSpec } from '@/lib/merchants';
 
 /**
  * Pure rules for the founder reads added in #4870 (merchant sections, recent merchants, payout and dispute lists,

@@ -5,14 +5,14 @@ import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { ServiceOffNotice } from '../../../shared/service-off';
 import { Button, Field, Loading, Panel } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { networkLabel } from '../blockers';
-import { WatchShell } from '../watch/AddressPage';
+import { WatchShell } from '../watch/WatchShell';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, toUnits } from './format';
-import { isNoNetwork, plainReason, refusalCode } from './liquidity-api';
+import { isNoNetwork, plainReason } from './liquidity-api';
 import { NoWalletNote, useLiquiditySigning } from './signing';
 
 const SHARE_DECIMALS = 18;
@@ -234,7 +234,7 @@ export function AddLiquidity({ pool }: { pool: string }) {
               <Field label={token1?.name ?? '—'} inputMode="decimal" value={amount1} onChange={(event) => setAmount1(event.target.value)} />
               {quoted?.kind === 'pair' && token0 && token1 && (
                 <>
-                  <p className="numeric" data-testid="pulled">
+                  <p className="lt-num" data-testid="pulled">
                     {t('pulled', {
                       amount0: amountText(quoted.quote.amount0, token0.decimals),
                       symbol0: token0.name,
@@ -242,8 +242,8 @@ export function AddLiquidity({ pool }: { pool: string }) {
                       symbol1: token1.name,
                     })}
                   </p>
-                  <p className="muted">{t('pulledNote')}</p>
-                  <p className="numeric">
+                  <p className="lt-muted">{t('pulledNote')}</p>
+                  <p className="lt-num">
                     {t('willMint', {
                       shares: amountText(quoted.quote.shares, SHARE_DECIMALS),
                       share: bpsPercent(quoted.quote.shareOfPoolBps),
@@ -254,7 +254,7 @@ export function AddLiquidity({ pool }: { pool: string }) {
             </>
           ) : (
             <>
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('oneToken')}</span>
                 <select value={single} onChange={(event) => setSingle(event.target.value as '0' | '1')} aria-label={t('oneToken')}>
                   {token0 && <option value="0">{token0.name}</option>}
@@ -269,10 +269,10 @@ export function AddLiquidity({ pool }: { pool: string }) {
               />
               {quoted?.kind === 'one' && singleToken && (
                 <>
-                  <p className="numeric" data-testid="swap-half">
+                  <p className="lt-num" data-testid="swap-half">
                     {t('swapHalf', { amount: amountText(quoted.quote.swapped, singleToken.decimals, 2), symbol: singleToken.name })}
                   </p>
-                  <p className="numeric">{t('willMint', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS), share: '—' })}</p>
+                  <p className="lt-num">{t('willMint', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS), share: '—' })}</p>
                 </>
               )}
               <p role="note">{t('atomic')}</p>
@@ -285,7 +285,7 @@ export function AddLiquidity({ pool }: { pool: string }) {
             value={minShares}
             onChange={(event) => setMinShares(event.target.value)}
           />
-          {quoted && !stale && left !== null && <p className="muted">{t('quoteValid', { seconds: String(left) })}</p>}
+          {quoted && !stale && left !== null && <p className="lt-muted">{t('quoteValid', { seconds: String(left) })}</p>}
           {stale && ttl !== null && (
             <>
               <p role="status">{t('quoteStale', { seconds: String(ttl) })}</p>

@@ -21,7 +21,7 @@ import {
 } from './gateway-plane.js';
 import { KeyBuckets } from './rate-bucket.js';
 
-const LIMIT = { tier: 'base', burst: 10, refillPerMinute: 600 } as const;
+const LIMIT = { tier: 'base', burst: 10, refillPerMinute: 600, user: { burst: 100, refillPerMinute: 6000 } } as const;
 const COSTS = [{ route: '* /api/**', cost: 1 }] as const;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -339,7 +339,7 @@ describe('api.gateway plane', () => {
         method: 'GET',
         principal: key,
         buckets,
-        keyRateLimit: { tier: 'base', burst: 1, refillPerMinute: 60 },
+        keyRateLimit: { tier: 'base', burst: 1, refillPerMinute: 60, user: { burst: 10, refillPerMinute: 600 } },
         costs: COSTS,
         now,
       });

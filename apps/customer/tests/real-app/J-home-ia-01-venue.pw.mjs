@@ -4,8 +4,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, restartWithSetting } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
 import { testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
@@ -79,21 +79,6 @@ async function expectedTotal({ owner, partner = true }) {
     partner: partner ? (units(PARTNER_USDT) * price.get('USDT')) / SCALE : 0n,
   };
   return { prices, venue, parts, total: cents(parts.venue + parts.partner) };
-}
-
-/** Connects the TEST wallet when the page asks for it, until `connected` shows (a page may restore the connection itself). */
-async function connectWhenAsked(page, connected) {
-  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect
-    .poll(
-      async () => {
-        if (await connected.isVisible().catch(() => false)) return true;
-        if (await connect.isVisible().catch(() => false)) await connect.click({ timeout: 2_000 }).catch(() => undefined);
-        return false;
-      },
-      { timeout: 30_000, intervals: [500] },
-    )
-    .toBe(true);
 }
 
 /** Signed in with the TEST wallet on the TEST chain in this page. */
@@ -214,7 +199,9 @@ test(`${J} #1 Home's total adds what the wallet, the venue account and the partn
   await expect(partner).toHaveAttribute('data-state', 'read');
   await expect(partner.getByTestId('standing-part-label')).toHaveText(`Your account at ${PARTNER_BANK}`);
   await expect(partner.getByTestId('standing-part-source')).toHaveText('the partner’s own figures');
-  expect(Date.parse(await partner.getByTestId('standing-part-as-of').getAttribute('datetime'))).toBeLessThanOrEqual(Date.now());
+  await expect
+    .poll(async () => Date.parse(await partner.getByTestId('standing-part-as-of').getAttribute('datetime')))
+    .toBeLessThanOrEqual(Date.now());
   await expect(partner.getByTestId('standing-part-value')).toHaveText(cents(parts.partner));
 
   // Unpriced assets are named, never counted as zero: the wallet's TEST ETH and TEST USD have no published price.
@@ -361,4 +348,52 @@ test(`${J} #3 the total's Assets link opens Assets with the same total and the s
   await expect(partnerRow.locator('[data-cell="amount"]')).toHaveText(PARTNER_USDT);
   await expect(partnerRow.locator('[data-cell="value"]')).toHaveText('$50.00');
   await expect(page.locator('main').first()).not.toContainText(/INTAFACED balance/i);
+});
+
+// Not a step of its own: a person with no browser wallet still sees the money the partner holds for them. The
+// partner account needs no wallet to be read, so Home and Assets total it, named with its source and time; the wallet
+// and the venue account are not in it until a wallet is connected, and the line under the total says so.
+test(`with no wallet connected, Home and Assets total the partner account and say the wallet and venue account need a wallet`, async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const { account: who } = state();
+  await signIn(page, who);
+  for (const size of [
+    { name: 'laptop', width: 1440, height: 900 },
+    { name: 'phone', width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await page.goto('/');
+    await balancesShown(page);
+    const home = page.getByTestId('home-standing-before-wallet');
+    await expect(partOf(home, 'partner')).toBeVisible({ timeout: 30_000 });
+    await expect(home.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
+    // Only the partner's part, valued at svc-ops' published TEST price: TEST 50 USDT at 1 is $50.00, and so is the total.
+    await expect(home.getByTestId('standing-part')).toHaveCount(1);
+    const partner = partOf(home, 'partner');
+    await expect(partner).toHaveAttribute('data-state', 'read');
+    await expect(partner.getByTestId('standing-part-label')).toHaveText(`Your account at ${PARTNER_BANK}`);
+    await expect(partner.getByTestId('standing-part-source')).toHaveText('the partner’s own figures');
+    await expect(partner.getByTestId('standing-part-value')).toHaveText('$50.00');
+    expect(await spoken(home)).toBe('$50.00');
+    await expect(home.getByTestId('standing-test')).toHaveText('TEST');
+    await expect(page.getByTestId('home-standing-connect')).toContainText(
+      'Connect your wallet to see what your wallet and your venue account hold.',
+    );
+    await testInfo.attach(`no-wallet-home-${size.name}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+
+    await page.goto('/money');
+    const assets = page.getByTestId('assets-total-before-wallet');
+    await expect(partOf(assets, 'partner')).toBeVisible({ timeout: 30_000 });
+    await expect(assets.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
+    expect(await spoken(assets)).toBe('$50.00');
+    await expect(page.getByRole('heading', { name: `In your account at ${PARTNER_BANK}`, exact: true })).toBeVisible();
+    const partnerRow = page.getByTestId('source-partner').locator('tr[data-asset="USDT"]');
+    await expect(partnerRow.locator('[data-cell="amount"]')).toHaveText(PARTNER_USDT);
+    await expect(partnerRow.locator('[data-cell="value"]')).toHaveText('$50.00');
+    await expect(page.getByTestId('assets-connect-first')).toHaveText('Connect your wallet to see what it holds and your venue account.');
+    await expect(page.locator('main').first()).not.toContainText(/INTAFACED balance/i);
+    await testInfo.attach(`no-wallet-assets-${size.name}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+  }
 });

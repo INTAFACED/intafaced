@@ -7,7 +7,9 @@
  * TradingView attribution stays on (`layout.attributionLogo: true`), as the licence asks. Colours come from the app's
  * tokens (`--if-*`), never from literals here.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCentredBar, useChartOptionsInPlace, useChartStage, useMainSeriesBars, useMainSeriesLines } from '../../shared/chart-stage';
+import { chartValue } from '../../shared/chart-value';
 import { usePreferences } from '../../shared/preferences';
 import type { Candle } from '../../data/types';
 import { legendValues, planUpdate, priceFormat } from '../trade/chart/chart-data';
@@ -32,6 +34,9 @@ import {
 
 type Engine = ChartLib & { createChart(host: HTMLElement, options: Record<string, unknown>): ChartApi } & Record<string, unknown>;
 const engineOf = (): Engine | undefined => (window as unknown as { LightweightCharts?: Engine }).LightweightCharts;
+
+const hasEmptyColour = (c: ReturnType<typeof readColors>) =>
+  [c.bg, c.text, c.grid, c.border, ...Object.values(c.series)].some((value) => value === '');
 
 function readColors(scheme: ColourScheme) {
   const css = getComputedStyle(document.documentElement);
@@ -123,11 +128,6 @@ export function WorkbenchChart({
 }: WorkbenchChartProps) {
   const { language, upColor } = usePreferences();
   const element = useRef<HTMLDivElement>(null);
-  const engine = useRef<Engine | null>(null);
-  const chart = useRef<ChartApi | null>(null);
-  const main = useRef<ChartSeries | null>(null);
-  const shown = useRef<readonly Candle[] | null>(null);
-  const fittedFor = useRef<string | null>(null);
   const reachStart = useRef(onReachStart);
   reachStart.current = onReachStart;
   const count = useRef(0);
@@ -136,41 +136,29 @@ export function WorkbenchChart({
   const moved = useRef(false);
   // The view keys, which start a key pressed before the chart has drawn the last one from the range that one asked for.
   const [viewKey] = useState(() => viewKeys((run) => void requestAnimationFrame(run)));
-  const [host, setHost] = useState<ChartHost | null>(null);
-  const [mounted, setMounted] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
   /** What percent mode reports: the base the prices are rebased to, and the first drawn value (0.00 when rebased). */
   const [rebase, setRebase] = useState({ base: '', first: '' });
   const zone = useRef({ language, timeZone });
   zone.current = { language, timeZone };
 
-  // One chart per mount.
-  useEffect(() => {
-    let closed = false;
-    let api: ChartApi | null = null;
-    const onMove = (param: { time?: number }) => setHover(param.time ?? null);
-    const onRange = (range: { from: number; to: number } | null) => {
-      // The bars in view, as logical bar indexes (0 is the first loaded bar), so a zoom or a pan can be read back.
-      // Written here rather than rendered, so a pan or zoom doesn't re-render the chart each frame; no range, no attribute.
-      for (const [name, value] of [
-        ['data-view-from', range?.from],
-        ['data-view-to', range?.to],
-      ] as const) {
-        if (value === undefined) element.current?.removeAttribute(name);
-        else element.current?.setAttribute(name, String(value));
-      }
-      if (moved.current && range && count.current > 0 && range.from < 5) reachStart.current?.();
-    };
-    void import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() => {
-      const lib = engineOf();
-      if (closed || !element.current || !lib) return;
+  // One chart per mount; the main series follows the style, scheme and percent mode, made again only when one of them
+  // changes, and the host handed out with it is told to `onHost` (null when the chart goes).
+  const stage = useChartStage<Engine, ChartApi, ChartSeries, ChartHost>(element, {
+    // A colour token that reads empty (the page's styles not applied, as under a test DOM) would make the library throw
+    // "Failed to parse color" outside any caller; with no colours there is nothing honest to draw, so no engine is handed over.
+    load: () =>
+      import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() =>
+        hasEmptyColour(readColors('standard')) ? undefined : engineOf(),
+      ),
+    create: (lib, el) => {
       const c = readColors('standard');
-      api = lib.createChart(element.current, {
+      return lib.createChart(el, {
         autoSize: true,
         layout: {
           background: { type: 'solid', color: c.bg },
           textColor: c.text,
-          fontFamily: getComputedStyle(element.current).fontFamily,
+          fontFamily: getComputedStyle(el).fontFamily,
           fontSize: 12,
           attributionLogo: true,
           panes: { separatorColor: c.border, separatorHoverColor: c.border, enableResize: true },
@@ -187,148 +175,103 @@ export function WorkbenchChart({
         },
         crosshair: { mode: 0 },
       });
-      engine.current = lib;
-      chart.current = api;
-      api.subscribeCrosshairMove(onMove);
-      api.timeScale().subscribeVisibleLogicalRangeChange(onRange);
-      setMounted(true);
-    });
-    return () => {
-      closed = true;
-      if (api) {
-        api.unsubscribeCrosshairMove(onMove);
-        api.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
-        api.remove();
+    },
+    onCrosshairMove: (param) => setHover(param.time ?? null),
+    onVisibleRangeChange: (range) => {
+      // The bars in view, as logical bar indexes (0 is the first loaded bar), so a zoom or a pan can be read back.
+      // Written here rather than rendered, so a pan or zoom doesn't re-render the chart each frame; no range, no attribute.
+      for (const [name, value] of [
+        ['data-view-from', range?.from],
+        ['data-view-to', range?.to],
+      ] as const) {
+        if (value === undefined) element.current?.removeAttribute(name);
+        else element.current?.setAttribute(name, String(value));
       }
-      chart.current = null;
-      engine.current = null;
-      main.current = null;
-      shown.current = null;
-      setHost(null);
-    };
-  }, []);
-
-  // The main series follows the style, scheme and percent mode; recreated only when one of them changes.
-  useEffect(() => {
-    const lib = engine.current;
-    const api = chart.current;
-    if (!mounted || !lib || !api || !element.current) return;
-    const colors = readColors(scheme).series;
-    if (main.current) api.removeSeries(main.current);
-    shown.current = null;
-    const format = percent ? PERCENT_PRICE_FORMAT : priceFormat(tickSize, language);
-    const series = api.addSeries(lib[SERIES_KIND[style]], { ...seriesOptions(style, colors), priceFormat: format }, 0);
-    main.current = series;
-    setHost({ lib, chart: api, main: series, element: element.current, tickSize, symbol });
+      if (moved.current && range && count.current > 0 && range.from < 5) reachStart.current?.();
+    },
+    series: (lib) => {
+      const colors = readColors(scheme).series;
+      const format = percent ? PERCENT_PRICE_FORMAT : priceFormat(tickSize, language);
+      return { definition: lib[SERIES_KIND[style]], options: { ...seriesOptions(style, colors), priceFormat: format } };
+    },
     // `upColor` ("red for up") changes the token values, so the series is drawn again with them.
-  }, [mounted, style, scheme, tickSize, symbol, upColor, percent, language]);
+    seriesKey: JSON.stringify([style, scheme, tickSize, symbol, upColor, percent, language]),
+    host: (lib, api, series, el) => ({ lib, chart: api, main: series, element: el, tickSize, symbol }),
+    onHost,
+  });
+  const { host } = stage;
 
   // Scales and canvas: applied to the chart in place, so a change never rebuilds the series or moves the view. Log scale
   // is not drawn with percent mode, which has its own scale.
   const { priceScale, timeScale: timeScaleOn, logScale, gridLines } = settings;
-  useEffect(() => {
-    const api = chart.current;
-    if (!mounted || !api) return;
-    api.applyOptions({
+  useChartOptionsInPlace(
+    stage.chart,
+    stage.ready,
+    {
       rightPriceScale: { visible: priceScale, mode: logScale && !percent ? 1 : 0 },
       timeScale: { visible: timeScaleOn },
       grid: { vertLines: { visible: gridLines }, horzLines: { visible: gridLines } },
-    });
-  }, [mounted, priceScale, timeScaleOn, logScale, gridLines, percent]);
+    },
+    JSON.stringify([priceScale, timeScaleOn, logScale, gridLines, percent]),
+  );
 
   // Price lines: one labelled line per overlay, drawn on the main series at its exact price. A new main series (a new
   // style or scheme) drops the old lines with it, so they are drawn again on the series that is shown.
   const lineKey = priceLines.map((line) => `${line.price}|${line.label}`).join(',');
-  const drawn = useRef<{ series: ChartSeries; lines: unknown[] } | null>(null);
-  useEffect(() => {
-    const series = main.current;
-    if (!series) return;
-    if (drawn.current && drawn.current.series === series) for (const line of drawn.current.lines) series.removePriceLine(line);
-    const colour = readColors(scheme).text;
-    const lines = priceLines.map((line) =>
-      series.createPriceLine({
-        price: Number(line.price),
-        color: colour,
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: line.label,
-      }),
-    );
-    drawn.current = { series, lines };
-    // What the library holds for each drawn line, read back from the line itself, not from props: "<price>|<title>",
-    // lines separated by a newline, so a check on it is a check on the drawing.
-    element.current?.setAttribute(
-      'data-drawn-price-lines',
-      lines
-        .map((line) => (line as { options?: () => { price?: number; title?: string } }).options?.())
-        .map((options) => (options ? `${options.price ?? ''}|${options.title ?? ''}` : ''))
-        .join('\n'),
-    );
-    // The key carries the lines' values; the series is the one the host hands out.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host, lineKey]);
+  useMainSeriesLines(
+    stage.main,
+    host,
+    priceLines.map((line) => ({ price: chartValue(line.price), token: '--if-fg-2', lineWidth: 1, lineStyle: 2, title: line.label })),
+    lineKey,
+    (lines) =>
+      // What the library holds for each drawn line, read back from the line itself, not from props: "<price>|<title>",
+      // lines separated by a newline, so a check on it is a check on the drawing.
+      element.current?.setAttribute(
+        'data-drawn-price-lines',
+        lines
+          .map((line) => (line as { options?: () => { price?: number; title?: string } }).options?.())
+          .map((options) => (options ? `${options.price ?? ''}|${options.title ?? ''}` : ''))
+          .join('\n'),
+      ),
+  );
 
   // Feed candles: `update` for the newest ones; a full reset when the window moved, keeping the view on the same bars
   // when older history was put in front.
-  useEffect(() => {
-    const series = main.current;
-    const api = chart.current;
-    if (!series || !api || candles.length === 0) return;
-    const colors = readColors(scheme).series;
-    const before = shown.current;
+  useMainSeriesBars(stage.chart, stage.main, host, candles, {
+    key: JSON.stringify([style, scheme, resetKey, percent]),
+    fitKey: resetKey,
     // Heikin Ashi and percent mode redraw every point: a percent base can move with the first bar it is taken from.
-    const plan = style === 'heikin-ashi' || percent ? ({ kind: 'reset' } as const) : planUpdate(before, candles);
-    const drawn = seriesPoints(style, candles, colors) as DrawnPoint[];
-    const base = percentBase(drawn);
-    const points = percent ? (base === null ? [] : rebasePoints(drawn, base)) : drawn;
-    if (plan.kind === 'reset') {
-      const range = api.timeScale().getVisibleLogicalRange();
-      const prepended = before && before.length > 0 ? candles.findIndex((c) => c.t === before[0]!.t) : -1;
-      series.setData(points);
-      if (fittedFor.current !== resetKey) {
-        api.timeScale().fitContent();
-        fittedFor.current = resetKey;
-        moved.current = false;
-      } else if (range && prepended > 0) {
-        api.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended });
-      }
-    } else {
-      for (const point of points.slice(plan.from)) series.update(point);
-    }
-    shown.current = candles;
-    // What the library holds for the first bar, read back from the series itself.
-    const at = series.dataByIndex(0) as Partial<Record<'close' | 'value', number>> | null;
-    const first = at ? (at.close ?? at.value) : undefined;
-    // After the bars are set, so the readback never shows a new series before its data.
-    writeDrawn(element.current, api, series);
-    setRebase({
-      base: percent && base !== null ? String(base) : '',
-      first: percent && typeof first === 'number' ? first.toFixed(2) : '',
-    });
-  }, [candles, style, scheme, host, resetKey, percent]);
+    plan: (before, bars) => (style === 'heikin-ashi' || percent ? { kind: 'reset' } : planUpdate(before, bars)),
+    points: () => {
+      const colors = readColors(scheme).series;
+      const drawn = seriesPoints(style, candles, colors) as DrawnPoint[];
+      const base = percentBase(drawn);
+      return { points: percent ? (base === null ? [] : rebasePoints(drawn, base)) : drawn, report: base };
+    },
+    onFit: () => {
+      moved.current = false;
+    },
+    onDrawn: (series, base) => {
+      // What the library holds for the first bar, read back from the series itself.
+      const at = series.dataByIndex(0) as Partial<Record<'close' | 'value', number>> | null;
+      const first = at ? (at.close ?? at.value) : undefined;
+      // After the bars are set, so the readback never shows a new series before its data.
+      writeDrawn(element.current, stage.chart.current, series);
+      setRebase({
+        base: percent && base !== null ? String(base) : '',
+        first: percent && typeof first === 'number' ? first.toFixed(2) : '',
+      });
+    },
+  });
 
-  const report = useRef(onHost);
-  report.current = onHost;
-  useEffect(() => {
-    report.current?.(host);
-  }, [host]);
-  useEffect(() => () => report.current?.(null), []);
-
-  // Go to date: centre the asked bar, keeping the current zoom.
-  useEffect(() => {
-    const api = chart.current;
-    if (!focus || !api) return;
-    const range = api.timeScale().getVisibleLogicalRange();
-    const width = range ? Math.max(20, range.to - range.from) : 120;
-    api.timeScale().setVisibleLogicalRange({ from: focus.index - width / 2, to: focus.index + width / 2 });
-    // Only a new ask moves the view; a new series (style, scheme) keeps where the person is.
-  }, [focus]);
+  // Go to date: centre the asked bar, keeping the current zoom. Only a new ask moves the view; a new series (style,
+  // scheme) keeps where the person is.
+  useCentredBar(stage.chart, focus);
 
   /** Keyboard: arrows pan by ten bars, + and - zoom around the right edge, Home shows the newest bars again (chart-keys.ts). */
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
     moved.current = true;
-    const scale = chart.current?.timeScale();
+    const scale = stage.chart.current?.timeScale();
     if (scale && viewKey(scale, event.key)) event.preventDefault();
   };
 

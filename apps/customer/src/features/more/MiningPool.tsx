@@ -1,70 +1,37 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
-import { useApi } from '../session/session';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  MINING_CONNECTION,
+  MINING_MINER_SECRET_ISSUE,
+  MINING_MINER_SECRET_STATUS,
+  MINING_OVERVIEW,
+  MINING_PROBE,
+} from '@intafaced/contracts/mining-procedures';
+import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { stamp } from '../../screens/money/time';
 import { Button, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { miningPoolCopy } from './mining-pool-copy';
+import { isPlaceholderAddress, shortReference } from '../../shared/reference';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import type { MiningHealth } from './mining-journey';
-
-// hand-declared-ok: svc-mining-pool's overview, connection and probe answers have no browser-safe schema in packages/contracts yet
+import { CONNECTION_UNSET, OVERVIEW_UNSET, PROBE_REFUSALS, SECTIONS } from './mining-pool-codes';
 
 /** `overview`: the owner's published pool sections. A blank section is null; a wholly blank overview refuses. */
-export const poolOverview = z.object({
-  version: z.string(),
-  what: z.string().nullable(),
-  coin: z.string().nullable(),
-  hardware: z.string().nullable(),
-  revenueSplit: z.string().nullable(),
-  notSupported: z.string().nullable(),
-});
-export type PoolOverview = z.infer<typeof poolOverview>;
-
+export type PoolOverview = ProcedureOutput<typeof MINING_OVERVIEW>;
 /** `connection`: the published host and port, and the signed account's own id. A blank host or port refuses. */
-export const poolConnection = z.object({
-  host: z.string(),
-  port: z.string(),
-  secureUrl: z.string().nullable(),
-  accountId: z.string(),
-  workerNamePattern: z.string().nullable(),
-});
-export type PoolConnection = z.infer<typeof poolConnection>;
-
+export type PoolConnection = ProcedureOutput<typeof MINING_CONNECTION>;
 /** `minerSecret.status`: when the account's miner secret was issued, or null. Never the secret. */
-export const minerSecretStatus = z.object({ issuedAt: z.string().nullable() });
-export type MinerSecretStatus = z.infer<typeof minerSecretStatus>;
+export type MinerSecretStatus = ProcedureOutput<typeof MINING_MINER_SECRET_STATUS>;
 /** `minerSecret.issue`: a new secret, shown this once; the pool keeps only its hash. */
-export const issuedMinerSecret = z.object({ secret: z.string().min(1), issuedAt: z.string() });
-export type IssuedMinerSecret = z.infer<typeof issuedMinerSecret>;
-
+export type IssuedMinerSecret = ProcedureOutput<typeof MINING_MINER_SECRET_ISSUE>;
 /** `probe`: one TCP connect from the pool's network to its own published address. Stores nothing. */
-export const poolProbe = z.object({
-  result: z.enum(['reachable', 'refused', 'timed_out']),
-  roundTripMs: z.string(),
-  viewpoint: z.literal('pool_network'),
-});
-export type PoolProbe = z.infer<typeof poolProbe>;
-
-export const OVERVIEW_UNSET = 'mining.overview_unset';
-export const CONNECTION_UNSET = 'mining.connection_unset';
-const PROBE_REFUSALS: Readonly<Record<string, 'probeLimit' | 'probeLimitUnset' | 'probeTimeoutUnset' | 'probeTargetUnset'>> = {
-  'mining.probe_limit_reached': 'probeLimit',
-  'mining.probe_limit_unset': 'probeLimitUnset',
-  'mining.probe_timeout_unset': 'probeTimeoutUnset',
-  [CONNECTION_UNSET]: 'probeTargetUnset',
-};
+export type PoolProbe = ProcedureOutput<typeof MINING_PROBE>;
 
 type Read<T> = { resource: Resource<T>; reload: () => void };
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-const SECTIONS = [
-  { key: 'coin', field: 'coin' },
-  { key: 'hardware', field: 'hardware' },
-  { key: 'revenueSplit', field: 'revenueSplit' },
-  { key: 'notSupported', field: 'notSupported' },
-] as const;
 
 /**
  * The pool worker name for a rig: the published pattern with `{worker}` filled in. Without a pattern there is none, and a
@@ -78,14 +45,7 @@ export function workerNameFor(pattern: string | null, rig: string): string | nul
 
 /** Overview tab: what the pool is, how to connect, and whether its address answers. */
 export function MiningPool({ probe }: { probe: Probe }) {
-  const api = useApi();
-  const overview = useResource((signal) => api.query('mining', 'overview', undefined, poolOverview, { signal }), 'mining-overview');
-  const connection = useResource((signal) => api.query('mining', 'connection', undefined, poolConnection, { signal }), 'mining-connection');
-  const secret = useResource(
-    (signal) => api.query('mining', 'minerSecret.status', undefined, minerSecretStatus, { signal }),
-    'mining-miner-secret',
-  );
-  const issue = () => api.mutate('mining', 'minerSecret.issue', undefined, issuedMinerSecret);
+  const { overview, connection, secret, issue } = useMiningPool();
   return (
     <div className="more-columns">
       <div>
@@ -98,6 +58,16 @@ export function MiningPool({ probe }: { probe: Probe }) {
       </div>
     </div>
   );
+}
+
+/** The overview tab's reads: the published overview, the connection, the miner secret's status, and issuing a new one. */
+export function useMiningPool() {
+  const api = useApi();
+  const overview = useResource((signal) => api.call(MINING_OVERVIEW, undefined, { signal }), 'mining-overview');
+  const connection = useResource((signal) => api.call(MINING_CONNECTION, undefined, { signal }), 'mining-connection');
+  const secret = useResource((signal) => api.call(MINING_MINER_SECRET_STATUS, undefined, { signal }), 'mining-miner-secret');
+  const issue = () => api.call(MINING_MINER_SECRET_ISSUE, undefined, { accept: (issued) => issued.secret.length > 0 });
+  return { overview, connection, secret, issue };
 }
 
 export function PoolOverviewView({ read }: { read: Read<PoolOverview> }) {
@@ -115,11 +85,11 @@ export function PoolOverviewView({ read }: { read: Read<PoolOverview> }) {
         const text = data ? data[field] : null;
         return (
           <Panel key={key} title={t(key)} aria-label={t(key)} data-state={text === null ? 'unset' : 'set'}>
-            {text === null ? <p className="muted">{t('notSet')}</p> : <p>{text}</p>}
+            {text === null ? <p className="lt-muted">{t('notSet')}</p> : <p>{text}</p>}
           </Panel>
         );
       })}
-      {data ? <p className="muted">{t('overviewVersion', { version: data.version })}</p> : null}
+      {data ? <p className="lt-muted">{t('overviewVersion', { version: data.version })}</p> : null}
     </Panel>
   );
 }
@@ -148,14 +118,22 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
               label={t('poolAddress')}
               copyLabel={t('copyPoolAddress')}
               value={`${resource.data.host}:${resource.data.port}`}
+              shown={isPlaceholderAddress(resource.data.host) ? t('testAddress') : undefined}
             />
-            <CopyLine id="mining-account-id" label={t('accountId')} copyLabel={t('copyAccountId')} value={resource.data.accountId} />
+            <CopyLine
+              id="mining-account-id"
+              label={t('accountId')}
+              copyLabel={t('copyAccountId')}
+              value={resource.data.accountId}
+              shown={shortReference(resource.data.accountId)}
+            />
             {resource.data.secureUrl === null ? null : (
               <CopyLine
                 id="mining-secure-address"
                 label={t('secureAddress')}
                 copyLabel={t('copySecureAddress')}
                 value={resource.data.secureUrl}
+                shown={isPlaceholderAddress(resource.data.secureUrl) ? t('testAddress') : undefined}
               />
             )}
             <CopyLine
@@ -173,7 +151,7 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
             maxLength={64}
             onChange={(event) => setRig(event.target.value.replace(/[^A-Za-z0-9_-]/g, ''))}
           />
-          <p className="muted">{t('accountIdNote')}</p>
+          <p className="lt-muted">{t('accountIdNote')}</p>
         </>
       )}
     </Panel>
@@ -230,7 +208,7 @@ export function MinerSecretView({
           <p data-testid="mining-miner-secret-issued" data-state={issuedAt ? 'issued' : 'none'}>
             {issuedAt ? t('secretIssuedOn', { at: stamp(issuedAt, timeZone) }) : t('secretNone')}
           </p>
-          <p className="muted">{t('secretNote')}</p>
+          <p className="lt-muted">{t('secretNote')}</p>
           {failure ? <Failure result={failure} /> : null}
           <Button variant="secondary" disabled={busy} onClick={() => void press()}>
             {issuedAt ? t('secretReissue') : t('secretIssue')}
@@ -241,21 +219,8 @@ export function MinerSecretView({
   );
 }
 
-function CopyLine({
-  id,
-  label,
-  copyLabel,
-  value,
-  empty,
-}: {
-  id: string;
-  label: string;
-  copyLabel: string;
-  value: string | null;
-  /** What shows in place of a missing value; "Not set" unless said. */
-  empty?: string;
-}) {
-  const { t } = miningPoolCopy.useCopy();
+/** Copying one value to the clipboard: done or failed for two seconds, then idle again. Nothing to copy does nothing. */
+export function useCopyValue(value: string | null) {
   const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -270,17 +235,40 @@ function CopyLine({
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setState('idle'), 2000);
   }
+  return { state, copy };
+}
+
+function CopyLine({
+  id,
+  label,
+  copyLabel,
+  value,
+  shown,
+  empty,
+}: {
+  id: string;
+  label: string;
+  copyLabel: string;
+  value: string | null;
+  /** What the line reads when the value itself is no text for a person (a long id, a test machine's address); the copy
+   *  button still copies `value`. */
+  shown?: string;
+  /** What shows in place of a missing value; "Not set" unless said. */
+  empty?: string;
+}) {
+  const { t } = miningPoolCopy.useCopy();
+  const { state, copy } = useCopyValue(value);
   return (
     <div>
       <dt>{label}</dt>
       <dd>
-        <code data-testid={id} lang="und" dir="ltr">
-          {value ?? empty ?? t('notSet')}
+        <code data-testid={id} lang="und" dir="ltr" title={shown && value ? value : undefined}>
+          {value === null ? (empty ?? t('notSet')) : (shown ?? value)}
         </code>{' '}
         <Button variant="secondary" aria-label={copyLabel} disabled={value === null} onClick={() => void copy()}>
           {state === 'done' ? t('copied') : copyLabel}
         </Button>
-        <span role="status" className="muted">
+        <span role="status" className="lt-muted">
           {state === 'done' ? t('copied') : state === 'failed' ? t('copyFailed') : ''}
         </span>
       </dd>
@@ -289,7 +277,7 @@ function CopyLine({
 }
 
 /** `last`: the latest answered test, kept on screen while a later press is running or refused. */
-type ProbeState =
+export type ProbeState =
   | { status: 'idle' }
   | { status: 'busy'; last: PoolProbe | null }
   | { status: 'done'; probe: PoolProbe }
@@ -314,7 +302,7 @@ export function usePoolProbe(): Probe {
   async function press() {
     const last = state.status === 'done' ? state.probe : state.status === 'idle' ? null : state.last;
     setState({ status: 'busy', last });
-    const result = await api.query('mining', 'probe', undefined, poolProbe);
+    const result = await api.call(MINING_PROBE, undefined);
     if (!mounted.current) return;
     setState(result.ok ? { status: 'done', probe: result.data } : { status: 'failed', failure: result, last });
   }
@@ -331,8 +319,8 @@ export function PoolProbeView({ state, onPress }: { state: ProbeState; onPress: 
       <p data-testid="mining-reachability" data-result={shown ? shown.result : 'none'}>
         {shown ? t(`probe_${shown.result}`, { ms: shown.roundTripMs }) : t('probeNone')}
       </p>
-      {shown ? <p className="muted">{t('probeViewpoint')}</p> : null}
-      {state.status === 'busy' ? <p className="muted">{t('probeBusy')}</p> : null}
+      {shown ? <p className="lt-muted">{t('probeViewpoint')}</p> : null}
+      {state.status === 'busy' ? <p className="lt-muted">{t('probeBusy')}</p> : null}
       {state.status === 'failed' ? (
         refusal ? (
           <p role="alert" data-code={state.failure.code}>
@@ -360,7 +348,7 @@ export function MiningPoolStatus({ health, probe }: { health: Read<MiningHealth>
           <p data-testid="mining-pool-status" data-state={state}>
             {t(`status_${state}`)}
           </p>
-          <p className="muted">{t('statusNote')}</p>
+          <p className="lt-muted">{t('statusNote')}</p>
         </Panel>
       </div>
       <div>

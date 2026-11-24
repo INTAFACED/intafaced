@@ -16,11 +16,12 @@ export const FILTER_FIELDS = [
   { id: 'waiting_on', label: 'Waiting on' },
 ] as const;
 
-export interface FilterClause {
+// A type, not an interface, so a clause is a JSON value (`JsonValue`) as the record's schema reads it.
+export type FilterClause = {
   readonly field: string;
   readonly op: 'eq';
   readonly value: string;
-}
+};
 
 export interface QueueQuery {
   readonly filter: FilterClause | null;

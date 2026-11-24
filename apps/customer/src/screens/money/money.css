@@ -657,10 +657,14 @@
   .money-filter + .money-card--activity {
     margin-top: var(--if-space-3);
   }
+  /* The corners clip the rows' backgrounds by shape, not by overflow: the trade tab inside scrolls sideways on its own,
+     and an overflow clip around it would cut what that scroll shows. */
   .money-card--activity {
     margin-top: var(--if-space-4);
     padding-bottom: 0;
-    overflow: hidden;
+    clip-path: inset(0 round var(--if-r-lg));
+    /* No wider than its column: the table scrolls inside, it does not stretch the page. */
+    min-inline-size: 0;
   }
   .money-table--activity td {
     height: 48px;
@@ -672,19 +676,21 @@
     color: var(--if-warn);
     font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
+  /* The trade tables are bare kit tables with no scroller of their own: this tab scrolls them sideways. */
   .money-trade-tab {
+    min-inline-size: 0;
     padding-bottom: var(--if-space-2);
     overflow-x: auto;
   }
-  .money-trade-tab .dk-table th:first-child,
-  .money-trade-tab .dk-table td:first-child {
+  .money-trade-tab .lt-table th:first-child,
+  .money-trade-tab .lt-table td:first-child {
     padding-left: var(--if-space-6);
   }
-  .money-trade-tab .dk-table th:last-child,
-  .money-trade-tab .dk-table td:last-child {
+  .money-trade-tab .lt-table th:last-child,
+  .money-trade-tab .lt-table td:last-child {
     padding-right: var(--if-space-6);
   }
-  .money-trade-tab .dk-bt-skeleton {
+  .money-trade-tab [data-kind='loading'] {
     padding: var(--if-space-3) var(--if-space-6);
   }
   .money-trade-tab__head {
@@ -696,15 +702,15 @@
     padding: var(--if-space-4) var(--if-space-6);
   }
   /* Pro: activity rows 40 (Simple 48) */
-  .if-money--activity .dk-table td {
-    height: 48px;
+  /* The shared tables draw from the kit, whose unlayered row height wins over this layer: they take these rows through its token. */
+  .if-money--activity .lt-table {
+    --lit-row-h: var(--if-space-12);
   }
   .if-money--activity[data-density='pro'] .money-table--activity td {
     height: 40px;
   }
-  .if-money--activity[data-density='pro'] .dk-table td,
-  .if-money--activity[data-density='pro'] .dk-table[data-layout='activity'] td {
-    height: 40px;
+  .if-money--activity[data-density='pro'] .lt-table {
+    --lit-row-h: var(--if-space-10);
   }
   .if-money--activity[data-density='pro'] .money-act__icon {
     width: 24px;
@@ -749,9 +755,17 @@
   .money-act__title {
     font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
+  .money-act__parts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-3);
+  }
   .money-act__sub {
     font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
+  }
+  .money-act__ref {
+    overflow-wrap: anywhere;
   }
   .money-act__time {
     color: var(--if-fg-2);
@@ -1113,4 +1127,22 @@
     font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-1);
   }
+}
+
+/*
+ * The trade tables here are the desk's, drawn by the kit (`lt-table`), whose sheet is unlayered: a rule inside the layer
+ * above can't size them. These few stay outside it, each more specific than the kit's own, and set only what Money owns:
+ * its row heights (Simple 48, Pro 40) and its edge padding.
+ */
+.if-money--activity .money-trade-tab .lt-table td {
+  block-size: var(--if-space-12);
+}
+.if-money--activity[data-density='pro'] .money-trade-tab .lt-table td {
+  block-size: var(--if-space-10);
+}
+.money-trade-tab .lt-table :is(th, td):first-child {
+  padding-inline-start: var(--if-space-6);
+}
+.money-trade-tab .lt-table :is(th, td):last-child {
+  padding-inline-end: var(--if-space-6);
 }

@@ -6,7 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { GoalProgress, MovementBars } from './GoalAndMovement';
+import { GoalProgress, MovementBars } from './spaces/GoalAndMovement';
 import { goalChartCopy } from './goal-chart-copy';
 import { goalShare, movementShares } from './goal-progress';
 

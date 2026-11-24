@@ -79,6 +79,18 @@ it('finds the Merchant home and the parked Protocol rooms in Personal search, bu
   expect(searchRooms('payouts', 'Business').map((room) => room.path)).toContain('/pay/payouts');
 });
 
+it('lists a room searched by its own title before any room that only mentions it, so a short list keeps it', () => {
+  // The header search shows only the first few pages. "Payments" is in descriptions that say "repayments"; the room titled
+  // Payments must still come first (J-home-ia-02 #7 went red when six credit previews pushed it off the list).
+  for (const mode of ['Personal', 'Business'] as const)
+    for (const room of searchRooms('', mode)) {
+      const found = searchRooms(room.title, mode);
+      const named = found.filter((other) => other.title.toLowerCase() === room.title.toLowerCase());
+      expect(found.slice(0, named.length), `${mode}: ${room.title}`).toContain(room);
+    }
+  expect(searchRooms('payments', 'Business')[0]?.path).toBe('/pay/payments');
+});
+
 it('keeps parked and team rooms out of sign-in return targets even though parked rooms are searchable', () => {
   for (const path of ['/chain', '/dex', '/protocol', '/ops', '/platform']) {
     expect(customerRoomHref(path), path).toBeUndefined();
@@ -153,6 +165,11 @@ describe('resolveAlias (UI-SPEC 3.2)', () => {
     expect(resolve('/exchange/eth_usdc')).toBe('/trade/spot/ETH-USDC');
     expect(resolve('/exchange/BTC%2FUSDT')).toBe('/trade/spot/BTC-USDT');
     expect(resolve('/exchange/btc%2fusdt', '?x=1')).toBe('/trade/spot/BTC-USDT?x=1');
+  });
+  it('opens the futures desk on the contract its address names', () => {
+    expect(resolve('/trade/futures/BTC-PERP')).toBe('/trade/futures?symbol=BTC-PERP');
+    expect(resolve('/trade/futures/eth-perp', '?from=markets')).toBe('/trade/futures?from=markets&symbol=ETH-PERP');
+    expect(resolve('/trade/futures')).toBeUndefined();
   });
   it('maps the old order and record pages onto Activity tabs', () => {
     expect(resolve('/uc/record')).toBe('/money/activity');

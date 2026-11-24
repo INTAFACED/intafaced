@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import type { Preferences } from '@intafaced/contracts';
 import {
   PREFERENCE_INVALID,
   PREFERENCES_STALE,
@@ -8,17 +9,14 @@ import {
   UNSET_PREFERENCES,
   invalidPreferenceKeys,
   preferenceValuesSchema,
-  preferencesSchema,
-  preferencesSetInputSchema,
   resolvePreferences,
-  router,
-  scopedProcedure,
-  type Preferences,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-console-preferences';
+import { router } from '@intafaced/contracts/trpc';
 import { OpsError } from '../codes.js';
 import type { LevelRef, PreferenceStore, StoredLevel } from './store.js';
-
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
+import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from '@intafaced/contracts/ops-preferences-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 export interface PreferencesDeps {
   readonly store: PreferenceStore | undefined;
@@ -66,17 +64,18 @@ function view(userId: string, org: StoredLevel, mine: StoredLevel, asOf: string)
  */
 export function createPreferencesRouter(deps: PreferencesDeps) {
   return router({
-    get: scopedProcedure('admin:read', guards)
-      .output(preferencesSchema)
-      .query(async ({ ctx }) => {
+    get: mountRecord(
+      OPS_PREFERENCES_GET,
+      async ({ ctx }) => {
         const store = storeOf(deps);
         const [org, mine] = await Promise.all([store.get(organisation), store.get(person(ctx.principal.userId))]);
         return view(ctx.principal.userId, org, mine, deps.now());
-      }),
-    set: scopedProcedure('admin:write', guards)
-      .input(preferencesSetInputSchema)
-      .output(preferencesSchema)
-      .mutation(async ({ ctx, input }) => {
+      },
+      opsRefusal,
+    ),
+    set: mountRecord(
+      OPS_PREFERENCES_SET,
+      async ({ ctx, input }) => {
         if (input.level === 'team')
           throw refusal(
             'BAD_REQUEST',
@@ -99,6 +98,8 @@ export function createPreferencesRouter(deps: PreferencesDeps) {
         }
         const other = await store.get(input.level === 'organisation' ? person(userId) : organisation);
         return input.level === 'organisation' ? view(userId, saved, other, at) : view(userId, other, saved, at);
-      }),
+      },
+      opsRefusal,
+    ),
   });
 }

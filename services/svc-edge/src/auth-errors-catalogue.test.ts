@@ -41,7 +41,7 @@ const gatewayRefusal = (principal: Principal, method: string, host?: string) => 
     method,
     principal,
     buckets: new KeyBuckets(),
-    keyRateLimit: { tier: 'base', burst: 10, refillPerMinute: 600 },
+    keyRateLimit: { tier: 'base', burst: 10, refillPerMinute: 600, user: { burst: 100, refillPerMinute: 6000 } },
     costs: [{ route: '* /api/**', cost: 1 }],
     now: 0,
     host,

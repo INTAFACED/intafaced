@@ -3,7 +3,7 @@
  * The new key is minted by AuthService — no invented secret.
  * Same name, scopes, mode, domain list, expiry, IP allowlist, account bind, sandbox.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { bindApiKeyAccount } from './bind-api-key-account.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { issueSigningSecret } from './api-key-request-sign.js';
@@ -33,7 +33,7 @@ export type RotatedApiKey = {
 
 export async function rotateApiKey(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: { userId: string; keyId: string; grantorScopes: readonly string[]; grantorKid?: string | null },
   encKey: Buffer | null = null,
   /**

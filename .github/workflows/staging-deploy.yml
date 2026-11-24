@@ -70,6 +70,14 @@ on:
         description: 'Type deploy-staging to confirm. Anything else aborts.'
         required: true
         type: string
+      posture:
+        description: 'beta = staging plus INTAFACED_BETA_POSTURE=test-networks (TEST networks only; any mainnet, real bank or card route refuses to boot). staging = plain staging, every TEST network refused.'
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - staging
       image_digest:
         description: 'Optional rollback lever: an existing image digest (sha256:...) to redeploy instead of building. Empty = build the dispatched commit.'
         required: false
@@ -105,7 +113,7 @@ env:
 jobs:
   preflight:
     name: Preflight (no credentials)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Belt and braces with the `on:` block. If a future edit adds a trigger, this
     # condition still refuses to run the job — and the step below still fails the
     # run rather than letting it pass silently.
@@ -215,7 +223,7 @@ jobs:
   image:
     name: Build and publish the deployment unit
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Skipped entirely when a digest was supplied — that is the ADR's rollback
     # ("rollback is redeploy previous image tag"). Rebuilding to roll back would
     # mean the thing you roll back to is a fresh build of old source, which is
@@ -314,7 +322,7 @@ jobs:
       always()
       && needs.preflight.result == 'success'
       && (needs.image.result == 'success' || needs.image.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # THE ATTENDED GATE. Required reviewers, wait timer and deployment branch
     # rules are attached HERE, by the owner, in repository settings — a workflow
@@ -330,6 +338,7 @@ jobs:
     # the value before ssh, and the remote script asserts it again.
     env:
       APP_ENV: staging
+      POSTURE: ${{ github.event.inputs.posture }}
 
     permissions:
       # Read, and nothing else. Note what is NOT here and cannot be added by
@@ -353,6 +362,21 @@ jobs:
             exit 1
           fi
           echo "APP_ENV=staging"
+
+      # THE BETA POSTURE (ADR 2026-08-08, amendment of 23 Nov 2026). `beta` sets
+      # INTAFACED_BETA_POSTURE=test-networks beside APP_ENV=staging on the host:
+      # still staging and production posture, with TEST networks and labelled TEST
+      # stand-ins allowed and every mainnet, real bank or card route refused at
+      # boot (packages/config/src/beta-posture.ts). `staging` leaves it unset.
+      # Anything else stops here: the value reaches a remote shell.
+      - name: Posture is beta or staging
+        run: |
+          set -euo pipefail
+          case "${POSTURE}" in
+            beta) echo "posture: beta (APP_ENV=staging, INTAFACED_BETA_POSTURE=test-networks)" ;;
+            staging) echo "posture: staging (INTAFACED_BETA_POSTURE unset)" ;;
+            *) echo "::error::posture must be beta or staging. Got '${POSTURE:-unset}'"; exit 1 ;;
+          esac
 
       # FAIL LOUDLY ON A MISSING SECRET — never skip, never default.
       #
@@ -517,7 +541,7 @@ jobs:
 
           # shellcheck disable=SC2086
           ssh $ssh_opts "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
-            "APP_ENV='$APP_ENV' REPO='$repo' APP_DIGEST='$APP_DIGEST' SHELL_DIGEST='$SHELL_DIGEST' bash -s" <<'REMOTE'
+            "APP_ENV='$APP_ENV' POSTURE='$POSTURE' REPO='$repo' APP_DIGEST='$APP_DIGEST' SHELL_DIGEST='$SHELL_DIGEST' bash -s" <<'REMOTE'
           set -euo pipefail
           cd "$HOME/intafaced-staging"
 
@@ -565,6 +589,17 @@ jobs:
           # to set, not the host's to forget. `require` is the only value a
           # production-posture fleet will start with, so there is nothing to choose.
           export INTERNAL_SERVICE_BODY_BIND=require
+
+          echo "── posture"
+          # Exported from the shell, so it wins over the host's `.env` both ways:
+          # `beta` sets the switch, `staging` clears it. docker-compose.apps.yml
+          # forwards it to every service, and each one's loadEnv refuses to boot
+          # the beta posture with a mainnet, real bank or real card route.
+          case "${POSTURE}" in
+            beta) export INTAFACED_BETA_POSTURE=test-networks ;;
+            staging) export INTAFACED_BETA_POSTURE= ;;
+            *) echo "posture ${POSTURE} is neither beta nor staging"; exit 1 ;;
+          esac
 
           echo "── up"
           APP_ENV=staging docker compose -f docker-compose.apps.yml up -d --no-build --remove-orphans

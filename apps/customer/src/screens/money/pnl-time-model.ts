@@ -8,7 +8,6 @@ import type { Preferences } from '../../shared/preferences';
  * `tax.pnlOverTime`. Money stays a decimal string or a scaled bigint; only times are plain numbers.
  */
 
-export { pnlOverTimeSchema } from '@intafaced/contracts/tax-lot-book';
 export type { PnlOverTime, PnlPoint };
 export const BREAKDOWN_MAX_DAYS = PNL_BREAKDOWN_MAX_DAYS;
 

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { amount, id } from '../../schemas';
-export const cycleSchema = z.object({
+const cycleSchema = z.object({
   occurrence: z.number().int().nonnegative(),
   amount,
   status: z.enum(['pending', 'invoiced', 'settled', 'rejected', 'skipped']),

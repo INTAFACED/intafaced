@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { encodeFunctionData, formatUnits, parseAbi } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { ProtocolClaimLink } from '@intafaced/contracts/protocol-wallet-tx';
-import { Button, DataTable, EmptyState, Field, Panel } from '../../../shared/ui';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Field, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
@@ -211,8 +212,8 @@ export function ClaimLinksPanel() {
         />
       )}
       <Panel title={t('linksTitle')}>
-        <p className="muted">{t('linksNote')}</p>
-        {wallet.status !== 'connected' && <p className="muted">{tw('needsWallet')}</p>}
+        <p className="lt-muted">{t('linksNote')}</p>
+        {wallet.status !== 'connected' && <p className="lt-muted">{tw('needsWallet')}</p>}
         {refusal && (
           <p role="note" data-code={config.resource.status === 'failed' ? config.resource.failure.code : undefined}>
             {refusal}
@@ -225,17 +226,15 @@ export function ClaimLinksPanel() {
             void create();
           }}
         >
-          <label className="field">
-            <span id="claim-link-token-label">{t('linksToken')}</span>
-            <select value={token} onChange={(event) => setToken(event.target.value)} aria-labelledby="claim-link-token-label">
-              <option value="">{t('linksTokenChoose')}</option>
-              {listed.map((entry) => (
-                <option key={entry.address} value={entry.address}>
-                  {tokenLabel(entry, listed)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label={t('linksToken')}
+            value={token}
+            onChange={setToken}
+            options={[
+              { value: '', label: t('linksTokenChoose') },
+              ...listed.map((entry) => ({ value: entry.address, label: tokenLabel(entry, listed) })),
+            ]}
+          />
           <Field
             label={t('linksAmount')}
             hint={t('linksAmountHint')}
@@ -251,7 +250,7 @@ export function ClaimLinksPanel() {
             onChange={(e) => setMinutes(e.target.value)}
           />
           {problem && <p role="alert">{problem}</p>}
-          <Button type="submit" disabled={!ready || busy}>
+          <Button tone="primary" type="submit" disabled={!ready || busy}>
             {busy ? t('linksBusy') : t('linksCreate')}
           </Button>
         </form>
@@ -259,7 +258,7 @@ export function ClaimLinksPanel() {
           <div data-claim-link-created>
             <p role="status">{t('linksCreated', { amount: created.amount, token: created.token, expiry: `${created.minutes} min` })}</p>
             <Field label={t('linksLink')} readOnly value={created.url} onFocus={(e) => e.target.select()} />
-            <p className="muted">{t('linksLost')}</p>
+            <p className="lt-muted">{t('linksLost')}</p>
           </div>
         )}
         {notice && <p role="status">{notice}</p>}
@@ -275,7 +274,7 @@ export function ClaimLinksPanel() {
           ) : (
             list.map((link) => (
               <tr key={link.id} data-claim-link={link.id}>
-                <td className="numeric">{linkAmount(link)}</td>
+                <td className="lt-num">{linkAmount(link)}</td>
                 <td>{when(link.expiresAt)}</td>
                 <td data-state={link.state}>
                   {link.state === 'claimed'
@@ -285,14 +284,14 @@ export function ClaimLinksPanel() {
                 <td>
                   {link.state === 'open' && (
                     <>
-                      <Button variant="secondary" disabled aria-disabled="true">
+                      <Button tone="secondary" disabled aria-disabled="true">
                         {t('linksClawBack')}
                       </Button>{' '}
-                      <span className="muted">{t('linksClawBackWhen', { expiry: when(link.expiresAt) })}</span>
+                      <span className="lt-muted">{t('linksClawBackWhen', { expiry: when(link.expiresAt) })}</span>
                     </>
                   )}
                   {link.state === 'expired' && (
-                    <Button variant="secondary" onClick={() => void clawBack(link)}>
+                    <Button tone="secondary" onClick={() => void clawBack(link)}>
                       {t('linksClawBack')}
                     </Button>
                   )}

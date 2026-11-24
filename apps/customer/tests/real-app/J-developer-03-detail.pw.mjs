@@ -1,5 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
+import { VERSION_PIN } from './developer.mjs';
 import { EDGE, ORIGIN, api } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
@@ -125,7 +126,7 @@ test(`${J} #7 reads the permission-to-endpoint table, then calls a route without
   expect(ordersBefore).toEqual({ open: [], closed: [] });
   const res = await fetch(`${EDGE}/api/v1/orders`, {
     method: 'POST',
-    headers: { origin: ORIGIN, authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    headers: { origin: ORIGIN, authorization: `Bearer ${key}`, 'content-type': 'application/json', ...VERSION_PIN },
     body: JSON.stringify({ symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.0001', price: '1' }),
   });
   const body = await res.json();

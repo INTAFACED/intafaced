@@ -3,8 +3,10 @@
  * small text/number helpers a row needs. No React here, so every rule is unit tested (select.test.ts).
  * Money is decimal strings and bigint only; floats appear once, to place the range marker (drawing).
  */
-import { add, compareDecimal, dec, fmtAmount, fmtPct, fmtPrice, fmtUsd, normalizePair, ratio, signOf, str, sub, SCALE } from './deps';
-import type { Decimal, MarketData, TickerRow } from './deps';
+import { SCALE } from '@intafaced/money-math';
+import { fmtAmount, fmtPct, fmtPrice, fmtUsd, type Decimal, type MarketRow as MarketData, type TickerRow } from '../../../data';
+import { add, compareDecimal, dec, ratio, signOf, str, sub } from '../../../data/decimal';
+import { normalizePair } from '../../../app/navigation';
 
 export type TickerMap = Record<string, TickerRow> | undefined;
 
@@ -180,11 +182,14 @@ export function topCards(entries: readonly Entry[], size = 3): Card[] {
  * Where a row (or its Buy/Trade button) goes. Simple opens the coin page (or the Buy card while it is hidden); Pro always opens the desk,
  * whose route writes the pair with a dash ("BTC-USDT") although the service names it "BTC/USDT".
  * The coin page needs a session (it shows the person's holding), so a signed-out visitor goes to the public Buy card instead of a sign-in wall.
+ * Null while the desk is hidden too (the beta's build leaves it out): the row then names its market with no link, because
+ * the beta draws a link to a hidden room as nothing, with every word inside it (src/app/beta-links.ts).
  */
-export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: string) => boolean, signedIn = true): string {
+export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: string) => boolean, signedIn = true): string | null {
   if (mode === 'simple' && signedIn && !isHidden('/coin/:asset')) return `/coin/${encodeURIComponent(market.base)}`;
   if (mode === 'simple' && !isHidden('/trade/buy')) return `/trade/buy?asset=${encodeURIComponent(market.base)}`;
-  return `/trade/spot/${normalizePair(market.symbol)}`;
+  const desk = `/trade/spot/${normalizePair(market.symbol)}`;
+  return isHidden(desk) ? null : desk;
 }
 
 /** "$67,812.40" for a dollar-quoted market, "0.0123 BTC" otherwise; an unknown price is a bare "—". */

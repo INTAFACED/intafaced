@@ -18,7 +18,7 @@
  * - The customer security lock refuses the send and the use: nothing is recovered while the lock holds.
  */
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import type { Context } from '@intafaced/contracts';
 import type { SupportRecoveryCase } from '@intafaced/contracts/identity';
@@ -97,7 +97,7 @@ function requireOperator(context: Context): Operator {
 }
 
 /** The operator's own session must still be live and carry its second factor, read in the transaction that acts. */
-async function lockOperatorSession(tx: Sql, actor: Operator, now: Date): Promise<void> {
+async function lockOperatorSession(tx: Queryable, actor: Operator, now: Date): Promise<void> {
   const [session] = await tx<Array<{ revoked: boolean; mfa: boolean; expires_at: Date }>>`
     SELECT revoked, mfa, expires_at FROM sessions WHERE id = ${actor.sessionId} AND user_id = ${actor.userId} FOR UPDATE`;
   if (!session || session.revoked || session.expires_at.getTime() <= now.getTime()) throw new SupportRecoveryError('operator.denied');
@@ -134,7 +134,7 @@ const CASE_COLUMNS = `id, user_id, state, reason, opened_by, open_request_id, ap
 type AccountRow = { handle: string; status: string; email: string | null; email_verified_at: Date | null };
 
 /** The case as the operator sees it. It lists the account's sessions, so it is written to the operator read audit. */
-async function caseView(tx: Sql, row: CaseRow, actor: Operator): Promise<SupportRecoveryCaseView> {
+async function caseView(tx: Queryable, row: CaseRow, actor: Operator): Promise<SupportRecoveryCaseView> {
   await tx`
     INSERT INTO operator_read_audit (audit_id, actor_id, kind, query_hash)
     VALUES (${randomUUID()}, ${actor.userId}, 'session_list', ${createHash('sha256').update(row.user_id).digest('hex')})`;
@@ -173,7 +173,7 @@ async function caseView(tx: Sql, row: CaseRow, actor: Operator): Promise<Support
   };
 }
 
-async function lockCase(tx: Sql, caseId: string): Promise<CaseRow | undefined> {
+async function lockCase(tx: Queryable, caseId: string): Promise<CaseRow | undefined> {
   const [row] = await tx<CaseRow[]>`SELECT ${tx.unsafe(CASE_COLUMNS)} FROM support_recovery_cases WHERE id = ${caseId} FOR UPDATE`;
   return row;
 }

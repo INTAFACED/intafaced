@@ -1,6 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
-import { Button, Dialog } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { uiCopy } from '../../../shared/ui-copy';
 import { parseAmount } from '../../../shared/money';
+import { useReveal } from '../../../shared/reveal';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import {
@@ -15,6 +18,7 @@ import {
   type ProtectionRequest,
   type ProtectionSource,
   type ProtectionView,
+  type VenueLegOutcome,
   type VenueMarket,
   type VenuePosition,
 } from '../../../features/trade/venue-api';
@@ -75,9 +79,9 @@ function RefusalAlert({ refusal }: { refusal: Refusal | null }) {
   const { t } = venueProtectCopy.useCopy();
   if (!refusal) return null;
   return (
-    <div className="failure" role="alert" data-testid="protection-refusal">
+    <div className="lt-callout lt-callout-bad" role="alert" data-testid="protection-refusal">
       <p>{refusal.message}</p>
-      {refusal.code ? <p className="muted">{t('Code', { code: refusal.code })}</p> : null}
+      {refusal.code ? <p className="lt-quiet">{t('Code', { code: refusal.code })}</p> : null}
     </div>
   );
 }
@@ -165,19 +169,26 @@ export function ProtectDialog({
     }
   }
 
+  const { t: ui, languageFor: uiLanguage } = uiCopy.useCopy();
   return (
-    <Dialog title={t('Protect title', { symbol: market.symbol })} onClose={onClose}>
-      <div className="form-stack" data-testid="protect-dialog">
+    <Sheet
+      open
+      title={t('Protect title', { symbol: market.symbol })}
+      onClose={onClose}
+      closeLabel={ui('closeDialog')}
+      closeLang={uiLanguage('closeDialog')}
+    >
+      <div className="lt-stack" data-testid="protect-dialog">
         <div role="group" aria-label={t('Protection kind')}>
           {PROTECTION_KINDS.map((k) => (
-            <Button key={k} variant={kind === k ? 'primary' : 'secondary'} aria-pressed={kind === k} onClick={() => setKind(k)}>
+            <Button key={k} tone={kind === k ? 'primary' : 'secondary'} aria-pressed={kind === k} onClick={() => setKind(k)}>
               {kindWords(t, k)}
             </Button>
           ))}
         </div>
         <div role="group" aria-label={t('Trigger source')}>
           {PROTECTION_SOURCES.map((s) => (
-            <Button key={s} variant={source === s ? 'primary' : 'secondary'} aria-pressed={source === s} onClick={() => setSource(s)}>
+            <Button key={s} tone={source === s ? 'primary' : 'secondary'} aria-pressed={source === s} onClick={() => setSource(s)}>
               {t(`source_${s}`)}
             </Button>
           ))}
@@ -199,23 +210,25 @@ export function ProtectDialog({
             {covers.whole ? t('Covers whole') : t('Covers part', { covers: covers.covers, of: covers.of, rest: covers.rest })}
           </p>
         ) : null}
-        <Button onClick={() => void arm()}>{t('Arm protection')}</Button>
+        <Button tone="primary" onClick={() => void arm()}>
+          {t('Arm protection')}
+        </Button>
         <RefusalAlert refusal={refusal} />
         {outcome ? (
           <p role="status" data-testid="protection-outcome">
             {outcome}
           </p>
         ) : null}
-        <section className="form-stack" aria-label={t('Listed title')} data-testid="protection-list">
-          <h3 className="dk-tab-title">{t('Listed title')}</h3>
+        <section className="lt-stack" aria-label={t('Listed title')} data-testid="protection-list">
+          <h3 className="lt-panel-title">{t('Listed title')}</h3>
           {list.failure ? (
-            <p className="failure">{list.failure.message}</p>
+            <p className="lt-callout lt-callout-bad">{list.failure.message}</p>
           ) : mine.length === 0 ? (
             list.data ? (
-              <p className="muted">{t('Listed empty')}</p>
+              <p className="lt-quiet">{t('Listed empty')}</p>
             ) : null
           ) : (
-            <ul className="form-stack">
+            <ul className="lt-stack">
               {mine.map((p) => (
                 <ProtectionItem key={p.id} protection={p} position={position} base={market.baseAsset} run={run} onDone={list.reload} />
               ))}
@@ -223,7 +236,7 @@ export function ProtectDialog({
           )}
         </section>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -240,7 +253,7 @@ function positive(value: string): boolean {
 
 function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <input inputMode="decimal" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
@@ -266,6 +279,8 @@ function ProtectionItem({
   const venue = useVenueApi();
   const [cancelled, setCancelled] = useState<string | null>(null);
   const live = p.status === 'armed' || p.status === 'triggered';
+  // A change of what became of it (armed, then failed or filled) is news: brought into view in the dialog's scroll box.
+  const reveal = useReveal<HTMLLIElement>(p.status);
   const covers = live && position ? coverage(p.quantity, position.size) : null;
   const sourceText = sourceWords(t, p.triggerSource);
 
@@ -282,6 +297,7 @@ function ProtectionItem({
 
   return (
     <li
+      ref={reveal}
       data-client-order-id={p.clientOrderId}
       data-kind={p.kind}
       data-rests-on={p.restsOn}
@@ -298,14 +314,14 @@ function ProtectionItem({
         {p.kind === 'stop_limit' && p.limitPrice ? `; ${t('Item limit', { price: canonical(p.limitPrice) })}` : ''}
         {p.kind === 'trailing_stop' && p.currentTrigger ? `; ${t('Item trails now', { price: canonical(p.currentTrigger) })}` : ''}
       </p>
-      <p className="muted">{p.label}</p>
-      {p.parentClientOrderId ? <p className="muted">{t('Item attached')}</p> : null}
+      <p className="lt-quiet">{p.label}</p>
+      {p.parentClientOrderId ? <p className="lt-quiet">{t('Item attached')}</p> : null}
       {covers ? (
         <p>{covers.whole ? t('Covers whole') : t('Covers part', { covers: covers.covers, of: covers.of, rest: covers.rest })}</p>
       ) : null}
       {p.status === 'failed' ? (
         <>
-          <p className="failure">{t('Item failed', { failure: p.failure ?? '' })}</p>
+          <p className="lt-callout lt-callout-bad">{t('Item failed', { failure: p.failure ?? '' })}</p>
           {position ? <p>{t('Item still open', { size: canonical(position.size), base, side: sideWords(t, position.side) })}</p> : null}
         </>
       ) : null}
@@ -319,7 +335,7 @@ function ProtectionItem({
         </p>
       ) : null}
       {live && (p.restsOn === 'engine' || p.actionKey) ? (
-        <Button variant="secondary" onClick={() => void cancel()}>
+        <Button tone="secondary" onClick={() => void cancel()}>
           {t('Cancel')}
         </Button>
       ) : null}
@@ -361,17 +377,19 @@ function AgentPermission({ owner }: { owner: string }) {
 
   const approved = agent.data?.approved === true || accepted;
   return (
-    <section className="form-stack" aria-label={t('Agent permission')} data-testid="protection-agent">
-      <h3 className="dk-tab-title">{t('Agent permission')}</h3>
+    <section className="lt-stack" aria-label={t('Agent permission')} data-testid="protection-agent">
+      <h3 className="lt-panel-title">{t('Agent permission')}</h3>
       <p>{t('Agent note')}</p>
       {approved ? (
         <p role="status">{t('Agent approved')}</p>
       ) : agent.failure ? (
         <RefusalAlert refusal={{ message: agent.failure.message, code: agent.failure.code ?? null }} />
       ) : agent.data ? (
-        <Button onClick={() => void approve()}>{t('Agent approve')}</Button>
+        <Button tone="primary" onClick={() => void approve()}>
+          {t('Agent approve')}
+        </Button>
       ) : (
-        <p className="muted">{t('Agent checking')}</p>
+        <p className="lt-quiet">{t('Agent checking')}</p>
       )}
       {!approved && agent.failure ? null : <RefusalAlert refusal={refusal} />}
     </section>
@@ -380,8 +398,10 @@ function AgentPermission({ owner }: { owner: string }) {
 
 /**
  * One-tap reverse (J-derivatives-03 #9): close the whole position with one reduce-only market order, then open the same
- * size the other way, under one reverse key (`<key>:close`, `<key>:open`). The venue takes one order per signature, so the
- * person signs the close, then the open. The key is held while the dialog is open: a second press is the same reverse.
+ * size the other way, under one reverse key (`<key>:close`, `<key>:open`). Where the venue takes them together
+ * (`together`), both go in one signed action the person signs once (`place_orders`), and the venue answers each; where it
+ * takes one order per signature, the person signs the close, then the open, and the open follows only a close filled
+ * whole. The key is held while the dialog is open: a second press is the same reverse.
  */
 export function ReverseDialog({
   snapshot,
@@ -389,6 +409,7 @@ export function ReverseDialog({
   market,
   owner,
   run,
+  together,
   worstPrice,
   onDone,
   onClose,
@@ -400,6 +421,8 @@ export function ReverseDialog({
   market: VenueMarket;
   owner: string;
   run: RunAction;
+  /** The venue takes the close and the open in one signed action. */
+  together: boolean;
   worstPrice: (position: VenuePosition) => string;
   onDone: () => void;
   onClose: () => void;
@@ -432,6 +455,24 @@ export function ReverseDialog({
       clientOrderKey: `${reverseKey.current}:${part}`,
       builderFee: null,
     });
+    if (together) {
+      const sent = await run({ kind: 'place_orders', actionKey: reverseKey.current, orders: [order('close', true), order('open', false)] });
+      onDone();
+      if (!(sent.kind === 'outcome' && sent.outcome.accepted)) {
+        pressed.current = sent.kind === 'outcome' || sent.kind === 'unknown';
+        return setProblem(t('Reverse failed', { outcome: outcomeText(v, sent) }));
+      }
+      const [closeLeg, openLeg] = sent.outcome.legs ?? [];
+      const legResult = (leg: VenueLegOutcome | undefined): ActionResult =>
+        leg
+          ? { kind: 'outcome', outcome: leg, reused: sent.reused, clientOrderId: null, nonce: sent.nonce }
+          : { kind: 'unknown', clientOrderId: null, nonce: sent.nonce };
+      if (!(closeLeg?.accepted && canonical(closeLeg.order?.filled ?? '0') === size)) {
+        return setProblem(t('Reverse close part', { outcome: outcomeText(v, legResult(closeLeg)) }));
+      }
+      if (!openLeg?.accepted) return setProblem(t('Reverse open failed', { outcome: outcomeText(v, legResult(openLeg)) }));
+      return setOpened(true);
+    }
     const closed = await run(order('close', true));
     // The open follows only a close the venue filled whole: a part close and a whole open would not be a reverse.
     const closedWhole = closed.kind === 'outcome' && closed.outcome.accepted && canonical(closed.outcome.order?.filled ?? '0') === size;
@@ -450,14 +491,23 @@ export function ReverseDialog({
   }
 
   const now = opened && live && live.side === opposite ? live : null;
+  const { t: ui, languageFor: uiLanguage } = uiCopy.useCopy();
   return (
-    <Dialog title={t('Reverse title', { symbol: snapshot.symbol })} onClose={onClose}>
-      <div className="form-stack" data-testid="reverse-dialog">
+    <Sheet
+      open
+      title={t('Reverse title', { symbol: snapshot.symbol })}
+      onClose={onClose}
+      closeLabel={ui('closeDialog')}
+      closeLang={uiLanguage('closeDialog')}
+    >
+      <div className="lt-stack" data-testid="reverse-dialog">
         <p>{t('Reverse plan', { size, base: market.baseAsset, side: sideWords(t, snapshot.side), opposite: sideWords(t, opposite) })}</p>
-        <p className="muted">{t('Reverse note')}</p>
-        <Button onClick={() => void reverse()}>{t('Reverse sign')}</Button>
+        <p className="lt-quiet">{t(together ? 'Reverse note together' : 'Reverse note')}</p>
+        <Button tone="primary" onClick={() => void reverse()}>
+          {t('Reverse sign')}
+        </Button>
         {problem ? (
-          <p className="failure" role="alert">
+          <p className="lt-callout lt-callout-bad" role="alert">
             {problem}
           </p>
         ) : null}
@@ -469,6 +519,6 @@ export function ReverseDialog({
           </p>
         ) : null}
       </div>
-    </Dialog>
+    </Sheet>
   );
 }

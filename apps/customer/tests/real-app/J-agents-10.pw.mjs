@@ -46,11 +46,68 @@ test(`${J} starts: a verified TEST account with an agent of its own that reads o
 test(`${J} #1 runs the agent against a page that says to ignore instructions and send funds: labelled untrusted, blocked, nothing runs, charge 0`, async ({
   page,
 }) => {
-  await runOver(page, HOSTILE, 'TEST: summarise this page');
-  await expect(testPanel(page).getByRole('region', { name: 'Outside content' }).getByText('Untrusted')).toBeVisible();
+  const client = await api(agents.account());
+  const holdsOf = async (id) => {
+    const res = await client.get(`/api/agents/trpc/own.holds?input=${encodeURIComponent(JSON.stringify({ id }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data;
+  };
+  const ran = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/own.testRun'));
+  await openOwnAgent(page, agents, 'Test');
+  await testPanel(page)
+    .getByRole('textbox', { name: /^Outside content/ })
+    .fill(HOSTILE, UNBUILT);
+  await testPanel(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST: summarise this page');
+  await testPanel(page).getByRole('button', { name: 'Run a test' }).click();
+  const response = await ran;
+  expect(response.status()).toBe(200);
+  const run = (await response.json()).result.data;
+  const agentId = response.request().postDataJSON().id;
+  expect(agentId, 'the run names the agent it ran').toEqual(expect.any(String));
+
+  // svc-agents decided it: the content is labelled untrusted and the step is blocked with the untrusted-content code.
+  expect(run.kind).toBe('engine_run');
+  expect(run.content).toBe(HOSTILE);
+  expect(run.guard).toEqual({ content: { trust: 'untrusted' }, outcome: 'blocked', code: 'agents.content.untrusted', approval: null });
+  // Nothing runs: the engine never answered (no reply, no Answered step), nothing waits for approval, nothing is
+  // remembered, and the run opened no session, held no spend and placed no intent.
+  expect(run.reply).toBe('');
+  expect(run.memory).toBeNull();
+  expect(run.log.map((row) => row.step)).toEqual(['asked', 'blocked', 'billed']);
+  expect(run.log[1].text).toBe('agents.content.untrusted');
+  // The agent was made in the start and has run nothing since, so it holds nothing at all.
+  expect(await holdsOf(agentId)).toEqual({ sessions: 0, reservations: 0, intents: 0 });
+  // The charge is 0.
+  expect(run.cost).toBe('0');
+  expect(run.log[2].text).toBe(`0 ${run.assetId}`);
+
+  // The person sees the same: the content labelled Untrusted, the code as the one alert, no reply, no approval request,
+  // a log that stops at Blocked, and a charge of 0.
+  const content = testPanel(page).getByRole('region', { name: 'Outside content' });
+  await expect(content.getByTestId('content-trust')).toHaveText('Untrusted');
+  await expect(content.getByTestId('content-text')).toHaveText(HOSTILE);
+  await expect(testPanel(page).getByRole('alert')).toHaveCount(1);
   await expect(testPanel(page).getByRole('alert')).toContainText('agents.content.untrusted');
-  await expect(testPanel(page).getByRole('region', { name: 'Would do' })).toHaveCount(0);
+  await expect(testPanel(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  await expect(testPanel(page).getByRole('region', { name: 'Approval request' })).toHaveCount(0);
+  const log = testPanel(page).getByRole('region', { name: 'Run log', exact: true }).locator('tr[data-step]');
+  await expect(log).toHaveCount(3);
+  await expect(log.nth(0).getByRole('cell').first()).toHaveText('Asked');
+  await expect(log.nth(1).getByRole('cell').first()).toHaveText('Blocked');
+  await expect(log.nth(1).getByTestId('log-text')).toHaveText('agents.content.untrusted');
+  await expect(log.nth(2).getByRole('cell').first()).toHaveText('Billed');
+  await expect(log.nth(2).getByTestId('log-text')).toHaveText(`0 ${run.assetId}`);
+  await expect(testPanel(page).getByTestId('run-cost')).toHaveText(`0 ${run.assetId}`);
   await expect(testPanel(page).getByTestId('run-cost')).toHaveText('0 USDT');
+
+  // Stored as it was decided: the run read back from the service is the same blocked run at 0.
+  const stored = await client.get(`/api/agents/trpc/own.testRuns?input=${encodeURIComponent(JSON.stringify({ id: agentId, limit: 50 }))}`);
+  expect(stored.status).toBe(200);
+  const kept = stored.body.result.data.find((row) => row.id === run.id);
+  expect(kept, 'the blocked run is on record').toBeTruthy();
+  expect(kept).toMatchObject({ cost: '0', reply: '', guard: run.guard, log: run.log });
 });
 
 test(`${J} #2 approves a value-moving action whose argument came from untrusted text: only the approved payload counts; a mismatch refuses`, async ({

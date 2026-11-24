@@ -1,14 +1,19 @@
 import { quantStrategyHeadSchema, quantStrategyListOutputSchema, type QuantStrategyHead } from '@intafaced/contracts/quant-algo';
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import type { ReactNode } from 'react';
 import { z } from 'zod';
+import { parsesAs } from '../../shared/api';
 import { DataTable } from '../../shared/ui';
-import { Read } from '../more/common';
-import { MorePages, useStrategyPages } from './strategy-pages';
+import { Read } from '../more';
+import { MorePages, useStrategyPages, type StrategyPageRead } from './strategy-pages';
 import { studioCopy } from './studio-copy';
 
 export { STRATEGY_PAGE } from './strategy-pages';
 
 const page = quantStrategyListOutputSchema.extend({ strategies: z.array(quantStrategyHeadSchema) });
+/** `studio.list` by its record; a row must still read as a head with its rules (amounts as decimals) to be shown. */
+const headPage: StrategyPageRead<QuantStrategyHead> = (api, input, signal) =>
+  api.call(QUANT_STUDIO_LIST, input, { signal, accept: parsesAs(page) });
 
 /**
  * The account's saved strategies, one page at a time, newest version of each. The Algo dev home and Studio both show
@@ -27,7 +32,7 @@ export function StrategyTable({
   action?: (strategy: QuantStrategyHead) => ReactNode;
 }) {
   const { t } = studioCopy.useCopy();
-  const pages = useStrategyPages('studio.list', page, reloadKey);
+  const pages = useStrategyPages('studio.list', headPage, reloadKey);
   return (
     <Read resource={pages.first.resource} retry={pages.first.reload}>
       {(data) => {

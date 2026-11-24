@@ -40,7 +40,10 @@ function served(entry: Pick<StreamEntry, 'door' | 'channel'>): boolean {
   }
 }
 
-async function streamsFrom(withMux: boolean): Promise<readonly StreamEntry[]> {
+async function inventoryFrom(
+  withMux: boolean,
+  timing?: { heartbeatMs: number; muxIdleMs: number | undefined },
+): Promise<{ streams: StreamEntry[]; timing: { heartbeatMs: number | null; muxIdleMs: number | null } }> {
   const source: DepthSource = {
     snapshot: async () => {
       throw new Error('not read');
@@ -68,12 +71,34 @@ async function streamsFrom(withMux: boolean): Promise<readonly StreamEntry[]> {
     privateBus: () => false,
     // Only its presence is read by `/streams`; no request here reaches it.
     ...(withMux ? { mux: { gateway: {} as MuxGateway, tickerHub: {} as TickerHub, candleHub: {} as CandleHub } } : {}),
+    ...(timing ? { timing } : {}),
   });
   const res = await app.inject({ method: 'GET', url: '/streams' });
   await app.close();
   expect(res.statusCode).toBe(200);
-  return (res.json() as { streams: StreamEntry[] }).streams;
+  return res.json();
 }
+
+async function streamsFrom(withMux: boolean): Promise<readonly StreamEntry[]> {
+  return (await inventoryFrom(withMux)).streams;
+}
+
+describe('GET /streams timing (DV-websocket-02)', () => {
+  it('publishes the ping cadence and the multiplexed idle close the doors run', async () => {
+    expect((await inventoryFrom(true, { heartbeatMs: 2_000, muxIdleMs: 60_000 })).timing).toEqual({
+      heartbeatMs: 2_000,
+      muxIdleMs: 60_000,
+    });
+  });
+
+  it('an unpublished idle close reads null, never a borrowed number', async () => {
+    expect((await inventoryFrom(false, { heartbeatMs: 30_000, muxIdleMs: undefined })).timing).toEqual({
+      heartbeatMs: 30_000,
+      muxIdleMs: null,
+    });
+    expect((await inventoryFrom(false)).timing).toEqual({ heartbeatMs: null, muxIdleMs: null });
+  });
+});
 
 describe('GET /streams', () => {
   it('lists every door, each channel exactly once, and every listed channel is one its door serves', async () => {
@@ -91,6 +116,7 @@ describe('GET /streams', () => {
       'private orders',
       'private fills',
       'private positions',
+      'private balances',
       'drop-copy drop_copy',
     ]);
     for (const entry of streams) expect(served(entry), `${entry.door} ${entry.channel}`).toBe(true);
@@ -98,6 +124,7 @@ describe('GET /streams', () => {
       new Set([`market ${STREAM_PATH}`, `mux ${STREAM_PATH}`, `private ${PRIVATE_STREAM_PATH}`, `drop-copy ${DROP_COPY_STREAM_PATH}`]),
     );
     expect(streams.filter((entry) => entry.access === 'private').map((entry) => entry.door)).toEqual([
+      'private',
       'private',
       'private',
       'private',
@@ -119,6 +146,7 @@ describe('GET /streams', () => {
       'private orders spot',
       'private fills spot',
       'private positions derivatives',
+      'private balances accounts',
       'drop-copy drop_copy accounts',
     ]);
     expect(Object.keys(STREAM_PRODUCTS)).toEqual(streams.map((entry) => `${entry.door} ${entry.channel}`));

@@ -15,6 +15,9 @@ const route = {
   outputPerMillion: '0',
   assetId: 'IFC',
   engine: 'sandbox',
+  // The router's answer always carries both (svc-agents routes.list output, now the record's).
+  capability: 'complete',
+  metered: false,
 };
 
 vi.mock('../../shared/preferences', async (original) => {
@@ -31,6 +34,21 @@ vi.mock('../session/session', () => {
       calls.push({ input });
       const next = answers.shift()!;
       return next.ok ? { ok: true, data: schema.parse(next.data) } : next;
+    },
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
     },
   };
   return { useApi: () => api, useSession: () => ({ userId: 'u-test' }) };

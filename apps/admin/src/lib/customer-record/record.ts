@@ -1,7 +1,25 @@
-import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS } from '@/lib/ops-desk/catalog';
+import { readOf } from '@/lib/desk-read';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS, type Column, type ReadSpec, type Unavailable } from '@/lib/ops-desk';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
-import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
+import {
+  IDENTITY_DEVELOPER_SUPPORT_CALLS,
+  IDENTITY_DEVELOPER_SUPPORT_KEYS,
+} from '@intafaced/contracts/identity-developer-support-procedures';
 import type { CustomerTab } from './tabs';
+import {
+  IDENTITY_KYC_HISTORY_FOR,
+  IDENTITY_KYC_SELFIE_LIST_FOR,
+  IDENTITY_KYC_LIST_DOCUMENTS,
+} from '@intafaced/contracts/identity-kyc-procedures';
+import {
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { BANK_OPS_CUSTOMER_TRANSFERS } from '@intafaced/contracts/bank-ops-procedures';
+import { SUPPORT_LIST_ALL } from '@intafaced/contracts/support-list-queue-procedures';
+import { TRADE_ADMIN_CUSTOMER_ORDERS } from '@intafaced/contracts/trade-admin-procedures';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
 
 export {
   CUSTOMER_TABS,
@@ -11,6 +29,7 @@ export {
   TAB_LABELS,
   customerId,
   customerTab,
+  requestIdQuery,
   type CustomerTab,
 } from './tabs';
 
@@ -46,16 +65,15 @@ const SELFIE_CHECK_WORDS: Record<KycSelfieForCompliance['captureCheck'], string>
   not_checked: 'None ran: no automatic liveness or face-match check; a person compares the photo with the ID',
 };
 
-/** An account-control history for one target: every restrict or restore attempt, newest first, as the owning service logged it. */
-function controlHistory(id: string, module: 'identity' | 'trade', area: 'identity' | 'trading', userId: string, service: string): ReadSpec {
+/** This account's trading-control history: every restrict or restore attempt, newest first, as svc-trade logged it. */
+function tradeControlHistory(userId: string): ReadSpec {
   return {
-    id,
-    title: area === 'trading' ? 'Trading restrictions' : 'Account restrictions',
-    note: `Every restrict or restore of this account’s ${area === 'trading' ? 'trading' : 'access'} that ${service} logged, with its outcome. Changing it is on Account controls, with a second founder.`,
-    module,
-    plainName: `${service}’s restriction history`,
-    procedure: 'accountControls.history',
-    input: { target: { area, userId }, limit: CONTROL_HISTORY_LIMIT },
+    id: 'trade.controls',
+    title: 'Trading restrictions',
+    note: 'Every restrict or restore of this account’s trading that svc-trade logged, with its outcome. Changing it is on Account controls, with a second founder.',
+    plainName: 'svc-trade’s restriction history',
+    ...readOf(TRADE_ACCOUNT_CONTROLS_HISTORY),
+    input: { target: { area: 'trading', userId }, limit: CONTROL_HISTORY_LIMIT },
     shape: 'list',
     idKey: 'auditId',
     page: CONTROL_HISTORY_LIMIT,
@@ -65,8 +83,116 @@ function controlHistory(id: string, module: 'identity' | 'trade', area: 'identit
       col('outcome', 'Outcome', 'text'),
       col('auditId', 'Audit id', 'text', { detail: true }),
     ],
-    emptyText: `${service} has no restriction logged for this account: it has never been restricted or restored here.`,
-    forbiddenText: `${service} did not accept your founder session for this read (account controls need an enabled founder with a confirmed second factor).`,
+    emptyText: 'svc-trade has no restriction logged for this account: it has never been restricted or restored here.',
+    forbiddenText:
+      'svc-trade did not accept your founder session for this read (account controls need an enabled founder with a confirmed second factor).',
+  };
+}
+
+/** svc-trade's cap on one page of a customer's orders (`admin.customerOrders`, max 200). */
+const ORDER_LIMIT = 200;
+
+/**
+ * This account's orders, newest first, as svc-trade holds them (`admin.customerOrders`, J-ops-console-02 #3): what the
+ * customer's own order list shows, narrowed to market, side, type, status, quantity, filled and limit price. svc-trade
+ * writes an audit row for every read before it answers.
+ */
+function customerOrders(userId: string): ReadSpec {
+  return {
+    id: 'trade.orders',
+    title: 'Orders',
+    note: 'Every order this account placed, newest first, as svc-trade holds it now: market, side, type, status, how much was asked and how much filled, up to the newest 200. svc-trade records that you read this account’s orders before it answers.',
+    plainName: 'svc-trade’s orders for this account',
+    ...readOf(TRADE_ADMIN_CUSTOMER_ORDERS),
+    input: { userId, limit: ORDER_LIMIT },
+    shape: 'list',
+    rowsKey: 'orders',
+    idKey: 'orderId',
+    page: ORDER_LIMIT,
+    columns: [
+      col('createdAt', 'Placed', 'time'),
+      col('symbol', 'Market', 'text'),
+      col('side', 'Side', 'text'),
+      col('type', 'Type', 'text'),
+      col('status', 'Status', 'text'),
+      col('qty', 'Amount', 'amount'),
+      col('filledQty', 'Filled', 'amount'),
+      col('limitPrice', 'Limit price', 'amount', { nullable: true }),
+      col('rejectCode', 'Refused with', 'code', { nullable: true, detail: true }),
+      col('recoveryRequired', 'Needs recovery', 'bool', { detail: true }),
+      col('orderId', 'Order id', 'text', { detail: true }),
+    ],
+    emptyText: 'svc-trade holds no order for this account: it has never placed one.',
+    forbiddenText:
+      'svc-trade did not accept your session for this read (one customer’s orders need the operator read permission admin:read and the customer lookup permission support:lookup).',
+  };
+}
+
+/** svc-bank's cap on one page of a customer's payments (`ops.customerTransfers`, max 200). */
+const TRANSFER_LIMIT = 200;
+
+/** This account's payments to and from other people, newest first, as svc-bank holds them (`ops.customerTransfers`). */
+function customerTransfers(userId: string): ReadSpec {
+  return {
+    id: 'pay.payments',
+    title: 'Payments sent and received',
+    note: 'Every payment this account sent to or received from another person, newest first, as svc-bank holds it now: which way it went, the other person’s account id, the amount and coin, and whether it posted to the ledger, up to the newest 200. No note, reference or handle is read. svc-bank logs that you read this account’s payments before it reads them.',
+    plainName: 'svc-bank’s payments for this account',
+    ...readOf(BANK_OPS_CUSTOMER_TRANSFERS),
+    input: { userId, limit: TRANSFER_LIMIT },
+    shape: 'list',
+    rowsKey: 'transfers',
+    idKey: 'id',
+    page: TRANSFER_LIMIT,
+    columns: [
+      col('createdAt', 'When', 'time'),
+      col('direction', 'Sent or received', 'text', { words: { sent: 'Sent', received: 'Received' } }),
+      col('counterpartyUserId', 'Other person’s account id', 'text'),
+      col('amount', 'Amount', 'amount'),
+      col('assetId', 'Coin', 'text'),
+      col('status', 'Status', 'text', { words: { posted: 'Posted', reserved: 'Reserved, not posted yet' } }),
+      col('ledgerTxId', 'Ledger transaction', 'text', { nullable: true, detail: true }),
+      col('id', 'Payment id', 'text', { detail: true }),
+    ],
+    emptyText: 'svc-bank holds no payment to or from this account: it has never sent or received one.',
+    forbiddenText: FORBID_BANK_OPS,
+    refusals: {
+      'bank.ops_audit_unavailable':
+        'svc-bank could not record that you asked, so it read nothing. It writes that record before it reads any payment, and refuses when it cannot.',
+    },
+  };
+}
+
+/** svc-support's queue page asked for when finding one account's requests (`listAll`, max 500). */
+const TICKET_LIMIT = 200;
+
+/**
+ * This account's support requests, newest first: svc-support's staff queue searched by the account id, keeping only the
+ * requests this account itself opened (a request that merely mentions the id is left out).
+ */
+function customerTickets(userId: string): ReadSpec {
+  return {
+    id: 'tickets.list',
+    title: 'Support requests from this account',
+    note: 'Every support request this account opened, newest first, as svc-support’s staff queue holds it: subject, topic and status. Searched by the account id in the newest 200 requests the queue finds for it; open the request on the Support desk to read or answer it.',
+    plainName: 'svc-support’s requests for this account',
+    ...readOf(SUPPORT_LIST_ALL),
+    input: { limit: TICKET_LIMIT, q: userId },
+    rowsWhere: { key: 'userId', equals: userId },
+    shape: 'list',
+    idKey: 'id',
+    page: TICKET_LIMIT,
+    columns: [
+      col('createdAt', 'Opened', 'time'),
+      col('subject', 'Subject', 'text'),
+      col('category', 'Topic', 'text'),
+      col('status', 'Status', 'text'),
+      col('updatedAt', 'Last change', 'time', { detail: true }),
+      col('id', 'Request id', 'text', { detail: true }),
+    ],
+    emptyText: 'svc-support holds no request from this account: it has never opened one.',
+    forbiddenText:
+      'svc-support did not accept your session for this read (its staff queue needs the support operator permission support:ops).',
   };
 }
 
@@ -94,9 +220,8 @@ function depositAddresses(userId: string): ReadSpec {
     id: 'money.deposit-addresses',
     title: 'Deposit addresses',
     note: 'Every deposit address svc-pay issued to this account, and whether compliance froze it. A deposit to a frozen address that is not credited yet is on hold and is never credited until a second founder lifts the freeze. Open a row to freeze it, or to ask for the lift.',
-    module: 'pay',
     plainName: 'svc-pay’s deposit addresses',
-    procedure: 'founderAdmin.depositFreezes.addresses',
+    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES),
     input: { userId },
     shape: 'list',
     idKey: 'id',
@@ -125,9 +250,8 @@ function depositFreezeHistory(userId: string): ReadSpec {
     id: 'money.deposit-freezes',
     title: 'Deposit address freezes',
     note: 'Every compliance freeze on this account’s deposit addresses, newest first: who placed it and why, and for a lifted one who lifted it, which founder approved, and why.',
-    module: 'pay',
     plainName: 'svc-pay’s deposit address freezes',
-    procedure: 'founderAdmin.depositFreezes.history',
+    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY),
     input: { userId, limit: FREEZE_HISTORY_LIMIT },
     shape: 'list',
     idKey: 'id',
@@ -157,9 +281,8 @@ function depositTravelRule(userId: string): ReadSpec {
     id: 'money.deposit-travel-rule',
     title: 'Deposits held for the travel rule',
     note: 'Every deposit of this account at or above the owner’s inbound travel-rule threshold, newest first. It is not credited while held. The depositor declares where it came from (sealed in svc-pay, never shown here); a founder releases it, and svc-pay credits it once. A wait on the sending platform that runs out leaves it held.',
-    module: 'pay',
     plainName: 'svc-pay’s travel-rule holds',
-    procedure: 'founderAdmin.depositTravelRule.list',
+    ...readOf(PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST),
     input: { userId, limit: TRAVEL_RULE_LIMIT },
     shape: 'list',
     idKey: 'depositId',
@@ -255,9 +378,8 @@ export function identityDocumentsRead(userId: string, recordId?: string): ReadSp
     id: 'identity.documents',
     title: 'Identity documents',
     note: 'Every document identity’s vault holds for this account, newest first: what it is, when it was stored, and the status of the verification it is attached to. Only the description is read here; open a row to ask a second founder to approve opening its contents.',
-    module: 'identity',
     plainName: 'identity’s document vault',
-    procedure: 'kyc.listDocuments',
+    ...readOf(IDENTITY_KYC_LIST_DOCUMENTS),
     input: { userId, limit: DOCUMENT_LIMIT },
     ...(recordId === undefined ? {} : { rowsWhere: { key: 'reviewRecordId', equals: recordId } }),
     shape: 'list',
@@ -295,9 +417,8 @@ export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
     id: caseId === undefined ? 'identity.kyc-cases' : 'identity.kyc-case',
     title: 'Verification cases',
     note: 'Each identity verification this person asked for, newest first, as identity holds it: the level, the state and when it was decided. Open a case to see its documents.',
-    module: 'identity',
     plainName: 'identity’s verification cases',
-    procedure: 'kyc.historyFor',
+    ...readOf(IDENTITY_KYC_HISTORY_FOR),
     input: { userId, limit: KYC_CASE_LIMIT },
     shape: 'list',
     rowsKey: 'cases',
@@ -313,10 +434,83 @@ export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
       col('recordId', 'Verification id', 'text', { detail: true }),
       col('id', 'Case id', 'text', { detail: true }),
     ],
+    rowAction: 'identity.kyc.approve',
     emptyText: 'This person has asked for no identity verification.',
     forbiddenText:
       'Identity did not accept your founder session for this read (verification cases are for an enabled founder with the compliance permission).',
   };
+}
+
+const DEVELOPER_KEY_LIMIT = 50;
+const DEVELOPER_CALL_LIMIT = 50;
+
+/**
+ * The Developer API tab (J-developer-17, DV-errors-02, DV-keys-06): this account's API keys, and its keys' calls, newest first.
+ * A request id the customer gives narrows the calls to that one call; one no key of this account made (another account's
+ * included) is refused not found. A call shows what was called, the status, the typed error code the reply carried and
+ * whether it came from outside the key's IP list: never a body, a header value or a secret.
+ */
+function developerReads(userId: string, requestId: string | undefined): ReadSpec[] {
+  const keys: ReadSpec = {
+    ...readOf(IDENTITY_DEVELOPER_SUPPORT_KEYS),
+    id: 'identity.developer-keys',
+    title: 'API keys',
+    note: 'Every API key of this account, newest first, as its owner’s own list shows it: name, prefix, permissions, IP list and whether it still works. Never the key itself, its hash or its signing secret.',
+    plainName: 'identity’s API keys',
+    input: { userId, limit: DEVELOPER_KEY_LIMIT },
+    shape: 'list',
+    rowsKey: 'keys',
+    idKey: 'id',
+    page: DEVELOPER_KEY_LIMIT,
+    columns: [
+      col('name', 'Name', 'text'),
+      col('prefix', 'Prefix', 'text'),
+      col('mode', 'Mode', 'text'),
+      col('revoked', 'Revoked', 'bool'),
+      col('lastUsedAt', 'Last used', 'time', { nullable: true }),
+      col('createdAt', 'Created', 'time', { detail: true }),
+      col('expiresAt', 'Ends', 'time', { nullable: true, detail: true }),
+      col('revokedAt', 'Revoked at', 'time', { nullable: true, detail: true }),
+      col('revokedBy', 'Revoked by', 'text', { nullable: true, detail: true }),
+      col('kind', 'Kind', 'text', { detail: true }),
+      col('id', 'Key id', 'text', { detail: true }),
+    ],
+    emptyText: 'This account has no API key: it has never made one.',
+    forbiddenText:
+      'Identity did not accept your session for this read (a customer’s API keys are for staff with the support lookup permission).',
+  };
+  const calls: ReadSpec = {
+    ...readOf(IDENTITY_DEVELOPER_SUPPORT_CALLS),
+    id: 'identity.developer-calls',
+    title: requestId === undefined ? 'API calls' : `API call ${requestId}`,
+    note: 'Calls this account’s keys made, newest first, as the front door answered them: what was called, the status, the typed error code the reply carried and whether the caller was outside the key’s IP list. Never a body, a header value or a key.',
+    plainName: 'identity’s API call log',
+    input: { userId, limit: DEVELOPER_CALL_LIMIT, ...(requestId === undefined ? {} : { requestId }) },
+    shape: 'list',
+    rowsKey: 'calls',
+    idKey: 'requestId',
+    page: DEVELOPER_CALL_LIMIT,
+    columns: [
+      col('at', 'When', 'time'),
+      col('requestId', 'Request id', 'text'),
+      col('keyName', 'Key', 'text'),
+      col('method', 'Method', 'text'),
+      col('path', 'Path', 'text'),
+      col('status', 'Status', 'int'),
+      col('errorCode', 'Error code', 'code', { nullable: true }),
+      col('outsideIpList', 'Outside IP list', 'bool'),
+      col('keyPrefix', 'Key prefix', 'text', { detail: true }),
+      col('keyId', 'Key id', 'text', { detail: true }),
+    ],
+    emptyText: 'This account’s keys have made no call.',
+    forbiddenText:
+      'Identity did not accept your session for this read (a customer’s API calls are for staff with the support lookup permission).',
+    refusals: {
+      'identity.developer_request_not_found':
+        'Not found: no call by this account’s keys has this request id. Check the id with the customer; a request id another account’s key made is not shown here.',
+    },
+  };
+  return [keys, calls];
 }
 
 export interface CustomerTabPlan {
@@ -328,8 +522,19 @@ export interface CustomerTabPlan {
 const un = (id: string, label: string, reason: string): Unavailable => ({ id, label, reason, need: null });
 
 /** What a tab reads for `userId`, and what it says it cannot read. */
-export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
+export function tabPlan(tab: CustomerTab, userId: string, query: { readonly requestId?: string } = {}): CustomerTabPlan {
   switch (tab) {
+    case 'developer':
+      return {
+        reads: developerReads(userId, query.requestId),
+        unwired: [
+          un(
+            'developer.bodies',
+            'Request and reply bodies',
+            'Identity keeps no body, header value or message of an API call, on purpose: a body can hold a secret. The error code above is what the reply named; ask the customer for the rest, never their key or signing secret.',
+          ),
+        ],
+      };
     case 'money':
       return {
         reads: [
@@ -348,12 +553,12 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
       };
     case 'trade':
       return {
-        reads: [controlHistory('trade.controls', 'trade', 'trading', userId, 'svc-trade')],
+        reads: [customerOrders(userId), tradeControlHistory(userId)],
         unwired: [
           un(
-            'trade.orders',
-            'Open orders and trade history',
-            'svc-trade and svc-matching have no operator read of one customer’s orders or fills; their reads answer only the signed-in owner.',
+            'trade.fills',
+            'Each fill, its price and fee',
+            'svc-trade has no operator read of one customer’s fills: the orders above show how much of each order filled, and the price and fee of each fill answer only the signed-in owner.',
           ),
           un('trade.positions', 'Positions and margin', 'svc-trade has no operator read of one customer’s positions or margin.'),
         ],
@@ -361,6 +566,7 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
     case 'pay':
       return {
         reads: [
+          customerTransfers(userId),
           allowlistRead(
             'pay.allowlist-mode',
             'Withdrawal allowlist',
@@ -385,9 +591,9 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
         ],
         unwired: [
           un(
-            'pay.payments',
-            'Payments sent and received',
-            'svc-pay has no operator read that lists one customer’s payments; its payment reads answer only the signed-in owner or a merchant.',
+            'pay.checkouts',
+            'Payments to merchants at checkout',
+            'svc-pay has no operator read that lists one customer’s checkout payments; its payment reads answer only the signed-in owner or a merchant.',
           ),
         ],
       };
@@ -411,9 +617,8 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
             id: 'identity.selfies',
             title: 'Selfies',
             note: 'Every selfie this account sent for comparison with its ID photo, newest first: how it was taken, its status and when it was decided. No automatic liveness or face-match check runs on a selfie: a person compares it. The selfie’s photo is the document named in its row; open that document above to compare. A selfie that waits can be accepted or rejected here, with a second founder’s approval.',
-            module: 'identity',
             plainName: 'identity’s selfie step',
-            procedure: 'kyc.selfie.listFor',
+            ...readOf(IDENTITY_KYC_SELFIE_LIST_FOR),
             input: { userId, limit: SELFIE_LIMIT },
             shape: 'list',
             rowsKey: 'selfies',
@@ -448,12 +653,12 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
       };
     case 'tickets':
       return {
-        reads: [],
+        reads: [customerTickets(userId)],
         unwired: [
           un(
-            'tickets.list',
-            'Support requests from this account',
-            'svc-support has no read of one customer’s requests for staff: its staff reads go by request id or the whole queue, and it refuses on purpose to answer about an arbitrary account. Find the request on the Support desk.',
+            'tickets.thread',
+            'Each request’s messages',
+            'svc-support reads a request’s messages by request id, for the request’s own workspace; this tab lists the requests and does not open each thread. Open the request on the Support desk to read it.',
           ),
         ],
       };

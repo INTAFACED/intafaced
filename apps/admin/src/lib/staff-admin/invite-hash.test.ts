@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { APPROVAL_POLICY_SET_ACTION_TYPE } from '@intafaced/contracts';
 import { staffChangeApprovalSubject, staffChangePayloadText } from '@intafaced/contracts/identity-staff';
-import { payloadHashFor, proposeInputFor } from '@/lib/desk/approval-hash';
-import { readDeskRequest } from '@/lib/desk/approval-packet';
+import { payloadHashFor, proposeInputFor, readDeskRequest } from '@/lib/desk';
 
 // What the second founder approves must be byte for byte what svc-identity recomputes when it applies (J-ops-console-09).
 describe('the staff invite and policy row hashes match svc-identity', () => {

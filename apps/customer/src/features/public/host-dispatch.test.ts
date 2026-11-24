@@ -9,7 +9,7 @@ import { hostDispatchReceipt } from '../../../vite.config';
 
 const served = (role: string, host: string) => ({ role, host, result: 'served', buildId: 'abc' });
 const json = (body: unknown, status = 200, type = 'application/json') =>
-  (async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } })) as unknown as typeof fetch;
+  (async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } })) as typeof fetch;
 
 describe('host dispatch receipt', () => {
   it('shows three served hosts from a served receipt', () => {
@@ -104,9 +104,9 @@ describe('host dispatch receipt', () => {
     expect((await readHostDispatch(json('<html>', 200, 'text/html'))).source).toBe('host.receipt_missing');
     const failing = (async () => {
       throw new TypeError('offline');
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     expect((await readHostDispatch(failing)).source).toBe('host.receipt_unreadable');
-    const broken = (async () => new Response('{', { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    const broken = (async () => new Response('{', { headers: { 'content-type': 'application/json' } })) as typeof fetch;
     expect((await readHostDispatch(broken)).source).toBe('host.receipt_invalid');
   });
   it('marks a LOCAL TEST receipt test, and refuses a plain-http host in a receipt that does not say so', () => {

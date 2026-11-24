@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
@@ -41,7 +41,7 @@ export function TopUpView({ resource: r, retry }: { resource: Resource<unknown>;
         ) : r.status === 'failed' ? (
           <PortalFailure result={r.failure} retry={retry} />
         ) : null}
-        <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
+        <form data-testid="form-stack" className="lt-stack" noValidate onSubmit={(e) => e.preventDefault()}>
           <Field
             label={t('tuAmount')}
             hint={t('tuAmountHint')}
@@ -51,8 +51,8 @@ export function TopUpView({ resource: r, retry }: { resource: Resource<unknown>;
             onChange={(e) => setAmount(e.target.value)}
             disabled={off}
           />
-          <div className="pp-actions">
-            <Button type="submit" variant="primary" disabled={off} aria-describedby={why ? whyId : undefined}>
+          <div className="lt-actions">
+            <Button type="submit" tone="primary" disabled={off} aria-describedby={why ? whyId : undefined}>
               {t('tuRequest')}
             </Button>
           </div>

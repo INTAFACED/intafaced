@@ -1,14 +1,12 @@
 import { encodeFunctionData, formatUnits, getAddress, parseAbi, parseUnits, type Address, type PublicClient } from 'viem';
-import {
-  VENUE_BAD_AMOUNT,
-  VENUE_INSUFFICIENT_FREE,
-  VENUE_UNSET,
-  type ProtocolVenueAsset,
-  type ProtocolVenueBalances,
-  type ProtocolVenueBuild,
-  type ProtocolVenueBuildInput,
-  type ProtocolVenueSide,
+import type {
+  ProtocolVenueAsset,
+  ProtocolVenueBalances,
+  ProtocolVenueBuild,
+  ProtocolVenueBuildInput,
+  ProtocolVenueSide,
 } from '@intafaced/contracts';
+import { VENUE_BAD_AMOUNT, VENUE_INSUFFICIENT_FREE, VENUE_UNSET } from '@intafaced/contracts/protocol-venue-funds';
 import { isZeroAddress } from '../chain/availability.js';
 import { planApproval } from '../amm/build.js';
 

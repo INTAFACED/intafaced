@@ -69,6 +69,11 @@ import {
  * pays only on the LOCAL TEST chain (CAMPAIGNS_TEST_CHAIN_RPC_URL, CAMPAIGNS_TEST_CHAIN_TOKEN, CAMPAIGNS_TEST_CHAIN_ID:
  * a loopback anvil, where the wallet has no key and anvil sends for it); with no TEST chain no payer runs either, since a
  * real chain needs the owner's own signing key.
+ *
+ * The risk review (J-campaigns-18, `risk.ts`), owner values, NO DEFAULT. CAMPAIGNS_RISK_SIGNAL_THRESHOLD: how many distinct
+ * signals hold an account's new rewards for review; blank, a reward of any account with a signal waits
+ * `campaigns.risk_threshold_unset` (the control never switches off). CAMPAIGNS_RISK_APPEAL_WINDOW_SECONDS: how long after a
+ * revocation the customer may appeal; blank refuses every revocation `campaigns.appeal_window_unset`.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -132,6 +137,8 @@ const schema = baseEnvSchema
       ),
       CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS: blankAsAbsent(z.coerce.number().int().min(0).max(18).optional()),
       CAMPAIGNS_TEST_CHAIN_ID: blankAsAbsent(z.coerce.number().int().positive().optional()),
+      CAMPAIGNS_RISK_SIGNAL_THRESHOLD: blankAsAbsent(z.coerce.number().int().min(1).max(100).optional()),
+      CAMPAIGNS_RISK_APPEAL_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(60).max(31_536_000).optional()),
     }),
   );
 

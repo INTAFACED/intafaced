@@ -54,7 +54,7 @@ function SignalsNav({ active }: { active: 'list' | 'mine' | 'earnings' | 'publis
     { id: 'publish', label: t('Publish a signal'), href: PUBLISH },
   ];
   return (
-    <nav className="cb-action-row" aria-label={t('Signal sections')}>
+    <nav className="lt-actions" aria-label={t('Signal sections')}>
       {links.map((l) => (
         <a key={l.id} href={l.href} aria-current={l.id === active ? 'page' : undefined}>
           {l.label}
@@ -82,7 +82,8 @@ function VettingNote({ vetting }: { vetting: SignalVetting }) {
 function PublishSignal() {
   const { t } = roomCopy.useCopy();
   const transport = useApi();
-  const session = useSession();
+  // The session itself, not the context (always present): null until the boot refresh brings a token.
+  const { session } = useSession();
   const api = createRoomApi(transport);
   const criteria = useLive((signal) => api.signalCriteria(signal), 'signal-criteria', 300_000);
   const [title, setTitle] = useState('');
@@ -146,7 +147,7 @@ function PublishSignal() {
           <EmptyState variant="refused" title={t('You are signed out')} reason={t('Sign in to publish a signal.')} />
         ) : (
           <form
-            className="cb-form"
+            className="lt-stack"
             aria-label={t('Publish a signal')}
             onSubmit={(e) => {
               e.preventDefault();
@@ -193,7 +194,7 @@ function PublishSignal() {
                 <strong>{refused.title}</strong> {refused.body}
               </div>
             ) : null}
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button type="submit" disabled={busy}>
                 {t('Publish')}
               </Button>
@@ -275,7 +276,8 @@ function SignalList() {
 
 function MySignals() {
   const { t } = roomCopy.useCopy();
-  const session = useSession();
+  // The session itself, not the context (always present): null until the boot refresh brings a token.
+  const { session } = useSession();
   const api = createRoomApi(useApi());
   const mine = useLive((signal) => api.mySignals(signal), `my-signals:${session ? 'in' : 'out'}`, 60_000);
   const [busy, setBusy] = useState<string | null>(null);
@@ -360,7 +362,8 @@ function MySignals() {
 
 function Earnings() {
   const { t } = roomCopy.useCopy();
-  const session = useSession();
+  // The session itself, not the context (always present): null until the boot refresh brings a token.
+  const { session } = useSession();
   const api = createRoomApi(useApi());
   const earnings = useLive(
     (signal) => api.signalEarnings({ from: EARNINGS_FROM, to: new Date().toISOString() }, signal),

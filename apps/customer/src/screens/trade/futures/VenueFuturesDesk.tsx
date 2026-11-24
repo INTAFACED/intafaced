@@ -1,5 +1,6 @@
+import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
-import { Button, DataTable, Tabs } from '../../../shared/ui';
+import { Button, Segmented } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -20,6 +21,7 @@ import {
   type VenueGatedContract,
   type VenueMarginMode,
   type VenueMarket,
+  type VenueOrder,
   type VenuePosition,
   type VenuePreview,
   type VenueSession,
@@ -41,6 +43,7 @@ import {
   VenueHeader,
   WalletBar,
   heldKeys,
+  heldTags,
   outcomeText,
   keepsDraft,
   ReadBack,
@@ -57,12 +60,22 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
-import { slippageLimit } from '../desk/venue-desk';
+import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
+import { useApi } from '../../../features/session';
+import { readRateCosts } from '../../../features/developers';
+import { useResource } from '../../../shared/resource';
+import { useReveal } from '../../../shared/reveal';
+import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
+import { VenueDeadMan } from '../desk/VenueDeadMan';
+import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
 import { venueRiskCopy } from './venue-risk-copy';
+import { VenueFunding } from './VenueFunding';
+import { VenueAccount as VenueAccountPanel } from './VenueAccount';
+import { intervalText } from './venue-funding-logic';
 import { roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
@@ -72,6 +85,8 @@ const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
 const MODES: readonly VenueMarginMode[] = ['isolated', 'cross'];
 /** How far from the mark a close's worst price sits when it is a limit order (no market type), in percent. */
 const CLOSE_SLIPPAGE_PERCENT = 5n;
+/** A label the person puts on an order: the orders room's own rule (up to 36 letters, digits and . _ : -, no spaces). */
+export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
 
 /** The futures desk in venue mode: every perpetual the venue lists, on the customer's own venue account. */
 export function VenueFuturesDesk({ mode, symbol }: { mode: Extract<VenueMode, { mode: 'on' }>; symbol: string | null }) {
@@ -89,8 +104,8 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   const markets = usePolled((signal) => venue.markets(signal), 'venue-markets', 5_000);
   if (!status.available) {
     return (
-      <div data-testid="if-futures" className="if-desk" data-venue="on">
-        <p className="failure" role="alert" data-testid="venue-down">
+      <div data-testid="if-futures" className="lt-stack" data-venue="on">
+        <p className="lt-callout lt-callout-bad" role="alert" data-testid="venue-down">
           {v('Venue unavailable', { detail: status.refusal.detail })}
         </p>
       </div>
@@ -99,19 +114,23 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   const perps = (markets.data?.value ?? []).filter((m) => m.kind === 'perpetual');
   const down = markets.failure?.code === 'trade.venue.venue_down';
   return (
-    <div data-testid="if-futures" className="if-desk" data-venue="on">
+    <div data-testid="if-futures" className="lt-stack" data-venue="on">
       <VenueHeader status={status} title={t('Futures on venue')} />
-      {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
-      <section className="dk-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
-        <h2 className="dk-tab-title">{t('Contracts')}</h2>
-        {markets.data && perps.length === 0 ? (
-          <div data-testid="venue-no-contract">
-            <p>{t('No contract')}</p>
-            <p className="muted">{t('No contract reason', { venue: status.venue.displayName })}</p>
-          </div>
-        ) : null}
-      </section>
-      <GatedList status={status} />
+      <ActionLimitWarning venueName={status.venue.displayName} />
+      {/* The contracts band: its titles and lists keep the desk's inner margin. */}
+      <div className="lt-stack">
+        {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
+        <section className="lt-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
+          <h2 className="lt-panel-title">{t('Contracts')}</h2>
+          {markets.data && perps.length === 0 ? (
+            <div data-testid="venue-no-contract">
+              <p>{t('No contract')}</p>
+              <p className="lt-quiet">{t('No contract reason', { venue: status.venue.displayName })}</p>
+            </div>
+          ) : null}
+        </section>
+        <GatedList status={status} />
+      </div>
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
   );
@@ -129,12 +148,12 @@ function GatedList({ status }: { status: VenueUp }) {
   const gated = usePolled((signal) => venue.gatedList(signal), 'venue-gated-list', 5_000);
   const rows: VenueGatedContract[] = gated.data?.value ?? [];
   return (
-    <section className="dk-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
+      <h2 className="lt-panel-title">
         {t('Gated list')} <TestMark test={status.test} />
       </h2>
       <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
-      <ul className="form-stack">
+      <ul className="lt-stack">
         {rows.map((c) => (
           <li key={c.symbol} data-testid="venue-gate" data-symbol={c.symbol} data-open={c.open ? 'true' : 'false'}>
             <strong>{c.symbol}</strong> <span data-testid="venue-gate-state">{c.open ? t('Gated open') : t('Gated blocked')}</span>
@@ -151,7 +170,7 @@ function GatedList({ status }: { status: VenueUp }) {
         ))}
       </ul>
       {gated.data ? (
-        <p className="muted" data-testid="venue-gated-as-of">
+        <p className="lt-quiet" data-testid="venue-gated-as-of">
           {asOfText(gated.data.asOf)}
         </p>
       ) : null}
@@ -170,49 +189,61 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   return (
     <>
-      <ul className="form-stack" aria-label={t('Contracts')} data-testid="venue-contract-list">
-        {perps.map((m) => (
-          <li key={m.symbol}>
-            <Button
-              variant={m.symbol === market.symbol ? 'primary' : 'secondary'}
-              aria-pressed={m.symbol === market.symbol}
-              onClick={() => setChosen(m.symbol)}
-            >
-              {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-            </Button>{' '}
-            <TestMark test={status.test} />
-          </li>
-        ))}
-      </ul>
-      <ContractStrip market={market} test={status.test} />
-      <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
-      <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
-      <WalletBar />
-      <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-      {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
-      {owner ? (
-        <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
-      ) : null}
-      {owner && market.marginAccount?.known ? (
-        <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
-      ) : null}
-      {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
-      {owner ? (
-        <Ticket
-          key={`t:${market.symbol}`}
-          status={status}
-          market={market}
-          owner={owner}
-          account={account}
-          run={run}
-          resend={resend}
-          side={side}
-          setSide={setSide}
-          disabled={false}
-        />
-      ) : null}
-      {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-      {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+      {/* The desk's two columns, as on the venue spot desk: the contract and its ticket in the centre; the wallet, the
+          margin and the venue's own rules beside. */}
+      <div className="lt-grid lt-grid-main-side">
+        <div className="lt-col-main">
+          <ul className="lt-toolbar" aria-label={t('Contracts')} data-testid="venue-contract-list">
+            {perps.map((m) => (
+              <li key={m.symbol}>
+                <Button
+                  tone={m.symbol === market.symbol ? 'primary' : 'secondary'}
+                  aria-pressed={m.symbol === market.symbol}
+                  onClick={() => setChosen(m.symbol)}
+                >
+                  {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
+                </Button>{' '}
+                <TestMark test={status.test} />
+              </li>
+            ))}
+          </ul>
+          <ContractStrip market={market} test={status.test} />
+          {owner ? (
+            <Ticket
+              key={`t:${market.symbol}`}
+              status={status}
+              market={market}
+              owner={owner}
+              account={account}
+              run={run}
+              resend={resend}
+              side={side}
+              setSide={setSide}
+              disabled={false}
+            />
+          ) : null}
+          {owner ? (
+            <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+          ) : null}
+          <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+        <div className="lt-col-side">
+          <WalletBar />
+          <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+          {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+          {owner && market.marginAccount?.known ? (
+            <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
+          ) : null}
+          {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
+          <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+      </div>
+      {/* The wide tables keep the desk's whole width under the columns: the venues, the orders and the venue accounts. */}
+      <div className="lt-stack">
+        {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+        {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+        {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      </div>
     </>
   );
 }
@@ -228,11 +259,11 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
   const { t } = futuresVenueCopy.useCopy();
   const funding = market.funding.known ? market.funding.value : null;
   return (
-    <section className="dk-panel" aria-label={t('Contract strip')} data-testid="venue-contract-strip">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Contract strip')} data-testid="venue-contract-strip">
+      <h2 className="lt-panel-title">
         {market.symbol} <TestMark test={test} />
       </h2>
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Family')}</dt>
           <dd data-testid="venue-family">{t('family_perpetual')}</dd>
@@ -243,7 +274,7 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
         </div>
         <div>
           <dt>{t('Contract size')}</dt>
-          <dd className="numeric" data-testid="venue-contract-size">
+          <dd className="lt-num" data-testid="venue-contract-size">
             {market.contractSize.known
               ? t('Contract size value', { size: market.contractSize.value, base: market.baseAsset })
               : t('Not published')}
@@ -251,21 +282,21 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
         </div>
         <div>
           <dt>{t('Lot size')}</dt>
-          <dd className="numeric">{t('Lot size value', { lot: market.lotSize, base: market.baseAsset })}</dd>
+          <dd className="lt-num">{t('Lot size value', { lot: market.lotSize, base: market.baseAsset })}</dd>
         </div>
         <div>
           <dt>{t('Tick size')}</dt>
-          <dd className="numeric">{market.tickSize}</dd>
+          <dd className="lt-num">{market.tickSize}</dd>
         </div>
         <div>
           <dt>{t('Max leverage')}</dt>
-          <dd className="numeric" data-testid="venue-max-leverage">
+          <dd className="lt-num" data-testid="venue-max-leverage">
             {market.maxLeverageBps === null ? <Known value={{ known: false }} /> : `${leverageTimes(market.maxLeverageBps)}x`}
           </dd>
         </div>
         <div>
           <dt>{t('Mark price')}</dt>
-          <dd className="numeric" data-testid="venue-mark" data-value={market.mark.known ? market.mark.value : undefined}>
+          <dd className="lt-num" data-testid="venue-mark" data-value={market.mark.known ? market.mark.value : undefined}>
             {market.mark.known ? displayAmount(market.mark.value) : t('Not published')}
           </dd>
         </div>
@@ -274,7 +305,7 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
           <dd data-testid="venue-funding" data-rate={funding?.rate}>
             {funding ? (
               <>
-                <span className="numeric" data-testid="venue-funding-rate">
+                <span className="lt-num" data-testid="venue-funding-rate">
                   {t('Funding rate value', { percent: percentOf(funding.rate), every: intervalText(funding.intervalSeconds) })}
                 </span>{' '}
                 {t('Funding next')}{' '}
@@ -303,9 +334,41 @@ export function percentOf(fraction: string): string {
   return negative && /[1-9]/.test(out) ? `-${out}` : out;
 }
 
-/** A funding interval in hours when it is whole hours, else in seconds. */
-export function intervalText(seconds: number): string {
-  return seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds}s`;
+/**
+ * The order rate that applies on a venue market (J-derivatives-04 #7). The venue publishes none to this desk, so the
+ * limit in force is the INTAFACED edge's own per-address limit, read from the edge as it enforces it, and the row says
+ * so; an edge with its limiter off says that no limit of ours applies. Never "unlimited", never a typed figure.
+ */
+function OrderRate() {
+  const { t } = futuresVenueCopy.useCopy();
+  const api = useApi();
+  const read = useResource((signal) => readRateCosts(api, signal), 'edge-rate-costs').resource;
+  if (read.status === 'loading')
+    return (
+      <dd data-testid="venue-order-rate" data-state="loading">
+        {t('rate_loading')}
+      </dd>
+    );
+  const limit = read.status === 'ready' ? read.data.edgeLimit : undefined;
+  if (limit === undefined)
+    return (
+      <dd data-testid="venue-order-rate" data-state="unknown">
+        {t('rate_edge_unknown')}
+      </dd>
+    );
+  if (limit === null)
+    return (
+      <dd data-testid="venue-order-rate" data-state="edge-off">
+        {t('rate_edge_off')}
+      </dd>
+    );
+  const window =
+    limit.windowMs % 1000 === 0 ? t('window_seconds', { n: String(limit.windowMs / 1000) }) : t('window_ms', { n: String(limit.windowMs) });
+  return (
+    <dd data-testid="venue-order-rate" data-state="edge" data-max={limit.max} data-window-ms={limit.windowMs}>
+      {t('rate_edge', { max: String(limit.max), window })}
+    </dd>
+  );
 }
 
 /**
@@ -316,11 +379,13 @@ export function intervalText(seconds: number): string {
  */
 function MarketRules({ market, venueName, test }: { market: VenueMarket; venueName: string; test: boolean }) {
   const { t } = futuresVenueCopy.useCopy();
+  const v = venueCopy.useCopy().t;
   const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
   const feed = market.feed.known ? market.feed.value : null;
+  const selfTrade = venueSelfTrade(market);
   return (
-    <section className="dk-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
+      <h2 className="lt-panel-title">
         {t('Market rules', { symbol: market.symbol })} <TestMark test={test} />
       </h2>
       {feed?.state === 'stale' ? (
@@ -332,7 +397,7 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
           })}
         </p>
       ) : null}
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Listed by')}</dt>
           <dd data-testid="venue-listing" data-listing={market.listedBy.known ? market.listedBy.value.kind : 'unknown'}>
@@ -370,17 +435,27 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
           <dt>{t('Stale rule')}</dt>
           <dd data-testid="venue-stale-rule">{feed ? text(feed.staleRule) : t('Not published')}</dd>
         </div>
+        <div>
+          <dt>{t('Self trade rule')}</dt>
+          <dd data-testid="venue-self-trade-rule" data-mode={selfTrade ?? 'unknown'}>
+            {selfTrade ? word(v, 'stp', selfTrade) : t('Not published')}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Order rate')}</dt>
+          <OrderRate />
+        </div>
         {market.openInterest?.known ? (
           <>
             <div>
               <dt>{t('Open interest')}</dt>
-              <dd className="numeric" data-testid="venue-open-interest">
+              <dd className="lt-num" data-testid="venue-open-interest">
                 {t('Open interest value', { size: market.openInterest.value.size, base: market.baseAsset })}
               </dd>
             </div>
             <div>
               <dt>{t('Open interest cap')}</dt>
-              <dd className="numeric" data-testid="venue-open-interest-cap">
+              <dd className="lt-num" data-testid="venue-open-interest-cap">
                 {market.openInterest.value.capSize === null
                   ? t('Open interest no cap')
                   : market.listedBy.known && market.listedBy.value.kind === 'venue'
@@ -455,7 +530,7 @@ function SessionRules({ session, symbol, venueName }: { session: VenueSession; s
           {t('Off-hours notice', { venue: venueName, home: session.homeMarket, symbol, rule: text(session.offHoursRule) })}
         </p>
       ) : null}
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Home market')}</dt>
           <dd data-testid="venue-home-market">{t(closed ? 'session_off_hours' : 'session_open', { home: session.homeMarket })}</dd>
@@ -470,7 +545,7 @@ function SessionRules({ session, symbol, venueName }: { session: VenueSession; s
         </div>
         <div>
           <dt>{t('Off-hours leverage')}</dt>
-          <dd className="numeric" data-testid="venue-off-hours-leverage">
+          <dd className="lt-num" data-testid="venue-off-hours-leverage">
             {session.offHoursMaxLeverageBps === null
               ? t('Not published')
               : t('Off-hours leverage times', { times: String(leverageTimes(session.offHoursMaxLeverageBps)) })}
@@ -537,13 +612,13 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
 
   const held = read.data?.value ?? null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Market margin')} data-testid="venue-market-margin">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Market margin')} data-testid="venue-market-margin">
+      <h2 className="lt-panel-title">
         {t('Market margin')} <TestMark test={test} />
       </h2>
       <p data-testid="venue-market-margin-note">{t('Market margin note', { name: rule.name, symbol: market.symbol })}</p>
       <ReadProblem failure={read.failure} venueName={rule.name} />
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Market margin name')}</dt>
           <dd data-testid="venue-market-margin-name">{rule.name}</dd>
@@ -560,25 +635,25 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
         </div>
         <div>
           <dt>{t('Market margin free')}</dt>
-          <dd className="numeric" data-testid="venue-market-margin-free">
+          <dd className="lt-num" data-testid="venue-market-margin-free">
             {held ? held.free : ''}
           </dd>
         </div>
         <div>
           <dt>{t('Market margin used')}</dt>
-          <dd className="numeric" data-testid="venue-market-margin-used">
+          <dd className="lt-num" data-testid="venue-market-margin-used">
             {held ? held.locked : ''}
           </dd>
         </div>
         <div>
           <dt>{t('Market margin total')}</dt>
-          <dd className="numeric" data-testid="venue-market-margin-total">
+          <dd className="lt-num" data-testid="venue-market-margin-total">
             {held ? held.total : ''}
           </dd>
         </div>
       </dl>
       {read.data ? <AsOfLine asOf={read.data.asOf} /> : null}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Market margin amount', { asset: rule.collateralAsset })}</span>
         <input
           inputMode="decimal"
@@ -587,12 +662,14 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
           onChange={(e) => setAmount(e.target.value)}
         />
       </label>
-      <Button onClick={() => void move('into_market')}>{t('Market margin in')}</Button>
-      <Button variant="secondary" onClick={() => void move('out_of_market')}>
+      <Button tone="primary" onClick={() => void move('into_market')}>
+        {t('Market margin in')}
+      </Button>
+      <Button tone="secondary" onClick={() => void move('out_of_market')}>
         {t('Market margin out')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -643,15 +720,15 @@ function MarginStep({
 
   const set = current.data?.value ?? null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Margin step')} data-testid="venue-margin">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Margin step')} data-testid="venue-margin">
+      <h2 className="lt-panel-title">
         {t('Margin step')} <TestMark test={test} />
       </h2>
       <div role="radiogroup" aria-label={t('Margin mode')}>
         {MODES.map((m) => {
           const offered = market.marginModes.includes(m);
           return (
-            <label key={m} className="field" data-mode={m} data-offered={offered ? 'true' : 'false'}>
+            <label key={m} className="lt-field" data-mode={m} data-offered={offered ? 'true' : 'false'}>
               <input
                 type="radio"
                 name={`mode-${market.symbol}`}
@@ -675,15 +752,15 @@ function MarginStep({
             ? t('Leverage not set')
             : ''}
       </p>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Leverage x')}</span>
         <input inputMode="numeric" aria-label={t('Leverage x')} value={times} onChange={(e) => setTimes(e.target.value)} />
       </label>
-      <Button disabled={disabled} onClick={() => void sign()}>
+      <Button tone="primary" disabled={disabled} onClick={() => void sign()}>
         {t('Sign leverage')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -724,6 +801,7 @@ function Ticket({
   const [takeProfit, setTakeProfit] = useState('');
   const [stopLoss, setStopLoss] = useState('');
   const [reduceOnly, setReduceOnly] = useState(false);
+  const [label, setLabel] = useState('');
   const [attached, setAttached] = useState<Attached | null>(null);
   const p = venueProtectCopy.useCopy().t;
   const r = venueRiskCopy.useCopy().t;
@@ -735,6 +813,14 @@ function Ticket({
   const counter = useRef(0);
   const sending = useRef(false);
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
+  const tags = useMemo(() => heldTags(owner), [owner]);
+  /** The order's key held for a Cancel after a reload, and its label kept beside it (the venue stores no label). */
+  const hold = (answer: ActionResult, intent: OrderIntent) => {
+    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId) {
+      keysHeld.set(answer.clientOrderId, intent.clientOrderKey);
+      if (label.trim() !== '') tags.set(answer.clientOrderId, label.trim());
+    }
+  };
   const assets = [...new Set([market.quoteAsset, ...(account.balances.data?.value.map((b) => b.asset) ?? [])])];
   const offered = market.orderTypes.filter((x): x is 'limit' | 'market' => x === 'limit' || x === 'market');
 
@@ -751,6 +837,7 @@ function Ticket({
       );
     if (!taken && marginAsset !== market.quoteAsset)
       return setProblem(t('Margin mismatch', { symbol: market.symbol, settle: market.quoteAsset, asset: marginAsset }));
+    if (label.trim() !== '' && !ORDER_LABEL.test(label.trim())) return setProblem(t('Label bad'));
     if (!size.trim()) return setProblem(v('Enter amount'));
     if (!price.trim()) return setProblem(v('Enter price'));
     if (!onStep(size, market.lotSize)) return setProblem(v('Not a step', { field: v('Amount'), step: market.lotSize }));
@@ -792,8 +879,7 @@ function Ticket({
     sending.current = true;
     const answer = await run(review.intent);
     sending.current = false;
-    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
-      keysHeld.set(answer.clientOrderId, review.intent.clientOrderKey);
+    hold(answer, review.intent);
     setResult(answer);
     setLast(answer);
     account.reload();
@@ -842,28 +928,30 @@ function Ticket({
   const perp = review?.preview.value.perpetual ?? null;
   const total = review ? totalToCommit(review.preview.value) : null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Ticket')} data-testid="venue-ticket">
-      <h2 className="dk-tab-title">{t('Ticket')}</h2>
-      <Tabs
-        items={['buy', 'sell']}
+    <section className="lt-panel" aria-label={t('Ticket')} data-testid="venue-ticket">
+      <h2 className="lt-panel-title">{t('Ticket')}</h2>
+      <Segmented
+        options={[
+          { value: 'buy', label: t('Long') },
+          { value: 'sell', label: t('Short') },
+        ]}
         value={side}
         onChange={(s) => setSide(s as 'buy' | 'sell')}
         label={t('Ticket')}
-        labels={{ buy: t('Long'), sell: t('Short') }}
       />
       <div role="group" aria-label={t('Order types')} data-testid="venue-order-types">
         {offered.map((x) => (
-          <Button key={x} variant={type === x ? 'primary' : 'secondary'} aria-pressed={type === x} onClick={() => setType(x)}>
+          <Button key={x} tone={type === x ? 'primary' : 'secondary'} aria-pressed={type === x} onClick={() => setType(x)}>
             {word(v, 'type', x)}
           </Button>
         ))}
         {RESTING_TYPES.filter((x) => !market.orderTypes.includes(x)).map((x) => (
-          <Button key={x} variant="secondary" disabled aria-disabled="true" data-not-offered={x}>
+          <Button key={x} tone="secondary" disabled aria-disabled="true" data-not-offered={x}>
             {word(v, 'type', x)}: {v('Not offered')}
           </Button>
         ))}
       </div>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Size', { asset: market.baseAsset })}</span>
         <input
           inputMode="decimal"
@@ -872,7 +960,7 @@ function Ticket({
           onChange={(e) => setSize(e.target.value)}
         />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{type === 'market' ? t('Worst price') : t('Price')}</span>
         <input
           inputMode="decimal"
@@ -881,7 +969,7 @@ function Ticket({
           onChange={(e) => setPrice(e.target.value)}
         />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{p('Take profit optional')}</span>
         <input
           inputMode="decimal"
@@ -890,15 +978,19 @@ function Ticket({
           onChange={(e) => setTakeProfit(e.target.value)}
         />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{p('Stop loss optional')}</span>
         <input inputMode="decimal" aria-label={p('Stop loss optional')} value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <input type="checkbox" checked={reduceOnly} onChange={(e) => setReduceOnly(e.target.checked)} />
         <span>{p('Reduce-only')}</span>
       </label>
-      <label className="field">
+      <label className="lt-field">
+        <span>{t('Label optional')}</span>
+        <input aria-label={t('Label optional')} value={label} onChange={(e) => setLabel(e.target.value)} />
+      </label>
+      <label className="lt-field">
         <span>{t('Margin asset')}</span>
         <select aria-label={t('Margin asset')} value={marginAsset} onChange={(e) => setMarginAsset(e.target.value)}>
           {assets.map((a) => (
@@ -908,11 +1000,11 @@ function Ticket({
           ))}
         </select>
       </label>
-      <Button disabled={disabled} onClick={() => void openReview()}>
+      <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
         {side === 'buy' ? t('Review long') : t('Review short')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -928,8 +1020,7 @@ function Ticket({
           resend={resend}
           confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
           onSent={(answer) => {
-            if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
-              keysHeld.set(answer.clientOrderId, routed.intent.clientOrderKey);
+            hold(answer, routed.intent);
             setLast(answer);
             account.reload();
           }}
@@ -959,13 +1050,13 @@ function Ticket({
               <>
                 <div>
                   <dt>{t('Initial margin')}</dt>
-                  <dd className="numeric" data-line="initial-margin">
+                  <dd className="lt-num" data-line="initial-margin">
                     <Known value={perp.initialMargin} />
                   </dd>
                 </div>
                 <div>
                   <dt>{t('Liquidation price')}</dt>
-                  <dd className="numeric" data-line="liquidation">
+                  <dd className="lt-num" data-line="liquidation">
                     <Known value={perp.liquidationPrice} />
                   </dd>
                 </div>
@@ -977,7 +1068,7 @@ function Ticket({
                 </div>
                 <div>
                   <dt>{t('Total to commit')}</dt>
-                  <dd className="numeric" data-line="total">
+                  <dd className="lt-num" data-line="total">
                     <Known value={total === null ? { known: false } : { known: true, value: total }} /> {market.quoteAsset}
                   </dd>
                 </div>
@@ -1005,6 +1096,8 @@ type Attached =
 /** What became of the take profit and stop loss attached to an entry order. */
 function AttachedLine({ attached }: { attached: Attached }) {
   const { t } = venueProtectCopy.useCopy();
+  // What became of them is the last line of a tall review sheet: brought into view as each state arrives.
+  const reveal = useReveal<HTMLElement>(attached.state, { onMount: true });
   const setWords = (set: Array<'take_profit' | 'stop_loss'>, filled: string) =>
     set.length === 2
       ? t('Attached both', { filled })
@@ -1015,15 +1108,15 @@ function AttachedLine({ attached }: { attached: Attached }) {
           : '';
   if (attached.state === 'failed') {
     return (
-      <div role="alert" className="failure" data-testid="venue-attached-failed">
+      <div ref={reveal} role="alert" className="lt-callout lt-callout-bad" data-testid="venue-attached-failed">
         {attached.set.length > 0 ? <p>{setWords(attached.set, attached.filled)}</p> : null}
         <p>{t('Attach failed', { kind: t(`kind_${attached.kind}`).toLowerCase(), detail: attached.refusal.message })}</p>
-        {attached.refusal.code ? <p className="muted">{t('Code', { code: attached.refusal.code })}</p> : null}
+        {attached.refusal.code ? <p className="lt-quiet">{t('Code', { code: attached.refusal.code })}</p> : null}
       </div>
     );
   }
   return (
-    <p role="status" data-testid="venue-attached">
+    <p ref={reveal} role="status" data-testid="venue-attached">
       {attached.state === 'working'
         ? t('Attaching')
         : attached.state === 'nothing'
@@ -1080,19 +1173,32 @@ function Blotter({
   run: RunAction;
 }) {
   const { t } = futuresVenueCopy.useCopy();
-  const [tab, setTab] = useState<'positions' | 'orders' | 'history'>('positions');
+  const s = spotVenueCopy.useCopy().t;
+  const [tab, setTab] = useState<'positions' | 'orders' | 'history' | 'funding'>('positions');
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
+  const tags = useMemo(() => heldTags(owner), [owner]);
+  const tagOf = (clientOrderId: string) => tags.get(clientOrderId);
   const [cancelResult, setCancelResult] = useState<ActionResult | null>(null);
+  // J-derivatives-04 #3, #4: a resting order changed (amended in place, or a reviewed cancel-and-replace) and orders
+  // cancelled by id, by contract and by label, singly and in one signed batch.
+  const [editing, setEditing] = useState<VenueOrder | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const open = account.openOrders.data?.value ?? [];
   const positions = account.positions.data;
   return (
-    <section className="dk-panel" data-testid="venue-blotter">
-      <Tabs
-        items={['positions', 'orders', 'history']}
+    <section className="lt-panel" data-testid="venue-blotter">
+      <Segmented
+        options={[
+          { value: 'positions', label: t('Positions') },
+          { value: 'orders', label: t('Orders') },
+          { value: 'history', label: t('History') },
+          { value: 'funding', label: t('Funding') },
+        ]}
         value={tab}
         onChange={(x) => setTab(x as typeof tab)}
         label={t('Positions')}
-        labels={{ positions: t('Positions'), orders: t('Orders'), history: t('History') }}
       />
+      {tab === 'funding' ? <VenueFunding market={market} owner={owner} venueName={status.venue.displayName} test={status.test} /> : null}
       {tab === 'positions' ? (
         <PositionsTable
           positions={positions}
@@ -1101,6 +1207,7 @@ function Blotter({
           run={run}
           test={status.test}
           venueName={status.venue.displayName}
+          ordersPerAction={status.ordersPerAction ?? 1}
           onDone={account.reload}
         />
       ) : tab === 'orders' ? (
@@ -1109,17 +1216,66 @@ function Blotter({
             orders={account.openOrders.data}
             test={status.test}
             cancelled={[]}
+            tagOf={tagOf}
+            onEdit={setEditing}
+            select={{
+              selected,
+              header: s('Select'),
+              label: (id) => s('Select order', { id }),
+              onToggle: (id) =>
+                setSelected((now) => {
+                  const next = new Set(now);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                }),
+            }}
             onCancel={(o) => {
-              const key = o.venueClientOrderId ? keysHeld.get(o.venueClientOrderId) : undefined;
-              if (key)
-                void run({ kind: 'cancel_order', symbol: o.symbol, clientOrderKey: key }).then(
-                  (r) => (setCancelResult(r), account.reload()),
-                );
+              const id = o.venueClientOrderId;
+              if (!id) return;
+              const key = keysHeld.get(id);
+              const done = (r: ActionResult) => (setCancelResult(r), account.reload());
+              if (key) void run({ kind: 'cancel_order', symbol: o.symbol, clientOrderKey: key }).then(done);
+              // An order this page didn't place (a replacement, or one placed elsewhere) is cancelled by its venue id,
+              // under one key per order, so a second press is the same cancel.
+              else if ((status.cancelsPerAction ?? 0) >= 1)
+                void run(
+                  { kind: 'cancel_orders', orders: [{ symbol: o.symbol, venueClientOrderId: id }] },
+                  { actionKey: keys.cancelBatch(owner, `one-${id.slice(2)}`) },
+                ).then(done);
             }}
           />
           <OutcomeLine result={cancelResult} owner={owner} />
+          <VenueDeadMan status={status} owner={owner} run={run} />
+          <VenueCancelMany
+            orders={open}
+            market={market}
+            markets={[market]}
+            status={status}
+            owner={owner}
+            run={run}
+            spotOnly={false}
+            labelOf={tagOf}
+            selected={open.filter((o) => o.venueClientOrderId && selected.has(o.venueClientOrderId))}
+            onDone={() => {
+              setSelected(new Set());
+              account.reload();
+            }}
+          />
+          {editing ? (
+            <VenueEditOrder
+              key={editing.venueClientOrderId ?? ''}
+              order={editing}
+              market={editing.symbol === market.symbol ? market : null}
+              status={status}
+              owner={owner}
+              run={run}
+              onDone={account.reload}
+              onClose={() => setEditing(null)}
+            />
+          ) : null}
         </>
-      ) : (
+      ) : tab === 'funding' ? null : (
         <>
           <Settlements owner={owner} test={status.test} />
           <History fills={account.fills.data} test={status.test} />
@@ -1136,6 +1292,7 @@ function PositionsTable({
   run,
   test,
   venueName,
+  ordersPerAction,
   onDone,
 }: {
   positions: AsOf<VenuePosition[]> | null;
@@ -1144,6 +1301,8 @@ function PositionsTable({
   run: RunAction;
   test: boolean;
   venueName: string;
+  /** The most orders the venue takes in one signed action (status `ordersPerAction`). */
+  ordersPerAction: number;
   onDone: () => void;
 }) {
   const { t } = futuresVenueCopy.useCopy();
@@ -1158,64 +1317,68 @@ function PositionsTable({
     <div data-testid="venue-positions">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="muted">{t('No positions')}</p>
+        <p className="lt-quiet">{t('No positions')}</p>
       ) : (
-        <DataTable
-          label={t('Positions')}
-          headers={[
-            v('Market'),
-            v('Side'),
-            t('Size', { asset: market.baseAsset }),
-            t('Entry'),
-            t('Mark'),
-            t('Unrealised'),
-            t('Margin'),
-            t('Leverage'),
-            t('Liquidation price'),
-            '',
-          ]}
-        >
-          {rows.map((row) => (
-            <tr key={row.symbol} data-symbol={row.symbol}>
-              <td>{row.symbol}</td>
-              <td>{word(v, 'side', row.side)}</td>
-              <td className="numeric" data-cell="size">
-                {row.size}
-              </td>
-              <td className="numeric" data-cell="entry">
-                {row.entryPrice}
-              </td>
-              <td className="numeric" data-cell="mark">
-                {row.markPrice}
-              </td>
-              <td className="numeric" data-cell="unrealised">
-                {row.unrealisedPnl}
-              </td>
-              <td className="numeric" data-cell="margin">
-                {row.margin}
-              </td>
-              <td className="numeric" data-cell="leverage">
-                {`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}
-              </td>
-              <td className="numeric" data-cell="liquidation">
-                <Known value={row.liquidationPrice} render={(x) => x} />
-              </td>
-              <td>
-                <CloseControl position={row} market={market} owner={owner} run={run} onDone={onDone} />
-                {row.symbol === market.symbol ? (
-                  <>
-                    <Button variant="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>
-                      {p('Protect button', { symbol: row.symbol })}
-                    </Button>{' '}
-                    <Button variant="secondary" onClick={() => setOpen({ kind: 'reverse', position: row })}>
-                      {p('Reverse button', { symbol: row.symbol })}
-                    </Button>
-                  </>
-                ) : null}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Positions')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{v('Market')}</th>
+                <th scope="col">{v('Side')}</th>
+                <th scope="col">{t('Size', { asset: market.baseAsset })}</th>
+                <th scope="col">{t('Entry')}</th>
+                <th scope="col">{t('Mark')}</th>
+                <th scope="col">{t('Unrealised')}</th>
+                <th scope="col">{t('Margin')}</th>
+                <th scope="col">{t('Leverage')}</th>
+                <th scope="col">{t('Liquidation price')}</th>
+                <th scope="col">{''}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.symbol} data-symbol={row.symbol}>
+                  <td>{row.symbol}</td>
+                  <td>{word(v, 'side', row.side)}</td>
+                  <td className="lt-num" data-cell="size">
+                    {row.size}
+                  </td>
+                  <td className="lt-num" data-cell="entry">
+                    {row.entryPrice}
+                  </td>
+                  <td className="lt-num" data-cell="mark">
+                    {row.markPrice}
+                  </td>
+                  <td className="lt-num" data-cell="unrealised">
+                    {row.unrealisedPnl}
+                  </td>
+                  <td className="lt-num" data-cell="margin">
+                    {row.margin}
+                  </td>
+                  <td className="lt-num" data-cell="leverage">
+                    {`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}
+                  </td>
+                  <td className="lt-num" data-cell="liquidation">
+                    <Known value={row.liquidationPrice} render={(x) => x} />
+                  </td>
+                  <td>
+                    <CloseControl position={row} market={market} owner={owner} run={run} onDone={onDone} />
+                    {row.symbol === market.symbol ? (
+                      <>
+                        <Button tone="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>
+                          {p('Protect button', { symbol: row.symbol })}
+                        </Button>{' '}
+                        <Button tone="secondary" onClick={() => setOpen({ kind: 'reverse', position: row })}>
+                          {p('Reverse button', { symbol: row.symbol })}
+                        </Button>
+                      </>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <AsOfLine asOf={positions?.asOf ?? null} />
       {open && dialogMarket && open.kind === 'protect' ? (
@@ -1236,6 +1399,7 @@ function PositionsTable({
           market={dialogMarket}
           owner={owner}
           run={run}
+          together={ordersPerAction >= 2}
           worstPrice={(position) => closeWorstPrice(position, dialogMarket.tickSize)}
           onDone={onDone}
           onClose={() => setOpen(null)}
@@ -1315,8 +1479,8 @@ function CloseControl({
   }
 
   return (
-    <div className="form-stack" data-testid="venue-close">
-      <label className="field">
+    <div className="lt-stack" data-testid="venue-close">
+      <label className="lt-field">
         <span>{t('Close percent', { symbol: position.symbol })}</span>
         <input
           inputMode="numeric"
@@ -1325,7 +1489,7 @@ function CloseControl({
           onChange={(e) => setPercent(e.target.value)}
         />
       </label>
-      <Button disabled={unknown !== null} onClick={() => void close()}>
+      <Button tone="primary" disabled={unknown !== null} onClick={() => void close()}>
         {t('Close button', { percent })}
       </Button>
       {result ? (
@@ -1361,22 +1525,34 @@ function History({ fills, test }: { fills: AsOf<VenueFill[]> | null; test: boole
   return (
     <div data-testid="venue-history">
       {bySymbol.size > 0 ? (
-        <DataTable label={t('Closed positions')} headers={[v('Market'), v('Realised result'), v('Venue fee'), v('Our builder fee')]}>
-          {[...bySymbol.entries()].map(([symbol, list]) => (
-            <tr key={symbol} data-closed={symbol}>
-              <td>{symbol}</td>
-              <td className="numeric" data-cell="realised">
-                {sumSigned(list.filter((f) => f.realisedPnl !== null).map((f) => f.realisedPnl!))}
-              </td>
-              <td className="numeric" data-cell="venue-fees">
-                {sumSigned(list.map((f) => f.venueFee))}
-              </td>
-              <td className="numeric" data-cell="builder-fees">
-                {sumDecimals(list.map((f) => f.builderFee))}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Closed positions')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{v('Market')}</th>
+                <th scope="col">{v('Realised result')}</th>
+                <th scope="col">{v('Venue fee')}</th>
+                <th scope="col">{v('Our builder fee')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...bySymbol.entries()].map(([symbol, list]) => (
+                <tr key={symbol} data-closed={symbol}>
+                  <td>{symbol}</td>
+                  <td className="lt-num" data-cell="realised">
+                    {sumSigned(list.filter((f) => f.realisedPnl !== null).map((f) => f.realisedPnl!))}
+                  </td>
+                  <td className="lt-num" data-cell="venue-fees">
+                    {sumSigned(list.map((f) => f.venueFee))}
+                  </td>
+                  <td className="lt-num" data-cell="builder-fees">
+                    {sumDecimals(list.map((f) => f.builderFee))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
       <FillsTable fills={fills} test={test} />
     </div>
@@ -1399,42 +1575,48 @@ function Settlements({ owner, test }: { owner: string; test: boolean }) {
   if (rows.length === 0) return null;
   return (
     <div data-testid="venue-settlements">
-      <DataTable
-        label={t('Settlements')}
-        headers={[
-          t('Settlement market'),
-          t('Settlement why'),
-          t('Settlement position'),
-          t('Settlement price'),
-          t('Settlement result'),
-          t('Settlement cancelled'),
-          t('Settlement time'),
-        ]}
-      >
-        {rows.map((s) => (
-          <tr key={`${s.symbol}:${s.settledAt}`} data-settled={s.symbol} data-kind={s.kind} data-at={s.settledAt}>
-            <td>
-              {s.symbol} <TestMark test={test} />
-            </td>
-            <td data-cell="why">{t(`settlement_${s.kind}`)}</td>
-            <td className="numeric" data-cell="position">
-              {s.side === null ? t('Settlement no position') : t('Settlement position value', { side: t(`side_${s.side}`), size: s.size })}
-            </td>
-            <td className="numeric" data-cell="price">
-              {s.price}
-            </td>
-            <td className="numeric" data-cell="realised">
-              {s.realisedPnl}
-            </td>
-            <td className="numeric" data-cell="cancelled">
-              {String(s.cancelledOrders.length)}
-            </td>
-            <td data-cell="time">
-              <time dateTime={s.settledAt}>{s.settledAt}</time>
-            </td>
-          </tr>
-        ))}
-      </DataTable>
+      <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Settlements')}>
+        <table className="lt-table lt-table-dense">
+          <thead>
+            <tr>
+              <th scope="col">{t('Settlement market')}</th>
+              <th scope="col">{t('Settlement why')}</th>
+              <th scope="col">{t('Settlement position')}</th>
+              <th scope="col">{t('Settlement price')}</th>
+              <th scope="col">{t('Settlement result')}</th>
+              <th scope="col">{t('Settlement cancelled')}</th>
+              <th scope="col">{t('Settlement time')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <tr key={`${s.symbol}:${s.settledAt}`} data-settled={s.symbol} data-kind={s.kind} data-at={s.settledAt}>
+                <td>
+                  {s.symbol} <TestMark test={test} />
+                </td>
+                <td data-cell="why">{t(`settlement_${s.kind}`)}</td>
+                <td className="lt-num" data-cell="position">
+                  {s.side === null
+                    ? t('Settlement no position')
+                    : t('Settlement position value', { side: t(`side_${s.side}`), size: s.size })}
+                </td>
+                <td className="lt-num" data-cell="price">
+                  {s.price}
+                </td>
+                <td className="lt-num" data-cell="realised">
+                  {s.realisedPnl}
+                </td>
+                <td className="lt-num" data-cell="cancelled">
+                  {String(s.cancelledOrders.length)}
+                </td>
+                <td data-cell="time">
+                  <time dateTime={s.settledAt}>{s.settledAt}</time>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

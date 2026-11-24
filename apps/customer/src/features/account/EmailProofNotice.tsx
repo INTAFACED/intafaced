@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { fetchMe } from '../../data/identity';
 import { emailProofNoticeCopy } from './email-proof-notice-copy';
 
@@ -26,10 +26,14 @@ export function EmailProofNotice() {
 
   if (!unproved) return null;
   return (
-    <section className="notice email-proof-notice" aria-labelledby="email-proof-notice-title">
-      <h2 id="email-proof-notice-title">{t('title')}</h2>
-      <p>{t('body')}</p>
-      <a href="/uc/account">{t('action')}</a>
+    <section className="lt-callout lt-callout-warn" aria-labelledby="email-proof-notice-title">
+      <h2 id="email-proof-notice-title" className="lt-panel-title">
+        {t('title')}
+      </h2>
+      <p className="lt-note">{t('body')}</p>
+      <a className="lt-link" href="/uc/account">
+        {t('action')}
+      </a>
     </section>
   );
 }

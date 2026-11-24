@@ -170,11 +170,11 @@ describe('the venue account (J-wallet-09 #3, #5)', () => {
 });
 
 describe('the connection check before a signed venue action', () => {
-  /** An ApiClient whose mutate answers `body` through the call's own schema, as the real client parses an answer. */
+  /** An ApiClient whose call answers `body` through the call's own record, as the real client parses an answer. */
   const answering = (body: unknown) =>
     ({
-      mutate: async (_module: string, _procedure: string, _input: unknown, schema: { safeParse: (v: unknown) => { success: boolean } }) =>
-        schema.safeParse(body).success ? { ok: true, data: body } : { ok: false, reason: 'uncertain', message: 'unparsed' },
+      call: async (record: { output: { safeParse: (v: unknown) => { success: boolean } } }) =>
+        record.output.safeParse(body).success ? { ok: true, data: body } : { ok: false, reason: 'uncertain', message: 'unparsed' },
     }) as unknown as ApiClient;
 
   it('takes svc-protocol’s live answer (J-wallet-09 #3: a never-schema read every live answer as uncertain)', async () => {

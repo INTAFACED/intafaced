@@ -44,7 +44,7 @@ describe('tokenLogsChain', () => {
     const client = { getBlock: async ({ blockNumber }: { blockNumber: bigint }) => (reads++, { timestamp: blockNumber * 10n }) };
     const chain = tokenLogsChain(
       pairsUnused,
-      () => client as unknown as PublicClient,
+      () => client as PublicClient,
       () => 'http://127.0.0.1:1',
     );
     const blocks = Array.from({ length: 40 }, (_, i) => BigInt(i));

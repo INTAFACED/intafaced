@@ -29,7 +29,7 @@ function fakeFetch(answer: (call: Call, n: number) => Response | Promise<Respons
     const call = { url: String(url), init };
     calls.push(call);
     return answer(call, calls.length);
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { calls, fetcher };
 }
 /** A Web Locks stand-in shared by several "tabs": exclusive, first come first served. */
@@ -417,7 +417,7 @@ describe('lost reply recovery (server reuse grace is 10 s)', () => {
           reject(new DOMException('aborted', 'AbortError'));
         }),
       );
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     const pending = createSessionRefresher({ fetch: fetcher, locks: null }).refresh();
     await vi.advanceTimersByTimeAsync(4_900);
     expect(aborted).toEqual([]);

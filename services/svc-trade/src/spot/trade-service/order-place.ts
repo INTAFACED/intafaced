@@ -15,6 +15,8 @@ import { isPlacedForThem } from '../fee-tier-store.js';
 import { ifcFeeAtPlacement, sameFeeCurrency, type IfcPlacement } from '../fee-ifc.js';
 import {
   assertMarketOpen,
+  assertOutsideOpeningWindow,
+  assertZoneOrder,
   assertNotional,
   assertPrice,
   assertQty,
@@ -39,6 +41,7 @@ import { type LifecycleAdmissionProof } from '../../lifecycle-proof.js';
 import { TradeError, type Market, type OrderRecord, type OrderType, type TimeInForce } from '../types.js';
 import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
 import { assertSamePlaceCommand } from './internal.js';
+import { assertAdmittedUnderOverload } from '../../futures/overload.js';
 
 // ── The order flow (§5.2) ──────────────────────────────────────────────────
 export async function placeOrder(svc: TradeServiceInternal, principal: Principal, input: PlaceOrderInput): Promise<OrderRecord> {
@@ -85,6 +88,10 @@ export async function placeOrderInner(
   if (isBuybackUser(userId)) {
     throw new TradeError('the token buyback places only through its service door', BUYBACK_INVALID);
   }
+
+  // OVERLOAD (Binance -1008 shape): while the operator switch is on, new risk is refused here, where every order
+  // kind passes, so a copy mirror, a grid level and a TWAP child are refused like a direct place.
+  assertAdmittedUnderOverload(input as { readonly reduceOnly?: boolean; readonly closePosition?: boolean });
 
   // NO ORDERABLE PLANE AT ALL — refused before the registry is touched.
   //
@@ -189,6 +196,10 @@ export async function placeOrderInner(
   // to rest a funded order until Monday). Read the clock ONCE so this request
   // cannot straddle a session boundary and get two answers.
   assertMarketOpen(market, svc.now());
+  // A new listing in its opening window takes limit orders only; a position close is a market order and is refused too.
+  assertOutsideOpeningWindow(market, orderType, svc.now());
+  // A higher-risk zone market takes capped limit orders only, and none while its owner cap is unset.
+  assertZoneOrder(market, { type: orderType, price: input.price ?? null, qty: input.qty });
 
   // The fee tier is read once, here, and carried in the admitted payload like the rank perks: the row keeps it and a
   // tier snapshot taken after this never re-prices the order. The house market maker and a sub-account have no tier of
@@ -501,7 +512,9 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
       ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
       ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
     )
-    ON CONFLICT (id) DO NOTHING
+    -- No target: the id is orderIdFor(user, market, client id), so the id and orders_client_id_idx name the same row,
+    -- and a racing twin must land in the branch below instead of raising 23505 on the client-id key.
+    ON CONFLICT DO NOTHING
     RETURNING id, created_at
   `;
 
@@ -628,7 +641,8 @@ export async function placePaperOrderIsolated(
       ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
       ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
     )
-    ON CONFLICT (id) DO NOTHING
+    -- No target, for the same reason as the live insert above.
+    ON CONFLICT DO NOTHING
     RETURNING id
   `;
   if (inserted.length === 0) {

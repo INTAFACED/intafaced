@@ -1,4 +1,8 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMounted, useTimeout } from '../../../shared/outside';
+import { useBackoffPoll } from '../../../shared/backoff-poll';
+import { useResource } from '../../../shared/resource';
+import type { ApiResult } from '../../../shared/api';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
@@ -6,35 +10,17 @@ import { TradingHoldReason } from '../../../features/account/TradingHoldReason';
 import { usePreferences } from '../../../shared/preferences';
 import { fitsPlaces } from '../../../features/account/trading-settings';
 import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+import { useLeadMode } from '../../../features/trade/lead-mode';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useFeeToken, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
 import { feeTokenChoice, type FeeTokenChoice } from './fee-token';
-import {
-  Amount,
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Button,
-  buttonVariants,
-  fmtAmount,
-  fmtPct,
-  fmtPrice,
-  refusalCopy,
-  Skeleton,
-  StateBlock,
-  Tabs,
-  TabsList,
-  TabsPanel,
-  TabsTab,
-  type Loadable,
-} from './deps';
+import { Amount, Bone, Button, StateBlock, DateInput } from '@intafaced/ui/lit';
+import { DecimalInput, Sheet, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPct, fmtPrice, refusalCopy, type Loadable } from './deps';
 import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
+import { refusedTypes } from './order-type-access';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
 import {
@@ -76,6 +62,7 @@ import { scaleLockStays } from './ticket/scale-flow';
 import { TicketRules } from './MarketRules';
 import { failureOf, isLedgerFrozen, previewFailure, previewIsOrderable, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
+import { dayTime } from './time';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
@@ -109,14 +96,38 @@ function restingRefusal(failure: Failure, draft: Draft): Failure {
   };
 }
 
-function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetry?: () => void; onDismiss?: () => void }) {
+/** A shut session says when it opens, and that nothing waits for it (J-cex-spot-14 #6). */
+function SessionShut({ market }: { market: DeskMarket }) {
+  const { t } = deskCopy.useCopy();
+  const { timeZone } = usePreferences();
+  return (
+    <StateBlock
+      kind="refused"
+      title={t('Session shut title')}
+      body={market.opensAt != null ? t('Session shut body opens', { time: dayTime(market.opensAt, timeZone) }) : t('Session shut body')}
+    />
+  );
+}
+
+function RefusalNote({
+  failure,
+  onRetry,
+  onDismiss,
+  children,
+}: {
+  failure: Failure;
+  onRetry?: () => void;
+  onDismiss?: () => void;
+  /** An action the refusal offers (a band refusal's move to the edge), inside the note so nothing covers it. */
+  children?: ReactNode;
+}) {
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
     return (
-      <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
+      <div data-testid="dk-note--bad" className="lt-callout lt-callout-bad" role="alert">
         <p>{t('Couldn’t check the order')}</p>
         {onRetry ? (
-          <button type="button" className="dk-link" onClick={onRetry}>
+          <button type="button" className="lt-link" onClick={onRetry}>
             {t('Check again')}
           </button>
         ) : null}
@@ -124,21 +135,22 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
     );
   const { title, body, action, reference } = failure.copy;
   return (
-    <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
+    <div data-testid="dk-note--bad" className="lt-callout lt-callout-bad" role="alert">
       {onDismiss ? (
-        <button type="button" className="dk-dismiss" aria-label={t('Dismiss')} onClick={onDismiss}>
+        <button type="button" className="lt-icon-button" aria-label={t('Dismiss')} onClick={onDismiss}>
           ×
         </button>
       ) : null}
-      <p className="dk-note-title">{title}</p>
+      <p className="lt-strong">{title}</p>
       <p>{body}</p>
       {failure.tradingHold ? <TradingHoldReason /> : null}
       {action ? (
-        <a className="dk-link" href={action.href}>
+        <a className="lt-link" href={action.href}>
           {action.label}
         </a>
       ) : null}
-      {reference ? <p className="dk-note-ref">{reference}</p> : null}
+      {children}
+      {reference ? <p className="lt-ref">{reference}</p> : null}
     </div>
   );
 }
@@ -163,7 +175,30 @@ interface SideProps {
   expireAt: string | null;
   /** The person's own label for the order, trimmed; null when none. */
   tag: string | null;
+  /** A listed lead's Lead trade switch (J-copy-bots-otc-04 #5); undefined for everyone who is not a lead. */
+  lead: boolean | undefined;
   onPlaced: () => void;
+}
+
+/**
+ * A listed lead's Lead trade switch (J-copy-bots-otc-04 #5): on, the order is a lead trade that followers copy once it
+ * fills; off, it is the lead's own order and is never copied.
+ */
+function LeadSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  const { t } = deskCopy.useCopy();
+  const noteId = useId();
+  // The switch is named "Lead trade"; what it does is its description, outside the label.
+  return (
+    <div className="lt-field">
+      <label>
+        <input type="checkbox" role="switch" checked={on} aria-describedby={noteId} onChange={(event) => onChange(event.target.checked)} />
+        <span className="lt-label">{t('Lead trade')}</span>
+      </label>
+      <span id={noteId} className="lt-note">
+        {on ? t('Lead trade on') : t('Lead trade off')}
+      </span>
+    </div>
+  );
 }
 
 function SideForm({
@@ -182,11 +217,14 @@ function SideForm({
   tif,
   expireAt,
   tag,
+  lead,
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
   const env = useDataEnv();
   const [price, setPrice] = useState('');
+  // The person chose to move a price outside the band to its edge (J-cex-spot-04 #4): flagged while the price is that edge.
+  const [adjusted, setAdjusted] = useState<{ from: string; to: string } | null>(null);
   const [stopPrice, setStopPrice] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [stopLimit, setStopLimit] = useState('');
@@ -199,7 +237,7 @@ function SideForm({
   const [status, setStatus] = useState<string | null>(null);
   // The id of the resting order that "Your order is in" is about; and whether the open list has shown it.
   const [restingId, setRestingId] = useState<string | null>(null);
-  const restingSeen = useRef(false);
+  const [restingSeen, setRestingSeen] = useState(false);
   const openOrders = useOpenOrders();
   const myFees = useMyFees();
   const feeToken = useFeeToken();
@@ -209,17 +247,10 @@ function SideForm({
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const mounted = useRef(true);
+  const mounted = useMounted();
   const spendAsset = side === 'buy' ? market.quote : market.base;
   const amountPlaces = placesOf(market.lotSize);
   const pricePlaces = placesOf(market.tickSize);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   const context = useMemo(
     () => ({
@@ -231,31 +262,29 @@ function SideForm({
   );
 
   // "Your order is in" is news for a moment, not a permanent fact: it would still be on screen after the order is cancelled (critic L5).
-  useEffect(() => {
-    if (status === null) return;
-    const timer = setTimeout(() => setStatus(null), 12_000);
-    return () => clearTimeout(timer);
-  }, [status]);
+  useTimeout(() => setStatus(null), status === null ? null : 12_000, status);
 
   // ...and it goes the moment that order leaves Open orders (cancelled or filled), so it never sits beside "No open orders".
-  useEffect(() => {
-    if (restingId === null || (openOrders.status !== 'ready' && openOrders.status !== 'empty')) return;
-    const open = openOrders.status === 'ready' ? openOrders.data : [];
-    if (open.some((order) => order.id === restingId)) restingSeen.current = true;
-    else if (restingSeen.current) {
-      setStatus(null);
-      setRestingId(null);
-      restingSeen.current = false;
-    }
-  }, [restingId, openOrders]);
+  // Read during render: whether the open list (once loaded) holds that order.
+  const restingListed =
+    restingId === null || (openOrders.status !== 'ready' && openOrders.status !== 'empty')
+      ? null
+      : (openOrders.status === 'ready' ? openOrders.data : []).some((order) => order.id === restingId);
+  if (restingListed === true && !restingSeen) setRestingSeen(true);
+  else if (restingListed === false && restingSeen) {
+    setStatus(null);
+    setRestingId(null);
+    setRestingSeen(false);
+  }
 
-  // Set by Flatten until its review opens; any other edit of the form drops it. `instant`: a one-click close with instant
-  // placement on (J-charts-desk-14 #7) sends once the order check allows it, without the review sheet.
-  const flattenPending = useRef<{ instant: boolean } | null>(null);
+  // A click whose review this ticket opens itself once the order check of the clicked draft answers: Flatten (Assets), or a
+  // DOM ladder or chart Buy/Sell (J-charts-desk-14). Any other edit of the form drops it. `type`: the ticket type the
+  // click picked; the review waits while the ticket shows another. `instant` (J-charts-desk-14 #6 and #7): instant
+  // placement is on, so it sends once the check allows it, without the review sheet; a refusal still stops it.
+  const [clickReview, setClickReview] = useState<{ kind: 'flatten' | 'review'; type: OrderType; instant: boolean } | null>(null);
   const edit = (apply: () => void) => {
     if (busyRef.current) return;
-    flattenPending.current = null;
-    reviewPending.current = null;
+    setClickReview(null);
     apply();
     setReview(null);
     setFailure(null);
@@ -263,59 +292,76 @@ function SideForm({
     setHint(null);
   };
 
-  // Flatten (Assets): the sell form takes every free lot as a market sell and opens its review once the order check
-  // allows it. The review number comes from the order itself, so pressing Flatten again for the same amount is the same
-  // order, never a second one.
-  useEffect(() => {
-    if (!suggestion?.flatten || side !== 'sell') return;
-    edit(() => {
-      setTotalEdit(null);
-      const lots = floorToLot(suggestion.amount, market.lotSize);
-      setAmount(lots ?? '');
-      // Less than one lot is nothing to sell: no review is opened for it.
-      flattenPending.current = lots !== null ? { instant: suggestion.instant === true } : null;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestion?.nonce]);
+  // A click from the book, the trades list, the DOM ladder, a chart Buy/Sell or Flatten reaches this ticket as a new
+  // `suggestion` (its nonce). It is taken during render, once per click, the first render included, as the click's own
+  // render reaches this ticket; `undefined` until the first render has looked, so a click already there at mount is taken.
+  // - Flatten (Assets): the sell form takes every free lot as a market sell and opens its review once the order check
+  //   allows it. The review number comes from the order itself, so pressing Flatten again for the same amount is the same
+  //   order, never a second one.
+  // - A DOM ladder or chart Buy/Sell click: this side's ticket takes the price and amount and opens its own review once the
+  //   order check allows it. It is the desk's own review and confirm, so the order holds exactly as one typed here, and
+  //   nothing is sent until the person confirms (or, with instant placement, until the check allows it).
+  // - A book or trades-list click fills the price (and the cumulative amount with Shift).
+  // A click that opens a review asks the order check again (`recheck`), so the review is judged by the check of the
+  // clicked draft, never by an answer about the draft before it.
+  const clickNonce = suggestion?.nonce ?? null;
+  const [takenNonce, setTakenNonce] = useState<number | null | undefined>(undefined);
+  const takingClick = takenNonce !== clickNonce;
+  let recheck = false;
+  if (takingClick) {
+    setTakenNonce(clickNonce);
+    if (suggestion?.flatten) {
+      if (side === 'sell')
+        edit(() => {
+          setTotalEdit(null);
+          const lots = floorToLot(suggestion.amount, market.lotSize);
+          setAmount(lots ?? '');
+          // Less than one lot is nothing to sell: no review is opened for it.
+          if (lots !== null) {
+            setClickReview({ kind: 'flatten', type: 'market', instant: suggestion.instant === true });
+            recheck = true;
+          }
+        });
+    } else if (suggestion?.review) {
+      if (suggestion.side !== side) setClickReview(null);
+      else
+        edit(() => {
+          if (suggestion.price) setPrice(padDecimals(suggestion.price, pricePlaces));
+          setTotalEdit(null);
+          const lots = suggestion.amount ? floorToLot(suggestion.amount, market.lotSize) : null;
+          setAmount(lots ?? '');
+          if (lots !== null) {
+            setClickReview({ kind: 'review', type: suggestion.type ?? 'limit', instant: suggestion.instant === true });
+            recheck = true;
+          }
+        });
+    } else if (suggestion)
+      edit(() => {
+        setPrice(padDecimals(suggestion.price, pricePlaces));
+        setTotalEdit(null);
+        if (suggestion.amount) {
+          const lots = floorToLot(suggestion.amount, market.lotSize);
+          if (lots) setAmount(lots);
+        }
+      });
+  }
 
-  // A click on the DOM ladder or a chart Buy/Sell (J-charts-desk-14): this side's ticket takes the price and amount and
-  // opens its own review once the order check allows it. It is the desk's own review and confirm, so the order holds
-  // exactly as one typed here, and nothing is sent until the person confirms.
-  // `armed` turns true on the first render after the click: the effects of the click's own render still see the
-  // ticket as it was before it, so they never judge the new draft.
-  // `instant` (J-charts-desk-14 #6): the person turned instant placement on, so the click sends once the order check and
-  // the preview allow it, without the review sheet. Only the sheet is skipped: a refusal still stops it.
-  const reviewPending = useRef<{ type: OrderType; armed: boolean; instant: boolean } | null>(null);
-  useEffect(() => {
-    if (!suggestion?.review) return;
-    if (suggestion.side !== side) {
-      reviewPending.current = null;
-      return;
-    }
-    edit(() => {
-      if (suggestion.price) setPrice(padDecimals(suggestion.price, pricePlaces));
-      setTotalEdit(null);
-      const lots = suggestion.amount ? floorToLot(suggestion.amount, market.lotSize) : null;
-      setAmount(lots ?? '');
-      reviewPending.current =
-        lots !== null ? { type: suggestion.type ?? 'limit', armed: false, instant: suggestion.instant === true } : null;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestion?.nonce]);
-
-  // A click in the book or the trades list fills the price (and the cumulative amount with Shift).
-  useEffect(() => {
-    if (!suggestion || suggestion.flatten || suggestion.review) return;
-    edit(() => {
-      setPrice(padDecimals(suggestion.price, pricePlaces));
-      setTotalEdit(null);
-      if (suggestion.amount) {
-        const lots = floorToLot(suggestion.amount, market.lotSize);
-        if (lots) setAmount(lots);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestion?.nonce]);
+  /** A band refusal's offer to move the price to the band's edge on this side: the person's own choice, never automatic. */
+  const bandEdge = (refusal: Failure) => {
+    if (refusal.kind !== 'refusal' || !refusal.band || price === '') return null;
+    const edge = padDecimals(side === 'buy' ? refusal.band.high : refusal.band.low, pricePlaces);
+    return (
+      <Button
+        type="button"
+        tone="secondary"
+        size="sm"
+        data-testid="dk-band-edge"
+        onClick={() => edit(() => (setAdjusted({ from: price, to: edge }), setPrice(edge), setTotalEdit(null)))}
+      >
+        {t('Move to band edge', { price: edge, asset: market.quote })}
+      </Button>
+    );
+  };
 
   const input = { side, type, price, amount, stopPrice, stopLimit, takeProfit, tif };
   const priced = isPriced(type);
@@ -329,7 +375,7 @@ function SideForm({
   const draft: Draft | null = useMemo(() => {
     if (!tradable || !checked.ok || (tif === 'GTD' && expireAt === null)) return null;
     // The tag does not price the order: it joins only the reviewed and sent draft, so typing it never re-checks.
-    return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview' });
+    return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview', lead });
   }, [
     tradable,
     checked.ok,
@@ -349,14 +395,22 @@ function SideForm({
   const key = draft
     ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}|${draft.expireAt ?? ''}`
     : 'none';
-  const { live, retry } = useLivePreview(
-    api,
-    draft && !review ? draft : null,
-    key,
-    context,
-    () => env.poller.recordExternalRequest(),
-    market.tickSize,
+  const checkedDraft = draft && !review ? draft : null;
+  // Each answer of the order check is seen here as it lands, so a click's review starts from the answer about its draft.
+  const settled = useRef<(asked: Draft, result: ApiResult<Preview>) => void>(() => undefined);
+  const liveApi: TradeApi = useMemo(
+    () => ({
+      ...api,
+      preview: async (asked: Draft) => {
+        const result = await api.preview(asked);
+        settled.current(asked, result);
+        return result;
+      },
+    }),
+    [api],
   );
+  const { live, retry } = useLivePreview(liveApi, checkedDraft, key, context, () => env.poller.recordExternalRequest(), market.tickSize);
+  if (recheck) retry();
   // The asset the fee comes out of: the order check's own answer once it has one, else the asset the order receives.
   const receiveAsset = (live.state === 'ok' ? live.preview.feeAsset : null) ?? (side === 'buy' ? market.base : market.quote);
   const tokenChoice = feeTokenChoice(feeToken, receiveAsset, type, signedIn);
@@ -368,87 +422,102 @@ function SideForm({
   const [protection, setProtection] = useState<{ price: string; ask: string } | null>(null);
   const bestAsk = reference?.bestAsk ?? null;
   const liveProtection = live.state === 'ok' ? live.preview.protectionPrice : null;
-  useEffect(() => {
+  // Learnt from the order check during render: a new protection price, or a new ask beside it, is kept at once.
+  const [protectionSeen, setProtectionSeen] = useState<{ marketBuy: boolean; price: string | null; ask: string | null }>({
+    marketBuy: false,
+    price: null,
+    ask: null,
+  });
+  if (protectionSeen.marketBuy !== marketBuy || protectionSeen.price !== liveProtection || protectionSeen.ask !== bestAsk) {
+    setProtectionSeen({ marketBuy, price: liveProtection, ask: bestAsk });
     if (marketBuy && liveProtection && bestAsk) setProtection({ price: liveProtection, ask: bestAsk });
-  }, [marketBuy, liveProtection, bestAsk]);
-  const probed = useRef(false);
-  useEffect(() => {
-    if (!marketBuy || protection !== null || probed.current || !tradable || !bestAsk) return;
+  }
+  // The probe is asked once per ticket, the first time a market buy has no protection price yet; its answer is kept even
+  // after leaving the market buy. `probeAsk` holds the ask and amount it was asked with, so its key never changes again.
+  const [probeAsk, setProbeAsk] = useState<{ ask: string; amount: string } | null>(null);
+  if (probeAsk === null && marketBuy && protection === null && !liveProtection && tradable && bestAsk) {
     const probe = probeAmount(market, bestAsk);
-    if (!probe) return;
-    probed.current = true;
-    env.poller.recordExternalRequest();
-    void api
-      .preview({
+    if (probe) setProbeAsk({ ask: bestAsk, amount: probe });
+  }
+  const { resource: probed } = useResource<string | null>(
+    async () => {
+      if (probeAsk === null) return { ok: true, data: null };
+      env.poller.recordExternalRequest();
+      const result = await api.preview({
         symbol: market.symbol,
         side: 'buy',
         type: 'market',
-        amount: probe,
+        amount: probeAsk.amount,
         timeInForce: 'GTC',
         postOnly: false,
         clientOrderId: 'desk-preview',
-      })
-      .then((result) => {
-        if (mounted.current && result.ok && result.data.protectionPrice)
-          setProtection({ price: result.data.protectionPrice, ask: bestAsk });
       });
-  }, [marketBuy, protection, tradable, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+      return result.ok ? { ok: true, data: result.data.protectionPrice ?? null } : result;
+    },
+    probeAsk === null ? 'no-probe' : 'probe',
+  );
+  // Its answer is kept once, as it lands; a later order check's protection price replaces it as before.
+  const probedPrice = probeAsk !== null && probed.status === 'ready' ? probed.data : null;
+  const [probeKept, setProbeKept] = useState(false);
+  if (probedPrice && probeAsk && !probeKept) {
+    setProbeKept(true);
+    setProtection({ price: probedPrice, ask: probeAsk.ask });
+  }
   const protectionPrice = marketBuy ? protectionNow(protection?.price ?? null, protection?.ask ?? null, bestAsk) : null;
   const max = maxAmount({ side, type, price, available, market, protectionPrice, stopLimit });
   const spendTyped = useRef(false);
   // A typed spend stays a cap while the ask moves: re-size the amount from the current protection price. Leaving a market buy drops it.
-  useEffect(() => {
-    if (totalEdit === null) return;
-    if (!marketBuy) {
-      if (spendTyped.current) setTotalEdit(null);
-      return;
+  // Kept in step during render, each time the market buy, its protection price, the typed spend or the lot changes.
+  const [spendSized, setSpendSized] = useState<{ marketBuy: boolean; price: string | null; spend: string | null; lot: string } | null>(
+    null,
+  );
+  if (
+    spendSized === null ||
+    spendSized.marketBuy !== marketBuy ||
+    spendSized.price !== protectionPrice ||
+    spendSized.spend !== totalEdit ||
+    spendSized.lot !== market.lotSize
+  ) {
+    setSpendSized({ marketBuy, price: protectionPrice, spend: totalEdit, lot: market.lotSize });
+    if (totalEdit !== null) {
+      if (!marketBuy) {
+        if (spendTyped.current) setTotalEdit(null);
+      } else if (protectionPrice !== null) setAmount(amountForValue(totalEdit, protectionPrice, market.lotSize) ?? '');
     }
-    if (protectionPrice === null) return;
-    setAmount(amountForValue(totalEdit, protectionPrice, market.lotSize) ?? '');
-  }, [marketBuy, protectionPrice, totalEdit, market.lotSize]);
+  }
   const short = live.state === 'ok' && holdShort(live.preview, spendAsset, available);
-  const gate = gateSubmit({
-    signedIn,
-    marketOpen: market.open,
-    pending: held,
-    side,
-    type,
-    checkedOk: checked.ok,
-    live: live.state,
-    short,
-    busy,
-  });
+  const gateArgs = { signedIn, marketOpen: market.open, pending: held, side, type, checkedOk: checked.ok, busy };
+  const gate = gateSubmit({ ...gateArgs, live: live.state, short });
   const canSend = gate.canSend && (tif !== 'GTD' || expireAt !== null);
 
-  useEffect(() => {
-    const wanted = reviewPending.current;
-    if (wanted === null || type !== wanted.type) return;
-    if (!wanted.armed) {
-      wanted.armed = true;
-      return;
-    }
-    if (canSend) {
-      reviewPending.current = null;
-      void startReview(wanted.instant);
-    } else if (!tradable || !checked.ok || live.state === 'blocked' || live.state === 'error') reviewPending.current = null;
-  });
+  // Whether the ticket can send with a given answer of the order check: the same gate as the button's, with that answer.
+  const canSendWith = (preview: Preview) =>
+    gateSubmit({ ...gateArgs, live: 'ok', short: holdShort(preview, spendAsset, available) }).canSend &&
+    (tif !== 'GTD' || expireAt !== null);
 
-  useEffect(() => {
-    const wanted = flattenPending.current;
-    if (!wanted || type !== 'market') return;
-    if (canSend) {
-      flattenPending.current = null;
-      void startReview(wanted.instant);
-    } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = null;
-  });
+  // A click's review is dropped once the ticket on its type no longer holds an order to check.
+  if (!takingClick && clickReview?.kind === 'review' && type === clickReview.type && (!tradable || !checked.ok)) setClickReview(null);
+
+  // The order check of the clicked draft answered: open the click's review if the ticket can send with that answer, or drop
+  // it when the check refused or failed. An answer about another draft (the form changed since) is not about this click.
+  settled.current = (asked, result) => {
+    const wanted = clickReview;
+    if (!mounted.current || wanted === null || type !== wanted.type || asked !== checkedDraft) return;
+    if (result.ok && previewIsOrderable(result.data)) {
+      if (!canSendWith(result.data)) return;
+      setClickReview(null);
+      void startReview(wanted.instant, true);
+    } else setClickReview(null);
+  };
 
   /**
    * The review of the ticket's order. `instant` (instant placement on, J-charts-desk-14 #6 and #7): the same preview, and
    * when it is orderable the same confirm runs at once with it instead of opening the sheet. A refusal or a short balance
-   * shows exactly as it would in the review.
+   * shows exactly as it would in the review. `ready`: whether the ticket can send, from the button's gate, or (a click's
+   * review) from the gate with the order check's answer that has just landed.
    */
-  async function startReview(instant = false) {
-    if (!canSend || busyRef.current || !checked.ok) return;
+  async function startReview(instant = false, ready = canSend) {
+    if (!ready || busyRef.current || !checked.ok) return;
     busyRef.current = true;
     setBusy(true);
     setFailure(null);
@@ -464,6 +533,7 @@ function SideForm({
       feeCurrency,
       checked,
       clientOrderId: '',
+      lead,
     });
     const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
@@ -539,7 +609,7 @@ function SideForm({
         const done = result.data;
         const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
         const outcome = outcomeOf(done, tifOfDraft(sending));
-        restingSeen.current = false;
+        setRestingSeen(false);
         setRestingId(outcome.kind === 'resting' ? done.id : null);
         if (outcome.kind === 'rejected' || outcome.kind === 'noFill') {
           // Nothing traded: say so as a refusal, keep what the person typed, and never call it "done".
@@ -660,7 +730,7 @@ function SideForm({
   const mine = myFees.status === 'ready' ? (myFees.data[market.symbol] ?? null) : null;
 
   const stopInput = (label: string) => (
-    <AmountInput
+    <DecimalInput
       label={label}
       value={stopPrice}
       onValueChange={(next) => edit(() => setStopPrice(next))}
@@ -677,7 +747,7 @@ function SideForm({
   return (
     <form
       data-testid="dk-form"
-      className="dk-form"
+      className="lt-stack"
       data-side={side}
       aria-label={side === 'buy' ? t('Buy form', { asset: market.base }) : t('Sell form', { asset: market.base })}
       onSubmit={(event) => {
@@ -693,7 +763,7 @@ function SideForm({
     >
       {isStopTab(type) ? stopInput(t('Stop price')) : null}
       {type === 'bracket' ? (
-        <AmountInput
+        <DecimalInput
           label={t('Entry price')}
           value={price}
           onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
@@ -708,7 +778,7 @@ function SideForm({
           aria-label={t('Entry price')}
         />
       ) : priced ? (
-        <AmountInput
+        <DecimalInput
           label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
           value={price}
           onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
@@ -723,7 +793,7 @@ function SideForm({
           aria-label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
         />
       ) : (
-        <AmountInput
+        <DecimalInput
           label={t('Price')}
           value=""
           onValueChange={() => undefined}
@@ -736,7 +806,7 @@ function SideForm({
         />
       )}
       {type === 'bracket' || type === 'oto' ? (
-        <AmountInput
+        <DecimalInput
           label={type === 'oto' ? t('Close price') : t('Take profit')}
           value={takeProfit}
           onValueChange={(next) => edit(() => setTakeProfit(next))}
@@ -751,7 +821,7 @@ function SideForm({
       ) : null}
       {hasExits(type) ? stopInput(t('Stop loss')) : null}
       {isBuyOco(side, type) ? (
-        <AmountInput
+        <DecimalInput
           label={t('Stop loss limit')}
           value={stopLimit}
           onValueChange={(next) => edit(() => (setStopLimit(next), setTotalEdit(null)))}
@@ -764,7 +834,7 @@ function SideForm({
           aria-label={t('Stop loss limit')}
         />
       ) : null}
-      <AmountInput
+      <DecimalInput
         label={t('Amount')}
         value={amount}
         onValueChange={(next) => edit(() => (setAmount(next), setTotalEdit(null)))}
@@ -776,7 +846,7 @@ function SideForm({
         autoFocus={autoFocus}
         aria-label={t('Amount')}
       />
-      <div className="dk-percents" role="group" aria-label={t('Amount')}>
+      <div className="lt-chips" role="group" aria-label={t('Amount')}>
         {PERCENTS.map((percent) => (
           <button
             key={percent}
@@ -790,7 +860,7 @@ function SideForm({
         ))}
       </div>
       {preferences.quickSizes.length > 0 ? (
-        <div className="dk-percents" role="group" aria-label={t('Quick sizes')}>
+        <div className="lt-chips" role="group" aria-label={t('Quick sizes')}>
           {preferences.quickSizes.map((size) => (
             <button
               key={size}
@@ -804,7 +874,7 @@ function SideForm({
           ))}
         </div>
       ) : null}
-      <AmountInput
+      <DecimalInput
         label={priced ? t('Total') : marketBuy ? t('Spend up to') : t('Total estimate')}
         value={total}
         onValueChange={(next) =>
@@ -827,19 +897,19 @@ function SideForm({
         placeholder="0"
         aria-label={marketBuy ? t('Spend') : t('Total')}
       />
-      <dl data-testid="dk-avail" className="dk-avail">
+      <dl data-testid="dk-avail" className="lt-kv">
         <div>
           <dt>{t('Available')}</dt>
-          <dd className="if-num">
+          <dd className="lt-num">
             {signedIn ? <Amount value={available === null ? null : `${fmtAmount(available, { places: 8 })} ${spendAsset}`} /> : '—'}
           </dd>
         </div>
         <div>
           <dt>{side === 'buy' ? t('Max buy') : t('Max sell')}</dt>
-          <dd className="if-num">{signedIn && max !== null ? `${fmtAmount(max, { places: amountPlaces })} ${market.base}` : '—'}</dd>
+          <dd className="lt-num">{signedIn && max !== null ? `${fmtAmount(max, { places: amountPlaces })} ${market.base}` : '—'}</dd>
         </div>
       </dl>
-      <p data-testid="dk-fees" className="dk-fees if-num">
+      <p data-testid="dk-fees" className="lt-row lt-row-between lt-small lt-num">
         <span>
           {live.state === 'ok' && feeRate(live.preview) !== null
             ? live.preview.feeRole === 'maker'
@@ -857,7 +927,7 @@ function SideForm({
             : t('Fee unknown')}
         </span>
         {mine ? (
-          <span data-testid="dk-fees-mine" className="dk-fees-mine" title={t('Fee yours title')}>
+          <span data-testid="dk-fees-mine" className="lt-quiet" title={t('Fee yours title')}>
             {t('Fee yours', { maker: fmtPct(mine.maker, { signed: false }), taker: fmtPct(mine.taker, { signed: false }) })}
           </span>
         ) : null}
@@ -866,35 +936,34 @@ function SideForm({
       {signedIn ? (
         <Button
           type="submit"
-          variant={side}
-          shape="rounded"
-          size={40}
-          fullWidth
-          loading={busy && !review}
+          tone={side === 'buy' ? 'up' : 'down'}
+          size="md"
+          block
+          busy={busy && !review}
           disabled={!canSend}
           aria-describedby={`dk-reason-${side}`}
         >
           {verb}
         </Button>
       ) : (
-        <a className={buttonVariants({ variant: side, shape: 'rounded', size: 40, fullWidth: true })} href={loginHref}>
+        <a className="lt-button lt-button-primary" href={loginHref}>
           {t('Log in to trade')}
         </a>
       )}
-      <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
-        {hint ? <p className="dk-note">{hint}</p> : null}
-        {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
+      <div className="lt-stack-tight lt-tight" id={`dk-reason-${side}`} aria-live="polite">
+        {hint ? <p className="lt-note">{hint}</p> : null}
+        {signedIn && !market.open ? <p className="lt-note">{t('Market is closed')}</p> : null}
         {signedIn && market.open && exitOff ? (
-          <p className="dk-note">{t(type === 'oto' ? 'Oto sell off' : 'Bracket sell off', { asset: market.base })}</p>
+          <p className="lt-note">{t(type === 'oto' ? 'Oto sell off' : 'Bracket sell off', { asset: market.base })}</p>
         ) : null}
-        {market.open && type === 'oto' && !exitOff ? <p className="dk-note-small">{t('Exit note oto', { asset: market.base })}</p> : null}
+        {market.open && type === 'oto' && !exitOff ? <p className="lt-note">{t('Exit note oto', { asset: market.base })}</p> : null}
         {market.open && type === 'stop_market' ? (
-          <p className="dk-note-small">
+          <p className="lt-note">
             {side === 'buy' ? t('Stop market note buy', { asset: market.base }) : t('Stop market note sell', { asset: market.base })}
           </p>
         ) : null}
         {market.open && hasExits(type) && !exitOff ? (
-          <p className="dk-note-small">
+          <p className="lt-note">
             {type === 'oco'
               ? side === 'buy'
                 ? t('Exit note oco buy', { asset: market.base })
@@ -905,52 +974,62 @@ function SideForm({
           </p>
         ) : null}
         {exitRetry ? (
-          <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
+          <div data-testid="dk-note--bad" className="lt-callout lt-callout-bad" role="alert">
             <RefusalNote failure={refusalFailure('trade.bracket_exit_failed', context)} />
-            <button type="button" className="dk-link" disabled={busy} onClick={() => void placeExits()}>
+            <button type="button" className="lt-link" disabled={busy} onClick={() => void placeExits()}>
               {t('Place the exits')}
             </button>
           </div>
         ) : null}
         {gate.reason === 'short' ? <RefusalNote failure={refusalFailure('ledger.insufficient_funds', context)} /> : null}
-        {tradable && showProblem && !checked.ok ? <p className="dk-note">{problemText(checked.problem, market, t)}</p> : null}
+        {tradable && showProblem && !checked.ok ? <p className="lt-note">{problemText(checked.problem, market, t)}</p> : null}
         {tradable && checked.ok && live.state === 'checking' && !failure && !status ? (
-          <p className="dk-note">{t('Checking the order')}</p>
+          <p className="lt-note">{t('Checking the order')}</p>
         ) : null}
-        {tradable && checked.ok && live.state === 'blocked' ? <RefusalNote failure={live.failure} /> : null}
+        {tradable && checked.ok && live.state === 'blocked' ? (
+          <RefusalNote failure={live.failure}>{bandEdge(live.failure)}</RefusalNote>
+        ) : null}
         {tradable && checked.ok && live.state === 'error' ? <RefusalNote failure={{ kind: 'network' }} onRetry={retry} /> : null}
-        {failure ? <RefusalNote failure={failure} onDismiss={() => setFailure(null)} /> : null}
+        {failure ? (
+          <RefusalNote failure={failure} onDismiss={() => setFailure(null)}>
+            {bandEdge(failure)}
+          </RefusalNote>
+        ) : null}
+        {adjusted !== null && price === adjusted.to ? (
+          <p className="lt-callout lt-callout-warn" role="status" data-testid="dk-adjusted">
+            {t('Price adjusted', { from: adjusted.from, to: adjusted.to, asset: market.quote })}
+          </p>
+        ) : null}
         {status ? (
-          <p className="dk-note dk-note--good" role="status">
+          <p className="lt-callout lt-callout-good" role="status">
             {status}
           </p>
         ) : null}
       </div>
 
-      <AlertDialog
-        open={review !== null}
-        onOpenChange={(open) => {
-          if (!open && !busyRef.current) setReview(null);
-        }}
-      >
-        {review ? (
-          <AlertDialogContent className="dk-review">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{side === 'buy' ? t('Review buy') : t('Review sell')}</AlertDialogTitle>
-              <AlertDialogDescription>{review.changed ? t('Review changed') : t('Review intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <ReviewRows market={market} review={review} side={side} tokenChoice={tokenChoice} />
-            <AlertDialogFooter>
-              <Button variant="secondary" size={40} disabled={busy} onClick={() => setReview(null)}>
+      {review !== null ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={side === 'buy' ? t('Review buy') : t('Review sell')}
+          description={review.changed ? t('Review changed') : t('Review intro')}
+          onClose={() => {
+            if (!busyRef.current) setReview(null);
+          }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={busy} onClick={() => setReview(null)}>
                 {t('Cancel')}
               </Button>
-              <Button variant={side} shape="pill" size={40} loading={busy} onClick={() => void confirm()}>
+              <Button tone={side === 'buy' ? 'up' : 'down'} size="md" busy={busy} onClick={() => void confirm()}>
                 {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            </>
+          }
+        >
+          <ReviewRows market={market} review={review} side={side} tokenChoice={tokenChoice} />
+        </Sheet>
+      ) : null}
     </form>
   );
 }
@@ -978,23 +1057,17 @@ function FeeCurrencyRow({
   if (choice.kind === 'offered') {
     const discount = fmtPct(bpsToRatio(choice.discountBps), { signed: false });
     return (
-      <div className="dk-fee-asset" data-fee-currency={chosen ? choice.token : receiveAsset} data-fee-token="offered">
+      <div className="lt-row lt-small" data-fee-currency={chosen ? choice.token : receiveAsset} data-fee-token="offered">
         <span>{t('Fees in', { asset: chosen ? choice.token : receiveAsset })}</span>
-        <button
-          type="button"
-          className="dk-fee-asset-choice"
-          aria-pressed={chosen}
-          aria-describedby={why}
-          onClick={() => onChoose(!chosen)}
-        >
+        <button type="button" className="lt-link" aria-pressed={chosen} aria-describedby={why} onClick={() => onChoose(!chosen)}>
           {t('Pay fees in token', { token: choice.token })}
         </button>
-        <span id={why} className="dk-fee-asset-why">
+        <span id={why} className="lt-note">
           {chosen
             ? t('Fee token on', { token: choice.token, discount, staked: fmtAmount(choice.staked, { places: 8 }), asset: receiveAsset })
             : t('Fee token offer', { token: choice.token, discount })}
           {choice.ladder && choice.ladder.length > 0 ? (
-            <span className="dk-fee-ladder" data-fee-ladder>
+            <span className="lt-quiet" data-fee-ladder>
               {' '}
               {t('Fee token ladder', {
                 steps: choice.ladder
@@ -1026,19 +1099,13 @@ function FeeCurrencyRow({
               ? t('Fee token order type', { token: choice.token ?? '', asset: receiveAsset })
               : t('Fee token no discount', { token: choice.token ?? '', asset: receiveAsset });
   return (
-    <div className="dk-fee-asset" data-fee-currency={receiveAsset} data-fee-token={choice.reason}>
+    <div className="lt-row lt-small" data-fee-currency={receiveAsset} data-fee-token={choice.reason}>
       <span>{t('Fees in', { asset: receiveAsset })}</span>
       {/* aria-disabled, not disabled: it stays in the tab order, so a keyboard or screen-reader user reaches the reason. */}
-      <button
-        type="button"
-        className="dk-fee-asset-choice"
-        aria-disabled="true"
-        aria-describedby={why}
-        onClick={(event) => event.preventDefault()}
-      >
+      <button type="button" className="lt-link" aria-disabled="true" aria-describedby={why} onClick={(event) => event.preventDefault()}>
         {choice.token ? t('Pay fees in token', { token: choice.token }) : t('Pay fees in another asset')}
       </button>
-      <span id={why} className="dk-fee-asset-why">
+      <span id={why} className="lt-note">
         {reason}
       </span>
     </div>
@@ -1064,7 +1131,7 @@ function ReviewRows({
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
   const rate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
   return (
-    <dl className="dk-review-rows">
+    <dl className="lt-kv">
       <div>
         <dt>{t('Review market')}</dt>
         <dd>{market.symbol}</dd>
@@ -1092,13 +1159,13 @@ function ReviewRows({
       {draft.expireAt ? (
         <div>
           <dt>{t('Order expires')}</dt>
-          <dd className="if-num">{new Date(draft.expireAt).toLocaleString()}</dd>
+          <dd className="lt-num">{new Date(draft.expireAt).toLocaleString()}</dd>
         </div>
       ) : null}
       {stop && draft.stopPrice ? (
         <div>
           <dt>{t('Review stop price')}</dt>
-          <dd className="if-num">
+          <dd className="lt-num">
             {fmtPrice(draft.stopPrice, market.tickSize)} {market.quote}
           </dd>
         </div>
@@ -1106,7 +1173,7 @@ function ReviewRows({
       {draft.type === 'stop' && preview.price ? (
         <div>
           <dt>{t('Review protection price')}</dt>
-          <dd className="if-num">
+          <dd className="lt-num">
             {fmtPrice(preview.price, market.tickSize)} {market.quote}
           </dd>
         </div>
@@ -1114,7 +1181,7 @@ function ReviewRows({
       {exit?.kind === 'oco' || draft.type === 'stop' ? null : (
         <div>
           <dt>{exit || draft.close ? t('Entry price') : t('Review price')}</dt>
-          <dd className="if-num">
+          <dd className="lt-num">
             {limit && draft.price ? `${fmtPrice(draft.price, market.tickSize)} ${market.quote}` : t('Review market price')}
           </dd>
         </div>
@@ -1123,7 +1190,7 @@ function ReviewRows({
         <>
           <div>
             <dt>{t('Review close price')}</dt>
-            <dd className="if-num">
+            <dd className="lt-num">
               {fmtPrice(draft.close, market.tickSize)} {market.quote}
             </dd>
           </div>
@@ -1137,20 +1204,20 @@ function ReviewRows({
         <>
           <div>
             <dt>{t('Review take profit')}</dt>
-            <dd className="if-num">
+            <dd className="lt-num">
               {fmtPrice(exit.takeProfit, market.tickSize)} {market.quote}
             </dd>
           </div>
           <div>
             <dt>{t('Review stop loss')}</dt>
-            <dd className="if-num">
+            <dd className="lt-num">
               {fmtPrice(exit.stopLoss, market.tickSize)} {market.quote}
             </dd>
           </div>
           {exit.stopLossLimit ? (
             <div>
               <dt>{t('Review stop loss limit')}</dt>
-              <dd className="if-num">
+              <dd className="lt-num">
                 {fmtPrice(exit.stopLossLimit, market.tickSize)} {market.quote}
               </dd>
             </div>
@@ -1171,27 +1238,27 @@ function ReviewRows({
       ) : null}
       <div>
         <dt>{t('Review amount')}</dt>
-        <dd className="if-num">
+        <dd className="lt-num">
           {fmtAmount(draft.amount, { places: placesOf(market.lotSize) })} {market.base}
         </dd>
       </div>
       {value ? (
         <div>
           <dt>{t('Review value')}</dt>
-          <dd className="if-num">
+          <dd className="lt-num">
             {fmtAmount(value.value, { places: 8 })} {market.quote}
           </dd>
         </div>
       ) : null}
       <div>
         <dt>{t('Review hold')}</dt>
-        <dd className="if-num">
+        <dd className="lt-num">
           {fmtAmount(preview.holdAmount, { places: 8 })} {preview.holdAsset}
         </dd>
       </div>
       <div>
         <dt>{t('Review fee')}</dt>
-        <dd className="if-num">
+        <dd className="lt-num">
           {fmtAmount(preview.estimatedFee, { places: 8 })} {preview.feeAsset}
           {rate ? ` (${t('Review fee rate', { rate })})` : ''}
         </dd>
@@ -1238,7 +1305,7 @@ function ReviewRows({
         <dt>{t('Review client id')}</dt>
         <dd>
           {/* The end of the client order id (draft hash and mint); the rest is the account, which the person knows. */}
-          <span data-testid="client-order-id" className="if-num">
+          <span data-testid="client-order-id" className="lt-num">
             {draft.clientOrderId.split(':').at(-1)}
           </span>
           <br />
@@ -1248,7 +1315,7 @@ function ReviewRows({
       {exitFeeLines(preview).map((line) => (
         <div key={line.leg}>
           <dt>{line.leg === 'takeProfit' ? t('Review take profit fee') : t('Review stop loss fee')}</dt>
-          <dd className="if-num">
+          <dd className="lt-num">
             {fmtAmount(line.fee, { places: 8 })} {line.asset} ({t('Review fee rate', { rate: fmtPct(line.ratio, { signed: false }) })})
           </dd>
         </div>
@@ -1256,7 +1323,7 @@ function ReviewRows({
       {preview.protectionPrice ? (
         <div>
           <dt>{t('Review protection')}</dt>
-          <dd className="if-num">
+          <dd className="lt-num">
             {side === 'buy'
               ? t('Review protection buy', {
                   price: fmtPrice(preview.protectionPrice, market.tickSize),
@@ -1302,35 +1369,44 @@ export const OrderPanel = memo(function OrderPanel({
   const { userId, api: client } = useSession();
   const api = useDeskApi();
   const refresh = useRefreshPrivate();
-  const [type, setType] = useState<OrderType>('limit');
+  const [pickedType, setType] = useState<OrderType>('limit');
   const [pickedTif, setTif] = useState<Tif>('GTC');
-  // Market orders take only what an immediate order can use; a limit-only pick (post only, IOC) falls back to standard.
-  const tif = tifFor(type, pickedTif);
   // A good-till-date pick carries the expiry the trader types (local time); it is sent only once it names a future instant.
   const [expiry, setExpiry] = useState('');
-  const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
   // The person's own label, kept for the next orders until they clear it; blank sends none.
   const [tagText, setTagText] = useState('');
   const tag = tagText.trim() === '' ? null : tagText.trim();
+  // A listed lead's Lead trade switch (J-copy-bots-otc-04 #5): on when the lead account's link opened the desk.
+  const leadMode = useLeadMode();
+  const [leadOn, setLeadOn] = useState(() => new URLSearchParams(window.location.search).get('lead') === '1');
+  const lead = leadMode.isLead ? leadOn : undefined;
+  // The types this market, its state and this account's mode refuse (J-cex-spot-04 #1) are not tabs; a pick that became
+  // refused (the mode changed, Lead trade turned on) shows as a limit order. A limit is never refused.
+  const refused = refusedTypes(market, { lead }, Date.now());
+  // Flatten (Assets) keeps its market sell, so its own review says what the market takes.
+  const flattening = suggestion?.flatten === true && pickedType === 'market';
+  const type: OrderType = refused.has(pickedType) && !flattening ? 'limit' : pickedType;
+  // Market orders take only what an immediate order can use; a limit-only pick (post only, IOC) falls back to standard.
+  const tif = tifFor(type, pickedTif);
+  const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
   const [checking, setChecking] = useState(false);
   const checkingRef = useRef(false);
-  const lastSuggestion = useRef(0);
   const [resending, setResending] = useState(false);
   const [resendNote, setResendNote] = useState<string | null>(null);
   const resendingRef = useRef(false);
   const env = useDataEnv();
   const attempts = useRef(0);
 
-  // A book click means a limit order at that price; Flatten means a market sell.
-  useEffect(() => {
-    if (suggestion && suggestion.nonce !== lastSuggestion.current) {
-      lastSuggestion.current = suggestion.nonce;
-      setType(suggestion.type ?? (suggestion.flatten ? 'market' : 'limit'));
-    }
-  }, [suggestion]);
+  // A book click means a limit order at that price; Flatten means a market sell. Taken during render, once per click, so
+  // the side forms see the click and its ticket type in the same render.
+  const [typedNonce, setTypedNonce] = useState(0);
+  if (suggestion && suggestion.nonce !== typedNonce) {
+    setTypedNonce(suggestion.nonce);
+    setType(suggestion.type ?? (suggestion.flatten ? 'market' : 'limit'));
+  }
 
   const signedIn = userId !== null;
   const free = (asset: string): string | null => (balances.status === 'ready' ? (balances.data[asset]?.free ?? '0') : null);
@@ -1364,29 +1440,15 @@ export const OrderPanel = memo(function OrderPanel({
     checkingRef.current = false;
     setChecking(false);
   }
-  const checkRef = useRef(check);
-  checkRef.current = check;
   const pendingId = pendingValue?.id;
-  useEffect(() => {
-    if (!pendingId || pendingValue?.kind !== 'place') return;
-    // First look at once, then 5, 10, 20, then every 60 seconds, so a lost order does not keep the desk over its budget.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
-    const loop = async () => {
-      await checkRef.current();
-      if (stopped) return;
-      const wait = [5_000, 10_000, 20_000][Math.max(0, attempts.current - 1)] ?? 60_000;
-      timer = setTimeout(() => void loop(), wait);
-    };
-    void loop();
-    const stop = onCheckRequested(() => void checkRef.current());
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-      stop();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingId]);
+  // A lost order's status check: first look at once, then 5, 10, 20, then every 60 seconds after each check ends, so a lost
+  // order does not keep the desk over its budget; a check asked for elsewhere (requestCheck) runs at once as well.
+  useBackoffPoll(
+    pendingId && pendingValue?.kind === 'place' ? pendingId : null,
+    check,
+    () => [5_000, 10_000, 20_000][Math.max(0, attempts.current - 1)] ?? 60_000,
+    onCheckRequested,
+  );
 
   /** On the person's click only: the same order, the same clientOrderId. The trade service never makes two of it. */
   async function sendAgain() {
@@ -1437,43 +1499,42 @@ export const OrderPanel = memo(function OrderPanel({
     tif,
     expireAt,
     tag,
+    lead,
   } as const;
   return (
-    <Tabs
-      value={type}
-      onValueChange={(value) => {
-        setType(value as OrderType);
-        // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
-        if (value === 'bracket') setTif('IOC');
-        // An OTO buy waits on the book for its price by default; its close is placed when it fills.
-        if (value === 'oto') setTif('GTC');
-      }}
-      data-testid="dk-order"
-      className="dk-panel dk-order"
-    >
-      <div className="dk-order-head">
-        <TabsList className="dk-tabs" aria-label={t('Order type')}>
-          {SPOT_TICKET_ORDER_TYPES.map((kind) => (
-            <TabsTab key={kind} value={kind}>
-              {t(TYPE_TAB_KEY[kind])}
-            </TabsTab>
-          ))}
-        </TabsList>
-        <MoreOrderTypes />
+    <div data-testid="dk-order" className="lt-panel">
+      <div className="lt-row">
+        <Tabs
+          id="dk-type"
+          label={t('Order type')}
+          items={SPOT_TICKET_ORDER_TYPES.filter((kind) => !refused.has(kind)).map((kind) => ({
+            value: kind,
+            label: t(TYPE_TAB_KEY[kind]),
+          }))}
+          value={type}
+          onChange={(value) => {
+            setType(value as OrderType);
+            // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
+            if (value === 'bracket') setTif('IOC');
+            // An OTO buy waits on the book for its price by default; its close is placed when it fills.
+            if (value === 'oto') setTif('GTC');
+          }}
+        />
+        <MoreOrderTypes refused={refused} />
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}
         {market.open && tif === 'GTD' ? (
-          <label className="dk-tif dk-expiry">
-            <span className="dk-tif-label">{t('Order expires')}</span>
-            <input
+          <label className="lt-field">
+            <span className="lt-label">{t('Order expires')}</span>
+            <DateInput
               type="datetime-local"
-              className="dk-expiry-input"
+
               value={expiry}
               onChange={(event) => setExpiry(event.target.value)}
               aria-label={t('Order expires')}
               aria-invalid={expiry !== '' && expireAt === null}
             />
             {expiry !== '' && expireAt === null ? (
-              <span className="dk-expiry-note" role="note">
+              <span className="lt-note lt-note-bad" role="note">
                 {t('Order expiry past')}
               </span>
             ) : null}
@@ -1481,29 +1542,34 @@ export const OrderPanel = memo(function OrderPanel({
         ) : null}
       </div>
       {market.open ? (
-        <div className="dk-order-opts">
+        <div className="lt-row">
           <SelfTradeSelect />
           <TagField value={tagText} onChange={setTagText} />
+          {leadMode.isLead ? <LeadSwitch on={leadOn} onChange={setLeadOn} /> : null}
         </div>
       ) : null}
       <TicketRules market={market} />
       {!market.open ? (
-        <div className="dk-order-body">
-          <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />
+        <div className="lt-stack">
+          {market.sessionShut ? (
+            <SessionShut market={market} />
+          ) : (
+            <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />
+          )}
         </div>
       ) : (
-        <TabsPanel value={type} className="dk-order-body">
+        <TabPanel id="dk-type" value={type} current={type} className="lt-stack">
           {pending.state === 'pending' && !isInFlight(pending.value.id) ? (
-            <div data-testid="dk-note--warn" className="dk-note dk-note--warn" role="status">
-              <p className="dk-note-title">{t('Checking your order')}</p>
+            <div data-testid="dk-note--warn" className="lt-callout lt-callout-warn" role="status">
+              <p className="lt-strong">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
               {pending.value.kind === 'place' ? (
-                <div className="dk-note-actions">
-                  <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void check()}>
+                <div className="lt-row">
+                  <button type="button" className="lt-link" disabled={checking || resending} onClick={() => void check()}>
                     {t('Check order')}
                   </button>
                   {pending.value.draft ? (
-                    <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void sendAgain()}>
+                    <button type="button" className="lt-link" disabled={checking || resending} onClick={() => void sendAgain()}>
                       {resending ? t('Sending again') : t('Send again')}
                     </button>
                   ) : null}
@@ -1511,32 +1577,32 @@ export const OrderPanel = memo(function OrderPanel({
               ) : (
                 <p>{t('Other request open')}</p>
               )}
-              {pending.value.kind === 'place' && pending.value.draft ? <p className="dk-note-small">{t('Send again hint')}</p> : null}
+              {pending.value.kind === 'place' && pending.value.draft ? <p className="lt-note">{t('Send again hint')}</p> : null}
               {resendNote ? <p role="status">{resendNote}</p> : null}
               {stillChecking ? <p>{t('Still checking')}</p> : null}
             </div>
           ) : pending.state === 'unreadable' ? (
-            <div data-testid="dk-note--warn" className="dk-note dk-note--warn" role="status">
+            <div data-testid="dk-note--warn" className="lt-callout lt-callout-warn" role="status">
               <p>{t('Unreadable marker')}</p>
             </div>
           ) : settled ? (
-            <div className="dk-note dk-note--good" role="status">
+            <div className="lt-callout lt-callout-good" role="status">
               <p>{settled}</p>
             </div>
           ) : null}
           {balances.status === 'loading' && signedIn ? (
-            <div className="dk-forms" aria-busy="true">
-              <Skeleton height={320} className="bg-field" />
-              <Skeleton height={320} className="bg-field" />
+            <div className="lt-cols-2" aria-busy="true">
+              <Bone size="panel" />
+              <Bone size="panel" />
             </div>
           ) : (
-            <div className="dk-forms">
+            <div className="lt-cols-2">
               <SideForm {...common} side="buy" available={signedIn ? free(market.quote) : null} autoFocus={focusSide === 'buy'} />
               <SideForm {...common} side="sell" available={signedIn ? free(market.base) : null} autoFocus={focusSide === 'sell'} />
             </div>
           )}
-        </TabsPanel>
+        </TabPanel>
       )}
-    </Tabs>
+    </div>
   );
 });

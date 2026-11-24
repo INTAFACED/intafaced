@@ -150,6 +150,30 @@ export interface GridModifyInput {
   readonly minGridCount?: number | null;
 }
 
+/**
+ * A grid's exits (CB-bots-03; J-copy-bots-otc-15 #3). A blank price clears that exit. An RSI exit needs an RSI source,
+ * and none is connected: any RSI value is refused `trade.bots_grid_rsi_source_not_set` and nothing is saved.
+ */
+export interface GridExitsInput {
+  readonly botId: string;
+  /** Stop once the best bid falls to this price. */
+  readonly stopBelow?: string | null;
+  /** Stop once the best ask rises to this price. */
+  readonly stopAbove?: string | null;
+  readonly rsiBelow?: string | null;
+  readonly rsiAbove?: string | null;
+}
+
+/** The exits as saved. `rsi.source` is null: no RSI source is connected, so the RSI exit reads Not set. */
+export interface GridExitsView {
+  readonly stopBelow: string | null;
+  readonly stopAbove: string | null;
+  readonly rsi: { readonly source: null };
+}
+
+/** The status reason a price exit stops a grid with. */
+const PRICE_EXIT_REASON = 'price_exit';
+
 export const GRID_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.bots.grid.withdrawProfit' as const;
 
 export interface GridCreateInput {
@@ -199,6 +223,7 @@ export interface GridBotView {
     readonly status: GridOrder['status'];
     readonly pairProfit: string | null;
   }>;
+  readonly exits: GridExitsView;
   /** The sum of closed pairs' profit net of fees. "0" before any pair closes. */
   readonly gridProfit: string;
   /** Profit the reserve still holds for the bot (reserve less investment): what may be withdrawn. "0" once released. */
@@ -255,6 +280,32 @@ function positiveAmount(raw: string | null | undefined, code: GridError['code'],
   return amount;
 }
 
+/**
+ * The create's own fields, each refused by a code naming it, in the order the person reads them: both bounds, the
+ * investment, the grid count and the owner's count range (blank refuses). Shared by the venue grid (venue-grid.ts).
+ */
+export function checkGridFields(
+  input: Pick<GridCreateInput, 'lowerPrice' | 'upperPrice' | 'gridCount' | 'investment'>,
+  policy: Pick<GridPolicy, 'countRange'>,
+): { lower: Amount; upper: Amount; investment: Amount; count: number } {
+  const lower = positiveAmount(input.lowerPrice, 'trade.bots_grid_bounds_not_set', 'Lower price');
+  const upper = positiveAmount(input.upperPrice, 'trade.bots_grid_bounds_not_set', 'Upper price');
+  if (!(lower < upper)) throw new GridError('Lower price must be below upper price', 'trade.grid_bounds_inverted');
+  const investment = positiveAmount(input.investment, 'trade.grid_investment_required', 'Investment');
+  const count = input.gridCount;
+  if (count === null || count === undefined) throw new GridError('Grids is required', 'trade.grid_count_required', { field: 'Grids' });
+  const range = policy.countRange;
+  if (!range) throw new GridError('The platform has not set how many grids a bot may use', 'trade.grid_count_range_not_set');
+  if (!Number.isInteger(count) || count < range.min || count > range.max) {
+    throw new GridError(`Grids must be from ${range.min} to ${range.max}`, 'trade.bots_grid_count_out_of_range', {
+      field: 'Grids',
+      min: String(range.min),
+      max: String(range.max),
+    });
+  }
+  return { lower, upper, investment, count };
+}
+
 const withdrawHash = (botId: string, asset: string, amount: Amount): string =>
   createHash('sha256')
     .update(['bots.grid.withdraw', botId, asset, formatAmount(amount)].join('\0'))
@@ -305,7 +356,7 @@ const DAY_MS = 86_400_000;
 const HUNDREDTH = parseAmount('0.01');
 
 /** Each bound within the owner's distance of the market price (CB-bots-02); a blank distance refuses every create. */
-function assertBoundsInBand(bps: number | null, lower: Amount, upper: Amount, mark: Amount): void {
+export function assertBoundsInBand(bps: number | null, lower: Amount, upper: Amount, mark: Amount): void {
   if (bps === null) {
     throw new GridError('The platform has not set how far the bounds may be from the market price', 'trade.bots_grid_bounds_band_not_set');
   }
@@ -336,6 +387,11 @@ export function gridApr(profit: Amount, invested: Amount, elapsedMs: number): Gr
   const hundredths = num / den - (num % den < 0n ? 1n : 0n);
   return { state: 'set', percent: formatAmount(hundredths * HUNDREDTH) };
 }
+const exitsView = (bot: Pick<GridBot, 'exitBelow' | 'exitAbove'>): GridExitsView => ({
+  stopBelow: bot.exitBelow === null ? null : formatAmount(bot.exitBelow),
+  stopAbove: bot.exitAbove === null ? null : formatAmount(bot.exitAbove),
+  rsi: { source: null },
+});
 const INITIALIZATION_FAILED = 'The grid could not place its levels; nothing is left running';
 
 /** A level order id the bot may hold with no row of its own: the next buy of a level, or the sell of a bought pair. */
@@ -378,21 +434,7 @@ export class GridService {
     const already = await this.ports.store.findBot(botId);
     if (already) return this.sameRequest(already, hash);
 
-    const lower = positiveAmount(input.lowerPrice, 'trade.bots_grid_bounds_not_set', 'Lower price');
-    const upper = positiveAmount(input.upperPrice, 'trade.bots_grid_bounds_not_set', 'Upper price');
-    if (!(lower < upper)) throw new GridError('Lower price must be below upper price', 'trade.grid_bounds_inverted');
-    const investment = positiveAmount(input.investment, 'trade.grid_investment_required', 'Investment');
-    const count = input.gridCount;
-    if (count === null || count === undefined) throw new GridError('Grids is required', 'trade.grid_count_required', { field: 'Grids' });
-    const range = this.ports.policy.countRange;
-    if (!range) throw new GridError('The platform has not set how many grids a bot may use', 'trade.grid_count_range_not_set');
-    if (!Number.isInteger(count) || count < range.min || count > range.max) {
-      throw new GridError(`Grids must be from ${range.min} to ${range.max}`, 'trade.bots_grid_count_out_of_range', {
-        field: 'Grids',
-        min: String(range.min),
-        max: String(range.max),
-      });
-    }
+    const { lower, upper, investment, count } = checkGridFields(input, this.ports.policy);
 
     const market = await this.ports.marketBySymbol(input.symbol);
     if (!market) throw new GridError(`Market ${input.symbol} not found`, 'trade.grid_market_not_found');
@@ -452,6 +494,8 @@ export class GridService {
       investment,
       levels: plan.levels,
       reinitCount: 0,
+      exitBelow: null,
+      exitAbove: null,
       status: markInRange(lower, upper, mark) ? 'initializing' : 'paused_range',
       statusReason: null,
       placeGrant: grant,
@@ -880,6 +924,69 @@ export class GridService {
   }
 
   /**
+   * Save a running grid's exits (CB-bots-03; J-copy-bots-otc-15 #3). An RSI value is refused first: no RSI source is
+   * connected. Each price is blank (no exit) or a decimal above zero, and a stop-below must sit under a stop-above. The
+   * tick then stops the bot once when the book reaches one (see `drive`). Nothing here places or cancels an order.
+   */
+  async setExits(principal: Principal, input: GridExitsInput): Promise<GridExitsView> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    const bot = await this.ports.store.findBot(input.botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    for (const [raw, field] of [
+      [input.rsiBelow, 'RSI exit'],
+      [input.rsiAbove, 'RSI exit'],
+    ] as const) {
+      if ((raw ?? '').trim() !== '') {
+        throw new GridError('No RSI source is connected, so an RSI exit can’t be saved', 'trade.bots_grid_rsi_source_not_set', { field });
+      }
+    }
+    const price = (raw: string | null | undefined, field: string): Amount | null => {
+      const value = (raw ?? '').trim();
+      if (value === '') return null;
+      let amount: Amount | null = null;
+      try {
+        amount = parseAmount(value);
+      } catch {
+        amount = null;
+      }
+      if (amount === null || amount <= 0n)
+        throw new GridError(`${field} must be a price above zero`, 'trade.bots_grid_exit_price_invalid', { field });
+      return amount;
+    };
+    const exitBelow = price(input.stopBelow, 'Stop when the price falls to');
+    const exitAbove = price(input.stopAbove, 'Stop when the price rises to');
+    if (exitBelow !== null && exitAbove !== null && exitBelow >= exitAbove) {
+      throw new GridError('The falls-to price must be below the rises-to price', 'trade.bots_grid_exit_price_invalid', {
+        field: 'Stop when the price falls to',
+      });
+    }
+    if (!(await this.ports.store.setExits({ botId: bot.botId, exits: { exitBelow, exitAbove }, at: this.now(), from: LIVE }))) {
+      throw new GridError('This grid bot is not running', 'trade.grid_not_running');
+    }
+    return exitsView({ ...bot, exitBelow, exitAbove });
+  }
+
+  /**
+   * Turn on earning on a grid's idle funds (CB-bots-06; J-copy-bots-otc-15 #5). Idle-fund yield goes only through the
+   * bank's earn door, and no such door is wired to svc-trade: a request for the person's own live grid is refused
+   * `trade.bots_grid_idle_yield_unwired`, naming that door, and nothing is moved or saved. Turning it off asks nothing.
+   */
+  async setIdleYield(principal: Principal, input: { botId: string; on: boolean }): Promise<{ on: false }> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    const bot = await this.ports.store.findBot(input.botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    if (!isLive(bot.status)) throw new GridError('This grid bot is not running', 'trade.grid_not_running');
+    if (!input.on) return { on: false };
+    throw new GridError(
+      'Idle-fund yield goes through the bank earn door, which is not connected; nothing was moved',
+      'trade.bots_grid_idle_yield_unwired',
+      {
+        door: 'bank.earn',
+      },
+    );
+  }
+
+  /**
    * Stop: nothing new is placed, every open level order is cancelled, then the reserve is released. Base already bought
    * stays in the owner's balance. A second stop, or a stop of a failed start, runs the wind-down again.
    */
@@ -985,7 +1092,8 @@ export class GridService {
       try {
         await this.tick(bot);
       } catch (error) {
-        const reason = (error as { code?: string })?.code ?? 'trade.grid_tick_failed';
+        const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+        const reason = typeof code === 'string' ? code : 'trade.grid_tick_failed';
         await this.ports.store.setStatus(bot.botId, bot.status, reason, this.now(), [bot.status]);
       }
     }
@@ -1022,6 +1130,12 @@ export class GridService {
     // A halted symbol (CB-ops-03) stops the grid's orders: nothing is placed, and the fills of its resting orders are
     // settled (each with its next level) once the symbol is resumed. Resting orders stay as they are.
     if (botOrdersHalted(await this.pauses(), market.symbol, market.id)) return;
+    // A price exit the book has reached stops the bot once: the write holds only while it is still live, so a second
+    // tick, or a stop that landed first, writes nothing. `tick` then winds it down as it does any stop.
+    if (await this.priceExitReached(bot, market)) {
+      await this.ports.store.setStatus(bot.botId, 'stopped', PRICE_EXIT_REASON, this.now(), LIVE);
+      return;
+    }
 
     for (const order of await this.ports.store.listOrders(bot.botId)) {
       if (order.status !== 'open') continue;
@@ -1042,6 +1156,16 @@ export class GridService {
       return;
     }
     await this.placeMissingBuys(principal, bot, market, mark, await this.ports.store.listOrders(bot.botId));
+  }
+
+  /** The best bid at or under the stop-below price, or the best ask at or over the stop-above price. */
+  private async priceExitReached(bot: GridBot, market: Market): Promise<boolean> {
+    if (bot.exitBelow === null && bot.exitAbove === null) return false;
+    const depth = await this.ports.depth(market.id);
+    const bid = depth.bids[0]?.[0];
+    const ask = depth.asks[0]?.[0];
+    if (bot.exitBelow !== null && bid && parseAmount(bid) <= bot.exitBelow) return true;
+    return bot.exitAbove !== null && !!ask && parseAmount(ask) >= bot.exitAbove;
   }
 
   /**
@@ -1175,6 +1299,7 @@ export class GridService {
         status: o.status,
         pairProfit: o.pairProfit === null ? null : formatAmount(o.pairProfit),
       })),
+      exits: exitsView(bot),
       gridProfit: formatAmount(gridProfit),
       withdrawableProfit: formatAmount(await this.withdrawable(bot, reserve)),
       closedPairs: closed.length,

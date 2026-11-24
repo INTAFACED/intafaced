@@ -18,6 +18,7 @@ import { AuthService, type KycTier } from './auth-service.js';
 import { rotateApiKey } from './rotate-api-key.js';
 import { parseApiKeyCapByTier, passkeyMintRule, type DeveloperKeysDeps } from './developer-keys.js';
 import { parseSandboxCapByTier } from './developer-sandboxes.js';
+import { parseRatePolicy, type RatePolicy } from './api-rate-limits.js';
 import { createIdentityRouter } from '../router.js';
 import { createDeveloperSandboxesRouter } from '../developer-sandboxes-router.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
@@ -66,6 +67,17 @@ if (!available) {
 
   let caps: ReadonlyMap<KycTier, number> | null = parseApiKeyCapByTier('none=3');
   let sandboxCaps: ReadonlyMap<KycTier, number> | null = null;
+  /** TEST rate tiers with a per-user budget: a sandbox key has a budget. */
+  const TEST_RATES = parseRatePolicy(
+    JSON.stringify({
+      tiers: [
+        { id: 'base', burst: 60, refillPerMinute: 1200 },
+        { id: 'sandbox', burst: 30, refillPerMinute: 600 },
+        { id: 'user', burst: 75, refillPerMinute: 1200 },
+      ],
+    }),
+  );
+  let ratePolicy: RatePolicy | null = TEST_RATES;
   /** The service's passkey mint rule, on only for the tests that check it (the other proofs here are TOTP). */
   let mintRule: DeveloperKeysDeps['mayMint'] = undefined;
   let n = 0;
@@ -74,6 +86,7 @@ if (!available) {
   beforeEach(async () => {
     caps = parseApiKeyCapByTier('none=3');
     sandboxCaps = null;
+    ratePolicy = TEST_RATES;
     mintRule = undefined;
     await db.truncateAll();
     await rank.seedTiers();
@@ -94,6 +107,9 @@ if (!available) {
       },
       get sandboxCapByTier() {
         return sandboxCaps;
+      },
+      get ratePolicy() {
+        return ratePolicy;
       },
       baseUrl: 'http://localhost:14500',
       mayMint: async (userId, factor) => {
@@ -322,6 +338,31 @@ if (!available) {
         ]),
       );
       expect(keys).toHaveLength(2);
+    });
+
+    it('refuses while no rate budget is set for a sandbox key (no sandbox tier, or no per-user budget): no key is issued (J-cex-spot-15 #7)', async () => {
+      const { s, c, sandboxId } = await withSandbox();
+      const tiers = (ids: string[]) =>
+        parseRatePolicy(
+          JSON.stringify({
+            tiers: JSON.parse(
+              JSON.stringify({
+                tiers: [
+                  { id: 'base', burst: 60, refillPerMinute: 1200 },
+                  { id: 'sandbox', burst: 30, refillPerMinute: 600 },
+                  { id: 'user', burst: 75, refillPerMinute: 1200 },
+                ],
+              }),
+            ).tiers.filter((t: { id: string }) => ids.includes(t.id)),
+          }),
+        );
+      for (const blank of [null, tiers(['base', 'user']), tiers(['base', 'sandbox'])]) {
+        ratePolicy = blank;
+        await expect(
+          c.developerSandboxes.createKey({ ...keyAsk(s.userId, sandboxId, 'bot', ['pay:read']), factorProof: await proof(s) }),
+        ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining('[identity.rate_limits_unset]') });
+      }
+      expect(await keysOf(s.userId)).toHaveLength(0);
     });
 
     it('refuses with no second factor and makes nothing', async () => {

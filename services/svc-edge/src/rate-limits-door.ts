@@ -1,5 +1,5 @@
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import type { RouteCost } from '@intafaced/contracts/api-rate-limits';
+import type { EdgeLimit, RouteCost } from '@intafaced/contracts/api-rate-limits';
 import type { FastifyInstance } from 'fastify';
 import type { KeyBuckets } from './rate-bucket.js';
 
@@ -16,6 +16,8 @@ export interface RateLimitsDoorDeps {
   readonly sessionLive: (principal: Principal) => Promise<void>;
   readonly buckets: KeyBuckets;
   readonly costs: readonly RouteCost[];
+  /** The edge's per-address limit as it is in force, or null when the limiter is switched off. */
+  readonly edgeLimit: EdgeLimit;
   readonly now?: () => number;
 }
 
@@ -26,7 +28,8 @@ function bearer(header: string | undefined): string | null {
 
 /**
  * The edge's own rate-limit doors (DV-limits-01 and 02, J-developer-06 #1 #3). The cost table is the owner's value as
- * this edge enforces it (an empty list while none is set). The usage read is the caller's own key on this replica: it
+ * this edge enforces it (an empty list while none is set), with the per-address limit in force beside it
+ * (J-derivatives-04 #7). The usage read is the caller's own key on this replica: it
  * is never counted against the key, and a key that is not the caller's reads exactly like a key with no calls yet.
  */
 export function registerRateLimitsDoor(app: FastifyInstance, deps: RateLimitsDoorDeps): void {
@@ -36,7 +39,7 @@ export function registerRateLimitsDoor(app: FastifyInstance, deps: RateLimitsDoo
     reply
       .code(200)
       .header('cache-control', 'no-store')
-      .send({ asOf: new Date(clock()).toISOString(), costs: deps.costs }),
+      .send({ asOf: new Date(clock()).toISOString(), costs: deps.costs, edgeLimit: deps.edgeLimit }),
   );
 
   app.get<{ Params: { keyId: string } }>(KEY_USAGE_PATH, async (req, reply) => {

@@ -1,0 +1,86 @@
+[
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "../../packages/contracts/src/service-keys.ts",
+    "verdict": "rewrite",
+    "asserts": "The local stack gives an S2S key to exactly the stack services packages/contracts lists as signing services, so no service boots unkeyed and none gets a key it has no use for.",
+    "guard": { "kind": "test", "ref": "tooling/scripts/local-test-stack.test.mjs#Service keys: off by default" },
+    "why": "Imports SERVICE_NAMES from packages/contracts' service-keys module (tsx runs the source, no build) and compares it with S2S_SERVICES and the stack's services."
+  },
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "../../services/svc-edge/src/routes.ts",
+    "verdict": "rewrite",
+    "asserts": "Every /api/<module> upstream svc-edge routes to, and every module the Customer app calls, is a service the local stack starts or one it lists absent with a reason.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-stack.test.mjs#Every Edge upstream, and every module the Customer app calls"
+    },
+    "why": "Imports svc-edge's exported UPSTREAMS table and checks each prefix and env var against the stack's plan; the same 22 rows the text read found."
+  },
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "../../services/svc-edge/src/rate-limits-door.ts",
+    "verdict": "rewrite",
+    "asserts": "A Customer call to /api/edge is exempt from the upstream check only while svc-edge itself serves the rate-limit doors.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/wire-replay.test.ts#every request in the matrix gets the recorded status, headers and body"
+    },
+    "why": "Reads svc-edge's wire-replay record of the routes its booted entrypoint registers (routes.json, held equal to the process by wire-replay.test.ts) and exempts edge only when both door routes are in it."
+  },
+  {
+    "file": "tooling/scripts/journey-reach.test.mjs",
+    "target": "../../packages/events/src/jetstream-bus.ts",
+    "verdict": "rewrite",
+    "asserts": "A reach record claims bus delivery lines only when the bus both exports the event name and calls announceDelivered in its pump.",
+    "guard": { "kind": "test", "ref": "tooling/scripts/journey-reach.test.mjs#the bus logs each delivery" },
+    "why": "busLogs is run on planted bus files (both parts, the call removed, the export missing) instead of a mutated copy of the real source; busLogs(REPO) still holds the real checkout to true."
+  },
+  {
+    "file": "tooling/scripts/local-test-seed.test.mjs",
+    "target": "../../services/svc-trade/src/convert/quote.ts",
+    "verdict": "delete",
+    "asserts": "Convert prices a firm quote against a market's book over its base and quote assets, so stocking both sides of each default market is what convert needs.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/convert/quote.test.ts#presents source, expiry, and exact in/out decimal strings"
+    },
+    "why": "That test calls presentConvertQuote and asserts source kind 'book' and in/out assets from the market's quote and base, and FirmConvertQuote (quote.ts) requires baseAsset, quoteAsset and a 'book' source by type; only the read and its three matches were removed by hand, since the same test block also holds the house-inventory property."
+  },
+  {
+    "file": "tooling/lint/oxlint-plugin-garden/index.test.mjs",
+    "target": "../../../packages/config/src/marketing-language.ts",
+    "verdict": "rewrite",
+    "asserts": "The no-unsealed-claim lint rule holds the same words and the same owner seal as the marketing-language law module.",
+    "guard": { "kind": "test", "ref": "tooling/lint/oxlint-plugin-garden/index.test.mjs#the words and the seal are the law module" },
+    "why": "Imports the law module, compares MARKETING_BAN_WORDS with CLAIM_WORDS and the seal marker, and checks the rule and the law return the same words on sealed, honest and claiming lines."
+  },
+  {
+    "file": "tooling/ci/published-routes.test.mjs",
+    "target": "apps/customer/src/features/developers/served-routes.generated.ts",
+    "verdict": "rule",
+    "asserts": "Replaying past route changes, the published-routes gate leaves the generated file and the route words as the checkout holds them.",
+    "guard": { "kind": "test", "ref": "tooling/ci/published-routes.test.mjs#replay #8571" },
+    "why": "The read is the generator's output in a scratch checkout, compared with this checkout's generated file; the gate under test writes that file from svc-trade's registrations."
+  },
+  {
+    "file": "tooling/ci/published-routes.test.mjs",
+    "target": "apps/customer/src/features/developers/developers-reference.ts",
+    "verdict": "rule",
+    "asserts": "The gate's replay of past route changes ends with the route words file unchanged, and the words a change adds are all it needs.",
+    "guard": { "kind": "test", "ref": "tooling/ci/published-routes.test.mjs#replay #8571" },
+    "why": "The reads are the gate's fixture input in a scratch checkout (edited to replay history) and its compare against this checkout's copy; the gate itself reads that file as text (wordsProblems), so the fixture can only be text."
+  },
+  {
+    "file": "apps/customer/src/features/developers/developers-reference.test.ts",
+    "target": "../../../../../services/svc-trade/src/",
+    "verdict": "rule",
+    "asserts": "The published route list (served-routes.generated.ts) equals what svc-trade registers, with the access and scopes each registration declares.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/features/developers/developers-reference.test.ts#publishes every /api/v1 route svc-trade declares"
+    },
+    "why": "A generated file compared with its generator: svc-trade's sources are the generator's input, parsed by svc-trade's own route-declarations harness, the same parser tooling/ci/published-routes.mjs runs."
+  }
+]

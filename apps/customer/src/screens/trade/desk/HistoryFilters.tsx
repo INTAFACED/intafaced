@@ -1,5 +1,6 @@
 import { deskCopy } from './copy';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { Select } from '@intafaced/ui/lit/templates';
 import { isFiltering, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
 
 type Key = keyof HistoryFilter;
@@ -34,38 +35,28 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
   };
   const heading = { side: t('History filter side'), type: t('History filter type'), status: t('History filter status') } as const;
   return (
-    <div className="dk-hfilters" role="group" aria-label={t('Order history')}>
+    <div className="lt-row" role="group" aria-label={t('Order history')}>
       {OPTIONS.map(({ key, values }) => {
-        const items = Object.fromEntries(values.map((value) => [value, word(key, value)]));
         const id = `dk-hfilter-${key}`;
         return (
-          <div className="dk-hfilter" key={key}>
-            <span className="dk-tif-label" id={id}>
+          <div className="lt-stack-tight lt-tight" key={key}>
+            <span className="lt-label" id={id}>
               {heading[key]}
             </span>
             <Select
-              items={items}
+              size="sm"
+              labelledBy={id}
               value={filter[key]}
-              onValueChange={(next) => (next && next !== filter[key] ? onFilter({ ...filter, [key]: next } as HistoryFilter) : undefined)}
-            >
-              <SelectTrigger size={32} className="dk-hfilter-trigger" aria-labelledby={id}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {values.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {items[value]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(next) => (next !== filter[key] ? onFilter({ ...filter, [key]: next } as HistoryFilter) : undefined)}
+              options={values.map((value) => ({ value, label: word(key, value) }))}
+            />
           </div>
         );
       })}
       {isFiltering(filter) ? (
-        <button type="button" className="dk-hfilter-clear" onClick={() => onFilter(NO_HISTORY_FILTER)}>
+        <Button tone="quiet" size="sm" onClick={() => onFilter(NO_HISTORY_FILTER)}>
           {t('History filter clear')}
-        </button>
+        </Button>
       ) : null}
     </div>
   );

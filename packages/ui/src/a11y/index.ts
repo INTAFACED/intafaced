@@ -1,5 +1,5 @@
 /**
- * Access for the Lit glass look: worst-pixel contrast, the Solid surfaces switch, focus kept clear of
+ * Access for the Volt look: worst-pixel contrast, the Solid surfaces switch, focus kept clear of
  * fixed bars. The CSS half is `@intafaced/ui/a11y/a11y.css`. See README.md beside this file.
  */
 export * from './contrast.js';

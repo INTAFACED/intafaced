@@ -142,11 +142,10 @@ describe('protocol.amm.requestProtocolFee (D-fees-governance-04 (b))', () => {
     const client = new Proxy({}, { get: () => () => (reads.count++, Promise.reject(new Error('no chain read expected'))) });
     const deps = {
       chain: { config: { chainId: 84532, rpcUrl: 'http://127.0.0.1:1' }, client, headBlock: () => Promise.reject(new Error('no read')) },
-      registry: {},
       relay: {},
       relayEnabled: () => false,
       ammFactoryAddress: () => FACTORY,
-    } as unknown as ProtocolRouterDeps;
+    } as ProtocolRouterDeps;
     const amm = createProtocolRouter(deps).createCaller(anonymous()).amm;
     await expect(amm.requestProtocolFee({ pool: POOL })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',

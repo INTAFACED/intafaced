@@ -22,7 +22,10 @@ function locations(source) {
   while ((match = start.exec(source))) {
     let depth = 1,
       i = start.lastIndex;
-    while (depth && i < source.length) ((depth += source[i] === '{' ? 1 : source[i] === '}' ? -1 : 0), i++);
+    while (depth && i < source.length) {
+      depth += source[i] === '{' ? 1 : source[i] === '}' ? -1 : 0;
+      i++;
+    }
     found.push({ match: match[1], body: source.slice(start.lastIndex, i - 1) });
   }
   return found;

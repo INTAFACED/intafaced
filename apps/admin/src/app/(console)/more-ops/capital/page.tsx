@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { CapitalMonitor, ScenarioResult } from '@/components/capital/monitor';
@@ -20,13 +21,14 @@ export default async function CapitalPage({ searchParams }: { searchParams: Prom
   const founder = await requireFounderPage();
   const q = await searchParams;
   const asked = one(q.scenario) === 'counterparty_default';
+  const asset = one(q.asset);
   const [snapshot, scenario] = await Promise.all([
     readCapital(founder),
     asked
       ? readScenario(founder, {
           kind: 'counterparty_default',
           counterparty: one(q.counterparty),
-          assetId: one(q.asset),
+          assetId: asset === undefined ? undefined : asAssetId(asset),
           exposure: one(q.exposure),
           lossShare: one(q.lossShare),
         })

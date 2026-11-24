@@ -236,7 +236,8 @@ const en = {
   sFeeUnbound: 'The fee for this withdrawal didn’t match what is held, so it was stopped. Our team has been alerted.',
   aEyebrow: 'Money',
   aTitle: 'Withdrawal addresses',
-  aLead: 'Save the addresses you withdraw to. A new address waits out a cooling-off period before money can be sent to it.',
+  aLead:
+    'Save the addresses you withdraw to. A new address waits out a cooling-off period before money can be sent to it. A list your team approves is a different page: Approved address list.',
   aTableTitle: 'Saved addresses',
   aColLabel: 'Label',
   aColAddress: 'Address',
@@ -651,7 +652,8 @@ const es = {
   sFeeUnbound: 'La comisión de este retiro no coincidía con lo retenido, así que se detuvo. Nuestro equipo ha sido avisado.',
   aEyebrow: 'Dinero',
   aTitle: 'Direcciones de retiro',
-  aLead: 'Guarda las direcciones a las que retiras. Una dirección nueva espera un periodo de espera antes de poder enviarle dinero.',
+  aLead:
+    'Guarda las direcciones a las que retiras. Una dirección nueva espera un periodo de espera antes de poder enviarle dinero. La lista que aprueba tu equipo es otra página: Lista de direcciones aprobadas.',
   aTableTitle: 'Direcciones guardadas',
   aColLabel: 'Etiqueta',
   aColAddress: 'Dirección',
@@ -1073,7 +1075,7 @@ const fr = {
   aEyebrow: 'Argent',
   aTitle: 'Adresses de retrait',
   aLead:
-    'Enregistre les adresses vers lesquelles tu retires. Une nouvelle adresse attend la fin d’un délai de sécurité avant de pouvoir recevoir de l’argent.',
+    'Enregistre les adresses vers lesquelles tu retires. Une nouvelle adresse attend la fin d’un délai de sécurité avant de pouvoir recevoir de l’argent. La liste que ton équipe approuve est une autre page : Liste d’adresses approuvées.',
   aTableTitle: 'Adresses enregistrées',
   aColLabel: 'Libellé',
   aColAddress: 'Adresse',

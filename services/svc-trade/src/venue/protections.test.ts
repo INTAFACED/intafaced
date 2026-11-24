@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -29,7 +29,7 @@ const person = {
   tier: 'basic',
   mfa: false,
   expiresAt: new Date(Date.now() + 600_000),
-} as unknown as Principal;
+} as Principal;
 const wallet = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade protections')));
 const owner = wallet.address.toLowerCase();
 const BUILDER = '0x00000000000000000000000000000000000000b3';
@@ -293,7 +293,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     await long('1');
     await send(await p.prepareAgent(person, owner)).catch(() => undefined);
     // Arming checks the level as the door checks a new order: a person below trading arms nothing.
-    const below = { ...person, tier: 'none' } as unknown as Principal;
+    const below = { ...person, tier: 'none' } as Principal;
     await expect(p.create(below, base({ kind: 'trailing_stop', trailingDistance: '20' }), REGION)).rejects.toMatchObject({
       code: 'tier.insufficient',
     });
@@ -351,6 +351,15 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       failure: 'your account is frozen, so our engine sent no order and nothing was closed',
     });
     expect(await fills()).toBe(before);
+    // Failed before any order was prepared, it is still listed with its words, and the list of the account still reads.
+    expect((await p.list(person, owner)).find((x) => x.id === stop.protection.id)).toMatchObject({
+      status: 'failed',
+      failure: 'your account is frozen, so our engine sent no order and nothing was closed',
+    });
+    // Only "no order under that key" reads as no order: any other failure reading the order still fails the list.
+    const spy = vi.spyOn(door, 'orderByKey').mockRejectedValueOnce(new Error('TEST: the order store is down'));
+    await expect(p.list(person, owner)).rejects.toThrow('TEST: the order store is down');
+    spy.mockRestore();
     // Armed from a region where trading is closed (recorded at arming, KP): checked again before sending, nothing is sent.
     freeze.frozenUsers.clear();
     sim.setIndex(ETH, a('3000'));
@@ -361,6 +370,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     const failed = (await store.get(USER, closed.protection.id))!;
     expect(failed.status).toBe('failed');
     expect(failed.failure).toMatch(/^trading is no longer allowed for this account/);
+    expect((await p.list(person, owner)).find((x) => x.id === closed.protection.id)).toMatchObject({ status: 'failed' });
     expect(await fills()).toBe(before);
     expect((await sim.positions(account)).value.find((x) => x.symbol === ETH)).toMatchObject({ size: a('1') });
   });

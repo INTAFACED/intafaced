@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import { opsExecute, readAmbassadorAnswer, readCardStatusAnswer, readTakedownAnswer, readResidencyAnswer, readVetAnswer } from './execute';
+import type { DeskRequest } from '@/lib/desk';
+import { opsExecute, readAmbassadorAnswer, readCardStatusAnswer, readResidencyAnswer } from './execute';
 
 const FOUNDER = '11111111-1111-4111-8111-111111111111';
 const VENDOR = '5a3b9c10-1111-4222-8333-444455556666';
@@ -18,6 +18,17 @@ const ctx = {
 };
 const ids = { approvalId: 'appr_1', operationId: 'op_1' };
 const ok = (data: unknown) => Response.json({ result: { data } });
+// svc-academy's whole answer for one ambassador (ACADEMY_FREEZE_AMBASSADOR's output), in the state named.
+const ambassadorRow = (status: 'frozen' | 'active') => ({
+  userId: USER,
+  status,
+  appointedBy: FOUNDER,
+  appointedAt: '2026-01-01T00:00:00.000Z',
+  frozenAt: status === 'frozen' ? '2026-01-02T00:00:00.000Z' : null,
+  frozenBy: status === 'frozen' ? FOUNDER : null,
+  freezeReason: status === 'frozen' ? 'conduct complaint under review' : null,
+  confirmOperatorId: 'x',
+});
 const err = (status: number, message: string, code?: string) =>
   Response.json(
     { error: { message, code: -32603, data: { code: 'X', httpStatus: status, ...(code ? { cause: { code } } : {}) } } },
@@ -29,15 +40,28 @@ const vet = (decision: 'approved' | 'rejected' | 'suspended'): DeskRequest => ({
   decision,
   reason: 'documents checked against the application',
 });
-const vendor = (status: string, id = VENDOR) => ({ id, status });
+/** svc-market's whole vendor record, as `vet` returns it (`MARKET_VET`). */
+const vendor = (status: string, id = VENDOR) => ({
+  id,
+  userId: USER,
+  displayName: 'Shop',
+  description: 'What the shop sells',
+  status,
+  createdAt: '2026-10-18T01:00:00.000Z',
+  updatedAt: '2026-10-18T01:00:00.000Z',
+});
+const vetAnswer = (status: string, changed = true, id = VENDOR) => ({
+  changed,
+  vendor: vendor(status, id),
+  event: null,
+  confirmOperatorId: FOUNDER,
+});
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('market vendor decision', () => {
   it('sends the decision, reason and both approval ids as the founder, to the vet procedure', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) =>
-      ok({ changed: true, vendor: vendor('approved'), event: null, confirmOperatorId: 'x' }),
-    );
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(vetAnswer('approved')));
     vi.stubGlobal('fetch', fn);
     const reply = await opsExecute(ctx)(vet('approved'), ids);
     expect(reply).toMatchObject({ ok: true });
@@ -53,10 +77,7 @@ describe('market vendor decision', () => {
     expect((init!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
   });
   it('counts as done only when the returned vendor is in the state asked for', async () => {
-    for (const body of [
-      { changed: true, vendor: vendor('rejected') },
-      { changed: true, vendor: vendor('approved', USER) },
-    ]) {
+    for (const body of [vetAnswer('rejected'), vetAnswer('approved', true, USER)]) {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => ok(body)),
@@ -69,6 +90,18 @@ describe('market vendor decision', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ok({ vendor: 'approved' })),
+    );
+    expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+  });
+  it('reads the answer strictly: a wrong-typed field or a vendor missing its fields is an unknown outcome', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...vetAnswer('approved'), changed: 'no' })),
+    );
+    expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...vetAnswer('approved'), vendor: {} })),
     );
     expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
@@ -99,7 +132,7 @@ describe('market vendor decision', () => {
   it('says so when the vendor was already in that state', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ok({ changed: false, vendor: vendor('approved') })),
+      vi.fn(async () => ok(vetAnswer('approved', false))),
     );
     const reply = await opsExecute(ctx)(vet('approved'), ids);
     expect(reply.ok && reply.detail).toContain('nothing changed');
@@ -110,7 +143,7 @@ describe('academy ambassador freeze and unfreeze', () => {
   const freeze: DeskRequest = { kind: 'academy.ambassador.freeze', userId: USER, reason: 'conduct complaint under review' };
   const unfreeze: DeskRequest = { kind: 'academy.ambassador.unfreeze', userId: USER };
   it('freeze sends the reason and ids and needs the record to say frozen', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ userId: USER, status: 'frozen', confirmOperatorId: 'x' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(ambassadorRow('frozen')));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(freeze, ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;
@@ -118,7 +151,7 @@ describe('academy ambassador freeze and unfreeze', () => {
     expect(JSON.parse(String(init!.body))).toEqual({ userId: USER, reason: 'conduct complaint under review', ...ids });
   });
   it('unfreeze sends no reason and needs the record to say active', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ userId: USER, status: 'active' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(ambassadorRow('active')));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(unfreeze, ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;
@@ -141,10 +174,25 @@ describe('academy ambassador freeze and unfreeze', () => {
   });
 });
 
+// svc-academy's whole answers (each record's answer schema, which the door's answers are replayed against): a fake
+// answer carries every field the real one does.
+const AT = '2026-10-17T02:00:00.000Z';
+const ambassador = (over: Record<string, unknown>) => ({
+  userId: USER,
+  status: 'active',
+  appointedBy: USER,
+  appointedAt: AT,
+  frozenAt: null,
+  frozenBy: null,
+  freezeReason: null,
+  confirmOperatorId: 'x',
+  ...over,
+});
+
 describe('academy appoint ambassador', () => {
   const appoint: DeskRequest = { kind: 'academy.ambassador.appoint', userId: USER };
   it('sends the person and both approval ids as the founder, and needs the record to say active', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ userId: USER, status: 'active', confirmOperatorId: 'x' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(ambassador({})));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(appoint, ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;
@@ -204,8 +252,20 @@ describe('academy appoint ambassador', () => {
 describe('academy residency decision', () => {
   const APPLICATION = '5a3b9c10-1111-4222-8333-444455556666';
   const decide = (decision: 'accepted' | 'rejected'): DeskRequest => ({ kind: 'academy.residency.decide', id: APPLICATION, decision });
+  const residency = (status: 'accepted' | 'rejected') => ({
+    id: APPLICATION,
+    userId: USER,
+    cohortSlug: 'cohort',
+    statement: 'a statement',
+    status,
+    appliedAt: AT,
+    decidedAt: AT,
+    decidedBy: USER,
+    decisionNote: null,
+    confirmOperatorId: 'x',
+  });
   it('sends the application, the decision and both approval ids, and needs the record to carry that decision', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ id: APPLICATION, status: 'accepted', confirmOperatorId: 'x' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(residency('accepted')));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(decide('accepted'), ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;
@@ -215,12 +275,12 @@ describe('academy residency decision', () => {
   it('rejected is sent as rejected; an answer that says the opposite is unknown, not success', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ok({ id: APPLICATION, status: 'accepted' })),
+      vi.fn(async () => ok(residency('accepted'))),
     );
     expect(await opsExecute(ctx)(decide('rejected'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ok({ id: APPLICATION, status: 'rejected' })),
+      vi.fn(async () => ok(residency('rejected'))),
     );
     expect(await opsExecute(ctx)(decide('rejected'), ids)).toMatchObject({ ok: true });
   });
@@ -277,12 +337,6 @@ describe('request kinds this executor does not own', () => {
 
 describe('answer readers', () => {
   it('read only the fields they need, strictly', () => {
-    expect(readVetAnswer({ changed: false, vendor: { id: VENDOR, status: 'approved' } })).toEqual({
-      changed: false,
-      vendorId: VENDOR,
-      status: 'approved',
-    });
-    expect(readVetAnswer({ changed: 'no', vendor: {} })).toBeNull();
     expect(readAmbassadorAnswer({ userId: USER, status: 'frozen' })).toEqual({ userId: USER, status: 'frozen' });
     expect(readAmbassadorAnswer({ userId: 1, status: 'frozen' })).toBeNull();
     expect(readResidencyAnswer({ id: VENDOR, status: 'accepted', decisionNote: null })).toEqual({ id: VENDOR, status: 'accepted' });
@@ -373,9 +427,11 @@ describe('listing takedown', () => {
     });
   });
   it('needs the returned listing to be this one and taken down', async () => {
+    const answer = { reason: 'x', actorId: USER, takenDownAt: '2026-10-18T01:00:00.000Z' };
     for (const body of [
-      { listingId: LISTING, status: 'active' },
-      { listingId: USER, status: 'taken_down' },
+      { ...answer, listingId: LISTING, status: 'active' },
+      { ...answer, listingId: USER, status: 'taken_down' },
+      { listingId: LISTING, status: 'taken_down' },
     ]) {
       vi.stubGlobal(
         'fetch',
@@ -383,7 +439,11 @@ describe('listing takedown', () => {
       );
       expect(await opsExecute(ctx)(takedown, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
     }
-    expect(readTakedownAnswer({ listingId: LISTING })).toBeNull();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ listingId: LISTING })),
+    );
+    expect(await opsExecute(ctx)(takedown, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
   it('an approval for another listing is refused in words and the listing is left as it was', async () => {
     vi.stubGlobal(

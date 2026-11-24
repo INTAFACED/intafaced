@@ -1,5 +1,5 @@
 import type { AcademyLesson, AcademyLessonBlock, AcademyLessonRevision } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The lesson editor (AC-course-structure-03): one outline item's lesson as revisions of ordered blocks, which revision

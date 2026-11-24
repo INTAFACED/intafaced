@@ -6,6 +6,7 @@
  * (`installApiKeyRateExchange`); the edge keeps the bucket and the per-route costs. Blank tiers mean no limit applies,
  * so the edge refuses every key call and every request here refuses `identity.rate_limits_unset`: nothing defaults.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   RATE_PER_MINUTE_MAX,
@@ -87,6 +88,11 @@ export function parseRatePolicy(raw: string | undefined): RatePolicy | null {
   if (base && sandbox && (sandbox.burst > base.burst || sandbox.refillPerMinute > base.refillPerMinute)) {
     throw new Error('IDENTITY_API_RATE_LIMITS puts the sandbox tier above the base tier');
   }
+  // The per-user budget is what all of one account's keys spend together, so it is never below one key's tier.
+  const user = parsed.tiers.find((tier) => tier.id === 'user');
+  if (user && base && (user.burst < base.burst || user.refillPerMinute < base.refillPerMinute)) {
+    throw new Error('IDENTITY_API_RATE_LIMITS puts the user budget below the base tier');
+  }
   const ceiling = parsed.grantCeilingPerMinute ?? null;
   if (ceiling !== null && base && ceiling <= base.refillPerMinute) {
     throw new Error('IDENTITY_API_RATE_LIMITS grantCeilingPerMinute must be above the base tier refill');
@@ -105,21 +111,36 @@ export function publishedTiers(policy: RatePolicy | null, now: Date = new Date()
 
 /**
  * One key's limit: its tier by environment (live keys on `base`, sandbox keys on `sandbox`), with a granted refill on a
- * live key in place of the tier's. Null when the owner set no tier for it: the edge then refuses the call.
+ * live key in place of the tier's, and the per-user budget (`user`) every key of the account shares, never tighter than
+ * this one key's own limit (so a grant still holds for the key it was granted to). Null when the owner set no tier for
+ * the key or no per-user budget: the edge then refuses the call, and no key of that environment is issued.
  */
 export function keyRateLimit(
   policy: RatePolicy | null,
   key: { mode: string; rate_refill_per_minute_granted: number | null },
 ): KeyRateLimit | null {
   if (!policy) return null;
-  const tierId = key.mode === 'sandbox' ? 'sandbox' : 'base';
+  const tierId: 'base' | 'sandbox' = key.mode === 'sandbox' ? 'sandbox' : 'base';
   const tier = policy.tiers.find((candidate) => candidate.id === tierId);
-  if (!tier) return null;
+  const user = policy.tiers.find((candidate) => candidate.id === 'user');
+  if (!tier || !user) return null;
   const granted = key.rate_refill_per_minute_granted;
-  if (tierId === 'base' && granted !== null && granted > tier.refillPerMinute) {
-    return { tier: 'granted', burst: tier.burst, refillPerMinute: granted };
-  }
-  return { tier: tier.id, burst: tier.burst, refillPerMinute: tier.refillPerMinute };
+  const own =
+    tierId === 'base' && granted !== null && granted > tier.refillPerMinute
+      ? { tier: 'granted' as const, burst: tier.burst, refillPerMinute: granted }
+      : { tier: tierId, burst: tier.burst, refillPerMinute: tier.refillPerMinute };
+  return {
+    ...own,
+    user: { burst: Math.max(user.burst, own.burst), refillPerMinute: Math.max(user.refillPerMinute, own.refillPerMinute) },
+  };
+}
+
+/**
+ * Before a key is made (J-cex-spot-15 #7): a key whose environment has no budget set (no tier for it, or no per-user
+ * budget) could make no call, so it is refused and nothing is issued. True when a key of `mode` would have a limit.
+ */
+export function keyBudgetSet(policy: RatePolicy | null, mode: 'live' | 'sandbox'): boolean {
+  return keyRateLimit(policy, { mode, rate_refill_per_minute_granted: null }) !== null;
 }
 
 /** Every exchange answer carries the key's limit (null: none set), read from the same live row the exchange opened. */
@@ -181,7 +202,7 @@ function toRequest(row: RequestRow): LimitRequest {
   };
 }
 
-const REQUEST_COLUMNS = (sql: Sql) => sql`
+const REQUEST_COLUMNS = (sql: Queryable) => sql`
   r.id, r.user_id, r.key_id, k.name AS key_name, k.key_prefix, r.asked_per_minute, r.current_per_minute,
   to_char(r.spike_starts_on, 'YYYY-MM-DD') AS spike_starts_on, to_char(r.spike_ends_on, 'YYYY-MM-DD') AS spike_ends_on,
   r.note, r.status, r.granted_per_minute, r.created_at, r.reviewed_at
@@ -330,8 +351,7 @@ export async function reviewLimitRequest(
   input: LimitReviewInput,
   now: Date = new Date(),
 ): Promise<LimitRequest> {
-  return sql.begin(async (tx) => {
-    const t = tx as unknown as Sql;
+  return sql.begin(async (t) => {
     const found = await t<
       Array<RequestRow & { revoked: boolean; expires_at: Date | null; mode: string; rate_refill_per_minute_granted: number | null }>
     >`

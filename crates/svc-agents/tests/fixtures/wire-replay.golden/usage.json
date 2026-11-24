@@ -1,0 +1,441 @@
+{
+  "callers": [
+    {
+      "path": "usage.current",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "usage.settle",
+      "type": "mutation",
+      "caller": "public"
+    },
+    {
+      "path": "usage.settleSession",
+      "type": "mutation",
+      "caller": "public"
+    },
+    {
+      "path": "usage.summary",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "usage.current": {
+      "sessionId": "33333333-3333-4333-8333-333333333333"
+    },
+    "usage.settle": {
+      "sessionId": "33333333-3333-4333-8333-333333333333",
+      "windowId": "x"
+    },
+    "usage.settleSession": {
+      "sessionId": "33333333-3333-4333-8333-333333333333"
+    },
+    "usage.summary": {
+      "limit": 1
+    }
+  },
+  "answers": {
+    "usage.current valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current extra-key read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current extra-key admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.current extra-key key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.current\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle valid read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle valid execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle valid admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle valid key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle absent read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle absent execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle absent admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle absent key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle wrong-type read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle wrong-type execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle wrong-type admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle wrong-type key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle empty read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle empty execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle empty admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle empty key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle extra-key read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle extra-key execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle extra-key admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settle extra-key key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settle\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession valid read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession valid execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession valid admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession valid key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession absent read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession absent execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession absent admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession absent key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession wrong-type read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession wrong-type execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession wrong-type admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession wrong-type key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession empty read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession empty execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession empty admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession empty key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession extra-key read": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession extra-key execute": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession extra-key admin": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.settleSession extra-key key": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.settleSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    },
+    "usage.summary extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"usage.summary\",\"requestId\":\"<request>\"}}}"
+    }
+  }
+}

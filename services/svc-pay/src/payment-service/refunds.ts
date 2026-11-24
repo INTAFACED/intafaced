@@ -7,7 +7,7 @@
 import { postPayLedger } from '../ledger-receipt.js';
 import { FRESH } from '../seams/guards.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   formatAmount,
   LedgerError,
@@ -23,8 +23,18 @@ import { classifySettlementTx, readSettlementBook, settlementIdempotencyKey } fr
 import { type RailResult } from '../rails/rail-adapter.js';
 import { assertRailMayMoveValue } from '../rails/posture.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
-import type { PayService, PayServiceInternal, PaymentView } from '../payment-service.js';
-import { PayError, appendEvent, countEvents, lockPayment, railPayload, readPayment, refuseUnusableRail, totalsFor } from './internal.js';
+import type { PayServiceInternal, PaymentView } from '../payment-service.js';
+import {
+  PayError,
+  appendEvent,
+  countEvents,
+  lockPayment,
+  movePayment,
+  railPayload,
+  readPayment,
+  refuseUnusableRail,
+  totalsFor,
+} from './internal.js';
 
 /**
  * Refund, in full or in part. THE OUTBOUND MONEY PATH.
@@ -438,8 +448,12 @@ export async function refundInner(
       });
 
       if (prepared.refunded + amount >= prepared.captured) {
-        await tx`UPDATE pay.payments SET status = 'refunded', updated_at = now() WHERE id = ${row.id}`;
-        return { ok: true as const, view: await svc.view(tx, { ...row, status: 'refunded' }) };
+        // Phase 1 read the status in an earlier transaction. A dispute may have arrived while the rail was paying
+        // (`markDisputed` under its own lock), and `disputed -> refunded` is not a legal move. The money and the
+        // `refunded` event stand; the payment stays disputed, and a won dispute finishes the move to `refunded`
+        // (restoreAfterWonDispute), so a refunded payment is never put back in front of a settlement window.
+        if (row.status === 'disputed') return { ok: true as const, view: await svc.view(tx, row) };
+        return { ok: true as const, view: await svc.view(tx, await movePayment(tx, row, 'refunded')) };
       }
 
       // Partially refunded. The status stays where it was: the merchant is
@@ -478,7 +492,7 @@ export async function refundInner(
  */
 export async function settledPotForPayment(
   svc: PayServiceInternal,
-  sql: Sql,
+  sql: Queryable,
   paymentId: string,
   merchantUserId: string,
 ): Promise<'proceeds' | 'user'> {

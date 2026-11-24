@@ -17,10 +17,11 @@ export const PORTFOLIO_DONE_BAR_TEST_FILES = ['portfolio-view.test.ts'] as const
 
 export const PORTFOLIO_HONEST_GAPS = ['gap.house_half_class_x'] as const;
 
+/** svc-ledger is the Rust crate: its door serves every route in `ROUTES` (crates/svc-ledger/src/door/mod.rs). */
 export function portfolioDoorInLedgerRouterSource(): boolean {
-  const routerPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'services', 'svc-ledger', 'src', 'router.ts');
-  const src = readFileSync(routerPath, 'utf8');
-  return /\bportfolio:\s*scopedProcedure/.test(src) && /composePortfolioView/.test(src);
+  const routesPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'crates', 'svc-ledger', 'src', 'door', 'mod.rs');
+  const src = readFileSync(routesPath, 'utf8');
+  return /s2s\(\s*"portfolio",\s*"\/trpc\/portfolio",/.test(src);
 }
 
 export function portfolioViewHonestInSource(): boolean {
@@ -34,10 +35,11 @@ export function portfolioViewHonestInSource(): boolean {
   );
 }
 
+/** The crate answers `portfolio` (crates/svc-ledger/src/balances.rs), the indexer half named unwired when absent. */
 export function portfolioS2sDoorPresent(): boolean {
-  const path = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'services', 'svc-ledger', 'src', 's2s-http.ts');
+  const path = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'crates', 'svc-ledger', 'src', 'balances.rs');
   const src = readFileSync(path, 'utf8');
-  return /\/trpc\/portfolio/.test(src) && /composePortfolioView/.test(src);
+  return /"portfolio"\s*=>/.test(src) && /indexer\.portfolio_positions_unwired/.test(src);
 }
 
 export function portfolioDoneBarTestsPresent(): boolean {

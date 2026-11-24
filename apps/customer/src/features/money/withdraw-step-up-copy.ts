@@ -71,3 +71,19 @@ const fr = {
 } as const;
 
 export const withdrawStepUpCopy = defineCopy('customer.money.withdrawStepUp', en, { es, fr });
+
+export type StepUpRefusalKey = Parameters<ReturnType<typeof withdrawStepUpCopy.useCopy>['t']>[0];
+
+/** Identity's step-up refusals in plain words: shared by every "Confirm it's you" in the money rooms. */
+export const stepUpRefusalKeys: Record<string, StepUpRefusalKey> = {
+  'auth.mfa_invalid': 'codeBad',
+  'auth.mfa_not_enrolled': 'noAuthenticator',
+  'auth.webauthn_not_enrolled': 'noPasskey',
+  'auth.webauthn_invalid': 'passkeyBad',
+  'portal.passkey_stopped': 'passkeyStopped',
+  'portal.passkey_unavailable': 'passkeyUnavailable',
+  'portal.passkey_failed': 'passkeyFailed',
+  'portal.passkey_unreadable': 'passkeyFailed',
+  'stepUp.code_malformed': 'codeShort',
+  'stepUp.scope_missing': 'failed',
+};

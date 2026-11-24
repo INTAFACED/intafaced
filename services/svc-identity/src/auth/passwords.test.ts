@@ -141,7 +141,7 @@ describe('breached-password list', () => {
       useBreachedPasswords(parseBreachedPasswords('638F34801EC5D76EE0162EDF72DBAA147110536D'));
       expect(breachedPasswordScreening()).toBe('on');
       expect(() => assertPasswordNotBreached('TEST-breached-password-0001')).toThrow(
-        expect.objectContaining({ code: 'auth.password_breached' }) as unknown as Error,
+        expect.objectContaining({ code: 'auth.password_breached' }) as Error,
       );
       expect(() => assertPasswordNotBreached('TEST-breached-password-0002')).not.toThrow();
     } finally {

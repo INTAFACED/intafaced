@@ -28,6 +28,7 @@ import {
   venueRecord,
 } from './venue.mjs';
 import { otherVenueTrader, venueBook, VENUE_SPOT } from './venue-reads.mjs';
+import { minuteStart } from './clock.mjs';
 
 // J-cex-spot-03 on the person's own venue account (B1, project-state #1789), in the running app against the stack's TEST
 // venue simulator. One test per step, titled "J-cex-spot-03 #<n>", run in order on one TEST account: #1 makes the verified
@@ -43,7 +44,8 @@ const PROTECTION_BPS = 50n;
 const ONE = toUnits('1');
 
 // Our own engine's fill-or-kill and good-till-date (BTC/USDT, TEST USDT on the ledger), as main proved them before this
-// file moved to the venue: the venue offers neither, so #5 and #7 keep that proof unchanged beside the venue's refusal.
+// file moved to the venue: #5 and #7 keep that proof unchanged. The venue offers neither: #5 shows fill-or-kill refused
+// there, and #7 shows good-till-date run on the venue by INTAFACED, which cancels the order at its expiry.
 // #5's words now say fill-or-kill is listed as not offered by this venue (Nino's decision, project-state #2260).
 const ENGINE_FUNDED = '60000';
 const engineTab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
@@ -178,6 +180,15 @@ async function notOfferedSignsNothing(page, wallet) {
   const before = await tifTrigger(page).innerText();
   await tifTrigger(page).click();
   for (const x of missingTifs) {
+    // Good till date the venue lacks is run by INTAFACED (#7, the owner's choice): offered, and said so. Every other
+    // time in force the venue lacks is listed disabled.
+    if (x === 'GTD') {
+      await expect(page.getByRole('option', { name: 'Good till date · run by INTAFACED', exact: true })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      continue;
+    }
     const option = page.getByRole('option', { name: `${TIF_NAMES[x]} · not offered by this venue`, exact: true });
     await expect(option).toHaveAttribute('aria-disabled', 'true');
     await option.click({ force: true });
@@ -387,9 +398,9 @@ test(`${J} #2 reviews the market buy: the fee and the price protection show befo
   expect(shown, protectionText).not.toBeNull();
   const worst = toUnits(shown[1].replace(/,/g, ''));
   expect(worst <= bound, `${fromUnits(worst)} within ${fromUnits(bound)}`).toBe(true);
-  expect(shownUnits(await line(review, 'worst').innerText())).toBe(worst);
+  await expect.poll(async () => shownUnits(await line(review, 'worst').innerText())).toBe(worst);
   expect(preview.value.venueFee.known).toBe(true);
-  expect(shownUnits(await line(review, 'venue-fee').innerText())).toBe(toUnits(preview.value.venueFee.value.amount));
+  await expect.poll(async () => shownUnits(await line(review, 'venue-fee').innerText())).toBe(toUnits(preview.value.venueFee.value.amount));
   await confirmAndSign(page, wallet, 'buy');
   const filled = async () => (await fillsSince(owner, since)).reduce((s, f) => s + toUnits(f.amount), 0n);
   await expect.poll(filled, { timeout: 20_000 }).toBeGreaterThan(0n);
@@ -596,11 +607,11 @@ test(`${J} #6 sends a post-only buy that would cross, then one that rests: the f
   expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(0n);
 });
 
-test(`${J} #7 picks good-till-date: the review shows the chosen expiry, a past time sends nothing, and at the expiry the order shows expired and its hold comes back; on the venue, which offers no good-till-date, it is listed disabled with "not offered by this venue" and nothing is signed`, async ({
+test(`${J} #7 picks good-till-date with an expiry, then a past time: the review shows the expiry, a past time sends nothing, and at the expiry the unfilled order shows expired and the venue's lock is released; types the venue doesn't offer are disabled and sign nothing`, async ({
   page,
   browser,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   // On our engine, as main proved it.
   {
     const { page: enginePage, who, context } = await engineDesk(browser);
@@ -623,7 +634,7 @@ test(`${J} #7 picks good-till-date: the review shows the chosen expiry, a past t
     await expect(review).toContainText('Good till date');
     // The review's Expires row is the time that was picked, as this browser writes it.
     const picked = await enginePage.evaluate((ms) => new Date(ms).toLocaleString(), at);
-    await expect(review.locator('div', { has: enginePage.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
+    await expect(review.locator('dl > div', { has: enginePage.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
     await confirm(enginePage, 'buy');
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ timeInForce: 'GTD', expireAt: new Date(at).toISOString() });
@@ -644,15 +655,110 @@ test(`${J} #7 picks good-till-date: the review shows the chosen expiry, a past t
     await context.close();
   }
 
-  // On the venue: it offers no good-till-date, so it is listed disabled, no expiry is asked and nothing is signed.
+  // On the venue, which offers no good-till-date: the order rests there as the person's own good-till-cancelled limit, and
+  // INTAFACED's engine cancels it at the expiry under the agent permission the person approves (the owner's choice).
   const { wallet, owner } = await desk(page);
   const before = await venueBalance(owner, 'USDC');
-  const { missingTifs } = await notOfferedSignsNothing(page, wallet);
-  expect(missingTifs, 'the TEST venue offers no good-till-date').toContain('GTD');
-  await expect(tifTrigger(page)).not.toHaveText(/Good till date/);
-  await expect(page.getByRole('textbox', { name: /expir/i })).toHaveCount(0);
+  const since = new Date(Date.now() - 1_000);
+  await pickTif(page, 'Good till date · run by INTAFACED');
+  const expires = page.getByLabel('Expires', { exact: true });
+  await expect(expires).toBeVisible();
+  const price = await awayBid();
+  const form = buyForm(page);
+  await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
+  await form.getByRole('textbox', { name: 'Amount', exact: true }).fill('0.001');
+
+  // A past time: refused in words, the Buy button off, and nothing is sent, signed or kept by our engine.
+  const sent = writes(page);
+  const kept = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/spot-orders') kept.push(r.postDataJSON());
+  });
+  const asked = wallet.requests.length;
+  await expires.fill(localField(Date.now() - 3600_000));
+  await expect(page.getByText('Pick a time in the future.', { exact: true })).toBeVisible();
+  const buy = form.getByRole('button', { name: 'Buy BTC', exact: true });
+  await expect(buy).toBeDisabled();
+  await buy.click({ force: true });
+  await expect(reviewSheet(page)).toHaveCount(0);
+
+  // A whole minute at least 60 seconds away (the field is to the minute): the review shows that expiry.
+  const at = minuteStart(Date.now() + 120_000);
+  const atIso = new Date(at).toISOString();
+  await expires.fill(localField(at));
+  await expect(page.getByText('Pick a time in the future.', { exact: true })).toHaveCount(0);
+  const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+  await form.getByRole('textbox', { name: 'Amount', exact: true }).fill('0.002');
+  expect((await answer).status()).toBe(200);
+  await expect(buy).toBeEnabled();
+  await buy.click();
+  const review = reviewSheet(page);
+  await expect(review).toBeVisible();
+  await expect(line(review, 'tif')).toHaveText('Good till date');
+  const picked = await page.evaluate((ms) => new Date(ms).toLocaleString(), at);
+  await expect(line(review, 'expires')).toHaveText(picked);
+  await expect(line(review, 'expires')).toHaveAttribute('data-expire-at', atIso);
+  await expect(line(review, 'expiry-engine')).toContainText('At the expiry INTAFACED cancels whatever is unfilled on the venue');
+
+  // Nothing was sent, signed or kept for the past time: everything since was a preview and this review.
+  expect(sent, 'a past time sends nothing to the venue').toEqual([]);
+  expect(kept, 'and nothing to our engine').toEqual([]);
+  expect(wallet.requests.length, 'and the wallet is asked for nothing').toBe(asked);
   expect(await openOrders(owner)).toEqual([]);
-  expect(await venueBalance(owner, 'USDC')).toMatchObject({ total: before.total, locked: before.locked });
+
+  // The agent permission our engine cancels with, approved once in the person's wallet from the review.
+  const permission = review.getByRole('region', { name: 'Agent permission', exact: true });
+  const approve = permission.getByRole('button', { name: 'Approve the agent permission in your wallet', exact: true });
+  await expect(permission.getByRole('status').or(approve)).toBeVisible({ timeout: 15_000 });
+  if (await approve.isVisible()) {
+    const beforeApprove = wallet.requests.length;
+    await approve.click();
+    await continueInWallet(page);
+    await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(beforeApprove + 1);
+  }
+  await expect(permission.getByRole('status')).toHaveText('Approved on the venue.', { timeout: 20_000 });
+
+  // Confirm: our engine keeps the order and its expiry, and the person's wallet signs the order itself, once.
+  const signing = wallet.requests.length;
+  const created = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/spot-orders' && r.request().method() === 'POST');
+  await review.getByRole('button', { name: 'Confirm buy', exact: true }).click();
+  const made = await created;
+  expect(made.status(), JSON.stringify(await made.json().catch(() => null)).slice(0, 300)).toBe(201);
+  expect(made.request().postDataJSON()).toMatchObject({ kind: 'gtd', side: 'buy', quantity: '0.002', entryPrice: price, expireAt: atIso });
+  await continueInWallet(page);
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(signing + 1);
+  expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+  const outcome = form.getByTestId('venue-ticket-outcome');
+  await expect(outcome).toHaveAttribute('data-outcome', 'gtd-resting', { timeout: 20_000 });
+  await expect(outcome).toHaveAttribute('data-expire-at', atIso);
+
+  // It rests on the venue as a good-till-cancelled limit, its lock the venue's.
+  await expect.poll(async () => (await openOrders(owner)).length, { timeout: 20_000 }).toBe(1);
+  const [order] = await openOrders(owner);
+  expect(order).toMatchObject({ side: 'buy', type: 'limit', timeInForce: 'GTC', status: 'open' });
+  expect(toUnits(order.price)).toBe(toUnits(price));
+  expect(toUnits(order.locked)).toBe(mul(toUnits(price), toUnits('0.002')));
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked) - toUnits(before.locked)).toBe(toUnits(order.locked));
+  const row = page.getByTestId('spot-conditional-pending').locator(`tr[data-kind="gtd"][data-client-order-id]`).last();
+  await expect(row).toHaveAttribute('data-status', 'entry', { timeout: 20_000 });
+
+  // At the expiry: the venue no longer holds it, our engine cancelled it there, nothing filled and no fee was charged,
+  // and the venue's lock is released, once.
+  await expect.poll(async () => (await openOrders(owner)).length, { timeout: 180_000, intervals: [2000] }).toBe(0);
+  expect(Date.now(), 'it left the venue no earlier than its expiry').toBeGreaterThanOrEqual(at);
+  const ended = await orderOf(owner, order.venueClientOrderId);
+  expect(ended).toMatchObject({ status: 'canceled' });
+  expect(toUnits(ended.filled)).toBe(0n);
+  expect(await fillsSince(owner, since), 'nothing filled, so no fee was charged').toEqual([]);
+  await expect.poll(async () => (await venueBalance(owner, 'USDC')).locked, { timeout: 20_000 }).toBe(before.locked);
+  expect(await venueBalance(owner, 'USDC')).toMatchObject({ total: before.total, free: before.free, locked: before.locked });
+  // The desk shows it expired.
+  await expect(row).toHaveAttribute('data-status', 'expired', { timeout: 20_000 });
+  await expect(row.locator('[data-cell="status"]')).toContainText('Expired');
+  await expect(row.locator('[data-cell="status"]')).toContainText('cancelled by INTAFACED at its expiry');
+
+  // Types the venue doesn't offer are listed disabled and sign nothing.
+  await notOfferedSignsNothing(page, wallet);
 });
 
 test(`${J} #8 chooses the self-trade mode and crosses their own resting order: the venue's own rule cancels the resting one; the modes it can't do are listed disabled and sign nothing`, async ({
@@ -734,7 +840,9 @@ test(`${J} #9 adds a client tag and types the order in value: the tag shows on t
   await expect(form.getByRole('textbox', { name: 'Amount' })).toBeEditable();
   await expect(form.getByRole('textbox', { name: 'Total' })).not.toBeEditable();
   await form.getByRole('textbox', { name: 'Amount' }).fill('0.001');
-  expect(toUnits(await form.getByRole('textbox', { name: 'Total' }).inputValue())).toBe(mul(toUnits(price), toUnits('0.001')));
+  await expect
+    .poll(async () => toUnits(await form.getByRole('textbox', { name: 'Total' }).inputValue()))
+    .toBe(mul(toUnits(price), toUnits('0.001')));
   // On USDC: Total is the typed field and the amount is the whole lots it buys at the price.
   await form.getByTestId('venue-unit').getByRole('button', { name: 'USDC', exact: true }).click();
   await expect(form.getByRole('textbox', { name: 'Total' })).toBeEditable();
@@ -746,7 +854,7 @@ test(`${J} #9 adds a client tag and types the order in value: the tag shows on t
   expect(amount % lot).toBe(0n);
   expect(mul(amount, toUnits(price)) <= toUnits('50')).toBe(true);
   expect(mul(amount + lot, toUnits(price)) > toUnits('50')).toBe(true);
-  expect(toUnits(await form.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(amount);
+  await expect.poll(async () => toUnits(await form.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(amount);
   // The tag, shown in the review and kept with the order.
   const tag = `js3-${randomBytes(3).toString('hex')}`;
   await form.getByRole('textbox', { name: 'Tag (optional)' }).fill(tag);

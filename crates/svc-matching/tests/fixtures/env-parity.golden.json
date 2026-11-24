@@ -1,0 +1,938 @@
+{
+  "cases": [
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "HTTP_PORT": "4105",
+        "SERVICE_NAME": "svc-matching-b",
+        "MATCHING_JOURNAL_PATH": "/data/journal.ndjson"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching-b",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4105,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "/data/journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "HTTP_PORT": "eighty"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - HTTP_PORT: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "MATCHING_JOURNAL_PATH": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_JOURNAL_PATH: Too small: expected string to have >=1 characters"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_SNAPSHOT_EVERY: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "   ",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_SNAPSHOT_EVERY: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "500",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 500,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "-1",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_SNAPSHOT_EVERY: Too small: expected number to be >=0"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "1.5",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_SNAPSHOT_EVERY: Invalid input: expected int, received number"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "often",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_SNAPSHOT_EVERY: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "MATCHING_ENGINE_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_ENGINE_ENABLED: MATCHING_ENGINE_ENABLED is on but LEDGER_CUSTODY_LAYER is off: our own order book settles every fill in our ledger as customer money, which INTAFACED does not hold with the custodial layer off. Leave the switch unset or set it off, or turn the custodial layer on (the TEST journeys marked Later: custody)."
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "MATCHING_ENGINE_ENABLED": "true",
+        "LEDGER_CUSTODY_LAYER": "on"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "MATCHING_ENGINE_ENABLED": true,
+            "LEDGER_CUSTODY_LAYER": "on",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "MATCHING_ENGINE_ENABLED": " OFF ",
+        "LEDGER_CUSTODY_LAYER": "on"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "MATCHING_ENGINE_ENABLED": false,
+            "LEDGER_CUSTODY_LAYER": "on",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "MATCHING_ENGINE_ENABLED": ""
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "MATCHING_ENGINE_ENABLED": false,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "MATCHING_ENGINE_ENABLED": "maybe",
+        "LEDGER_CUSTODY_LAYER": "on"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "MATCHING_ENGINE_ENABLED": true,
+            "LEDGER_CUSTODY_LAYER": "on",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_CUSTODY_LAYER": "on"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "on",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": true
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_CUSTODY_LAYER": " ON "
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "on",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": true
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_CUSTODY_LAYER": ""
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_CUSTODY_LAYER": "maybe"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_CUSTODY_LAYER: LEDGER_CUSTODY_LAYER must be \"on\" or \"off\", got \"maybe\""
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_CUSTODY_LAYER": "maybe",
+        "HTTP_PORT": "x"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - HTTP_PORT: Invalid input: expected number, received NaN\n  - LEDGER_CUSTODY_LAYER: LEDGER_CUSTODY_LAYER must be \"on\" or \"off\", got \"maybe\""
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "MATCHING_ENGINE_ENABLED": "yes",
+        "HTTP_PORT": "x"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - HTTP_PORT: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "IDENTITY_URL": "http://identity:4002"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "IDENTITY_URL": "http://identity:4002",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "IDENTITY_URL": "identity"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - IDENTITY_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "IDENTITY_URL": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - IDENTITY_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_URL": " http://ledger:4001 "
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_URL": "http://ledger:4001",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_URL": "   "
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LEDGER_URL": "ledger"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "EDGE_PRINCIPAL_SECRET": " placeholder-matching-edge-secret-long-enough "
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "EDGE_PRINCIPAL_SECRET": "placeholder-matching-edge-secret-long-enough",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "EDGE_PRINCIPAL_SECRET": "short-placeholder"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - EDGE_PRINCIPAL_SECRET: Too small: expected string to have >=32 characters"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "EDGE_PRINCIPAL_SECRET": "  "
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "EDGE_PRINCIPAL_PUBLIC_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": "60",
+        "EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS": "5"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "EDGE_PRINCIPAL_PUBLIC_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": 60,
+            "EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS": 5,
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "EDGE_PRINCIPAL_PUBLIC_KEY": "short",
+        "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": "0"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - EDGE_PRINCIPAL_PUBLIC_KEY: must be a raw 32-byte Ed25519 public key, base64url\n  - EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: Too small: expected number to be >=1"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_OPERATOR_IDS: FATAL: MATCHING_OPERATOR_IDS must list at least two distinct operator user ids (comma-separated). svc-matching refuses to boot without them: with no operators nobody could halt or open a market."
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_OPERATOR_IDS: FATAL: MATCHING_OPERATOR_IDS must list at least two distinct operator user ids (comma-separated). svc-matching refuses to boot without them: with no operators nobody could halt or open a market."
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_OPERATOR_IDS: FATAL: MATCHING_OPERATOR_IDS must list at least two distinct operator user ids (comma-separated). svc-matching refuses to boot without them: with no operators nobody could halt or open a market."
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111, 11111111-1111-4111-8111-111111111111"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - MATCHING_OPERATOR_IDS: FATAL: MATCHING_OPERATOR_IDS must list at least two distinct operator user ids (comma-separated). svc-matching refuses to boot without them: with no operators nobody could halt or open a market."
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": " 11111111-1111-4111-8111-111111111111 ,, 44444444-4444-4444-8444-444444444444 "
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": " 11111111-1111-4111-8111-111111111111 ,, 44444444-4444-4444-8444-444444444444 ",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - INTERNAL_SERVICE_SECRET: Invalid input: expected string, received undefined"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "short-placeholder",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "INTERNAL_SERVICE_BODY_BIND": "require"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - INTERNAL_SERVICE_SECRET: Too small: expected string to have >=32 characters"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "S2S_AUTH_MODE": "dual",
+        "INTERNAL_SERVICE_BODY_BIND": "sometimes"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - INTERNAL_SERVICE_BODY_BIND: Invalid option: expected one of \"accept-both\"|\"require\""
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "staging",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "LOG_LEVEL": "loud"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - NODE_ENV: Invalid option: expected one of \"development\"|\"test\"|\"production\"\n  - LOG_LEVEL: Invalid option: expected one of \"fatal\"|\"error\"|\"warn\"|\"info\"|\"debug\"|\"trace\""
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "REDIS_URL": "redis",
+        "NATS_URL": " ",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "otel",
+        "OTEL_ENABLED": "false"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - REDIS_URL: Invalid URL\n  - NATS_URL: Too small: expected string to have >=1 characters\n  - OTEL_EXPORTER_OTLP_ENDPOINT: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+        "MATCHING_SNAPSHOT_EVERY": "0",
+        "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+        "DATABASE_URL": "postgres://matching:matching@localhost:5432/matching"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-matching",
+            "LAUNCH_DROP": "0",
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4004,
+            "INTERNAL_SERVICE_SECRET": "placeholder-matching-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "S2S_AUTH_MODE": "off",
+            "MATCHING_JOURNAL_PATH": "./.data/matching/engine_journal.ndjson",
+            "MATCHING_SNAPSHOT_EVERY": 0,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "MATCHING_OPERATOR_IDS": "11111111-1111-4111-8111-111111111111,44444444-4444-4444-8444-444444444444",
+            "MATCHING_ENGINE_ENABLED": false
+          }
+        }
+      }
+    }
+  ]
+}

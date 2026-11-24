@@ -62,16 +62,21 @@ export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say })
 }
 
 /**
- * `LOCAL_STACK_IDENTITY_SCREENING=unset` on a start or restart runs identity alone with no blocked list at all, as a build
- * is before the owner sets one: the caller's list is left out (never replaced by a value of this script's), the unsigned
- * rows are kept out, and the fail-closed refusal stays on, so sign-up's "the list is not set" can be seen (J-identity-01
- * #9). It only ever makes identity stricter.
+ * `LOCAL_STACK_IDENTITY_SCREENING` on a start or restart picks identity's blocked-countries list. It only ever leaves the
+ * caller's list out; it never writes a list of its own.
+ * - `unset`: no list at all, as a build is before the owner sets one: the unsigned rows are kept out and the fail-closed
+ *   refusal stays on, so sign-up's and sign-in's "the list is not set" can be seen (J-identity-01 #9, J-identity-22 #1).
+ * - `rows`: the TEST copy of Hyperliquid's restricted list, the unsigned config rows (`SANCTIONED_LIST_ROWS`, read on a
+ *   dev stack only) (J-identity-22 #2).
  */
 function screeningSwitch(env) {
-  if (process.env.LOCAL_STACK_IDENTITY_SCREENING !== 'unset') return env;
-  const out = { ...env, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
+  const mode = process.env.LOCAL_STACK_IDENTITY_SCREENING;
+  if (mode !== 'unset' && mode !== 'rows') return env;
+  const out = { ...env };
   delete out.INTAFACED_SANCTIONS_REGIONS;
   delete out.INTAFACED_SANCTIONS_LIST_SOURCE;
+  if (mode === 'unset') return { ...out, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
+  delete out.INTAFACED_UNSIGNED_SANCTIONS_ROWS;
   return out;
 }
 
@@ -84,6 +89,9 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // `LOCAL_STACK_IDENTITY_REGISTRATION=closed` on a start or restart publishes sign-up as closed, so its refusal can be
     // seen too (J-identity-01 #1).
     REGISTRATION_OPEN: process.env.LOCAL_STACK_IDENTITY_REGISTRATION === 'closed' ? 'false' : 'true',
+    // `LOCAL_STACK_IDENTITY_INVITED=<email,...>` on a start or restart is the invited list a closed sign-up opens to, as a
+    // founder sets it on a host for an invite-only beta (J-identity-01 #1; docs/runbooks/beta-founders.md).
+    ...(process.env.LOCAL_STACK_IDENTITY_INVITED ? { REGISTRATION_EMAIL_ALLOWLIST: process.env.LOCAL_STACK_IDENTITY_INVITED } : {}),
     // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
     // http://localhost:3210 for passkeys. Not the production relying party.
     WEBAUTHN_ENABLED: 'true',
@@ -97,6 +105,8 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // Edge reads each caller's current account authority with this key; without it
     // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
     IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
+    // svc-ws's own read key for the private stream's current-authority lease; identity refuses it when it equals the edge's.
+    IDENTITY_WS_AUTHORITY_SECRET: secrets.wsAuthority,
     // LOCAL TEST ONLY (Nitro, option B, 2026-10-13). Required, no default, owner-unpublished: how long a
     // two-person action approval lives. 600 s is a local test value, not an owner decision. The labelled
     // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
@@ -177,7 +187,11 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
     IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
     IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
-    IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
+    // `LOCAL_STACK_IDENTITY_KYC_CAPABILITIES=unset` on a start or restart leaves the level-to-capability mapping blank, as a
+    // build is before the owner publishes one, so an approval granting nothing can be seen (J-identity-20 #6).
+    ...(process.env.LOCAL_STACK_IDENTITY_KYC_CAPABILITIES === 'unset'
+      ? {}
+      : { IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL') }),
     IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
     IDENTITY_TRADING_RESTRICTION_REASONS: testValue('IDENTITY_TRADING_RESTRICTION_REASONS'),
     IDENTITY_APPEAL_WINDOW_DAYS: testValue('IDENTITY_APPEAL_WINDOW_DAYS'),
@@ -211,6 +225,10 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
           IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
         }),
     IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
+    // The owner's least number of step-up extras (J-bank-18 #4): a TEST value. `LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN=off`
+    // on a restart leaves it blank, as production is, so setting extras refuses identity.extra_controls_unset.
+    IDENTITY_EXTRA_CONTROLS_MIN:
+      process.env.LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN === 'off' ? '' : testValue('IDENTITY_EXTRA_CONTROLS_MIN'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
@@ -224,6 +242,11 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // owner sets it, so a journey can see every signed request refused with auth.request_window_unset.
     IDENTITY_REQUEST_SIGN_WINDOW_SECONDS:
       process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW === 'off' ? '' : testValue('IDENTITY_REQUEST_SIGN_WINDOW_SECONDS'),
+    // The stream-token lifetime (J-developer-09 #2): a TEST value, not an owner decision. `LOCAL_STACK_IDENTITY_STREAM_TOKEN_TTL=off`
+    // on a start or restart leaves it blank, as production is until the owner sets it, so every mint refuses
+    // identity.stream_token_ttl_unset.
+    IDENTITY_STREAM_TOKEN_TTL_SECONDS:
+      process.env.LOCAL_STACK_IDENTITY_STREAM_TOKEN_TTL === 'off' ? '' : testValue('IDENTITY_STREAM_TOKEN_TTL_SECONDS'),
     // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
     // off and the founder console's document list and viewer refuse kyc_doc.unwired.
     IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,

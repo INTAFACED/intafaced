@@ -1,3 +1,27 @@
+import { ACADEMY_AMBASSADOR_PAY_PLANE } from '@intafaced/contracts/academy-ambassador-pay-plane-procedures';
+import { ACADEMY_AMBASSADORS } from '@intafaced/contracts/academy-ambassadors-procedures';
+import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint-ambassador-procedures';
+import { ACADEMY_FREEZE_AMBASSADOR } from '@intafaced/contracts/academy-freeze-ambassador-procedures';
+import { ACADEMY_OPEN_RESIDENCIES } from '@intafaced/contracts/academy-open-residencies-procedures';
+import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
+import { PAY_DEPOSIT_CREDIT } from '@intafaced/contracts/pay-deposit-procedures';
+import {
+  IDENTITY_KYC_HISTORY_FOR,
+  IDENTITY_KYC_SELFIE_LIST_FOR,
+  IDENTITY_KYC_PENDING,
+  IDENTITY_KYC_REJECT,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
+  IDENTITY_KYC_CAPABILITIES_GET_FOR,
+  IDENTITY_KYC_CAPABILITIES_SET,
+  IDENTITY_KYC_APPROVE,
+} from '@intafaced/contracts/identity-kyc-procedures';
+import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
+import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
+import {
+  IDENTITY_COMPLIANCE_FREEZE_IDENTITY,
+  IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY,
+} from '@intafaced/contracts/identity-compliance-procedures';
+import { PAY_ACCOUNT_CONTROLS_HISTORY, PAY_ACCOUNT_CONTROLS_CHANGE } from '@intafaced/contracts/pay-account-controls-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -77,6 +101,13 @@ export interface OperatorTool {
   readonly fields: readonly ToolField[];
 }
 
+/** A tool's edge module, path and kind, from the call's record in @intafaced/contracts. */
+export const toolOf = <R extends { readonly module: EdgeModule; readonly path: string; readonly kind: ToolKind }>(record: R) => ({
+  edgeModule: record.module,
+  procedure: record.path,
+  kind: record.kind,
+});
+
 export const OPERATOR_TOOLS: readonly OperatorTool[] = [
   // ── Identity / compliance ─────────────────────────────────────────────────
   {
@@ -84,9 +115,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'KYC pending queue',
     summary: 'List KYC records waiting for an operator decision.',
-    edgeModule: 'identity',
-    procedure: 'kyc.pending',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_PENDING),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -97,9 +126,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'KYC approve',
     summary: 'Approve a pending KYC record — grants custodial access at that tier. Requires MFA on the token.',
-    edgeModule: 'identity',
-    procedure: 'kyc.approve',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_KYC_APPROVE),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -120,9 +147,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'KYC reject',
     summary:
       'Reject a pending KYC record with a reason from the owner list; the customer sees the reason and what to do. Grants nothing. Requires MFA on the token.',
-    edgeModule: 'identity',
-    procedure: 'kyc.reject',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_KYC_REJECT),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -145,9 +170,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'KYC case history',
     summary: "One person's verification cases, newest first: state, each step, the reject reason and the note shown to them.",
-    edgeModule: 'identity',
-    procedure: 'kyc.historyFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_HISTORY_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -162,9 +185,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'Proof of address',
     summary:
       "One person's proof-of-address submissions, newest first: document type, country, date issued, status, and a flag when the country differs from the approved residence.",
-    edgeModule: 'identity',
-    procedure: 'kyc.proofOfAddress.listFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -179,9 +200,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'Selfies',
     summary:
       "One person's selfies, newest first, for the manual comparison with the ID photo (the automatic face match is not connected): status, and whether it came from a phone hand-off.",
-    edgeModule: 'identity',
-    procedure: 'kyc.selfie.listFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_SELFIE_LIST_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -196,9 +215,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'KYC capabilities',
     summary:
       "One person's custody, transfer and trade capabilities: unrequested, pending, active or switched off, with the level that grants each.",
-    edgeModule: 'identity',
-    procedure: 'kyc.capabilities.getFor',
-    kind: 'query',
+    ...toolOf(IDENTITY_KYC_CAPABILITIES_GET_FOR),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: false,
@@ -210,9 +227,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     label: 'KYC capability off',
     summary:
       'Switch one capability off for good (inactive, terminal) with a code from the owner reason list. Needs a four-eyes approval bound to the person, the capability and the code. Requires MFA on the token.',
-    edgeModule: 'identity',
-    procedure: 'kyc.capabilities.set',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_KYC_CAPABILITIES_SET),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -235,9 +250,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'Freeze identity',
     summary: 'Freeze a user: status frozen, sessions revoked, sub-accounts revoked.',
-    edgeModule: 'identity',
-    procedure: 'compliance.freezeIdentity',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_COMPLIANCE_FREEZE_IDENTITY),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -248,9 +261,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'Unfreeze identity',
     summary: 'Restore a frozen user to active. Does not re-open revoked sub-accounts.',
-    edgeModule: 'identity',
-    procedure: 'compliance.unfreezeIdentity',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -346,9 +357,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Merchant status history',
     summary: 'Why a merchant is suspended / closed — newest first.',
-    edgeModule: 'pay',
-    procedure: 'merchantState.history',
-    kind: 'query',
+    ...toolOf(PAY_ACCOUNT_CONTROLS_HISTORY),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -362,9 +371,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Set merchant status',
     summary: 'Suspend, reinstate, close, or set pending — with a recorded reason. Actor is the token subject.',
-    edgeModule: 'pay',
-    procedure: 'merchantState.set',
-    kind: 'mutation',
+    ...toolOf(PAY_ACCOUNT_CONTROLS_CHANGE),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,
@@ -385,9 +392,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Operator deposit credit',
     summary: 'Credit a user from a rail boundary. Moves value. MFA + admin:treasury on the token.',
-    edgeModule: 'pay',
-    procedure: 'deposit.credit',
-    kind: 'mutation',
+    ...toolOf(PAY_DEPOSIT_CREDIT),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -406,9 +411,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'token',
     label: 'Mint emission epoch',
     summary: 'Mint next epoch (or a named epoch). Refuses when EMISSIONS_ENABLED=false.',
-    edgeModule: 'token',
-    procedure: 'mintEpoch',
-    kind: 'mutation',
+    ...toolOf(TOKEN_MINT_EPOCH),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -419,9 +422,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'token',
     label: 'Distribute revenue window',
     summary: 'Hand-invoked yield settlement. Amounts are typed by the operator — no houseFees auto-read.',
-    edgeModule: 'token',
-    procedure: 'distributeRevenue',
-    kind: 'mutation',
+    ...toolOf(TOKEN_DISTRIBUTE_REVENUE),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -444,9 +445,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'List ambassadors',
     summary: 'Programme roster (status filter optional). No pay plane.',
-    edgeModule: 'academy',
-    procedure: 'ambassadors',
-    kind: 'query',
+    ...toolOf(ACADEMY_AMBASSADORS),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -465,9 +464,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Appoint ambassador',
     summary: 'Appoint a user to the ambassador programme. Operator id from token.',
-    edgeModule: 'academy',
-    procedure: 'appointAmbassador',
-    kind: 'mutation',
+    ...toolOf(ACADEMY_APPOINT_AMBASSADOR),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,
@@ -478,9 +475,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Freeze ambassador',
     summary: 'Freeze an ambassador with a recorded reason.',
-    edgeModule: 'academy',
-    procedure: 'freezeAmbassador',
-    kind: 'mutation',
+    ...toolOf(ACADEMY_FREEZE_AMBASSADOR),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,
@@ -494,9 +489,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Open residencies',
     summary: 'List open residency applications for operator decision.',
-    edgeModule: 'academy',
-    procedure: 'openResidencies',
-    kind: 'query',
+    ...toolOf(ACADEMY_OPEN_RESIDENCIES),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -507,9 +500,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Decide residency',
     summary: 'Accept or reject an open residency application.',
-    edgeModule: 'academy',
-    procedure: 'decideResidency',
-    kind: 'mutation',
+    ...toolOf(ACADEMY_DECIDE_RESIDENCY),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,
@@ -524,9 +515,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Ambassador pay plane status',
     summary: 'Always refuse-closed until owner schedule + ledger recipes. Read is honest dark.',
-    edgeModule: 'academy',
-    procedure: 'ambassadorPayPlane',
-    kind: 'query',
+    ...toolOf(ACADEMY_AMBASSADOR_PAY_PLANE),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,

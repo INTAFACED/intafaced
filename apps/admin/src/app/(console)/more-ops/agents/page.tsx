@@ -21,6 +21,8 @@ export default async function Page() {
       <AgentsOutsideDesk csrf={founder.session.csrf} />
       <p className="dk-muted">
         <a href="/more-ops/agents/log">Agent action log</a>
+        {' · '}
+        <a href="/more-ops/agents/alerts">Agent alerts</a>
       </p>
     </>
   );
