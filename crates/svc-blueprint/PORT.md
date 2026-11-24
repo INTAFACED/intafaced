@@ -21,7 +21,9 @@ one that runs, and nothing is served from here (the binary only runs `svc-bluepr
   `mapped` (`toTrpcError`) and `unmapped` (`me`, `mentors`, `export` send whatever they throw as a 500, bug included).
 - `scripts/record-door.mjs` writes `schemas.json` and the fixtures from the TypeScript; `--check` fails when one is
   stale. `tests/`: the wire replay (`services/svc-blueprint/src/wire-replay.golden.json`), input, env and refusal
-  parity, and `port_notes.rs`, which holds the `## Slices` list below to `door::Slice::of`.
+  parity, and `port_notes.rs`, which holds the `## Slices` list below to `door::Slice::of`. The recorder also writes
+  `tests/fixtures/card.golden.json`: the cards `composeCard` drew, the zero-PII bar's verdicts and what
+  `HttpCardRenderer` sent and returned (`tests/card_parity.rs`).
 
 A slice replaces `Err(not_ported(..))` for its calls in `door/mod.rs` with its handlers, and passes
 `WIRE_REPLAY_STRICT=<slice>` (the replay's stubs make every handler reach a dependency that refuses, so its owed answers
@@ -82,8 +84,10 @@ are each call's first dependency and its unset-setting refusals). Each slice add
 - `profile` (ported: `src/profile.rs`, `tests/profile_db.rs`): `me`, `setVisibility`, `mentors`; brought the
   migrations, the pool and the migrate binary.
 - `onboard` (after `profile`): `onboard`; the engine client (HTTP and mock), crew and mentor matching, and the event bus.
-- `card` (after `profile`): `card`, `cardOf`; the card's SVG, the renderer client, visibility and the share-link open.
-- `shares` (after `card`): `shares.create`, `shares.list`, `shares.revoke`, `shares.openers`.
+- `card` (ported: `src/card/`, `src/zero_pii.rs`, `tests/card_db.rs`, `tests/card_parity.rs`): `card`, `cardOf`; the
+  card's SVG, the renderer client (`card::renderer::from_env` picks it as `index.ts` does), visibility, the zero-PII bar
+  and the share-link open.
+- `shares` (ported: `src/shares.rs`, `tests/shares_db.rs`): `shares.create`, `shares.list`, `shares.revoke`, `shares.openers`.
 - `privacy` (after `onboard`, `shares`): `export`, `erase`.
 
 After the slices, the switch: the binary (`/health`, `/ready` as `readiness.ts` reports the engine and renderer), the

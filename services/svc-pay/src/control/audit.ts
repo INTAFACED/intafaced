@@ -1,5 +1,6 @@
 import type { Queryable } from '@intafaced/db';
 import type { FounderControlAuditEntry, FounderControlAuditListInput } from '@intafaced/contracts';
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import type { Sql } from 'postgres';
 import { ControlError } from './errors.js';
 
@@ -31,8 +32,9 @@ interface AuditReadRow {
   second_actor_id: string | null;
   request_id: string | null;
   reason: string;
-  before: unknown;
-  after: unknown;
+  // jsonb columns: postgres hands back parsed JSON.
+  before: JsonValue | null;
+  after: JsonValue | null;
   created_at: Date | string;
 }
 

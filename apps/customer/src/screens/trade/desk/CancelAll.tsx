@@ -3,15 +3,11 @@ import { useDataEnv } from '../../../data/hooks';
 import { isTerminalOrder, type Order } from '../../../features/trade/trade-api';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-} from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+
+/** A note's classes by its tone. */
+const NOTE = { good: 'lt-note lt-note-good', bad: 'lt-note lt-note-bad' } as const;
 
 /**
  * Cancel every open order in the market on screen. One DELETE per confirm; a doubtful answer is never retried: the person
@@ -61,38 +57,40 @@ export function CancelAll({ symbol, orders, onDone }: { symbol: string; orders: 
   }
   return (
     <>
-      <button type="button" className="dk-cancel-all" onClick={() => setOpen(true)}>
+      <Button tone="secondary" size="sm" onClick={() => setOpen(true)}>
         {t('Cancel all', { count: here.length })}
-      </button>
-      <AlertDialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-        {open ? (
-          <AlertDialogContent className="dk-review">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Cancel all title', { pair: symbol })}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Cancel all intro', { count: here.length, pair: symbol })}</AlertDialogDescription>
-            </AlertDialogHeader>
-            {note ? (
-              <p
-                data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
-                className={note.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
-                role={note.tone === 'good' ? 'status' : 'alert'}
-              >
-                {note.text}
-              </p>
-            ) : null}
-            <AlertDialogFooter>
-              <Button variant="secondary" size={40} disabled={busy} onClick={close}>
+      </Button>
+      {open ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Cancel all title', { pair: symbol })}
+          description={t('Cancel all intro', { count: here.length, pair: symbol })}
+          onClose={close}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={busy} onClick={close}>
                 {finished ? t('Edit close') : t('Keep orders')}
               </Button>
               {finished ? null : (
-                <Button variant="primary" shape="pill" size={40} loading={busy} onClick={() => void confirm()}>
+                <Button busy={busy} tone="primary" size="md" onClick={() => void confirm()}>
                   {t('Cancel all confirm')}
                 </Button>
               )}
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            </>
+          }
+        >
+          {note ? (
+            <p
+              data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
+              className={NOTE[note.tone]}
+              role={note.tone === 'good' ? 'status' : 'alert'}
+            >
+              {note.text}
+            </p>
+          ) : null}
+        </Sheet>
+      ) : null}
     </>
   );
 }

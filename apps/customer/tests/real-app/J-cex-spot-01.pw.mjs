@@ -606,7 +606,7 @@ test(`${J} #5 opens /trade/spot/BTC-USDC: ticker, book, chart, tape, the fee lin
     const { status: code, body } = await testVenue('/candles', { symbol: VENUE_SPOT, interval: '15m', limit: 3 });
     expect(code).toBe(200);
     expect(body.value.length, JSON.stringify(body).slice(0, 200)).toBeGreaterThan(0);
-    const close = market.getByTestId('pc-legend').locator('.pc-ohlc').nth(3).locator('b');
+    const close = market.getByTestId('pc-legend').getByTestId('pc-ohlc').nth(3).locator('b');
     expect(shownUnits(await close.innerText())).toBe(wireUnits(body.value.at(-1).closePrice));
   }).toPass({ timeout: 60_000 });
   // The tape: the venue's newest prints, newest first, each row the venue's print by id, price and size.

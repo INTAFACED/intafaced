@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, fund, journeyState, ORIGIN, ROOT, signUpInBrowser, STACK_PORTS, tool, toolAwaited } from './stack.mjs';
+import { fund, journeyState, ROOT, STACK_PORTS, stackUrl, tool, toolAwaited } from './stack.mjs';
+import { venueRecord } from './venue.mjs';
 import { openTx, reverseWithTwoFounders } from './ledger-reversal-desk.mjs';
 import { closedMinute, MINUTE, utcMinuteOf } from './clock.mjs';
 
@@ -27,14 +28,52 @@ const state = {
   outsideRuns: [],
   floorId: null,
   pairId: null,
-  // #9 and #10: the customer-USDT floor that is resolved, reopens and passes, its alert and payer; the USDC floor accepted.
+  // #9 and #10: our own house USDT floor that is resolved, reopens and passes, and its alert; the USDC floor accepted.
   fixId: null,
   fixAlertId: null,
-  fixPayer: null,
   acceptId: null,
   acceptAlert: null,
 };
 const runId = (answer) => answer.match(/Run ([0-9a-f-]{36}): /)?.[1] ?? null;
+/** The TEST venue and TEST partner report stand-in on loopback (`local-test-rail-statements.mjs`), read directly via `venueRecord`. */
+const OWN_REPORTS = stackUrl('rail-statements');
+
+/** Reads one TEST venue's or TEST partner's own report for `place` at `asOf` directly from loopback, never through our app. */
+async function ownReportRecord(reporter, place, asOf) {
+  return (await venueRecord(place, '/report', { reporter, asOf }, OWN_REPORTS)).value;
+}
+
+/** Seeds one of INTAFACED's own TEST obligations: writes the reporter's line first, then books our ledger record through its recipe. */
+function seedOwnRecord(reporter, place, asset, amount, ref) {
+  return toolAwaited('local-test-stack.mjs', 'seed-own-record', reporter, place, asset, amount, '--ref', ref);
+}
+
+/** Arms a one-shot loopback hold on `GET /report` for one reporter and place, so a test can observe the `started` run row mid-read. */
+async function holdReport(reporter, place) {
+  const res = await fetch(`${OWN_REPORTS}/test/hold-report`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ reporter, place }),
+  });
+  expect(res.status, `arming report hold for ${reporter}:${place}`).toBe(200);
+}
+
+/** Reads whether svc-ledger's `GET /report` has reached the loopback hold yet. */
+async function readReportHold(reporter, place) {
+  const res = await fetch(`${OWN_REPORTS}/test/hold-report?reporter=${encodeURIComponent(reporter)}&place=${encodeURIComponent(place)}`);
+  expect(res.status, `reading report hold for ${reporter}:${place}`).toBe(200);
+  return res.json();
+}
+
+/** Releases a loopback hold on `GET /report` so svc-ledger's in-flight read answers normally. */
+async function releaseReport(reporter, place) {
+  const res = await fetch(`${OWN_REPORTS}/test/release-report`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ reporter, place }),
+  });
+  expect(res.status, `releasing report hold for ${reporter}:${place}`).toBe(200);
+}
 
 async function openLedger(page) {
   await page.goto(`${ADMIN}/ledger`, { waitUntil: 'load' });
@@ -308,10 +347,12 @@ async function lifecycle(id, move, label) {
   return sectionA;
 }
 
-/** One asset's evidence as the run reply prints it. */
+/** One asset's top-level evidence as the run reply prints it (never a per-reporter sub-line). */
 function evidence(answer, assetId) {
   const num = '(-?\\d+(?:\\.\\d+)?|unset)';
-  const all = [...answer.matchAll(new RegExp(`${assetId}: observed ${num}, expected ${num}, difference ${num}, tolerance ${num}\\.`, 'g'))];
+  const all = [
+    ...answer.matchAll(new RegExp(`(?:^|\\. )${assetId}: observed ${num}, expected ${num}, difference ${num}, tolerance ${num}\\.`, 'g')),
+  ];
   if (all.length !== 1) throw new Error(`the run shows ${all.length} ${assetId} evidence lines, not exactly one: ${answer}`);
   const [m] = all;
   return { observed: m[1], expected: m[2], difference: m[3], tolerance: m[4] };
@@ -550,6 +591,7 @@ async function feedOf(page, alertId) {
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
   test('J-ops-console-07 #1 a control activated with a blank tolerance is refused with ops.control_policy_unset and stays draft', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(240_000);
     const { a } = await founders(browser);
@@ -576,10 +618,13 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await expect(form.getByTestId('rc-save-refused')).toContainText('ops.control_policy_unset');
     await section.getByRole('button', { name: 'Refresh' }).click();
     await expect(row(section, state.thresholdId).getByTestId('rc-state')).toHaveText('Draft');
+    await expect(form.getByTestId('rc-save-refused')).toContainText('ops.control_policy_unset');
+    await stepPicture(a);
   });
 
   test('J-ops-console-07 #2 schedule (UTC), severity, tolerance and a dynamic account set: active, and built-ins cannot change', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(240_000);
     if (!state.thresholdId) throw new Error('step #1 left no control');
@@ -650,36 +695,104 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       state: control.state,
       version: control.version,
     });
+    await stepPicture(a);
   });
 
-  test('J-ops-console-07 #2 a new matching account is included on the next run', async ({ browser }) => {
+  test('J-ops-console-07 #2 a new matching account is included on the next run', async ({ browser, stepPicture }) => {
     test.setTimeout(420_000);
     if (!state.thresholdId) throw new Error('step #1 left no control');
-    await founders(browser);
+    const { a } = await founders(browser);
     const before = accountsRead(await twoFounderRun(state.thresholdId));
     expect(before, 'the first run names how many accounts it read').toBeGreaterThanOrEqual(0);
 
-    const who = { handle: `ops07${tag}`, email: `ops07-${tag}@local-test.invalid`, password: `Ops07-${tag}-Test!pass` };
-    await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
-    fund(who.email, 'USDT', '1');
+    // A new TEST venue builder-fee obligation creates a new matching USDT account on INTAFACED's own books (no customer account).
+    const venue = `ltv2-${tag}`;
+    await seedOwnRecord('venue', venue, 'USDT', '1', `ops07s2-${tag}`);
+    const reported = await ownReportRecord('venue', venue, new Date().toISOString());
+    expect(reported.balances).toEqual([{ assetId: 'USDT', amount: '-1' }]);
 
     const after = accountsRead(await twoFounderRun(state.thresholdId));
-    expect(after, 'the new TEST customer’s USDT account joins the next run').toBeGreaterThan(before);
+    expect(after, 'the new TEST venue receivable USDT account joins the next run').toBeGreaterThan(before);
+    await stepPicture(a);
   });
 
-  test('J-ops-console-07 #3 a run now stores its row and each source’s as-of; an outside-balance control with no snapshot shows unset', async ({
+  test('J-ops-console-07 #3 a run now commits its result row before reads begin, stores each source’s as-of, and an outside-balance control with no snapshot shows unset', async ({
     browser,
+    stepPicture,
   }) => {
-    test.setTimeout(420_000);
-    const { a } = await founders(browser);
+    test.setTimeout(540_000);
+    const { a, b } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
-    state.outsideId = await define(section, {
+
+    // 1. A result row exists before reads finish and stores every source's as-of time: hold the TEST venue's report reply on
+    //    loopback, observe the committed `started` row on /ledger while svc-ledger is mid-read, then release and verify the
+    //    exact same run id finishes PASS with both the ledger's as-of and the venue report's as-of stored.
+    const s3Venue = `ltv3-${tag}`;
+    await seedOwnRecord('venue', s3Venue, 'USDT', '4', `ops07s3-${tag}`);
+    const venueReport = await ownReportRecord('venue', s3Venue, new Date().toISOString());
+    expect(venueReport.asOf, 'the TEST venue report carries its own as-of').toBeTruthy();
+    expect(venueReport.balances).toEqual([{ assetId: 'USDT', amount: '-4' }]);
+
+    const reportsId = await define(section, {
+      template: 'outside_balance',
+      explanation: `LOCAL TEST venue run now ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(s3Venue);
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+    try {
+      const { desk, phrase } = await approvedRun(reportsId);
+      const sectionB = await openLedger(b);
+      await choose(sectionB, reportsId);
+
+      let running = null;
+      let startedId = null;
+      await holdReport('venue', s3Venue);
+      try {
+        running = runApproved(desk, phrase);
+        await expect
+          .poll(async () => (await readReportHold('venue', s3Venue)).arrived, {
+            message: 'svc-ledger calls the TEST venue report while the run is in flight',
+            timeout: 20_000,
+            intervals: [100],
+          })
+          .toBe(true);
+
+        const runsB = sectionB.getByTestId('rc-runs');
+        await runsB.getByRole('button', { name: 'Reload evaluations', exact: true }).click();
+        const startedRow = runsB.locator('[data-testid="rc-run-row"][data-status="started"]');
+        await expect(startedRow, 'the started result row is already stored while the outside read is held').toHaveCount(1, {
+          timeout: 4_000,
+        });
+        startedId = await startedRow.getAttribute('data-run-id');
+        expect(startedId, 'the started row carries a run id').toMatch(/^[0-9a-f-]{36}$/);
+      } finally {
+        await releaseReport('venue', s3Venue).catch(() => undefined);
+      }
+
+      const reportsAnswer = await running;
+      expect(runId(reportsAnswer), 'the finished run is the same row committed as started').toBe(startedId);
+      expect(reportsAnswer).toContain(`Run ${startedId}: PASS.`);
+      expect(reportsAnswer).toMatch(/Sources: ledger as of \d{4}-\d{2}-\d{2}T[0-9:.]+Z;/);
+      expect(reportsAnswer).toContain(`Venue ${s3Venue} report: as of ${venueReport.asOf}.`);
+      expect(reportsAnswer).toContain(`venue ${s3Venue} USDT: observed -4, expected -4, difference 0, tolerance 0.`);
+      const storedPass = await storedRun(a, reportsId, reportsAnswer, 'PASS');
+      expect(storedPass).toMatch(/Sources: ledger as of \d{4}-\d{2}-\d{2}T[0-9:.]+Z;/);
+      expect(storedPass).toContain(`Venue ${s3Venue} report: as of ${venueReport.asOf}.`);
+    } finally {
+      await lifecycle(reportsId, 'retire', 'Retired').catch(() => undefined);
+    }
+
+    // 2. An outside-balance control with no snapshot (no reports, no rail, no outside snapshot URL) shows its outside side unset.
+    const freshSection = await openLedger(a);
+    state.outsideId = await define(freshSection, {
       template: 'outside_balance',
       explanation: `LOCAL TEST USDT outside balance ${tag}`,
       fill: (form) => setPolicy(form, { tolerance: '0' }),
     });
-    await expect(row(section, state.outsideId).getByTestId('rc-state')).toHaveText('Active');
+    await expect(row(freshSection, state.outsideId).getByTestId('rc-state')).toHaveText('Active');
     const answer = await twoFounderRun(state.outsideId);
     // The stack's ledger serves no outside snapshot for this control, so the run is UNSET, never a PASS or FAIL against nothing.
     expect(answer).toMatch(/Run [0-9a-f-]{36}: UNSET\./);
@@ -691,6 +804,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     // The run stored its row: re-read from a fresh page, it carries the same status and the same sources line.
     const stored = await storedRun(a, state.outsideId, answer, 'UNSET');
     expect(stored).toContain(sources[0]);
+    await stepPicture(a);
   });
 
   test('J-ops-console-07 #4 a past run reads our records at the instant minus the margin against the venue and partner reports for that instant; not reported is never a match; blank margin, typed 0 and a future instant', async ({
@@ -735,26 +849,29 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
     // The ledger's own TEST records with a TEST venue and a TEST partner, each also written in that party's own report
     // (`seed-own-record`: the reporter's line first, then our record through its real recipe). The venue's lands a
-    // minute before the partner's, so one past instant falls between them.
+    // minute before the partner's, so one past instant falls between them. Every expected figure and as-of below is
+    // read directly from the TEST venue's and TEST partner's loopback records (`venueRecord`), never through our app.
     const venue = `ltv-${tag}`;
     const partner = `ltp-${tag}`;
-    const seeded = await toolAwaited('local-test-stack.mjs', 'seed-own-record', 'venue', venue, 'USDT', '5', '--ref', `ops07v-${tag}`);
-    const venueAsOf = /reported\s+(\S+)/.exec(seeded)?.[1];
-    expect(venueAsOf, `the TEST venue's own line: ${seeded}`).toBeTruthy();
+    await seedOwnRecord('venue', venue, 'USDT', '5', `ops07v-${tag}`);
     const between = await nextMinute(a);
-    const seededPartner = await toolAwaited(
-      'local-test-stack.mjs',
-      'seed-own-record',
-      'partner',
-      partner,
-      'USDT',
-      '3',
-      '--ref',
-      `ops07p-${tag}`,
-    );
-    const partnerAsOf = /reported\s+(\S+)/.exec(seededPartner)?.[1];
-    expect(partnerAsOf, `the TEST partner's own line: ${seededPartner}`).toBeTruthy();
+    await seedOwnRecord('partner', partner, 'USDT', '3', `ops07p-${tag}`);
     const after = await nextMinute(a);
+    const readAt = new Date(after.getTime() - 60_000).toISOString();
+
+    const venueAtBetween = await ownReportRecord('venue', venue, between.toISOString());
+    const partnerAtBetween = await ownReportRecord('partner', partner, between.toISOString());
+    const partnerAtReadAt = await ownReportRecord('partner', partner, readAt);
+    const venueAtAfter = await ownReportRecord('venue', venue, after.toISOString());
+    const partnerAtAfter = await ownReportRecord('partner', partner, after.toISOString());
+    expect(venueAtBetween.asOf, 'the TEST venue had reported by `between`').toBeTruthy();
+    expect(venueAtBetween.balances).toEqual([{ assetId: 'USDT', amount: '-5' }]);
+    expect(partnerAtBetween).toMatchObject({ reporter: 'partner', place: partner, reported: false });
+    expect(partnerAtReadAt).toMatchObject({ reporter: 'partner', place: partner, reported: false });
+    expect(venueAtAfter.asOf).toBe(venueAtBetween.asOf);
+    expect(venueAtAfter.balances).toEqual([{ assetId: 'USDT', amount: '-5' }]);
+    expect(partnerAtAfter.asOf, 'the TEST partner had reported by `after`').toBeTruthy();
+    expect(partnerAtAfter.balances).toEqual([{ assetId: 'USDT', amount: '-3' }]);
 
     const reportsId = await define(await openLedger(a), {
       template: 'outside_balance',
@@ -773,28 +890,33 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(early).toContain(`As of ${between.toISOString()}; balances read at ${between.toISOString()} (margin 0 s).`);
     expect(early).toContain(`Sources: ledger as of ${between.toISOString()};`);
     expect(early).toContain('Error: ledger.reconcile_not_reported at outside.');
-    expect(early).toContain(`Venue ${venue} report: as of ${venueAsOf}.`);
-    expect(early).toContain(`venue ${venue} USDT: observed -5, expected -5, difference 0, tolerance 0.`);
+    expect(early).toContain(`Venue ${venue} report: as of ${venueAtBetween.asOf}.`);
+    expect(early).toContain(
+      `venue ${venue} USDT: observed ${venueAtBetween.balances[0].amount}, expected ${venueAtBetween.balances[0].amount}, difference 0, tolerance 0.`,
+    );
     expect(early).toContain(`Partner ${partner} report: not reported for this instant, never a match.`);
     expect(early).not.toMatch(/: PASS\./);
 
     // After both, with a margin of 60 s: our records as of the instant minus the margin, and each report for that same
     // read instant with its own as-of. The partner's line is after the read instant, so it still reads "not reported".
     const margined = await twoFounderRun(reportsId, { instant: minuteText(after), margin: '60' });
-    const readAt = new Date(after.getTime() - 60_000).toISOString();
     expect(margined).toContain(`As of ${after.toISOString()}; balances read at ${readAt} (margin 60 s).`);
     expect(margined).toContain(`Sources: ledger as of ${readAt};`);
-    expect(margined).toContain(`Venue ${venue} report: as of ${venueAsOf}.`);
+    expect(margined).toContain(`Venue ${venue} report: as of ${venueAtBetween.asOf}.`);
     expect(margined).toContain(`Partner ${partner} report: not reported for this instant, never a match.`);
 
     // With a margin of 0 both had reported: each side compared with its own report, and the sums agree. PASS.
     const both = await twoFounderRun(reportsId, { instant: minuteText(after), margin: '0' });
     expect(both).toMatch(/Run [0-9a-f-]{36}: PASS\./);
     expect(both).toContain(`balances read at ${after.toISOString()} (margin 0 s).`);
-    expect(both).toContain(`Venue ${venue} report: as of ${venueAsOf}.`);
-    expect(both).toContain(`Partner ${partner} report: as of ${partnerAsOf}.`);
-    expect(both).toContain(`venue ${venue} USDT: observed -5, expected -5, difference 0, tolerance 0.`);
-    expect(both).toContain(`partner ${partner} USDT: observed -3, expected -3, difference 0, tolerance 0.`);
+    expect(both).toContain(`Venue ${venue} report: as of ${venueAtAfter.asOf}.`);
+    expect(both).toContain(`Partner ${partner} report: as of ${partnerAtAfter.asOf}.`);
+    expect(both).toContain(
+      `venue ${venue} USDT: observed ${venueAtAfter.balances[0].amount}, expected ${venueAtAfter.balances[0].amount}, difference 0, tolerance 0.`,
+    );
+    expect(both).toContain(
+      `partner ${partner} USDT: observed ${partnerAtAfter.balances[0].amount}, expected ${partnerAtAfter.balances[0].amount}, difference 0, tolerance 0.`,
+    );
     // The run's own row: our records at both places against both reports together.
     expect(both).toContain('2 accounts and 1 asset read. 1 record compared,');
     expect(both).toMatch(/ compared, read through [0-9TZ:.-]+\. USDT: observed -8, expected -8, difference 0, tolerance 0\./);
@@ -803,6 +925,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #5 a run evaluates PASS or FAIL with per-asset evidence, and an unreadable source is ERROR, never PASS', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(420_000);
     if (!state.thresholdId || !state.outsideId) throw new Error('steps #1 and #3 left no controls');
@@ -859,77 +982,71 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       state.outsideRuns.push({ id: runId(error), status: 'ERROR' });
       // Stored as ERROR, never PASS, with the same code and phase.
       expect(await storedRun(a, state.outsideId, error, 'ERROR')).toContain('ledger.reconcile_source_unavailable');
+      await stepPicture(a);
     } finally {
       ledgerOutside(false);
     }
   });
 
-  test('J-ops-console-07 #5 the evidence is the ledger’s: one customer’s two assets at a past instant and now, stored as shown', async ({
+  test('J-ops-console-07 #5 the evidence is the ledger’s: two assets of our own records at a past instant and now, stored as shown', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(600_000);
     const { a } = await founders(browser);
-    // A fresh TEST customer is the whole account set, so every observed figure is known from outside the evaluator: the
-    // amounts this step funds, and the customer's own balance as the ledger answers their balance read.
-    const who = { handle: `ops07e${tag}`, email: `ops07e-${tag}@local-test.invalid`, password: `Ops07e-${tag}-Test!pass` };
-    await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
-    const session = await api(who);
-    expect(fund(who.email, 'USDT', '2.5').tx, 'the USDT credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
-    expect(fund(who.email, 'USDC', '1').tx, 'the first USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
-    // The past instant is the next whole minute after the USDT and first USDC credits, and before the second USDC one.
-    const instant = new Date(Math.ceil((Date.now() + 1_000) / 60_000) * 60_000);
-    await a.waitForTimeout(Math.max(0, instant.getTime() - Date.now()) + 2_000);
-    expect(fund(who.email, 'USDC', '2').tx, 'the second USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
-    const balances = await session.balances();
-    expect(scaled(balances.USDT?.total ?? 'unset'), 'the customer holds the USDT credited').toBe(scaled('2.5'));
-    expect(scaled(balances.USDC?.total ?? 'unset'), 'the customer holds the USDC credited').toBe(scaled('3'));
+    // A fresh TEST venue place is the whole account set (no customer balances), so every observed and expected figure is
+    // known from the TEST venue's own loopback report (`venueRecord`) at the past instant and now.
+    const venue = `ltv5-${tag}`;
+    await seedOwnRecord('venue', venue, 'USDT', '2.5', `ops07e1-${tag}`);
+    await seedOwnRecord('venue', venue, 'USDC', '1', `ops07e2-${tag}`);
+    // The past instant is the next whole minute after the USDT and first USDC records, and before the second USDC one.
+    const instant = await nextMinute(a);
+    await seedOwnRecord('venue', venue, 'USDC', '2', `ops07e3-${tag}`);
+    const reportAtPast = await ownReportRecord('venue', venue, instant.toISOString());
+    const reportNow = await ownReportRecord('venue', venue, new Date().toISOString());
+    const amountOf = (report, asset) => report.balances.find((b) => b.assetId === asset)?.amount;
+    expect(scaled(amountOf(reportAtPast, 'USDT') ?? '0')).toBe(scaled('-2.5'));
+    expect(scaled(amountOf(reportAtPast, 'USDC') ?? '0')).toBe(scaled('-1'));
+    expect(scaled(amountOf(reportNow, 'USDT') ?? '0')).toBe(scaled('-2.5'));
+    expect(scaled(amountOf(reportNow, 'USDC') ?? '0')).toBe(scaled('-3'));
 
     const section = await openLedger(a);
     await requireTreasury(section);
     const ownId = await define(section, {
-      template: 'threshold',
-      explanation: `LOCAL TEST one customer two assets ${tag}`,
+      template: 'outside_balance',
+      explanation: `LOCAL TEST own venue two assets ${tag}`,
       fill: async (form) => {
         await form.getByLabel('Asset', { exact: true }).fill('');
-        await form.getByLabel('Owner type').selectOption('user');
-        await form.getByLabel('Owner id starts with').fill(session.userId);
-        await form.getByLabel('Threshold bound').selectOption('min');
-        await form.getByLabel(/^Threshold by asset/).fill('USDC=0, USDT=0');
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(venue);
         await setPolicy(form, { tolerance: '0' });
       },
     });
     try {
-      // At the past instant (margin 0) the ledger held the USDT credit and the first USDC credit, not yet the second: both
-      // assets are compared from decimal figures, and USDC is its balance then, not now. A missing side is step #7's FAIL.
-      const past = await twoFounderRun(ownId, { instant: instant.toISOString().slice(0, 16), margin: '0' });
+      // At the past instant (margin 0) the ledger and TEST venue held the USDT record and the first USDC record, not yet
+      // the second: both assets are compared from decimal figures, and USDC is its balance then, not now.
+      const past = await twoFounderRun(ownId, { instant: minuteText(instant), margin: '0' });
       expect(past).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(past).toContain(`balances read at ${instant.toISOString()} (margin 0 s)`);
       expect(past).toContain('2 records compared');
       expect(past).not.toContain('missing on the');
-      for (const [asset, total] of [
-        ['USDT', '2.5'],
-        ['USDC', '1'],
-      ]) {
+      for (const asset of ['USDT', 'USDC']) {
+        const expected = amountOf(reportAtPast, asset);
         const shown = evidence(past, asset);
-        expect(scaled(shown.observed), `${asset} observed is the customer's ledger balance at the instant`).toBe(scaled(total));
-        expect(shown.expected).toBe('0');
+        expect(scaled(shown.observed), `${asset} observed is our ledger record at the instant`).toBe(scaled(expected));
+        expect(scaled(shown.expected), `${asset} expected is the TEST venue report at the instant`).toBe(scaled(expected));
         expect(scaled(shown.difference)).toBe(0n);
         expect(shown.tolerance).toBe('0');
       }
 
-      // Now: both credits, each equal to the customer's balance as the ledger answers it.
+      // Now: both USDC records are in, each matching the TEST venue's own loopback report.
       const now = await twoFounderRun(ownId);
       expect(now).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(now).toContain('2 records compared');
-      for (const [asset, total] of [
-        ['USDT', '2.5'],
-        ['USDC', '3'],
-      ]) {
+      for (const asset of ['USDT', 'USDC']) {
+        const expected = amountOf(reportNow, asset);
         const shown = evidence(now, asset);
-        expect(scaled(shown.observed), `${asset} observed is the customer's ledger balance`).toBe(scaled(balances[asset].total));
-        expect(scaled(shown.observed)).toBe(scaled(total));
-        expect(shown.expected).toBe('0');
-        // A threshold's difference is how far the balance falls past its bound: none, as each holding is over its floor.
+        expect(scaled(shown.observed), `${asset} observed is our ledger record now`).toBe(scaled(expected));
+        expect(scaled(shown.expected), `${asset} expected is the TEST venue report now`).toBe(scaled(expected));
         expect(scaled(shown.difference)).toBe(0n);
         expect(shown.tolerance).toBe('0');
       }
@@ -954,6 +1071,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
             expect(kept[field], `${asset} stored ${field} is a decimal figure`).toMatch(/^-?\d+(?:\.\d+)?$/);
         }
       }
+      await stepPicture(a);
     } finally {
       await lifecycle(ownId, 'retire', 'Retired');
     }
@@ -970,6 +1088,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #6 pause needs two founders, a paused control runs nothing until resumed, and retired is final', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(420_000);
     if (!state.thresholdId || !state.outsideId) throw new Error('steps #1 and #3 left no controls');
@@ -1125,6 +1244,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       keepRetired = true;
       await choose(retiredKeep, keepId);
       expect(await evaluationsOf(retiredKeep), 'a retired control keeps every evaluation readable').toEqual(kept);
+      await stepPicture(a);
       expect(await alertsOf(a, keepId), 'a retired control keeps its alert, once and unchanged').toEqual(keptAlerts);
       expect(await detailOf(), 'the alert’s detail still reads, unchanged').toEqual(whilePaused);
     } finally {
@@ -1136,6 +1256,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #7 a run that fails two assets opens two alerts; the same failure again raises the count, opens nothing new', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(600_000);
     const { a } = await founders(browser);
@@ -1190,6 +1311,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(detail.getByTestId('timeline-entry')).toHaveCount(2);
       await expect(detail.locator('[data-testid="timeline-entry"][data-kind="opened"]')).toHaveCount(1);
       await expect(detail.locator('[data-testid="timeline-entry"][data-kind="repeated"]')).toHaveCount(1);
+      await openAlerts(a);
+      await stepPicture(a);
     } catch (err) {
       // #8 retires the pair; when this step fails first, retire it here so scheduled runs do not keep failing on it.
       await lifecycle(state.pairId, 'retire', 'Retired').catch(() => undefined);
@@ -1200,6 +1323,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #8 two founders acknowledge at once: one wins, the other sees it; snoozed notices stop while the count rises', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(600_000);
     if (!state.pairId || !state.thresholdId) throw new Error('steps #1 and #7 left no controls');
@@ -1286,6 +1410,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(muted).toHaveAttribute('data-snoozed', 'true');
       await expect(muted.getByTestId('alert-notices')).toHaveAttribute('data-sent', sentBefore);
       await expect(muted.locator('[data-testid="timeline-entry"][data-kind="repeated"]').last()).toHaveAttribute('data-notice', 'snoozed');
+      await stepPicture(a);
     } finally {
       // Retire the TEST two-asset floor so scheduled runs do not keep failing on it.
       await lifecycle(state.pairId, 'retire', 'Retired');
@@ -1294,18 +1419,24 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #9 resolve as fixed with a corrective reversal id; accepting needs a note and two founders and freezes the evidence', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(900_000);
     const { a, b } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
 
-    // A floor over every customer's USDT, set 5 above what the book holds now, so it fails until 5 USDT more is deposited.
+    // Ensure INTAFACED's own house market-maker USDT account holds a positive balance (no customer accounts).
+    expect(fund('house', 'USDT', '1', `ops07-fix0-${tag}`).tx, 'the house USDT seed is a booked ledger transaction').toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+    // A floor over INTAFACED's own house market-maker USDT, set 5 above what the book holds now, so it fails until 5 USDT more arrives.
     state.fixId = await define(section, {
       template: 'threshold',
-      explanation: `LOCAL TEST customer USDT floor ${tag}`,
+      explanation: `LOCAL TEST house USDT floor ${tag}`,
       fill: async (form) => {
-        await form.getByLabel('Owner type').selectOption('user');
+        await form.getByLabel('Owner type', { exact: true }).selectOption('house');
+        await form.getByLabel('Owner id starts with', { exact: true }).fill('market-maker');
         await form.getByLabel('Threshold bound').selectOption('min');
         await form.getByLabel(/^Threshold by asset/).fill('USDT=0');
         await setPolicy(form, { tolerance: '0' });
@@ -1356,17 +1487,14 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       ).toEqual(openedAs);
       await expect(afterUnknown.getByTestId('alert-resolved')).toHaveCount(0);
 
-      // The floor's figures move only by customer USDT, and a reversal of our own entry never touches a customer account, so
-      // the corrective reversal cannot be what clears this floor. Two things are kept apart, each from real postings:
-      // - #10's figures: a TEST deposit of 2 USDT to a new customer, through the ledger's deposit recipe. 2 is short of the 5
-      //   the floor wants, so #10's next run fails again and reopens the alert; #10 deposits the other 3 and the run passes.
+      // Two real postings on INTAFACED's own books, kept apart (zero customer accounts):
+      // - #10's figures: a TEST house seed of 2 USDT (`marketMakerSeedFund`). 2 is short of the 5 the floor wants, so
+      //   #10's next run fails again and reopens the alert; #10 seeds the other 3 and the run passes.
       // - #9's fix: the corrective reversal the alert is resolved with, made on J-ops-console-05's reversal desk and only
-      //   linked here. Its original is INTAFACED's own TEST entry (a house market-maker seed through the ledger's
-      //   `marketMakerSeedFund` recipe, in an asset no other journey reads); founder a asks and runs, founder b approves.
-      state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
-      await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
-      const deposit = fund(state.fixPayer.email, 'USDT', '2');
-      expect(deposit.tx, `the deposit names its ledger transaction: ${deposit.out}`).toMatch(/^[0-9a-f-]{36}$/);
+      //   linked here. Its original is INTAFACED's own TEST entry (a house market-maker seed in an asset no other journey
+      //   reads); founder a asks and runs, founder b approves.
+      const deposit = fund('house', 'USDT', '2', `ops07-fix1-${tag}`);
+      expect(deposit.tx, `the house seed names its ledger transaction: ${deposit.out}`).toMatch(/^[0-9a-f-]{36}$/);
       const own = fund('house', 'AUD', '0.5', `ops07-fix-${tag}`);
       expect(own.tx, `our own entry names its ledger transaction: ${own.out}`).toMatch(/^[0-9a-f-]{36}$/);
       const reversal = await reverseWithTwoFounders(a, b, own.tx, {
@@ -1470,6 +1598,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(reread.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', evidenceHash);
       await expect(reread.getByTestId('alert-evidence')).toHaveText(evidenceText);
       await expect(reread.getByTestId('alert-resolved')).toHaveCount(0);
+      await stepPicture(a);
       state.acceptAlert = {
         id: toAccept.id,
         evidenceHash,
@@ -1487,6 +1616,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #10 a repeat failure reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event received twice is stored once', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(900_000);
     if (!state.fixId || !state.fixAlertId || !state.acceptId || !state.acceptAlert)
@@ -1557,8 +1687,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(kept.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', state.acceptAlert.evidenceHash);
       await expect(kept.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
 
-      // The rest of the 5 USDT arrives: the next run passes and resolves the reopened alert by itself, naming that run.
-      expect(fund(state.fixPayer.email, 'USDT', '3').tx, 'the rest is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+      // The rest of the 5 USDT arrives on INTAFACED's own house account: the next run passes and resolves the reopened alert by itself, naming that run.
+      expect(fund('house', 'USDT', '3', `ops07-fix2-${tag}`).tx, 'the rest is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
       const pass = await twoFounderRun(state.fixId);
       expect(pass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(evidence(pass, 'USDT').difference).toBe('0');
@@ -1624,6 +1754,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(later).toHaveCount(1);
       await expect(later).toHaveAttribute('data-error-code', 'ledger.reconcile_source_unavailable');
       await expect(later).toHaveAttribute('data-phase', 'snapshot');
+      await stepPicture(a);
     } finally {
       // Retire every TEST control this step and #9 made, so scheduled runs do not keep failing on them.
       for (const id of [state.fixId, state.acceptId, errorId].filter(Boolean))

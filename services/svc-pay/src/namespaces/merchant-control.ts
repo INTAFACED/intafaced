@@ -4,8 +4,6 @@ import {
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
   merchantControlApprovalDecideInputSchema,
-  merchantTierListInputSchema,
-  merchantTierListSchema,
   merchantLimitIncreaseInputSchema,
   merchantLimitIncreaseResultSchema,
   payoutApprovalSchema,
@@ -35,6 +33,7 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
   PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+  PAY_MERCHANT_CONTROL_TIERS_LIST,
 } from '@intafaced/contracts/pay-merchant-control-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -161,17 +160,17 @@ export function createMerchantControlRouter(control?: ControlService) {
         payRefusal,
       ),
       tiers: router({
-        list: read
-          .input(merchantTierListInputSchema)
-          .output(merchantTierListSchema)
-          .query(({ ctx, input }) =>
+        list: mountRecord(
+          PAY_MERCHANT_CONTROL_TIERS_LIST,
+          ({ ctx, input }) =>
             guarded(async () => {
               const principal = principalOf(ctx);
               await control.assertCanView(principal, input.merchantId);
               const role = await control.roleOnMerchant(principal, input.merchantId);
               return projectTierList(await control.merchantTierList(input.merchantId), role);
             }),
-          ),
+          payRefusal,
+        ),
       }),
       pricing: router({
         preview: mountRecord(

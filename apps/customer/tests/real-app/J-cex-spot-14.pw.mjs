@@ -1,7 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, bestPrices, fund, journeyState, toUnits } from './stack.mjs';
 import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn } from './desk.mjs';
 import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
+import { testVenue, tradePayloadHash, venueForThisFile, venueInfo } from './venue.mjs';
+import { utcMinuteOf } from './clock.mjs';
+import { configureStatusPage, statusDefinition, statusRead } from './status-page.mjs';
 
 // J-cex-spot-14, in the running app (docs/roadmap/journeys.json): a pro trader knows whether a market is open, limited,
 // closing, new or risky before trading it, and never sends an order into a state that refuses it without being told
@@ -9,8 +13,9 @@ import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
 // through the real ledger. Operators set a market's trading mode through svc-trade's two-person door
 // (`setMarketMode`, two TEST operators), as TEST changes on books only this file holds in a restricted mode, each put
 // back to Open in the same step. Money: none moves; a refusal in any state leaves no hold, and cancels always work.
-// World: book, gates
-// (book: limit orders rest and cancel on BTC/USDC; gates: a market's trading mode is set and put back to Open.)
+// World: book, gates, restart
+// (book: limit orders rest and cancel on BTC/USDC; gates: a market's trading mode is set and put back to Open; restart:
+// #1 and #2 switch svc-trade's venue door on, and it is switched off again before #3.)
 const J = 'J-cex-spot-14';
 /** The status component a maintenance notice names one market by (`market-btc-usdc`), as svc-notify reads it. */
 const marketComponent = (symbol) => `market-${symbol.toLowerCase().replace('/', '-')}`;
@@ -19,6 +24,9 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const LIMITED = 'BTC/USDC';
 /** A room or label a step needs that is not built answers within this, so an unbuilt step fails fast. */
 const UNBUILT_MS = 8_000;
+/** #2's one TEST platform-status component, and the labelled TEST owner values it runs with where the stack has none. */
+const STATUS_COMPONENT = { id: 'trading', name: 'TEST Trading', group: null, source: null };
+const TEST_STATUS_VALUES = { componentCap: 5, stalenessSeconds: 600, uptimeDays: 7 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -85,170 +93,320 @@ async function restingBid(symbol, percent) {
 
 const orderSends = (sent) => sent.filter((body) => body?.symbol === LIMITED || body?.symbol === undefined);
 
-test(`${J} #1 the markets list shows open, upcoming and delisting markets with listing status and dated delisting; only open real markets are tradeable`, async ({
-  page,
-}) => {
-  // The service's own listing read: each market carries its listing status, and a delisting carries its date. Upcoming and
-  // delisting markets are TEST listings the stack seeds (`seed-spot-test-listing.mjs`), as operators would set them.
-  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const spot = markets.filter((m) => m.spot && !m.paper);
-  const upcoming = spot.find((m) => m.listing === 'upcoming');
-  const delisting = spot.find((m) => m.listing === 'delisting');
-  expect(upcoming, 'an upcoming spot listing on the read').toBeTruthy();
-  expect(delisting, 'a delisting spot listing on the read').toBeTruthy();
-  expect(Date.parse(delisting.delistsAt)).toBeGreaterThan(Date.now());
-  // Only an open market is orderable.
-  for (const m of [upcoming, delisting]) expect(m.orderable, `${m.symbol} is not orderable`).toBe(false);
-  expect(spot.filter((m) => m.orderable).every((m) => m.listing === 'open')).toBe(true);
+// ── #1 and #2 on the stack's outside TEST venue ──
+//
+// At launch the markets list and /status read the venue, never our own book: each market INTAFACED shows on the venue,
+// in the venue's own state, with our listing beside it (svc-trade's public `GET /api/v1/venue/market-states`). The door
+// is on for these two steps only (the steps after them still trade our own book). Each attempt adds its own fresh TEST
+// markets to the TEST venue (`/test/market-add`, a random TEST symbol per attempt) and two operators list them through
+// svc-trade's two-person door: one open, one opening tomorrow, one open and delisting in two days, and one the venue
+// itself takes cancels only on. No other journey's market is touched. Every figure is TEST.
 
-  await page.goto('/trade');
-  const list = page.getByRole('grid', { name: 'Markets', exact: true });
-  await expect(list).toBeVisible();
-  const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
-  const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
-  const action = (row) => row.getByRole('button', { name: /^(Trade|Buy) / });
-  // An open market's row trades.
-  const btc = rowOf(spot.find((m) => m.symbol === 'BTC/USDT'));
-  await expect(action(btc)).toBeEnabled();
-  // The upcoming listing: named Upcoming, and not a tradeable row.
-  const upRow = rowOf(upcoming);
-  await expect(upRow.getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
-  await expect(action(upRow)).toBeDisabled();
-  // The delisting: named Delisting, with the day its own delistsAt falls on in the person's zone, and not a tradeable row.
-  const downRow = rowOf(delisting);
-  const leaves = (iso) =>
-    page.evaluate(
-      (at) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(Date.parse(at)),
-      iso,
+const LISTING_SET = 'trade.venue_listing_set';
+const DELISTING = 'trade.venue_delisting_schedule';
+const POLICY = 'trade-venue-markets-v1';
+const DAY = 86_400_000;
+
+const trpcData = (res) => res.json?.result?.data?.json ?? res.json?.result?.data;
+
+/** A fresh TEST spot market on the TEST venue, trading. */
+async function freshMarket(tag) {
+  const base = `T14${tag}${randomBytes(3).toString('hex').toUpperCase()}`;
+  const symbol = `${base}-USDC`;
+  const added = await testVenue('/test/market-add', {
+    symbol,
+    baseAsset: base,
+    quoteAsset: 'USDC',
+    maxOrderQty: '10',
+    maxOrderNotional: '1000',
+  });
+  expect(added.status, JSON.stringify(added.body)).toBe(200);
+  return { symbol, base, quote: 'USDC' };
+}
+
+/** Setup, not a step: two operators write one change on `symbol`'s listing line through svc-trade's two-person door. */
+async function listingWrite(symbol, actionType, procedure, fields, expectedVersion) {
+  const { ctx, sessions } = await ops();
+  const venueId = (await venueInfo()).id;
+  const reason = `LOCAL TEST ${J}: ${actionType} on ${symbol} for this step`;
+  const ids = await gates.twoPerson(ctx, sessions, {
+    actionType,
+    targetService: 'svc-trade',
+    targetId: `venue-listing:${venueId}:${symbol}`,
+    expectedVersion,
+    payloadHash: tradePayloadHash({ actionType, venueId, symbol, ...fields, expectedVersion, reason }),
+    policyVersion: POLICY,
+  });
+  const res = await ctx.edge.mutate(
+    'trade',
+    procedure,
+    { symbol, ...fields, expectedVersion, reason, ...ids },
+    await sessions.a.tradeOpsToken(),
+  );
+  expect(trpcData(res)?.listing?.version, res.text.slice(0, 300)).toBe(Number(expectedVersion) + 1);
+}
+const list = (symbol, opensAt) => listingWrite(symbol, LISTING_SET, 'admin.venueMarkets.listingSet', { opensAt }, '0');
+const delist = (symbol, delistsAt) => listingWrite(symbol, DELISTING, 'admin.venueMarkets.delistingSchedule', { delistsAt }, '1');
+
+/** This attempt's four markets, made once per attempt and kept for #2. */
+async function venueMarkets() {
+  const known = run.read().venueMarkets;
+  if (known) return known;
+  const now = Date.now();
+  const open = await freshMarket('O');
+  const upcoming = await freshMarket('U');
+  const delisting = await freshMarket('D');
+  const cancelOnly = await freshMarket('C');
+  const minuteAgo = new Date(now - 60_000).toISOString();
+  await list(open.symbol, minuteAgo);
+  await list(upcoming.symbol, new Date(now + DAY).toISOString());
+  await list(delisting.symbol, minuteAgo);
+  await delist(delisting.symbol, new Date(now + 2 * DAY).toISOString());
+  await list(cancelOnly.symbol, minuteAgo);
+  // The venue's own state, not ours: the TEST venue takes cancels only on this market.
+  expect((await testVenue('/test/market-status', { symbol: cancelOnly.symbol, status: 'cancel_only' })).status).toBe(200);
+  const markets = { open, upcoming, delisting, cancelOnly };
+  run.write({ ...run.read(), venueMarkets: markets });
+  return markets;
+}
+
+/** svc-trade's public read of the venue's market states, signed out. */
+async function marketStates() {
+  const res = await fetch(`${EDGE}/api/v1/venue/market-states`);
+  const body = await res.json();
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
+}
+
+/**
+ * The trading mode a market is in now, from the read's own fields, the stricter first: our stop, delisting or opening
+ * time; then the venue's own state; then our close-only routing. `none` where the venue reports no state.
+ */
+function modeOf(m) {
+  if (m.listing.delisted || m.status === 'delisted') return 'DELISTING';
+  if (m.listing.routing === 'stop') return 'HALTED';
+  if (!m.listing.open) return 'PRELAUNCH';
+  if (m.status === null) return 'none';
+  if (m.status === 'halted') return 'HALTED';
+  if (m.status === 'cancel_only') return 'CANCEL_ONLY';
+  if (m.listing.routing === 'close_only') return 'REDUCE_ONLY';
+  return 'OPEN';
+}
+/** Only an open market with no delisting set, in mode Open, is a tradeable row. */
+const tradeable = (m) => modeOf(m) === 'OPEN' && m.listing.delistsAt === null;
+
+test.describe('on the outside TEST venue', () => {
+  venueForThisFile(test);
+  /** #2 puts the founders' status definition back as it found it, whatever happened in the step. */
+  let restoreStatus = null;
+  test.afterEach(async () => {
+    const restore = restoreStatus;
+    restoreStatus = null;
+    if (restore) await restore();
+  });
+
+  test(`${J} #1 the markets list shows open, upcoming and delisting markets with listing status and dated delisting; only open real markets are tradeable`, async ({
+    page,
+    stepPicture,
+  }) => {
+    const mine = await venueMarkets();
+    // The venue read the list draws: each of this attempt's markets with the venue's state and our listing beside it.
+    const states = await marketStates();
+    expect(states.value.test, 'the TEST venue').toBe(true);
+    const bySymbol = new Map(states.value.markets.map((m) => [m.symbol, m]));
+    const read = (x) => bySymbol.get(x.symbol);
+    expect(read(mine.open), 'the open market on the venue read').toMatchObject({
+      status: 'trading',
+      listing: { open: true, delistsAt: null },
+    });
+    expect(read(mine.upcoming)?.listing.open, 'the upcoming market has not opened').toBe(false);
+    expect(Date.parse(read(mine.delisting)?.listing.delistsAt ?? ''), 'the delisting carries its date').toBeGreaterThan(Date.now());
+    expect(read(mine.cancelOnly)?.status, "the venue's own state").toBe('cancel_only');
+
+    // Signed out, as anyone opens it.
+    await page.goto('/trade');
+    const grid = page.getByRole('grid', { name: 'Markets', exact: true });
+    await expect(grid).toBeVisible();
+    const more = page.getByRole('button', { name: /^Show \d+ more markets$/ });
+    const pair = (x) => new RegExp(`^${x.base}/${x.quote}$`);
+    const rowOf = (x) => grid.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(x) }) });
+    const action = (row) => row.getByRole('button', { name: /^(Trade|Buy) / });
+    // This attempt's markets are on the read the page makes on opening: wait for the list's rows, then open the whole list.
+    await expect(
+      grid
+        .getByRole('row')
+        .filter({ has: page.getByTestId('mkt-name__ticker') })
+        .first(),
+    ).toBeVisible();
+    while (await more.isVisible()) await more.click();
+    await expect(rowOf(mine.open)).toHaveCount(1);
+
+    // The open market's row trades, and links to its venue desk.
+    await expect(action(rowOf(mine.open))).toBeEnabled();
+    await expect(action(rowOf(mine.open))).toHaveAttribute('href', /\/trade\/|\/coin\//);
+    await expect(rowOf(mine.open).getByTestId('mkt-listing')).toHaveCount(0);
+    // The upcoming listing: named Upcoming, and not a tradeable row.
+    await expect(rowOf(mine.upcoming).getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
+    await expect(action(rowOf(mine.upcoming))).toBeDisabled();
+    // The delisting: named Delisting, with the day its own delistsAt falls on in the person's zone, and not a tradeable row.
+    const leaves = (iso) =>
+      page.evaluate(
+        (at) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(Date.parse(at)),
+        iso,
+      );
+    const downRow = rowOf(mine.delisting);
+    await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting');
+    await expect(downRow.getByTestId('mkt-listing')).toContainText(
+      `Leaves the board on ${await leaves(read(mine.delisting).listing.delistsAt)}`,
     );
-  await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting', { timeout: UNBUILT_MS });
-  await expect(downRow.getByTestId('mkt-listing')).toContainText(`Leaves the board on ${await leaves(delisting.delistsAt)}`);
-  await expect(action(downRow)).toBeDisabled();
+    await expect(action(downRow)).toBeDisabled();
+    // The market the venue takes cancels only on is paused, whatever our listing says: the open list does not draw it.
+    await expect(rowOf(mine.cancelOnly)).toHaveCount(0);
 
-  // Every row the list draws, not a sample: the whole list, then each row against its own listing on the read. Only an
-  // open real market (orderable, its trading mode Open) is a tradeable row, a link to trade it; every other row's
-  // action is disabled and links nowhere. An upcoming row reads Upcoming, a delisting row reads Delisting with its own
-  // date, and an open row names no listing state. No paper market is drawn.
-  const more = page.getByRole('button', { name: /^Show \d+ more markets$/ });
-  while (await more.isVisible()) await more.click();
-  const rows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker') });
-  const drawn = await rows.count();
-  expect(drawn, 'the list draws rows').toBeGreaterThan(0);
-  // A market whose session is shut is not open now (#6): an order there is refused and not queued, so it is no tradeable row.
-  const tradeable = (m) =>
-    m.orderable && m.sessionOpen !== false && (m.lifecycle ? m.lifecycle.state === 'OPEN' : true) && (m.listing ?? 'open') === 'open';
-  const seen = new Set();
-  for (let i = 0; i < drawn; i++) {
-    const row = rows.nth(i);
-    const name = (await row.getByTestId('mkt-name__ticker').innerText()).trim();
-    const named = markets.filter((x) => x.spot && `${x.base}/${x.quote}` === name);
-    const m = named.find((x) => !x.paper) ?? named[0];
-    expect(m, `${name} is a spot market on the read`).toBeTruthy();
-    expect(m.paper, `${name} is a real market, not paper`).toBeFalsy();
-    seen.add(m.symbol);
-    const button = action(row);
-    await expect(button, name).toHaveCount(1);
-    if (tradeable(m)) {
-      await expect(button, `${name} is open and trades`).toBeEnabled();
-      await expect(button, `${name} links to trading it`).toHaveAttribute('href', /\/trade\/|\/coin\//);
-      await expect(row.getByTestId('mkt-listing'), `${name} names no listing state`).toHaveCount(0);
-    } else {
-      await expect(button, `${name} is not a tradeable row`).toBeDisabled();
-      await expect(button, `${name} links nowhere`).not.toHaveAttribute('href', /./);
+    // Every row the list draws, not a sample: each against its own market on the venue read. Only an open market in mode
+    // Open with no delisting set trades and links to its desk; every other row's action is disabled and links nowhere.
+    // Every row is a venue spot market we list: none comes from our own book.
+    const spot = states.value.markets.filter((m) => m.kind === 'spot');
+    const rows = grid.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker') });
+    const drawn = await rows.count();
+    expect(drawn, 'the list draws rows').toBeGreaterThan(0);
+    const seen = new Set();
+    for (let i = 0; i < drawn; i++) {
+      const row = rows.nth(i);
+      const name = (await row.getByTestId('mkt-name__ticker').innerText()).trim();
+      const m = spot.find((x) => `${x.baseAsset}/${x.quoteAsset}` === name);
+      expect(m, `${name} is a venue spot market we list`).toBeTruthy();
+      seen.add(m.symbol);
+      const button = action(row);
+      await expect(button, name).toHaveCount(1);
+      const trades = tradeable(m);
+      await expect(button, `${name} ${trades ? 'trades' : 'is not a tradeable row'}`).toBeEnabled({ enabled: trades });
+      // A tradeable row links to trading it; every other row links nowhere.
+      await expect
+        .poll(() => button.getAttribute('href'), { message: `${name}'s link` })
+        .toEqual(trades ? expect.stringMatching(/\/trade\/|\/coin\//) : null);
     }
-    if (m.listing === 'upcoming') await expect(row.getByTestId('mkt-listing'), name).toHaveText('Upcoming');
-    if (m.listing === 'delisting') {
-      await expect(row.getByTestId('mkt-listing'), name).toContainText('Delisting');
-      expect(Date.parse(m.delistsAt), `${name} carries its delisting date`).toBeGreaterThan(Date.now());
-      await expect(row.getByTestId('mkt-listing'), name).toContainText(`Leaves the board on ${await leaves(m.delistsAt)}`);
-    }
-  }
-  // Open, upcoming and delisting markets are all on the list.
-  for (const m of [upcoming, delisting]) expect(seen.has(m.symbol), `${m.symbol} is drawn`).toBe(true);
-  expect(seen.has('BTC/USDT'), 'an open market is drawn').toBe(true);
-  // Activating a row that does not trade opens no desk.
-  await upRow.click();
-  await expect(page).toHaveURL(/\/trade(\?.*)?$/);
-});
+    for (const x of [mine.open, mine.upcoming, mine.delisting]) expect(seen.has(x.symbol), `${x.symbol} is drawn`).toBe(true);
+    await stepPicture();
+    // Activating a row that does not trade opens no desk.
+    await rowOf(mine.upcoming).click();
+    await expect(page).toHaveURL(/\/trade(\?.*)?$/);
+  });
 
-test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({ page }) => {
-  await page.goto('/status');
-  await expect(page.getByRole('heading', { name: 'Platform status', exact: true })).toBeVisible();
-
-  // Platform status: the page draws exactly the components svc-notify's status read publishes (statusPage.read, the read
-  // the page itself makes), each by its name and its state, and the overall state the read gives; or, with none defined,
-  // the honest line and no overall state. Read again on each poll: the page re-reads every 30 seconds.
-  const statusRead = async () => (await (await fetch(`${ORIGIN}/api/notify/trpc/statusPage.read`)).json()).result.data;
-  const drawnStatus = async () => {
-    const none = await page.getByTestId('status-components-none').count();
-    const overall = none ? 'none_defined' : await page.getByTestId('status-overall').getAttribute('data-state');
-    const rows = await page.locator('[data-testid^="status-component-"]').evaluateAll((els) =>
-      els
-        .filter((el) => el.tagName === 'LI')
-        .map((el) => ({
-          id: el.dataset.testid.slice('status-component-'.length),
-          name: el.querySelector('strong')?.textContent ?? '',
-          state: el.dataset.state,
-        })),
-    );
-    return { overall, rows };
-  };
-  const publishedStatus = async () => {
-    const read = await statusRead();
-    return {
-      overall: read.overall,
-      rows: read.overall === 'none_defined' ? [] : read.components.map((c) => ({ id: c.id, name: c.name, state: c.state })),
-    };
-  };
-  await expect(page.getByTestId('status-components').first()).toBeVisible();
-  await expect
-    .poll(async () => JSON.stringify(await drawnStatus()) === JSON.stringify(await publishedStatus()), {
-      timeout: 45_000,
-      message: 'the page shows the components and overall state svc-notify publishes',
-    })
-    .toBe(true);
-  const published = await publishedStatus();
-  if (published.overall === 'none_defined') await expect(page.getByTestId('status-components-none')).toBeVisible();
-  else expect(published.rows.length, 'a defined status page has components').toBeGreaterThan(0);
-
-  // Trading modes per market, each with its effect, from the same lifecycle read the desk uses: every real spot market
-  // the markets read lists has its row, in the state its own lifecycle reports.
-  await expect(page.getByRole('heading', { name: 'Trading modes', exact: true })).toBeVisible();
-  const btc = page.getByTestId('status-mode-BTC/USDT');
-  await expect(btc).toContainText('Open');
-  await expect(btc).toContainText('Orders are accepted and can be cancelled.');
-  expect(await publicState('BTC/USDT')).toBe('OPEN');
-  const realSpot = async () => (await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json()).filter((m) => m.spot && !m.paper);
-  const listed = await realSpot();
-  expect(listed.length, 'the markets read lists real spot markets').toBeGreaterThan(0);
-  for (const m of listed)
-    await expect(page.getByTestId(`status-mode-${m.symbol}`), `${m.symbol}'s mode row`).toHaveAttribute(
-      'data-state',
-      m.lifecycle?.state ?? 'none',
-    );
-
-  // The as-of time is the service's own observation time, in UTC: the oldest time svc-trade observed a listed mode
-  // (each market's lifecycle observedAt), so no row is shown fresher than it is. The service is read before and after the
-  // page, so the page's line is one of the two answers, never a time of its own.
-  const asOf = (markets) => {
-    const times = markets.map((m) => m.lifecycle?.observedAt).filter((at) => at && !Number.isNaN(Date.parse(at)));
-    if (!times.length) return 'No market reported a mode, so there is no time to show.';
-    const oldest = new Date(Math.min(...times.map((at) => Date.parse(at)))).toISOString();
-    return `As of ${oldest.slice(0, 16).replace('T', ' ')} UTC`;
-  };
-  const line = page.getByTestId('status-modes-asof');
-  await expect(line).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
-  await expect
-    .poll(
-      async () => {
-        const before = asOf(await realSpot());
-        const shown = (await line.textContent())?.trim();
-        const after = asOf(await realSpot());
-        return shown === before || shown === after;
+  test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({
+    page,
+    stepPicture,
+  }) => {
+    const mine = await venueMarkets();
+    // Platform status needs a defined page to have an as-of time: the founders define one TEST component (its owner
+    // values TEST where blank), and what was defined before is put back after the step.
+    const definedBefore = await statusDefinition();
+    test.info().attach('status definition before', { body: JSON.stringify(definedBefore), contentType: 'application/json' });
+    await configureStatusPage(
+      {
+        components: [STATUS_COMPONENT],
+        componentCap: definedBefore.componentCap ?? TEST_STATUS_VALUES.componentCap,
+        stalenessSeconds: definedBefore.stalenessSeconds ?? TEST_STATUS_VALUES.stalenessSeconds,
+        uptimeDays: definedBefore.uptimeDays ?? TEST_STATUS_VALUES.uptimeDays,
       },
-      { timeout: 45_000, message: "the as-of line is the oldest lifecycle observedAt on svc-trade's markets read" },
-    )
-    .toBe(true);
+      `TEST journey ${J} #2`,
+    );
+    restoreStatus = () =>
+      configureStatusPage(
+        {
+          components: definedBefore.components,
+          componentCap: definedBefore.componentCap,
+          stalenessSeconds: definedBefore.stalenessSeconds,
+          uptimeDays: definedBefore.uptimeDays,
+        },
+        `TEST journey ${J} #2: definition put back`,
+      );
+    await page.goto('/status');
+    await expect(page.getByRole('heading', { name: 'Platform status', exact: true })).toBeVisible();
+
+    // Platform status: the page draws exactly the components svc-notify's status read publishes (statusPage.read, the read
+    // the page itself makes), each by its name and its state, and the overall state the read gives. Read again on each
+    // poll: the page re-reads every 30 seconds.
+    const drawnStatus = async () => {
+      const overall = await page.getByTestId('status-overall').getAttribute('data-state');
+      const rows = await page.locator('[data-testid^="status-component-"]').evaluateAll((els) =>
+        els
+          .filter((el) => el.tagName === 'LI')
+          .map((el) => ({
+            id: el.dataset.testid.slice('status-component-'.length),
+            name: el.querySelector('strong')?.textContent ?? '',
+            state: el.dataset.state,
+          })),
+      );
+      return { overall, rows };
+    };
+    const publishedStatus = async () => {
+      const read = await statusRead();
+      return { overall: read.overall, rows: read.components.map((c) => ({ id: c.id, name: c.name, state: c.state })) };
+    };
+    await expect(page.getByTestId('status-overall')).toBeVisible();
+    await expect
+      .poll(async () => JSON.stringify(await drawnStatus()) === JSON.stringify(await publishedStatus()), {
+        timeout: 45_000,
+        message: 'the page shows the components and overall state svc-notify publishes',
+      })
+      .toBe(true);
+    expect((await publishedStatus()).rows.map((r) => r.id)).toEqual([STATUS_COMPONENT.id]);
+    await expect(page.getByTestId(`status-component-${STATUS_COMPONENT.id}`)).toContainText(STATUS_COMPONENT.name);
+
+    // Platform status's as-of time is svc-notify's own read time, in UTC, to the minute: the read is made before and after
+    // the page's line, so the line is one of the two answers, never a time of the page's own.
+    const statusAsOf = page.getByTestId('status-asof');
+    await expect(statusAsOf).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+    const minuteLine = (iso) => `As of ${utcMinuteOf(Date.parse(iso)).replace('T', ' ')} UTC`;
+    await expect
+      .poll(
+        async () => {
+          const before = minuteLine((await statusRead()).asOf);
+          const shown = (await statusAsOf.textContent())?.trim();
+          const after = minuteLine((await statusRead()).asOf);
+          return shown === before || shown === after;
+        },
+        { timeout: 75_000, message: "the platform status as-of line is svc-notify's status read's own asOf" },
+      )
+      .toBe(true);
+
+    // Trading modes per market, each with its effect, from the venue's own state with our listing beside it: every market
+    // the venue read lists has its row, in the mode its own fields give.
+    await expect(page.getByRole('heading', { name: 'Trading modes', exact: true })).toBeVisible();
+    const open = page.getByTestId(`status-mode-${mine.open.symbol}`);
+    await expect(open).toContainText('Open');
+    await expect(open).toContainText('Orders are accepted and can be cancelled.');
+    const cancelOnly = page.getByTestId(`status-mode-${mine.cancelOnly.symbol}`);
+    await expect(cancelOnly).toContainText('Cancel-only');
+    await expect(cancelOnly).toContainText('New orders are refused. You can cancel resting orders.');
+    const upcoming = page.getByTestId(`status-mode-${mine.upcoming.symbol}`);
+    await expect(upcoming).toHaveAttribute('data-state', 'PRELAUNCH');
+    await expect(upcoming).toContainText('The market has not opened. New orders are refused; orders are not queued.');
+    const states = await marketStates();
+    expect(states.value.markets.length, 'the venue read lists markets').toBeGreaterThan(0);
+    for (const m of states.value.markets)
+      await expect(page.getByTestId(`status-mode-${m.symbol}`), `${m.symbol}'s mode row`).toHaveAttribute('data-state', modeOf(m));
+    await expect(page.locator('[data-testid^="status-mode-"][data-state]')).toHaveCount(states.value.markets.length);
+
+    // The as-of time is the venue read's own time, in UTC, to the minute. The venue read is read before and after the
+    // page's line, so the line is one of the two answers, never a time of the page's own.
+    const line = page.getByTestId('status-modes-asof');
+    await expect(line).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+    const asOfLine = (read) => minuteLine(read.asOf);
+    await expect
+      .poll(
+        async () => {
+          const before = asOfLine(await marketStates());
+          const shown = (await line.textContent())?.trim();
+          const after = asOfLine(await marketStates());
+          return shown === before || shown === after;
+        },
+        { timeout: 75_000, message: "the as-of line is the venue market-states read's own asOf" },
+      )
+      .toBe(true);
+    await stepPicture();
+  });
 });
 
 test(`${J} #3 a market order on a limit-only market is refused as limit-only, and a limit inside the band is accepted`, async ({

@@ -734,7 +734,7 @@ export function reviewSection({ brief, diff, pr, head, stepWords = false, note =
   ].join('\n');
 }
 
-// ── The owner's record, for a pull request that changes the brief ─────────────────────────────────────────────────
+// ── The owner's record, for a pull request that cites it ──────────────────────────────────────────────────────────
 
 /** The brief's own path: a diff that changes it may add an owner decision, which the review checks against his record. */
 export const BRIEF_PATH = 'tooling/ci/ci-review/REVIEW.md';
@@ -763,18 +763,21 @@ export function citedOwnerItems(diff) {
  * the 12 Nov test sentence, so the route could never pass it). Since project-state row d117 (17 Nov) a new decision has
  * no row file: his words stand in the body of a merged project-state PR labelled `decision`, cited as "project-state
  * decision PR #N" and returned as `#N` (intafaced #9186, CI review FAIL on 8b3f6cdc: the 20 Nov look decision had no
- * row to cite, so the route could never pass it).
+ * row to cite, so the route could never pass it). A decision PR is read when an added line of any file cites it, so the
+ * change that carries out a decision cites it itself and needs no entry PR in the brief first (on 24 Nov 2026 the
+ * entry PRs #10643 and #10644 took 40 and 45 minutes to land one line each). Rows stay brief-only.
  */
 export function citedRows(diff) {
   const rows = new Set();
+  const pulls = new Set();
   let inBrief = false;
   for (const l of String(diff).split('\n')) {
     if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
-    if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
-    for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
-    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) rows.add(`#${Number(m[1])}`);
+    if (!l.startsWith('+') || l.startsWith('+++ ')) continue;
+    if (inBrief) for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
+    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) pulls.add(`#${Number(m[1])}`);
   }
-  return [...rows];
+  return [...rows, ...pulls];
 }
 
 /** Each cited item's text in OWNER.md (from its "N. " line to the next item or heading), or null when it has none. */
@@ -791,7 +794,7 @@ export function ownerItems(text, numbers) {
 }
 
 /**
- * The trusted block the review is given with a diff that changes the brief: the cited items as the job read them from
+ * The trusted block the review is given with a diff that cites the owner's record: the cited items as the job read them from
  * project-state OWNER.md, so a new entry's quote is checked against the owner's own record, never taken on its form.
  */
 export function ownerRecordSection({ items, ref, rows = new Map() }) {
@@ -812,7 +815,7 @@ export function ownerRecordSection({ items, ref, rows = new Map() }) {
     .filter(Boolean)
     .join(' and ');
   return [
-    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
+    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines cite (OWNER.md items and rows only in this brief, decision pull requests in any file) from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
     'BEGIN OWNER RECORD',
     ...body,
     'END OWNER RECORD',
@@ -1166,7 +1169,8 @@ export async function indexHead(dir) {
  * A verdict is the patch read against the briefs of its day, so it carries only while they stand: a head first reviewed
  * before main's newest change to either brief (`CARRY_BRIEFS`) is passed over, and a patch the owner's new decision
  * entry now allows is reviewed again rather than held by the FAIL the entry answers (intafaced#10229 on 23 Nov 2026:
- * the entry merged and the FAIL of the patch it allowed still stood). An unread brief date carries nothing.
+ * the entry merged and the FAIL of the patch it allowed still stood); for the same reason a review FAIL of a patch that
+ * cites a decision PR never carries. An unread brief date carries nothing.
  *
  * `runs` are this workflow's runs on the pull request's branch; `attempts(run)` the jobs of each attempt; `diffOf(sha)`
  * the compare API's diff of base...sha, the same read as `diff`; `baseAtOf(sha)` when that diff's merge base reached
@@ -1217,6 +1221,9 @@ export async function carriedVerdict({ pull, diff, runs, attempts, diffOf, baseA
   }
   if (matched.length === 0) return null;
   const failed = (part) => matched.find((m) => m[part] === 'FAIL');
+  // A review FAIL of a patch that cites a project-state decision PR is not carried: the PR it cites may have merged
+  // since, and the FAIL may be the review saying it had no record yet. A PASS still carries.
+  if (failed('review') && citedRows(diff).some((r) => r.startsWith('#'))) return null;
   const from = (failed('review') ?? failed('tests') ?? matched[0]).from;
   return { from, review: failed('review') ? 'FAIL' : 'PASS', tests: failed('tests') ? 'FAIL' : 'PASS' };
 }
@@ -1300,7 +1307,8 @@ export async function writeReviewInputs(
   },
 ) {
   mkdirSync(dir, { recursive: true });
-  // A diff that adds to the brief: the owner items it cites, read from his record, follow the brief as trusted input.
+  // The owner items and rows the diff's added lines of the brief cite, and the decision PRs any added line cites, read
+  // from his record, follow the brief as trusted input.
   let reviewBrief = briefText;
   const cited = citedOwnerItems(diff);
   const citedRowIds = citedRows(diff);
@@ -1467,14 +1475,16 @@ async function cmdDiff(dir) {
       images = [...images, ...got2.images];
     } else console.log(`look pictures: none (${look.why})`);
   }
-  const loadWords = async () => {
+  // The project-state read token (the App token minted in ci-review.yml): without it, `what` is unreadable.
+  const psToken = (what) => {
     const t = process.env.PROJECT_STATE_READ_TOKEN;
     if (!t)
       throw new Error(
-        'the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the step words are unreadable and nothing is decided',
+        `no project-state read token (the App token minted in ci-review.yml), so ${what} is unreadable and nothing is decided`,
       );
-    return readWordsApi(t);
+    return t;
   };
+  const loadWords = async () => readWordsApi(psToken('the step words'));
   console.log(
     await writeReviewInputs(dir, {
       diff: summarizeDeleted(summarizeGenerated(r.text, { readBlob }), (p) =>
@@ -1488,14 +1498,7 @@ async function cmdDiff(dir) {
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),
       images,
-      loadOwner: (rows) => {
-        const t = process.env.PROJECT_STATE_READ_TOKEN;
-        if (!t)
-          throw new Error(
-            "the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the owner's record is unreadable and nothing is decided",
-          );
-        return readOwnerRecord(t, getText, rows);
-      },
+      loadOwner: (rows) => readOwnerRecord(psToken("the owner's record"), getText, rows),
       revertOf: await automaticRevert({
         repo,
         pull,

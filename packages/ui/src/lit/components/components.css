@@ -407,6 +407,12 @@
 .lit-tag[data-tone='neutral'] {
   --lit-tag-c: var(--lit-text-2);
 }
+.lit-tag[data-tone='warn'] {
+  --lit-tag-c: var(--lit-warn-text);
+}
+.lit-tag[data-tone='error'] {
+  --lit-tag-c: var(--lit-error-text);
+}
 .lit-test {
   display: inline-flex;
   align-items: center;
@@ -715,6 +721,396 @@
   color: var(--lit-text-2);
 }
 
+/* ---- Overlays (b2-controls.tsx): popover and tooltip. Base UI places them; these draw them. ---- */
+.lt-layer {
+  isolation: isolate;
+  z-index: 50;
+  outline: none;
+}
+.lt-pop {
+  min-inline-size: 12rem;
+  max-inline-size: min(22rem, calc(100vw - 2rem));
+  max-block-size: var(--available-height, 70vh);
+  overflow-y: auto;
+  padding: var(--lit-gap-item);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: var(--lit-type-body-size);
+  box-shadow: var(--lit-solid-shadow);
+  outline: none;
+}
+.lt-pop[data-size='wide'] {
+  inline-size: min(26rem, calc(100vw - 2rem));
+  max-inline-size: none;
+}
+.lt-pop-title {
+  margin: 0 0 0.5rem;
+  font-size: var(--lit-type-heading-size);
+  font-weight: 600;
+}
+.lt-tip {
+  max-inline-size: 18rem;
+  padding: 6px 10px;
+  border-radius: calc(var(--lit-radius-control) - 4px);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  box-shadow: var(--lit-solid-shadow);
+}
+
+/* ---- Values (b2-values.tsx): figures in rows, coin marks, status words, panel states ---- */
+.lt-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+.lt-num[data-unknown] {
+  color: var(--lit-text-2);
+}
+.lt-signed[data-direction='up'] {
+  color: var(--lit-up-text);
+}
+.lt-signed[data-direction='down'] {
+  color: var(--lit-down-text);
+}
+.lt-signed[data-direction='flat'] {
+  color: var(--lit-text-2);
+}
+.lt-change-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.lt-coin {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 24px;
+  block-size: 24px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: 10px;
+  font-weight: 600;
+}
+.lt-coin[data-size='sm'] {
+  inline-size: 18px;
+  block-size: 18px;
+}
+.lt-coin[data-size='lg'] {
+  inline-size: 32px;
+  block-size: 32px;
+  font-size: 13px;
+}
+.lt-coin > span,
+.lt-coin svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+.lt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 20px;
+  padding-inline: 6px;
+  border-radius: 4px;
+  font-size: var(--lit-type-micro-size);
+  line-height: var(--lit-type-micro-line);
+  white-space: nowrap;
+  border: 1px solid currentColor;
+  color: var(--lit-text-2);
+}
+.lt-status[data-status='filled'] {
+  color: var(--lit-accent-text);
+}
+.lt-status[data-status='pending'] {
+  color: var(--lit-warn-text);
+}
+.lt-status[data-status='cancelled'],
+.lt-status[data-status='failed'] {
+  color: var(--lit-down-text);
+}
+.lt-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: var(--lit-gap-section) var(--lit-gap-item);
+  text-align: center;
+}
+.lt-state[data-kind='loading'] {
+  align-items: stretch;
+  padding: 0;
+}
+.lt-state-title {
+  margin: 0;
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-heading-size);
+  font-weight: 500;
+}
+.lt-state-body {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+.lt-bone {
+  display: block;
+  inline-size: 100%;
+  block-size: var(--lit-row-h);
+  border-radius: 4px;
+  background: var(--lit-solid-bg-raised);
+}
+.lt-bone[data-size='word'] {
+  display: inline-block;
+  inline-size: 6rem;
+  block-size: 1.25rem;
+}
+.lt-bone[data-size='block'] {
+  block-size: 12rem;
+}
+.lt-bone[data-size='panel'] {
+  block-size: 28rem;
+}
+.lt-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+.lt-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--lit-text-2);
+}
+.lt-loading-dot {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 999px;
+  background: var(--lit-accent);
+}
+
+/* Buttons for a desk: Buy and Sell in the market's colours, and the dense size. */
+.lit-button[data-tone='up'] {
+  background: var(--lit-up);
+  color: var(--lit-page);
+}
+.lit-button[data-tone='down'] {
+  background: var(--lit-down);
+  color: var(--lit-text-1);
+}
+.lit-button[data-size='sm'] {
+  min-block-size: 32px;
+  min-inline-size: 32px;
+  padding-inline: 12px;
+  font-size: var(--lit-type-label-size);
+}
+.lit-button[data-tone='up']:disabled,
+.lit-button[data-tone='down']:disabled {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-2);
+}
+.lit-button[aria-disabled='true'] {
+  cursor: progress;
+}
+
+/* Chart overlay (b2-controls.tsx): order lines, the axis plus key and a point menu over a drawn chart. */
+.lt-chart-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.lt-chart-mark {
+  position: absolute;
+  padding: 2px 8px;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: calc(var(--lit-radius-control) - 4px);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font: inherit;
+  font-size: var(--lit-type-micro-size);
+  transform: translateY(-50%);
+}
+.lt-chart-mark[data-mark='line'],
+.lt-chart-mark[data-mark='preview'] {
+  inset-inline-start: 8px;
+}
+.lt-chart-mark[data-mark='preview'] {
+  border-style: dashed;
+}
+.lt-chart-mark[data-mark='line'] {
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.lt-chart-mark[data-side='buy'] {
+  border-color: var(--lit-up);
+}
+.lt-chart-mark[data-side='sell'] {
+  border-color: var(--lit-down);
+}
+.lt-chart-mark[data-mark='plus'] {
+  inset-inline-end: 4px;
+  inline-size: 20px;
+  block-size: 20px;
+  padding: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.lt-chart-mark[data-mark='menu'] {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  transform: none;
+  pointer-events: auto;
+}
+.lt-chart-mark[data-mark='menu'] > button {
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* ---- charts grid: the split grid (SplitGrid, SplitCell, SplitBorder) ---- */
+.lt-split {
+  display: grid;
+  gap: 0;
+  min-inline-size: 0;
+}
+.lt-split-cell {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  min-inline-size: 0;
+}
+.lt-split-border {
+  touch-action: none;
+}
+.lt-split-border[data-axis='cols'] {
+  cursor: col-resize;
+}
+.lt-split-border[data-axis='rows'] {
+  cursor: row-resize;
+}
+.lt-split-border:hover,
+.lt-split-border:focus-visible {
+  background: var(--lit-line-strong);
+}
+
+/* A table whose columns the person resizes (ColumnWidths): fixed layout, a grip at each header's inline end. */
+.lt-table[data-resizable] {
+  table-layout: fixed;
+}
+.lt-table[data-resizable] thead th {
+  position: relative;
+}
+.lt-col-grip {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 0.375rem;
+  cursor: col-resize;
+  touch-action: none;
+}
+.lt-col-grip:hover,
+.lt-col-grip:focus-visible {
+  background: var(--lit-line-strong);
+}
+
+/* ---- charts drawings: a price alert's handle on the chart, by the price axis, dotted, dragged to a new level ---- */
+.lt-chart-mark[data-mark='alert'] {
+  inset-inline-end: 4.5rem;
+  border-style: dotted;
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+/* ---- charts widget: a drawn chart's stage (ChartStack, its plot host and the legend over it) ---- */
+/* The stack fills its cell: the stage takes the room its add-ons (a studies bar, a drawings dock) leave below it. */
+.lt-chart-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  block-size: 100%;
+}
+/* Inside a canvas region, the stack keeps the canvas's own floor, so the stage grows to fill it. */
+.lt-canvas > .lt-chart-stack {
+  min-block-size: inherit;
+}
+/* A floor, so add-ons below can never crush the plot to a few pixels. */
+.lt-chart-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-block-size: 16.25rem;
+}
+.lt-chart-host {
+  position: absolute;
+  inset: 0;
+}
+.lt-chart-host:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: -2px;
+}
+/* The hovered bar's values, over the plot's start corner, on the panel's own colour so a candle under it never takes
+   its contrast; the pointer goes through to the chart. */
+.lt-chart-legend {
+  position: absolute;
+  inset-block-start: 0.375rem;
+  inset-inline-start: 0.5rem;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-block: 0.125rem;
+  padding-inline: 0.375rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+  pointer-events: none;
+  color: var(--lit-text-2);
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-chart-legend b {
+  font-weight: 500;
+  color: var(--lit-text-1);
+}
+/* The chart's attribution: a link on its own line under the plot, outside the plot's image, always shown. */
+.lt-link.lt-chart-attribution {
+  flex: none;
+  align-self: flex-start;
+  margin-block-start: 0.25rem;
+  font-size: var(--lit-type-micro-size);
+}
+
+/* ---- charts widget: a menu item drawn as a plain button (a list of choices inside a popover, role menuitem) ---- */
+button.lt-menu-item {
+  appearance: none;
+  inline-size: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: start;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+button.lt-menu-item:hover {
+  background: var(--lit-solid-bg-raised);
+}
+button.lt-menu-item:focus-visible {
+  background: var(--lit-solid-bg-raised);
+  outline: 2px solid var(--lit-focus);
+  outline-offset: -2px;
+}
 /* AssetIcon: the kit's artwork on a raised disc, or the ticker's first letter on one. */
 .lit-asset {
   display: inline-flex;

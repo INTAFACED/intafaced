@@ -103,6 +103,14 @@ export interface VenueTrigger {
  */
 export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
 
+/**
+ * Where a venue order came from, as the venue reports it (J-derivatives-04 #2): `user` for an order the account
+ * placed directly, `stop` for a stop trigger order, `take_profit` for a take-profit trigger order, `liquidation` for
+ * a liquidation order the venue placed on the account, `adl` for an auto-deleverage.
+ */
+export type VenueOrderOrigin = 'user' | 'stop' | 'take_profit' | 'liquidation' | 'adl';
+export const VENUE_ORDER_ORIGINS: readonly VenueOrderOrigin[] = ['user', 'stop', 'take_profit', 'liquidation', 'adl'];
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -115,6 +123,12 @@ export interface PlaceUserOrderIntent {
   /** `ALO` is post-only. A market order is sent as `IOC` at its worst price. */
   readonly timeInForce: VenueTimeInForce;
   readonly reduceOnly: boolean;
+  /**
+   * Optional trader label on this order (J-derivatives-04 #2): up to 36 letters, digits and `. _ : -` with no spaces.
+   * Stored with the prepared order by our door (and echoed by the TEST venue); a real venue that carries no label
+   * ignores it and our door attaches it on read.
+   */
+  readonly label?: string | null;
   /**
    * Set on a trigger order: it rests on the venue until `trigger.source` crosses `trigger.price`, then is sent as this
    * order. Absent or `null`: an ordinary order, sent to the book at once.
@@ -871,6 +885,12 @@ export interface UserVenueOrder {
    * (`selfTrade`, `cancel_resting`) cancelled it instead (J-derivatives-04 #7).
    */
   readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null;
+  /** Where the order came from, as the venue reports it (J-derivatives-04 #2). Absent on an older adapter. */
+  readonly origin?: VenueOrderOrigin;
+  /** The venue's own id for what placed it (e.g. a liquidation part id `liq-1-1`), when not the person directly. */
+  readonly originRef?: string | null;
+  /** The trader's label on this order, when one was set (J-derivatives-04 #2). */
+  readonly label?: string | null;
 }
 
 /**

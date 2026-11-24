@@ -50,6 +50,7 @@ function answer(href, method, body, signedIn, now) {
   if (!rest || method !== 'GET') return null;
   const path = rest[1];
   if (path.startsWith('ohlcv/')) return { status: 200, json: atFrozen(now, world.REST['ohlcv/*'], decodeURIComponent(path.slice(6))) };
+  if (Object.hasOwn(world.REST_REFUSED, path)) return world.REST_REFUSED[path];
   const fn = Object.hasOwn(world.REST, path) ? world.REST[path] : null;
   return fn ? { status: 200, json: atFrozen(now, fn) } : null;
 }
