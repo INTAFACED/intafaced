@@ -1471,36 +1471,54 @@ test('builtMap: reads the build’s artifact; any failed read is null, so the co
       workflow_run: { id: run, head_branch: 'main' },
       ...over,
     });
-    const runs = {
-      3: mapRun(3, '2026-11-09T23:00:00Z'),
-      4: mapRun(4, '2026-11-09T23:20:00Z', { event: 'workflow_dispatch' }),
-      5: oldRun(5, '2026-11-09T20:00:00Z'),
-    };
+    const all = [
+      mapRun(3, '2026-11-09T23:00:00Z'),
+      mapRun(4, '2026-11-09T23:20:00Z', { event: 'workflow_dispatch' }), // a dispatch's build: never counts
+      mapRun(10, '2026-11-09T07:59:00Z'), // re-run late: its artifact came 33 minutes after the cut below (review B-S1)
+      mapRun(11, '2026-11-09T07:30:00Z'), // no artifact: a run of Main trust after CI, say
+    ];
+    const old = [oldRun(5, '2026-11-09T20:00:00Z'), oldRun(6, '2026-11-09T21:00:00Z', { conclusion: 'failure' })];
     const artifacts = [
-      art(78, 4, '2026-11-09T23:25:00Z'), // a dispatch's build: never read
+      art(78, 4, '2026-11-09T23:25:00Z'),
+      art(75, 9, '2026-11-09T23:06:00Z', { workflow_run: { id: 9, head_branch: 'u4/x' } }), // another branch's
       art(77, 3, '2026-11-09T23:05:00Z'),
+      art(79, 6, '2026-11-09T21:05:00Z'), // the old workflow uploaded even when verify failed
       art(76, 5, '2026-11-09T20:05:00Z'),
-      art(75, 9, '2026-11-09T23:06:00Z', { workflow_run: { id: 9, head_branch: 'u4/x' } }), // another branch's: its run not read
+      art(80, 10, '2026-11-09T08:32:00Z'),
     ];
     const asked = [];
     const get = async (path) => {
       asked.push(path);
-      if (path.endsWith('/actions/artifacts?name=journey-reach-map&per_page=100')) return { artifacts };
-      const id = /\/actions\/runs\/(\d+)$/.exec(path)?.[1];
-      if (id && runs[id]) return runs[id];
+      const u = new URL(path, 'https://x');
+      if (u.pathname.endsWith('/actions/artifacts')) return u.searchParams.get('page') === '1' ? { artifacts } : { artifacts: [] };
+      const file = /\/workflows\/([^/]+)\/runs$/.exec(u.pathname)?.[1];
+      if (file) {
+        assert.equal(u.searchParams.get('branch'), 'main');
+        assert.equal(u.searchParams.get('event'), 'workflow_run');
+        const cut = Date.parse(u.searchParams.get('created').replace(/^<=/, ''));
+        const list = (file === 'main-trust.yml' ? all : file === 'journey-reach-map.yml' ? old : [])
+          .filter((r) => Date.parse(r.created_at) <= cut)
+          .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+        return { workflow_runs: u.searchParams.get('page') === '1' ? list : [] };
+      }
       throw new Error(`unexpected ${path}`);
     };
     const zips = (want) => async (path) => (path.endsWith(`/artifacts/${want}/zip`) ? zip : null);
-    assert.deepEqual(await builtMap({ get, raw: zips(77), repo: REPO }), MAP);
-    assert.ok(!asked.some((p) => p.endsWith('/runs/9')), 'a build from another branch has no run read');
-    // The journeys run created before build 3's run: build 5, the old workflow's green run.
-    assert.deepEqual(await builtMap({ get, raw: zips(76), before: Date.parse('2026-11-09T22:00:00Z'), repo: REPO }), MAP);
-    // No build of main by then (the dispatch's is never one): none.
-    assert.equal(await builtMap({ get, raw: zips(78), before: Date.parse('2026-11-09T19:00:00Z'), repo: REPO }), null);
+    const at = (iso) => Date.parse(iso);
+    assert.deepEqual(await builtMap({ get, raw: zips(77), before: at('2026-11-10T00:00:00Z'), repo: REPO }), MAP);
+    // Before build 3's run: the old workflow's green run 5, never its red run 6.
+    assert.deepEqual(await builtMap({ get, raw: zips(76), before: at('2026-11-09T22:00:00Z'), repo: REPO }), MAP);
+    // The run counts by its creation, whenever its artifact came (B-S1).
+    assert.deepEqual(await builtMap({ get, raw: zips(80), before: at('2026-11-09T08:00:00Z'), repo: REPO }), MAP);
+    // No build of main by then: none.
+    assert.equal(await builtMap({ get, raw: zips(80), before: at('2026-11-09T07:00:00Z'), repo: REPO }), null);
     assert.equal(await builtMap({ get: async () => Promise.reject(new Error('HTTP 502')), raw: zips(77), repo: REPO }), null);
     const expired = async (path) =>
       path.includes('/actions/artifacts?') ? { artifacts: artifacts.map((a) => ({ ...a, expired: true })) } : get(path);
-    assert.equal(await builtMap({ get: expired, raw: zips(77), repo: REPO }), null);
+    assert.equal(await builtMap({ get: expired, raw: zips(77), before: at('2026-11-10T00:00:00Z'), repo: REPO }), null);
+    // The old workflow's list gone (its file deleted): Main trust's builds still read.
+    const noOld = async (path) => (path.includes('/workflows/journey-reach-map.yml/') ? Promise.reject(new Error('HTTP 404')) : get(path));
+    assert.deepEqual(await builtMap({ get: noOld, raw: zips(77), before: at('2026-11-10T00:00:00Z'), repo: REPO }), MAP);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
