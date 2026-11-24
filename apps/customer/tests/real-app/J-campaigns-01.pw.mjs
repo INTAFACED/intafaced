@@ -254,7 +254,7 @@ test(`${J} #3 a campaign's page shows its rules, its time frame in my time zone,
     await page.goto(`/campaigns/${welcome.id}`);
     const unset = page.getByTestId('campaign-detail');
     await expect(unset.getByRole('heading', { name: welcome.name, exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(unset.getByTestId('campaign-reward')).toHaveText(/^not set$/i);
+    await expect(unset.getByTestId('campaign-reward')).toHaveText('Not set');
     await expect(unset.getByTestId('campaign-budget-left')).toHaveText('1000 USDT of 1000 USDT');
   } finally {
     data(
@@ -288,6 +288,24 @@ test(`${J} #3 a campaign's page shows its rules, its time frame in my time zone,
 
 test(`${J} #3 a live campaign whose owner set no cap shows its page with no budget-left line`, async ({ browser, stepPicture }) => {
   const { me } = state('me');
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  // A campaign that pays from a budget cannot go live without a cap: the activation gate names the blank budget, so no
+  // customer reads it, and its page shows no budget line.
+  const uncapped = data(
+    await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition(`TEST no cap ${tag}`, { budget: null }), a),
+    'ops.campaigns.create',
+  );
+  const noCap = await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: uncapped.id, action: 'submit', revision: 1 }, a);
+  expect(noCap.json?.error?.message ?? noCap.text).toContain('campaigns.budget_unset');
+  expect((await catalogueOf(me)).campaigns.map((c) => c.id)).not.toContain(uncapped.id);
+  const page = await customer(browser, 'Asia/Tokyo');
+  await signIn(page, me);
+  await page.goto(`/campaigns/${uncapped.id}`);
+  await expect(page.getByTestId('campaign-detail')).toContainText('This campaign is not listed.', { timeout: 30_000 });
+  await expect(page.getByTestId('campaign-budget-left')).toHaveCount(0);
+  await expect(page.getByTestId('campaign-detail').getByRole('heading', { name: `TEST no cap ${tag}`, exact: true })).toHaveCount(0);
+
   // A campaign the owner runs with no cap at all, a TEST trial pass (it pays nothing, so it asks for no budget), goes live.
   const pass = await liveCampaign(`TEST trial pass ${tag}`, {
     type: 'trial_pass',
@@ -296,11 +314,7 @@ test(`${J} #3 a live campaign whose owner set no cap shows its page with no budg
     trialPass: { tierId: 'test-vip-1', seconds: 3600 },
   });
   expect(pass.budget ?? null).toBeNull();
-  const { ctx, pair } = await operators();
-  const a = await pair.a.campaignsOpsToken();
   try {
-    const page = await customer(browser, 'Asia/Tokyo');
-    await signIn(page, me);
     // An active campaign is a card I can open, cap or no cap.
     await openCatalogue(page);
     await card(page, pass.id).getByRole('link', { name: pass.name, exact: true }).click({ timeout: 15_000 });
@@ -309,7 +323,7 @@ test(`${J} #3 a live campaign whose owner set no cap shows its page with no budg
     await expect(detail.getByRole('heading', { name: pass.name, exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(detail.getByTestId('campaign-rules')).toContainText(`TEST rules for ${pass.name}`);
     await expect(detail.getByTestId('campaign-window')).toContainText('GMT+9');
-    await expect(detail.getByTestId('campaign-reward')).toHaveText(/^not set$/i);
+    await expect(detail.getByTestId('campaign-reward')).toHaveText('Not set');
     // No cap was set, so no budget left is shown.
     await expect(detail.getByText('Budget left', { exact: true })).toHaveCount(0);
     await expect(detail.getByTestId('campaign-budget-left')).toHaveCount(0);
