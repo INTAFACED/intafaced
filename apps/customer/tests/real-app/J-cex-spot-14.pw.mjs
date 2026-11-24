@@ -964,12 +964,37 @@ test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordere
   expect(sameDecimal(tickerRow.bid, ownBook.bids[0].price)).toBe(true);
   expect(sameDecimal(tickerRow.ask, ownBook.asks[0].price)).toBe(true);
 
+  // Also add one listed one-sided TEST market (ask only, no bid) so the every-row spreads check exercises both branches.
+  const oneSided = await freshMarket('O8');
+  await list(oneSided.symbol, minuteAgoIso());
+  await testDeposit(seller.address, oneSided.base, '20', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+  await otherTraderRun(sellerName, {
+    kind: 'place_order',
+    symbol: oneSided.symbol,
+    side: 'sell',
+    type: 'limit',
+    amount: '1',
+    price: '10',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: orderKey(seller.address, `j14-8-onesided-${oneSided.base}`),
+  });
+
   const spreadsRes = await fetch(`${EDGE}/api/v1/venue/spreads`);
   expect(spreadsRes.status).toBe(200);
   const spreads = (await spreadsRes.json()).value;
   const spreadRow = spreads.find((r) => r.symbol === tape.symbol);
   expect(spreadRow?.spread).toBeTruthy();
   expect(toUnits(spreadRow.spread)).toBe(toUnits(spreadRow.ask) - toUnits(spreadRow.bid));
+  const oneSidedRow = spreads.find((r) => r.symbol === oneSided.symbol);
+  expect(oneSidedRow, 'one-sided market appears in spreads with null bid and null spread').toMatchObject({
+    bid: null,
+    spread: null,
+  });
+  for (const r of spreads) {
+    const expected = r.bid !== null && r.ask !== null ? toUnits(r.ask) - toUnits(r.bid) : null;
+    expect(r.spread === null ? null : toUnits(r.spread), `${r.symbol}'s spread`).toBe(expected);
+  }
 
   const ownCandles = (await venueRecord(ZERO_OWNER, '/candles', { symbol: tape.symbol, interval: '1m', limit: 5 })).value;
   const candlesRes = await fetch(`${EDGE}/api/v1/venue/chart-candles?symbol=${encodeURIComponent(tape.symbol)}&interval=1m&limit=5`);
@@ -1275,6 +1300,12 @@ test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label rea
   await list(usd.symbol, minuteAgoIso());
   const ownMkt = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === usd.symbol);
   expect(ownMkt?.quoteAsset).toBe('USD');
+
+  // No equity-class market is listed without a licence (neither on the venue list nor on svc-trade's markets catalogue).
+  const ownMarkets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  expect(ownMarkets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
+  const venueListed = (await marketStates()).value.markets;
+  expect(venueListed.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
 
   // The venue desk names the quote USD from the venue listing.
   await openVenueDesk(page, who, `/trade/spot/${usd.symbol}`, walletKey);
