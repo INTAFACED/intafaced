@@ -4,8 +4,10 @@
  * the colour scheme, older history in front of the loaded bars, a moved view for "go to date", keyboard zoom and pan,
  * and hands a `ChartHost` to the add-ons drawn on top (studies, drawings).
  *
- * TradingView attribution stays on (`layout.attributionLogo: true`), as the licence asks. Colours come from the app's
- * tokens (`--if-*`), never from literals here.
+ * TradingView attribution stays, as the licence asks, but drawn by us beside the plot rather than by the engine inside
+ * it: the plot host is an image (role="img"), and an image may hold no link. So the engine's own logo is off
+ * (`layout.attributionLogo: false`) and `ChartAttribution` draws the same words and link next to it, in every chart.
+ * Colours come from the app's tokens (`--if-*`), never from literals here.
  */
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useCentredBar, useChartOptionsInPlace, useChartStage, useMainSeriesBars, useMainSeriesLines } from '../../shared/chart-stage';
@@ -83,7 +85,7 @@ function writeDrawn(element: HTMLElement | null, chart: ChartApi | null, series:
 
 export interface WorkbenchChartProps {
   candles: readonly Candle[];
-  style: ChartStyle;
+  chartStyle: ChartStyle;
   scheme: ColourScheme;
   /** Changes with the market or interval: the view is fitted again; otherwise it stays where the person put it. */
   resetKey: string;
@@ -109,9 +111,33 @@ export interface WorkbenchChartProps {
 
 const NO_LINES: readonly PriceLine[] = [];
 
+/** The engine's own attribution, as its vendored file draws it: the logo's title and the link it opens. */
+export const ATTRIBUTION_WORDS = 'Charting by TradingView';
+const ATTRIBUTION_LINK = 'https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart';
+
+/** The link the engine's logo opens: its address, with the page it sits on as the source, exactly as the engine adds it. */
+export function attributionHref(page: { hostname: string; pathname: string }): string {
+  return page.hostname ? `${ATTRIBUTION_LINK}&utm_source=${page.hostname}${page.pathname}` : ATTRIBUTION_LINK;
+}
+
+/** The chart's attribution, a visible link beside the plot and outside its image. */
+function ChartAttribution() {
+  return (
+    <a
+      data-testid="wc-attribution"
+      className="lt-link lt-chart-attribution"
+      href={attributionHref(window.location)}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {ATTRIBUTION_WORDS}
+    </a>
+  );
+}
+
 export function WorkbenchChart({
   candles,
-  style,
+  chartStyle: style,
   scheme,
   resetKey,
   symbol,
@@ -160,7 +186,7 @@ export function WorkbenchChart({
           textColor: c.text,
           fontFamily: getComputedStyle(el).fontFamily,
           fontSize: 12,
-          attributionLogo: true,
+          attributionLogo: false,
           panes: { separatorColor: c.border, separatorHoverColor: c.border, enableResize: true },
         },
         grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
@@ -293,12 +319,12 @@ export function WorkbenchChart({
   const legend = focusBar ? legendValues(focusBar, tickSize, language) : null;
 
   return (
-    <div className="wc-root">
-      <div className="wc-stage">
+    <div className="lt-chart-stack">
+      <div className="lt-chart-stage">
         <div
           ref={element}
           data-testid="wc-host"
-          className="wc-host"
+          className="lt-chart-host"
           role="img"
           tabIndex={0}
           aria-label={labels.chart}
@@ -319,12 +345,8 @@ export function WorkbenchChart({
           onWheel={() => (moved.current = true)}
         />
         {legend && focusBar ? (
-          <div className="wc-legend" data-testid="chart-legend">
-            {settings.showTime && (
-              <span data-testid="wc-time" className="wc-time">
-                {formatTime(Math.floor(focusBar.t / 1000))}
-              </span>
-            )}
+          <div className="lt-chart-legend lt-num" data-testid="chart-legend">
+            {settings.showTime && <span data-testid="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>}
             <span>
               {labels.open} <b>{legend.open}</b>
             </span>
@@ -338,13 +360,14 @@ export function WorkbenchChart({
               {labels.close} <b>{legend.close}</b>
             </span>
             {settings.showChange && (
-              <span className="wc-change" data-direction={legend.direction}>
+              <span className="lt-signed" data-direction={legend.direction}>
                 {labels.change} {legend.change}
               </span>
             )}
           </div>
         ) : null}
       </div>
+      <ChartAttribution />
       {children?.(host, candles)}
     </div>
   );

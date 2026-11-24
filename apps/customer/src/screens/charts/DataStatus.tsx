@@ -27,6 +27,16 @@ const CHIP_KEY = {
   loading: 'Status loading',
 } as const;
 
+/** The chip's mark, as the kit draws freshness: a filled dot when live, a turned square when stopped, a ring when late. */
+const CHIP_FRESHNESS: Partial<Record<keyof typeof CHIP_KEY, 'live' | 'stale' | 'refused'>> = {
+  live: 'live',
+  delayed: 'stale',
+  stale: 'stale',
+  halted: 'refused',
+  down: 'refused',
+  lifecycle_unavailable: 'refused',
+};
+
 /** The chip's words, with the age of the newest trade where the state judges one. */
 export function chipText(status: DataStatus, t: Words): string {
   const word = t(CHIP_KEY[status.chip]);
@@ -42,13 +52,14 @@ export function StatusChip({ status }: { status: DataStatus }) {
   const text = chipText(status, t);
   return (
     <span
-      className="cw-status"
+      className="lt-chip"
       data-testid="chart-status"
+      data-freshness={CHIP_FRESHNESS[status.chip] ?? 'unknown'}
       data-status={status.chip}
       data-feed={status.feed}
       aria-label={t('Status label', { status: text })}
     >
-      <span className="cw-status-dot" aria-hidden="true" />
+      <span className="lt-chip-mark" aria-hidden="true" />
       {text}
     </span>
   );
@@ -58,7 +69,7 @@ export function TestLabel({ status }: { status: DataStatus }) {
   const { t } = chartsCopy.useCopy();
   if (!status.test) return null;
   return (
-    <span className="cw-test" data-testid="chart-test" title={t('Status test title')}>
+    <span className="lt-test" data-testid="chart-test" title={t('Status test title')}>
       {t('Status test')}
     </span>
   );
@@ -109,8 +120,10 @@ export function StatusBanner({ status, format }: { status: DataStatus; format: (
     });
   }
   if (kind === null) return null;
+  // A state that stops the market reads as a failure; a late or partial one as a caution. The words say which too.
+  const tone = kind === 'halted' || kind === 'down' || kind === 'lifecycle' ? 'lt-note lt-note-bad' : 'lt-note lt-note-warn';
   return (
-    <p className="cw-banner" role="status" data-testid="chart-banner" data-kind={kind}>
+    <p className={tone} role="status" data-testid="chart-banner" data-kind={kind}>
       {body}
     </p>
   );
@@ -120,7 +133,7 @@ export function StatusBanner({ status, format }: { status: DataStatus; format: (
 export function SourceLine() {
   const { t } = chartsCopy.useCopy();
   return (
-    <p className="cw-source" data-testid="chart-source">
+    <p className="lt-note" data-testid="chart-source">
       {t('Source line')}
     </p>
   );

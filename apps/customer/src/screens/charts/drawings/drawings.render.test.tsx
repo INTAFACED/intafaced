@@ -231,6 +231,16 @@ describe('drawings on the workbench chart', () => {
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('locked');
   });
 
+  it('reads a click at the whole pixel the chart reads, so a fractional pointer stores the price the chart shows', async () => {
+    const fake = fakeHost();
+    await mount(fake.host, baseOptions());
+    await press('Horizontal line');
+    // The chart takes its pointer from mouse events, in whole pixels: y 100.75 is read at y 100, price 150.00, never at
+    // 100.75 (149.625).
+    await clickChart(fake.handlers, 100.4, 100.75);
+    expect(api?.drawings[0]!.points).toEqual([{ time: T0 + 600, price: '150.00' }]);
+  });
+
   it('gives a Fibonacci retracement its level prices from the two points, at the tick', async () => {
     const fake = fakeHost();
     await mount(fake.host, baseOptions());
@@ -271,9 +281,9 @@ describe('drawings on the workbench chart', () => {
     expect(api?.hiddenAll).toBe(true);
     await press('Show all');
     await press('Clear all');
-    // Nothing is cleared until the in-app dialog is confirmed; its buttons sit outside the host, in the document.
+    // Nothing is cleared until the in-app dialog is confirmed; its buttons sit in the dialog that asks.
     expect(api?.drawings).toHaveLength(1);
-    const confirm = [...document.querySelectorAll('button')].find((node) => node.textContent === 'Clear all' && !host.contains(node));
+    const confirm = [...document.querySelectorAll('[role="alertdialog"] button')].find((node) => node.textContent === 'Clear all');
     expect(confirm).toBeDefined();
     await act(async () => {
       confirm?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

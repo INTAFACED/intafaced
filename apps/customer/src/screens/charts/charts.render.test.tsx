@@ -61,8 +61,8 @@ vi.mock('../trade/chart/candles', async (original) => ({
   },
 }));
 vi.mock('./WorkbenchChart', () => ({
-  WorkbenchChart: ({ candles, style, scheme }: { candles: readonly Candle[]; style: string; scheme: string }) => (
-    <div data-testid="price-chart" data-mode={style} data-scheme={scheme} data-last={candles[candles.length - 1]?.c ?? ''} />
+  WorkbenchChart: ({ candles, chartStyle, scheme }: { candles: readonly Candle[]; chartStyle: string; scheme: string }) => (
+    <div data-testid="price-chart" data-mode={chartStyle} data-scheme={scheme} data-last={candles[candles.length - 1]?.c ?? ''} />
   ),
 }));
 // The market's state and newest trade: read as open and fresh unless a case says otherwise.
@@ -176,12 +176,12 @@ afterEach(() => {
 describe('chart workbench', () => {
   it('draws the market in the address at the default 15m and names it', async () => {
     await open();
-    expect(host.querySelector('.cw-page')?.getAttribute('data-market')).toBe('BTC/USDT');
+    expect(host.querySelector('[data-testid="cw-page"]')?.getAttribute('data-market')).toBe('BTC/USDT');
     expect(host.querySelector('[data-testid="price-chart"]')).not.toBeNull();
     expect(pressed()).toEqual(['15m']);
     expect(world.asked).toContain('BTC/USDT:15m');
-    expect((host.querySelector('.cw-head select') as HTMLSelectElement).value).toBe('BTC/USDT');
-    expect(host.querySelector('a.cw-link')?.getAttribute('href')).toBe('/trade/spot/BTC-USDT');
+    expect((host.querySelector('[data-testid="cw-market"]') as HTMLSelectElement).value).toBe('BTC/USDT');
+    expect(host.querySelector('a[data-testid="cw-link"]')?.getAttribute('href')).toBe('/trade/spot/BTC-USDT');
   });
 
   it('a halted market shows the halt as its chip, a banner with the time, and refuses the trade link by name', async () => {
@@ -191,9 +191,9 @@ describe('chart workbench', () => {
     expect(host.querySelector('[data-testid="chart-status"]')?.getAttribute('data-status')).toBe('halted');
     expect(host.querySelector('[data-testid="chart-banner"]')?.getAttribute('data-kind')).toBe('halted');
     expect(host.querySelector('[data-testid="chart-banner"]')?.textContent).toContain('Halted as of');
-    const trade = host.querySelector('button.cw-link') as HTMLButtonElement;
+    const trade = host.querySelector('button[data-testid="cw-link"]') as HTMLButtonElement;
     expect(trade.disabled).toBe(true);
-    expect(host.querySelector('a.cw-link')).toBeNull();
+    expect(host.querySelector('a[data-testid="cw-link"]')).toBeNull();
     expect(host.querySelector('#cw-trade-refusal')?.textContent).toBe('Order entry is off: this market is halted.');
   });
 
@@ -201,7 +201,7 @@ describe('chart workbench', () => {
     world.lifecycle = { status: 'error', retry: () => undefined };
     await open();
     expect(host.querySelector('[data-testid="chart-status"]')?.getAttribute('data-status')).toBe('lifecycle_unavailable');
-    expect((host.querySelector('button.cw-link') as HTMLButtonElement).disabled).toBe(true);
+    expect((host.querySelector('button[data-testid="cw-link"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('opens at the interval in the address and keeps the person’s later choice', async () => {
@@ -223,18 +223,18 @@ describe('chart workbench', () => {
     world.owner = { ...world.owner, chartCountLimit: null };
     await open();
     await choose('Layout', 'grid');
-    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(host.querySelectorAll('section[data-testid="cw"]')).toHaveLength(1);
     expect(host.querySelector('[data-code="trade.chart.owner_value_unset"]')?.textContent).toContain('which is not set');
   });
 
   it('opens four charts that follow the first one’s market and interval in their group', async () => {
     await open();
     await choose('Layout', 'grid');
-    const charts = () => host.querySelectorAll('section.cw');
+    const charts = () => host.querySelectorAll('section[data-testid="cw"]');
     expect(charts()).toHaveLength(4);
     // The fourth leaves the group, so it no longer follows.
     await act(async () => {
-      const group = host.querySelectorAll<HTMLSelectElement>('[data-cell="3"] .cg-cell-bar select')[0]!;
+      const group = host.querySelectorAll<HTMLSelectElement>('[data-cell="3"] [data-testid="cg-cell-bar"] select')[0]!;
       group.value = 'none';
       group.dispatchEvent(new Event('change', { bubbles: true }));
     });
@@ -256,7 +256,7 @@ describe('chart workbench', () => {
     await choose('Layout', 'grid');
     expect(host.querySelector('[data-code="trade.chart.layout_over_limit"]')?.textContent).toContain('4 charts; the limit is 2');
     await choose('Layout', 'two-across');
-    expect(host.querySelectorAll('section.cw')).toHaveLength(2);
+    expect(host.querySelectorAll('section[data-testid="cw"]')).toHaveLength(2);
   });
 
   const storedGrid = (layout: string) =>
@@ -269,18 +269,20 @@ describe('chart workbench', () => {
         sizes: { cols: [1, 1], rows: [1, 1] },
       }),
     );
-  const note = () => host.querySelector('.cg-note');
-  const layoutOf = () => host.querySelector('.cg-area')?.getAttribute('data-layout');
+  const note = () => host.querySelector('[data-testid="cg-note"]');
+  const layoutOf = () => host.querySelector('[data-testid="cg-area"]')?.getAttribute('data-layout');
   const altG = () =>
     act(async () =>
-      host.querySelector('.cg')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, altKey: true, code: 'KeyG', key: 'g' })),
+      host
+        .querySelector('[data-testid="cg"]')!
+        .dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, altKey: true, code: 'KeyG', key: 'g' })),
     );
 
   it('shows one chart while a stored layout waits for the owner limit, and says it is loading', async () => {
     storedGrid('grid');
     world.ownerStatus = 'loading';
     await open();
-    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(host.querySelectorAll('section[data-testid="cw"]')).toHaveLength(1);
     expect(note()?.textContent).toContain('Reading the chart limit');
     expect(note()?.hasAttribute('data-code')).toBe(false);
   });
@@ -289,7 +291,7 @@ describe('chart workbench', () => {
     storedGrid('grid');
     world.owner = { ...world.owner, chartCountLimit: 2 };
     await open();
-    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(host.querySelectorAll('section[data-testid="cw"]')).toHaveLength(1);
     expect(note()?.getAttribute('data-code')).toBe('trade.chart.layout_over_limit');
     expect(note()?.textContent).toContain('4 charts; the limit is 2');
   });
@@ -298,7 +300,7 @@ describe('chart workbench', () => {
     storedGrid('two-across');
     world.owner = { ...world.owner, chartCountLimit: null };
     await open();
-    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(host.querySelectorAll('section[data-testid="cw"]')).toHaveLength(1);
     expect(note()?.getAttribute('data-code')).toBe('trade.chart.owner_value_unset');
   });
 
@@ -306,14 +308,14 @@ describe('chart workbench', () => {
     storedGrid('two-across');
     world.ownerStatus = 'error';
     await open();
-    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(host.querySelectorAll('section[data-testid="cw"]')).toHaveLength(1);
     expect(note()?.getAttribute('data-code')).toBe('trade.chart.owner_value_unavailable');
   });
 
   it('shows a stored layout once the limit allows it, with no note', async () => {
     storedGrid('two-across');
     await open();
-    expect(host.querySelectorAll('section.cw')).toHaveLength(2);
+    expect(host.querySelectorAll('section[data-testid="cw"]')).toHaveLength(2);
     expect(note()).toBeNull();
   });
 
@@ -381,10 +383,10 @@ describe('chart workbench', () => {
     const key = (init: KeyboardEventInit) =>
       act(async () => cell.querySelector('section')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init })));
     await key({ key: 'Enter', altKey: true });
-    expect(host.querySelector('.cg-area')?.getAttribute('data-maximised')).toBe('1');
+    expect(host.querySelector('[data-testid="cg-area"]')?.getAttribute('data-maximised')).toBe('1');
     expect(host.querySelector<HTMLElement>('[data-cell="0"]')!.style.display).toBe('none');
     await key({ key: 'Enter', altKey: true });
-    expect(host.querySelector('.cg-area')?.getAttribute('data-maximised')).toBe('');
+    expect(host.querySelector('[data-testid="cg-area"]')?.getAttribute('data-maximised')).toBe('');
   });
 
   it('says which way the chart is fed: read every 10 seconds, then live once a frame arrives', async () => {
@@ -406,7 +408,7 @@ describe('chart workbench', () => {
     );
     expect(host.querySelector('[data-testid="chart-feed"]')?.textContent).toContain('Live');
     expect(host.querySelector('[data-testid="price-chart"]')?.getAttribute('data-last')).toBe('9');
-    expect(host.querySelector('section.cw')?.getAttribute('data-feed')).toBe('stream');
+    expect(host.querySelector('section[data-testid="cw"]')?.getAttribute('data-feed')).toBe('stream');
   });
 
   it('says so for an interval the stream does not serve', async () => {

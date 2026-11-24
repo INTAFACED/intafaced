@@ -13,6 +13,7 @@ import { CHART_INTERVALS, type ChartInterval } from '../chart/candles';
 import { PriceChart } from '../chart/PriceChart';
 import type { ChartOrderHost } from '../../charts/chart-host';
 import { deskCopy } from './copy';
+import { pairOf } from './market';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
 
@@ -149,7 +150,12 @@ export function VenueMarketPanel({
                   </button>
                 ))}
               </div>
-              {chartTools}
+              <div className="lt-row">
+                {chartTools}
+                <a className="lt-link" data-testid="dk-full-chart" href={`/charts/${pairOf(market.symbol)}`}>
+                  {d('Full chart')}
+                </a>
+              </div>
             </div>
             <div className="lt-canvas">
               {chart === null ? (

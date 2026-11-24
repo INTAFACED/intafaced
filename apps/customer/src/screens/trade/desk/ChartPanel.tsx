@@ -9,7 +9,7 @@ import { PriceChart, type ChartOrderLine } from '../chart/PriceChart';
 import { deskCopy } from './copy';
 import { Menu, refusalCopy, Skeleton, StateBlock, type Loadable } from './deps';
 import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
-import type { DeskMarket } from './market';
+import { pairOf, type DeskMarket } from './market';
 import { placesOf } from './text';
 import { MarketRulesList } from './MarketRules';
 import { zoneName } from './time';
@@ -169,6 +169,9 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
                   {t('Line')}
                 </button>
               </div>
+              <a className="lt-link" data-testid="dk-full-chart" href={`/charts/${pairOf(market.symbol)}`}>
+                {t('Full chart')}
+              </a>
               <button
                 type="button"
                 className="lt-icon-button"

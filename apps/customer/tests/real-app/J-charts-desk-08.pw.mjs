@@ -400,7 +400,7 @@ test(`${J} #4 applies RSI to every chart of a 2x2 sync group at once: each cell 
     // Volume is the default sub-pane, so RSI makes two indicator panes.
     await expect(canvasOf(page, i)).toHaveAttribute('data-study-panes', '2');
     // Each cell's RSI is the 14-period one: its line is named for its period, and so is its chip.
-    await expect(cell(page, i).locator('[data-study="rsi-1"] .st-row-formula')).toHaveText('RSI 14');
+    await expect(cell(page, i).locator('[data-study="rsi-1"]').getByTestId('st-row-formula')).toHaveText('RSI 14');
     await expect(cell(page, i).getByRole('button', { name: 'Settings for Relative Strength Index' })).toContainText('RSI 14');
   }
 });

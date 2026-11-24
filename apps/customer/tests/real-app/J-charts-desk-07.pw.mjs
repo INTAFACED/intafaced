@@ -151,7 +151,7 @@ test(`${J} #3 saves the layout as "Scalp"; it appears in the list with its symbo
   const pressed = chart.getByRole('group', { name: 'Chart intervals' }).locator('button[aria-pressed="true"]');
   const shownLabel = (await pressed.count())
     ? (await pressed.first().textContent()).trim()
-    : (await chart.locator('.dk-more').textContent()).replace('▾', '').trim();
+    : (await chart.getByTestId('dk-more').textContent()).replace('▾', '').trim();
   const shownInterval = shownLabel.toLowerCase();
   await layouts().click();
   await saveLayout().click({ timeout: 5_000 });
@@ -262,7 +262,7 @@ test(`${J} #5 copies, exports and deletes a layout, then recovers the deleted on
     await expect(intervals.getByRole('button', { name: label(savedInterval), exact: true })).toHaveAttribute('aria-pressed', 'true');
   } else {
     // An interval from More: the More button names it.
-    await expect(page.getByTestId('dk-chart').locator('.dk-more')).toContainText(label(savedInterval));
+    await expect(page.getByTestId('dk-chart').getByTestId('dk-more')).toContainText(label(savedInterval));
   }
 });
 
@@ -309,7 +309,7 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
     await expect(rsiChip(second)).toHaveCount(0);
     await expect(canvas(second, 'ETH/USDT')).not.toHaveAttribute('data-style', 'heikin-ashi');
     // The workbench is the full chart: every style, studies, drawings and templates are on.
-    await expect(second.locator('.cw-page')).toHaveAttribute(
+    await expect(second.getByTestId('cw-page')).toHaveAttribute(
       'data-featureset',
       'styles=candles,bars,line,area,columns,heikin-ashi studies=on drawings=on templates=on',
     );

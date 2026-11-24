@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Tag } from '@intafaced/ui/lit';
 import { drawingsCopy, drawingsMessages } from './copy';
 import { isVisible, SIZE_DEFAULT, TEXT_SIZES, TONES, type Drawing, type Tone } from './model';
 import type { DrawingsApi } from './useDrawings';
@@ -19,23 +20,23 @@ export function ObjectTree({ api, onIndicatorsSlot }: { api: DrawingsApi; onIndi
   const rows = [...drawings].reverse();
 
   return (
-    <section className="dw-tree" aria-label={t('Object tree')} data-testid="object-tree">
-      <h2 className="dw-tree-title">{t('Object tree')}</h2>
-      <p className="dw-note">{t('Object tree lead')}</p>
-      {onIndicatorsSlot ? <div className="dw-tree-slot" ref={onIndicatorsSlot} /> : null}
+    <section className="lt-stack-tight" aria-label={t('Object tree')} data-testid="object-tree">
+      <h2 className="lt-panel-title">{t('Object tree')}</h2>
+      <p className="lt-note">{t('Object tree lead')}</p>
+      {onIndicatorsSlot ? <div className="lt-stack-tight" ref={onIndicatorsSlot} /> : null}
 
-      {drawings.length === 0 ? <p className="dw-note">{t('Object tree empty')}</p> : null}
+      {drawings.length === 0 ? <p className="lt-note">{t('Object tree empty')}</p> : null}
 
       {doc.groups.length > 0 ? (
-        <ul className="dw-groups">
+        <ul className="lt-list lt-list-rule">
           {doc.groups.map((group) => {
             const members = drawings.filter((d) => d.groupId === group.id).length;
             return (
-              <li key={group.id} className="dw-row" data-group-id={group.id} data-hidden={group.hidden || undefined}>
-                <span className="dw-row-name">
-                  {group.name} <span className="dw-note">({members})</span>
+              <li key={group.id} className="lt-row" data-group-id={group.id} data-hidden={group.hidden || undefined}>
+                <span className="lt-grow">
+                  {group.name} <span className="lt-note">({members})</span>
                 </span>
-                <button type="button" className="dw-link" aria-pressed={group.hidden} onClick={() => api.toggleGroupHidden(group.id)}>
+                <button type="button" className="lt-link" aria-pressed={group.hidden} onClick={() => api.toggleGroupHidden(group.id)}>
                   {group.hidden ? t('Show group') : t('Hide group')}
                 </button>
               </li>
@@ -44,14 +45,14 @@ export function ObjectTree({ api, onIndicatorsSlot }: { api: DrawingsApi; onIndi
         </ul>
       ) : null}
 
-      <ul className="dw-rows" aria-label={t('Object tree')}>
+      <ul className="lt-list lt-list-rule" aria-label={t('Object tree')}>
         {rows.map((drawing, index) => (
           <DrawingRow key={drawing.id} drawing={drawing} number={rows.length - index} api={api} t={t} visible={isVisible(doc, drawing)} />
         ))}
       </ul>
 
       {api.checked.length > 0 ? (
-        <button type="button" className="dw-link" onClick={api.groupChecked}>
+        <button type="button" className="lt-link" onClick={api.groupChecked}>
           {t('Group selected')} ({api.checked.length})
         </button>
       ) : null}
@@ -83,7 +84,7 @@ function DrawingRow({
 
   return (
     <li
-      className="dw-row"
+      className="lt-row"
       data-drawing-id={drawing.id}
       data-kind={drawing.kind}
       data-selected={selected || undefined}
@@ -91,7 +92,7 @@ function DrawingRow({
       data-pane={drawing.pane ?? 0}
       {...(hasText ? { 'data-size': drawing.size ?? SIZE_DEFAULT, 'data-tone': drawing.tone } : {})}
     >
-      <label className="dw-check">
+      <label className="lt-field">
         <input
           type="checkbox"
           aria-label={t('Check drawing', { name })}
@@ -99,37 +100,37 @@ function DrawingRow({
           onChange={() => api.toggleChecked(drawing.id)}
         />
       </label>
-      <button type="button" className="dw-row-name" aria-pressed={selected} onClick={() => api.select(selected ? null : drawing.id)}>
+      <button type="button" className="lt-link" aria-pressed={selected} onClick={() => api.select(selected ? null : drawing.id)}>
         {name}
-        {drawing.locked ? <span className="lt-muted"> {t('Locked')}</span> : null}
-        {!visible ? <span className="lt-muted"> {t('Hidden')}</span> : null}
+        {drawing.locked ? <Tag> {t('Locked')}</Tag> : null}
+        {!visible ? <Tag> {t('Hidden')}</Tag> : null}
       </button>
-      <span className="dw-note" data-testid="drawing-pane">
+      <span className="lt-note" data-testid="drawing-pane">
         {drawing.pane ? t('On pane', { n: String(drawing.pane) }) : t('On price pane')}
       </span>
-      <span className="dw-points" data-testid="drawing-points">
+      <span className="lt-note lt-num" data-testid="drawing-points">
         {points}
       </span>
       {figures.length > 0 ? (
-        <ul className="dw-figures" data-testid="drawing-figures">
+        <ul className="lt-points lt-note lt-num" data-testid="drawing-figures">
           {figures.map((line, i) => (
             <li key={`${i}-${line}`}>{line}</li>
           ))}
         </ul>
       ) : null}
-      <div className="dw-row-actions">
-        <button type="button" className="dw-link" onClick={() => api.setHidden(drawing.id, !drawing.hidden)}>
+      <div className="lt-row">
+        <button type="button" className="lt-link" onClick={() => api.setHidden(drawing.id, !drawing.hidden)}>
           {drawing.hidden ? t('Show drawing') : t('Hide drawing')}
         </button>
-        <button type="button" className="dw-link" onClick={() => api.setLocked(drawing.id, !drawing.locked)}>
+        <button type="button" className="lt-link" onClick={() => api.setLocked(drawing.id, !drawing.locked)}>
           {drawing.locked ? t('Unlock drawing') : t('Lock drawing')}
         </button>
-        <button type="button" className="dw-link" disabled={drawing.locked} onClick={() => api.remove(drawing.id)}>
+        <button type="button" className="lt-link" disabled={drawing.locked} onClick={() => api.remove(drawing.id)}>
           {t('Delete drawing')}
         </button>
       </div>
       {hasText ? (
-        <label className="dw-inline">
+        <label className="lt-field">
           <span>{t('Text label')}</span>
           <input
             key={`text-${drawing.id}-${drawing.text ?? ''}`}
@@ -143,8 +144,8 @@ function DrawingRow({
         </label>
       ) : null}
       {hasText ? (
-        <div className="dw-inline">
-          <label>
+        <div className="lt-row">
+          <label className="lt-field">
             <span>{t('Text size label')}</span>
             <select
               value={String(drawing.size ?? SIZE_DEFAULT)}
@@ -158,7 +159,7 @@ function DrawingRow({
               ))}
             </select>
           </label>
-          <label>
+          <label className="lt-field">
             <span>{t('Text colour label')}</span>
             <select
               value={drawing.tone}
@@ -175,8 +176,8 @@ function DrawingRow({
         </div>
       ) : null}
       {hasLevels ? (
-        <div className="dw-inline">
-          <label>
+        <div className="lt-row">
+          <label className="lt-field">
             <span>{t('Levels label')}</span>
             <input
               value={levelText ?? (drawing.levels ?? []).join(', ')}
@@ -186,7 +187,7 @@ function DrawingRow({
           </label>
           <button
             type="button"
-            className="dw-link"
+            className="lt-link"
             disabled={drawing.locked || levelText === null}
             onClick={() => {
               api.setLevels(

@@ -1,14 +1,16 @@
+// volt-room: /charts
+// volt-room: /charts/:symbol
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Select, StateBlock } from '@intafaced/ui/lit';
+import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../app/screen-types';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
 import type { ChartInterval } from '../trade/chart/candles';
 import { useDeskMarkets } from '../trade/desk/data';
 import { findMarket, pairOf, type DeskMarket } from '../trade/desk/market';
-import '../trade/chart/chart.css';
-import './charts.css';
 import { chartsCopy } from './copy';
-import { defaultDeskPair, navigate, normalizePair, refusalCopy, Skeleton, StateBlock } from './deps';
+import { defaultDeskPair, navigate, normalizePair, refusalCopy } from './deps';
 import { ChartGrid } from './ChartGrid';
 import type { WidgetProps } from './MarketChartWidget';
 import { DrawingsLayer } from './drawings/DrawingsLayer';
@@ -67,16 +69,7 @@ function MarketSelect({
   onChoose: (symbol: string) => void;
 }) {
   return (
-    <label className="cw-select">
-      <span>{label}</span>
-      <select data-testid="cw-market" value={value} onChange={(event) => onChoose(event.target.value)}>
-        {markets.map((market) => (
-          <option key={market.symbol} value={market.symbol}>
-            {market.symbol}
-          </option>
-        ))}
-      </select>
-    </label>
+    <Select label={label} data-testid="cw-market" value={value} options={markets.map((market) => market.symbol)} onChange={onChoose} />
   );
 }
 
@@ -98,18 +91,17 @@ function TradeLink({ symbol }: { symbol: string }) {
   const refusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
   if (refusal !== null)
     return (
-      <span className="cw-link-refused">
-        <button
-          type="button"
+      <span className="lt-stack-tight">
+        <Button
+          tone="secondary"
           data-testid="cw-link"
-          className="cw-link"
           disabled
           aria-describedby="cw-trade-refusal"
           data-code="trade.chart.order_entry_refused"
         >
           {t('Trade this market')}
-        </button>
-        <span id="cw-trade-refusal" role="status">
+        </Button>
+        <span id="cw-trade-refusal" role="status" className="lt-note lt-note-warn">
           {refusal}
         </span>
       </span>
@@ -117,7 +109,7 @@ function TradeLink({ symbol }: { symbol: string }) {
   const venueMarket = venue?.markets.find((m) => m.symbol === symbol);
   const href = venueMarket?.kind === 'perpetual' ? `/trade/futures/${pairOf(symbol)}` : `/trade/spot/${pairOf(symbol)}`;
   return (
-    <a data-testid="cw-link" className="cw-link" href={href}>
+    <a data-testid="cw-link" className="lt-button lt-button-secondary" href={href}>
       {t('Trade this market')}
     </a>
   );
@@ -221,22 +213,10 @@ function Page({
     },
     [studiesKey, drawingKey, market.symbol, limits.drawingCap, setSetting, applied?.nonce],
   );
-  return (
-    <div className="cw-page" data-market={market.symbol} data-workbench={id} data-featureset={describeFeatureset(FEATURES)}>
-      <header className="cw-head">
-        <div>
-          <h1>{t('Charts')}</h1>
-          <p>{t('Charts lead')}</p>
-        </div>
-        <div className="cw-head-actions">
-          <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
-          <TradeLink symbol={market.symbol} />
-          {FEATURES.templates ? <TemplatesMenu current={currentChart} onApply={applyTemplate} /> : null}
-          <NewsWidget key={market.symbol} symbol={market.symbol} />
-        </div>
-      </header>
+  const notes = (
+    <>
       {applied && 'refused' in applied ? (
-        <p role="status" className="cw-note" data-testid="cw-template-refused" data-why={applied.refused}>
+        <p role="status" className="lt-note lt-note-warn" data-testid="cw-template-refused" data-why={applied.refused}>
           {applied.refused === 'Drawings over cap'
             ? tt('Drawings over cap', { cap: String(limits.drawingCap ?? '') })
             : tt(applied.refused)}
@@ -244,7 +224,7 @@ function Page({
       ) : applied ? (
         <p
           role="status"
-          className="cw-note"
+          className="lt-note"
           data-testid="cw-template"
           data-template={applied.name}
           data-drawings-placed={applied.placed}
@@ -256,52 +236,73 @@ function Page({
         </p>
       ) : null}
       {unoffered && (
-        <div role="status" className="cw-note" data-code="trade.datafeed.interval_unsupported">
+        <div role="status" className="lt-note lt-note-warn" data-code="trade.datafeed.interval_unsupported">
           <b>{t('Interval not offered title', { interval: unoffered })}</b>{' '}
           {t('Interval not offered body', { current: intervalLabel(setting.interval) })}
         </div>
       )}
-      <div className="cw-split">
-        {/* A watchlist row dragged here opens its market on this chart, at the interval the workbench already has. */}
-        <div
-          data-testid="cw-split-chart"
-          className="cw-split-chart"
-          onDragOver={(event) => {
-            if (event.dataTransfer.types.includes(WATCHLIST_DRAG_TYPE)) event.preventDefault();
-          }}
-          onDrop={(event) => {
-            const symbol = event.dataTransfer.getData(WATCHLIST_DRAG_TYPE);
-            if (!symbol) return;
-            event.preventDefault();
-            navigate(chartHrefFor(symbol, id));
-          }}
-        >
-          <ChartGrid
-            key={applied && !('refused' in applied) ? `template-${applied.nonce}` : 'grid'}
-            market={market}
-            markets={markets}
-            workbench={id}
-            setting={setting}
-            setInterval={setInterval}
-            setMode={setMode}
-            setScheme={setScheme}
-            openSocket={openSocket}
-            mainAddons={(host, bars, view) => (
-              <DrawingsLayer
-                key={id}
-                host={host}
-                bars={bars}
-                onIndicatorsSlot={view.onTreeSlot}
-                workbench={id}
-                symbol={market.symbol}
-                tickSize={market.tickSize}
-                limits={limits}
-              />
-            )}
-          />
-        </div>
-        <WatchlistPanel workbench={id} />
-      </div>
+    </>
+  );
+  return (
+    <div data-testid="cw-page" data-market={market.symbol} data-workbench={id} data-featureset={describeFeatureset(FEATURES)}>
+      <DeskTemplate
+        mode="pro"
+        title={t('Charts')}
+        description={t('Charts lead')}
+        state={{ kind: 'ready' }}
+        instrument={
+          <div className="lt-stack">
+            <div data-testid="cw-head" className="lt-toolbar">
+              <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
+              <TradeLink symbol={market.symbol} />
+              {FEATURES.templates ? <TemplatesMenu current={currentChart} onApply={applyTemplate} /> : null}
+              <NewsWidget key={market.symbol} symbol={market.symbol} />
+            </div>
+            {notes}
+          </div>
+        }
+        chart={
+          // A watchlist row dragged here opens its market on this chart, at the interval the workbench already has.
+          <div
+            data-testid="cw-split-chart"
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes(WATCHLIST_DRAG_TYPE)) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              const symbol = event.dataTransfer.getData(WATCHLIST_DRAG_TYPE);
+              if (!symbol) return;
+              event.preventDefault();
+              navigate(chartHrefFor(symbol, id));
+            }}
+          >
+            <ChartGrid
+              key={applied && !('refused' in applied) ? `template-${applied.nonce}` : 'grid'}
+              market={market}
+              markets={markets}
+              workbench={id}
+              setting={setting}
+              setInterval={setInterval}
+              setMode={setMode}
+              setScheme={setScheme}
+              openSocket={openSocket}
+              mainAddons={(host, bars, view) => (
+                <DrawingsLayer
+                  key={id}
+                  host={host}
+                  bars={bars}
+                  onIndicatorsSlot={view.onTreeSlot}
+                  workbench={id}
+                  symbol={market.symbol}
+                  tickSize={market.tickSize}
+                  limits={limits}
+                />
+              )}
+            />
+          </div>
+        }
+        pairs={<WatchlistPanel workbench={id} />}
+        ticket={undefined}
+      />
     </div>
   );
 }
@@ -311,17 +312,24 @@ export default function ChartsScreen({ params, search, openSocket }: ScreenProps
   const { t } = chartsCopy.useCopy();
   const venueMarkets = useVenueChartMarkets();
   const engineMarkets = useDeskMarkets(venueMarkets.status === 'off');
-  if (venueMarkets.status === 'loading')
-    return (
-      <div className="cw-page" role="status" aria-busy="true">
-        <Skeleton height={440} className="bg-field" />
-      </div>
-    );
+  // The room's own states, inside the desk's chart region: the words, roles and retry the workbench always had.
+  const state = (body: React.ReactNode) => (
+    <div data-testid="cw-page">
+      <DeskTemplate
+        mode="pro"
+        title={t('Charts')}
+        description={t('Charts lead')}
+        state={{ kind: 'ready' }}
+        instrument={undefined}
+        chart={body}
+        ticket={undefined}
+      />
+    </div>
+  );
+  if (venueMarkets.status === 'loading') return state(<StateBlock kind="loading" rows={6} />);
   if (venueMarkets.status === 'error')
-    return (
-      <div className="cw-page cw-page--state">
-        <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={venueMarkets.retry} retryLabel={t('Try again')} />
-      </div>
+    return state(
+      <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={venueMarkets.retry} retryLabel={t('Try again')} />,
     );
   if (venueMarkets.status === 'ready') {
     const list = venueMarkets.data.deskMarkets;
@@ -329,15 +337,13 @@ export default function ChartsScreen({ params, search, openSocket }: ScreenProps
     const pair = normalizePair(params.symbol ?? defaultPair);
     const market = findMarket(list, pair);
     if (!market)
-      return (
-        <div className="cw-page cw-page--state">
-          <StateBlock
-            kind="empty"
-            title={t('Market not found title')}
-            body={t('Market not found body')}
-            action={{ label: t('See all markets'), href: '/trade' }}
-          />
-        </div>
+      return state(
+        <StateBlock
+          kind="empty"
+          title={t('Market not found title')}
+          body={t('Market not found body')}
+          action={{ label: t('See all markets'), href: '/trade' }}
+        />,
       );
     return (
       <ChartSourceContext.Provider value={venueMarkets.data}>
@@ -346,37 +352,24 @@ export default function ChartsScreen({ params, search, openSocket }: ScreenProps
     );
   }
   const pair = normalizePair(params.symbol ?? defaultDeskPair);
-  if (engineMarkets.status === 'loading')
-    return (
-      <div className="cw-page" role="status" aria-busy="true">
-        <Skeleton height={440} className="bg-field" />
-      </div>
-    );
+  if (engineMarkets.status === 'loading') return state(<StateBlock kind="loading" rows={6} />);
   if (engineMarkets.status === 'error')
-    return (
-      <div className="cw-page cw-page--state">
-        <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={engineMarkets.retry} retryLabel={t('Try again')} />
-      </div>
+    return state(
+      <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={engineMarkets.retry} retryLabel={t('Try again')} />,
     );
   if (engineMarkets.status === 'refused') {
     const words = refusalCopy(engineMarkets.code, { pair });
-    return (
-      <div className="cw-page cw-page--state">
-        <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />
-      </div>
-    );
+    return state(<StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />);
   }
   const market = engineMarkets.status === 'ready' ? findMarket(engineMarkets.data, pair) : undefined;
   if (!market || engineMarkets.status !== 'ready')
-    return (
-      <div className="cw-page cw-page--state">
-        <StateBlock
-          kind="empty"
-          title={t('Market not found title')}
-          body={t('Market not found body')}
-          action={{ label: t('See all markets'), href: '/trade' }}
-        />
-      </div>
+    return state(
+      <StateBlock
+        kind="empty"
+        title={t('Market not found title')}
+        body={t('Market not found body')}
+        action={{ label: t('See all markets'), href: '/trade' }}
+      />,
     );
   return (
     <ChartSourceContext.Provider value={ENGINE_CHART_SOURCE}>

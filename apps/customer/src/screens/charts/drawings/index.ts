@@ -1,5 +1,4 @@
 // The drawing tools of the chart workbench. See README.md for how the workbench chart wires them.
-import './drawings.css';
 
 export { useDrawings, MAGNET_SENSITIVITY_DEFAULT, type DrawingsApi, type DrawingsOptions } from './useDrawings';
 export { DrawingToolbar } from './DrawingToolbar';

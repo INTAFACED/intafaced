@@ -15,6 +15,7 @@
  * - While the market is halted, not open or unreadable, every order control on the chart is disabled and names why.
  */
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { Button, ChartMark, ChartOverlay } from '@intafaced/ui/lit';
 import { chartValue } from '../../../shared/chart-value';
 import { createPortal } from 'react-dom';
 import { useDataEnv } from '../../../data/hooks';
@@ -31,7 +32,6 @@ import type { ChartHost } from '../chart-host';
 import { chartsCopy } from '../copy';
 import { OWNER_VALUE_UNSET } from '../owner-values';
 import { onTick, protectionCheck, samePrice, snapToTick } from './chart-orders';
-import './chart-trading.css';
 
 type Side = 'buy' | 'sell';
 type Note = { tone: 'good' | 'bad'; text: string; code?: string };
@@ -386,7 +386,7 @@ export function ChartTrading({
       });
     });
 
-  const onHandleDown = (event: ReactPointerEvent<HTMLButtonElement>, order: Order) => {
+  const onHandleDown = (event: ReactPointerEvent<HTMLElement>, order: Order) => {
     if (locked || busy || !host) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -394,11 +394,11 @@ export function ChartTrading({
     setDrag({ id: order.id, y: event.clientY - top, from: event.clientY - top });
   };
   const onHandleCancel = () => setDrag(null);
-  const onHandleMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const onHandleMove = (event: ReactPointerEvent<HTMLElement>) => {
     if (!drag || !host) return;
     setDrag({ ...drag, y: event.clientY - host.element.getBoundingClientRect().top });
   };
-  const onHandleUp = (event: ReactPointerEvent<HTMLButtonElement>, order: Order) => {
+  const onHandleUp = (event: ReactPointerEvent<HTMLElement>, order: Order) => {
     if (!drag || !host) return;
     const y = event.clientY - host.element.getBoundingClientRect().top;
     const from = drag.from;
@@ -418,32 +418,22 @@ export function ChartTrading({
   const overlay =
     stage && host && signedIn
       ? createPortal(
-          <div
-            className="ct-overlay"
-            data-testid="chart-trading-overlay"
-            data-pane-top={paneTop}
-            data-pane-height={host ? pricePane(host).height : 0}
-          >
+          <ChartOverlay data-testid="chart-trading-overlay" data-pane-top={paneTop} data-pane-height={host ? pricePane(host).height : 0}>
             {projected && projectedY !== null && (
-              <div
-                className="ct-line ct-line--preview"
-                data-testid="chart-preview-line"
-                data-side={side}
-                data-price={projected}
-                style={{ insetBlockStart: `${projectedY}px` }}
-              >
+              <ChartMark kind="preview" y={projectedY} data-testid="chart-preview-line" data-side={side} data-price={projected}>
                 {t(side === 'buy' ? 'Chart preview buy' : 'Chart preview sell')} · {fmtPrice(projected, market.tickSize)} ·{' '}
                 {t('Chart preview not placed')}
-              </div>
+              </ChartMark>
             )}
             {lineOrders.map((order) => {
               const y = drag?.id === order.id ? drag.y : yOf(order.price);
               if (y === null) return null;
               return (
-                <button
+                <ChartMark
                   key={order.id}
-                  type="button"
-                  className="ct-line ct-line--order"
+                  as="button"
+                  kind="line"
+                  y={y}
                   data-testid="chart-order-line"
                   data-order-id={order.id}
                   data-side={order.side}
@@ -456,7 +446,6 @@ export function ChartTrading({
                     asset: market.base,
                     price: fmtPrice(order.price ?? '', market.tickSize),
                   })}
-                  style={{ insetBlockStart: `${y}px` }}
                   onPointerDown={(event) => onHandleDown(event, order)}
                   onPointerMove={onHandleMove}
                   onPointerUp={(event) => onHandleUp(event, order)}
@@ -464,29 +453,24 @@ export function ChartTrading({
                   onLostPointerCapture={onHandleCancel}
                 >
                   {t(order.side === 'buy' ? 'Buy' : 'Sell')} {order.remaining} {market.base}
-                </button>
+                </ChartMark>
               );
             })}
             {cursor && !locked && orderButton && (
-              <button
-                type="button"
-                className="ct-plus"
+              <ChartMark
+                as="button"
+                kind="plus"
+                y={cursor.y}
                 data-testid="chart-axis-plus"
                 data-price={cursor.price}
                 aria-label={t('Chart create at', { price: fmtPrice(cursor.price, market.tickSize) })}
-                style={{ insetBlockStart: `${cursor.y}px` }}
                 onClick={() => openTicketAt(cursor.price)}
               >
                 +
-              </button>
+              </ChartMark>
             )}
             {menu && !locked && (
-              <div
-                className="ct-menu"
-                role="menu"
-                aria-label={t('Chart order menu')}
-                style={{ insetBlockStart: `${menu.y}px`, insetInlineStart: `${menu.x}px` }}
-              >
+              <ChartMark kind="menu" y={menu.y} x={menu.x} role="menu" aria-label={t('Chart order menu')}>
                 <button type="button" role="menuitem" onClick={() => openTicketAt(menu.price, 'buy')}>
                   {t('Chart menu buy', { price: fmtPrice(menu.price, market.tickSize) })}
                 </button>
@@ -496,40 +480,40 @@ export function ChartTrading({
                 <button type="button" role="menuitem" onClick={() => setMenu(null)}>
                   {t('Chart menu close')}
                 </button>
-              </div>
+              </ChartMark>
             )}
-          </div>,
+          </ChartOverlay>,
           stage,
         )
       : null;
 
   if (!signedIn)
     return (
-      <div className="lt-toolbar" data-testid="chart-trading">
-        <p className="cw-note">{t('Chart trading signed out')}</p>
+      <div className="lt-stack-tight lt-tight" data-testid="chart-trading">
+        <p className="lt-note">{t('Chart trading signed out')}</p>
       </div>
     );
 
   return (
-    <div className="lt-toolbar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
+    <div className="lt-stack-tight lt-tight" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
       {refusal === null && replaying && (
-        <p className="cw-note" role="status" data-testid="chart-trading-replay">
+        <p className="lt-note" role="status" data-testid="chart-trading-replay">
           {t('Chart trading replay')}
         </p>
       )}
       {refusal !== null && (
-        <p className="cw-note" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
+        <p className="lt-note" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
           {refusal}
         </p>
       )}
-      <button type="button" aria-expanded={open} disabled={locked} onClick={() => setOpen((v) => !v)}>
+      <Button tone="secondary" size="sm" aria-expanded={open} disabled={locked} onClick={() => setOpen((v) => !v)}>
         {t('Order on chart')}
-      </button>
+      </Button>
       {open && (
-        <form className="ct-ticket" aria-label={t('Chart order ticket')} onSubmit={place}>
-          <fieldset disabled={locked || busy}>
-            <label className="cw-select cw-select--inline">
+        <form className="lt-stack-tight lt-tight" aria-label={t('Chart order ticket')} onSubmit={place}>
+          <fieldset className="lt-row" disabled={locked || busy}>
+            <label className="lt-field">
               <span>{t('Chart side')}</span>
               <select
                 value={side}
@@ -542,7 +526,7 @@ export function ChartTrading({
                 <option value="sell">{t('Sell')}</option>
               </select>
             </label>
-            <label className="cw-select cw-select--inline">
+            <label className="lt-field">
               <span>{t('Chart limit price', { quote: market.quote })}</span>
               <input
                 ref={priceField}
@@ -556,7 +540,7 @@ export function ChartTrading({
                 }}
               />
             </label>
-            <label className="cw-select cw-select--inline">
+            <label className="lt-field">
               <span>{t('Chart amount', { base: market.base })}</span>
               <input
                 type="text"
@@ -569,12 +553,14 @@ export function ChartTrading({
                 }}
               />
             </label>
-            <button type="submit">{t('Place')}</button>
+            <Button tone="primary" size="sm" type="submit">
+              {t('Place')}
+            </Button>
           </fieldset>
         </form>
       )}
       {review && (
-        <div className="lt-toolbar" role="dialog" aria-label={t('Chart review order')} data-testid="chart-order-review">
+        <div className="lt-callout" role="dialog" aria-label={t('Chart review order')} data-testid="chart-order-review">
           <p>
             {t('Chart review line', {
               side: t(review.draft.side === 'buy' ? 'Buy' : 'Sell'),
@@ -591,32 +577,32 @@ export function ChartTrading({
               feeAsset: review.preview.feeAsset ?? '',
             })}
           </p>
-          <button type="button" onClick={confirm} disabled={busy || locked}>
+          <Button tone="primary" size="sm" onClick={confirm} disabled={busy || locked}>
             {t('Confirm')}
-          </button>
-          <button type="button" onClick={() => setReview(null)} disabled={busy}>
+          </Button>
+          <Button tone="secondary" size="sm" onClick={() => setReview(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
+          </Button>
         </div>
       )}
       {lost && (
-        <button type="button" onClick={sendAgain} disabled={busy || locked} data-testid="chart-send-again">
+        <Button tone="secondary" size="sm" onClick={sendAgain} disabled={busy || locked} data-testid="chart-send-again">
           {t('Chart send again')}
-        </button>
+        </Button>
       )}
       {move?.stage === 'protect' && (
-        <div className="lt-toolbar" role="alertdialog" aria-label={t('Chart protection title')} data-testid="chart-protection">
+        <div className="lt-callout" role="alertdialog" aria-label={t('Chart protection title')} data-testid="chart-protection">
           <p>{t('Chart protection ask', { price: fmtPrice(move.price, market.tickSize), distance: move.distance, limit: move.limit })}</p>
-          <button type="button" disabled={busy || locked} onClick={() => void run(() => reviewMove(move.order, move.price))}>
+          <Button tone="primary" size="sm" disabled={busy || locked} onClick={() => void run(() => reviewMove(move.order, move.price))}>
             {t('Chart protection continue')}
-          </button>
-          <button type="button" onClick={() => setMove(null)} disabled={busy}>
+          </Button>
+          <Button tone="secondary" size="sm" onClick={() => setMove(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
+          </Button>
         </div>
       )}
       {move?.stage === 'review' && (
-        <div className="lt-toolbar" role="dialog" aria-label={t('Chart review move')} data-testid="chart-move-review">
+        <div className="lt-callout" role="dialog" aria-label={t('Chart review move')} data-testid="chart-move-review">
           <p>
             {t('Chart move line', {
               side: t(move.order.side === 'buy' ? 'Buy' : 'Sell'),
@@ -627,16 +613,16 @@ export function ChartTrading({
             })}
           </p>
           <p>{t('Chart move note')}</p>
-          <button type="button" onClick={confirmMove} disabled={busy || locked}>
+          <Button tone="primary" size="sm" onClick={confirmMove} disabled={busy || locked}>
             {t('Confirm')}
-          </button>
-          <button type="button" onClick={() => setMove(null)} disabled={busy}>
+          </Button>
+          <Button tone="secondary" size="sm" onClick={() => setMove(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
+          </Button>
         </div>
       )}
       {note && (
-        <p className="cw-note" role="status" data-testid="chart-trading-note" data-tone={note.tone} data-code={note.code}>
+        <p className="lt-note" role="status" data-testid="chart-trading-note" data-tone={note.tone} data-code={note.code}>
           {note.text}
         </p>
       )}

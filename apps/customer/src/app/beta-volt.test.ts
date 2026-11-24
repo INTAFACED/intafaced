@@ -240,6 +240,14 @@ describe("the beta's menus, by what the build switches on and the account can us
     on();
     expect(betaOffFeatureFor('/pay/onboarding')).toBeUndefined();
   });
+
+  it('show /charts and /charts/:symbol on the hosted beta once moved into Volt (J-charts-desk-01)', () => {
+    on();
+    expect(state.get('/charts')).toBe('volt');
+    expect(state.get('/charts/:symbol')).toBe('volt');
+    expect(isHiddenPath('/charts')).toBe(false);
+    expect(isHiddenPath('/charts/BTC-USDT')).toBe(false);
+  });
 });
 
 describe('betaHides', () => {
