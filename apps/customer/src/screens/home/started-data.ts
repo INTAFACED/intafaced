@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { startedKycSchema, startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
+import { startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 import type { ZodType } from 'zod';
 import { NOTIFY_ALERTS } from '@intafaced/contracts/notify-notify-procedures';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { PROTOCOL_VENUE_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
 import { useSession } from '../../features/session/session';
 import { venueApi } from '../../features/trade';
-import { authoredRefusal, type ApiResult, type AppProcedure } from '../../shared/api';
+import { authoredRefusal, isVerifyFirst, type ApiResult, type AppProcedure } from '../../shared/api';
+import type { UiMessage } from '../../shared/ui-copy';
 import { useResource, type Resource } from '../../shared/resource';
 import {
   alertStatus,
@@ -34,8 +36,10 @@ type ActivityKind = (typeof ACTIVITY_KINDS)[number];
  * jurisdiction guard in front of the bank answers a bare FORBIDDEN whose message names the tier, so that message is
  * matched too (any other 403, such as a region block, stays a failure).
  */
-const notVerified = (failure: { code?: string; status?: number; message?: string }): boolean =>
-  failure.code === 'tier.insufficient' || (failure.status === 403 && /^Verification tier "/.test(failure.message ?? ''));
+const notVerified = (failure: { code?: string; status?: number; message?: string; messageCopy?: UiMessage }): boolean =>
+  failure.code === 'tier.insufficient' ||
+  isVerifyFirst(failure) ||
+  (failure.status === 403 && /^Verification tier "/.test(failure.message ?? ''));
 
 /**
  * The bank scans a bounded window of the history per call and, when the window holds no match, answers an empty page
@@ -146,7 +150,7 @@ function ever(resource: Resource<{ found: boolean }>, verify: StepStatus): EverR
  * stored on this device, so clearing the browser changes no step. A read that fails is `unknown`, never `done`.
  */
 export function useGetStarted(enabled: boolean): Step[] {
-  const kyc = useProbe(enabled, 'kyc', 'identity', 'kyc.status', { limit: 10 }, startedKycSchema);
+  const kyc = useRecordProbe(enabled, 'kyc', IDENTITY_KYC_STATUS, { limit: 10 });
   const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, startedPasskeysSchema);
   const alerts = useRecordProbe(enabled, 'alerts', NOTIFY_ALERTS, { limit: 100 });
   const venueAccounts = useVenueAccounts(enabled);

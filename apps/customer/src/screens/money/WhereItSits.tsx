@@ -9,9 +9,15 @@ import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
 import { shortOrderId, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
-import { useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
+import { moneyCopy } from './copy';
+import { VALUATION_REFRESH_MS, usePartnerStanding, useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
 import type { ValuedPart } from './standing';
 import { StandingTotal, dollars } from './StandingTotal';
+import { ValuationNote } from './ValuationNote';
+import { Movers } from './Movers';
+import { clockTime } from './time';
+import { WhereAllocation } from './WhereAllocation';
+import { WhereHoldingsChange } from './WhereHoldingsChange';
 import { isHiddenPath, navigate } from './deps';
 import { MoneyOverview } from './MoneyRoom';
 import { buyHref } from './links';
@@ -40,30 +46,71 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
   const owner = useOwner();
   return (
     <div data-testid="assets-by-source">
-      {owner ? (
-        <Read owner={owner} status={status} chainId={chainId} t={t} />
-      ) : (
-        <MoneyOverview
-          title={t('Title')}
-          description={t('Lede')}
-          hero={<p className="lt-hint">{t('Connect first')}</p>}
-          watching={<WalletBar />}
-        />
-      )}
+      {owner ? <Read owner={owner} status={status} chainId={chainId} t={t} /> : <BeforeWallet t={t} />}
     </div>
   );
 }
 
-function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; chainId: number; t: T }) {
+/**
+ * Assets before a wallet is connected: the partner account needs no wallet to be read, so the money the partner
+ * holds for this person is listed with its total, each figure as the partner reports it with its time, exactly as Home
+ * shows it. The wallet and the venue account join once a wallet is connected, and the line under the total says so.
+ */
+function BeforeWallet({ t }: { t: T }) {
   const { displayCurrency, hideBalances } = usePreferences();
+  const { partner, standing, pricesFailed, valued } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  const held = partner.state === 'read' || partner.state === 'unread';
+  return (
+    <MoneyOverview
+      title={t('Title')}
+      description={t('Lede')}
+      hero={
+        <div className="lt-stack">
+          {held ? (
+            <section className="lt-stack" aria-labelledby="assets-total-title">
+              <h2 id="assets-total-title">{t('Total title')}</h2>
+              <StandingTotal
+                standing={standing}
+                pricesFailed={pricesFailed}
+                displayCurrency={displayCurrency}
+                hidden={hideBalances}
+                testId="assets-total-before-wallet"
+              />
+            </section>
+          ) : null}
+          <p className="lt-hint" data-testid="assets-connect-first">
+            {t('Connect first')}
+          </p>
+        </div>
+      }
+      sections={
+        partner.state === 'none' ? undefined : (
+          <div className="lt-stack">
+            <PartnerSource read={partner} valued={valued} t={t} />
+          </div>
+        )
+      }
+      watching={<WalletBar />}
+    />
+  );
+}
+
+function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; chainId: number; t: T }) {
+  const { displayCurrency, hideBalances, timeZone } = usePreferences();
+  const money = moneyCopy.useCopy();
   const network = networkLabel(chainId).name;
-  const { wallet, venue, partner, standing, pricesFailed } = useStanding(
+  const { wallet, venue, partner, standing, pricesFailed, prices } = useStanding(
     owner,
     chainId,
     { network, venue: status.venue.displayName, venueTest: status.test },
     displayCurrency === 'BTC' ? 'BTC' : 'USD',
   );
   const part = (id: ValuedPart['id']) => standing.parts.find((p) => p.id === id);
+  const valuation = standing.prices && standing.valuation && standing.valuation.rows.length > 0 ? standing.valuation : null;
+  const sinceLabel =
+    valuation && valuation.windowStart !== null
+      ? money.t('Movers since {time}', { time: clockTime(valuation.windowStart, timeZone) })
+      : money.t('Today');
   return (
     <MoneyOverview
       title={t('Title')}
@@ -85,9 +132,23 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
       actions={<QuickActions t={t} />}
       sections={
         <div className="lt-stack">
+          {standing.totalUsd !== null ? <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} /> : null}
           <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
           <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
           {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} />}
+          {valuation && standing.prices ? (
+            <ValuationNote
+              view={valuation}
+              copy={money}
+              refreshMs={VALUATION_REFRESH_MS}
+              timeZone={timeZone}
+              priceSourceNote={money.t('Valuation price sources', {
+                published: standing.prices.source,
+                venue: status.venue.displayName,
+              })}
+            />
+          ) : null}
+          <WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />
           {standing.prices ? null : (
             <p className="lt-hint" data-testid="assets-no-price-note">
               {t('No price note')}
@@ -95,7 +156,12 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
           )}
         </div>
       }
-      watching={<WalletBar />}
+      watching={
+        <div className="lt-stack">
+          <WalletBar />
+          {valuation ? <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} /> : null}
+        </div>
+      }
     />
   );
 }
@@ -146,6 +212,7 @@ function ValueCells({
   rowKey,
   source,
   t,
+  entriesHref,
 }: {
   valued: ValuedPart | undefined;
   asset: string;
@@ -153,9 +220,11 @@ function ValueCells({
   rowKey?: string;
   source: string;
   t: T;
+  /** Where this row's own lines are listed, when not the sources' records page (the venue door off: the bank's list). */
+  entriesHref?: string;
 }) {
   const row = valued?.rows.find((r) => r.asset === asset && r.key === rowKey);
-  const href = valued ? `${balanceEntriesHref(asset)}?source=${valued.id}` : null;
+  const href = entriesHref ?? (valued ? `${balanceEntriesHref(asset)}?source=${valued.id}` : null);
   return (
     <>
       <td data-cell="price" data-label={t('Price')}>
@@ -466,8 +535,33 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
   );
 }
 
+/**
+ * The partner account on Assets when no wallet or venue is read (the venue door off): the money the partner bank holds,
+ * as it reports it, with its own time. Nothing when the partner holds none of this person's money.
+ */
+export function PartnerAccount() {
+  const { t } = whereCopy.useCopy();
+  const { displayCurrency } = usePreferences();
+  const { partner, valued } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  if (partner.state === 'none') return null;
+  // With the venue door off the partner's lines are in the bank's own activity list, which lists them for this person.
+  return (
+    <PartnerSource read={partner} valued={valued} t={t} entriesHref={(asset) => `/money/activity?asset=${encodeURIComponent(asset)}`} />
+  );
+}
+
 /** The partner account, when the partner holds the person's bank money: each asset as the partner reports it. */
-function PartnerSource({ read, valued, t }: { read: Exclude<PartnerRead, { state: 'none' }>; valued: ValuedPart | undefined; t: T }) {
+function PartnerSource({
+  read,
+  valued,
+  t,
+  entriesHref,
+}: {
+  read: Exclude<PartnerRead, { state: 'none' }>;
+  valued: ValuedPart | undefined;
+  t: T;
+  entriesHref?: (asset: string) => string;
+}) {
   const title = read.state === 'read' ? t('Partner title', { partner: read.label }) : t('Partner title unnamed');
   return (
     <Source title={title}>
@@ -487,7 +581,13 @@ function PartnerSource({ read, valued, t }: { read: Exclude<PartnerRead, { state
                 <td data-cell="amount" data-label={t('Amount')}>
                   {displayAmount(row.amount)}
                 </td>
-                <ValueCells valued={valued} asset={row.asset} source={t('Source partner', { partner: read.label })} t={t} />
+                <ValueCells
+                  valued={valued}
+                  asset={row.asset}
+                  source={t('Source partner', { partner: read.label })}
+                  t={t}
+                  entriesHref={entriesHref?.(row.asset)}
+                />
               </tr>
             ))}
           </SourceTable>

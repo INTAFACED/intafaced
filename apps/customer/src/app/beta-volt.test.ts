@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList, betaRooms, setBetaAccess } from './beta-volt';
 import { betaOffFeatureFor, isHiddenPath } from './feature-registry';
 import { tabSpecs } from './menus';
-import { findRoom, rooms } from './navigation';
+import { findRoom, rooms, searchRooms } from './navigation';
 import { voltCount } from './volt-count';
 import { shownBankRooms } from '../features/money/bank-frame/bank-rooms';
+import { allServices } from '../screens/more/tiles';
 
 const count = voltCount();
 const state = new Map(count.rooms.map((room) => [room.key, room.state]));
@@ -39,6 +40,34 @@ describe("the beta's menus", () => {
       const open = (state.get(href) === 'volt' || findRoom(href)?.area === 'public') && !betaOffFeatureFor(href);
       expect({ href, visible }).toEqual({ href, visible: open });
     }
+  });
+
+  it("keep Trade's Orders row, whose room (/money/activity) counts in Volt (#10708)", () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms, rooms));
+    expect(state.get('/money/activity')).toBe('volt');
+    for (const mode of ['simple', 'pro'] as const) {
+      const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
+      expect(trade?.items.map((item) => item.href)).toContain('/money/activity?tab=orders');
+    }
+    expect(betaHides('/money/activity')).toBe(false);
+  });
+
+  it('shows Futures (/trade/futures) in Trade menus, More > All services, search and contract addresses in the beta (#10700)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/trade/futures')).toBe('volt');
+    expect(betaHides('/trade/futures', betaList)).toBe(false);
+    expect(betaHides('/trade/futures/BTC-PERP', betaList)).toBe(false);
+    for (const mode of ['simple', 'pro'] as const) {
+      const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
+      expect(
+        trade?.items.map((item) => item.href),
+        `Trade menu in ${mode} mode`,
+      ).toContain('/trade/futures');
+    }
+    const moreTrade = allServices().find((group) => group.id === 'Trade');
+    expect(moreTrade?.rooms.map((room) => room.path)).toContain('/trade/futures');
+    expect(searchRooms('perp', 'Personal').map((room) => room.path)).toContain('/trade/futures');
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
@@ -97,6 +126,24 @@ describe("the beta's menus, by what the build switches on and the account can us
     expect(isHiddenPath('/trade/positions')).toBe(false);
   });
 
+  it("leave out Staking and Vaults while the venue offers neither, though the door is on (#10633: Hyperliquid's test network)", () => {
+    on();
+    expect(state.get('/trade/staking')).toBe('volt');
+    expect(state.get('/trade/vaults')).toBe('volt');
+    setBetaAccess({ venue: true });
+    expect(isHiddenPath('/trade/positions')).toBe(false);
+    expect(isHiddenPath('/trade/staking')).toBe(true);
+    expect(isHiddenPath('/trade/vaults')).toBe(true);
+    expect(
+      links()
+        .map(pathOf)
+        .filter((path) => path === '/trade/staking' || path === '/trade/vaults'),
+    ).toEqual([]);
+    setBetaAccess({ venue: true, staking: true });
+    expect(isHiddenPath('/trade/staking')).toBe(false);
+    expect(isHiddenPath('/trade/vaults')).toBe(true);
+  });
+
   it('give a personal account no business room, and a business account its rooms in Volt (#10301: Team and roles)', () => {
     on();
     expect(state.get('/pay/team')).toBe('volt');
@@ -132,6 +179,12 @@ describe('betaHides', () => {
     expect(betaHides('/coin/eth', list)).toBe(true);
     expect(betaHides('/not-a-room', list)).toBe(false);
     expect(betaHides('/coin/eth', undefined)).toBe(false);
+  });
+
+  it("shows a futures contract's address exactly when the futures desk is shown", () => {
+    const desk = (state: string) => betaRoomList([{ key: '/trade/futures', area: 'trade', state }], rooms);
+    expect(betaHides('/trade/futures/BTC-PERP', desk('volt'))).toBe(false);
+    expect(betaHides('/trade/futures/BTC-PERP', desk('not-migrated'))).toBe(true);
   });
 
   it('never hides sign-in, the public pages or the merchant portal pages', () => {

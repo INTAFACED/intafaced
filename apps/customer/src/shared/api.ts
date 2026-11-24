@@ -71,6 +71,20 @@ export type RestOptions = RequestOptions & {
  */
 export const isServiceNotConnected = (code: string | undefined): boolean => code === 'edge.upstream_unwired';
 
+/** The verification gates' own sentence ('Verification tier "full" required for bank in XX'): a tier, a module and a region code no customer reads. */
+const VERIFY_SENTENCE = /^Verification tier "[^"]*" (?:is )?required\b/;
+/**
+ * A refusal for want of identity verification: the jurisdiction gate's `denied.kyc_required`, the tier guard's
+ * `tier.insufficient`, or either's sentence under another code. Its words are the app's own (`verifyFirst`), never the gate's.
+ */
+export function needsVerification(code: string | undefined, message: string | undefined): boolean {
+  return code === 'denied.kyc_required' || code === 'tier.insufficient' || VERIFY_SENTENCE.test(message ?? '');
+}
+/** A failure already worded as a refusal for want of verification (`needsVerification`), whichever path made it. */
+export function isVerifyFirst(result: { messageCopy?: UiMessage; code?: string | null }): boolean {
+  return result.messageCopy?.key === 'verifyFirst' || needsVerification(result.code ?? undefined, undefined);
+}
+
 /** Keep authored copy separate from opaque service explanations. The descriptor
  * also lets a mounted refusal follow a later device-language change. */
 export function authoredRefusal(reason: RefusalReason, messageCopy: UiMessage, status?: number): Extract<ApiResult<never>, { ok: false }> {
@@ -193,21 +207,23 @@ export function createApiClient(
         else if (response.status === 501) reason = 'not_supported';
         else if (response.status >= 500) reason = method === 'GET' ? 'unreachable' : 'uncertain';
         return {
-          ...(message === undefined
-            ? authoredRefusal(
-                reason,
-                {
-                  key: isServiceNotConnected(code)
-                    ? 'serviceNotConnected'
-                    : reason === 'uncertain'
-                      ? 'gatewayUncertain'
-                      : reason === 'unreachable'
-                        ? 'serviceNoAnswer'
-                        : 'serviceRefusal',
-                },
-                response.status,
-              )
-            : { ok: false as const, reason, message, status: response.status }),
+          ...(needsVerification(code, message)
+            ? authoredRefusal(reason, { key: 'verifyFirst' }, response.status)
+            : message === undefined
+              ? authoredRefusal(
+                  reason,
+                  {
+                    key: isServiceNotConnected(code)
+                      ? 'serviceNotConnected'
+                      : reason === 'uncertain'
+                        ? 'gatewayUncertain'
+                        : reason === 'unreachable'
+                          ? 'serviceNoAnswer'
+                          : 'serviceRefusal',
+                  },
+                  response.status,
+                )
+              : { ok: false as const, reason, message, status: response.status }),
           ...(code ? { code } : {}),
           ...(requestId ? { requestId } : {}),
           ...(error?.data?.retryAfterSeconds ? { retryAfterSeconds: error.data.retryAfterSeconds } : {}),

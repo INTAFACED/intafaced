@@ -4,22 +4,13 @@ import type { Sql } from 'postgres';
 import { AccountDirectoryError, accountCounts, accountHandles, searchAccounts } from './account-directory.js';
 import { OperatorApiKeyError, revokeApiKeyForUser } from './operator-api-keys.js';
 import { OperatorSessionError, listSessionsForUser, revokeSessionsForUser } from './operator-sessions.js';
-import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from '@intafaced/contracts/identity-account-directory-procedures';
+import {
+  IDENTITY_ACCOUNT_DIRECTORY_HANDLES,
+  IDENTITY_ACCOUNT_DIRECTORY_SEARCH,
+} from '@intafaced/contracts/identity-account-directory-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
 import { IDENTITY_API_KEY_OPS_REVOKE } from '@intafaced/contracts/identity-api-key-ops-procedures';
-
-const directoryRow = z
-  .object({
-    id: z.string().guid(),
-    handle: z.string(),
-    status: z.enum(['active', 'frozen', 'closed']),
-    created: z.string().datetime({ offset: true }),
-    kycTier: z.enum(['none', 'basic', 'full', 'institutional']),
-    restrictedAreas: z.array(z.enum(['identity', 'trading'])),
-    emailMasked: z.string(),
-  })
-  .strict();
 
 function directoryError(error: unknown): never {
   if (error instanceof AccountDirectoryError) {
@@ -55,24 +46,17 @@ function apiKeyError(error: unknown): never {
 export function createOperatorOpsRouter(sql: Sql) {
   return router({
     accountDirectory: router({
-      search: scopedProcedure('admin:compliance')
-        .input(
-          z
-            .object({
-              email: z.string().max(320).optional(),
-              handle: z.string().max(32).optional(),
-              cursor: z.string().max(512).optional(),
-            })
-            .strict(),
-        )
-        .output(z.object({ rows: z.array(directoryRow), nextCursor: z.string().nullable() }).strict())
-        .query(async ({ ctx, input }) => {
+      search: mountRecord(
+        IDENTITY_ACCOUNT_DIRECTORY_SEARCH,
+        async ({ ctx, input }) => {
           try {
             return await searchAccounts(sql, ctx, input);
           } catch (error) {
             directoryError(error);
           }
-        }),
+        },
+        codedRefusal,
+      ),
       /** The handle of each account id a desk shows (an owner column): id and handle only, audited like a search. */
       handles: mountRecord(
         IDENTITY_ACCOUNT_DIRECTORY_HANDLES,

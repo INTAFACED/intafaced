@@ -82,6 +82,7 @@ pub fn lines(user_id: &str, m: &Move, names: &BTreeMap<String, String>) -> Vec<I
         dispute: None,
         address: None,
         held_at: Some(m.label.to_owned()),
+        fees: None,
     };
     let mut out = Vec::new();
     if m.from.user_id == user_id {

@@ -99,9 +99,23 @@ export function doublesIn(file) {
     const keys = node.properties.filter((pr) => pr.type === 'Property').map(keyOf);
     if (keys.includes('call')) return;
     if (keys.includes('query') && keys.includes('mutate')) out.push(node);
-    else if ((keys.includes('query') || keys.includes('mutate')) && fromUseApi(p, node)) out.push(node);
+    else if ((keys.includes('query') || keys.includes('mutate')) && (fromUseApi(p, node) || handedAsApi(p, node))) out.push(node);
   });
   return { p, out };
+}
+
+/** Whether an object is a const the file hands on as an `api` (`useSession: () => ({ userId, api })`). */
+function handedAsApi(p, node) {
+  let n = p.parents.get(node);
+  while (n?.type === 'ParenthesizedExpression' || n?.type === 'TSAsExpression' || n?.type === 'TSSatisfiesExpression') n = p.parents.get(n);
+  if (n?.type !== 'VariableDeclarator' || n.id.type !== 'Identifier') return false;
+  const name = n.id.name;
+  let found = false;
+  walk(p.program, (m) => {
+    if (found) return false;
+    if (m.type === 'Property' && keyOf(m) === 'api' && m.value.type === 'Identifier' && m.value.name === name) found = true;
+  });
+  return found;
 }
 
 /** Whether an object is what a `useApi` mock returns: `useApi: () => ({ ... })`. */

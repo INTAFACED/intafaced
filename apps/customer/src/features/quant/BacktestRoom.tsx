@@ -19,8 +19,10 @@ import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { Button, DataTable, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { QuotaAwareFailure } from './quota-refusal';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { FlaskConical } from 'lucide-react';
 import { downloadCsv, utcInput, Read, Select } from '../more';
 import { useApi } from '../session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
@@ -169,12 +171,13 @@ export function BacktestRoom() {
             {(data) => {
               if (!data.strategies.length) {
                 return (
-                  <EmptyState title={t('strategyNone')}>
-                    {t('strategyNoneBody')}{' '}
-                    <a className="lt-link" href="/quant/studio">
-                      {t('openStudio')}
-                    </a>
-                  </EmptyState>
+                  <FirstState
+                    icon={<FlaskConical size={24} />}
+                    title={t('strategyNone')}
+                    body={t('strategyNoneBody')}
+                    points={[t('firstPointHistory'), t('firstPointCosts'), t('firstPointStored')]}
+                    action={{ label: t('openStudio'), href: '/quant/studio' }}
+                  />
                 );
               }
               const strategy = data.strategies.find((row) => row.id === strategyId) ?? null;

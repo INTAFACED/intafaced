@@ -1,16 +1,16 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { accountArchiveResultSchema, type AccountArchiveResult } from '@intafaced/contracts';
+import { type AccountArchiveResult } from '@intafaced/contracts';
 import {
   type DeskRequest,
   type ExecuteFn,
   type ExecuteReply,
   explainRefusal,
   failureRefusal,
-  founderCall,
   type FounderCallContext,
-  parseWith,
+  founderRecordCall,
 } from '@/lib/desk';
+import { IDENTITY_ACCOUNT_CONTROLS_ARCHIVE } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Run an approved archive of one closed customer record (J-ops-console-04 #10) against identity, as the signed-in founder.
@@ -39,21 +39,14 @@ export function archiveReply(request: ArchiveRequest, result: AccountArchiveResu
 export function archiveExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'identity.account.archive') return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
-      ctx,
-      'identity',
-      'accountControls.archive',
-      'POST',
-      {
-        requestId: randomUUID(),
-        userId: request.userId,
-        reasonCode: request.reasonCode,
-        reason: request.reason,
-        expectedVersion: request.version,
-        approvalId: ids.approvalId,
-      },
-      parseWith(accountArchiveResultSchema),
-    );
+    const result = await founderRecordCall(ctx, IDENTITY_ACCOUNT_CONTROLS_ARCHIVE, {
+      requestId: randomUUID(),
+      userId: request.userId,
+      reasonCode: request.reasonCode,
+      reason: request.reason,
+      expectedVersion: request.version,
+      approvalId: ids.approvalId,
+    });
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     return archiveReply(request, result.data);
   };

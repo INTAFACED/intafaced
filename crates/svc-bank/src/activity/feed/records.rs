@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use postgres::IsolationLevel;
 
 use super::service::{
-    Annotation, Dispute, Fact, FeedError, Records, SpaceRef, Spaces, TransferFacts, bank,
+    Annotation, Dispute, Fact, FeedError, Fees, Records, SpaceRef, Spaces, TransferFacts, bank,
 };
 use crate::db::{Store, StoreError, transaction, with_client};
 
@@ -198,6 +198,17 @@ impl Records for StoreFeed<'_> {
     }
 }
 
+/// A recorded numeric fee as the wire writes an amount: no trailing zeros ("0", "0.5").
+fn figure(v: &str) -> String {
+    match v.split_once('.') {
+        Some((whole, frac)) => match frac.trim_end_matches('0') {
+            "" => whole.to_owned(),
+            frac => format!("{whole}.{frac}"),
+        },
+        None => v.to_owned(),
+    }
+}
+
 impl TransferFacts for StoreFeed<'_> {
     /// `factsFor`: posted sends, by ledger tx id or the partner's move id.
     fn for_transfers(
@@ -211,7 +222,8 @@ impl TransferFacts for StoreFeed<'_> {
         }
         let rows = self.client(|c| {
             Ok(c.query(
-                "SELECT ledger_tx_id, partner_move_id, from_user_id, note, reference, from_handle, to_handle \
+                "SELECT ledger_tx_id, partner_move_id, from_user_id, note, reference, from_handle, to_handle, \
+                        fee::text, network_fee::text \
                    FROM bank.personal_transfers \
                   WHERE status = 'posted' AND (ledger_tx_id = ANY($1::text[]) OR partner_move_id = ANY($1::text[])) \
                     AND (from_user_id = $2 OR to_user_id = $2)",
@@ -234,6 +246,10 @@ impl TransferFacts for StoreFeed<'_> {
                     note: get(3)?,
                     reference: get(4)?,
                     counterparty_handle: handle,
+                    fees: Fees {
+                        fee: get(7)?.map(|v: String| figure(&v)),
+                        network_fee: get(8)?.map(|v: String| figure(&v)),
+                    },
                 },
             );
         }

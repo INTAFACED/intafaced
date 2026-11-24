@@ -90,6 +90,37 @@ describe('builder-fee versions in the Fees room', () => {
     expect(buildProposal(base, withSpot('3'), reason, NOW, uncapped)).toMatchObject({ ok: false, code: 'trade.builder_fee_cap_unknown' });
   });
 
+  it("#10657 a version with a perp rate and a spot rate by kind is shown by kind and checked against each kind's cap", () => {
+    const byKind = (spot: string, perps: string): FeeVersionRow => ({
+      ...row('2', '2026-11-09T09:30:00.000Z', spot),
+      schedule: {
+        makerBps: '8',
+        takerBps: '10',
+        builderFees: { [VENUE]: { defaultGroup: 'spot', kindGroups: { perpetual: 'perps' }, groups: { spot, perps } } },
+      },
+    });
+    const [venue] = builderFeeViews(shownVersions([byKind('100', '10')], NOW));
+    expect(venue!.groups.map((g) => [g.group, g.markets])).toEqual([
+      ['spot', null],
+      ['perps', ['every perpetual market not named elsewhere']],
+    ]);
+    const base = byKind('2', '1');
+    const d = { ...draftFrom(base), effectiveAt: LATER };
+    const set = (spot: string, perps: string) => ({
+      ...d,
+      builderFees: [
+        { venueId: VENUE, group: 'spot', feeBps: spot },
+        { venueId: VENUE, group: 'perps', feeBps: perps },
+      ],
+    });
+    expect(buildProposal(base, set('100', '10'), reason, NOW, CAPS)).toMatchObject({ ok: true });
+    expect(buildProposal(base, set('100', '10.5'), reason, NOW, CAPS)).toMatchObject({
+      ok: false,
+      code: 'trade.builder_fee_above_venue_cap',
+      message: "The builder fee of test-venue-sim / perps is 10.5 bps, above the venue's cap of 10 bps on BTC-PERP.",
+    });
+  });
+
   it('a version that keeps the builder fees as they were (an engine rate change) needs no read of the venue', () => {
     const base = row('2', '2026-11-09T09:30:00.000Z', '2');
     const kept = { ...draftFrom(base), effectiveAt: LATER };

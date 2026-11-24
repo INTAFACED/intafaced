@@ -53,6 +53,13 @@ function lendingMarket() {
   return JSON.parse(readFileSync(file, 'utf8')).lendingMarket ?? null;
 }
 
+/** The TEST swap gas paymaster from the chain's own record (J-dex-protocol-02 #7), read only when switched on. */
+function swapPaymaster() {
+  const file = chainRecordPath();
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, 'utf8')).swapPaymaster ?? null;
+}
+
 export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'protocol',
   env: () => {
@@ -147,6 +154,13 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_GAS_PERCENTILES: '10,50,90',
       PROTOCOL_GAS_HISTORY_BLOCKS: '20',
       PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
+      // LOCAL TEST only (J-dex-protocol-02 #7): `LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER=on` points svc-protocol at the
+      // seeded funded ScopedPaymaster on the TEST chain so `amm.feeLevels` reports `sponsored: true`. Off (the default)
+      // and in production it stays blank, so `sponsored` is false ("You pay the network fee").
+      ...(() => {
+        const paymaster = chain && process.env.LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER === 'on' ? swapPaymaster() : null;
+        return paymaster ? { PROTOCOL_SWAP_PAYMASTER_ADDRESS: paymaster } : {};
+      })(),
       // LOCAL TEST only, labelled in the same file: the seeded fee relay, its TEST relayer and the gas a relayed swap is
       // priced for. Production stays blank and paying the fee in a token refuses protocol.fee_relay_unset.
       ...(chain?.feeRelay

@@ -28,8 +28,8 @@
  * A room that passes both still doesn't count when it shows only a placeholder (`placeholder`): its screen file and the
  * files it reaches inside its folder read nothing (call no hook but React's own, `useCopy` and `usePreferences`), list
  * nothing (no `.map(`) and draw an empty state (`kind: 'empty'` or the kit's `EmptyState`), so every visit shows the same
- * "nothing here" panel (/mining/workers/:workerId, /token/governance/:proposalId and /chain/validators/:validatorId
- * counted on 22 Nov 2026 that way). It is on the kit, so the ratchet doesn't hold it as off
+ * "nothing here" panel (/mining/workers/:workerId and /chain/validators/:validatorId are counted that way; so was
+ * /token/governance/:proposalId on 22 Nov 2026, until it read its proposal). It is on the kit, so the ratchet doesn't hold it as off
  * the kit; it stays in a batch until it shows the room's own records.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';

@@ -10,12 +10,14 @@ import { ReceiveRoom } from './wallet/ReceivePanel';
 import { TrackerRoom } from './wallet/TrackerPanel';
 import { AddressBookRoom } from './wallet/AddressBookRoom';
 import { ApprovalsRoom } from './wallet/ApprovalsRoom';
+import { ClaimLinksRoom } from './wallet/ClaimLinksRoom';
 import { SessionKeysRoom } from './wallet/SessionKeysRoom';
 import { WalletGroupRoom } from './wallet/WalletGroupRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
-import { ConventionPage, HoldingPage } from './wallet/HoldingPages';
+import { ConventionPage } from './wallet/ConventionPage';
+import { HoldingPage } from './wallet/HoldingPages';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
@@ -69,6 +71,7 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'addressBook') return <AddressBookRoom />;
   if (route.wallet === 'approvals') return <ApprovalsRoom />;
   if (route.wallet === 'sessionKeys') return <SessionKeysRoom />;
+  if (route.wallet === 'claimLinks') return <ClaimLinksRoom />;
   if (route.wallet === 'overview') return <WalletHomeRoom />;
   // Receive is drawn on its own monitor template (J-dex-protocol-04 #4).
   if (route.wallet === 'receive') return <ReceiveRoom />;

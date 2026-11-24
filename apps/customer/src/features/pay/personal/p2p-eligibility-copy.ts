@@ -3,7 +3,7 @@ import { defineCopy } from '../../../shared/i18n';
 // What a person needs before taking a P2P ad, and the read-only stay-safe guidance shown beside it.
 const en = {
   title: 'Before you trade',
-  intro: 'Each requirement for taking an ad, as the service checks it right now.',
+  intro: 'What you need before placing a P2P order.',
   allMet: 'You meet every requirement to take an ad.',
   someUnmet: 'Taking an ad is refused until every requirement below is met.',
   check_verification: 'Identity verification',
@@ -23,7 +23,7 @@ const en = {
   reason_screening: 'The operator’s sanctions screening is not set up, so P2P refuses every account.',
   reason_region_first: 'Your region was checked first and refused, so verification was not reached.',
   reason_deposit: 'Takers post no deposit. Only a merchant’s ads can need one.',
-  reason_other: 'The service refused this requirement.',
+  reason_other: 'This requirement was not met.',
   fix_verification: 'Open verification',
   fix_contact: 'Confirm your email',
   safeTitle: 'Stay safe',
@@ -41,7 +41,7 @@ const en = {
 
 const es = {
   title: 'Antes de operar',
-  intro: 'Cada requisito para tomar un anuncio, tal como el servicio lo comprueba ahora.',
+  intro: 'Lo que necesitas antes de hacer un pedido P2P.',
   allMet: 'Cumples todos los requisitos para tomar un anuncio.',
   someUnmet: 'Tomar un anuncio se rechaza hasta que se cumplan todos los requisitos de abajo.',
   check_verification: 'Verificación de identidad',
@@ -61,7 +61,7 @@ const es = {
   reason_screening: 'El control de sanciones del operador no está configurado, así que P2P rechaza todas las cuentas.',
   reason_region_first: 'Tu región se comprobó primero y se rechazó, así que no se llegó a la verificación.',
   reason_deposit: 'Quien toma un anuncio no deposita nada. Solo los anuncios de un comerciante pueden pedirlo.',
-  reason_other: 'El servicio rechazó este requisito.',
+  reason_other: 'Este requisito no se cumplió.',
   fix_verification: 'Abrir verificación',
   fix_contact: 'Confirmar tu correo',
   safeTitle: 'Opera con seguridad',
@@ -79,7 +79,7 @@ const es = {
 
 const fr = {
   title: 'Avant d’échanger',
-  intro: 'Chaque condition pour prendre une annonce, telle que le service la vérifie maintenant.',
+  intro: 'Ce qu’il faut avant de passer une commande P2P.',
   allMet: 'Vous remplissez toutes les conditions pour prendre une annonce.',
   someUnmet: 'Prendre une annonce est refusé tant que chaque condition ci-dessous n’est pas remplie.',
   check_verification: 'Vérification d’identité',
@@ -99,7 +99,7 @@ const fr = {
   reason_screening: 'Le filtrage des sanctions de l’opérateur n’est pas configuré, donc le P2P refuse tous les comptes.',
   reason_region_first: 'Votre région a été vérifiée d’abord et refusée, la vérification n’a donc pas été atteinte.',
   reason_deposit: 'Celui qui prend une annonce ne dépose rien. Seules les annonces d’un marchand peuvent en demander un.',
-  reason_other: 'Le service a refusé cette condition.',
+  reason_other: 'Cette condition n’est pas remplie.',
   fix_verification: 'Ouvrir la vérification',
   fix_contact: 'Confirmer votre e-mail',
   safeTitle: 'Restez prudent',

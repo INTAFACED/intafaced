@@ -190,8 +190,9 @@ function checkRefusals(record, bases) {
  * A Rust door's own accepted input for each call: the `valid` request its wire replay sends, when the door let it through.
  * A handler may check its input past the schema (a date range, a slug), so only a request the door itself let through is
  * an accepted sample. Two recordings: svc-academy's one file (`tests/fixtures/wire-replay.golden.json`), read by the
- * operator's answer with the store down, not a 400; and svc-agents' directory of parts (`tests/fixtures/
- * wire-replay.golden/*.json`), where some caller's answer to it is past the door's checks: not a 400, 401 or 403.
+ * operator's answer with the store down, not a 400; svc-agents' directory of parts (`tests/fixtures/
+ * wire-replay.golden/*.json`), where some caller's answer to it is past the door's checks: not a 400, 401 or 403; and
+ * svc-bank's parts, each with its `bodies`, which send each call six inputs (`bankAccepted`).
  */
 export function doorAccepts(crateDir) {
   const dir = join(REPO, crateDir, 'tests/fixtures/wire-replay.golden');
@@ -201,6 +202,13 @@ export function doorAccepts(crateDir) {
       .filter((x) => x.endsWith('.json'))
       .sort()) {
       const part = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      if (part.bodies) {
+        for (const [path, byInput] of Object.entries(part.answers ?? {})) {
+          const valid = bankAccepted(part.inputs?.[path], byInput);
+          if (valid !== NONE) out.set(path, valid);
+        }
+        continue;
+      }
       for (const [path, valid] of Object.entries(part.inputs ?? {})) {
         const answers = Object.entries(part.answers ?? {}).filter(([k]) => k.startsWith(`${path} valid `));
         if (answers.some(([, a]) => ![400, 401, 403].includes(a.status))) out.set(path, valid);
@@ -216,6 +224,30 @@ export function doorAccepts(crateDir) {
     if (body !== undefined && !body.startsWith('400 ')) out.set(c.path, c.valid);
   }
   return out;
+}
+
+const NONE = Symbol('none');
+/**
+ * svc-bank's recording (`crates/svc-bank/tests/wire_replay.rs`): each call is sent absent, null, a wrong type, `{}`, the
+ * schema's sample and the sample with every field null (the last two as JSON text in `inputs[path]`), and
+ * `answers[path]['<input> <caller>']` is `[status, body]`. The first of the sample, `{}`, absent and the sample with nulls
+ * that some caller's answer is past the door's checks (not a 400, 401 or 403), or NONE.
+ */
+export function bankAccepted(inputs, byInput) {
+  const sent = [
+    ['sample', inputs?.sample],
+    ['empty', '{}'],
+    ['absent', undefined],
+    ['sample-nulls', inputs?.['sample-nulls']],
+  ];
+  for (const [name, text] of sent) {
+    if (name.startsWith('sample') && typeof text !== 'string') continue;
+    const statuses = Object.entries(byInput ?? {})
+      .filter(([k]) => k.startsWith(`${name} `))
+      .map(([, a]) => a[0]);
+    if (statuses.some((st) => ![400, 401, 403].includes(st))) return text === undefined ? undefined : JSON.parse(text);
+  }
+  return NONE;
 }
 
 export function samplesFor(record, doorValid) {

@@ -91,6 +91,15 @@ const en = {
   heldNote: 'Nothing has left your account. It is sent once the check passes; if it doesn’t, nothing moves.',
   heldRejectedNote: 'The check did not pass, so nothing was sent and nothing left your account.',
   heldReleasedNote: 'The check passed and the payment was sent.',
+  // The sender's own send as the bank knows it (J-pay-01 #6): Confirming until it knows the move was made.
+  sentConfirming: 'Confirming',
+  sentCompleted: 'Completed',
+  sentConfirmingNote:
+    'We’re confirming this payment with the bank that holds your money. It is sent at most once; check again in a moment.',
+  sentCompletedNote: 'This payment is complete.',
+  sentCheckAgain: 'Check again',
+  sentPartnerReference: '{bank} reference',
+  sentTransferId: 'Payment id',
   // Claim
   claimTitle: 'Claim a payment',
   claimLine: 'Someone sent you money before you had an account.',

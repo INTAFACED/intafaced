@@ -49,14 +49,19 @@ const devSupport = developerSupportCopy.forLocale('en').t;
 const quantApi = quantApiCopy.forLocale('en').t;
 const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
+const blockerLabel = (id: string) => (portal as (key: string) => string)(`blocker_${id.replace(/-/g, '_')}`);
 
 const table = (head: string[], rows: string[][]) =>
   [`| ${head.join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...rows.map((row) => `| ${row.join(' | ')} |`)].join('\n');
 const code = (text: string) => `\`${text}\``;
 
-/** Where a section's page is: its page in this portal, the page it is published at, or the slice it waits for. */
+/** Where a section's page is: its page in this portal, the page it is published at, or what it is waiting on. */
 const sectionTarget = (section: Section) =>
-  section.page ? `/developers/${section.id}` : section.published ? section.published.href : portal('waitsFor', { slice: section.waitsFor });
+  section.page
+    ? `/developers/${section.id}`
+    : section.published
+      ? section.published.href
+      : portal('waitsFor', { blocker: blockerLabel(section.id) });
 
 /** Pages of this portal that read live notices an operator publishes, so they have no static markdown variant. */
 const LIVE_PAGES = ['status', 'changelog'] as const;

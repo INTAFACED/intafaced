@@ -1825,7 +1825,11 @@ test('recheckTargets: only pull requests with auto-merge armed are re-sealed; ar
     (await recheckTargets({ finished, pulls: list, sha, repo: 'o/r', filesOf })).map((p) => p.number);
   assert.deepEqual(await numbers('CI'), [1, 3], 'after CI: every armed pull request on the head, none that is not armed');
   assert.deepEqual(await numbers('Real-app journeys'), [3], 'after a journeys run: armed and naming steps');
-  assert.deepEqual(await numbers('CI review'), [1, 3], 'after the CI review: every armed pull request on the head');
+  assert.deepEqual(
+    await numbers('CI review', [...pulls, { ...pr(6, 'J-x #1', null), draft: true }]),
+    [1, 2, 3, 4],
+    'after the CI review: every ready pull request on the head, armed or not (sealedOnReview), never a draft',
+  );
   assert.deepEqual(await numbers('CI', [pr(5, 'J-x #1', null)]), [], 'disarmed again before the re-check read it: left alone');
   // Planted: without the filter, an unarmed pull request named by its title would be re-sealed after a journeys run.
   const unfiltered = await recheckTargets({
@@ -2135,12 +2139,16 @@ test("#1574: on a pull request ci.yml's seal reads only CI's own jobs and the sw
   for (const name of PR_READ_STEPS_LIST)
     assert.match(ifOf(name), /github\.event_name == 'merge_group'/, `${name} runs only on a merge queue's commit`);
   assert.match(ifOf('The factory switch says run'), /github\.event_name == 'pull_request'/);
-  // merge-seal.yml, the default branch's copy, still runs both on every pull request, with no `if:` that skips them for one.
+  // merge-seal.yml, the default branch's copy, still runs both on every pull request, with no `if:` that skips them for one
+  // but a change to the judges alone that judge-repair.mjs passed.
   const ms = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
-  assert.match(ms, /- name: Require the named journey steps on this exact head\n\s+if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(
     ms,
-    /- name: Require the CI review on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.needed\.outcome == 'success' \}\}/,
+    /- name: Require the named journey steps on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.repair\.outputs\.pass != 'true' \}\}/,
+  );
+  assert.match(
+    ms,
+    /- name: Require the CI review on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.repair\.outputs\.pass != 'true' && steps\.needed\.outcome == 'success' \}\}/,
   );
 });
 const PR_READ_STEPS_LIST = ['Require the named journey steps on this exact head', 'Require the CI review on this exact head'];

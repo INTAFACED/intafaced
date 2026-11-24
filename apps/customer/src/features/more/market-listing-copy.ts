@@ -1,7 +1,7 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
   doorsTitle: 'More in the Market',
-  doorsNote: 'Copy leaders, bots and signals are run by the copy room; each door opens its own section there.',
+  doorsNote: 'Copy trading, bots and signals live in Trade. Choose one below to go straight there.',
   doorSpot: 'Spot copy trading',
   doorSpotNote: 'Follow a spot leader.',
   doorFutures: 'Futures copy trading',
@@ -54,6 +54,12 @@ const en = {
   categoryNone: 'No category',
   categoryNote: 'Only one-time listings are filed under a category. Strategy subscriptions are not, so a category shows none.',
   categoryEmpty: 'No listing is filed under this category yet.',
+  firstBody: 'Sellers publish one-time items and strategy subscriptions here. Each listing shows its seller, its price and what you get.',
+  firstMineBody: 'Publish a strategy subscription and it is listed here, with its buyers and what you earn from it.',
+  firstPointOneTime: 'One-time items, filed by category',
+  firstPointSubscriptions: 'Strategy subscriptions, paid per period',
+  firstPointSellers: 'Every seller listed, with no ranking',
+  firstAction: 'Publish a strategy subscription',
   cat_bots: 'Bots',
   cat_defi: 'DeFi',
   cat_compliance: 'Compliance',
@@ -65,7 +71,7 @@ const en = {
 } as const;
 const es = {
   doorsTitle: 'Más en el Mercado',
-  doorsNote: 'Los líderes de copia, los bots y las señales los gestiona la sala de copia; cada puerta abre su propia sección allí.',
+  doorsNote: 'El copy trading, los bots y las señales están en Trade. Elige uno abajo para ir directamente.',
   doorSpot: 'Copy trading al contado',
   doorSpotNote: 'Sigue a un líder al contado.',
   doorFutures: 'Copy trading de futuros',
@@ -127,10 +133,17 @@ const es = {
   cat_data: 'Datos',
   cat_advisory: 'Asesoría',
   cat_partner_integrations: 'Integraciones de socios',
+  firstBody:
+    'Los vendedores publican aquí artículos de pago único y suscripciones a estrategias. Cada anuncio muestra su vendedor, su precio y lo que obtienes.',
+  firstMineBody: 'Publica una suscripción a una estrategia y aparecerá aquí, con sus compradores y lo que ganas con ella.',
+  firstPointOneTime: 'Artículos de pago único, por categoría',
+  firstPointSubscriptions: 'Suscripciones a estrategias, de pago por periodo',
+  firstPointSellers: 'Todos los vendedores, sin clasificación',
+  firstAction: 'Publicar una suscripción a una estrategia',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   doorsTitle: 'Plus dans le Marché',
-  doorsNote: 'Les leaders de copie, les bots et les signaux relèvent de la salle de copie ; chaque porte ouvre sa propre section.',
+  doorsNote: 'Le copy trading, les bots et les signaux se trouvent dans Trade. Choisis-en un ci-dessous pour y accéder directement.',
   doorSpot: 'Copy trading au comptant',
   doorSpotNote: 'Suivre un leader au comptant.',
   doorFutures: 'Copy trading sur contrats à terme',
@@ -192,5 +205,12 @@ const fr = {
   cat_data: 'Données',
   cat_advisory: 'Conseil',
   cat_partner_integrations: 'Intégrations partenaires',
+  firstBody:
+    'Les vendeurs publient ici des articles à achat unique et des abonnements à des stratégies. Chaque annonce indique son vendeur, son prix et ce que vous obtenez.',
+  firstMineBody: 'Publiez un abonnement à une stratégie : il apparaît ici, avec ses acheteurs et ce qu’il vous rapporte.',
+  firstPointOneTime: 'Des articles à achat unique, par catégorie',
+  firstPointSubscriptions: 'Des abonnements à des stratégies, payés par période',
+  firstPointSellers: 'Tous les vendeurs, sans classement',
+  firstAction: 'Publier un abonnement à une stratégie',
 } satisfies Record<keyof typeof en, string>;
 export const marketListingCopy = defineCopy('more.market.listing', en, { es, fr });

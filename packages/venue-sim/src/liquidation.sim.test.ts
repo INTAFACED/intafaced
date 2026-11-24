@@ -150,6 +150,26 @@ describe('TEST venue liquidation (J-derivatives-07)', () => {
       ['liq-1-1', '0.5', '92', '0.46'],
       ['liq-1-2', '0.5', '91', '0.455'],
     ]);
+    // Each liquidation part is also recorded as a filled liquidation order in orderHistory and readable by client id (J-derivatives-04 #2).
+    const liqOrders = (await w.sim.orderHistory(w.main)).value.filter((r) => r.order.origin === 'liquidation');
+    expect(
+      liqOrders.map((r) => [
+        r.order.originRef,
+        r.order.side,
+        r.order.status,
+        formatAmount(r.order.filled),
+        formatAmount(r.order.price),
+        r.order.reduceOnly,
+        r.order.label,
+      ]),
+    ).toEqual([
+      ['liq-1-2', 'sell', 'filled', '0.5', '91', true, null],
+      ['liq-1-1', 'sell', 'filled', '0.5', '92', true, null],
+    ]);
+    for (const r of liqOrders) {
+      expect(r.order.venueClientOrderId).toMatch(/^0x[0-9a-f]{32}$/);
+      expect((await w.sim.orderByClientId(w.main, r.order.venueClientOrderId!)).value).toEqual(r.order);
+    }
     // Done, a change is taken again.
     await expect(w.sim.prepare(w.main, w.person.signer, margin)).rejects.toThrow(/venue_rejected: no po/);
 

@@ -9,6 +9,7 @@ import type { sharedPotActivitySchema, sharedPotCardSchema, sharedPotsSchema } f
 import { maskedPan } from '../card-controls';
 import { sharedPotsCopy } from '../shared-pots-copy';
 import { BANK_CARDS_LIST, BANK_CARDS_SET_STATUS } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_TRANSFERS_CREATE } from '@intafaced/contracts/bank-transfers-2-procedures';
 import {
   BANK_SHARED_POTS_ACCEPT,
   BANK_SHARED_POTS_ACTIVITY,
@@ -230,7 +231,7 @@ function SharedWithMe({
           account &&
           open({
             title: t('addTitle', { pot: row.pot.name }),
-            procedure: 'transfers.create',
+            record: BANK_TRANSFERS_CREATE,
             unit: row.pot.assetId,
             fields: [positiveMoney(row.pot.assetId)],
             facts: [

@@ -132,10 +132,22 @@ test(`${J} #1 /campaigns with nothing running shows the full catalogue layout an
   await expect(page.getByRole('combobox', { name: 'Type', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'State', exact: true })).toBeVisible();
   await expect(page.getByTestId('campaign-types')).toBeVisible();
+  await expect(page.getByTestId('campaign-type')).toHaveCount((await catalogueOf(me)).types.length);
+  // The types section ends on the way to my campaigns.
+  const toMine = page.getByTestId('campaign-types').locator('xpath=..').getByRole('link', { name: 'My campaigns', exact: true });
+  await expect(toMine).toBeVisible();
+  await expect(toMine).toHaveAttribute('href', '/campaigns/mine');
   // Nothing runs, and the page says so honestly: no invented card.
   expect((await catalogueOf(me)).campaigns).toEqual([]);
   await expect(page.getByTestId('campaign-card')).toHaveCount(0);
   await expect(page.getByTestId('campaign-catalogue')).toContainText('No campaign is running right now');
+  // Its one action takes me to my campaigns and vouchers, where a voucher code is claimed.
+  const action = page.getByTestId('campaign-catalogue').getByRole('link', { name: 'Claim a voucher code', exact: true });
+  await expect(action).toBeVisible();
+  await expect(action).toHaveAttribute('href', '/campaigns/mine');
+  await expect(page.getByTestId('campaign-catalogue')).toContainText(
+    'When a campaign is published it shows here with its dates, rules and reward, and you can join it from here.',
+  );
   await stepPicture(page);
   run.write({ me });
 });
@@ -146,39 +158,19 @@ test(`${J} #2 two active campaigns show their state, time frame and who can join
 }) => {
   const { me } = state('me');
   const first = await liveCampaign(`TEST tasks ${tag}`);
-  // A referral campaign goes live only with its whole programme set (CM-referral-02): TEST criteria and a TEST reward per side.
+  // A referral campaign goes live only with its whole programme set (CM-referral-02): TEST criteria and a TEST reward per
+  // side. It leaves business accounts out, so the two cards name two different groups who can join.
   const second = await liveCampaign(`TEST referral ${tag}`, {
     type: 'referral',
     reward: null,
+    participation: { exclusions: ['business'], regionScope: 'platform' },
     referral: {
       sides: 'double',
       criteria: { verification: 'full', asset: 'USDT', depositMin: '20', tradeVolumeMin: '0.01', windowSeconds: 7 * 86_400 },
       rewards: { referrer: { asset: 'USDT', amount: '1' }, referee: { asset: 'USDT', amount: '1' } },
     },
   });
-  const page = await customer(browser);
-  await signIn(page, me);
-  await openCatalogue(page);
-  // Each card's time frame is the stored one, read in my zone (UTC here).
-  const listed = (await catalogueOf(me)).campaigns;
-  for (const c of [first, second]) {
-    const row = card(page, c.id);
-    const stored = listed.find((x) => x.id === c.id);
-    await expect(row).toBeVisible();
-    await expect(row.getByRole('link', { name: c.name, exact: true })).toBeVisible();
-    await expect(row.getByTestId('campaign-state')).toHaveText('Active');
-    await expect(row.getByTestId('campaign-window')).toHaveText(`${shown(stored.startsAt, 'UTC')} to ${shown(stored.endsAt, 'UTC')}`);
-    await expect(row.getByTestId('campaign-who')).toHaveText('Every signed-in account');
-  }
-  // The gift-card and points types are visible and name their blocker.
-  for (const type of ['gift_card', 'points']) {
-    const row = page.locator(`[data-testid="campaign-type"][data-type="${type}"]`);
-    await expect(row).toHaveAttribute('data-code', 'owner.decision');
-    await expect(row).toContainText('Parked: waiting for an owner decision');
-  }
-  await expect(page.getByTestId('campaign-types')).toContainText('Waits for the owner to decide whether INTAFACED sells gift cards');
-  await stepPicture(page);
-  // A parked type cannot go live: the founders' activation refuses by name.
+  // A parked type cannot go live: the founders' submit refuses it by name, so it is never a card.
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
   const gift = data(
@@ -187,10 +179,50 @@ test(`${J} #2 two active campaigns show their state, time frame and who can join
   );
   const refused = await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: gift.id, action: 'submit', revision: 1 }, a);
   expect(refused.json?.error?.message ?? '').toContain('[owner.decision]');
-  // Filtering by type keeps the referral campaign only.
-  await page.getByRole('combobox', { name: 'Type', exact: true }).selectOption('referral');
+
+  const page = await customer(browser);
+  await signIn(page, me);
+  await openCatalogue(page);
+  const listed = (await catalogueOf(me)).campaigns;
+  expect(listed.map((c) => c.id)).not.toContain(gift.id);
+  await expect(card(page, gift.id)).toHaveCount(0);
+  // Each card shows its state, its time frame (the stored one, read in my zone, UTC here) and who can join.
+  const who = { [first.id]: 'Every signed-in account', [second.id]: 'Signed-in accounts except business accounts' };
+  for (const c of [first, second]) {
+    const row = card(page, c.id);
+    const stored = listed.find((x) => x.id === c.id);
+    expect(stored?.state).toBe('active');
+    await expect(row).toBeVisible();
+    await expect(row.getByRole('link', { name: c.name, exact: true })).toBeVisible();
+    await expect(row.getByTestId('campaign-state')).toHaveText('Active');
+    await expect(row.getByTestId('campaign-window')).toHaveText(`${shown(stored.startsAt, 'UTC')} to ${shown(stored.endsAt, 'UTC')}`);
+    await expect(row.getByTestId('campaign-who')).toHaveText(who[c.id]);
+  }
+  // No invented card: the page draws exactly the campaigns the service lists.
+  await expect(page.getByTestId('campaign-card')).toHaveCount(listed.length);
+  const drawn = await page.getByTestId('campaign-card').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-campaign-id')));
+  expect(drawn.toSorted()).toEqual(listed.map((c) => c.id).toSorted());
+  // Filtering by type keeps the referral campaign only; Any brings both back.
+  const typeFilter = page.getByRole('combobox', { name: 'Type', exact: true });
+  await typeFilter.selectOption('referral');
   await expect(card(page, second.id)).toBeVisible();
   await expect(card(page, first.id)).toHaveCount(0);
+  await typeFilter.selectOption('');
+  await expect(card(page, first.id)).toBeVisible();
+  await expect(card(page, second.id)).toBeVisible();
+  // The gift-card and points types are visible and each names its blocker.
+  const blockers = {
+    gift_card: 'Waits for the owner to decide whether INTAFACED sells gift cards.',
+    points: 'Waits for the owner to decide whether INTAFACED runs a points programme whose points have value.',
+  };
+  for (const [type, words] of Object.entries(blockers)) {
+    const row = page.locator(`[data-testid="campaign-type"][data-type="${type}"]`);
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute('data-code', 'owner.decision');
+    await expect(row).toContainText('Parked: waiting for an owner decision');
+    await expect(row).toContainText(words);
+  }
+  await stepPicture(page);
   run.write({ ...run.read(), campaignId: first.id, campaignName: first.name });
 });
 
@@ -199,63 +231,13 @@ test(`${J} #3 a campaign's page shows its rules, its time frame in my time zone,
   stepPicture,
 }) => {
   const { me, campaignId, campaignName } = state('me', 'campaignId', 'campaignName');
-  // I read it from Tokyo: the times are shown in my zone, with the zone named.
-  const page = await customer(browser, 'Asia/Tokyo');
-  await signIn(page, me);
-  await openCatalogue(page);
-  await card(page, campaignId).getByRole('link', { name: campaignName, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/campaigns/${campaignId}$`));
-  const detail = page.getByTestId('campaign-detail');
-  await expect(detail.getByRole('heading', { name: campaignName, exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(detail.getByTestId('campaign-rules')).toContainText(`TEST rules for ${campaignName}`);
-  await expect(detail.getByTestId('campaign-state')).toHaveText('Active');
-  // The page reads what the service stores, and shows its start and end converted to Tokyo time, the zone named.
-  const stored = (await catalogueOf(me)).campaigns.find((c) => c.id === campaignId);
-  expect(stored).toMatchObject({ budget: { limit: '1000', left: '1000', asset: 'USDT' }, reward: { amount: '10', asset: 'USDT' } });
-  await expect(detail.getByTestId('campaign-window')).toHaveText(`${tokyo(stored.startsAt)} to ${tokyo(stored.endsAt)}`);
-  await expect(detail.getByTestId('campaign-window')).toContainText('GMT+9');
-  await expect(detail.getByTestId('campaign-days')).toHaveText('Every day');
-  await expect(detail.getByTestId('campaign-budget-left')).toHaveText('1000 USDT of 1000 USDT');
-  await expect(detail.getByTestId('campaign-reward')).toHaveText('10 USDT');
-  await stepPicture(page);
-
-  // Budget left only when the owner set a cap: a campaign that pays from a budget cannot go live without one (the
-  // activation gate names the blank budget), so no customer ever reads it, and no budget line is shown for it.
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
-  const uncapped = data(
-    await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition(`TEST no cap ${tag}`, { budget: null }), a),
-    'ops.campaigns.create',
-  );
-  const noCap = await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: uncapped.id, action: 'submit', revision: 1 }, a);
-  expect(noCap.json?.error?.message ?? noCap.text).toContain('campaigns.budget_unset');
-  expect((await catalogueOf(me)).campaigns.map((c) => c.id)).not.toContain(uncapped.id);
-  await page.goto(`/campaigns/${uncapped.id}`);
-  // The page is drawn and says so: the campaign is not listed, and no budget line is shown for it.
-  await expect(page.getByTestId('campaign-detail')).toContainText('This campaign is not listed.', { timeout: 30_000 });
-  await expect(page.getByTestId('campaign-budget-left')).toHaveCount(0);
-  await expect(page.getByTestId('campaign-detail').getByRole('heading', { name: `TEST no cap ${tag}`, exact: true })).toHaveCount(0);
-  // A campaign the owner runs with no cap at all, a TEST trial pass (it pays nothing, so it has no budget), goes live,
-  // and its page shows no budget line either.
-  const pass = await liveCampaign(`TEST trial pass ${tag}`, {
-    type: 'trial_pass',
-    budget: null,
-    reward: null,
-    trialPass: { tierId: 'test-vip-1', seconds: 3600 },
-  });
-  try {
-    expect(pass.budget ?? null).toBeNull();
-    await page.goto(`/campaigns/${pass.id}`);
-    await expect(page.getByTestId('campaign-detail')).toContainText('This campaign is not listed.', { timeout: 30_000 });
-    await expect(page.getByTestId('campaign-budget-left')).toHaveCount(0);
-  } finally {
-    data(
-      await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: pass.id, action: 'end', revision: pass.revision }, a),
-      `end ${pass.name}`,
-    );
-  }
+  // I read from Tokyo: the times are shown in my zone, with the zone named.
+  const page = await customer(browser, 'Asia/Tokyo');
+  await signIn(page, me);
 
-  // The reward reads "Not set" when the campaign has none: a TEST welcome campaign, whose reward is per task and left
+  // The reward reads "not set" when the campaign has none: a TEST welcome campaign, whose reward is per task and left
   // blank here, shows its cap and "Not set" for the reward.
   const welcome = await liveCampaign(`TEST no reward ${tag}`, {
     type: 'welcome',
@@ -280,6 +262,78 @@ test(`${J} #3 a campaign's page shows its rules, its time frame in my time zone,
       `end ${welcome.name}`,
     );
   }
+
+  // The campaign I open from the catalogue: its page reads what the service stores.
+  await openCatalogue(page);
+  await card(page, campaignId).getByRole('link', { name: campaignName, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/campaigns/${campaignId}$`));
+  const detail = page.getByTestId('campaign-detail');
+  await expect(detail.getByRole('heading', { name: campaignName, exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(detail.getByTestId('campaign-rules')).toHaveText(
+    `TEST rules for ${campaignName}: sign in and press Join. Nothing is paid by this TEST campaign.`,
+  );
+  await expect(detail.getByTestId('campaign-state')).toHaveText('Active');
+  const stored = (await catalogueOf(me)).campaigns.find((c) => c.id === campaignId);
+  expect(stored).toMatchObject({ budget: { limit: '1000', left: '1000', asset: 'USDT' }, reward: { amount: '10', asset: 'USDT' } });
+  // The start and end converted to Tokyo time, the zone named.
+  await expect(detail.getByText('Time frame, in your time zone', { exact: true })).toBeVisible();
+  await expect(detail.getByTestId('campaign-window')).toHaveText(`${tokyo(stored.startsAt)} to ${tokyo(stored.endsAt)}`);
+  await expect(detail.getByTestId('campaign-window')).toContainText('GMT+9');
+  await expect(detail.getByTestId('campaign-days')).toHaveText('Every day');
+  // The owner set a cap: the budget left is shown against it.
+  await expect(detail.getByTestId('campaign-budget-left')).toHaveText('1000 USDT of 1000 USDT');
+  await expect(detail.getByTestId('campaign-reward')).toHaveText('10 USDT');
+  await stepPicture(page);
+});
+
+test(`${J} #3 a live campaign whose owner set no cap shows its page with no budget-left line`, async ({ browser, stepPicture }) => {
+  const { me } = state('me');
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  // A campaign that pays from a budget cannot go live without a cap: the activation gate names the blank budget, so no
+  // customer reads it, and its page shows no budget line.
+  const uncapped = data(
+    await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition(`TEST no cap ${tag}`, { budget: null }), a),
+    'ops.campaigns.create',
+  );
+  const noCap = await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: uncapped.id, action: 'submit', revision: 1 }, a);
+  expect(noCap.json?.error?.message ?? noCap.text).toContain('campaigns.budget_unset');
+  expect((await catalogueOf(me)).campaigns.map((c) => c.id)).not.toContain(uncapped.id);
+  const page = await customer(browser, 'Asia/Tokyo');
+  await signIn(page, me);
+  await page.goto(`/campaigns/${uncapped.id}`);
+  await expect(page.getByTestId('campaign-detail')).toContainText('This campaign is not listed.', { timeout: 30_000 });
+  await expect(page.getByTestId('campaign-budget-left')).toHaveCount(0);
+  await expect(page.getByTestId('campaign-detail').getByRole('heading', { name: `TEST no cap ${tag}`, exact: true })).toHaveCount(0);
+
+  // A campaign the owner runs with no cap at all, a TEST trial pass (it pays nothing, so it asks for no budget), goes live.
+  const pass = await liveCampaign(`TEST trial pass ${tag}`, {
+    type: 'trial_pass',
+    budget: null,
+    reward: null,
+    trialPass: { tierId: 'test-vip-1', seconds: 3600 },
+  });
+  expect(pass.budget ?? null).toBeNull();
+  try {
+    // An active campaign is a card I can open, cap or no cap.
+    await openCatalogue(page);
+    await card(page, pass.id).getByRole('link', { name: pass.name, exact: true }).click({ timeout: 15_000 });
+    await expect(page).toHaveURL(new RegExp(`/campaigns/${pass.id}$`));
+    const detail = page.getByTestId('campaign-detail');
+    await expect(detail.getByRole('heading', { name: pass.name, exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(detail.getByTestId('campaign-rules')).toContainText(`TEST rules for ${pass.name}`);
+    await expect(detail.getByTestId('campaign-window')).toContainText('GMT+9');
+    await expect(detail.getByTestId('campaign-reward')).toHaveText('Not set');
+    // No cap was set, so no budget left is shown.
+    await expect(detail.getByText('Budget left', { exact: true })).toHaveCount(0);
+    await expect(detail.getByTestId('campaign-budget-left')).toHaveCount(0);
+    await stepPicture(page);
+  } finally {
+    data(
+      await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: pass.id, action: 'end', revision: pass.revision }, a),
+      `end ${pass.name}`,
+    );
+  }
 });
 
 test(`${J} #4 an excluded account type sees the typed reason and can ask for one review`, async ({ browser, stepPicture }) => {
@@ -292,22 +346,31 @@ test(`${J} #4 an excluded account type sees the typed reason and can ask for one
   await signUpInBrowser(page, firm, { accountType: 'business' });
   await page.goto(`/campaigns/${excluding.id}`);
   const detail = page.getByTestId('campaign-detail');
-  await expect(detail.getByTestId('campaign-eligibility')).toHaveAttribute('data-code', 'campaigns.not_eligible', { timeout: 30_000 });
+  // The typed reason, in words and by its code; no Join button.
+  const reason = detail.getByTestId('campaign-eligibility');
+  await expect(reason).toHaveAttribute('data-code', 'campaigns.not_eligible', { timeout: 30_000 });
+  await expect(reason).toHaveText('Can I take part: This campaign’s rules leave out your account, so you cannot join it.');
+  await expect(detail.getByRole('button', { name: `Join ${excluding.name}`, exact: true })).toHaveCount(0);
+  // A one-time review request: the page says it can be asked once, and once asked the button is gone.
+  await expect(detail).toContainText('You can ask once per campaign.');
+  await expect(detail.getByTestId('campaign-review')).toHaveCount(0);
   await detail.getByRole('button', { name: 'Ask for a review', exact: true }).click();
   await expect(detail.getByTestId('campaign-review')).toContainText('Review requested');
   await expect(detail.getByRole('button', { name: 'Ask for a review', exact: true })).toHaveCount(0);
-  await stepPicture(page);
-  // One review only: two more requests sent at once, as a retry and another tab would send them, both return the
-  // first, and a fresh load of the page still shows it requested with no button to ask again.
-  const api1 = await api(firm);
-  const [first, second] = await Promise.all(
-    [1, 2].map(() => api1.post('/api/campaigns/trpc/participation.requestReview', { campaignId: excluding.id })),
+  // Two more requests sent at once, as a retry and another tab would send them, both return the first one, not a new one.
+  const firmApi = await api(firm);
+  const [again, third] = await Promise.all(
+    [1, 2].map(() => firmApi.post('/api/campaigns/trpc/participation.requestReview', { campaignId: excluding.id })),
   );
-  expect(first.body?.result?.data?.created, JSON.stringify(first.body).slice(0, 300)).toBe(false);
-  expect(second.body?.result?.data, JSON.stringify(second.body).slice(0, 300)).toEqual(first.body.result.data);
+  expect(again.body?.result?.data?.created, JSON.stringify(again.body).slice(0, 300)).toBe(false);
+  expect(third.body?.result?.data, JSON.stringify(third.body).slice(0, 300)).toEqual(again.body.result.data);
+  // A fresh load still shows the one request, the same reason, and no button to ask again.
+  const requested = await detail.getByTestId('campaign-review').innerText();
   await page.reload();
-  await expect(detail.getByTestId('campaign-review')).toContainText('Review requested', { timeout: 30_000 });
+  await expect(detail.getByTestId('campaign-review')).toHaveText(requested, { timeout: 30_000 });
+  await expect(reason).toHaveAttribute('data-code', 'campaigns.not_eligible');
   await expect(detail.getByRole('button', { name: 'Ask for a review', exact: true })).toHaveCount(0);
+  await stepPicture(page);
 });
 
 test(`${J} #5 a region-scoped campaign from a blocked region shows the reason; another person gets the same answer`, async ({
@@ -318,42 +381,81 @@ test(`${J} #5 a region-scoped campaign from a blocked region shows the reason; a
   const scoped = await liveCampaign(`TEST region ${tag}`, {
     participation: { exclusions: [], regionScope: 'listed', restrictedRegions: ['FR'] },
   });
-  const answers = [];
+  const seen = [];
   let page;
   for (const n of [1, 2]) {
     const who = person(`jc01fr${n}${tag}`.slice(0, 20));
     page = await customer(browser);
     await signUpInBrowser(page, who, { country: 'FR' });
     await page.goto(`/campaigns/${scoped.id}`);
-    const reason = page.getByTestId('campaign-detail').getByTestId('campaign-eligibility');
+    const detail = page.getByTestId('campaign-detail');
+    const reason = detail.getByTestId('campaign-eligibility');
     await expect(reason).toHaveAttribute('data-code', 'campaigns.region_blocked', { timeout: 30_000 });
-    answers.push(await reason.innerText());
+    // The reason is shown, and it is generic: it names no region and nothing about this person.
+    await expect(reason).toHaveText('Can I take part: This campaign is not open in your region, so you cannot join it.');
+    await expect(reason).not.toContainText(/FR|France/);
+    await expect(reason).not.toContainText(who.handle);
+    await expect(detail.getByRole('button', { name: `Join ${scoped.name}`, exact: true })).toHaveCount(0);
+    // Probing the service directly gets the same refusal, and nothing is joined.
+    const probe = await (await api(who)).post('/api/campaigns/trpc/participation.join', { campaignId: scoped.id });
+    const refusal = probe.body?.error?.message;
+    // The whole answer is the generic refusal and its typed code: no region, nothing about this person.
+    expect(refusal, JSON.stringify(probe.body).slice(0, 300)).toBe('This campaign is not open in your region [campaigns.region_blocked]');
+    expect(probe.body?.result).toBeUndefined();
+    seen.push({ shown: await reason.innerText(), probe: refusal });
   }
-  expect(answers[1]).toBe(answers[0]);
+  // The second person gets exactly the first person's answer, on the page and from the service.
+  expect(seen[1]).toEqual(seen[0]);
   await stepPicture(page);
 });
 
 test(`${J} #6 pressing Join twice is one participation; a campaign outside its weekday or hour window refuses`, async ({
   browser,
   stepPicture,
-}) => {
-  const { me, campaignId, campaignName } = state('me', 'campaignId', 'campaignName');
+}, testInfo) => {
+  const { me } = state('me');
+  // An active campaign I have not joined, made for this attempt, so a retry starts from the same place.
+  const target = await liveCampaign(`TEST join ${tag} ${testInfo.retry}`);
   const page = await customer(browser);
   await signIn(page, me);
-  await page.goto(`/campaigns/${campaignId}`);
-  const detail = page.getByTestId('campaign-detail');
-  await detail.getByRole('button', { name: `Join ${campaignName}`, exact: true }).click();
-  await expect(detail.getByTestId('campaign-joined')).toContainText('Joined');
-  // The second press, as a lost reply's retry would make it: the same participation comes back.
   const mine = await api(me);
-  const again = await mine.post('/api/campaigns/trpc/participation.join', { campaignId });
-  expect(again.body?.result?.data?.created).toBe(false);
-  expect(again.body.result.data.participation.participationKey).toMatch(new RegExp(`^campaign:join:${campaignId}:`));
-  const list = await mine.get('/api/campaigns/trpc/participation.mine');
-  expect(list.body?.result?.data?.campaigns.filter((m) => m.campaign.id === campaignId)).toHaveLength(1);
-  await page.reload();
-  await expect(detail.getByTestId('campaign-joined')).toBeVisible();
-  await stepPicture(page);
+  const before = await mine.get('/api/campaigns/trpc/participation.mine');
+  expect(before.body?.result?.data?.campaigns.filter((m) => m.campaign.id === target.id)).toHaveLength(0);
+  // Two devices on the same campaign, both showing Join: I press it on one, then on the other.
+  const other = await customer(browser);
+  await signIn(other, me);
+  await page.goto(`/campaigns/${target.id}`);
+  await other.goto(`/campaigns/${target.id}`);
+  const detail = page.getByTestId('campaign-detail');
+  const otherDetail = other.getByTestId('campaign-detail');
+  const joinIn = (d) => d.getByRole('button', { name: `Join ${target.name}`, exact: true });
+  await expect(joinIn(detail)).toBeVisible({ timeout: 30_000 });
+  await expect(joinIn(otherDetail)).toBeVisible({ timeout: 30_000 });
+  /** Press Join on `p` and read the service's own answer to that press. */
+  const press = async (p, d) => {
+    const reply = p.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/api/campaigns/trpc/participation.join'));
+    await joinIn(d).click();
+    return (await reply).json();
+  };
+  const first = await press(page, detail);
+  // Every campaign this customer joins in this run, kept as it happens, so #7 counts exactly these even after a retry.
+  run.write({ ...run.read(), joinedIds: [...(run.read().joinedIds ?? []), target.id] });
+  await expect(detail.getByTestId('campaign-joined')).toContainText('Joined');
+  const second = await press(other, otherDetail);
+  await expect(otherDetail.getByTestId('campaign-joined')).toContainText('Joined');
+  await expect(otherDetail.getByTestId('campaign-refusal')).toHaveCount(0);
+  // The first press made the participation; the second returned that same one, not a new one.
+  expect(first?.result?.data?.created, JSON.stringify(first).slice(0, 300)).toBe(true);
+  expect(second?.result?.data?.created, JSON.stringify(second).slice(0, 300)).toBe(false);
+  expect(second.result.data.participation).toEqual(first.result.data.participation);
+  expect(first.result.data.participation.participationKey).toMatch(new RegExp(`^campaign:join:${target.id}:`));
+  await expect(otherDetail.getByTestId('campaign-joined')).toHaveText(await detail.getByTestId('campaign-joined').innerText());
+  const after = await mine.get('/api/campaigns/trpc/participation.mine');
+  const rows = after.body?.result?.data?.campaigns.filter((m) => m.campaign.id === target.id);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].participation).toEqual(first.result.data.participation);
+  await other.close();
+  run.write({ ...run.read(), joinedId: target.id, joinedName: target.name });
 
   // A campaign that runs on other weekdays only: neither today nor tomorrow in the platform time zone (UTC), so the step
   // holds across midnight.
@@ -362,9 +464,11 @@ test(`${J} #6 pressing Join twice is one participation; a campaign outside its w
   const weekdays = [1, 2, 3, 4, 5, 6, 7].filter((d) => d !== today && d !== tomorrow);
   const closed = await liveCampaign(`TEST weekdays ${tag}`, { weekdays });
   await page.goto(`/campaigns/${closed.id}`);
-  await detail.getByRole('button', { name: `Join ${closed.name}`, exact: true }).click();
+  await detail.getByRole('button', { name: `Join ${closed.name}`, exact: true }).click({ timeout: 30_000 });
   await expect(detail.getByTestId('campaign-refusal')).toHaveAttribute('data-code', 'campaign.outside_window');
-  await expect(detail.getByTestId('campaign-refusal')).toContainText('does not run at this time');
+  await expect(detail.getByTestId('campaign-refusal')).toHaveText(
+    'This campaign does not run at this time. Try again inside its days and hours.',
+  );
   await expect(detail.getByTestId('campaign-joined')).toHaveCount(0);
 
   // A campaign that runs every day, but only in an hour window that has not begun yet in the platform time zone (UTC):
@@ -377,24 +481,39 @@ test(`${J} #6 pressing Join twice is one participation; a campaign outside its w
   await expect(detail.getByTestId('campaign-hours')).toHaveText(`${hours.from} to ${hours.to} (UTC)`, { timeout: 30_000 });
   await detail.getByRole('button', { name: `Join ${later.name}`, exact: true }).click();
   await expect(detail.getByTestId('campaign-refusal')).toHaveAttribute('data-code', 'campaign.outside_window');
-  await expect(detail.getByTestId('campaign-refusal')).toContainText('does not run at this time');
+  await expect(detail.getByTestId('campaign-refusal')).toHaveText(
+    'This campaign does not run at this time. Try again inside its days and hours.',
+  );
   await expect(detail.getByTestId('campaign-joined')).toHaveCount(0);
-  const hoursJoin = await mine.post('/api/campaigns/trpc/participation.join', { campaignId: later.id });
   // The service names which window refused: the hour, not the day.
+  const hoursJoin = await mine.post('/api/campaigns/trpc/participation.join', { campaignId: later.id });
   const hoursRefusal = hoursJoin.body?.error?.message ?? JSON.stringify(hoursJoin.body);
   expect(hoursRefusal).toContain('[campaign.outside_window]');
   expect(hoursRefusal).toContain('This campaign does not run at this hour');
+  // Neither refused campaign became a participation.
+  const last = await mine.get('/api/campaigns/trpc/participation.mine');
+  const ids = last.body?.result?.data?.campaigns.map((m) => m.campaign.id);
+  expect(ids).toContain(target.id);
+  expect(ids).not.toContain(closed.id);
+  expect(ids).not.toContain(later.id);
+  run.write({ ...run.read(), refusedIds: [closed.id, later.id] });
+  await stepPicture(page);
 });
 
 test(`${J} #7 /campaigns/mine shows the campaign I joined`, async ({ browser, stepPicture }) => {
-  const { me, campaignId, campaignName } = state('me', 'campaignId', 'campaignName');
+  const { me, joinedId, joinedName, joinedIds, refusedIds } = state('me', 'joinedId', 'joinedName', 'joinedIds', 'refusedIds');
   const page = await customer(browser);
   await signIn(page, me);
   await page.goto('/campaigns/mine');
-  const row = page.locator(`[data-testid="my-campaign"][data-campaign-id="${campaignId}"]`);
+  const row = page.locator(`[data-testid="my-campaign"][data-campaign-id="${joinedId}"]`);
   await expect(row).toBeVisible({ timeout: 30_000 });
-  await expect(row.getByRole('link', { name: campaignName, exact: true })).toBeVisible();
+  await expect(row.getByRole('link', { name: joinedName, exact: true })).toBeVisible();
   await expect(row).toContainText('Joined');
-  await expect(page.getByTestId('my-campaign')).toHaveCount(1);
+  // The campaign I joined shows once, the campaigns that refused me are not here, and the list holds exactly the
+  // campaigns I joined in this run (one, or one per attempt of #6 after a retry).
+  await expect(row).toHaveCount(1);
+  for (const id of refusedIds) await expect(page.locator(`[data-testid="my-campaign"][data-campaign-id="${id}"]`)).toHaveCount(0);
+  const drawn = await page.getByTestId('my-campaign').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-campaign-id')));
+  expect(drawn.toSorted()).toEqual(joinedIds.toSorted());
   await stepPicture(page);
 });

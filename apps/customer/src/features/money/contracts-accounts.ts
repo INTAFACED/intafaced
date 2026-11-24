@@ -57,18 +57,6 @@ const accountTermsSchema = z.object({
 export type AccountTerms = z.infer<typeof accountTermsSchema>;
 const accountCurrencySchema = z.object({ assetId: z.string(), spaceId: z.string(), balance: money });
 export type AccountCurrency = z.infer<typeof accountCurrencySchema>;
-/** svc-bank `bank.currencies.list`: the currencies on the account, and what the owner lets the customer add. */
-const currencySetSchema = z.object({
-  currencies: z.array(accountCurrencySchema),
-  addable: z.array(z.string()).nullable(),
-  addableBlocker: z.literal('bank.account_currencies_unset').nullable(),
-});
-/** svc-bank `bank.accounts.profile`: the profile in view, proved held by the person, with their role in a business. */
-const bankProfileSchema = z.object({
-  profile: z.string(),
-  kind: z.enum(['personal', 'business']),
-  business: z.object({ accountId: z.string(), name: z.string(), role: z.string() }).nullable(),
-});
 /** svc-bank `bank.addMoney.*` (J-bank-02): the ways to pay in with their quotes, and the customer's add-money requests. */
 const ADD_MONEY_METHODS = ['bank_transfer', 'pay_by_bank', 'card', 'wallet_pay'] as const;
 export type AddMoneyMethod = (typeof ADD_MONEY_METHODS)[number];
@@ -224,26 +212,7 @@ export const recoveryWrites = {
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 /** `bank.salary.*` (J-bank-30): the details salary is paid to, the employer form, and the salary credits. */
-const salaryDetailsSchema = z.object({
-  partnerBank: z.string(),
-  network: z.string(),
-  holderName: z.string().nullable(),
-  currencies: z.array(accountDetailsRowSchema),
-});
-const salaryFormSchema = z.object({
-  currency: z.string(),
-  holderName: z.string(),
-  partnerBank: z.string(),
-  accountNumber: z.string().nullable(),
-  sortCode: z.string().nullable(),
-  routingNumber: z.string().nullable(),
-  iban: z.string().nullable(),
-  bic: z.string().nullable(),
-  reference: z.string(),
-  text: z.string(),
-});
 const salaryCreditSchema = z.object({
   networkId: z.string(),
   assetId: z.string(),
@@ -269,13 +238,3 @@ const salaryCreditSchema = z.object({
   ),
 });
 export type SalaryCredit = z.infer<typeof salaryCreditSchema>;
-
-export const accountsReads = {
-  'salary.details': salaryDetailsSchema,
-  'salary.form': salaryFormSchema,
-  'accounts.features': accountTermsSchema,
-  'accounts.profile': bankProfileSchema,
-  'addMoney.methods': addMoneyMethodsSchema,
-  'currencies.list': currencySetSchema,
-  'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
-} as const;

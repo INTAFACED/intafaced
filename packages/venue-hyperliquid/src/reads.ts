@@ -36,7 +36,7 @@ import {
   type HyperliquidTestnetOptions,
   type Json,
 } from './core.js';
-import { unreadMarketTerms, type ReadMarketTerms } from './market-terms.js';
+import { BUILDER_FEE_CAP_BPS, unreadMarketTerms, type ReadMarketTerms } from './market-terms.js';
 import { rateToBps, tenthsToBps, unit, PERP_MAX_DECIMALS, SPOT_MAX_DECIMALS } from './wire.js';
 
 /**
@@ -70,6 +70,7 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         lotSize: unit(m.szDecimals),
         makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
         takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
+        builderFeeCapBps: { known: true, value: BUILDER_FEE_CAP_BPS[m.kind] },
       };
       // What this adapter does not read from the venue: `market-terms.ts`, never here.
       return { ...read, ...unreadMarketTerms() };
@@ -181,6 +182,14 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         if (lev !== null) locked = div(mul(price, remaining, 'ceil'), parseAmount(String(lev)), 'ceil');
       }
     }
+    const origin =
+      raw.isLiquidation === true || /liquidat/i.test(orderType)
+        ? ('liquidation' as const)
+        : raw.isTrigger === true
+          ? /take\s*profit/i.test(orderType)
+            ? ('take_profit' as const)
+            : ('stop' as const)
+          : ('user' as const);
     return {
       venueOrderId: raw.oid !== undefined ? String(int(raw.oid, 'oid')) : null,
       venueClientOrderId: typeof raw.cloid === 'string' ? raw.cloid.toLowerCase() : null,
@@ -197,6 +206,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       locked,
       lockedAsset,
       reduceOnly: raw.reduceOnly === true,
+      origin,
+      originRef: null,
     };
   }
 

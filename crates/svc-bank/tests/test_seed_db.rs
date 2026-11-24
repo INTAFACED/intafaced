@@ -28,12 +28,12 @@ fn seed(url: &str, app_env: &str, op: &str, input: &str) -> (i32, Json) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
+    // A refusal can come before the binary reads its input, and it may exit before this write lands: a closed pipe
+    // then is that refusal's own outcome, judged by the exit code and the reply below, never a failure of the test.
+    match child.stdin.take().unwrap().write_all(input.as_bytes()) {
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+        other => other.unwrap(),
+    }
     let out = child.wait_with_output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
     let body = if text.is_empty() {

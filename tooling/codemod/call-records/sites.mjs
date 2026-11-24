@@ -153,8 +153,9 @@ function bankReadSchema(p, useBankRead, path) {
  * the keys the record now gives are dropped.
  */
 const SPREADS = [
-  // A desk read in a file that has `ReadSpec` but not `readOf` imports `readOf` from where `ReadSpec` comes from.
-  { helper: 'readOf', moduleKey: 'module', kindKey: undefined, typeName: 'ReadSpec' },
+  // A desk read in a file that has `ReadSpec` but not `readOf` imports `readOf` from its one home, a file outside the ops
+  // desk's server-only entry, so a spec a client component also reads (admin's account search) never pulls server code in.
+  { helper: 'readOf', moduleKey: 'module', kindKey: undefined, typeName: 'ReadSpec', home: '@/lib/desk-read' },
   { helper: 'toolOf', moduleKey: 'edgeModule', kindKey: 'kind' },
 ];
 function deskRead(p, n) {
@@ -162,14 +163,14 @@ function deskRead(p, n) {
   const obj = p.parents.get(n);
   if (obj?.type !== 'ObjectExpression') return undefined;
   const prop = (k) => obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === k && literal(pr.value));
-  for (const { helper, moduleKey, kindKey, typeName } of SPREADS) {
+  for (const { helper, moduleKey, kindKey, typeName, home } of SPREADS) {
     const moduleProp = prop(moduleKey);
     const kindProp = kindKey ? prop(kindKey) : undefined;
     if (!moduleProp || (kindKey && !kindProp)) continue;
     // `bindingOf` names an unbound name `global`.
     const bound = bindingOf(p, n, helper).kind !== 'global';
     const type = typeName ? bindingOf(p, n, typeName) : undefined;
-    const helperFrom = !bound && type?.kind === 'import' ? type.from : undefined;
+    const helperFrom = !bound && type?.kind === 'import' ? (home ?? type.from) : undefined;
     if (!bound && !helperFrom) continue;
     const kind = kindProp ? literal(kindProp.value) : 'query';
     if (kind !== 'query' && kind !== 'mutation') continue;

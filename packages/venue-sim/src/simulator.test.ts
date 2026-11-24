@@ -1083,3 +1083,48 @@ describe('TEST venue simulator: council round 3 follow-ups', () => {
     );
   });
 });
+
+describe('TEST venue simulator: candles depth, since filter and seeded history', () => {
+  it('filters candles by since and returns up to 720 bars from seeded prints', async () => {
+    const w = world();
+    // Clock starts at 2026-11-08T12:00:00Z; seed 300 one-minute prints ending 1 minute ago.
+    const baseMs = Date.UTC(2026, 10, 8, 7, 0, 0);
+    const entries = Array.from({ length: 300 }, (_, i) => ({
+      price: a(String(50000 + i)),
+      amount: a('0.01'),
+      takerSide: 'buy' as const,
+      tradedAt: new Date(baseMs + i * 60_000),
+    }));
+    const added = w.sim.testSeedPrints('BTC-USDC', entries);
+    expect(added).toBe(300);
+
+    const all = (await w.sim.candles('BTC-USDC', '1m', 720)).value;
+    expect(all.length).toBe(300);
+    expect(all[0]!.openPrice).toBe(a('50000'));
+    expect(all[all.length - 1]!.closePrice).toBe(a('50299'));
+
+    const since = new Date(baseMs + 250 * 60_000);
+    const tail = (await w.sim.candles('BTC-USDC', '1m', { limit: 720, since })).value;
+    expect(tail.length).toBe(50);
+    expect(tail[0]!.openAt.getTime()).toBe(since.getTime());
+    expect(tail[0]!.openPrice).toBe(a('50250'));
+  });
+
+  it('refuses future timestamps and non-positive values in testSeedPrints', () => {
+    const w = world();
+    const future = new Date(Date.UTC(2026, 10, 8, 12, 5, 0));
+    expect(() => w.sim.testSeedPrints('BTC-USDC', [{ price: a('60000'), amount: a('0.01'), takerSide: 'buy', tradedAt: future }])).toThrow(
+      /future/,
+    );
+    expect(() =>
+      w.sim.testSeedPrints('BTC-USDC', [
+        { price: a('0'), amount: a('0.01'), takerSide: 'buy', tradedAt: new Date(Date.UTC(2026, 10, 8, 11, 0, 0)) },
+      ]),
+    ).toThrow(/above zero/);
+    expect(() =>
+      w.sim.testSeedPrints('BTC-USDC', [
+        { price: a('60000'), amount: a('-1'), takerSide: 'sell', tradedAt: new Date(Date.UTC(2026, 10, 8, 11, 0, 0)) },
+      ]),
+    ).toThrow(/above zero/);
+  });
+});

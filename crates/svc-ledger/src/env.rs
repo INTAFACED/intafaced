@@ -36,6 +36,8 @@ pub struct LedgerEnv {
     pub rail_statement_urls: BTreeMap<String, String>,
     /// `openItemsUrls`: rail id to its open-items address.
     pub open_items_urls: BTreeMap<String, String>,
+    /// Each reporter's report address (`LEDGER_RECONCILE_REPORT_<VENUE|PARTNER>_URL`, owner values): blank is unset.
+    pub report_urls: BTreeMap<String, String>,
 }
 
 impl LedgerEnv {
@@ -262,6 +264,7 @@ pub fn load(source: &BTreeMap<String, String>) -> Result<LedgerEnv, EnvError> {
     };
     let rail_statement_urls = rail_urls(source, "LEDGER_RECONCILE_RAIL_").map_err(thrown)?;
     let open_items_urls = rail_urls(source, "LEDGER_RECONCILE_OPEN_ITEMS_").map_err(thrown)?;
+    let report_urls = report_urls(source).map_err(thrown)?;
     let clock_skew_bound_ms =
         parse_clock_skew_bound_ms(source.get("LEDGER_CLOCK_SKEW_BOUND_MS").map(String::as_str))
             .map_err(thrown)?;
@@ -281,7 +284,24 @@ pub fn load(source: &BTreeMap<String, String>) -> Result<LedgerEnv, EnvError> {
         idempotency_conflict_mode,
         rail_statement_urls,
         open_items_urls,
+        report_urls,
     })
+}
+
+/// The reporters a report address may name (`RECONCILIATION_REPORTERS`).
+pub const REPORTERS: [&str; 2] = ["venue", "partner"];
+
+/// `LEDGER_RECONCILE_REPORT_<REPORTER>_URL`: each set key names a reporter and holds an https address, or plain http to a
+/// loopback host. A key naming anyone else is refused at start-up, never read as a rail.
+fn report_urls(source: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>, String> {
+    let urls = rail_urls(source, "LEDGER_RECONCILE_REPORT_")?;
+    if let Some(other) = urls.keys().find(|k| !REPORTERS.contains(&k.as_str())) {
+        return Err(format!(
+            "LEDGER_RECONCILE_REPORT_{}_URL: not a reporter (venue or partner)",
+            other.to_uppercase().replace('-', "_")
+        ));
+    }
+    Ok(urls)
 }
 
 fn mode_of(json: &Json) -> &str {

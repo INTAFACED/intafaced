@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Amount, Badge, Button, ChangeText, EmptyState, Price, StateBlock, StatusChip, Table, type TableColumn } from '@intafaced/ui';
+import { Amount, Tag, Button, ChangeText, Price, StateBlock } from '@intafaced/ui/lit';
+import { FreshnessChip, Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { usePreferences } from '../../../shared/preferences';
@@ -10,6 +11,7 @@ import { stateOf } from './model';
 import { futuresRefusal } from './refusals';
 import { tabsCopy } from './tabs-copy';
 import { historyCsv, historyRows, signedAmount } from './tabs-logic';
+import { RegionNote } from './notes';
 
 /**
  * Shared by the five tabs: one place that turns a Loadable into the honest state of a region (loading, refused,
@@ -31,16 +33,15 @@ export function LoadGate<T>({
   children: (data: T) => ReactNode;
 }) {
   const { t } = tabsCopy.useCopy();
-  if (load.status === 'loading') return <StateBlock kind="loading" rows={4} rowHeight={28} label={t('Couldn’t load', { thing })} />;
-  if (load.status === 'empty') return <>{empty ?? <EmptyState size="inline" title={t('Nothing to show')} />}</>;
+  if (load.status === 'loading') return <StateBlock kind="loading" rows={4} label={t('Couldn’t load', { thing })} />;
+  if (load.status === 'empty') return <>{empty ?? <RegionNote title={t('Nothing to show')} />}</>;
   if (load.status === 'error')
     return <StateBlock kind="error" title={t('Couldn’t load', { thing })} onRetry={load.retry} retryLabel={t('Try again')} />;
   if (load.status === 'refused') {
     if (load.code === 'auth.required')
       return (
-        <EmptyState
+        <RegionNote
           variant="refused"
-          size="inline"
           title={t('Sign in title')}
           reason={t('Sign in body')}
           action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}` }}
@@ -49,7 +50,7 @@ export function LoadGate<T>({
     const special = refused?.(load.code);
     if (special) return <>{special}</>;
     const words = futuresRefusal({ code: load.code });
-    return <EmptyState variant="refused" size="inline" title={words.title} reason={words.body} code={words.code ?? undefined} />;
+    return <RegionNote variant="refused" title={words.title} reason={words.body} code={words.code ?? undefined} />;
   }
   return <>{children(load.data)}</>;
 }
@@ -65,12 +66,12 @@ export function TabHeader({
   staleAfterMs?: number;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2">
-      <h3 className="m-0 text-sm font-medium text-fg">{title}</h3>
+    <div className="lt-panel-head">
+      <h3 className="lt-panel-title">{title}</h3>
       {load.status === 'ready' ? (
-        <StatusChip asOf={load.asOf} staleAfterMs={staleAfterMs} showAsOf />
+        <FreshnessChip asOf={load.asOf} staleAfterMs={staleAfterMs} showAsOf />
       ) : load.status === 'refused' ? (
-        <StatusChip refused />
+        <FreshnessChip asOf={null} staleAfterMs={staleAfterMs} refused />
       ) : null}
     </div>
   );
@@ -78,7 +79,7 @@ export function TabHeader({
 
 export function SideBadge({ side }: { side: 'long' | 'short' }) {
   const { t } = tabsCopy.useCopy();
-  return <Badge variant="outline">{side === 'long' ? t('Long') : t('Short')}</Badge>;
+  return <Tag>{side === 'long' ? t('Long') : t('Short')}</Tag>;
 }
 
 /** Hand the text to the browser as a file. Client side only: nothing is sent anywhere. */
@@ -96,36 +97,36 @@ function download(name: string, text: string) {
 export function HistoryTab({ closed }: { closed: Loadable<Position[]> }) {
   const { t } = tabsCopy.useCopy();
   const { timeZone } = usePreferences();
-  const columns: TableColumn<Position>[] = [
-    { id: 'contract', header: t('Contract'), value: (p) => p.symbol },
-    { id: 'side', header: t('Side'), cell: (p) => <SideBadge side={p.side} /> },
-    { id: 'size', header: t('Size'), numeric: true, cell: (p) => <Amount value={fmtAmount(p.contracts, { places: 8 })} /> },
-    { id: 'entry', header: t('Entry'), numeric: true, cell: (p) => <Price value={fmtPrice(p.entryPrice, undefined)} /> },
-    { id: 'exit', header: t('Exit'), numeric: true, cell: (p) => <Price value={fmtPrice(p.markPrice, undefined)} /> },
+  const columns: Column<Position>[] = [
+    { key: 'contract', label: t('Contract'), cell: (p) => p.symbol },
+    { key: 'side', label: t('Side'), cell: (p) => <SideBadge side={p.side} /> },
+    { key: 'size', label: t('Size'), align: 'end', cell: (p) => <Amount value={fmtAmount(p.contracts, { places: 8 })} /> },
+    { key: 'entry', label: t('Entry'), align: 'end', cell: (p) => <Price value={fmtPrice(p.entryPrice, undefined)} /> },
+    { key: 'exit', label: t('Exit'), align: 'end', cell: (p) => <Price value={fmtPrice(p.markPrice, undefined)} /> },
     {
-      id: 'pnl',
-      header: t('Realised PnL'),
-      numeric: true,
+      key: 'pnl',
+      label: t('Realised PnL'),
+      align: 'end',
       cell: (p) => <ChangeText value={p.realizedPnl === null ? null : signedAmount(p.realizedPnl)} />,
     },
     // What the position's fills paid in trading fees; a dash where the service recorded none.
-    { id: 'fees', header: t('Fees'), numeric: true, cell: (p) => <Amount value={fmtAmount(p.fees, { places: 8 })} /> },
+    { key: 'fees', label: t('Fees'), align: 'end', cell: (p) => <Amount value={fmtAmount(p.fees, { places: 8 })} /> },
     {
-      id: 'status',
-      header: t('Status'),
+      key: 'status',
+      label: t('Status'),
       cell: (p) => {
         const state = stateOf(p);
         return state === 'liquidated' ? (
-          <Badge tone="error">{t('Liquidated')}</Badge>
+          <Tag tone="error">{t('Liquidated')}</Tag>
         ) : (
-          <Badge>{state === 'closed' ? t('Closed') : t('Closing')}</Badge>
+          <Tag>{state === 'closed' ? t('Closed') : t('Closing')}</Tag>
         );
       },
     },
-    { id: 'closed', header: t('Closed at'), value: (p) => dayTime(p.timestamp, timeZone) },
+    { key: 'closed', label: t('Closed at'), cell: (p) => dayTime(p.timestamp, timeZone) },
   ];
   return (
-    <section aria-label={t('History table')} className="flex flex-col">
+    <section aria-label={t('History table')} className="lt-stack">
       <TabHeader title={t('History heading')} load={closed} />
       <LoadGate load={closed} thing={t('Thing history')}>
         {(all) => {
@@ -133,18 +134,19 @@ export function HistoryTab({ closed }: { closed: Loadable<Position[]> }) {
           return (
             <>
               <Table
-                label={t('History table')}
-                density="dense"
+                caption={t('History table')}
+                mode="pro"
+                dense
                 columns={columns}
                 rows={rows}
-                getRowId={(p) => p.id ?? `${p.symbol}:${p.timestamp}`}
-                emptyState={<EmptyState size="inline" title={t('History empty title')} reason={t('History empty reason')} />}
+                rowKey={(p) => p.id ?? `${p.symbol}:${p.timestamp}`}
+                empty={<RegionNote title={t('History empty title')} reason={t('History empty reason')} />}
               />
-              <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
-                <p className="lt-hint">{t('History footer')}</p>
+              <div className="lt-row lt-row-between">
+                <p className="lt-note">{t('History footer')}</p>
                 <Button
-                  variant="secondary"
-                  size={28}
+                  tone="secondary"
+                  size="sm"
                   disabled={rows.length === 0}
                   onClick={() => download(t('History export file'), historyCsv(rows))}
                 >

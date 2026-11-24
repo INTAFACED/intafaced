@@ -11,7 +11,8 @@
  *                                             TEST mailbox page; after each round it restarts the public front when the
  *                                             checkout's beta-front.mjs changed (syncFront); it exits after a round that
  *                                             changed this file, so systemd starts the new copy
- *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it (at most every 2 hours), launch
+ *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it (at most every 2 hours, or now
+ *                                             when main holds a merge that closed a `beta` issue), launch
  *                                             or update the stack, run the TEST funds check, wait until it is readied,
  *                                             write status.json: `updating` from before the checkout moves until then,
  *                                             so the front shows its updating page, never a half-built app (#10299)
@@ -30,8 +31,9 @@
  *     content), exactly as `verify launch` readies a journeys shard.
  *   - TEST funds only, shown by a check, not by a name: every process the stack started is read for every address in
  *     its environment, and one that names anything but this machine (127.0.0.1, localhost, ::1) or the beta's own
- *     public host (BETA_OWN_HOSTS: the tunnel brings it back to this stack) is a finding. With
- *     no route off the machine, no service can reach a real chain, venue, bank or card rail. The page must carry the
+ *     public host (BETA_OWN_HOSTS: the tunnel brings it back to this stack) is a finding. The one route off the
+ *     machine is the trade desks' venue, Hyperliquid's test network (BETA_USER_VENUE; its host is fixed in the adapter,
+ *     never set by the environment); no service can reach a real chain, venue, bank or card rail. The page must carry the
  *     stack's TEST banner. A failed check stops the stack: it fails closed, never open.
  *   - It never sets or invents a sanctions screening list. Without the owner's TEST screening file in the beta state
  *     folder (screening.local.json, the file local-test-stack.mjs reads), Edge refuses every call; the round then
@@ -88,6 +90,8 @@ export function betaPaths(home = os.homedir()) {
     front: path.join(root, 'front.json'),
     /** The beta's anvil launcher (anvilLauncher): present only once its pinned image is on the box. */
     anvil: path.join(root, 'anvil'),
+    /** The stack settings the running stack was last launched with (BETA_STACK_SETTINGS); others, or none, restart it once. */
+    settings: path.join(root, 'stack-settings'),
   };
 }
 
@@ -96,6 +100,33 @@ export function betaPaths(home = os.homedir()) {
  * moves, without the journeys' 8 s and 2 s churn.
  */
 const BETA_CADENCE_SECONDS = 300;
+
+/**
+ * The venue the beta's trade desks run on: Hyperliquid's test network, live, with TEST funds only (#10603, the beta
+ * posture #10217), behind the same HTTP venue protocol as every venue (local-test-venue.mjs serveHyperliquidVenue). The
+ * customer's own wallet signs; the venue holds no key. Without it the desks ran on the stack's stand-in venue.
+ */
+const BETA_USER_VENUE = 'hl-testnet';
+
+/**
+ * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its venue,
+ * no TEST listings on svc-trade's board, and svc-ops' labelled TEST valuation price list. The journeys' TEST markets
+ * (an untraded book, a shut session, a delisting, a new listing no one quotes) are fixtures for a step, not markets a
+ * tester can use; the beta showed TWIN/USDC's empty coin page from its markets list (#10599). The rows stay in the
+ * database; the beta's markets are the quoted ones. Without `LOCAL_STACK_VALUATION_PRICES=test`, svc-ops leaves
+ * `valuation.prices` unpublished (`valuation.prices_unset`), so Home and Money show "No total" even after an invited
+ * tester's 1,000 TEST USDT sits in their TEST partner account (#10632); with it, svc-ops publishes the ops profile's
+ * labelled TEST price list (`test: true`, refused outside dev/test) so Home and Money total the partner balance.
+ */
+const BETA_STACK_SETTINGS = Object.freeze({
+  LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
+  LOCAL_STACK_TEST_MARKETS: 'off',
+  LOCAL_STACK_VALUATION_PRICES: 'test',
+});
+const settingsLine = () =>
+  Object.entries(BETA_STACK_SETTINGS)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ');
 
 /**
  * The environment every stack command of the beta runs with: its slot and its state folder, and the settings of a
@@ -114,7 +145,21 @@ export const stackEnv = (paths, env = process.env, hasAnvil = fs.existsSync(path
   LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS: String(BETA_CADENCE_SECONDS),
   // The beta's Customer build shows only rooms finished in Volt (apps/customer/src/app/beta-volt.ts).
   INTAFACED_BETA_VOLT_ONLY: '1',
+  ...BETA_STACK_SETTINGS,
 });
+
+/**
+ * Whether the running stack must restart whole onto BETA_STACK_SETTINGS: its marker (paths.settings, written after a
+ * launch that exits 0) names other settings or none. A stack update restarts svc-trade only when backend source moved,
+ * so a changed setting alone would never reach it.
+ */
+function settingsChanged(paths) {
+  try {
+    return fs.readFileSync(paths.settings, 'utf8').trim() !== settingsLine();
+  } catch {
+    return true;
+  }
+}
 
 /**
  * The TEST chain's anvil on the beta: the same pinned foundry image and `docker run` launcher the journeys use
@@ -486,15 +531,64 @@ function run(paths, cmd, args, { cwd, env }) {
  * What a round does, decided from what it found: 'blocked' (no screening file: build nothing), 'update' (main moved:
  * check out, install, launch) or 'launch' (same commit: launch, which restarts only what is down).
  */
-export function decide({ screening, head, target, updatedAt = null, now = Date.now() }) {
+export function decide({ screening, head, target, updatedAt = null, now = Date.now(), betaFix = false }) {
   if (!screening) return 'blocked';
   if (head === target) return 'launch';
-  return nextUpdateAt(updatedAt) <= now ? 'update' : 'launch';
+  return betaFix || nextUpdateAt(updatedAt) <= now ? 'update' : 'launch';
+}
+
+/** The issues a commit message says it closes, in GitHub's closing words ("Closes #10603", "Fixes #10300"). */
+export function closedIssues(message) {
+  return [...new Set([...message.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi)].map((m) => Number(m[1])))];
+}
+
+/** The repository whose `beta` issues move the beta early. Public: its issues are read without a token. */
+const BETA_REPO = 'INTAFACED/intafaced';
+
+/** An issue's state and labels from GitHub, or null when it can't be read (the round then waits for the 2-hour bound). */
+async function issueOf(n) {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${BETA_REPO}/issues/${n}`, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': 'intafaced-beta-host' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    return { closed: j.state === 'closed', pull: Boolean(j.pull_request), labels: (j.labels ?? []).map((l) => l.name) };
+  } catch {
+    return null;
+  }
+}
+
+/** Closed issues already read, so a round reads each one once while the beta stays behind main. */
+const closedSeen = new Map();
+
+/**
+ * The first merge on main after the checkout that closed a `beta` issue (#10612), as { sha, issue }, else null. A fix
+ * for the beta reaches it in the next round instead of waiting out UPDATE_EVERY_MS; everything else keeps the bound.
+ */
+async function betaFixOnMain({ git, checkout, head, target, issue = issueOf, seen = closedSeen }) {
+  const r = git(checkout, 'log', '--format=%H%x00%B%x1e', `${head}..${target}`);
+  if (r.status !== 0) return null;
+  for (const entry of r.stdout.split('\x1e')) {
+    const [sha, message] = entry.trim().split('\x00');
+    if (!sha || message === undefined) continue;
+    for (const n of closedIssues(message)) {
+      let found = seen.get(n);
+      if (!found) {
+        found = await issue(n);
+        if (found?.closed) seen.set(n, found);
+      }
+      if (found?.closed && !found.pull && found.labels.includes('beta')) return { sha, issue: n };
+    }
+  }
+  return null;
 }
 
 /**
  * The beta moves to main at most once every UPDATE_EVERY_MS. An update (checkout, install, rebuild) cost 10 CPU-minutes in
- * one measured round, and main moves nearly every half hour; between updates a round only launches what is down.
+ * one measured round, and main moves nearly every half hour; between updates a round only launches what is down. A merge
+ * that closed a `beta` issue moves it in the next round all the same (betaFixOnMain, #10612).
  */
 export const UPDATE_EVERY_MS = 2 * 3600_000;
 /** When the next update may run: UPDATE_EVERY_MS after the last one, or now when none is recorded. */
@@ -549,12 +643,13 @@ const roundIo = {
   check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS),
   readied: readiedNow,
   anvil: ensureAnvil,
+  issue: issueOf,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Date.now(),
 };
 
 export async function round(paths = betaPaths(), io = {}) {
-  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now } = { ...roundIo, ...io };
+  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now, issue } = { ...roundIo, ...io };
   fs.mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   const noCheckout = ensureCheckout(paths);
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
@@ -563,12 +658,20 @@ export async function round(paths = betaPaths(), io = {}) {
   const target = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
   const prev = readJson(paths.status, {});
-  const step = decide({ screening: fs.existsSync(paths.screening), head, target, updatedAt: prev.updatedAt, now: now() });
+  const screening = fs.existsSync(paths.screening);
+  // Within the bound, a merge that closed a `beta` issue still moves the beta now (#10612).
+  const fix =
+    screening && head !== target && nextUpdateAt(prev.updatedAt) > now()
+      ? await betaFixOnMain({ git, checkout: paths.checkout, head, target, issue })
+      : null;
+  const step = decide({ screening, head, target, updatedAt: prev.updatedAt, now: now(), betaFix: Boolean(fix) });
   const held = step === 'launch' && head !== target;
-  log(
-    paths,
-    `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)}${held ? `; the next update is after ${new Date(nextUpdateAt(prev.updatedAt)).toISOString()}` : ''})`,
-  );
+  const why = fix
+    ? `; main holds ${fix.sha.slice(0, 9)}, which closed beta issue #${fix.issue}`
+    : held
+      ? `; the next update is after ${new Date(nextUpdateAt(prev.updatedAt)).toISOString()}`
+      : '';
+  log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)}${why})`);
   if (step === 'blocked')
     return finish(paths, {
       state: 'blocked',
@@ -577,6 +680,7 @@ export async function round(paths = betaPaths(), io = {}) {
     });
   const chain = anvil(paths);
   log(paths, chain.line);
+  const settingsNew = settingsChanged(paths);
   const env = stackEnv(paths);
   // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
   const sha = step === 'update' ? target : head;
@@ -585,7 +689,7 @@ export async function round(paths = betaPaths(), io = {}) {
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
-  const warm = !chain.fresh && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
+  const warm = !chain.fresh && !settingsNew && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
   if (!warm)
     writeStatus(paths, {
       state: 'updating',
@@ -605,9 +709,13 @@ export async function round(paths = betaPaths(), io = {}) {
   if (chain.fresh) {
     log(paths, 'anvil: new, so the stack is stopped and started whole on its TEST chain');
     await stopStack(paths, run);
+  } else if (settingsNew) {
+    log(paths, `settings: ${settingsLine()} are new, so the stack is stopped and started whole on them`);
+    await stopStack(paths, run);
   }
   const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
   const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
+  if (launched === 0) fs.writeFileSync(paths.settings, `${settingsLine()}\n`);
   const check = await checkWith(paths.state, BETA_LINK);
   for (const l of check.lines) log(paths, `check: ${l}`);
   if (!check.ok) {

@@ -38,6 +38,7 @@ import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
+import { droppedFields, recordOutput, softlyParsed } from './narrow.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
 import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolItem, toolSchema, toolShape } from './tool-forms.mjs';
 
@@ -155,6 +156,11 @@ function plan(opts) {
       hand.push({ site: s, why: s.problem });
       continue;
     }
+    // A soft read (RECORD_FORMS) has no sign-in form: founderEdgeRecordRead takes no browser.
+    if (s.shape === 'founderEdgeCall' && s.node.arguments[6] && softlyParsed(load(s.file), s.node)) {
+      hand.push({ site: s, why: 'a sign-in call whose answer is read with .safeParse(): founderEdgeRecordRead takes no browser' });
+      continue;
+    }
     const arg = schemaArgOf(s);
     // A portal list's item schema is one row of the answer: what it checks is lost with it all the same.
     const checked = arg ?? (toolShape(s) ? toolChecked(s) : undefined);
@@ -205,7 +211,14 @@ function plan(opts) {
       const name = b?.kind === 'import' ? b.imported : recArg?.name;
       const file = name ? exportsIndex.get(name) : undefined;
       if (!file) for (const s of list) hand.push({ site: s, why: `${path} is mounted from a record the codemod can't find` });
-      else existing.push({ path, name, file, sites: list, kind: proc.node.callee?.property?.name });
+      else
+        existing.push({
+          path,
+          name,
+          file,
+          sites: keepNarrowing(list, recordOutput(file, name), hand),
+          kind: proc.node.callee?.property?.name,
+        });
       continue;
     }
     const chain = chainOf(proc);
@@ -251,7 +264,13 @@ function plan(opts) {
     const name = recordName(opts.module, path);
     if (exportsIndex.has(name) && door && recordOfPath(exportsIndex.get(name), name, path)) {
       // A door call with its record already written: the callers move to it.
-      existing.push({ path, name, file: exportsIndex.get(name), sites: list, kind: chain.kind });
+      existing.push({
+        path,
+        name,
+        file: exportsIndex.get(name),
+        sites: keepNarrowing(list, recordOutput(exportsIndex.get(name), name), hand),
+        kind: chain.kind,
+      });
       continue;
     }
     if (exportsIndex.has(name)) {
@@ -261,10 +280,38 @@ function plan(opts) {
     // A call that takes no input is sent none: `{}` or `undefined` from the caller is the same request today.
     const badInput = chain.input ? [] : list.filter((s) => !kindMismatch.includes(s) && !noInput(s));
     for (const s of badInput) hand.push({ site: s, why: `${path} takes no input, but the caller sends one` });
-    records.push({ path, name, proc, chain, reader, sites: list.filter((s) => !kindMismatch.includes(s) && !badInput.includes(s)) });
+    const answer = chain.outputPage ? undefined : [chain.outputP ?? proc.p, chain.output];
+    const kept = keepNarrowing(
+      list.filter((s) => !kindMismatch.includes(s) && !badInput.includes(s)),
+      answer,
+      hand,
+    );
+    records.push({ path, name, proc, chain, reader, sites: kept });
     for (const s of kindMismatch) hand.push({ site: s, why: `calls ${path} as a ${s.kind}, but the service mounts a ${chain.kind}` });
   }
   return { serviceDir, procs, unread, sites, records, existing, hand };
+}
+
+/**
+ * A caller whose schema names fewer fields than the answer (`answer`: [parsed file, the record's or router's output])
+ * reads only those today: zod drops the rest. Through its record it would get the whole answer, so it keeps its schema
+ * (`callAs`, which returns what the schema parses), or stays by name with the fields it drops named. The sites left to move.
+ */
+export function keepNarrowing(list, answer, hand) {
+  if (!answer) return list;
+  return list.filter((s) => {
+    if (s.checked) return true;
+    const arg = schemaArgOf(s);
+    if (!arg) return true;
+    const dropped = droppedFields(load(s.file), arg, answer[0], answer[1]);
+    if (!dropped.length) return true;
+    if (checkedCall(s, arg, [])) {
+      s.checked = text(load(s.file), arg);
+      return true;
+    }
+    hand.push({ site: s, why: `its own schema drops ${dropped.join(', ')} from the answer, which its record would hand back` });
+    return false;
+  });
 }
 
 /** The kind a record already written in contracts `file` declares: `query` or `mutation`. */
@@ -725,7 +772,14 @@ export function schemaArgOf(s) {
 
 /** Each wrapper's record form, and what it keeps of the call after its record and input. */
 const RECORD_FORMS = {
-  founderEdgeCall: (s, a) => ({ fn: 'founderEdgeRecordCall', head: [a[0]], tail: a.slice(5) }),
+  // A founder call whose answer is read with `.safeParse()` decides what an unreadable answer means (a staff check reads it
+  // as "not staff"): `founderEdgeRecordRead` hands it `undefined` for an answer its record refuses, where
+  // `founderEdgeRecordCall` would throw a 502.
+  founderEdgeCall: (s, a) => ({
+    fn: softlyParsed(load(s.file), s.node) ? 'founderEdgeRecordRead' : 'founderEdgeRecordCall',
+    head: [a[0]],
+    tail: a.slice(5),
+  }),
   payCall: (s, a) => (s.reader ? { fn: 'payRecordRead', head: [a[0]], tail: [a[4]] } : { fn: 'payRecordCall', head: [a[0]], tail: [] }),
   useBankRead: (s, a) => ({ fn: 'useBankRecord', head: [], tail: a.slice(2) }),
 };
@@ -1529,6 +1583,7 @@ function report(opts) {
     // Each moved call's path and the files its callers are in (run.mjs leaves a path whose caller then fails the typecheck).
     moved: [...result.done, ...planned.existing].map((r) => ({
       path: r.path,
+      record: r.name,
       files: [...new Set(r.sites.map((s) => relative(REPO, s.file)))],
     })),
     hand: planned.hand.map((h) => ({

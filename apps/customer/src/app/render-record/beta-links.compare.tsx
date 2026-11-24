@@ -2,12 +2,14 @@
 /**
  * The beta's links: every room the look gate draws that the beta shows, drawn whole as the beta's build draws it
  * (the beta's list, and React's JSX runtime swapped for beta-links.ts as vite.config.ts swaps it), holds no link to a room
- * the beta hides, so no link in the beta opens "Not in this beta".
+ * the beta hides (betaHidden: not in Volt, switched off, or not a personal account's without the venue door), so no link
+ * in the beta opens "Not in this beta" or a room that only says it is switched off.
  */
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import { appPath, type JsxRuntime } from '../beta-links';
-import { betaHides, betaRoomList, type BetaRooms } from '../beta-volt';
+import { betaRoomList, type BetaRooms } from '../beta-volt';
+import { betaHidden } from '../feature-registry';
 import { rooms } from '../navigation';
 import { voltCount } from '../volt-count';
 import { renderPart } from './harness';
@@ -30,7 +32,8 @@ const routes: string[] = JSON.parse(
     { encoding: 'utf8' },
   ),
 );
-const shown = routes.filter((route) => !betaHides(route.split('?')[0]!, list));
+vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
+const shown = routes.filter((route) => !betaHidden(route.split('?')[0]!));
 
 describe("the beta's rooms link to no room the beta hides", () => {
   it('leaves rooms to draw', () => expect(shown.length).toBeGreaterThan(50));
@@ -42,7 +45,7 @@ describe("the beta's rooms link to no room the beta hides", () => {
     const hrefs = [...html.matchAll(/<a\b[^>]*?\shref="([^"]*)"/g)].map((match) => match[1]!.replaceAll('&amp;', '&'));
     const dead = hrefs.filter((href) => {
       const path = appPath(href);
-      return path !== undefined && betaHides(path, list);
+      return path !== undefined && betaHidden(path);
     });
     expect(dead, `${route} links to rooms the beta hides`).toEqual([]);
   });

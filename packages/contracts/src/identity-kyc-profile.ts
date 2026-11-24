@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * svc-identity guided verification (I-kyc-compliance-08, J-identity-08 #2). A person fills six steps; each save keeps
@@ -103,7 +104,7 @@ export const kycProfileSaveStepInputSchema = z
     step: z.enum(['residence', 'identity', 'document', 'address']),
     /** The draft version this save was made from; a stale one refuses `kyc.profile_version`. */
     version: z.number().int().min(1),
-    fields: z.record(z.string(), z.unknown()),
+    fields: z.record(z.string(), jsonValueSchema),
   })
   .strict();
 export const kycProfileUploadInputSchema = z

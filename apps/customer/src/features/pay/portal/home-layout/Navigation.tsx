@@ -3,7 +3,7 @@ import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from '@int
 import { useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { layoutCopy as c } from './copy';
 
-import { groups, type NavGroup, type NavItem } from './groups';
+import { groups, noBusinessGroup, type NavGroup, type NavItem } from './groups';
 import { isHiddenPath } from '../../../../app/feature-registry';
 
 const matchOf = ([href, , options]: NavItem) => options?.match ?? href;
@@ -23,9 +23,13 @@ export function activeGroup(here: string) {
   return currentItem(here)?.group ?? groups[0]!;
 }
 
-/** The groups this person sees: platform-only items drop out unless the business is a platform. */
+/**
+ * The groups this person sees: platform-only items drop out unless the business is a platform. A person with no
+ * business account sees only the way to open one; the business pages keep their addresses.
+ */
 export function useVisibleGroups(): NavGroup[] {
   const mode = useOptionalMerchantAccess()?.access;
+  if (mode?.status === 'none') return [noBusinessGroup];
   const payfac = mode?.status === 'ready' && mode.mode === 'payfac';
   // The beta's build also drops each page not yet in Volt (app/beta-volt.ts), and a group left empty.
   return groups
@@ -62,8 +66,9 @@ export function GroupedMenu({ here, close }: { here: string; close?: () => void 
 export function LayoutNavigation({ here }: { here: string }) {
   const { t } = c.useCopy();
   const visible = useVisibleGroups();
-  const active = activeGroup(here);
-  const current = currentItem(here)?.item;
+  const lone = visible.length === 1 && visible[0] === noBusinessGroup;
+  const active = lone ? noBusinessGroup : activeGroup(here);
+  const current = lone ? undefined : currentItem(here)?.item;
   const nav = useRef<HTMLDivElement>(null);
   useEffect(() => {
     nav.current?.querySelectorAll('[aria-current]').forEach((el) => {
@@ -75,18 +80,24 @@ export function LayoutNavigation({ here }: { here: string }) {
     <div ref={nav} className="plo-navigation">
       <nav data-testid="plo-tabs" className="plo-tabs" aria-label={t('portalNav')}>
         {visible.map((group) => (
-          <a key={group.label} href={group.items[0]![0]} aria-current={group.label === active.label ? 'true' : undefined}>
+          <a
+            key={group.label}
+            href={group.items[0]![0]}
+            aria-current={(lone ? here.startsWith('/pay/onboarding') : group.label === active.label) ? 'true' : undefined}
+          >
             {t(group.label)}
           </a>
         ))}
       </nav>
-      <nav className="plo-subtabs" aria-label={t(active.label)}>
-        {shown.items.map((item) => (
-          <a key={item[0]} href={item[0]} aria-current={current && current[0] === item[0] ? 'page' : undefined}>
-            {t(item[1])}
-          </a>
-        ))}
-      </nav>
+      {lone ? null : (
+        <nav className="plo-subtabs" aria-label={t(active.label)}>
+          {shown.items.map((item) => (
+            <a key={item[0]} href={item[0]} aria-current={current && current[0] === item[0] ? 'page' : undefined}>
+              {t(item[1])}
+            </a>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }

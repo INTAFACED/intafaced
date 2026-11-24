@@ -72,6 +72,25 @@ function otherOf(held: Scaled | null, open: Scaled): Decimal {
   return decOrNull(left > 0n ? left : 0n) ?? '0';
 }
 
+/**
+ * The Money rows valued at what selling them now would get: a priced coin at its market's best bid, not at the last trade.
+ * Right after a buy the last trade is often the buyer's own fill at the ask, so valuing at it hides the spread a sale would
+ * pay. A row whose market has no bid keeps the Money screen's value; dollar coins and unpriced coins are unchanged.
+ */
+export function atSellPrice(
+  rows: readonly MoneyRow[] | null,
+  tickers: Readonly<Record<string, { bid: Decimal | null } | undefined>> | null,
+): MoneyRow[] | null {
+  if (rows === null || tickers === null) return rows === null ? null : [...rows];
+  return rows.map((row) => {
+    if (row.priceSymbol === null || dec(row.usdValue) === null) return row;
+    const bid = dec(tickers[row.priceSymbol.replace('-', '/')]?.bid);
+    const amount = dec(row.amount);
+    if (bid === null || bid <= 0n || amount === null) return row;
+    return { ...row, usdValue: decOrNull(times(amount, bid)), priceUsd: decOrNull(bid) };
+  });
+}
+
 /** What `qty` of a coin is worth now at the Money screen's valuation (never more than all of it); null with no price. */
 function valueOf(row: MoneyRow | undefined, qty: Scaled): Scaled | null {
   const total = dec(row?.amount);
@@ -81,7 +100,20 @@ function valueOf(row: MoneyRow | undefined, qty: Scaled): Scaled | null {
   return share === null ? null : times(worth, share > 10n ** 18n ? 10n ** 18n : share);
 }
 
-export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null): PnlView {
+/**
+ * What one coin is worth now on the person's venue, in dollars: what selling it there now would get, the venue's own best
+ * bid on the coin's dollar market (`useVenuePrices`), as our own coins count at their best bid; a coin with no such market
+ * or no bid is absent.
+ */
+export type VenuePrices = ReadonlyMap<string, Decimal>;
+
+/** A venue's best bid as the price a sale would get now, or null when no one bids. */
+export function venueSellPrice(bid: Decimal | null): Decimal | null {
+  const b = dec(bid);
+  return b === null || b <= 0n ? null : decOrNull(b);
+}
+
+export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null, venuePrices: VenuePrices = new Map()): PnlView {
   const byAsset = new Map((rows ?? []).map((row) => [row.asset, row]));
   const assets: AssetPnl[] = [];
   for (const line of book.assets) {
@@ -112,8 +144,10 @@ export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null): 
     if (cost === null)
       reason =
         book.residuals.includes('tax.lot_book_unreconciled') && dec(line.held)! < open + uncounted ? 'not_reconciled' : 'cost_unknown';
-    // A venue account's coins are not valued at our prices: the venue's own price is not read here, so it is not known.
-    const value = line.venueAccount === undefined ? valueOf(byAsset.get(line.assetId), open) : null;
+    // A venue account's coins are valued at the venue's own price now, never at ours; with none read, not known.
+    const venuePrice = line.venueAccount === undefined ? null : dec(venuePrices.get(line.assetId));
+    const value =
+      line.venueAccount === undefined ? valueOf(byAsset.get(line.assetId), open) : venuePrice === null ? null : times(open, venuePrice);
     if (value === null && reason === null) reason = 'no_price';
     const unrealised = cost !== null && value !== null ? sub(value, cost) : null;
     assets.push({
@@ -276,8 +310,13 @@ function dayMoveOf(row: MoneyRow | undefined, qty: Scaled): Scaled | null {
   return share === null ? null : times(change, share);
 }
 
-export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null, now: number): PnlFigures {
-  const view = pnlView(book, rows);
+export function pnlFigures(
+  book: LotBookAnswer,
+  rows: readonly MoneyRow[] | null,
+  now: number,
+  venuePrices: VenuePrices = new Map(),
+): PnlFigures {
+  const view = pnlView(book, rows, venuePrices);
   const byAsset = new Map((rows ?? []).map((row) => [row.asset, row]));
   const counted = book.sales.filter((sale) => sale.counted !== 'none');
   const realised: PnlFigure =

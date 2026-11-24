@@ -3,7 +3,10 @@ import { BANK_SPACES_LIST, type BankSpace } from '@intafaced/contracts/bank-spac
 import { bankTransferReplySchema } from '@intafaced/contracts/bank-money-room';
 import { balanceEntrySchema, balancesSchema as exchangeBalancesSchema } from '@intafaced/exchange-contract/schemas';
 import { z } from 'zod';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import { callAs, type ApiClient, type ApiResult } from '../../shared/api';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
+import { BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_TRANSFERS_CREATE } from '@intafaced/contracts/bank-transfers-2-procedures';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { cleanText, messageEchoed, noteProblem, referenceProblem } from './transfer-message';
@@ -136,39 +139,38 @@ export function createMoneyClient(api: ApiClient) {
         ...(cleanText(reference) ? { reference: cleanText(reference) } : {}),
       };
       const toPerson = !input.toSpaceId;
-      return api.mutate(
-        'bank',
-        toPerson ? 'transfers.toUser' : 'transfers.create',
-        body,
-        // A move the partner bank holds the money for (OWNER 226), between the person's own spaces or to another person
-        // (J-bank-04 #4), is one partner move and posts nothing to the ledger: its reply names the partner's move and no
-        // ledger transaction.
-        bankTransferReplySchema
-          .extend({
-            amount: decimalSchema.refine(
-              (amount) => parseAmount(amount) === parseAmount(input.amount),
-              copyText('client.the.settled.amount.must.match.the.review'),
-            ),
-          })
-          // Exactly one book made the move: the ledger's transaction, or the partner's move.
-          .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null), {
-            message: copyText('client.transfer.names.one.book'),
-          })
-          // A send to a person echoes what it stored. The reply must be the note and reference that were reviewed.
-          .refine((data) => !toPerson || (data.note !== undefined && data.reference !== undefined && messageEchoed(data, body)), {
-            message: transferDepthCopy.t('echoMismatch'),
-          })
-          .transform(({ ledgerTxId, partnerMove, ...rest }): TransferOutcome =>
-            ledgerTxId !== null
-              ? { ledgerTxId, ...rest }
-              : {
-                  ...rest,
-                  partnerMoveId: partnerMove!.id,
-                  heldBy: partnerMove!.label,
-                  ledgerPosting: copyText('client.partner.move.posts.nothing'),
-                },
+      // A move the partner bank holds the money for (OWNER 226), between the person's own spaces or to another person
+      // (J-bank-04 #4), is one partner move and posts nothing to the ledger: its reply names the partner's move and no
+      // ledger transaction.
+      const reply = bankTransferReplySchema
+        .extend({
+          amount: decimalSchema.refine(
+            (amount) => parseAmount(amount) === parseAmount(input.amount),
+            copyText('client.the.settled.amount.must.match.the.review'),
           ),
-      );
+        })
+        // Exactly one book made the move: the ledger's transaction, or the partner's move.
+        .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null), {
+          message: copyText('client.transfer.names.one.book'),
+        })
+        // A send to a person echoes what it stored. The reply must be the note and reference that were reviewed.
+        .refine((data) => !toPerson || (data.note !== undefined && data.reference !== undefined && messageEchoed(data, body)), {
+          message: transferDepthCopy.t('echoMismatch'),
+        })
+        .transform(({ ledgerTxId, partnerMove, ...rest }): TransferOutcome =>
+          ledgerTxId !== null
+            ? { ledgerTxId, ...rest }
+            : {
+                ...rest,
+                partnerMoveId: partnerMove!.id,
+                heldBy: partnerMove!.label,
+                ledgerPosting: copyText('client.partner.move.posts.nothing'),
+              },
+        );
+      // Each by its own record; the answer must pass the record and the review above.
+      const toSpaceId = input.toSpaceId;
+      if (!toSpaceId) return callAs(api, BANK_TRANSFERS_TO_USER, body as ProcedureInput<typeof BANK_TRANSFERS_TO_USER>, reply);
+      return callAs(api, BANK_TRANSFERS_CREATE, { ...body, toSpaceId }, reply);
     },
   };
 }

@@ -6,6 +6,7 @@ import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { Failure, Loading } from './kit-parts';
 import { membershipCopy as copy } from './membership-copy';
+import { IDENTITY_MEMBERSHIP_OFFER } from '@intafaced/contracts/identity-membership-procedures';
 
 /**
  * Membership tier on Account (W-balances-04, J-wallet-01 #6): identity's `membership.offer`, read-only. Tiers, prices and
@@ -72,7 +73,7 @@ function MembershipRead({ api, userId }: { api: ApiClient; userId: string }) {
   const client = useRef({ api, version: 0 });
   if (client.current.api !== api) client.current = { api, version: client.current.version + 1 };
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'membership.offer', undefined, membershipOfferSchema, { signal }),
+    (signal) => api.call(IDENTITY_MEMBERSHIP_OFFER, undefined, { signal }),
     `account-membership:${userId}:${client.current.version}`,
   );
   return (

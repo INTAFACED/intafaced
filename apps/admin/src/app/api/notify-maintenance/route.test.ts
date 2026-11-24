@@ -121,7 +121,7 @@ describe('maintenance desk BFF', () => {
     upstream({
       'statusPage.maintenance.windows': () => ok([WINDOW]),
       'statusPage.definition': () => ok(wireDefinition(DEFINITION)),
-      'actionApproval.list': () => ok({ approvals: [] }),
+      'actionApproval.list': () => ok({ approvals: [], pageFull: false }),
     });
     const body = await (await GET(get())).json();
     expect(body.windows).toEqual({ kind: 'ok', data: [WINDOW] });
@@ -130,7 +130,7 @@ describe('maintenance desk BFF', () => {
     upstream({
       'statusPage.maintenance.windows': () => ok([{ ...WINDOW, state: 'paused' }]),
       'statusPage.definition': () => ok(wireDefinition(DEFINITION)),
-      'actionApproval.list': () => ok({ approvals: [] }),
+      'actionApproval.list': () => ok({ approvals: [], pageFull: false }),
     });
     expect((await (await GET(get())).json()).windows.kind).toBe('failed');
   });

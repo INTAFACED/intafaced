@@ -39,7 +39,7 @@ use service_kit::server::Request;
 use service_kit::time::Instant;
 use support::TestDb;
 use svc_bank::activity::feed::records::{self, StoreFeed};
-use svc_bank::activity::feed::service::Records;
+use svc_bank::activity::feed::service::{Fees, Records, TransferFacts};
 use svc_bank::activity::feed::{self as feed, kind};
 use svc_bank::activity::pages::{HistoryPages, Page, PageEntry, PageRequest};
 use svc_bank::activity::{self, Wiring};
@@ -1094,6 +1094,43 @@ fn replays_a_note_keeps_one_open_dispute_and_shows_a_transfer_note_to_both_parti
     assert_eq!(bob["other-line"].note.as_deref(), Some("for lunch"));
     assert_eq!(bob["other-line"].private_note, None);
     assert_eq!(bob["other-line"].dispute, None);
+}
+
+#[test]
+fn a_personal_send_answers_the_fees_recorded_with_it_to_both_people_and_null_where_none_was_known()
+{
+    let Some(db) = db() else { return };
+    let store = db.store();
+    db.client()
+        .batch_execute(
+            "INSERT INTO bank.personal_transfers (transfer_id, ledger_tx_id, from_user_id, from_space_id, to_user_id, \
+               asset_id, amount, status, fee, network_fee) VALUES \
+             ('send-fee-known', 'tx-fee-known', '11111111-1111-4111-8111-111111111111', \
+               '33333333-3333-4333-8333-333333333333', '22222222-2222-4222-8222-222222222222', 'USDT', 4, 'posted', 0, 0.5), \
+             ('send-fee-unknown', 'tx-fee-unknown', '11111111-1111-4111-8111-111111111111', \
+               '33333333-3333-4333-8333-333333333333', '22222222-2222-4222-8222-222222222222', 'USDT', 4, 'posted', 0, NULL)",
+        )
+        .unwrap();
+    let wanted = ["tx-fee-known".to_owned(), "tx-fee-unknown".to_owned()];
+    for who in [ALICE, BOB] {
+        let facts = StoreFeed(&store).for_transfers(who, &wanted).unwrap();
+        // Both people see the payment's fees, written as the wire writes an amount.
+        assert_eq!(
+            facts["tx-fee-known"].fees,
+            Fees {
+                fee: Some("0".to_owned()),
+                network_fee: Some("0.5".to_owned())
+            }
+        );
+        // A network fee the partner did not state stays unknown, never 0.
+        assert_eq!(
+            facts["tx-fee-unknown"].fees,
+            Fees {
+                fee: Some("0".to_owned()),
+                network_fee: None
+            }
+        );
+    }
 }
 
 #[test]

@@ -1,7 +1,9 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { listSessions, ListSessionsError, SessionsListLimitUnsetError } from './auth/list-sessions.js';
+import { IDENTITY_LIST_SESSIONS } from '@intafaced/contracts/identity-list-sessions-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /**
  * Top-level list (not nested under auth) so mergeRouters cannot replace
@@ -11,29 +13,9 @@ import { listSessions, ListSessionsError, SessionsListLimitUnsetError } from './
  */
 export function createListSessionsRouter(sql: Sql) {
   return router({
-    listSessions: scopedProcedure('identity:read')
-      .input(z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200), cursor: z.string().max(200).optional() }))
-      .output(
-        z.object({
-          userId: z.string().guid(),
-          sessions: z.array(
-            z.object({
-              id: z.string().guid(),
-              familyId: z.string().guid(),
-              createdAt: z.string(),
-              lastUsedAt: z.string(),
-              device: z.string().nullable(),
-              userAgent: z.string().nullable(),
-              ip: z.string().nullable(),
-              country: z.string().nullable(),
-              isCurrent: z.boolean(),
-              revoked: z.literal(false),
-            }),
-          ),
-          nextCursor: z.string().nullable(),
-        }),
-      )
-      .query(async ({ ctx, input }) => {
+    listSessions: mountRecord(
+      IDENTITY_LIST_SESSIONS,
+      async ({ ctx, input }) => {
         if (ctx.principal.userId !== input.userId) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'You can list only your own sessions' });
         }
@@ -57,6 +39,8 @@ export function createListSessionsRouter(sql: Sql) {
           }
           throw err;
         }
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

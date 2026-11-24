@@ -75,16 +75,15 @@ jobs:
         with:
           node-version-file: .node-version
 
-      # The project-state read goes through the Mac agents' GitHub App (intafaced-mac-agents, its own quota), not the
-      # PROJECT_STATE_READ_TOKEN secret, which spends the shared ZenYoda3 login's 5,000 calls an hour: on 9 Nov, 9 of the
-      # last 10 failed reviews stopped on a 403 from project-state while that quota was at 0 (project-state #1571).
+      # The project-state read goes through the Mac agents' GitHub App (intafaced-mac-agents, its own quota), minted here,
+      # so it depends on no person's login (project-state#4001: the old PROJECT_STATE_READ_TOKEN secret was a token
+      # pasted by hand, and it spent the shared login's 5,000 calls an hour; on 9 Nov, 9 of the last 10 failed reviews
+      # stopped on a 403 from project-state while that quota was at 0, project-state #1571).
       # The token is cut to contents:read, and pull-requests:read for a cited `decision` PR, on project-state alone and is revoked when the job ends. The App's key is a
-      # `ci-review` environment secret, so only this default-branch workflow reads it, and only this step. Until the key
-      # is set, the step is skipped and the old secret is used (the way back: delete the key). With the key set, a failed
-      # mint fails the job, as any unreadable input does.
+      # `ci-review` environment secret, so only this default-branch workflow reads it, and only this step. A failed mint
+      # fails the job, as any unreadable input does.
       - name: Mint a project-state read token
         id: ps-token
-        if: env.APP_KEY_SET == 'true'
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: Iv23lihKJK3UhiuiTgLa
@@ -121,7 +120,7 @@ jobs:
       # nothing needs judging (PASS) or the change is too large (FAIL), else the one call below answers it too. (Failure
       # it prevents: proof v2's post-merge reach reads voided 545 proofs over one harness change that altered nothing the
       # tests observe; project-state product/E1-RESULT.md.) The step words are private: read
-      # from project-state with PROJECT_STATE_READ_TOKEN (the App token minted above, else the old secret; read-only,
+      # from project-state with PROJECT_STATE_READ_TOKEN (the App token minted above; read-only,
       # that repository only, and only when a step needs judging), written only to the prompt file, and never printed.
       # The pull request's code is read as text (the compare API and two shallow fetches of its base and head), never
       # checked out or run. A changed look baseline's PNGs, which the text diff shows only as "Binary files differ", are
@@ -132,7 +131,7 @@ jobs:
       - name: Read the diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROJECT_STATE_READ_TOKEN: ${{ steps.ps-token.outputs.token || secrets.PROJECT_STATE_READ_TOKEN }}
+          PROJECT_STATE_READ_TOKEN: ${{ steps.ps-token.outputs.token }}
         run: node tooling/ci/ci-review.mjs diff "$RUNNER_TEMP/review"
 
       # The reviewer CLI at the version and tarball hashes in .github/workflows/ci-review/package-lock.json (npm ci refuses any
@@ -167,8 +166,11 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
           KEY_DRILL_PR: ${{ vars.CI_REVIEW_KEY_DRILL_PR }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          USAGE_WORK: ${{ github.event.pull_request.head.ref }} ${{ github.event.pull_request.title }}
         run: |
           dir="$RUNNER_TEMP/review"
+          # Each call's tokens, answered or not, one line a call, for project-state's cost read: a runner keeps no transcript.
+          usage() { jq -c --arg work "$USAGE_WORK" 'select(.type? == "result") | {at: (now | todate), work: $work, speed: .usage.speed, models: .modelUsage}' "$1" >> "$RUNNER_TEMP/claude-usage.jsonl" || true; }
           # The spare keys, in order (project-state#2180, #3451): kept in unexported variables, so a call sees one key, as
           # before. Only when the key in use is refused or used up (reviewer-error.mjs --key: `other`, never a refusal
           # about the change) is the same call asked once more, on the next spare key that is set. With no spare key set
@@ -221,6 +223,7 @@ jobs:
             # Look-baseline images go with the prompt (ci-review.mjs streamInput): the same call, its input one stream
             # message, its answer a stream whose one `result` line the read step takes (readStreamOutput).
             ask() {
+            local rc=0
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model claude-opus-5-5 --effort medium \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -230,7 +233,9 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --input-format stream-json --output-format stream-json --verbose \
               --json-schema "$schema" \
-              < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr"
+              < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr" || rc=$?
+            usage "$dir/answer.jsonl"
+            return "$rc"
             }
             until ask; do rc=$?; other_key "$dir/answer.jsonl" "$rc" || failed "$dir/answer.jsonl" "$rc"; done
             echo "called=true" >> "$GITHUB_OUTPUT"
@@ -242,6 +247,7 @@ jobs:
             # spare when it failed on that one, as one call was.
             ask() {
             schema="$(cat "$1/schema.json")"
+            local rc=0
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model claude-opus-5-5 --effort medium \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -251,7 +257,9 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$schema" \
               "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
-              < "$1/prompt.txt" > "$1/answer.json" 2> "$1/answer.json.stderr"
+              < "$1/prompt.txt" > "$1/answer.json" 2> "$1/answer.json.stderr" || rc=$?
+            usage "$1/answer.json"
+            return "$rc"
             }
             pids=()
             parts=()
@@ -282,6 +290,16 @@ jobs:
             [ -z "$any_spare" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
+
+      # The calls' tokens (usage() above), as `claude-usage-review-<attempt>`: project-state's cost read lists this name.
+      - name: Upload the calls' usage
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: claude-usage-review-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/claude-usage.jsonl
+          if-no-files-found: ignore
 
       # The step the seal reads for gate files and look baselines: it fails only on a well-formed FAIL of the review
       # part, which then stands for this head and its code. Skipped when the judge is down: no answer is no verdict, so
@@ -402,6 +420,20 @@ jobs:
           cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/reviewer/"
           npm ci --prefix "$RUNNER_TEMP/reviewer" --no-audit --no-fund
 
+      # The step words, read from project-state as the review job reads them: a token of the Mac agents' GitHub App, minted
+      # here, contents:read on project-state alone and revoked when the job ends (project-state#4001: no person's login).
+      # Like the read, a failed mint never fails the job: the head is left unread.
+      - name: Mint a project-state read token
+        id: ps-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: Iv23lihKJK3UhiuiTgLa
+          private-key: ${{ secrets.INTAFACED_APP_KEY }}
+          owner: INTAFACED
+          repositories: project-state
+          permission-contents: read
+
       # The reader's tools are the review's, confined the same way (the Review step above says how), with its own caps.
       - name: Read the steps (proof v2)
         id: reads
@@ -409,13 +441,16 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROJECT_STATE_READ_TOKEN: ${{ secrets.PROJECT_STATE_READ_TOKEN }}
+          PROJECT_STATE_READ_TOKEN: ${{ steps.ps-token.outputs.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
           CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          USAGE_WORK: ${{ github.event.pull_request.head.ref }} ${{ github.event.pull_request.title }}
         run: |
           dir="$RUNNER_TEMP/read"
+          # Each call's tokens, answered or not, one line a call, for project-state's cost read: a runner keeps no transcript.
+          usage() { jq -c --arg work "$USAGE_WORK" 'select(.type? == "result") | {at: (now | todate), work: $work, speed: .usage.speed, models: .modelUsage}' "$1" >> "$RUNNER_TEMP/claude-usage.jsonl" || true; }
           # The spare keys, as in the Review step: unexported, and each asked only after the key before it is refused or used up.
           spares=("$CLAUDE_CODE_OAUTH_TOKEN_2" "$CLAUDE_CODE_OAUTH_TOKEN_3")
           names=(second third)
@@ -441,6 +476,7 @@ jobs:
           pids=()
           dirs=()
           ask() {
+            local rc=0
             d="$1"
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model "$READER_MODEL" --effort "$READER_EFFORT" \
@@ -451,7 +487,9 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$(cat "$d/schema.json")" \
               "Read the steps in the input against the brief at its top. Answer with the structured reads only." \
-              < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr"
+              < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr" || rc=$?
+            usage "$d/answer.json"
+            return "$rc"
           }
           # One reader call, asked again on the next spare key that is set only when the key in use is refused or used up
           # (--key: `other`).
@@ -491,6 +529,16 @@ jobs:
           else echo "reviewer key: first"; fi
           node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir" || no "the answer can't be read"
           echo "read=1" >> "$GITHUB_OUTPUT"
+
+      # The calls' tokens (usage() above), as `claude-usage-read-<attempt>`: project-state's cost read lists this name.
+      - name: Upload the calls' usage
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: claude-usage-read-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/claude-usage.jsonl
+          if-no-files-found: ignore
 
       # The CI review's `judge` status (its job's `judge` output): pending with its one action when its judge was down,
       # cleared by its next successful call. Here, not in the review job, so the job the seal reads holds no statuses

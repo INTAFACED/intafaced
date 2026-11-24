@@ -23,6 +23,15 @@ import {
   accountControlHistoryInputSchema,
   accountControlResultSchema,
   identityAccountControlInputSchema,
+  accountLimitOverrideClearInputSchema,
+  accountArchiveInputSchema,
+  accountClosureInputSchema,
+  accountClosureResultSchema,
+  accountTierMoveInputSchema,
+  accountTierResultSchema,
+  accountClosureHistoryInputSchema,
+  accountTierHistoryInputSchema,
+  accountOperatorEntitlementSchema,
 } from './account-controls.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -316,5 +325,202 @@ export const IDENTITY_ACCOUNT_CONTROLS_CHANGE = defineProcedure({
         expectedVersion: '1',
       },
     },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_LIMITS_CLEAR = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.limitsClear',
+  kind: 'mutation',
+  path: 'accountControls.limitsClear',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: accountLimitOverrideClearInputSchema,
+  output: accountLimitResultSchema,
+  outputChecks: {
+    account_limit_result_holds: {
+      at: 'output',
+      says: 'Unauthorized attempts cannot disclose target state; Override belongs to another account, rail or asset; The ceiling comes with limit_requires_approver only; Outcome, action and versions disagree',
+    },
+    account_limit_amount_holds: {
+      at: [
+        'output|0.before.perTx',
+        'output|0.before.rolling24h',
+        'output|0.after.perTx',
+        'output|0.after.rolling24h',
+        'output|1.current.perTx',
+        'output|1.current.rolling24h',
+        'output|1.ceiling',
+        'output|2.current.perTx',
+        'output|2.current.rolling24h',
+      ],
+      says: 'A limit figure is above zero',
+    },
+  },
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        userId: '11111111-1111-4111-8111-111111111111',
+        rail: 'withdrawal',
+        assetId: 'USDC',
+        reason: '11111111-1111-4111-8111-111111111111',
+        expectedVersion: '1',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_ARCHIVE = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.archive',
+  kind: 'mutation',
+  path: 'accountControls.archive',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: accountArchiveInputSchema,
+  output: accountArchiveResultSchema,
+  outputChecks: {
+    account_archive_result_holds: {
+      at: 'output',
+      says: 'Unauthorized attempts cannot disclose target state; State belongs to a different account; Outcome and archive state disagree',
+    },
+    account_archive_state_holds: {
+      at: ['output|0.before', 'output|0.after', 'output|1.current', 'output|2.current'],
+      says: 'Only a closed account is archived; An archive carries its reason code',
+    },
+  },
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        userId: '11111111-1111-4111-8111-111111111111',
+        reasonCode: 'dormant',
+        reason: 'USDC',
+        expectedVersion: '1',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_CLOSURE = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.closure',
+  kind: 'mutation',
+  path: 'accountControls.closure',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: accountClosureInputSchema,
+  output: accountClosureResultSchema,
+  outputChecks: {
+    account_closure_result_holds: {
+      at: 'output',
+      says: 'Unauthorized attempts cannot disclose target state; State belongs to a different account; Outcome, action and state versions disagree; A close carries a reason code and a reopen does not',
+    },
+  },
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        userId: '11111111-1111-4111-8111-111111111111',
+        action: 'close',
+        reasonCode: 'fraud',
+        reason: 'USDC',
+        expectedVersion: '1',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.tierMove',
+  kind: 'mutation',
+  path: 'accountControls.tierMove',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: accountTierMoveInputSchema,
+  output: accountTierResultSchema,
+  outputChecks: {
+    account_tier_result_holds: {
+      at: 'output',
+      says: 'Unauthorized attempts cannot disclose target state; State belongs to a different account; Blank terms come with tier_terms_unset only; Outcome, tier and state versions disagree',
+    },
+  },
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        userId: '11111111-1111-4111-8111-111111111111',
+        tierId: 'x',
+        reason: 'USDC',
+        expectedVersion: '1',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.closureHistory',
+  kind: 'query',
+  path: 'accountControls.closureHistory',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: accountClosureHistoryInputSchema,
+  output: z.array(accountClosureResultSchema),
+  outputChecks: {
+    account_closure_result_holds: {
+      at: 'output[]',
+      says: 'Unauthorized attempts cannot disclose target state; State belongs to a different account; Outcome, action and state versions disagree; A close carries a reason code and a reopen does not',
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.tierHistory',
+  kind: 'query',
+  path: 'accountControls.tierHistory',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: accountTierHistoryInputSchema,
+  output: z.array(accountTierResultSchema),
+  outputChecks: {
+    account_tier_result_holds: {
+      at: 'output[]',
+      says: 'Unauthorized attempts cannot disclose target state; State belongs to a different account; Blank terms come with tier_terms_unset only; Outcome, tier and state versions disagree',
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.operatorStatus',
+  kind: 'query',
+  path: 'accountControls.operatorStatus',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: accountOperatorEntitlementSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
   ],
 });

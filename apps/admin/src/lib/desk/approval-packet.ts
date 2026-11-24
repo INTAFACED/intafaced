@@ -408,8 +408,10 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.controlId !== 'string' || !UUID.test(raw.controlId) || !validReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !CONTROL_VERSION.test(raw.version) || !isRunInstant(raw.asOf)) return null;
     if (typeof raw.margin !== 'string') return null;
-    // A run now reads at its own instant, so it carries no margin; a past run always names the one it reads with.
-    if (raw.asOf === 'now' ? raw.margin !== 'unset' : !reconciliationDecimalSchema.safeParse(raw.margin).success) return null;
+    // A run now reads at its own instant, so it carries no margin. A past run names the one it reads with, or `unset` to
+    // leave it blank: svc-ledger then reads with the control's own margin, or refuses ops.control_margin_unset itself.
+    if (raw.asOf === 'now' ? raw.margin !== 'unset' : raw.margin !== 'unset' && !reconciliationDecimalSchema.safeParse(raw.margin).success)
+      return null;
     return {
       kind: 'ledger.reconciliation_control.run',
       controlId: raw.controlId,

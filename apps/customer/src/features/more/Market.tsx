@@ -1,4 +1,5 @@
 import { Tabs } from '@intafaced/ui/lit/templates';
+import { Store } from 'lucide-react';
 import { t as copyText, Text } from './copy';
 import { useRef, useState } from 'react';
 import {
@@ -28,6 +29,7 @@ import { CategorySelect, ListingDetail, MarketDoors, MarketFilters, SellerDirect
 import { marketListingCopy } from './market-listing-copy';
 import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
+import { formatBpsPercent } from './catalogue-parts';
 import {
   cancelMarketSubscription,
   purchaseListing,
@@ -225,7 +227,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
         {(p) => (
           <p className="lt-muted">
             {p.commissionConfigured && p.commissionBps !== null
-              ? copyText('market.published.house.commission.basis.points.charged.to', { value1: p.commissionBps })
+              ? copyText('market.published.house.commission.basis.points.charged.to', { value1: formatBpsPercent(p.commissionBps) })
               : copyText('market.the.house.commission.is.unpublished.the.service')}
           </p>
         )}
@@ -247,6 +249,22 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               : category
                 ? marketListingCopy.t('categoryEmpty')
                 : copyText('market.no.listings.are.available')
+          }
+          first={
+            strategy || category
+              ? undefined
+              : {
+                  icon: <Store size={24} />,
+                  body: mine ? marketListingCopy.t('firstMineBody') : marketListingCopy.t('firstBody'),
+                  points: mine
+                    ? undefined
+                    : [
+                        marketListingCopy.t('firstPointOneTime'),
+                        marketListingCopy.t('firstPointSubscriptions'),
+                        marketListingCopy.t('firstPointSellers'),
+                      ],
+                  action: { label: marketListingCopy.t('firstAction'), href: '/market/strategy' },
+                }
           }
         >
           {(allRows) => {
@@ -575,7 +593,12 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                         [copyText('market.title'), <span lang="und">{title}</span>],
                         [copyText('market.description'), <span lang="und">{description}</span>],
                         [copyText('market.price'), <MarketPrice price={price} assetId={asset} />],
-                        [copyText('market.offer'), strategy ? copyText('market.strategy.subscription') : <span lang="zxx">{offer}</span>],
+                        [
+                          copyText('market.offer'),
+                          strategy || offer === 'subscription'
+                            ? copyText('market.strategy.subscription')
+                            : copyText('market.one.time.purchase'),
+                        ],
                         [
                           copyText('market.period'),
                           offer === 'subscription' || strategy
@@ -618,7 +641,15 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               <Field label={copyText('market.listing.title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
               <TextArea label={copyText('market.listing.description')} value={description} onChange={setDescription} maxLength={4000} />
               {!strategy && (
-                <Select label={copyText('market.offer.type')} value={offer} onChange={setOffer} options={['one_time', 'subscription']} />
+                <Select
+                  label={copyText('market.offer.type')}
+                  value={offer}
+                  onChange={setOffer}
+                  options={[
+                    { value: 'one_time', label: copyText('market.one.time.purchase') },
+                    { value: 'subscription', label: copyText('market.strategy.subscription') },
+                  ]}
+                />
               )}
               {!strategy && offer === 'one_time' && (
                 <CategorySelect value={newCategory} onChange={setNewCategory} allLabel={marketListingCopy.t('categoryNone')} />

@@ -651,8 +651,11 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain', 'positions', 'bridge'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|positions|bridge]');
+  if (
+    !/^0x[0-9a-fA-F]{40}$/.test(address ?? '') ||
+    ![undefined, 'stable', 'spam', 'venue', 'plain', 'reset', 'positions', 'bridge'].includes(kind)
+  )
+    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|reset|positions|bridge]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');

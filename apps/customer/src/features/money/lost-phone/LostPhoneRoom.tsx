@@ -13,7 +13,13 @@ import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
-import { IDENTITY_ACCOUNT_SAFETY_READ } from '@intafaced/contracts/identity-account-procedures';
+import {
+  IDENTITY_ACCOUNT_SAFETY_READ,
+  IDENTITY_ACCOUNT_SAFETY_SET_EXTRA_CONTROLS,
+  IDENTITY_ACCOUNT_SAFETY_CLEAR_EXTRA_CONTROLS,
+  IDENTITY_ACCOUNT_SAFETY_SET_LOCATION_CONSENT,
+} from '@intafaced/contracts/identity-account-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * Lost phone or compromised account (BK-safe-01, J-bank-18 #4), on the flow template. From the bank: the ordered steps
@@ -125,12 +131,12 @@ export function LostPhoneRoom() {
   const allowance = amount ?? safety?.extraControls.allowance?.amount ?? '';
   const allowanceAsset = asset ?? safety?.extraControls.allowance?.assetId ?? 'USDT';
 
-  async function change(procedure: string, body: object, done: string): Promise<void> {
+  async function change(procedure: AppProcedure, body: object, done: string): Promise<void> {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
     setNotice('');
-    const out = await api.mutate('identity', procedure, body, safetyChangeOutputSchema);
+    const out = await callAs(api, procedure, body, safetyChangeOutputSchema);
     setBusy(false);
     if (!out.ok) {
       setRefusal(refusalOf(out, t));
@@ -148,7 +154,7 @@ export function LostPhoneRoom() {
   function saveExtras(e: FormEvent) {
     e.preventDefault();
     void change(
-      'account.safety.setExtraControls',
+      IDENTITY_ACCOUNT_SAFETY_SET_EXTRA_CONTROLS,
       { controls, allowance: { amount: allowance.trim(), assetId: allowanceAsset }, password },
       t('extrasSaved'),
     );
@@ -261,7 +267,7 @@ export function LostPhoneRoom() {
                   tone="primary"
                   type="button"
                   disabled={busy || !password}
-                  onClick={() => void change('account.safety.clearExtraControls', { password }, t('extrasRemoved'))}
+                  onClick={() => void change(IDENTITY_ACCOUNT_SAFETY_CLEAR_EXTRA_CONTROLS, { password }, t('extrasRemoved'))}
                 >
                   {t('removeExtras')}
                 </Button>
@@ -280,7 +286,7 @@ export function LostPhoneRoom() {
                 disabled={busy || !location}
                 onChange={(e) =>
                   void change(
-                    'account.safety.setLocationConsent',
+                    IDENTITY_ACCOUNT_SAFETY_SET_LOCATION_CONSENT,
                     { consent: e.target.checked },
                     e.target.checked ? t('locationTurnedOn') : t('locationTurnedOff'),
                   )
