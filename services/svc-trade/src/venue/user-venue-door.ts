@@ -1138,6 +1138,44 @@ export class UserVenueDoor {
   }
 
   /**
+   * J-cex-spot-14 #1 #2: each market we show, signed in or not, with the venue's own trading state and session as it
+   * reports them now and our listing beside them (when it opens, when it is delisted, our routing state). Read only:
+   * nothing is prepared or sent. `asOf` is the venue read's own time, so the markets list and /status show how fresh it
+   * is and never a time of their own.
+   */
+  async marketStates() {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const test = isTestVenue(venue.venue);
+    return {
+      venueId: read.venueId,
+      value: {
+        venue: { id: venue.venue.id, displayName: venue.venue.displayName },
+        markets: read.value.map((m) => ({
+          symbol: m.symbol,
+          kind: m.kind,
+          baseAsset: m.baseAsset,
+          quoteAsset: m.quoteAsset,
+          tickSize: m.tickSize,
+          lotSize: m.lotSize,
+          status: m.status,
+          session: m.session,
+          listing: {
+            opensAt: m.listing.opensAt,
+            delistsAt: m.listing.delistsAt,
+            routing: m.listing.routing,
+            open: m.listing.open,
+            delisted: m.listing.delisted,
+          },
+        })),
+        test,
+        ...(test ? { label: 'TEST' } : {}),
+      },
+      asOf: read.asOf,
+    };
+  }
+
+  /**
    * J-cex-spot-10 #2: the public fee page's figures, all read now: the venue's published tiers, and for each market we
    * list its own maker and taker rates, the venue's cap on a builder fee there, and our builder fee on it (`null`: the
    * owner value is blank, shown "not set"; a spot market's fee is on a sell, a buy carries none). Read only: nothing is
