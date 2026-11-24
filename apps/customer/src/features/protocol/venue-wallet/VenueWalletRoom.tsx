@@ -1,6 +1,6 @@
 // volt-room: /wallet/venue
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Checkbox, Field } from '@intafaced/ui/lit';
+import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import type { VenueWalletAction } from '@intafaced/contracts/protocol-venue-wallet';
@@ -736,7 +736,9 @@ export function VenueWalletRoom() {
           {message ? (
             <details open>
               <summary>{t('messageTitle')}</summary>
-              <pre data-venue-message>{message}</pre>
+              <pre className="lt-code lt-wrap" data-venue-message>
+                {message}
+              </pre>
               <p>{t('messageNote')}</p>
             </details>
           ) : null}
@@ -803,19 +805,18 @@ export function VenueWalletRoom() {
                     disabled={busy}
                     onChange={(event) => setDestinationText(event.target.value)}
                   />
-                  <label className="lt-field">
-                    <span>{t('network')}</span>
-                    <select
-                      name="venue-network"
-                      value={route ? String(route.chainId) : ''}
-                      disabled={!editing || busy}
-                      onChange={() => undefined}
-                    >
-                      {route ? (
-                        <option value={String(route.chainId)}>{route.network ?? t('networkChain', { id: String(route.chainId) })}</option>
-                      ) : null}
-                    </select>
-                  </label>
+                  <Select
+                    label={t('network')}
+                    name="venue-network"
+                    value={route ? String(route.chainId) : ''}
+                    disabled={!editing || busy}
+                    onChange={() => undefined}
+                    options={
+                      route
+                        ? [{ value: String(route.chainId), label: route.network ?? t('networkChain', { id: String(route.chainId) }) }]
+                        : []
+                    }
+                  />
                   {!editing ? (
                     <Button
                       tone="secondary"

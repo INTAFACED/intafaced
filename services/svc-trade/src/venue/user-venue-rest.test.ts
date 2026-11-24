@@ -900,3 +900,111 @@ describe('/api/v1/venue/arrivals (J-portfolio-06 #3)', () => {
     );
   });
 });
+
+describe('/api/v1/venue/* requestDeadline (J-cex-spot-04 #7)', () => {
+  it('refuses an expired requestDeadline on preview, prepare and submit before any venue lock, admits a future one, and waives replays', async () => {
+    const account = { venueId: sim.venue.id, owner, subAccount: null };
+    sim.deposit(account, 'USDC', parseAmount('500'), 'chain:rest-deadline:1');
+    await mount(door());
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const baseIntent = (tag: string) => ({
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.001',
+      price: '59000',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: `order:${owner}:btc-usdc:deadline-${tag}`,
+      builderFee: null,
+    });
+    const openBefore = (await sim.openOrders(account)).value.length;
+    const lockedBefore = (await sim.balances(account)).value.find((b) => b.asset === 'USDC')?.locked ?? 0n;
+
+    // 1. Expired on preview and prepare: 400 trade.request_expired, nothing locked.
+    const expPreview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/preview',
+      payload: { owner, intent: baseIntent('prev'), requestDeadline: past },
+    });
+    expect(expPreview.statusCode, expPreview.body).toBe(400);
+    expect(expPreview.json().intafacedCode).toBe('trade.request_expired');
+
+    const expPrepare = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('prep'), requestDeadline: past },
+    });
+    expect(expPrepare.statusCode, expPrepare.body).toBe(400);
+    expect(expPrepare.json().intafacedCode).toBe('trade.request_expired');
+
+    // Malformed deadline refuses 400 trade.venue_request_invalid.
+    const badDeadline = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('bad'), requestDeadline: 'yesterday' },
+    });
+    expect(badDeadline.statusCode, badDeadline.body).toBe(400);
+    expect(badDeadline.json().intafacedCode).toBe('trade.venue_request_invalid');
+
+    // 2. Prepared in time, then submitted after the deadline: 400 trade.request_expired, nothing sent or locked.
+    const prepForSub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('sub'), requestDeadline: future },
+    });
+    expect(prepForSub.statusCode, prepForSub.body).toBe(200);
+    const pSub = prepForSub.json();
+    const sigSub = await key.signTypedData(pSub.prepared.typedData);
+    const expSub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/submit',
+      payload: {
+        actionKey: pSub.actionKey,
+        signature: { digest: pSub.prepared.digest, signature: sigSub, signedBy: owner },
+        requestDeadline: past,
+      },
+    });
+    expect(expSub.statusCode, expSub.body).toBe(400);
+    expect(expSub.json().intafacedCode).toBe('trade.request_expired');
+    expect((await sim.openOrders(account)).value.length).toBe(openBefore);
+    expect((await sim.balances(account)).value.find((b) => b.asset === 'USDC')?.locked ?? 0n).toBe(lockedBefore);
+
+    // 3. Same order with a future deadline prepares, submits and rests; replaying the stored key with a past deadline
+    // still returns the stored answer.
+    const okSub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/submit',
+      payload: {
+        actionKey: pSub.actionKey,
+        signature: { digest: pSub.prepared.digest, signature: sigSub, signedBy: owner },
+        requestDeadline: future,
+      },
+    });
+    expect(okSub.statusCode, okSub.body).toBe(200);
+    expect(okSub.json().outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await sim.openOrders(account)).value.length).toBe(openBefore + 1);
+
+    const replayPrep = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('sub'), requestDeadline: past },
+    });
+    expect(replayPrep.statusCode, replayPrep.body).toBe(200);
+    expect(replayPrep.json().reused).toBe(true);
+
+    const replaySub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/submit',
+      payload: {
+        actionKey: pSub.actionKey,
+        signature: { digest: pSub.prepared.digest, signature: sigSub, signedBy: owner },
+        requestDeadline: past,
+      },
+    });
+    expect(replaySub.statusCode, replaySub.body).toBe(200);
+    expect(replaySub.json().replayed).toBe(true);
+  });
+});
