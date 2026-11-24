@@ -773,9 +773,20 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'notices',
+    label: 'Notices',
+    paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id'],
+    status: 'live',
+    reason: 'svc-notify serves published notices on /notice and /notice/:id (with /announcement aliases), proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked:
+      '2026-11-24, Real-app journeys run 11739 (J-cex-spot-10 #10 passed on the real stack with proof v2 FAITHFUL and SHOWN picture).',
+  },
+  {
     id: 'public-extras',
-    label: 'Notices, Lab, App, Partner',
-    paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id', '/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
+    label: 'Lab, App, Partner',
+    paths: ['/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
     status: 'blocked',
     reason: 'No service behind them; what the Lab holds is an owner decision',
     unlock: 'per feature; the Lab when the owner records what it holds',
