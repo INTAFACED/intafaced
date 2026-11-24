@@ -2244,8 +2244,12 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
         return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
-    // A seal still waiting for its inputs (WAIT_STEP) reads them all once they finish: re-running it would be a second verdict.
-    if (seal.status !== 'completed' && (seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+    // A seal still waiting for its inputs (WAIT_STEP, or judge-repair.mjs's REPAIR_STEP) reads them all once they finish:
+    // re-running it would be a second verdict.
+    if (
+      seal.status !== 'completed' &&
+      (seal.steps ?? []).some((s) => [WAIT_STEP, REPAIR_STEP].includes(s?.name) && s?.status !== 'completed')
+    )
       return { act: 'done', msg: `the seal in run ${runId} is waiting for its inputs and judges once they finish` };
     if (seal.status !== 'completed')
       return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
@@ -2403,9 +2407,18 @@ export const REVIEWED = 'CI review';
  * merges on its seal, so only its seal is read when it turns; arming runs merge-seal.yml afresh (`auto_merge_enabled`),
  * and so does every push and edit. (Failure it prevents: at 02:45 UTC on
  * 9 Nov 2026, 29 re-checks were queued, each of which can hold a runner up to 25 minutes waiting out a running seal,
- * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.)
+ * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.) One exception, sealedOnReview.
  */
 export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefined;
+
+/**
+ * After the CI review, a ready pull request is sealed armed or not: a journey build arms only once its proof read is in
+ * (project-state BUILDER.md), and that read lands after every check T3's PR watch was waiting for, so nothing woke the
+ * builder; the required `CI merge seal` appearing is a wake. One seal per reviewed head, as the review runs only on a
+ * ready one. (Failure it prevents: 10 builds sat green and unarmed 12 to 62 minutes until the owed-work check woke
+ * them, 23 to 24 Nov 2026, #10625 among them; INTAFACED/project-state#3978.)
+ */
+export const sealedOnReview = (finished, p) => finished === REVIEWED && p?.draft !== true;
 
 /**
  * The open pull requests a re-check re-seals, of those with auto-merge armed (armed): after CI or the CI review finished
@@ -2414,7 +2427,7 @@ export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefine
  * judges).
  */
 export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = '', oldBody = '', filesOf }) {
-  const live = (pulls ?? []).filter(armed);
+  const live = (pulls ?? []).filter((p) => armed(p) || sealedOnReview(finished, p));
   if (finished === 'CI' || finished === REVIEWED || finished === MONEY)
     return live.filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
   return recheckPulls({ pulls: live, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls: live, sha, repo, filesOf }) });
@@ -2578,6 +2591,11 @@ export function waitStep({ pull, sha, going }) {
 
 /** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
 export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
+/**
+ * The seal job's step that judges a change to the judges alone (judge-repair.mjs REPAIR_STEP, which this must equal:
+ * judge-repair.test.mjs). Written here, not imported, so the journeys run, which reads this file, never reads that one.
+ */
+export const REPAIR_STEP = 'A change to the judges alone: every other check green, and a PASS from the CI review';
 /**
  * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
  * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on

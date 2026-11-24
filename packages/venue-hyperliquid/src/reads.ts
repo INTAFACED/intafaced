@@ -36,7 +36,7 @@ import {
   type HyperliquidTestnetOptions,
   type Json,
 } from './core.js';
-import { unreadMarketTerms, type ReadMarketTerms } from './market-terms.js';
+import { BUILDER_FEE_CAP_BPS, unreadMarketTerms, type ReadMarketTerms } from './market-terms.js';
 import { rateToBps, tenthsToBps, unit, PERP_MAX_DECIMALS, SPOT_MAX_DECIMALS } from './wire.js';
 
 /**
@@ -70,6 +70,7 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         lotSize: unit(m.szDecimals),
         makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
         takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
+        builderFeeCapBps: { known: true, value: BUILDER_FEE_CAP_BPS[m.kind] },
       };
       // What this adapter does not read from the venue: `market-terms.ts`, never here.
       return { ...read, ...unreadMarketTerms() };
@@ -181,6 +182,14 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         if (lev !== null) locked = div(mul(price, remaining, 'ceil'), parseAmount(String(lev)), 'ceil');
       }
     }
+    const origin =
+      raw.isLiquidation === true || /liquidat/i.test(orderType)
+        ? ('liquidation' as const)
+        : raw.isTrigger === true
+          ? /take\s*profit/i.test(orderType)
+            ? ('take_profit' as const)
+            : ('stop' as const)
+          : ('user' as const);
     return {
       venueOrderId: raw.oid !== undefined ? String(int(raw.oid, 'oid')) : null,
       venueClientOrderId: typeof raw.cloid === 'string' ? raw.cloid.toLowerCase() : null,
@@ -197,6 +206,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       locked,
       lockedAsset,
       reduceOnly: raw.reduceOnly === true,
+      origin,
+      originRef: null,
     };
   }
 
@@ -236,9 +247,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     for (const entry of raw) {
       const wrapped = obj(entry, 'historical order');
       const order = obj(wrapped.order, 'historical order.order');
-      const status = mapOrderStatus(str(wrapped.status, 'historical order status'));
+      const venueStatus = str(wrapped.status, 'historical order status');
+      const status = mapOrderStatus(venueStatus);
       list.push({
-        order: await this.toOrder(account, order, status === 'open' ? null : status, lev),
+        order: withCancelReason(await this.toOrder(account, order, status === 'open' ? null : status, lev), venueStatus),
         placedAt: new Date(int(order.timestamp, 'order timestamp')),
       });
     }
@@ -254,7 +266,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     const raw = obj(wrapped.order, 'orderStatus.order.order');
     const status = mapOrderStatus(venueStatus);
     // An open order's part-filled state comes from its sizes.
-    const order = await this.toOrder(account, raw, status === 'open' ? null : status, this.leverageLookup(account));
+    const order = withCancelReason(
+      await this.toOrder(account, raw, status === 'open' ? null : status, this.leverageLookup(account)),
+      venueStatus,
+    );
     return this.asOf(order, typeof wrapped.statusTimestamp === 'number' ? wrapped.statusTimestamp : undefined);
   }
 
@@ -495,6 +510,15 @@ function fillIdOf(f: { readonly [key: string]: Json }): string {
 /** Venue trade ids are whole numbers as decimal strings: order them as numbers, without a `number`. */
 function compareTid(x: string, y: string): number {
   return x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
+}
+
+/**
+ * The venue's own word for why it cancelled an order, where it is one we name (J-derivatives-04 #7): `selfTradeCanceled`,
+ * cancelled by its self-trade rule because the account's own new order would have traded with it. Other words leave it
+ * unsaid.
+ */
+export function withCancelReason<T extends Pick<UserVenueOrder, 'cancelReason'>>(order: T, venueStatus: string): T {
+  return venueStatus === 'selfTradeCanceled' ? { ...order, cancelReason: 'self_trade' } : order;
 }
 
 /** The venue's order status words to ours. An unknown word is loud, never guessed. */

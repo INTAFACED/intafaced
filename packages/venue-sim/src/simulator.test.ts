@@ -662,9 +662,27 @@ describe('TEST venue simulator: review regressions', () => {
     w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:r9b');
     const sell = await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '60000', '0.01', 'order:t:r9s'));
     await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60100', '0.01', 'order:t:r9b'));
-    expect((await w.sim.orderByClientId(w.trader, sell.prepared.venueClientOrderId!)).value?.status).toBe('canceled');
+    const cancelled = (await w.sim.orderByClientId(w.trader, sell.prepared.venueClientOrderId!)).value;
+    expect(cancelled?.status).toBe('canceled');
+    // The venue says why: its self-trade rule, so the orders room can name it (J-derivatives-04 #7).
+    expect(cancelled?.cancelReason).toBe('self_trade');
     expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
     expect(balanceOf((await w.sim.balances(w.trader)).value, 'BTC')).toMatchObject({ free: a('1'), locked: ZERO });
+  });
+
+  it('on a perpetual, an opening order that crosses only its own resting opening order cancels it (self-trade) and rests; one that does not cross it is still refused', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:stp');
+    await w.run(w.wallet, w.trader, tenX);
+    const short = await w.run(w.wallet, w.trader, perp('sell', '70000', '0.01', 'order:t:stp-s'));
+    const apart = await w.run(w.wallet, w.trader, perp('buy', '69000', '0.01', 'order:t:stp-apart'));
+    expect(apart.outcome).toMatchObject({ accepted: false });
+    const long = await w.run(w.wallet, w.trader, perp('buy', '70000', '0.01', 'order:t:stp-l'));
+    expect(long.outcome).toMatchObject({ accepted: true });
+    const cancelled = (await w.sim.orderByClientId(w.trader, short.prepared.venueClientOrderId!)).value;
+    expect(cancelled).toMatchObject({ status: 'canceled', cancelReason: 'self_trade' });
+    expect((await w.sim.orderByClientId(w.trader, long.prepared.venueClientOrderId!)).value?.status).toBe('open');
+    expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
   });
 
   it('an isolated loss stops at the margin released', async () => {
@@ -1063,5 +1081,50 @@ describe('TEST venue simulator: council round 3 follow-ups', () => {
     await expect(w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') })).rejects.toThrow(
       /TEST simulator invariant/,
     );
+  });
+});
+
+describe('TEST venue simulator: candles depth, since filter and seeded history', () => {
+  it('filters candles by since and returns up to 720 bars from seeded prints', async () => {
+    const w = world();
+    // Clock starts at 2026-11-08T12:00:00Z; seed 300 one-minute prints ending 1 minute ago.
+    const baseMs = Date.UTC(2026, 10, 8, 7, 0, 0);
+    const entries = Array.from({ length: 300 }, (_, i) => ({
+      price: a(String(50000 + i)),
+      amount: a('0.01'),
+      takerSide: 'buy' as const,
+      tradedAt: new Date(baseMs + i * 60_000),
+    }));
+    const added = w.sim.testSeedPrints('BTC-USDC', entries);
+    expect(added).toBe(300);
+
+    const all = (await w.sim.candles('BTC-USDC', '1m', 720)).value;
+    expect(all.length).toBe(300);
+    expect(all[0]!.openPrice).toBe(a('50000'));
+    expect(all[all.length - 1]!.closePrice).toBe(a('50299'));
+
+    const since = new Date(baseMs + 250 * 60_000);
+    const tail = (await w.sim.candles('BTC-USDC', '1m', { limit: 720, since })).value;
+    expect(tail.length).toBe(50);
+    expect(tail[0]!.openAt.getTime()).toBe(since.getTime());
+    expect(tail[0]!.openPrice).toBe(a('50250'));
+  });
+
+  it('refuses future timestamps and non-positive values in testSeedPrints', () => {
+    const w = world();
+    const future = new Date(Date.UTC(2026, 10, 8, 12, 5, 0));
+    expect(() => w.sim.testSeedPrints('BTC-USDC', [{ price: a('60000'), amount: a('0.01'), takerSide: 'buy', tradedAt: future }])).toThrow(
+      /future/,
+    );
+    expect(() =>
+      w.sim.testSeedPrints('BTC-USDC', [
+        { price: a('0'), amount: a('0.01'), takerSide: 'buy', tradedAt: new Date(Date.UTC(2026, 10, 8, 11, 0, 0)) },
+      ]),
+    ).toThrow(/above zero/);
+    expect(() =>
+      w.sim.testSeedPrints('BTC-USDC', [
+        { price: a('60000'), amount: a('-1'), takerSide: 'sell', tradedAt: new Date(Date.UTC(2026, 10, 8, 11, 0, 0)) },
+      ]),
+    ).toThrow(/above zero/);
   });
 });

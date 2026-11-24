@@ -967,6 +967,24 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: "Candles of the venue's own prints on the spot market listed on one asset, oldest first, with the market's symbol",
   },
   {
+    name: 'venueChartMarkets',
+    method: 'GET',
+    path: '/api/v1/venue/chart-markets',
+    product: 'accounts',
+
+    summary:
+      'Public chart metadata for every listed venue market (tick and lot size, status, listing routing and offered intervals), signed in or out',
+  },
+  {
+    name: 'venueChartCandles',
+    method: 'GET',
+    path: '/api/v1/venue/chart-candles',
+    product: 'accounts',
+
+    summary:
+      "Candles of the venue's own prints on one listed market, oldest first, up to 720 bars with an optional start time, signed in or out",
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
@@ -1057,6 +1075,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
   },
   {
+    name: 'venueArrivals',
+    method: 'GET',
+    path: '/api/v1/venue/arrivals',
+    product: 'accounts',
+
+    summary: 'Credits into your venue account from outside it (deposits and transfers in), as the venue records them',
+  },
+  {
     name: 'venueDepositRoutes',
     method: 'GET',
     path: '/api/v1/venue/deposit-routes',
@@ -1111,6 +1137,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
+  },
+  {
+    name: 'venuePositionMode',
+    method: 'GET',
+    path: '/api/v1/venue/position-mode',
+    product: 'accounts',
+
+    summary: 'The position mode, one-way or hedge, your account holds one venue perpetual in, as the venue reports it',
   },
   {
     name: 'venueStakingAccount',
@@ -1314,6 +1348,15 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
 
     summary:
       'The venue’s published fee tiers, each listed market’s maker and taker rates, the venue’s cap on a builder fee there, and our builder fee: blank reads not set',
+  },
+  {
+    name: 'venueMarketStates',
+    method: 'GET',
+    path: '/api/v1/venue/market-states',
+    product: 'accounts',
+
+    summary:
+      'Each market we list on the venue, signed in or not: the venue’s own trading state and session beside our listing (when it opens, when it is delisted, our routing), as of the venue read',
   },
   {
     name: 'venueMarketVenues',
@@ -2146,6 +2189,7 @@ export const STREAM_REFERENCE: readonly Stream[] = [
   { door: 'private', channel: 'orders', product: 'spot', private: true },
   { door: 'private', channel: 'fills', product: 'spot', private: true },
   { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'private', channel: 'balances', product: 'accounts', private: true },
   { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
 

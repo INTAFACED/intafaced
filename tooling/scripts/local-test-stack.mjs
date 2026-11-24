@@ -113,7 +113,9 @@ import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
+import { recordOwnReport } from './local-test-own-reports.mjs';
 import {
+  hlSource,
   serveTestVenue,
   testVenueChainId,
   testVenueId,
@@ -803,7 +805,6 @@ function ensureNatsBinary() {
 const BACKEND_PKGS = [
   'svc-edge',
   'svc-identity',
-  'svc-bank',
   'svc-trade',
   'svc-pay',
   'svc-token',
@@ -1086,19 +1087,36 @@ function cmdCustomerDist(args) {
 }
 
 /** What ensureBuilt would do. Read-only. `customer` is true only when the Customer app would be built. */
+/** The beta's switch for the Customer build (tooling/beta/beta-host.mjs): only rooms finished in Volt show. */
+const betaVoltBuild = () => process.env.INTAFACED_BETA_VOLT_ONLY === '1';
+
+/**
+ * Whether our own Customer dist still serves this stack: it exists, the stamp vouches for it, it names the Team link
+ * this script gives it, it has position maps, and it was built with this stack's beta switch. The beta's first build
+ * after #10286 ran under a supervisor that had not yet set the switch; every later start kept that build, because the
+ * source had not moved, so the beta showed every room (#10599).
+ */
+export function ownCustomerDistOk(stamp, { indexExists, teamUrl = TEAM_TLS_ORIGIN, betaVolt = betaVoltBuild() }) {
+  return (
+    indexExists &&
+    stamp.customerBuilt !== false &&
+    stamp.customerTeamUrl === teamUrl &&
+    stamp.customerPositions === true &&
+    (stamp.customerBetaVolt === true) === betaVolt
+  );
+}
+
 function buildPlan(rebuild, act = activeCustomerDist()) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
   // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
-  // So is one built before its scripts had position maps (the journeys' reach recorder, journey-reach.mjs).
+  // So is one built before its scripts had position maps (the journeys' reach recorder, journey-reach.mjs), or with
+  // another beta switch.
   const customerOk = override
     ? !act.error
-    : fs.existsSync(path.join(P.customerDist, 'index.html')) &&
-      stamp.customerBuilt !== false &&
-      stamp.customerTeamUrl === TEAM_TLS_ORIGIN &&
-      stamp.customerPositions === true;
+    : ownCustomerDistOk(stamp, { indexExists: fs.existsSync(path.join(P.customerDist, 'index.html')) });
   const edits = worktreeEdits(SOURCE_PATHS);
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
   const backend = backendDecision({ rebuild, stamp, repo: REPO, head, edits, customerOk, missing });
@@ -1209,7 +1227,7 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
-// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-matching, svc-agents) ───────────────────────────────────
+// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-matching, svc-agents, svc-bank) ───────────────────────────────────
 
 /** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
 function rustServices() {
@@ -1355,6 +1373,8 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', {
       VITE_TEAM_URL: TEAM_TLS_ORIGIN,
       INTAFACED_SOURCEMAP: 'hidden',
+      // The beta's switch (tooling/beta/beta-host.mjs): only rooms finished in Volt show. Unset on every other stack.
+      ...(betaVoltBuild() ? { INTAFACED_BETA_VOLT_ONLY: '1' } : {}),
     });
     // Each map becomes positions only (source paths and line positions, no source text) and the .map is deleted, before
     // the build is served or packed: the journeys run's build artifact is public (journey-reach.mjs reduceMaps).
@@ -1376,6 +1396,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
         customerBuild: override ? stamp.customerBuild : newBuildId(),
         customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
         customerPositions: override ? stamp.customerPositions : true,
+        customerBetaVolt: override ? stamp.customerBetaVolt : betaVoltBuild(),
       },
       null,
       2,
@@ -1388,7 +1409,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    // A Rust service (svc-tax, svc-academy, svc-ledger, svc-agents) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
+    // A Rust service (svc-tax, svc-academy, svc-ledger, svc-agents, svc-bank) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
     // the rest are Node packages.
     rustServices().includes(serviceOfSchema(s))
       ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, rustBin(serviceOfSchema(s)))
@@ -1950,7 +1971,7 @@ function ensureStreams() {
     env: { ...baseEnv(), NATS_URL: `nats://${HOST}:${PORTS.nats}`, NATS_STREAM_PREFIX: STREAM_PREFIX },
     encoding: 'utf8',
   });
-  if (r.status !== 0) fail(`creating NATS streams failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  if (r.status !== 0) fail(`creating NATS streams failed: ${(r.stderr || r.stdout).slice(-500)}`);
   say(`  nats streams: ${r.stdout.trim()}`);
 }
 
@@ -2212,7 +2233,23 @@ export function userVenueOn(env = process.env) {
 async function startTestVenue(name = 'test-venue') {
   const procs = readProcs();
   const url = `${urlOf(name)}/health`;
-  if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
+  // Which venue and source this start wants: a running one that answers for another (the simulator where
+  // Hyperliquid is wanted, another recording or trader) is stopped and started again, never kept.
+  const kind = userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '';
+  let hl;
+  try {
+    hl = hlSource(process.env);
+  } catch (err) {
+    fail(err.message, 2);
+  }
+  if (ownedAlive(procs[name])) {
+    const health = await httpGet(url, 2000);
+    if (health.status === 200) {
+      if (name !== 'test-venue' || venueAnswersFor(health.text, kind, hl)) return;
+      await stopProc(name, procs[name]);
+      for (let i = 0; i < 50 && (await portOpen(PORTS[name])); i++) await sleep(200);
+    }
+  }
   if (await portOpen(PORTS[name])) portTaken(PORTS[name], name);
   // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
   // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
@@ -2234,11 +2271,29 @@ async function startTestVenue(name = 'test-venue') {
     TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
     TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
     // Which venue the first one is: the simulator, or the Hyperliquid test network recorded or live (#10203).
-    TEST_VENUE_KIND: userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '',
+    TEST_VENUE_KIND: kind,
+    // The Hyperliquid recording and the address it is for; blank: none. Never a key.
+    LOCAL_STACK_HL_RECORDING: hl.recording ?? '',
+    LOCAL_STACK_HL_TRADER: hl.trader ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
   const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
   await waitHealthy(name, url, pid, 20_000);
+}
+
+/**
+ * Whether a running first venue's `/health` answer is the one wanted: the simulator names no Hyperliquid source; a
+ * Hyperliquid venue names its kind, recording and trader (packages/venue-hyperliquid http-server.ts).
+ */
+export function venueAnswersFor(healthText, kind, hl) {
+  let source = null;
+  try {
+    source = JSON.parse(healthText)?.source ?? null;
+  } catch {
+    source = null;
+  }
+  if (kind !== 'hl-recorded' && kind !== 'hl-testnet') return source === null;
+  return source !== null && source.kind === kind && source.recording === hl.recording && source.trader === hl.trader;
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
@@ -4211,6 +4266,111 @@ async function cmdFund(rawArgs) {
 }
 
 /**
+ * `seed-own-record <venue|partner> <place> <ASSET> <amount> --ref <id> [--ledger-only]`: one of INTAFACED's own TEST records
+ * with a TEST venue or TEST partner, as J-ops-console-07 starts from ("the ledger holds TEST records of INTAFACED's own
+ * obligations, and the TEST venue simulator and TEST partner report their side"). The stand-in writes its own line first
+ * (local-test-own-reports.mjs: what it owes us, in the ledger's signed form), then the ledger books ours through its real
+ * recipe: `builderFeeEarn` for a venue (a TEST fill `<ref>` on venue account `local-test`), `partnerFeeEarn` for a partner
+ * (a TEST payment `<ref>` at a LOCAL TEST rate of 10000 bps, so the fee is the amount). `--ledger-only` books our side with
+ * no line from the reporter, a break a control must find. The same --ref is the same record. LOCAL TEST money only.
+ */
+async function cmdSeedOwnRecord(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    return value;
+  };
+  const flag = (name) => {
+    const at = args.indexOf(name);
+    if (at !== -1) args.splice(at, 1);
+    return at !== -1;
+  };
+  const ref = option('--ref');
+  const ledgerOnly = flag('--ledger-only');
+  const [reporter, place, assetRaw, amountStr] = args;
+  const usage =
+    'usage: node tooling/scripts/local-test-stack.mjs seed-own-record <venue|partner> <place> <ASSET> <amount> --ref <id> [--ledger-only]';
+  if (!['venue', 'partner'].includes(reporter) || !place || !assetRaw || !amountStr || !ref) fail(usage, 2);
+  if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(place)) fail(`place must be a lower-case id (got "${place}")`, 2);
+  if (!/^[A-Za-z0-9-]{4,48}$/.test(ref)) fail('--ref must be 4-48 letters, digits or dashes', 2);
+  const asset = assetRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 5 or 2.5 (got "${amountStr}")`, 2);
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['ledger'] });
+  const secrets = readJson(P.secrets);
+  const load = (pkg) => import(pathToFileURL(path.join(REPO, 'packages', pkg, 'dist', 'index.js')).href);
+  let ledgerClient, contracts;
+  try {
+    [ledgerClient, contracts] = await Promise.all([load('ledger-client'), load('contracts')]);
+  } catch (err) {
+    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
+  const { recipes, parseAmount, formatAmount } = ledgerClient;
+  let request;
+  try {
+    const amount = parseAmount(amountStr);
+    request =
+      reporter === 'venue'
+        ? recipes.builderFeeEarn({
+            venueId: place,
+            venueAccount: 'local-test',
+            fillId: `TEST-${ref}`,
+            assetId: asset,
+            amount,
+            userId: 'local-test',
+          })
+        : recipes.partnerFeeEarn({
+            partnerId: place,
+            module: 'merchant',
+            paymentId: `TEST-${ref}`,
+            assetId: asset,
+            grossAmount: amount,
+            rate: { bps: 10000 },
+          });
+  } catch (err) {
+    fail(`ledger refused the record: ${err.message}`, 2);
+  }
+  // The outside party's word comes first, in its own file, never read back from the ledger.
+  let reported = null;
+  if (!ledgerOnly) {
+    try {
+      reported = recordOwnReport(STATE, { reporter, place, key: request.idempotencyKey, assetId: asset, amount: `-${amountStr}` });
+    } catch (err) {
+      fail(`the TEST ${reporter} refused the record: ${err.message}`, 2);
+    }
+  }
+  const wire = {
+    idempotencyKey: request.idempotencyKey,
+    module: request.module,
+    reason: request.reason,
+    meta: { ...request.meta, label: 'LOCAL TEST — not real money' },
+    entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: formatAmount(e.amount) })),
+  };
+  const raw = JSON.stringify(wire);
+  const res = await fetch(`${urlOf('ledger')}/trpc/post`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-fund', secrets.internal, raw) },
+    body: raw,
+  });
+  const text = await res.text();
+  if (!res.ok) fail(`ledger post refused (${res.status}): ${text.slice(0, 400)}`);
+  const posted = JSON.parse(text);
+  say(`TEST own record booked through the real ledger (${request.reason}, not real money)`);
+  say(`  ${reporter}    ${place}${ledgerOnly ? '   (no line from the reporter: --ledger-only)' : ''}`);
+  say(`  owed      ${amountStr} ${asset}`);
+  say(`  key       ${request.idempotencyKey}`);
+  if (reported) say(`  reported  ${reported.at}   (the TEST ${reporter}'s own line)`);
+  say(`  ledger tx ${posted.txId ?? JSON.stringify(posted)}`);
+}
+
+/**
  * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent|failed --ref <label>
  * [--failure-code <code>]`: one TEST
  * withdrawal of the person's own funds, in the state a journey starts from (J-wallet-06). Sending out is switched off in
@@ -4975,6 +5135,7 @@ async function runCli() {
       depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
       id: testVenueId(process.env.TEST_VENUE_ID),
       kind: testVenueKind(process.env.TEST_VENUE_KIND),
+      hl: hlSource(process.env),
     });
   else if (cmd === '__serve-test-venue-b')
     await serveTestVenue({
@@ -5000,6 +5161,7 @@ async function runCli() {
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'second-worker') await cmdSecondWorker(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'seed-own-record') await cmdSeedOwnRecord(rest);
   // `custody`: on or off, the switch the running svc-ledger was started with (the journeys workflow's setup reads it).
   else if (cmd === 'custody') process.stdout.write(`${stackCustodyLayer(STATE)}\n`);
   else if (cmd === 'mining-share') await cmdMiningShare(rest);

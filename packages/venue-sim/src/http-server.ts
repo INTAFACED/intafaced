@@ -42,6 +42,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
  *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /vaults, /vault-holdings {account}, /book {symbol,depth},
+ *        /position-mode {account,symbol}   the position mode the account holds one perpetual in (J-derivatives-05 #3)
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
@@ -686,6 +687,23 @@ function readLimit(body: Record<string, unknown>): number {
   return limit;
 }
 
+/** A candle read's `limit` and optional `since`: either a plain limit (1..720) or `{ limit, since? }`. */
+function readCandleQuery(body: Record<string, unknown>): { readonly limit: number; readonly since?: Date } {
+  const raw = 'query' in body ? body.query : body;
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || raw < 1 || raw > 720) throw new VenueWireError('limit is a whole number from 1 to 720');
+    return body.since === undefined ? { limit: raw } : { limit: raw, since: sinceOf(body) };
+  }
+  if (!raw || typeof raw !== 'object') throw new VenueWireError('limit is a whole number from 1 to 720');
+  const limit = 'limit' in raw ? raw.limit : undefined;
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 720)
+    throw new VenueWireError('limit is a whole number from 1 to 720');
+  const rawSince = 'since' in raw ? raw.since : undefined;
+  if (rawSince === undefined) return { limit };
+  if (!(rawSince instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+  return { limit, since: rawSince };
+}
+
 /** A decoded wire amount (the request's `amount` fields arrive as bigints): required. */
 function amountIn(body: Record<string, unknown>): Amount {
   const v = body.amount;
@@ -998,7 +1016,7 @@ async function route(
       const interval = body.interval;
       if (typeof interval !== 'string' || !Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
         throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
-      return sim.candles(str(body, 'symbol'), interval as VenueCandleInterval, readLimit(body));
+      return sim.candles(str(body, 'symbol'), interval as VenueCandleInterval, readCandleQuery(body));
     }
     case '/funding-payments':
       return sim.fundingPayments(account(body), sinceOf(body));
@@ -1077,6 +1095,8 @@ async function route(
       return sim.accountSummary(account(body));
     case '/account-mode':
       return sim.accountMode(account(body));
+    case '/position-mode':
+      return sim.positionMode(account(body), str(body, 'symbol'));
     case '/vaults':
       return sim.vaults();
     case '/vault-holdings':
@@ -1451,6 +1471,12 @@ async function route(
         if (typeof v !== 'bigint' || v <= 0n) throw new VenueWireError(`${k} is a decimal string above zero, or null`);
         return v as Amount;
       };
+      const step = (k: string, fallback: Amount): Amount => {
+        if (!(k in body) || body[k] === undefined) return fallback;
+        const v = body[k];
+        if (typeof v !== 'bigint' || v <= 0n) throw new VenueWireError(`${k} is a decimal string above zero`);
+        return v;
+      };
       sim.addMarket({
         symbol,
         kind: 'spot',
@@ -1460,8 +1486,8 @@ async function route(
         timeInForce: ['GTC', 'IOC', 'ALO'],
         marginModes: [],
         maxLeverageBps: null,
-        tickSize: parseAmount('0.1'),
-        lotSize: parseAmount('0.001'),
+        tickSize: step('tickSize', parseAmount('0.1')),
+        lotSize: step('lotSize', parseAmount('0.001')),
         makerFeeBps: { known: true, value: parseAmount('1') },
         takerFeeBps: { known: true, value: parseAmount('3.5') },
         status: 'trading',
@@ -1475,6 +1501,23 @@ async function route(
         maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : TEST_SPOT_RULES.maxOpenOrders,
       });
       return { ok: true, symbol, label: 'TEST' };
+    }
+    case '/test/seed-prints': {
+      const symbol = str(body, 'symbol');
+      const rawEntries = body.entries;
+      if (!Array.isArray(rawEntries) || rawEntries.length === 0 || rawEntries.length > 2000)
+        throw new VenueWireError('entries is a non-empty array of at most 2000 prints');
+      const entries = rawEntries.map((item) => {
+        if (!item || typeof item !== 'object') throw new VenueWireError('each entry is an object');
+        const tradedAt = 'tradedAt' in item ? item.tradedAt : undefined;
+        const price = 'price' in item ? item.price : undefined;
+        const amount = 'amount' in item ? item.amount : undefined;
+        if (!(tradedAt instanceof Date)) throw new VenueWireError('tradedAt is an ISO time');
+        if (typeof price !== 'bigint' || typeof amount !== 'bigint') throw new VenueWireError('price and amount are decimal strings');
+        const takerSide = 'takerSide' in item && item.takerSide === 'sell' ? 'sell' : 'buy';
+        return { tradedAt, price, amount, takerSide } as const;
+      });
+      return { ok: true, count: sim.testSeedPrints(symbol, entries), label: 'TEST' };
     }
     default:
       return undefined;
@@ -1534,6 +1577,9 @@ export interface StartTestVenueOptions {
   readonly cancelsPerAction?: number;
   /** The least time ahead it takes a scheduled cancel (`schedule_cancel`), in ms; default: no scheduled cancel offered. */
   readonly scheduledCancelMinLeadMs?: number;
+  /** The position modes it declares (default: one-way only), and whether it moves an open position between accounts. */
+  readonly positionModes?: readonly ('one_way' | 'hedge')[];
+  readonly positionMoves?: boolean;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
@@ -1561,6 +1607,8 @@ export async function startTestVenueServer(
     ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
     ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
     ...(opts.scheduledCancelMinLeadMs !== undefined ? { scheduledCancelMinLeadMs: opts.scheduledCancelMinLeadMs } : {}),
+    ...(opts.positionModes ? { positionModes: opts.positionModes } : {}),
+    ...(opts.positionMoves ? { positionMoves: true } : {}),
   });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv, opts.betaPosture);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));

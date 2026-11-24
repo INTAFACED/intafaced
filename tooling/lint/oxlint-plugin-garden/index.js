@@ -21,10 +21,12 @@ import { repeatRules } from './repeat-rules.js';
 import { staleReadRules } from './stale-read-rule.js';
 import { stepPictureRules } from './step-picture-rule.js';
 import { handClockRules } from './hand-clock-rule.js';
+import { deepEntryRules } from './deep-entry-rule.js';
 import { restartServiceRules } from './restart-service-rule.js';
 import { storedSearchRules } from './stored-search-rule.js';
 import { callByNameRules } from './call-by-name-rule.js';
 import { runtimeSwapRules } from './runtime-swap-rule.js';
+import { switchRouterRules } from './switch-router-rule.js';
 import { crossFeatureImportRules } from './cross-feature-import-rule.js';
 import { sourceTextTestRules } from './source-text-test-rule.js';
 import { composeOnlyRules } from './compose-only-rule.js';
@@ -229,11 +231,13 @@ export default {
     ...staleReadRules,
     ...stepPictureRules,
     ...handClockRules,
+    ...deepEntryRules,
     ...testPostgresRules,
     ...restartServiceRules,
     ...storedSearchRules,
     ...callByNameRules,
     ...runtimeSwapRules,
+    ...switchRouterRules,
     ...crossFeatureImportRules,
     ...sourceTextTestRules,
     ...composeOnlyRules,

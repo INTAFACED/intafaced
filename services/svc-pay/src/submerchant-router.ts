@@ -1,9 +1,7 @@
 import type { Sql } from 'postgres';
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type SubMerchantService } from './submerchants.js';
 import { readSubMerchantSummary } from './merchant-portal/summary.js';
-import { areaSchema, permissionEventView } from '@intafaced/contracts/pay-call-schemas';
 import {
   PAY_SUBMERCHANT_LIST,
   PAY_SUBMERCHANT_GET,
@@ -16,6 +14,8 @@ import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
+  PAY_SUBMERCHANT_PERMISSION_GRANT,
+  PAY_SUBMERCHANT_PERMISSION_REVOKE,
 } from '@intafaced/contracts/pay-submerchant-permission-procedures';
 
 /**
@@ -196,18 +196,9 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
        * same rule merchant status changes carry, and a stronger one here,
        * because a permission is what a later incident is reconstructed from.
        */
-      grant: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            granteeMerchantId: z.string().guid(),
-            subjectMerchantId: z.string().guid(),
-            area: areaSchema,
-            /** `min(3)`: one character satisfies "not blank" and answers nothing. */
-            reason: z.string().trim().min(3).max(500),
-          }),
-        )
-        .output(permissionEventView)
-        .mutation(({ ctx, input }) =>
+      grant: mountRecord(
+        PAY_SUBMERCHANT_PERMISSION_GRANT,
+        ({ ctx, input }) =>
           wrap(async () => {
             refuseSubMerchantWithoutConsent();
             const actorMerchantId = await actor(ctx.principal?.userId);
@@ -222,20 +213,13 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
             });
             return { ...event, createdAt: event.createdAt.toISOString() };
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Take it back — a new journal row, never an edit. Same authority as `grant`. */
-      revoke: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            granteeMerchantId: z.string().guid(),
-            subjectMerchantId: z.string().guid(),
-            area: areaSchema,
-            reason: z.string().trim().min(3).max(500),
-          }),
-        )
-        .output(permissionEventView)
-        .mutation(({ ctx, input }) =>
+      revoke: mountRecord(
+        PAY_SUBMERCHANT_PERMISSION_REVOKE,
+        ({ ctx, input }) =>
           wrap(async () => {
             refuseSubMerchantWithoutConsent();
             const actorMerchantId = await actor(ctx.principal?.userId);
@@ -250,7 +234,8 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
             });
             return { ...event, createdAt: event.createdAt.toISOString() };
           }),
-        ),
+        payRefusal,
+      ),
 
       /** The live grants over one node. Implicit authority is not listed — it is not a grant. */
       list: mountRecord(

@@ -27,7 +27,10 @@ use svc_agents::advisors::grounding::AcademyCurriculum;
 use svc_agents::advisors::portfolio::{self, LedgerBalancesHttp, TradeTickerPrices};
 use svc_agents::background;
 use svc_agents::boot;
-use svc_agents::bus::{SELF_FREEZE_APPLIED, TAKEN, on_fill_settled, on_self_freeze};
+use svc_agents::bus::{
+    SELF_FREEZE_APPLIED, SUPPORT_ACCOUNT_FROZEN, TAKEN, on_fill_settled, on_self_freeze,
+    on_support_freeze,
+};
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
@@ -990,6 +993,9 @@ fn serve(
                     let pool = door.store().pool().map_err(|e| e.to_string())?;
                     if *taken == SELF_FREEZE_APPLIED {
                         return on_self_freeze(pool, env);
+                    }
+                    if *taken == SUPPORT_ACCOUNT_FROZEN {
+                        return on_support_freeze(pool, env);
                     }
                     let warn = |msg: &str, detail: &str| {
                         log.warn(vec![("detail", Json::str(detail))], msg)

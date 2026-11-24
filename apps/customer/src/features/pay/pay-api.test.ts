@@ -3,7 +3,7 @@ import { createApiClient } from '../../shared/api';
 import type { JournalStorage, JournalLocks } from '../../shared/minimal-original-journal';
 import { createPersonalPayApi, createBusinessPayApi, createPayMutationGuard, createCheckoutApi } from './pay-api';
 import { z } from 'zod';
-import { paymentSchema, subscriptionSchema } from './schemas';
+import { paymentSchema, sendOutput, subscriptionSchema } from './schemas';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const spaceId = '22222222-2222-4222-8222-222222222222';
@@ -52,6 +52,58 @@ const TRADE_WIRE = {
   cancelReason: null,
 } as const;
 describe('Personal Pay network boundary', () => {
+  it('sends from a space the partner bank holds, and names the partner’s move as the payment’s reference (J-pay-01 #5)', async () => {
+    const posts: unknown[] = [];
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        if (String(url).includes('spaces.list'))
+          return response([
+            {
+              id: spaceId,
+              assetId: 'USDT',
+              kind: 'primary',
+              name: 'Main',
+              goalTarget: null,
+              lockedUntil: null,
+              unlocksAt: null,
+              unlockRequestedAt: null,
+              billsPot: null,
+              balance: '100',
+              ledgerAccount: null,
+              heldAt: {
+                label: 'TEST partner bank',
+                asOf: '2026-11-18T00:00:00.000Z',
+                figure: {
+                  state: 'known',
+                  source: 'TEST partner bank',
+                  amount: '100',
+                  asOf: '2026-11-18T00:00:00.000Z',
+                  staleAfterMs: 60_000,
+                  reason: null,
+                },
+              },
+            },
+          ]);
+        posts.push(JSON.parse(String(options?.body)));
+        return response({
+          ledgerTxId: null,
+          partnerMove: { id: 'partner-move-1', label: 'TEST partner bank' },
+          amount: '25',
+          note: null,
+          reference: null,
+          requestId: null,
+        });
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    const result = await pay.send({ transferId, fromSpaceId: spaceId, toUserId: merchantId, amount: '25' });
+    expect(result).toEqual({ ok: true, data: { ledgerTxId: 'partner-move-1', amount: '25' } });
+    expect(posts).toEqual([{ transferId, fromSpaceId: spaceId, toUserId: merchantId, amount: '25' }]);
+  });
+  it('refuses a send answer that names neither a ledger transaction nor a partner move', () => {
+    expect(sendOutput.safeParse({ ledgerTxId: null, partnerMove: null, amount: '25' }).success).toBe(false);
+    expect(sendOutput.safeParse({ ledgerTxId: 'l', partnerMove: { id: 'm' }, amount: '25' }).success).toBe(false);
+  });
   it('sends exact asset units from the caller’s ledger space with one stable transfer identity', async () => {
     const requests: { url: string; method: string; body?: unknown }[] = [];
     const api = createApiClient({
@@ -152,7 +204,7 @@ describe('Personal Pay network boundary', () => {
     });
     expect(await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces()).toMatchObject({ ok: true, data: [{ id: spaceId }] });
   });
-  it('a space the partner bank holds is read, and not offered as a source to pay from (#8841)', async () => {
+  it('a space the partner bank holds is read and offered as a source, paid from its partner account (#8841, J-pay-01 #3)', async () => {
     const heldId = '55555555-5555-4555-8555-555555555555';
     const row = { goalTarget: null, lockedUntil: null, unlocksAt: null, unlockRequestedAt: null, billsPot: null };
     const api = createApiClient({
@@ -194,7 +246,21 @@ describe('Personal Pay network boundary', () => {
     const read = await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces();
     expect(read.ok, JSON.stringify(read)).toBe(true);
     if (!read.ok) return;
-    expect(read.data.map((space) => space.id)).toEqual([spaceId]);
+    expect(read.data.map((space) => [space.id, space.heldAt?.label ?? null])).toEqual([
+      [spaceId, null],
+      [heldId, 'TEST partner'],
+    ]);
+  });
+  it('a space with neither a ledger account nor a partner holding it is not offered', async () => {
+    const row = { goalTarget: null, lockedUntil: null, unlocksAt: null, unlockRequestedAt: null, billsPot: null };
+    const api = createApiClient({
+      fetch: async () =>
+        response([
+          { ...row, id: spaceId, assetId: 'USDT', kind: 'primary', name: 'Main', balance: '5', ledgerAccount: null, heldAt: null },
+        ]),
+    });
+    const read = await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces();
+    expect(read).toMatchObject({ ok: true, data: [] });
   });
 });
 

@@ -1,11 +1,16 @@
-import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS, readOf, type Column, type ReadSpec, type Unavailable } from '@/lib/ops-desk';
+import { readOf } from '@/lib/desk-read';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS, type Column, type ReadSpec, type Unavailable } from '@/lib/ops-desk';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
 import {
   IDENTITY_DEVELOPER_SUPPORT_CALLS,
   IDENTITY_DEVELOPER_SUPPORT_KEYS,
 } from '@intafaced/contracts/identity-developer-support-procedures';
 import type { CustomerTab } from './tabs';
-import { IDENTITY_KYC_HISTORY_FOR, IDENTITY_KYC_SELFIE_LIST_FOR } from '@intafaced/contracts/identity-kyc-procedures';
+import {
+  IDENTITY_KYC_HISTORY_FOR,
+  IDENTITY_KYC_SELFIE_LIST_FOR,
+  IDENTITY_KYC_LIST_DOCUMENTS,
+} from '@intafaced/contracts/identity-kyc-procedures';
 import {
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
@@ -373,9 +378,8 @@ export function identityDocumentsRead(userId: string, recordId?: string): ReadSp
     id: 'identity.documents',
     title: 'Identity documents',
     note: 'Every document identity’s vault holds for this account, newest first: what it is, when it was stored, and the status of the verification it is attached to. Only the description is read here; open a row to ask a second founder to approve opening its contents.',
-    module: 'identity',
     plainName: 'identity’s document vault',
-    procedure: 'kyc.listDocuments',
+    ...readOf(IDENTITY_KYC_LIST_DOCUMENTS),
     input: { userId, limit: DOCUMENT_LIMIT },
     ...(recordId === undefined ? {} : { rowsWhere: { key: 'reviewRecordId', equals: recordId } }),
     shape: 'list',

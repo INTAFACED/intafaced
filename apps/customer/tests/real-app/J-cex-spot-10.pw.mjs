@@ -42,7 +42,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // benefits listed, an unsupported file refused, an approval with no trial amount refused): the step passes when all
 // three do. The founder console's review of an application is the operator's side of #7, titled "part of", and counts
 // for no step.
-// At launch the person trades on their own venue account: #1 #2 #3 #4 #6 #9 are proven there, in
+// At launch the person trades on their own venue account: #1 #2 #3 #4 #6 #9 #10 #11 are proven there, in
 // J-cex-spot-10-venue.pw.mjs. Their checks here, of today's custodial desk, are kept and titled "part of", so they count
 // for no step.
 const J = 'J-cex-spot-10';
@@ -1069,7 +1069,7 @@ test(`${J}, part of #9, checked on today's custodial desk: chooses to pay tradin
   }
 });
 
-test(`${J} #10 a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({
+test(`${J}, part of #10, checked on today's custodial desk: a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({
   page,
 }) => {
   // Three schedule versions (one a minute and a half ahead), a four-eyes notice, a fill and a desk.
@@ -1147,7 +1147,9 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
   }
 });
 
-test(`${J} #11 reads the fee and volume API: the same rates and volume as the screen`, async ({ page }) => {
+test(`${J}, part of #11, checked on today's custodial desk: reads the fee and volume API: the same rates and volume as the screen`, async ({
+  page,
+}) => {
   // A schedule version with the programme, a wait of up to three minutes for its snapshot, then none.
   test.setTimeout(360_000);
   const who = account();

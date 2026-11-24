@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
+import {
+  BANK_BUSINESS_LIST,
+  BANK_BUSINESS_APPROVE,
+  BANK_BUSINESS_REJECT,
+  BANK_BUSINESS_CANCEL,
+} from '@intafaced/contracts/bank-business-procedures';
 import { BANK_BUSINESS_MY_ROLE } from '@intafaced/contracts/bank-business-procedures';
 import { BANK_BUSINESS_PENDING } from '@intafaced/contracts/bank-business-procedures';
 import type { z } from 'zod';
@@ -85,7 +90,7 @@ export function ApprovalRow({
   const act = (action: ApprovalAction) =>
     open({
       title: action === 'approve' ? t('approveTitle') : action === 'reject' ? t('rejectTitle') : t('cancelTitle'),
-      procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel',
+      record: action === 'approve' ? BANK_BUSINESS_APPROVE : action === 'reject' ? BANK_BUSINESS_REJECT : BANK_BUSINESS_CANCEL,
       facts: [
         // The decision is about this exact figure, so the confirmation never masks it.
         [t('amountLabel'), exactAmount(approval.amount, approval.assetId)],

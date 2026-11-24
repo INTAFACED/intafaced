@@ -434,13 +434,13 @@ test('unsafe or private return parameters are removed; login/register preserve c
     const good = '/p2p?asset=USDT&fiatCurrency=USD&side=sell&limit=200&offerId=' + offerId + '#offer-details';
     const target = profile(subject, good);
     await page.goto('/login?redirect=' + encodeURIComponent(target));
-    const register = page.locator('.public-auth-form-links a');
+    const register = page.locator('[data-testid="auth-form-links"] a');
     expect(new URL(await register.getAttribute('href'), page.url()).searchParams.get('redirect')).toBe(target);
     await register.click();
-    expect(new URL(await page.locator('.public-auth-form-links a').getAttribute('href'), page.url()).searchParams.get('redirect')).toBe(
-      target,
-    );
-    await page.locator('.public-auth-form-links a').click();
+    expect(
+      new URL(await page.locator('[data-testid="auth-form-links"] a').getAttribute('href'), page.url()).searchParams.get('redirect'),
+    ).toBe(target);
+    await page.locator('[data-testid="auth-form-links"] a').click();
     await login(page, target);
     await expect(record(page).getByRole('link', { name: 'Back to this offer', exact: true })).toHaveAttribute('href', good);
     for (const [candidate, expected] of [

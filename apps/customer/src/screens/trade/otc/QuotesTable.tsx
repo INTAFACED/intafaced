@@ -199,7 +199,7 @@ export function QuotesTable({
       <p className="lt-hint">{t('Quotes table note')}</p>
       {/* The list above is the way in; a quote that isn't listed opens by its reference. */}
       <form
-        className="flex flex-wrap items-end gap-2"
+        className="lt-field-row"
         onSubmit={(event) => {
           event.preventDefault();
           void openTyped();

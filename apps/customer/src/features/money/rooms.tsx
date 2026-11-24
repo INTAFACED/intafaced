@@ -50,9 +50,7 @@ import { useBankView } from './bank-context';
 import { CardsRoom } from './cards-room/CardsRoom';
 import { BankOverview } from './bank-overview/BankOverviewRoom';
 import { SpacesRoom } from './spaces/SpacesRoom';
-import { AddMoney } from './AddMoney';
-import { WalletProvider } from '../protocol';
-import { addMoneyCopy } from './add-money-copy';
+import { AddMoneyRoom } from './add-money/AddMoneyRoom';
 import { LinkedAccountsRoom } from './linked-accounts/LinkedAccountsRoom';
 import { DirectDebitsRoom } from './direct-debits/DirectDebitsRoom';
 import { directDebitsCopy } from './direct-debits-copy';
@@ -93,10 +91,17 @@ import {
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_TO_USER,
+  BANK_TRANSFERS_RESUME,
+  BANK_TRANSFERS_PAUSE,
 } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
 import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
-import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
+import {
+  BANK_TRANSFERS_CREATE,
+  BANK_TRANSFERS_SCHEDULE,
+  BANK_TRANSFERS_SCHEDULE_TO_USER,
+  BANK_TRANSFERS_UPDATE_SCHEDULE,
+} from '@intafaced/contracts/bank-transfers-2-procedures';
 
 function BankPage({
   room,
@@ -249,7 +254,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
-                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
+                record: row.status === 'paused' ? BANK_TRANSFERS_RESUME : BANK_TRANSFERS_PAUSE,
                 facts: [
                   [copyText('rooms.schedule'), row.id],
                   [copyText('rooms.amount'), amount(row.amount, row.assetId)],
@@ -582,9 +587,9 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ...(scheduled
                           ? destination === 'space'
                             ? { record: BANK_TRANSFERS_SCHEDULE }
-                            : { procedure: 'transfers.scheduleToUser' as const }
+                            : { record: BANK_TRANSFERS_SCHEDULE_TO_USER }
                           : destination === 'space'
-                            ? { procedure: 'transfers.create' as const }
+                            ? { record: BANK_TRANSFERS_CREATE }
                             : { record: BANK_TRANSFERS_TO_USER }),
                         initial: { fromSpaceId: from.id },
                         fields: [
@@ -684,18 +689,6 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
       </Section>
       <BankRailSend />
       <Schedules open={open} />
-    </BankPage>
-  );
-}
-/** `/bank/ramps/new`: add money, inside the Ramps room. */
-function AddMoneyRoom() {
-  const { t } = addMoneyCopy.useCopy();
-  return (
-    <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      {/* The browser wallet's connection, so a purchase can be delivered straight to it (J-dex-protocol-05 #4). */}
-      <WalletProvider>
-        <AddMoney />
-      </WalletProvider>
     </BankPage>
   );
 }

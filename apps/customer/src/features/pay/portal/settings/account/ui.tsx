@@ -1,10 +1,8 @@
 import type { ReactNode } from 'react';
-import type { Resource } from '../../../../../shared/resource';
+import { Button } from '@intafaced/ui';
 import { EmptyState } from '../../../ui-kit';
 import { accountCopy } from './copy';
 import { NotLiveCard } from '../../chrome/NotLiveCard';
-import { Gate, PortalFailure } from '../../components';
-import { isNotLive } from '../../refusal';
 import './account.css';
 
 /**
@@ -21,39 +19,28 @@ export function Blocker({ reason, title, needs, children }: { reason: string; ti
   );
 }
 
-/**
- * Loading and refusal for one read. A read the service has not switched on yet becomes a card naming what it waits
- * for (`waiting.reason`) instead of an error, so the page still tells the person what is missing and why.
- */
-export function ReadGate<T>({
-  resource,
-  retry,
-  waiting,
-  rows,
-  children,
-}: {
-  resource: Resource<T>;
-  retry: () => void;
-  waiting: { reason: string; body: string; needs?: string };
-  rows?: number;
-  children: (data: T) => ReactNode;
-}) {
-  if (resource.status === 'failed' && isNotLive(resource.failure))
-    return (
-      <Blocker reason={waiting.reason} needs={waiting.needs}>
-        {waiting.body}
-      </Blocker>
-    );
-  if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={retry} />;
-  return (
-    <Gate resource={resource} retry={retry} {...(rows ? { rows } : {})}>
-      {children}
-    </Gate>
-  );
-}
-
 /** Setup belongs to the account owner. A team member who opens it is told so, instead of being led into steps they cannot finish. */
 export function OwnerSetsUp() {
   const { t } = accountCopy.useCopy();
   return <EmptyState title={t('ownerSetsUpTitle')}>{t('ownerSetsUpBody')}</EmptyState>;
+}
+
+/**
+ * A person with no business whose session cannot open one: it carries no `pay:onboard`, which needs two-step sign-in,
+ * so the service refuses even the read of their own (absent) record. Setup's first step for them is turning it on.
+ */
+export function TwoStepFirst() {
+  const { t } = accountCopy.useCopy();
+  return (
+    <EmptyState
+      title={t('twoStepFirstTitle')}
+      action={
+        <Button variant="primary" nativeButton={false} role="link" render={<a href="/settings/security" />}>
+          {t('twoStepFirstAction')}
+        </Button>
+      }
+    >
+      {t('twoStepFirstBody')}
+    </EmptyState>
+  );
 }

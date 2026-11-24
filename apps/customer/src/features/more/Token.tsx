@@ -19,6 +19,7 @@ import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Panel, Tabs } from '../../shared/ui';
 import { TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
+import { formatBpsPercent } from './catalogue-parts';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
 import { BuybackRuns } from './BuybackRuns';
@@ -253,7 +254,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
                           : copyText('token.asset.identity.unavailable.2', { amount: displayAmount(a.staked) }),
                       ],
                       [copyText('token.access.tier'), tierLabel(a.tier)],
-                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: a.feeDiscountBps })],
+                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: formatBpsPercent(a.feeDiscountBps) })],
                     ]}
                   />
                 )}
@@ -314,9 +315,6 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
             </p>
             <p className="lt-muted">
               <Text k="token.the.token.asset.is.deployment.configurable.stake" />
-            </p>
-            <p className="lt-muted">
-              <Text k="token.your.existing.stake.records.remain.readable.a" />
             </p>
             {action.feedback}
           </Panel>

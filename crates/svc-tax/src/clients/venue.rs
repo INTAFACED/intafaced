@@ -134,7 +134,7 @@ fn arrival(v: &Json) -> Option<VenueArrival> {
     let arrival_id = o.nonempty("arrivalId")?;
     let kind = o
         .s("kind")
-        .filter(|k| k == "deposit" || k == "transfer_in")?;
+        .filter(|k| k == "deposit" || k == "transfer_in" || k == "reward")?;
     Some(VenueArrival {
         arrival_id,
         kind,

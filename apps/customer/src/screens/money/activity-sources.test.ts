@@ -345,3 +345,117 @@ describe('fillParts', () => {
     expect(orderLines(lines, lines[0]!).map((l) => l.ref)).toEqual(['f1', 'f2']);
   });
 });
+
+describe('venueLines with includeOrders (J-portfolio-03 #3)', () => {
+  const fill = (
+    fillId: string,
+    venueClientOrderId: string | null,
+    amount: string,
+    price = '60000',
+    filledAt = '2026-11-24T10:00:00.000Z',
+  ) => ({
+    fillId,
+    venueClientOrderId,
+    symbol: 'BTC-USDC',
+    side: 'buy' as const,
+    price,
+    amount,
+    venueFee: '0.03',
+    builderFee: '0.01',
+    feeAsset: 'USDC',
+    filledAt,
+  });
+
+  const orderEntry = (
+    patch: Partial<{
+      venueClientOrderId: string | null;
+      side: 'buy' | 'sell';
+      price: string;
+      amount: string;
+      filled: string;
+      remaining: string;
+      status: string;
+      locked: string;
+      lockedAsset: string;
+      placedAt: string;
+    }> = {},
+  ) => ({
+    order: {
+      venueClientOrderId: patch.venueClientOrderId ?? '0xopen',
+      symbol: 'BTC-USDC',
+      side: patch.side ?? 'buy',
+      price: patch.price ?? '59000',
+      amount: patch.amount ?? '0.001',
+      filled: patch.filled ?? '0',
+      remaining: patch.remaining ?? '0.001',
+      status: patch.status ?? 'open',
+      locked: patch.locked ?? '59',
+      lockedAsset: patch.lockedAsset ?? 'USDC',
+    },
+    placedAt: patch.placedAt ?? '2026-11-24T09:50:00.000Z',
+  });
+
+  it('groups multiple fills of one order into one row, shows a resting order as set_aside, and a cancelled order as one row', () => {
+    const lines = venueLines(
+      [
+        fill('f1', '0xmulti', '0.001', '60000', '2026-11-24T10:00:00.000Z'),
+        fill('f2', '0xmulti', '0.002', '60000', '2026-11-24T10:01:00.000Z'),
+      ],
+      [],
+      'TEST venue',
+      [],
+      [
+        orderEntry({ venueClientOrderId: '0xmulti', filled: '0.003', remaining: '0', status: 'filled', locked: '0' }),
+        orderEntry({ venueClientOrderId: '0xopen', status: 'open', locked: '59', lockedAsset: 'USDC' }),
+        orderEntry({
+          venueClientOrderId: '0xcancel',
+          status: 'canceled',
+          locked: '0',
+          lockedAsset: 'USDC',
+          price: '58000',
+          amount: '0.002',
+        }),
+        orderEntry({ venueClientOrderId: '0xreject', status: 'rejected', locked: '0', lockedAsset: 'USDC' }),
+      ],
+      { includeOrders: true },
+    );
+
+    expect(lines.map((l) => [l.kind, l.state, l.ref, l.amount, l.asset, typeOf(l.kind)])).toEqual([
+      ['trade', 'completed', '0xmulti', '0.003', 'BTC', 'trade'],
+      ['order_hold', 'set_aside', '0xopen', '59', 'USDC', 'trade'],
+      ['order_cancelled', 'cancelled', '0xcancel', '116', 'USDC', 'trade'],
+    ]);
+    // Grouped trade row carries both fills' legs, summed quote cost and summed fee, and fillParts expands both fills.
+    const multi = lines[0]!;
+    expect(multi.detail).toMatchObject({
+      kind: 'trade',
+      order: '0xmulti',
+      quote: { asset: 'USDC', amount: '180' },
+      fee: { asset: 'USDC', amount: '0.08', rebate: false },
+    });
+    expect(fillParts([multi], null).map((p) => [p.part, p.fill, p.amount, p.asset])).toEqual([
+      ['received', 'f2', '0.002', 'BTC'],
+      ['paid', 'f2', '120', 'USDC'],
+      ['fee', 'f2', '0.04', 'USDC'],
+      ['received', 'f1', '0.001', 'BTC'],
+      ['paid', 'f1', '60', 'USDC'],
+      ['fee', 'f1', '0.04', 'USDC'],
+    ]);
+  });
+
+  it('never duplicates a partially filled or cancelled-after-fill order as a resting or cancelled-nothing-spent row', () => {
+    const lines = venueLines(
+      [fill('f1', '0xpart', '0.001')],
+      [],
+      'TEST venue',
+      [],
+      [
+        orderEntry({ venueClientOrderId: '0xpart', status: 'partially_filled', filled: '0.001', remaining: '0.001', locked: '60' }),
+        orderEntry({ venueClientOrderId: '0xpart', status: 'canceled', filled: '0.001', remaining: '0.001', locked: '0' }),
+      ],
+      { includeOrders: true },
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ kind: 'trade', state: 'completed', ref: 'f1' });
+  });
+});

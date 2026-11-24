@@ -12,6 +12,8 @@ export interface ChoiceOption {
   label: string;
   /** The option's own language, when its words are not in the page's (a language list names each in itself). */
   lang?: string;
+  /** Shown but not choosable: an option that is named and refused (a tax year that is not set up). */
+  disabled?: boolean;
 }
 
 /** The control's id, and the hint's when there is one: the hint describes the control and never joins its name. */
@@ -45,7 +47,7 @@ export function SelectField({ label, value, onChange, options, hint, id, ...rest
         {options.map((o) => {
           const option = typeof o === 'string' ? { value: o, label: o } : o;
           return (
-            <option key={option.value} value={option.value} lang={option.lang}>
+            <option key={option.value} value={option.value} lang={option.lang} disabled={option.disabled}>
               {option.label}
             </option>
           );

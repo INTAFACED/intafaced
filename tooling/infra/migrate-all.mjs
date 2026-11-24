@@ -46,9 +46,9 @@
  * and mining_pool.shares, and compose gives it DATABASE_URL.
  * svc-quant is listed: it ships drizzle SQL for the paper strategy library,
  * and compose gives it DATABASE_URL.
- * svc-tax, svc-academy, svc-ledger and svc-agents are absent: each is a Rust binary in its own image,
- * and compose's svc-tax-migrate, svc-academy-migrate, svc-ledger-migrate and svc-agents-migrate run its
- * `migrate` command the same way, as its own role (svc_tax, svc_academy, svc_ledger, svc_agents), once.
+ * svc-tax, svc-academy, svc-ledger, svc-agents and svc-bank are absent: each is a Rust binary in its own image,
+ * and compose's svc-tax-migrate, svc-academy-migrate, svc-ledger-migrate, svc-agents-migrate and svc-bank-migrate run
+ * its `migrate` command the same way, as its own role (svc_tax, svc_academy, svc_ledger, svc_agents, svc_bank), once.
  * svc-campaigns is listed: it ships drizzle SQL for seasons, drops and their claims,
  * and compose gives it DATABASE_URL.
  */
@@ -62,7 +62,6 @@ const SERVICES = [
   ['svc-pay', 'pay'],
   ['svc-p2p', 'p2p'],
   ['svc-blueprint', 'blueprint'],
-  ['svc-bank', 'bank'],
   ['svc-protocol', 'protocol'],
   ['svc-indexer', 'indexer'],
   ['svc-notify', 'notify'],
@@ -81,7 +80,10 @@ const database = process.env.POSTGRES_DB ?? 'intafaced';
 const failures = [];
 
 for (const [service, schema] of SERVICES) {
-  const url = `postgres://svc_${schema}:svc_${schema}@${host}:${port}/${database}`;
+  // A deployment that rotated the role's password (SVC_<SCHEMA>_DB_PASSWORD, as every service reads it in
+  // docker-compose.apps.yml) migrates with that password; a local stack keeps the published dev one.
+  const password = process.env[`SVC_${schema.toUpperCase()}_DB_PASSWORD`] || `svc_${schema}`;
+  const url = `postgres://svc_${schema}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
   console.log(`\n── ${service} (schema "${schema}", role "svc_${schema}")`);
 
   const result = spawnSync('pnpm', ['--filter', `@intafaced/${service}`, 'db:migrate'], {

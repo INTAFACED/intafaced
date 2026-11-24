@@ -181,7 +181,7 @@ const COINS = ['Bitcoin', 'Ether', 'Solana', 'Tether USD', 'USD Coin'];
 export function Overlays() {
   const [review, setReview] = useState(false);
   return (
-    <div className="vk-row">
+    <div className="lt-toolbar">
       <Menu>
         <MenuTrigger render={<Button variant="secondary" size={40} data-kit="open-menu" />}>More</MenuTrigger>
         <MenuContent align="start">
@@ -235,7 +235,7 @@ export function Overlays() {
             </div>
           </dl>
           <Text variant="micro">TEST · nothing is sent from this page</Text>
-          <div className="vk-row">
+          <div className="lt-toolbar">
             <Button variant="ghost" size={48} onClick={() => setReview(false)}>
               Back
             </Button>
@@ -253,7 +253,7 @@ const SPARK = ['64100', '64320', '64010', '64550', '64900', '64780', '65200', '6
 
 export function StepsAndSpark() {
   return (
-    <div className="vk-grid">
+    <div className="lt-stack">
       <div className="vk-panel">
         <Stepper labels={['Amount', 'Review', 'Done']} current={1} />
       </div>
@@ -445,7 +445,7 @@ export function CandleChart() {
 /** The kit's QR code: dark on its own light ground on the dark page, in both sizes, and its failure line. */
 export function ScanCodes() {
   return (
-    <div className="vk-row">
+    <div className="lt-toolbar">
       <QrCode
         value="https://example.test/pay/link/TEST-0001"
         label="Scan to open the TEST payment link"
@@ -478,7 +478,7 @@ export function SmallCandles() {
     marks: { 'data-testid': 'kit-candle' },
   }));
   return (
-    <div className="vk-grid">
+    <div className="lt-stack">
       <Candles
         label="TEST/USDT, hourly candles over two days, TEST"
         candles={candles}
@@ -563,15 +563,15 @@ const usdParts = (integer: string, fraction: string): FigurePart[] => [
 export function MoneyParts() {
   const [hidden, setHidden] = useState(false);
   return (
-    <div className="vk-grid" data-kit="money-parts">
-      <div className="vk-row">
+    <div className="lt-stack" data-kit="money-parts">
+      <div className="lt-toolbar">
         {(['BTC', 'ETH', 'USDT', 'USDC', 'XYZ'] as const).map((a) => (
           <AssetIcon key={a} asset={a} size="lg" label={a === 'XYZ' ? 'XYZ, an asset with no artwork' : undefined} />
         ))}
         <AssetIcon asset="BTC" />
         <AssetIcon asset="BTC" size="sm" />
       </div>
-      <div className="vk-row">
+      <div className="lt-toolbar">
         <HeroFigure parts={usdParts('12,468', '50')} hidden={hidden} hiddenLabel="Balance hidden" unknownLabel="Not available" test />
         <InfoTip
           label="About this number"
@@ -583,7 +583,7 @@ export function MoneyParts() {
           Hide balances
         </Button>
       </div>
-      <div className="vk-row">
+      <div className="lt-toolbar">
         <HeroFigure parts={null} hiddenLabel="Balance hidden" unknownLabel="Not available" />
       </div>
       <Fold title="Small balances" count={3}>
@@ -631,7 +631,7 @@ function PayPartsBody() {
   const [tab, setTab] = useState<'send' | 'receive' | 'request'>('send');
   const toast = useVoltToast();
   return (
-    <div className="vk-grid" data-kit="pay-parts">
+    <div className="lt-stack" data-kit="pay-parts">
       <TabList
         label="Send or receive"
         items={[
@@ -675,7 +675,7 @@ function PayPartsBody() {
         after={<VoltButton tone="quiet">Paste</VoltButton>}
         hint="Ask for their handle"
       />
-      <div className="vk-row">
+      <div className="lt-toolbar">
         <Payee face="Mika Tan" name="Mika Tan" handle="@mika" badge="Member since Nov 2026" confirmed data-testid="kit-payee" />
         <Payee face="@ana" handle="@ana" />
       </div>
@@ -686,7 +686,7 @@ function PayPartsBody() {
       <StatusNote tone="error" actions={<VoltButton tone="quiet">Try again</VoltButton>}>
         TEST. Recent payments could not load.
       </StatusNote>
-      <div className="vk-row">
+      <div className="lt-toolbar">
         <VoltButton data-kit="show-volt-toast" onClick={() => toast.add({ title: 'Link copied', description: 'TEST.', timeout: 0 })}>
           Show a confirmation
         </VoltButton>

@@ -37,6 +37,13 @@ const TRADE_LANE = [
   'apps/admin/src/app/api/trade-ops/',
 ];
 const TRADE_BANNED = /\byet\b|\bcoming soon\b|\bsoon\b|check back|stay tuned|\b(?:later|future) (?:release|version|update)\b/iu;
+/** Phrases that state an empty list as it stands today; each is blanked out of its line (same length, so columns hold). */
+const TRADE_FACTS = [['No leaders are listed yet', 'a journey step’s own words: the Copy trading directory lists no leader']];
+/** The first promise word on one Trade line, with every allowed fact blanked out first; null when there is none. */
+export function tradePromise(line) {
+  const rest = TRADE_FACTS.reduce((text, [phrase]) => text.split(phrase).join(' '.repeat(phrase.length)), line);
+  return TRADE_BANNED.exec(rest);
+}
 
 // (b) Customer copy catalogues outside the Trade and merchant lanes (was apps/customer/src/shared/copy-promises.test.ts).
 const PROMISES = [
@@ -117,7 +124,7 @@ const noPromiseCopy = {
         const sc = context.sourceCode;
         if (scope === 'trade') {
           codeLines(sc).forEach((line, i) => {
-            const m = TRADE_BANNED.exec(line);
+            const m = tradePromise(line);
             if (m)
               context.report({
                 loc: { start: { line: i + 1, column: m.index }, end: { line: i + 1, column: m.index + m[0].length } },

@@ -3,4 +3,5 @@ export { EligibilityStatement } from './eligibility/Eligibility';
 export { StepUpConfirm } from './StepUpConfirm';
 export { StepUpInline } from './bank-settings/StepUpInline';
 export { StepUpSheet } from './bank-settings/StepUpSheet';
+export { PartnerHolds } from './partner-holds/PartnerHolds';
 export { useSupportedAssets } from './supported-assets-reads';

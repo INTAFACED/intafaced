@@ -3774,6 +3774,15 @@
       ],
       "marks": "000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111222233332222222233332222222233332222222233332222222233332222222233332222222233332222222233332222"
     },
+    "ops.customerPartnerBalances": {
+      "answers": [
+        "UNAUTHORIZED Authentication required",
+        "FORBIDDEN Scope \"admin:read\" is required",
+        null,
+        "FORBIDDEN Scope \"admin:read\" requires an interactive session and cannot be used from an API key"
+      ],
+      "marks": "000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111222233332222222233332222222233332222222233332222222233332222222233332222222233332222222233332222"
+    },
     "ops.customerTransfers": {
       "answers": [
         "UNAUTHORIZED Authentication required",
@@ -5425,6 +5434,16 @@
       "answers": [
         "UNAUTHORIZED Authentication required",
         "FORBIDDEN Scope \"bank:write\" is required",
+        "FORBIDDEN Verification tier \"full\" required for bank in DE",
+        "FORBIDDEN The United States is not served at launch.",
+        null
+      ],
+      "marks": "000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111223322332233223322332233223322332233223322332233443344334433443344334433443344334433443344334433"
+    },
+    "transfers.sent": {
+      "answers": [
+        "UNAUTHORIZED Authentication required",
+        "FORBIDDEN Scope \"bank:read\" is required",
         "FORBIDDEN Verification tier \"full\" required for bank in DE",
         "FORBIDDEN The United States is not served at launch.",
         null

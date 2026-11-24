@@ -2,24 +2,8 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useMounted } from '../../../shared/outside';
 import { useResource } from '../../../shared/resource';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Field,
-  Input,
-  KeyValue,
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuTrigger,
-  SegmentedControl,
-} from '@intafaced/ui';
+import { Button, Menu, Segmented } from '@intafaced/ui/lit';
+import { Checkbox, DecimalInput, KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
 import type { ConditionalOrder, PositionPreview, Reverse, RiskStop, StopInput } from './api';
@@ -41,6 +25,7 @@ import {
 } from './positions-logic';
 import { coverage, estimatedResult, legsOf, partProblem, priceProblem, sideOfMark, type Leg } from './protection-logic';
 import { TriggerFacts, triggerLine } from './TriggerFacts';
+import { kvRows } from './kv-rows';
 import { triggersCopy } from './triggers-copy';
 import type { Intent } from './write';
 import { WriteNotice, sideWord } from './close-all/CloseAllDialog';
@@ -51,7 +36,7 @@ type T = ReturnType<typeof positionsCopy.useCopy>['t'];
 
 const REFUSAL_LIQUIDATING = 'trade.liquidation_in_progress';
 
-/** One dialog frame: kit Dialog, controlled by whoever mounts it. */
+/** One dialog frame: the kit's Sheet, open while whoever mounts it keeps it mounted. */
 function Frame({
   title,
   description,
@@ -67,18 +52,9 @@ function Frame({
 }) {
   const { t } = positionsCopy.useCopy();
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      {/* A tall dialog (take profit and stop loss with their sizes) scrolls inside itself on a short screen, so its title
-          and close stay reachable. */}
-      <DialogContent closeLabel={t('Dialog close')} className="max-h-[calc(100dvh-32px)] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : null}
-        </DialogHeader>
-        <div className="mt-4 flex flex-col gap-3 text-sm">{children}</div>
-        <DialogFooter className="mt-5">{footer}</DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Sheet open title={title} description={description} closeLabel={t('Dialog close')} onClose={onClose} footer={footer}>
+      {children}
+    </Sheet>
   );
 }
 
@@ -164,11 +140,12 @@ export function MarginDialog({
       })}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('Cancel')}
           </Button>
           <Button
-            loading={writer.busy}
+            tone="primary"
+            busy={writer.busy}
             disabled={problem !== null || writer.note.state !== 'none' || position.id === null}
             onClick={submit}
           >
@@ -177,7 +154,7 @@ export function MarginDialog({
         </>
       }
     >
-      <Field
+      <DecimalInput
         label={t('Margin amount', { asset })}
         error={amount !== '' && problem && problem !== 'empty' ? t(`Problem ${problem}`) : undefined}
         hint={
@@ -187,10 +164,12 @@ export function MarginDialog({
               : t('Margin free', { free: fmtAmount(free, { places: 8 }), asset })
             : t('Margin reduce note')
         }
-      >
-        <Input kind="decimal" value={amount} onValueChange={setAmount} precision={8} trailing={asset} />
-      </Field>
-      <p className="lt-muted">{t('Margin recompute')}</p>
+        value={amount}
+        onValueChange={setAmount}
+        precision={8}
+        unit={asset}
+      />
+      <p className="lt-hint">{t('Margin recompute')}</p>
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
   );
@@ -224,11 +203,12 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
       })}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('Cancel')}
           </Button>
           <Button
-            loading={writer.busy}
+            tone="primary"
+            busy={writer.busy}
             disabled={problem !== null || writer.note.state !== 'none' || position.id === null}
             onClick={submit}
           >
@@ -237,28 +217,24 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
         </>
       }
     >
-      <Field
+      <DecimalInput
         label={t('Leverage field')}
         error={value !== '' && problem && problem !== 'empty' ? t(`Problem ${problem}`) : undefined}
         hint={cap === null ? t('Leverage cap unknown') : t('Leverage cap', { cap: fmtAmount(cap, { places: 2 }) })}
-      >
-        <Input kind="decimal" value={value} onValueChange={setValue} precision={2} trailing="x" />
-      </Field>
+        value={value}
+        onValueChange={setValue}
+        precision={2}
+        unit="x"
+      />
       <div className="lt-actions">
         {leveragePresets(cap).map((preset) => (
-          <Button
-            key={preset}
-            variant="secondary"
-            size={28}
-            aria-label={t('Leverage preset', { value: preset })}
-            onClick={() => setValue(preset)}
-          >
+          <Button key={preset} tone="secondary" aria-label={t('Leverage preset', { value: preset })} onClick={() => setValue(preset)}>
             {preset}x
           </Button>
         ))}
       </div>
-      <p className="text-warn">{t('Leverage warning')}</p>
-      <p className="lt-muted">{t('Margin recompute')}</p>
+      <p className="lt-warn">{t('Leverage warning')}</p>
+      <p className="lt-hint">{t('Margin recompute')}</p>
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
   );
@@ -307,12 +283,12 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
       }
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('Cancel')}
           </Button>
           <Button
-            variant="sell"
-            loading={writer.busy}
+            tone="primary"
+            busy={writer.busy}
             disabled={writer.note.state !== 'none' || position.id === null || problem !== null}
             onClick={submit}
           >
@@ -321,27 +297,23 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
         </>
       }
     >
-      <Field
+      <DecimalInput
         label={t('Close size field')}
         hint={t('Close size hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
         error={sizeRaw !== '' && problem ? t(`Close problem ${problem}`) : undefined}
-      >
-        <Input kind="decimal" value={sizeRaw} onValueChange={setSizeRaw} precision={8} />
-      </Field>
+        value={sizeRaw}
+        onValueChange={setSizeRaw}
+        precision={8}
+      />
       <div role="group" aria-label={t('Close share group')} className="lt-actions">
         {[25, 50, 75, 100].map((pct) => (
-          <Button
-            key={pct}
-            variant="secondary"
-            size={28}
-            onClick={() => setSizeRaw(pct === 100 ? '' : (closeShare(position.contracts, pct) ?? ''))}
-          >
+          <Button key={pct} tone="secondary" onClick={() => setSizeRaw(pct === 100 ? '' : (closeShare(position.contracts, pct) ?? ''))}>
             {t('Close share', { pct: String(pct) })}
           </Button>
         ))}
       </div>
       <p>{t('Close mark word')}</p>
-      {closing ? <p className="lt-muted">{t('Close retry word')}</p> : null}
+      {closing ? <p className="lt-hint">{t('Close retry word')}</p> : null}
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
   );
@@ -356,13 +328,13 @@ function LegLine({ leg, order, position, t }: { leg: Leg; order: ConditionalOrde
   const trigger = triggerLine(order, words);
   const covers = coverage(order, contracts);
   return (
-    <li data-leg={leg} data-status={order.status} className="flex flex-col gap-0.5">
-      <span className="font-medium">{t('Protect leg', { leg: name, status: words(`Status ${order.status}`) })}</span>
-      {trigger ? <span className="lt-muted">{trigger}</span> : null}
+    <li data-leg={leg} data-status={order.status} className="lt-stack-tight">
+      <span>{t('Protect leg', { leg: name, status: words(`Status ${order.status}`) })}</span>
+      {trigger ? <span className="lt-hint">{trigger}</span> : null}
       {covers === null ? null : covers.whole ? (
-        <span className="lt-muted">{t('Protect covers whole')}</span>
+        <span className="lt-hint">{t('Protect covers whole')}</span>
       ) : (
-        <span className="lt-muted">
+        <span className="lt-hint">
           {t('Protect covers part', {
             part: fmtAmount(covers.part, { places: 8 }),
             size: fmtAmount(contracts, { places: 8 }),
@@ -474,30 +446,35 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
     const size = part.trim() === '' || parts[leg] ? null : part.trim();
     const estimate = value.trim() === '' || problems[leg] ? null : signedAmount(estimatedResult(position, value.trim(), size), 8);
     return (
-      <div className="lt-stack">
-        <Field
+      <div className="lt-stack-tight">
+        <DecimalInput
           label={t(leg === 'take_profit' ? 'Protect field take profit' : 'Protect field stop loss', { quote: asset })}
           hint={side === null ? undefined : t(`Protect side ${side}`)}
           error={problems[leg] ? t('Protect problem invalid') : undefined}
-        >
-          <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} disabled={orders === null} />
-          {value.trim() !== '' && !problems[leg] ? (
-            <span className="text-2xs text-fg-2">
-              {estimate === null
-                ? t('Protect estimate unknown')
-                : size === null
-                  ? t('Protect estimate', { result: estimate, asset })
-                  : t('Protect estimate part', { result: estimate, asset, size: fmtAmount(size, { places: 8 }) })}
-            </span>
-          ) : null}
-        </Field>
-        <Field
+          value={value}
+          onValueChange={edit(set)}
+          precision={8}
+          unit={asset}
+          disabled={orders === null}
+        />
+        {value.trim() !== '' && !problems[leg] ? (
+          <span className="lt-hint">
+            {estimate === null
+              ? t('Protect estimate unknown')
+              : size === null
+                ? t('Protect estimate', { result: estimate, asset })
+                : t('Protect estimate part', { result: estimate, asset, size: fmtAmount(size, { places: 8 }) })}
+          </span>
+        ) : null}
+        <DecimalInput
           label={t(leg === 'take_profit' ? 'Protect part take profit' : 'Protect part stop loss')}
           hint={t('Protect part hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
           error={parts[leg] ? t(`Protect part problem ${parts[leg]}`) : undefined}
-        >
-          <Input kind="decimal" value={part} onValueChange={edit(setPart)} precision={8} disabled={orders === null} />
-        </Field>
+          value={part}
+          onValueChange={edit(setPart)}
+          precision={8}
+          disabled={orders === null}
+        />
       </div>
     );
   };
@@ -522,16 +499,17 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
       }
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('Dialog close')}
           </Button>
           {anyArmed ? (
-            <Button variant="secondary" loading={writer.busy} disabled={blocked} onClick={() => void save(null, null)}>
+            <Button tone="secondary" busy={writer.busy} disabled={blocked} onClick={() => void save(null, null)}>
               {t('Protect remove')}
             </Button>
           ) : null}
           <Button
-            loading={writer.busy}
+            tone="primary"
+            busy={writer.busy}
             disabled={blocked || anyProblem || (!trimmed(takeProfit) && !trimmed(stopLoss))}
             onClick={() => void save(trimmed(takeProfit), trimmed(stopLoss), trimmed(takeProfitPart), trimmed(stopLossPart))}
           >
@@ -540,24 +518,24 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
         </>
       }
     >
-      <section aria-label={t('Protect current')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
-        <h3 className="text-sm font-medium">{t('Protect current')}</h3>
-        {orders === null && !unreadable ? <p className="lt-muted">{t('Protect loading')}</p> : null}
-        {unreadable ? <p className="text-warn">{t('Protect unreadable')}</p> : null}
+      <section aria-label={t('Protect current')} className="lt-region">
+        <h3>{t('Protect current')}</h3>
+        {orders === null && !unreadable ? <p className="lt-hint">{t('Protect loading')}</p> : null}
+        {unreadable ? <p className="lt-warn">{t('Protect unreadable')}</p> : null}
         {orders !== null ? (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          <ul className="lt-stack-tight">
             <LegLine leg="take_profit" order={legs.take_profit} position={position} t={t} />
             <LegLine leg="stop_loss" order={legs.stop_loss} position={position} t={t} />
           </ul>
         ) : null}
-        {closingNow ? <p className="text-warn">{t('Protect closing now')}</p> : null}
+        {closingNow ? <p className="lt-warn">{t('Protect closing now')}</p> : null}
       </section>
-      <p className="lt-muted">{t('Protect how')}</p>
+      <p className="lt-hint">{t('Protect how')}</p>
       {field('take_profit', takeProfit, setTakeProfit, takeProfitPart, setTakeProfitPart)}
       {field('stop_loss', stopLoss, setStopLoss, stopLossPart, setStopLossPart)}
-      <p className="lt-muted">{t('Protect replace note')}</p>
+      <p className="lt-hint">{t('Protect replace note')}</p>
       {saved ? (
-        <p role="status" className="lt-muted">
+        <p role="status" className="lt-hint">
           {t(`Protect done ${saved}`)}
         </p>
       ) : null}
@@ -568,6 +546,10 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
 
 const STOP_KINDS: readonly StopInput['kind'][] = ['stop_market', 'stop_limit', 'trailing_stop'];
 const STOP_SOURCES: readonly StopInput['triggerSource'][] = ['mark', 'last', 'index'];
+
+const WARN = 'lt-warn';
+/** A finished reverse reads plain; any other outcome reads as a caution. */
+const reverseTone = (r: Reverse) => (r.status === 'done' ? undefined : WARN);
 
 /** A reverse's outcome as it stands, or a working one still settling (J-derivatives-03 #9). */
 function reverseWords(r: Reverse, t: T): string {
@@ -717,56 +699,57 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
       description={t('Reverse summary', words)}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {finished ? t('Reverse finished') : t('Cancel')}
           </Button>
           {working ? (
-            <Button variant="secondary" loading={writer.busy} disabled={writer.note.state !== 'none'} onClick={() => void run()}>
+            <Button tone="secondary" busy={writer.busy} disabled={writer.note.state !== 'none'} onClick={() => void run()}>
               {t('Reverse check')}
             </Button>
           ) : (
-            <Button variant={to === 'long' ? 'buy' : 'sell'} loading={writer.busy} disabled={off} onClick={() => void run()}>
+            <Button tone="primary" busy={writer.busy} disabled={off} onClick={() => void run()}>
               {t('Reverse button', { to: sideWord(t, to) })}
             </Button>
           )}
         </>
       }
     >
-      {position.leverage === null ? <p className="text-warn">{t('Reverse no leverage')}</p> : null}
-      <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="lt-stack">
-        <h3 className="text-sm font-medium">{t('Reverse review', { to: sideWord(t, to) })}</h3>
+      {position.leverage === null ? <p className="lt-warn">{t('Reverse no leverage')}</p> : null}
+      <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="lt-stack-tight">
+        <h3>{t('Reverse review', { to: sideWord(t, to) })}</h3>
         {review.status === 'loading' && position.leverage !== null ? (
-          <p className="lt-muted">{t('Reverse review loading', { to: sideWord(t, to) })}</p>
+          <p className="lt-hint">{t('Reverse review loading', { to: sideWord(t, to) })}</p>
         ) : null}
-        {review.status === 'error' ? <p className="text-warn">{t('Reverse review error', { to: sideWord(t, to) })}</p> : null}
+        {review.status === 'error' ? <p className="lt-warn">{t('Reverse review error', { to: sideWord(t, to) })}</p> : null}
         {preview ? (
           <KeyValue
-            density="dense"
-            unknownLabel="—"
-            items={[
-              { label: t('Reverse mark'), value: price(preview.markPrice) },
-              { label: t('Reverse margin'), value: money(preview.initialMargin) },
-              { label: t('Reverse fee'), value: money(preview.estimatedFee) },
-              { label: t('Reverse liquidation'), value: price(preview.liquidationPrice) },
-              ...(tier ? [{ label: t('Reverse tier'), value: t('Reverse tier value', { tier: String(tier.projected) }) }] : []),
-            ]}
+            rows={kvRows(
+              [
+                { label: t('Reverse mark'), value: price(preview.markPrice) },
+                { label: t('Reverse margin'), value: money(preview.initialMargin) },
+                { label: t('Reverse fee'), value: money(preview.estimatedFee) },
+                { label: t('Reverse liquidation'), value: price(preview.liquidationPrice) },
+                ...(tier ? [{ label: t('Reverse tier'), value: t('Reverse tier value', { tier: String(tier.projected) }) }] : []),
+              ],
+              '—',
+            )}
           />
         ) : null}
-        {moved ? <p className="text-warn">{t('Reverse review moved')}</p> : null}
+        {moved ? <p className="lt-warn">{t('Reverse review moved')}</p> : null}
         {tierNeeded && tier ? (
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={tierAccepted} disabled={finished} onCheckedChange={(v) => setTierAccepted(v === true)} />
-            <span>{t('Reverse tier accept', { tier: String(tier.projected), to: sideWord(t, to) })}</span>
-          </label>
+          <Checkbox
+            label={t('Reverse tier accept', { tier: String(tier.projected), to: sideWord(t, to) })}
+            checked={tierAccepted}
+            disabled={finished}
+            onChange={(event) => setTierAccepted(event.currentTarget.checked)}
+          />
         ) : null}
       </section>
       {result ? (
-        <div role="status" data-reverse={result.status} className="flex flex-col gap-1 rounded-sm border border-line p-3">
-          <p className={result.status === 'done' ? 'font-medium' : 'text-warn'}>{reverseWords(result, t)}</p>
+        <div role="status" data-reverse={result.status} className="lt-region">
+          <p className={reverseTone(result)}>{reverseWords(result, t)}</p>
           {result.closeOrderId || result.openOrderId ? (
-            <p className="text-2xs text-fg-3">
-              {t('Reverse legs', { close: result.closeOrderId ?? '—', open: result.openOrderId ?? '—' })}
-            </p>
+            <p className="lt-hint">{t('Reverse legs', { close: result.closeOrderId ?? '—', open: result.openOrderId ?? '—' })}</p>
           ) : null}
         </div>
       ) : null}
@@ -846,9 +829,15 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
     }
   };
   const price = (label: string, hint: string, value: string, set: (v: string) => void, problem: string | null) => (
-    <Field label={label} hint={hint} error={problem === 'invalid' ? t('Stop problem invalid') : undefined}>
-      <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} />
-    </Field>
+    <DecimalInput
+      label={label}
+      hint={hint}
+      error={problem === 'invalid' ? t('Stop problem invalid') : undefined}
+      value={value}
+      onValueChange={edit(set)}
+      precision={8}
+      unit={asset}
+    />
   );
 
   return (
@@ -871,50 +860,49 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
       }
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('Dialog close')}
           </Button>
-          <Button loading={writer.busy} disabled={blocked || anyProblem} onClick={() => void place()}>
+          <Button tone="primary" busy={writer.busy} disabled={blocked || anyProblem} onClick={() => void place()}>
             {t('Stop place')}
           </Button>
         </>
       }
     >
-      <div className="lt-stack">
-        <span className="lt-muted">{t('Stop kind')}</span>
-        <SegmentedControl
-          aria-label={t('Stop kind')}
-          size={32}
+      <div className="lt-stack-tight">
+        <span className="lt-hint">{t('Stop kind')}</span>
+        <Segmented
+          label={t('Stop kind')}
           value={kind}
-          onValueChange={(v) => {
+          onChange={(v) => {
             setArmed(false);
-            setKind(v as StopInput['kind']);
+            setKind(v);
           }}
-          items={STOP_KINDS.map((k) => ({ value: k, label: t(`Stop kind ${k}`) }))}
+          options={STOP_KINDS.map((k) => ({ value: k, label: t(`Stop kind ${k}`) }))}
         />
-        <p className="text-2xs text-fg-2">{t(`Stop kind how ${kind}`)}</p>
+        <p className="lt-hint">{t(`Stop kind how ${kind}`)}</p>
       </div>
-      <div className="lt-stack">
-        <span className="lt-muted">{t('Stop source')}</span>
-        <SegmentedControl
-          aria-label={t('Stop source')}
-          size={32}
+      <div className="lt-stack-tight">
+        <span className="lt-hint">{t('Stop source')}</span>
+        <Segmented
+          label={t('Stop source')}
           value={source}
-          onValueChange={(v) => {
+          onChange={(v) => {
             setArmed(false);
-            setSource(v as StopInput['triggerSource']);
+            setSource(v);
           }}
-          items={STOP_SOURCES.map((k) => ({ value: k, label: t(`Stop source ${k}`) }))}
+          options={STOP_SOURCES.map((k) => ({ value: k, label: t(`Stop source ${k}`) }))}
         />
-        <p className="text-2xs text-fg-2">{t(`Stop source how ${source}`)}</p>
+        <p className="lt-hint">{t(`Stop source how ${source}`)}</p>
       </div>
-      <Field
+      <DecimalInput
         label={t('Stop size')}
         hint={t('Stop size hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
         error={sizeProblem && size.trim() !== '' ? t(`Close problem ${sizeProblem}`) : undefined}
-      >
-        <Input kind="decimal" value={size} onValueChange={edit(setSize)} precision={8} />
-      </Field>
+        value={size}
+        onValueChange={edit(setSize)}
+        precision={8}
+      />
       {takes.trigger
         ? price(
             t('Stop trigger', { quote: asset }),
@@ -929,32 +917,32 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         ? price(t('Stop distance', { quote: asset }), t('Stop distance hint'), distance, setDistance, problems.distance)
         : null}
       {armed ? (
-        <p role="status" className="lt-muted">
+        <p role="status" className="lt-hint">
           {t('Stop done')}
         </p>
       ) : null}
       {writer.outcome?.kind === 'done' ? null : <WriteNotice writer={writer} onCheck={() => void check()} />}
-      <section aria-label={t('Stop armed')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
-        <h3 className="text-sm font-medium">{t('Stop armed')}</h3>
-        {read.status === 'loading' ? <p className="lt-muted">{t('Protect loading')}</p> : null}
-        {read.status === 'error' || read.status === 'refused' ? <p className="text-warn">{t('Stop unreadable')}</p> : null}
+      <section aria-label={t('Stop armed')} className="lt-region">
+        <h3>{t('Stop armed')}</h3>
+        {read.status === 'loading' ? <p className="lt-hint">{t('Protect loading')}</p> : null}
+        {read.status === 'error' || read.status === 'refused' ? <p className="lt-warn">{t('Stop unreadable')}</p> : null}
         {read.status === 'ready' || read.status === 'empty' ? (
           stops.length === 0 ? (
-            <p className="lt-muted">{t('Stop armed none')}</p>
+            <p className="lt-hint">{t('Stop armed none')}</p>
           ) : (
-            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            <ul className="lt-stack-tight">
               {stops.map((o) => {
                 const line = triggerLine(o, words);
                 return (
-                  <li key={o.id} data-stop={o.kind} data-status={o.status} className="flex flex-col gap-0.5">
-                    <span className="font-medium">
+                  <li key={o.id} data-stop={o.kind} data-status={o.status} className="lt-stack-tight">
+                    <span>
                       {t('Stop armed line', {
                         kind: words(`Kind ${o.kind}`),
                         size: fmtAmount(o.quantity, { places: 8 }),
                         status: words(`Status ${o.status}`),
                       })}
                     </span>
-                    {line ? <span className="lt-muted">{line}</span> : null}
+                    {line ? <span className="lt-hint">{line}</span> : null}
                   </li>
                 );
               })}
@@ -1023,16 +1011,17 @@ export function RiskStopDialog({ position, onClose, onDone, onRefusal }: DialogB
       description={t('Risk stop description', { contract: position.symbol, side: sideWord(t, position.side) })}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('Cancel')}
           </Button>
           {stop?.status === 'armed' ? (
-            <Button variant="secondary" disabled={!idle} onClick={() => go(null)}>
+            <Button tone="secondary" disabled={!idle} onClick={() => go(null)}>
               {t('Risk stop clear')}
             </Button>
           ) : null}
           <Button
-            loading={writer.busy}
+            tone="primary"
+            busy={writer.busy}
             disabled={problem !== null || !idle || id === null || stop === null}
             onClick={() => go(level.trim())}
           >
@@ -1041,12 +1030,11 @@ export function RiskStopDialog({ position, onClose, onDone, onRefusal }: DialogB
         </>
       }
     >
-      {read.status === 'loading' ? <p className="lt-muted">{t('Risk stop loading')}</p> : null}
-      {read.status === 'error' ? <p className="text-warn">{t('Risk stop unknown')}</p> : null}
+      {read.status === 'loading' ? <p className="lt-hint">{t('Risk stop loading')}</p> : null}
+      {read.status === 'error' ? <p className="lt-warn">{t('Risk stop unknown')}</p> : null}
       {stop ? (
         <KeyValue
-          density="dense"
-          items={[
+          rows={kvRows([
             {
               label: t('Risk stop now'),
               value:
@@ -1058,22 +1046,24 @@ export function RiskStopDialog({ position, onClose, onDone, onRefusal }: DialogB
               label: t('Risk stop liquidation'),
               value: stop.liquidationPrice === null ? '—' : fmtPrice(stop.liquidationPrice, null),
             },
-          ]}
+          ])}
         />
       ) : null}
-      <Field
+      <DecimalInput
         label={t('Risk stop level')}
         error={level !== '' && problem && problem !== 'empty' ? t(`Risk stop problem ${problem}`) : undefined}
         hint={t('Risk stop level hint')}
-      >
-        <Input kind="decimal" value={level} onValueChange={setLevel} precision={16} trailing="%" />
-      </Field>
+        value={level}
+        onValueChange={setLevel}
+        precision={16}
+        unit="%"
+      />
       <WriteNotice writer={writer} onCheck={() => void check()} />
-      <section aria-label={t('Risk stop current')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
-        <h3 className="text-sm font-medium">{t('Risk stop current')}</h3>
+      <section aria-label={t('Risk stop current')} className="lt-region">
+        <h3>{t('Risk stop current')}</h3>
         {stop
           ? riskStopLines(stop, t).map((line) => (
-              <p key={line} className="m-0 text-fg-2">
+              <p key={line} className="lt-hint">
                 {line}
               </p>
             ))
@@ -1142,29 +1132,21 @@ export function PositionRowActions({
   return (
     // The menu and the dialogs render in portals, and React still bubbles their clicks to the table row, which would
     // open the position's detail on top of them. Nothing in here is a click on the row.
-    <div className="flex flex-col items-start gap-1" onClick={(event) => event.stopPropagation()}>
-      <div className="flex flex-nowrap items-center gap-1.5">
+    <div className="lt-stack-tight" onClick={(event) => event.stopPropagation()}>
+      <div className="lt-actions">
         {compact && shown.filter((key) => key !== 'close').length > 1 ? (
-          <Menu>
-            <MenuTrigger render={<Button variant="secondary" size={28} aria-label={t('Manage label', { contract: position.symbol })} />}>
-              {t('Manage')}
-            </MenuTrigger>
-            <MenuContent align="end">
-              {shown
-                .filter((key) => key !== 'close')
-                .map((key) => (
-                  <MenuItem key={key} disabled={gate[key] !== null} onClick={() => choose(key)}>
-                    {label[key]}
-                  </MenuItem>
-                ))}
-            </MenuContent>
-          </Menu>
+          <Menu
+            label={t('Manage')}
+            triggerLabel={t('Manage label', { contract: position.symbol })}
+            items={shown
+              .filter((key) => key !== 'close')
+              .map((key) => ({ key, label: label[key], disabled: gate[key] !== null, onSelect: () => choose(key) }))}
+          />
         ) : null}
         {(compact && shown.filter((key) => key !== 'close').length > 1 ? shown.filter((key) => key === 'close') : shown).map((key) => (
           <Button
             key={key}
-            variant={key === 'close' ? 'sell' : 'secondary'}
-            size={28}
+            tone="secondary"
             disabled={gate[key] !== null}
             aria-label={t('Action label', { action: label[key], contract: position.symbol })}
             onClick={() => choose(key)}
@@ -1173,7 +1155,7 @@ export function PositionRowActions({
           </Button>
         ))}
       </div>
-      {reason ? <span className="text-2xs text-fg-2">{t(`Reason ${reason}`)}</span> : null}
+      {reason ? <span className="lt-hint">{t(`Reason ${reason}`)}</span> : null}
       {open === 'add' || open === 'reduce' ? <MarginDialog {...common} mode={open} free={free} /> : null}
       {open === 'leverage' ? <LeverageDialog {...common} cap={leverageCap} /> : null}
       {open === 'protect' ? <ProtectionDialog {...common} /> : null}

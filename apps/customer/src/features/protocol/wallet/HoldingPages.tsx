@@ -1,21 +1,23 @@
+// volt-room: /wallet/tokens/:token
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
-import { EmptyState, Page, Panel } from '../../../shared/ui';
+import { EmptyState, Panel } from '../volt/parts';
 import { portfolioCopy } from './portfolio-copy';
 import { tokenAmount, usdDisplay } from './portfolio-format';
-import { CONVENTIONS, conventionPath, type Convention } from './portfolio-paths';
+import { conventionPath } from './portfolio-paths';
 import { ReadState, usePortfolio } from './PortfolioPanel';
 
 /**
  * /wallet/tokens/<address> (J-dex-protocol-06 #3): one token the wallet holds, with its entry price, the price at the
- * block each amount of it arrived, saying so.
+ * block each amount of it arrived, saying so. One record's own page on the record-list template.
  */
 export function HoldingPage({ token }: { token: string }) {
   const { language } = usePreferences();
   const { t } = portfolioCopy.forLocale(language);
   const { connected, data, failure, reload } = usePortfolio();
   const row = data?.holdings.find((entry) => entry.token.toLowerCase() === token.toLowerCase()) ?? null;
-  return (
-    <Page title={row?.name ?? token} description={t('portfolioNote')}>
+  const detail = (
+    <>
       <p>
         <a href="/wallet">{t('tokenBack')}</a>
       </p>
@@ -27,7 +29,7 @@ export function HoldingPage({ token }: { token: string }) {
         <EmptyState title={t('tokenMissing')} />
       ) : (
         <Panel title={row.name} aria-label={row.name}>
-          <dl className="protocol-facts">
+          <dl className="lt-kv">
             <div>
               <dt>{t('entryLabel')}</dt>
               <dd className="lt-num" data-testid="entry-price">
@@ -64,21 +66,16 @@ export function HoldingPage({ token }: { token: string }) {
           </p>
         </Panel>
       )}
-    </Page>
+    </>
   );
-}
-
-/** /wallet/conventions/<id>: one convention the portfolio follows, in plain words. */
-export function ConventionPage({ id }: { id: string }) {
-  const { language } = usePreferences();
-  const { t } = portfolioCopy.forLocale(language);
-  const known = (CONVENTIONS as readonly string[]).includes(id) ? (id as Convention) : null;
   return (
-    <Page title={known ? t(`conv_${known}`) : t('conventionMissing')}>
-      {known && <p>{t(`conv_${known}_body`)}</p>}
-      <p>
-        <a href="/wallet">{t('tokenBack')}</a>
-      </p>
-    </Page>
+    <RecordListTemplate
+      title={row?.name ?? token}
+      description={t('portfolioNote')}
+      state={{ kind: 'ready' }}
+      detailOnly
+      list={null}
+      detail={detail}
+    />
   );
 }

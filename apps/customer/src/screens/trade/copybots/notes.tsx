@@ -3,6 +3,8 @@ import { Button } from '@intafaced/ui/lit';
 import { roomCopy } from './copy';
 import { roomRefusal } from './refusals';
 import type { Failure } from './guard';
+import { isVerifyFirst } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 
 /**
  * The Copy and Bots rooms' two notes, drawn only from the Volt kit (intafaced issue 9564): every room here and the
@@ -13,6 +15,7 @@ import type { Failure } from './guard';
 export function RefusalNote({ failure, retry }: { failure: Failure; retry?: () => void }) {
   const { t } = roomCopy.useCopy();
   const words = roomRefusal(failure);
+  if (isVerifyFirst(failure)) return <VerifyFirstNote code={failure.code} />;
   return (
     <div className="lt-refusal" role="alert" data-refusal="refused" data-tone="warn">
       <p className="lt-refusal-title">{words.title}</p>

@@ -437,7 +437,7 @@ const messages = {
   'No lead trade in your history': 'No lead trade in your history',
   'No lead trade resting': 'No lead trade resting',
   'No leader matches that name': 'No leader matches that name',
-  'No leaders are listed': 'No leaders are listed',
+  'No leaders are listed yet': 'No leaders are listed yet',
   'No markets are open for copying right now.': 'No markets are open for copying right now.',
   'No new slices are placed while it is paused. Slices already placed stay as they are.':
     'No new slices are placed while it is paused. Slices already placed stay as they are.',
@@ -878,6 +878,8 @@ const messages = {
   'Within {percent}% of the market price': 'Within {percent}% of the market price',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
   'Yearly return (APR)': 'Yearly return (APR)',
+  'You asked to close {qty} of {market}; {open} is open. Nothing was sent.':
+    'You asked to close {qty} of {market}; {open} is open. Nothing was sent.',
   'You are not a listed leader': 'You are not a listed leader',
   'You are signed out': 'You are signed out',
   'You aren’t following anyone': 'You aren’t following anyone',

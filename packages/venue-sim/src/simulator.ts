@@ -7,6 +7,7 @@ import {
   assertSignatureMatches,
   assertSignerMaySign,
   venueClientOrderId,
+  positionModesOf,
   ordersTakenTogether,
   type AsOf,
   type MaybeKnown,
@@ -49,6 +50,7 @@ import {
   type VenueStakingDiscount,
   type UserVenueVaultTransfer,
   type VenueAccountMode,
+  type VenuePositionMode,
   type UserVenueCrossMargin,
   type UserVenueAdlRules,
   type UserVenueDeleverage,
@@ -493,6 +495,10 @@ export interface SimOptions {
    * declared, so it offers no scheduled cancel.
    */
   readonly scheduledCancelMinLeadMs?: number;
+  /** The position modes this TEST venue declares (J-derivatives-05 #3). Default: one-way only, as the venue it stands for. */
+  readonly positionModes?: readonly VenuePositionMode[];
+  /** True when this TEST venue moves an open position between the main account and a sub-account (`move_position`). */
+  readonly positionMoves?: boolean;
 }
 
 interface AccountState {
@@ -546,6 +552,8 @@ interface AccountState {
   actionsToday: number;
   /** TEST switches (J-derivatives-29 #7 #11): the mode not reported, and a mode switch the venue refuses, in its words. */
   modeTest: { unreported: boolean; refuseSwitch: string | null };
+  /** The perpetuals the owner's signed `set_position_mode` put in hedge mode (J-derivatives-05 #3); every other is one-way. */
+  readonly hedged: Set<string>;
   /**
    * Main account only (J-derivatives-31): its position in each vault, by the vault's address: what it is worth, what was
    * put in (the leader's profit share is taken on what it gained above that), and when its lock-up ends. The newest
@@ -626,8 +634,10 @@ function truncate(value: Amount, drop: number): Amount {
 }
 /** The public prints the simulator keeps per market, newest last; the tape and the candles read from these. */
 const PRINTS_KEPT = 5_000;
-/** The most prints or candles one read answers. */
+/** The most prints one read answers. */
 const MARKET_READ_MAX = 500;
+/** The most candles one read answers (matches the chart workbench's 720-bar history depth). */
+const CANDLE_READ_MAX = 720;
 
 const NO_RATES: VenueFeeRates = { makerFeeBps: { known: false }, takerFeeBps: { known: false } };
 
@@ -795,8 +805,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
       // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
       agentPermissionReach: 'own_account_only',
-      // As the venue it stands for: one net position per contract (no hedge mode).
-      positionModes: ['one_way'],
+      // As the venue it stands for: one net position per contract (no hedge mode), unless this TEST venue declares more.
+      positionModes: options.positionModes ?? ['one_way'],
+      ...(options.positionMoves ? { positionMoves: true } : {}),
       ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
       ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
       ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
@@ -1441,15 +1452,23 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * The newest `limit` candles of `symbol`'s prints on `interval`, oldest first; an interval with no print is not sent.
+   * When `since` is given, only buckets opening at or after `since` are returned.
    * TEST: only the prints the simulator keeps (`PRINTS_KEPT`) are counted.
    */
-  async candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
+  async candles(
+    symbol: string,
+    interval: VenueCandleInterval,
+    query: number | { readonly limit: number; readonly since?: Date },
+  ): Promise<AsOf<readonly VenueCandle[]>> {
     this.up();
     const market = this.market(symbol);
     const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
+    const limit = typeof query === 'number' ? query : query.limit;
+    const sinceMs = typeof query === 'number' ? undefined : query.since?.getTime();
     const out: VenueCandle[] = [];
     for (const p of this.prints.get(market.symbol) ?? []) {
       const openMs = Math.floor(p.tradedAt.getTime() / stepMs) * stepMs;
+      if (sinceMs !== undefined && openMs < sinceMs) continue;
       const last = out[out.length - 1];
       if (last && last.openAt.getTime() === openMs)
         out[out.length - 1] = {
@@ -1469,7 +1488,38 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           baseVolume: p.amount,
         });
     }
-    return this.asOf(out.slice(-Math.min(limit, MARKET_READ_MAX)));
+    return this.asOf(out.slice(-Math.min(limit, CANDLE_READ_MAX)));
+  }
+
+  /**
+   * TEST control: record past TEST prints on `symbol` (strictly at or before the simulator's clock) so a chart journey
+   * can read historical candles across more than 240 buckets without waiting hours. Never invents future prints.
+   */
+  testSeedPrints(
+    symbol: string,
+    entries: readonly { readonly tradedAt: Date; readonly price: Amount; readonly amount: Amount; readonly takerSide: 'buy' | 'sell' }[],
+  ): number {
+    const market = this.market(symbol);
+    const nowMs = this.clock().getTime();
+    const prints = [...(this.prints.get(market.symbol) ?? [])];
+    for (const entry of entries) {
+      if (entry.tradedAt.getTime() > nowMs) refuse(this.venue.id, 'venue_rejected', 'TEST print time cannot be in the future');
+      if (compare(entry.price, ZERO) <= 0 || compare(entry.amount, ZERO) <= 0)
+        refuse(this.venue.id, 'venue_rejected', 'TEST print price and amount must be above zero');
+      this.printCounter += 1;
+      prints.push({
+        tradeId: `test-print-${this.printCounter}`,
+        symbol: market.symbol,
+        price: entry.price,
+        amount: entry.amount,
+        takerSide: entry.takerSide,
+        tradedAt: entry.tradedAt,
+      });
+    }
+    prints.sort((a, b) => a.tradedAt.getTime() - b.tradedAt.getTime());
+    if (prints.length > PRINTS_KEPT) prints.splice(0, prints.length - PRINTS_KEPT);
+    this.prints.set(market.symbol, prints);
+    return entries.length;
   }
 
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
@@ -1843,6 +1893,66 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         if (intent.mode === state.mode) refuse(this.venue.id, 'venue_rejected', `the account is already in ${intent.mode} mode`);
         if ([...state.orders.values()].some(isLive))
           refuse(this.venue.id, 'venue_rejected', 'TEST rule: cancel every open order before the account mode changes');
+        return;
+      }
+      case 'set_position_mode': {
+        const market = this.market(intent.symbol);
+        if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${intent.symbol} is spot: it has no position mode`);
+        if (!positionModesOf(this.venue).includes(intent.mode))
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} offers no ${modeName(intent.mode)} mode`);
+        if (this.modeOf(state, intent.symbol) === intent.mode)
+          refuse(this.venue.id, 'venue_rejected', `${intent.symbol} is already in ${modeName(intent.mode)} mode on this account`);
+        const held = state.positions.get(intent.symbol);
+        if (held && held.size !== ZERO)
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the position mode of ${intent.symbol} can't change while a position is open on it: this account holds ${held.side} ${formatAmount(held.size)} ${intent.symbol}. Close it first`,
+          );
+        if ([...state.orders.values()].some((o) => isLive(o) && o.order.symbol === intent.symbol))
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the position mode of ${intent.symbol} can't change while an order rests on it: cancel this account's open ${intent.symbol} orders first`,
+          );
+        return;
+      }
+      case 'move_position': {
+        if (!this.venue.positionMoves)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} moves no open position between accounts`);
+        this.subAccountOf(account.owner, intent.subAccount);
+        const market = this.market(intent.symbol);
+        if (market.marginAccount)
+          refuse(this.venue.id, 'not_offered', `${intent.symbol} keeps its margin with its deployer: a position on it is not moved`);
+        const into = intent.direction === 'into_sub_account';
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
+        const [from, to] = into ? [state, subState] : [subState, state];
+        const moving = from.positions.get(intent.symbol);
+        if (!moving || moving.size === ZERO)
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the ${into ? 'main account' : 'sub-account'} holds no open ${intent.symbol} position to move`,
+          );
+        const there = to.positions.get(intent.symbol);
+        if (there && there.size !== ZERO)
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the ${into ? 'sub-account' : 'main account'} already holds a ${intent.symbol} position: two positions on one contract are not merged by a move`,
+          );
+        for (const s of [from, to]) {
+          if ([...s.orders.values()].some((o) => isLive(o) && o.order.symbol === intent.symbol))
+            refuse(
+              this.venue.id,
+              'venue_rejected',
+              `a position moves only while no order rests on ${intent.symbol} on either account: cancel the open ${intent.symbol} orders first`,
+            );
+          if (s.liquidations.some((l) => l.symbol === intent.symbol && l.state === 'in_progress'))
+            refuse(this.venue.id, 'venue_rejected', `${intent.symbol} is being liquidated: its position is not moved until that is done`);
+        }
+        if (this.modeOf(from, intent.symbol) !== this.modeOf(to, intent.symbol))
+          refuse(this.venue.id, 'venue_rejected', `the two accounts hold ${intent.symbol} in different position modes`);
         return;
       }
       case 'staking_transfer':
@@ -2507,6 +2617,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * The account's margin summary in its perpetual collateral (J-derivatives-06 #1): equity is every unit of collateral it
    * holds, free and locked, plus each position's unrealised result at the mark; used margin is the positions' margin.
    */
+  /** The position mode the account holds `symbol` in (J-derivatives-05 #3): hedge once its owner switched it, else one-way. */
+  async positionMode(account: UserVenueAccount, symbol: string): Promise<AsOf<VenuePositionMode>> {
+    this.up();
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is spot: it has no position mode`);
+    return this.asOf(this.modeOf(this.account(account), symbol));
+  }
+
+  private modeOf(state: AccountState, symbol: string): VenuePositionMode {
+    return state.hedged.has(symbol) ? 'hedge' : 'one_way';
+  }
+
   /**
    * The account's mode as the venue reports it (J-derivatives-29 #1 #9 #11): in standard mode its spot and perps
    * balances apart, and the day's action count against the mode's limit. `mode: null` while the TEST switch withholds it.
@@ -2879,13 +3001,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         p.size = ZERO;
         const at = this.clock();
         const liquidationId = `liq-${++this.liquidationCounter}`;
+        const partId = `${liquidationId}-1`;
         state.liquidations.push({
           liquidationId,
           symbol: market.symbol,
           side: p.side,
           state: 'done',
-          parts: [{ partId: `${liquidationId}-1`, size: qty, price: mark, fee, feeAsset: market.quoteAsset, liquidatedAt: at }],
+          parts: [{ partId, size: qty, price: mark, fee, feeAsset: market.quoteAsset, liquidatedAt: at }],
           startedAt: at,
+        });
+        this.recordLiquidationOrder({
+          state,
+          market,
+          positionSide: p.side,
+          qty,
+          mark,
+          asset: market.quoteAsset,
+          partId,
+          at,
         });
         this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
       }
@@ -3315,6 +3448,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         spot: new Map(),
         actionsToday: 0,
         modeTest: { unreported: false, refuseSwitch: null },
+        hedged: new Set(),
         vaults: new Map(),
         vaultTransfers: [],
         staking: { staked: ZERO, delegations: new Map(), pending: [], arrived: [], rewards: [], rewardRefs: new Set() },
@@ -3344,6 +3478,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   private checkOrderOnItsFace(state: AccountState, intent: PlaceUserOrderIntent): void {
     const market = this.market(intent.symbol);
+    // In hedge mode an order names the side of the position it opens or closes; the order intent carries none.
+    if (state.hedged.has(market.symbol))
+      refuse(
+        this.venue.id,
+        'venue_rejected',
+        `${market.symbol} is in hedge mode on this account: an order there names its position side, and this one names none. Switch ${market.symbol} to one-way mode to send it`,
+      );
     const own = this.marketState.get(market.symbol)!;
     if (own.status === 'halted') refuse(this.venue.id, 'market_halted', `${market.symbol} is halted on ${this.venue.displayName}`);
     if (own.status === 'cancel_only')
@@ -3922,6 +4063,28 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         if (state.modeTest.refuseSwitch !== null) return refused('venue_rejected', state.modeTest.refuseSwitch);
         this.changeMode(state, intent.mode);
         return accepted(null, null);
+      case 'set_position_mode':
+        // validate() above refused a switch with a position or an order open on the market.
+        if (intent.mode === 'hedge') state.hedged.add(intent.symbol);
+        else state.hedged.delete(intent.symbol);
+        return accepted(null, null);
+      case 'move_position': {
+        // validate() above refused every move the venue does not make. The whole position goes, with the margin it holds:
+        // the margin leaves the source's locked balance and is locked on the destination, once; no free balance moves.
+        const market = this.market(intent.symbol);
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
+        const [from, to] = intent.direction === 'into_sub_account' ? [state, subState] : [subState, state];
+        const moving = from.positions.get(intent.symbol);
+        if (!moving) throw new Error(`move_position: no ${intent.symbol} position to move (validate() checks this first)`);
+        const source = this.balance(from, market.quoteAsset);
+        const target = this.balance(to, market.quoteAsset);
+        source.locked = sub(source.locked, moving.margin);
+        target.locked = add(target.locked, moving.margin);
+        from.positions.delete(intent.symbol);
+        to.positions.set(intent.symbol, moving);
+        to.leverage.set(intent.symbol, { leverageBps: moving.leverageBps, marginMode: moving.marginMode });
+        return accepted(prepared.nonce, null);
+      }
       case 'market_margin_transfer': {
         const rule = this.marginAccountOf(intent.symbol);
         const into = intent.direction === 'into_market';
@@ -4052,8 +4215,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           'closing or flipping a position with an opening order is not offered on the TEST simulator: close it reduce-only',
         );
       }
+      // An own resting order this one crosses is not counted: the self-trade rule below cancels it before this one rests.
+      const book = this.bookOf(market.symbol);
       const opposite = [...state.orders.values()].some(
-        (o) => o.order.symbol === market.symbol && o.order.side !== intent.side && !o.order.reduceOnly && isLive(o),
+        (o) =>
+          o.order.symbol === market.symbol &&
+          o.order.side !== intent.side &&
+          !o.order.reduceOnly &&
+          isLive(o) &&
+          !(book.includes(o) && crossesPrice(o)),
       );
       if (opposite) return refused('not_offered', 'opening orders on both sides of one market are not offered on the TEST simulator');
     }
@@ -4077,7 +4247,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         `free ${lockAsset}${marginAccount === SPOT_POCKET ? ' in spot' : marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
       );
     // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
-    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
+    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled', 'self_trade');
     balance.free = sub(balance.free, lockAmount);
     balance.locked = add(balance.locked, lockAmount);
 
@@ -4108,6 +4278,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         locked: lockAmount,
         lockedAsset: lockAsset,
         reduceOnly: intent.reduceOnly,
+        origin: 'user',
+        originRef: null,
+        ...(intent.label ? { label: intent.label } : {}),
       },
     };
     state.orders.set(cloid, order);
@@ -4434,6 +4607,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         trigger: { price: trigger.price, source: trigger.source, role: trigger.role, state: 'waiting', triggeredAt: null, failure: null },
         parentClientOrderId: parent?.order.venueClientOrderId ?? null,
         cancelReason: null,
+        origin: trigger.role === 'take_profit' ? 'take_profit' : 'stop',
+        originRef: null,
+        ...(intent.label ? { label: intent.label } : {}),
       },
     };
     state.orders.set(cloid, order);
@@ -4757,8 +4933,57 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     p.margin = sub(p.margin, released);
     p.size = sub(p.size, qty);
     const at = this.clock();
+    const partId = `${liquidationId}-${n}`;
+    this.recordLiquidationOrder({ state, market, positionSide: p.side, qty, mark, asset, partId, at });
     this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
-    return { partId: `${liquidationId}-${n}`, size: qty, price: mark, fee, feeAsset: asset, liquidatedAt: at };
+    return { partId, size: qty, price: mark, fee, feeAsset: asset, liquidatedAt: at };
+  }
+
+  /** Record the venue's own liquidation close as a filled order in the account's history (J-derivatives-04 #2). */
+  private recordLiquidationOrder(input: {
+    state: AccountState;
+    market: SimMarketConfig;
+    positionSide: 'long' | 'short';
+    qty: Amount;
+    mark: Amount;
+    asset: string;
+    partId: string;
+    at: Date;
+  }): void {
+    const { state, market, positionSide, qty, mark, asset, partId, at } = input;
+    const cloid = venueClientOrderId(this.venue.id, `liquidation:${partId}`);
+    this.venueOrderCounter += 1;
+    this.seqCounter += 1;
+    state.orders.set(cloid, {
+      account: state,
+      seq: this.seqCounter,
+      placedAt: at,
+      builderFee: null,
+      leverageBps: null,
+      marginMode: null,
+      lockPerUnit: ZERO,
+      marginAccount: market.marginAccount?.name ?? null,
+      order: {
+        venueOrderId: `sim-${this.venueOrderCounter}`,
+        venueClientOrderId: cloid,
+        symbol: market.symbol,
+        side: positionSide === 'long' ? 'sell' : 'buy',
+        type: 'market',
+        timeInForce: 'IOC',
+        price: mark,
+        amount: qty,
+        filled: qty,
+        remaining: ZERO,
+        averagePrice: mark,
+        status: 'filled',
+        locked: ZERO,
+        lockedAsset: asset,
+        reduceOnly: true,
+        origin: 'liquidation',
+        originRef: partId,
+        label: null,
+      },
+    });
   }
 
   /** Cancel every resting and waiting order of the account on `symbol`, its locks released once. */
@@ -4776,7 +5001,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private release(
     order: OrderState,
     status: UserVenueOrder['status'],
-    cancelReason: 'position_closed' | 'linked' | 'scheduled_cancel' | null = null,
+    cancelReason: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null = null,
   ): void {
     const o = order.order;
     if (o.locked !== ZERO) {
@@ -4817,6 +5042,8 @@ export function crossed(side: 'buy' | 'sell', trigger: VenueTrigger, price: Amou
   if (trigger.role === 'take_profit') return side === 'sell' ? above : below;
   return side === 'sell' ? below : above;
 }
+
+const modeName = (mode: VenuePositionMode): string => (mode === 'hedge' ? 'hedge' : 'one-way');
 
 function isLive(o: OrderState): boolean {
   return o.order.status === 'open' || o.order.status === 'partially_filled';

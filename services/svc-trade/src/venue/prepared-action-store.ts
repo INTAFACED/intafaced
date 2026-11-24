@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type { Amount } from '@intafaced/ledger-client/money';
 import {
   venueClientOrderId,
@@ -89,12 +90,27 @@ export interface PreparedActionStore {
   ownerSignedAccounts(userId: string, venueId: string): Promise<OwnerSignedAccount[]>;
 
   /**
+   * Every person's accounts on this venue that their own wallet signed for, as `ownerSignedAccounts` reads one person's:
+   * the accounts the venue balance watch reads (J-cex-spot-15 #9). Sorted by person, then owner, then sub-account.
+   */
+  ownerSignedAccountsAll(venueId: string): Promise<(OwnerSignedAccount & { readonly userId: string })[]>;
+
+  /**
    * The signed action of this person that placed the order under `venueClientOrderId` (a `place_order`, an order of a
    * `place_orders`, or a `replace_order`'s replacement), or null when none of theirs did: the operator's read of a
    * customer's routed order finds the customer's own venue account through it (J-cex-spot-18 #1). Another person's order
    * under the same id is never theirs. Where two of theirs share an id, the first prepared wins.
    */
   placedOrder(userId: string, venueClientOrderId: string): Promise<StoredVenueAction | null>;
+
+  /**
+   * The trader's own labels on signed orders placed through this door on `account`, keyed by lowercase venue client
+   * order id (J-derivatives-04 #2). Another person's labels on the same wallet are never returned.
+   */
+  orderLabels(
+    userId: string,
+    account: { readonly venueId: string; readonly owner: string; readonly subAccount: string | null },
+  ): Promise<ReadonlyMap<string, string>>;
 }
 
 export interface OwnerSignedAccount {
@@ -103,6 +119,15 @@ export interface OwnerSignedAccount {
 }
 
 /** One account per owner and sub-account, sorted, from the stored actions that name it. */
+/** `signedAccountsOf` for every person the rows name, sorted by person. */
+function everyonesSignedAccounts(
+  rows: readonly StoredVenueAction[],
+  venueId: string,
+): (OwnerSignedAccount & { readonly userId: string })[] {
+  const users = [...new Set(rows.map((r) => r.userId))].sort();
+  return users.flatMap((userId) => signedAccountsOf(rows, userId, venueId).map((a) => ({ userId, ...a })));
+}
+
 function signedAccountsOf(rows: Iterable<StoredVenueAction>, userId: string, venueId: string): OwnerSignedAccount[] {
   const seen = new Map<string, OwnerSignedAccount>();
   for (const row of rows) {
@@ -141,7 +166,13 @@ export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'pre
   const took = !!lastOutcome?.definite && lastOutcome.accepted;
   if (prepared.intent.kind === 'place_order') {
     if (prepared.venueClientOrderId === null) return [];
-    return [{ venueClientOrderId: prepared.venueClientOrderId, feeBps: prepared.builderFee?.feeBps ?? null, accepted: took }];
+    return [
+      {
+        venueClientOrderId: prepared.venueClientOrderId,
+        feeBps: prepared.builderFee?.feeBps ?? null,
+        accepted: took,
+      },
+    ];
   }
   if (prepared.intent.kind === 'replace_order') {
     // A cancel-and-replace places its replacement (the second answer) under the replacement's own client id.
@@ -162,6 +193,38 @@ export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'pre
     feeBps: order.builderFee?.feeBps ?? null,
     accepted: took && legs[i]?.accepted === true,
   }));
+}
+
+const labelOf = (raw: string | null | undefined) => (typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null);
+
+/** Client-id → label pairs from one signed action on `account`. */
+function labelsFromRow(
+  row: StoredVenueAction,
+  account: { readonly venueId: string; readonly owner: string; readonly subAccount: string | null },
+): readonly [string, string][] {
+  const p = row.prepared;
+  if (
+    !row.signature ||
+    p.venueId !== account.venueId ||
+    !sameAddress(p.account.owner, account.owner) ||
+    !sameAddress(p.account.subAccount ?? null, account.subAccount)
+  )
+    return [];
+  if (p.intent.kind === 'place_order') {
+    const label = labelOf(p.intent.label);
+    return p.venueClientOrderId !== null && label !== null ? [[p.venueClientOrderId.toLowerCase(), label]] : [];
+  }
+  if (p.intent.kind === 'replace_order') {
+    const label = labelOf(p.intent.order.label);
+    return label !== null ? [[venueClientOrderId(p.venueId, p.intent.order.clientOrderKey).toLowerCase(), label]] : [];
+  }
+  if (p.intent.kind !== 'place_orders') return [];
+  const pairs: [string, string][] = [];
+  for (const order of p.intent.orders) {
+    const label = labelOf(order.label);
+    if (label !== null) pairs.push([venueClientOrderId(p.venueId, order.clientOrderKey).toLowerCase(), label]);
+  }
+  return pairs;
 }
 
 /** Each accepted order of a signed action with our builder fee, by client id, with the fee rate it carried. */
@@ -325,6 +388,10 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     return signedAccountsOf(this.rows.values(), userId, venueId);
   }
 
+  async ownerSignedAccountsAll(venueId: string) {
+    return everyonesSignedAccounts([...this.rows.values()], venueId);
+  }
+
   async placedOrder(userId: string, venueClientOrderId: string) {
     const id = venueClientOrderId.toLowerCase();
     const rows = [...this.rows.values()]
@@ -351,6 +418,15 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const wanted = new Set(venueClientOrderIds);
     const out = new Set<string>();
     for (const row of this.rows.values()) for (const id of sentWithOurFee(row, venueId, account)) if (wanted.has(id)) out.add(id);
+    return out;
+  }
+
+  async orderLabels(userId: string, account: { venueId: string; owner: string; subAccount: string | null }) {
+    const out = new Map<string, string>();
+    const rows = [...this.rows.values()]
+      .filter((r) => r.userId === userId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.businessKey.localeCompare(b.businessKey));
+    for (const row of rows) for (const [id, label] of labelsFromRow(row, account)) if (!out.has(id)) out.set(id, label);
     return out;
   }
 }
@@ -493,6 +569,25 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     return signedAccountsOf(rows.map(fromRow), userId, venueId);
   }
 
+  async ownerSignedAccountsAll(venueId: string) {
+    // Each person with a row a wallet signed as the account's owner on this venue, then their accounts as
+    // ownerSignedAccounts reads them (the owner checks are signedAccountsOf's).
+    const users = z
+      .object({ user_id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
+          SELECT DISTINCT user_id FROM trade.user_venue_actions
+          WHERE venue_id = ${venueId} AND signature IS NOT NULL AND prepared->'signer'->>'role' = 'owner'
+          ORDER BY user_id`,
+      );
+    const out: (OwnerSignedAccount & { readonly userId: string })[] = [];
+    for (const { user_id: userId } of users) {
+      for (const account of await this.ownerSignedAccounts(userId, venueId)) out.push({ userId, ...account });
+    }
+    return out;
+  }
+
   async placedOrder(userId: string, venueClientOrderId: string) {
     const id = venueClientOrderId.toLowerCase();
     // Orders signed together carry no one client id of their own: each of their orders is matched in ordersOf.
@@ -535,6 +630,28 @@ export class SqlPreparedActionStore implements PreparedActionStore {
         AND lower(prepared->'account'->>'owner') = lower(${account.owner})`;
     const wanted = new Set(venueClientOrderIds);
     for (const row of rows.map(fromRow)) for (const id of sentWithOurFee(row, venueId, account)) if (wanted.has(id)) out.add(id);
+    return out;
+  }
+
+  async orderLabels(userId: string, account: { venueId: string; owner: string; subAccount: string | null }) {
+    const out = new Map<string, string>();
+    const StoredRow = z.object({
+      user_id: z.string(),
+      business_key: z.string(),
+      created_at: z.date(),
+      prepared: z.unknown(),
+      signature: z.unknown(),
+      last_outcome: z.unknown(),
+    });
+    const rows = StoredRow.array().parse(
+      await this.sql`
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND venue_id = ${account.venueId} AND signature IS NOT NULL
+        AND kind IN ('place_order', 'place_orders', 'replace_order')
+        AND lower(prepared->'account'->>'owner') = lower(${account.owner})
+      ORDER BY created_at, business_key`,
+    );
+    for (const row of rows.map(fromRow)) for (const [id, label] of labelsFromRow(row, account)) if (!out.has(id)) out.set(id, label);
     return out;
   }
 }

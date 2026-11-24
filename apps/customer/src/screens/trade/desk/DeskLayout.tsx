@@ -259,13 +259,13 @@ export function DeskLayoutMenu({
         }
       }}
     >
-      <PopoverTrigger className="dk-layouts-btn">{t('Layouts')}</PopoverTrigger>
+      <PopoverTrigger className="lt-button lt-button-secondary">{t('Layouts')}</PopoverTrigger>
       {/* A portal above the page, so the ticker strip never clips it. */}
-      <PopoverContent align="end" aria-label={t('Desk layout')} className="dk-layouts-pop">
-        <fieldset className="dk-layouts-presets">
+      <PopoverContent align="end" size="wide" aria-label={t('Desk layout')} className="lt-stack">
+        <fieldset className="lt-stack-tight lt-tight">
           <legend>{t('Desk preset')}</legend>
           {(['classic', 'advanced'] as const).map((preset) => (
-            <label key={preset} className="dk-layouts-preset">
+            <label key={preset} className="lt-field">
               <input
                 type="radio"
                 name={`${id}-preset`}
@@ -276,8 +276,8 @@ export function DeskLayoutMenu({
             </label>
           ))}
         </fieldset>
-        {isUntouched(desk.layout) ? null : <p className="dk-layouts-note">{t('Arranged on this device')}</p>}
-        <div className="dk-layouts-actions">
+        {isUntouched(desk.layout) ? null : <p className="lt-note">{t('Arranged on this device')}</p>}
+        <div className="lt-row">
           <button
             type="button"
             onClick={() => {
@@ -292,13 +292,13 @@ export function DeskLayoutMenu({
           </button>
         </div>
         {confirming ? (
-          <div role="alertdialog" aria-label={t('Reset the desk?')} className="dk-layouts-confirm">
+          <div role="alertdialog" aria-label={t('Reset the desk?')} className="lt-callout">
             <p>
               {t('Reset the desk to the {preset} preset? The arrangement on this device is replaced.', {
                 preset: presetName(desk.layout.preset),
               })}
             </p>
-            <div className="dk-layouts-actions">
+            <div className="lt-row">
               <button
                 type="button"
                 onClick={() => {
@@ -317,33 +317,33 @@ export function DeskLayoutMenu({
           </div>
         ) : null}
 
-        <section className="dk-saved" aria-labelledby={`${id}-saved`}>
-          <h3 id={`${id}-saved`} className="dk-saved-title">
+        <section className="lt-stack" aria-labelledby={`${id}-saved`}>
+          <h3 id={`${id}-saved`} className="lt-panel-title">
             {l('My layouts')}
           </h3>
           {saved.status === 'signed-out' ? (
-            <p className="dk-layouts-note">{l('Layouts signed out')}</p>
+            <p className="lt-note">{l('Layouts signed out')}</p>
           ) : saved.status === 'loading' ? (
-            <p className="dk-layouts-note">{l('Layouts loading')}</p>
+            <p className="lt-note">{l('Layouts loading')}</p>
           ) : saved.status === 'failed' ? (
-            <p className="dk-layouts-note">
+            <p className="lt-note">
               {l('Layouts failed')}{' '}
-              <button type="button" className="dk-saved-link" onClick={saved.reload}>
+              <button type="button" className="lt-link" onClick={saved.reload}>
                 {l('Try again')}
               </button>
             </p>
           ) : (
             <>
               {saved.value.layouts.length === 0 ? (
-                <p className="dk-layouts-note">{l('No layouts')}</p>
+                <p className="lt-note">{l('No layouts')}</p>
               ) : (
-                <ul className="dk-saved-list">
+                <ul className="lt-list lt-tight lt-list-rule">
                   {saved.value.layouts.map((layout) => (
-                    <li key={layout.id} className="dk-saved-row" data-layout-id={layout.id}>
-                      <span className="dk-saved-name">{layout.name}</span>{' '}
-                      {layout.id === saved.value.active ? <span className="dk-saved-tag">{l('In use')}</span> : null}{' '}
-                      <span className="lt-muted">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
-                      <span className="dk-saved-actions">
+                    <li key={layout.id} className="lt-row" data-layout-id={layout.id}>
+                      <span className="lt-strong">{layout.name}</span>{' '}
+                      {layout.id === saved.value.active ? <span className="lt-label">{l('In use')}</span> : null}{' '}
+                      <span className="lt-note">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
+                      <span className="lt-row">
                         <button
                           type="button"
                           disabled={busy}
@@ -387,11 +387,11 @@ export function DeskLayoutMenu({
                 </ul>
               )}
               {form ? (
-                <div role="dialog" aria-label={l('Save layout')} className="dk-saved-form">
+                <div role="dialog" aria-label={l('Save layout')} className="lt-stack">
                   {form.replacing ? (
-                    <div role="alertdialog" aria-label={l('Replace title', { name: form.name.trim() })} className="dk-layouts-confirm">
+                    <div role="alertdialog" aria-label={l('Replace title', { name: form.name.trim() })} className="lt-callout">
                       <p>{l('Replace body', { name: form.name.trim() })}</p>
-                      <div className="dk-layouts-actions">
+                      <div className="lt-row">
                         <button type="button" disabled={busy} onClick={() => void submit(true)}>
                           {l('Replace')}
                         </button>
@@ -401,8 +401,8 @@ export function DeskLayoutMenu({
                       </div>
                     </div>
                   ) : (
-                    <form onSubmit={onSubmit} className="dk-saved-fields">
-                      <label className="dk-saved-field">
+                    <form onSubmit={onSubmit} className="lt-stack">
+                      <label className="lt-field">
                         {l('Layout name')}
                         <input
                           value={form.name}
@@ -411,7 +411,7 @@ export function DeskLayoutMenu({
                           onChange={(event) => setForm({ ...form, name: event.target.value, problem: null })}
                         />
                       </label>
-                      <div className="dk-layouts-actions">
+                      <div className="lt-row">
                         <button type="submit" disabled={busy}>
                           {l('Save')}
                         </button>
@@ -422,13 +422,13 @@ export function DeskLayoutMenu({
                     </form>
                   )}
                   {form.problem ? (
-                    <p role="alert" className="dk-saved-problem">
+                    <p role="alert" className="lt-note lt-note-bad">
                       {form.problem}
                     </p>
                   ) : null}
                 </div>
               ) : null}
-              <div className="dk-layouts-actions">
+              <div className="lt-row">
                 {form ? null : (
                   <button type="button" onClick={() => setForm({ name: '', replacing: false, problem: null })}>
                     {l('Save layout')}
@@ -440,14 +440,14 @@ export function DeskLayoutMenu({
               </div>
               {showDeleted ? (
                 saved.value.deleted.length === 0 ? (
-                  <p className="dk-layouts-note">{l('Nothing deleted')}</p>
+                  <p className="lt-note">{l('Nothing deleted')}</p>
                 ) : (
-                  <ul className="dk-saved-list" aria-label={l('Recently deleted')}>
+                  <ul className="lt-list lt-tight lt-list-rule" aria-label={l('Recently deleted')}>
                     {saved.value.deleted.map((layout) => (
-                      <li key={layout.id} className="dk-saved-row" data-deleted-id={layout.id}>
-                        <span className="dk-saved-name">{layout.name}</span>{' '}
-                        <span className="lt-muted">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
-                        <span className="dk-saved-actions">
+                      <li key={layout.id} className="lt-row" data-deleted-id={layout.id}>
+                        <span className="lt-strong">{layout.name}</span>{' '}
+                        <span className="lt-note">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
+                        <span className="lt-row">
                           <button
                             type="button"
                             disabled={busy}
@@ -465,12 +465,12 @@ export function DeskLayoutMenu({
             </>
           )}
           {problem ? (
-            <p role="alert" className="dk-saved-problem">
+            <p role="alert" className="lt-note lt-note-bad">
               {problem}
             </p>
           ) : null}
           {noteText ? (
-            <p role="status" className="dk-layouts-note">
+            <p role="status" className="lt-note">
               {noteText}
             </p>
           ) : null}
@@ -540,7 +540,7 @@ export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: W
       <div
         role="button"
         tabIndex={0}
-        className="dk-arrange-move"
+        className="lt-icon-button"
         draggable
         aria-label={t('Move {widget}', { widget: name })}
         onDragStart={(event) => {
@@ -558,7 +558,7 @@ export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: W
           aria-orientation="vertical"
           aria-label={t('Resize {widget}', { widget: name })}
           aria-valuenow={width}
-          className="dk-arrange-edge"
+          className="lt-icon-button"
           onPointerDown={onEdgeDown}
           onPointerMove={onEdgeMove}
           onPointerUp={onEdgeUp}
@@ -580,7 +580,7 @@ export function ArrangeBar({ desk }: { desk: DeskLayoutState }) {
   const { t } = deskCopy.useCopy();
   if (!desk.arranging) return null;
   return (
-    <div className="dk-arrange-bar" role="status">
+    <div className="lt-callout lt-row lt-row-between" role="status">
       <span>{t('Drag a widget onto another to swap them, or drag an edge to resize it.')}</span>
       <button type="button" onClick={() => desk.setArranging(false)}>
         {t('Done')}

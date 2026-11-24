@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { Button, HIDDEN_MASK, StatusNote } from '@intafaced/ui/lit';
+import { classifyRefusal } from '../../data/refusal-codes';
 import { usePreferences } from '../../shared/preferences';
 import { answerWaitingPayment, fetchWaitingPayments, fmtAmount, useSession, type ReceivedHold } from './deps';
 import { payCopy } from './copy';
@@ -26,7 +27,9 @@ export function WaitingForYou() {
     const controller = new AbortController();
     void fetchWaitingPayments(api, controller.signal).then((outcome) => {
       if (controller.signal.aborted) return;
-      setLoaded(outcome.kind === 'ok' ? { status: 'ready', list: outcome.data } : { status: 'failed' });
+      // A person not yet verified has nothing they can answer here, and Pay already says to verify: nothing to show.
+      if (outcome.kind === 'failed' && classifyRefusal(outcome.code) === 'verify') setLoaded({ status: 'ready', list: [] });
+      else setLoaded(outcome.kind === 'ok' ? { status: 'ready', list: outcome.data } : { status: 'failed' });
     });
     return () => controller.abort();
   }, [api, revision]);

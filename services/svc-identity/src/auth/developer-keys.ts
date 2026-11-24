@@ -49,6 +49,7 @@ import { DeveloperTeamError, manageRefusalOf, seatOf, type DeveloperSeat } from 
 import { expireApiKey, ExpireApiKeyError } from './expire-api-key.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import type { LeadCheck } from './lead-key-check.js';
+import { keyBudgetSet, type RatePolicy } from './api-rate-limits.js';
 
 export type DeveloperKeyRefusal =
   | 'auth.scope_empty'
@@ -78,7 +79,8 @@ export type DeveloperKeyRefusal =
   | 'identity.developer_role_read_only'
   | 'identity.developer_role_none'
   | 'identity.key_rotate_overlap_unset'
-  | 'identity.key_rotate_overlap_too_long';
+  | 'identity.key_rotate_overlap_too_long'
+  | 'identity.rate_limits_unset';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -289,6 +291,11 @@ export type DeveloperKeysDeps = {
   kycTier: (userId: string, sql?: Queryable) => Promise<KycTier>;
   capByTier: ReadonlyMap<KycTier, number> | null;
   /**
+   * The owner's rate tiers and per-user budget (`IDENTITY_API_RATE_LIMITS`, `parseRatePolicy`). A key whose environment
+   * has no budget set could make no call, so it is refused `identity.rate_limits_unset` and nothing is issued.
+   */
+  ratePolicy: RatePolicy | null;
+  /**
    * The service's own rule for who may hold a key at all (on the live service: an enrolled, verified passkey,
    * `requireVerifiedPasskey`). Asked before the factor is spent, with the kind of factor sent (a passkey assertion
    * verifies the passkey on its way in); the mint itself checks it again.
@@ -317,6 +324,13 @@ export type DeveloperKeysDeps = {
 export { signsByDefault };
 
 export type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
+
+/** No key is issued while the owner has set no budget for its environment (J-cex-spot-15 #7): it could make no call. */
+export function assertKeyBudgetSet(policy: RatePolicy | null, mode: 'live' | 'sandbox'): void {
+  if (!keyBudgetSet(policy, mode)) {
+    throw new DeveloperKeyError('No rate budget is set for this kind of key, so no key was made', 'identity.rate_limits_unset');
+  }
+}
 
 async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Queryable): Promise<number | null> {
   if (!deps.capByTier) return null;
@@ -419,6 +433,7 @@ export async function createDeveloperKey(
   try {
     await assertNameFree(deps.sql, caller.userId, checked.name);
     await assertUnderCap(deps, caller.userId, deps.sql);
+    assertKeyBudgetSet(deps.ratePolicy, 'live');
     await assertAccountKeyAllowed(deps, caller.userId, checked, deps.sql);
   } catch (err) {
     // The twin of this request may have committed since the replay read: its key is this request's answer, not a clash.

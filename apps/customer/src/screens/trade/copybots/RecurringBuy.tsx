@@ -417,8 +417,10 @@ export function RecurringRoom({ path }: { path: string }) {
   ) : (
     <RecurringList />
   );
+  // A room of the kit's (`lt-room`) keeps the page's gutter and content width (app/volt.css): drawn as a bare stack, its
+  // heading and rows ran from the window's edge to its edge.
   return (
-    <div className="lt-stack">
+    <div className="lt-room">
       <header>
         <h1 className="lt-title">{share ? t('Recurring buy result') : t('Recurring buy (DCA)')}</h1>
       </header>
@@ -707,9 +709,11 @@ function RecurringShare({ ruleId }: { ruleId: string }) {
         {value === null ? <InfoNote>{t('Value is Not set while a coin in the basket has no price on the venue.')}</InfoNote> : null}
         <TestMark test={rule.venue.test} />
       </section>
-      <Button tone="primary" onClick={() => setSheet(true)}>
-        {t('Share')}
-      </Button>
+      <div className="lt-actions">
+        <Button tone="primary" onClick={() => setSheet(true)}>
+          {t('Share')}
+        </Button>
+      </div>
       {sheet ? (
         <KitDialog
           title={t('Share your result')}

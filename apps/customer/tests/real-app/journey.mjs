@@ -8,7 +8,9 @@ import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scrip
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { REACH_ATTACHMENT, makeCodeReader, makeLogReader, makeRecorder, settleCode } from '../../../../tooling/scripts/journey-reach.mjs';
 import { codeReachDir } from '../../../../tooling/scripts/service-reach.mjs';
+import { makeScreens } from '../../../../tooling/scripts/journey-screens.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { makeMoves } from '../../../../tooling/scripts/journey-moves.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 import { beforeRequest, noteResponse, partnerFile } from './partner-start.mjs';
@@ -191,8 +193,15 @@ function watchApiMaker(apiRequest) {
   apiRequest.newContext = async (...args) => watchApi(await newContext(...args));
 }
 
+// The customer app's screens each test showed, for the hosted beta's check (tooling/scripts/journey-screens.mjs).
+const screens = makeScreens((url) => reach.servesCustomer(url));
+const watchScreens = (page) => noted(() => screens.watch(page));
+
 const creating = new WeakMap(); // context -> pages being made by our own newPage, not opened by the app
 const watched = new WeakSet();
+// The in-app moves each test made, for the hosted beta's reach check (tooling/scripts/journey-moves.mjs).
+const moves = makeMoves((url) => reach.servesCustomer(url));
+const watchMoves = (page) => noted(() => moves.watch(page));
 function watchContext(context) {
   if (watched.has(context)) return context;
   watched.add(context);
@@ -206,7 +215,13 @@ function watchContext(context) {
       if (!covered.get(page)?.started) askedEarly.add(page);
     });
   });
+  for (const page of context.pages()) {
+    watchScreens(page);
+    watchMoves(page);
+  }
   context.on('page', (page) => {
+    watchScreens(page);
+    watchMoves(page);
     if (!(creating.get(context) > 0)) void startCoverage(page, { opened: true });
   });
   const newPage = context.newPage.bind(context);
@@ -387,6 +402,36 @@ const extended = base.extend({
         }
       } catch {
         /* recording never fails a test */
+      }
+    },
+    { auto: true },
+  ],
+  // The customer app's screens this test showed (journey-screens.mjs), on the test as its `beta screens` annotation, which
+  // the verdict reads to name the steps on a screen the hosted beta hides. Never fails the test.
+  betaScreens: [
+    async ({ context }, use, testInfo) => {
+      void context;
+      const seen = screens.begin();
+      try {
+        await use();
+      } finally {
+        const note = screens.end(seen);
+        if (note) testInfo.annotations.push(note);
+      }
+    },
+    { auto: true },
+  ],
+  // The in-app moves this test made (journey-moves.mjs), on the test as its `beta moves` annotation, which the reach
+  // check reads from passing steps to reach a room only a record the step made leads to. Never fails the test.
+  betaMoves: [
+    async ({ context }, use, testInfo) => {
+      void context;
+      const seen = moves.begin();
+      try {
+        await use();
+      } finally {
+        const note = moves.end(seen);
+        if (note) testInfo.annotations.push(note);
       }
     },
     { auto: true },

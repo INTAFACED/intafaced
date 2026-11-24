@@ -87,3 +87,57 @@ describe('the venue protocol over HTTP (answerUserVenue)', () => {
     });
   });
 });
+
+describe('a running venue names its source and lists its replay misses', () => {
+  it('/health names the recording and trader; /replay/misses lists each request the recording had no answer for', async () => {
+    const fetch = replayRecording({ label: 'TEST', note: '', calls: [] });
+    const source = { kind: 'hl-recorded' as const, recording: 'J-x', trader: `0x${'ab'.repeat(20)}`, misses: () => fetch.misses };
+    const venue = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch });
+    const at = { ...info, source };
+    const [, health] = await answerUserVenue(venue, at, { method: 'GET', path: '/health', rawBody: '' });
+    expect(health).toMatchObject({ source: { kind: 'hl-recorded', recording: 'J-x', trader: source.trader } });
+    expect(await answerUserVenue(venue, at, { method: 'GET', path: '/replay/misses', rawBody: '' })).toEqual([200, { misses: [] }]);
+    await answerUserVenue(venue, at, { method: 'POST', path: '/markets', rawBody: '{}' });
+    const [status, body] = await answerUserVenue(venue, at, { method: 'GET', path: '/replay/misses', rawBody: '' });
+    expect(status).toBe(200);
+    // The market list reads the perpetual and spot listings: both are listed, each by its key.
+    expect((body as { misses: { key: string }[] }).misses.map((m) => m.key).sort()).toEqual([
+      '/info {"type":"meta"}',
+      '/info {"type":"spotMeta"}',
+    ]);
+  });
+});
+
+describe('a user-signed action as the running venue sends it to the wallet', () => {
+  it('the typed data names the wallet chain GET /venue names, and its uint64 nonce travels as a decimal string', async () => {
+    const owner = `0x${'ab'.repeat(20)}`;
+    const { server, url } = await startHyperliquidVenueServer({
+      host: '127.0.0.1',
+      port: 0,
+      appEnv: 'test',
+      fetch: replayRecording({ label: 'TEST', note: '', calls: [] }),
+      clock: () => new Date(RECORDED_ORDER_NOW_MS),
+    });
+    try {
+      const res = await fetch(`${url}/prepare`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          encodeVenueWire({
+            account: { venueId: 'hyperliquid-testnet', owner, subAccount: null },
+            signer: { kind: 'owner', address: owner },
+            intent: { kind: 'approve_builder_fee', builder: `0x${'cd'.repeat(20)}`, maxFeeBps: parseAmount('0.5') },
+          }),
+        ),
+      });
+      expect(res.status).toBe(200);
+      const prepared = (await res.json()) as { typedData: { domain: { chainId: number }; message: { nonce: unknown } } };
+      expect(prepared.typedData.domain.chainId).toBe(HL_TESTNET_WALLET_CHAIN_ID);
+      expect(prepared.typedData.message.nonce).toMatch(/^\d+$/);
+      // The server is still up after the answer: a second request is answered.
+      expect((await fetch(`${url}/health`)).status).toBe(200);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

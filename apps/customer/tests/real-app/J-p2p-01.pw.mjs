@@ -630,14 +630,44 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await browserHoldsPasskey(page, state.passkey);
   await signIn(page, state.buyer);
 
-  // A take with no confirmation is refused by name, and nothing is reserved or locked.
   const b = p2p(await api(state.buyer));
-  const s = p2p(await api(state.seller));
-  const before = (await b.query('offers.get', { offerId: state.offerId })).remainingAmount;
-  const refused = await b.bare.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+  const sellerSession = await api(state.seller);
+  const s = p2p(sellerSession);
+  const maker = await sellerId(b, state.offerId);
+  const TEN = toUnits('10');
+  // What the ad has left to sell, and the buyer's orders on it, as svc-p2p has them.
+  const remaining = async () => toUnits((await b.query('offers.get', { offerId: state.offerId })).remainingAmount);
+  const ordersOnAd = async () =>
+    (await b.query('trades.page', { limit: 50 })).trades.filter((trade) => trade.offerId === state.offerId).map((trade) => trade.id);
+  // The seller's TEST USDT as the ledger has it: free to use, and held in their escrow pots (every order together).
+  const sellerUsdt = async () => {
+    const { free, used } = (await sellerSession.balances()).USDT;
+    return { free: toUnits(free), held: toUnits(used) };
+  };
+  // One lock for an order: svc-ledger's own escrow pot for it took the 10 USDT in with a single posting and has paid
+  // nothing out, and the order itself reports that amount held.
+  const lockedOnce = async (id) => {
+    const pot = await ledgerTradeEscrow(maker, 'USDT', id);
+    expect(pot, `svc-ledger books an escrow pot for order ${id}`).not.toBeNull();
+    expect(pot.postings).toBe('1');
+    expect(toUnits(pot.debits)).toBe(TEN);
+    expect(toUnits(pot.credits)).toBe(0n);
+    expect(toUnits(pot.balance)).toBe(TEN);
+    expect(await b.query('trades.get', { tradeId: id })).toMatchObject({ status: 'escrowed', amount: '10', escrowHeld: '10' });
+  };
+  const before = await remaining();
+  const funds = await sellerUsdt();
+  expect(await ordersOnAd()).toEqual([]);
+
+  // A take with no confirmation is refused by name: nothing is reserved, no order is made, and the ledger locks nothing.
+  const unconfirmed = randomUUID();
+  const refused = await b.bare.mutate('trades.take', { offerId: state.offerId, tradeId: unconfirmed, amount: '10', method: METHOD });
   expect(refused.status).toBe(403);
   expect(refusalCode(refused)).toBe('auth.step_up_required');
-  expect((await b.query('offers.get', { offerId: state.offerId })).remainingAmount).toBe(before);
+  expect(await remaining()).toBe(before);
+  expect(await ordersOnAd()).toEqual([]);
+  expect(await ledgerTradeEscrow(maker, 'USDT', unconfirmed)).toBeNull();
+  expect(await sellerUsdt()).toEqual(funds);
 
   // Review, then confirm with the passkey: the order is placed and opens.
   const review = async (open = () => page.goto(`/p2p?offerId=${state.offerId}`)) => {
@@ -654,10 +684,9 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await dialog.getByRole('button', { name: 'Use a passkey' }).click();
   await expect(page).toHaveURL(/\/uc\/order\?tradeId=/);
   const tradeId = new URL(page.url()).searchParams.get('tradeId');
-  const ordersOnAd = async () =>
-    (await b.query('trades.page', { limit: 50 })).trades.filter((trade) => trade.offerId === state.offerId).map((trade) => trade.id);
+  // Created once: one order on the ad, 10 USDT of the ad reserved, and one lock of 10 USDT out of the seller's free coins.
   expect(await ordersOnAd()).toEqual([tradeId]);
-  expect(Number(before) - Number((await b.query('offers.get', { offerId: state.offerId })).remainingAmount)).toBe(10);
+  expect(before - (await remaining())).toBe(TEN);
   expect(await b.query('trades.get', { tradeId })).toMatchObject({
     status: 'escrowed',
     amount: '10',
@@ -665,6 +694,8 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
     fiatAmount: '9.2',
     method: METHOD,
   });
+  await lockedOnce(tradeId);
+  expect(await sellerUsdt()).toEqual({ free: funds.free - TEN, held: funds.held + TEN });
 
   // Back to the ad in the app: the confirmation covers the next orders here for up to ten minutes, and says so; a
   // double press places one order.
@@ -676,8 +707,18 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await expect(page).toHaveURL(/\/uc\/order\?tradeId=/);
   const second = new URL(page.url()).searchParams.get('tradeId');
   expect(second).not.toBe(tradeId);
+  // One trade: the double press added exactly one order to the buyer's orders on the ad, and reserved 10 USDT more.
   expect((await ordersOnAd()).sort()).toEqual([tradeId, second].sort());
-  expect(Number(before) - Number((await b.query('offers.get', { offerId: state.offerId })).remainingAmount)).toBe(20);
+  expect(before - (await remaining())).toBe(2n * TEN);
+  // One lock: that order's pot holds 10 USDT from a single posting, the first order's pot is as it was, and the seller's
+  // escrow, every order together, rose by exactly that one 10 USDT, taken once from their free coins.
+  await lockedOnce(second);
+  await lockedOnce(tradeId);
+  expect(await sellerUsdt()).toEqual({ free: funds.free - 2n * TEN, held: funds.held + 2n * TEN });
+  // The order the double press opened shows the 10 USDT in escrow.
+  const placed = page.getByRole('main').getByTestId('p2p-order-quantities');
+  await expect(placed).toContainText('Asset in escrow');
+  await expect(placed.locator('[data-exact-amount]').first()).toHaveAttribute('data-exact-amount', '10');
   await page.goto(`/uc/order?tradeId=${tradeId}`);
 
   // The seller edits the ad: the order keeps the price, amount and method it was placed under.
@@ -694,6 +735,11 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await expect(order).toContainText('0.92');
   await expect(order).toContainText('9.2 EUR');
   await expect(order).not.toContainText('0.95');
+  // The amount, the payment and the method it was placed with.
+  const quantities = order.getByTestId('p2p-order-quantities');
+  await expect(quantities.locator('[data-exact-amount]').nth(0)).toHaveAttribute('data-exact-amount', '10');
+  await expect(quantities.locator('[data-exact-amount]').nth(1)).toHaveAttribute('data-exact-amount', '9.2');
+  await expect(quantities).toContainText(METHOD);
   // The ad's terms as they were when the order was placed, not the edit.
   await order.getByText('Order details').click();
   await expect(order.getByTestId('order-terms')).toHaveText('TEST terms: pay from an account in your own name; no third-party payments.');

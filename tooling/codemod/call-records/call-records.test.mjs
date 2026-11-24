@@ -32,8 +32,8 @@ import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
 import { accessText, armsOf, callsOf } from './door.mjs';
-import { canon, doorTree, treeOf } from './door-check.mjs';
-import { samplesFor } from './samples.mjs';
+import { canon, doorTree, knowRefines, recordsToHold, treeOf } from './door-check.mjs';
+import { bankAccepted, doorAccepts, samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
@@ -794,6 +794,8 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
     "export const a = payCall(ctx, 'payHalts.history', 'GET', { limit: 5 }, parseWith(historySchema));",
     "export const b = payCall(ctx, 'recipients.list', 'GET', {}, readRows, 'identity');",
     "export const c = founderEdgeCall(config, 'identity', 'recipients.add', 'POST', input, undefined, signIn);",
+    // The past miss (admin's staffTestStatus): its own .safeParse() reads an answer it can't read as "not staff".
+    "export const d = async () => staffSchema.safeParse(await founderEdgeCall(config, 'identity', 'staffTestStatus', 'GET', {}, token));",
   ]);
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
@@ -805,6 +807,7 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
     sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
     [
       ['founderEdgeCall', 'identity', 'recipients.add', 'mutation'],
+      ['founderEdgeCall', 'identity', 'staffTestStatus', 'query'],
       ['payCall', 'identity', 'recipients.list', 'query'],
       ['payCall', 'pay', 'payHalts.history', 'query'],
       ['useBankRead', 'bank', 'cards.list', 'query'],
@@ -839,6 +842,10 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
     moved(of('founderEdgeCall', 'recipients.add'), 'IDENTITY_RECIPIENTS_ADD').code,
     /= founderEdgeRecordCall\(config, IDENTITY_RECIPIENTS_ADD, input, undefined, signIn\);$/m,
   );
+  // Read softly, it moves to the read that hands its own parse `undefined` for an answer the record refuses, never a 502.
+  const soft = moved(of('founderEdgeCall', 'staffTestStatus'), 'IDENTITY_STAFF_TEST_STATUS');
+  assert.match(soft.code, /staffSchema\.safeParse\(await founderEdgeRecordRead\(config, IDENTITY_STAFF_TEST_STATUS, \{\}, token\)\);$/m);
+  assert.deepEqual([...new Map(soft.imports).get('@/lib/founder-session')], ['founderEdgeRecordRead']);
 });
 
 test("the Business API's calls, named by their call alone, are svc-pay's and move to its record form; a near shape stays", () => {
@@ -1144,6 +1151,12 @@ test('the report sorts each hand reason into the kind one script change or one d
     reasonOf('r: s comes from @intafaced/money-math, which contracts does not depend on'),
     'answer or input schema from another package or generic',
   );
+  assert.equal(
+    reasonOf(
+      "svc/a.ts#needsApproval: reads process.env, so its schema changes with the service's settings: a record takes one schema; write it with the setting's field optional and refuse in the handler",
+    ),
+    "schema picked by the service's settings (one record: field optional, handler refuses)",
+  );
   assert.equal(reasonOf('something new'), 'other');
 });
 
@@ -1310,7 +1323,7 @@ test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RE
   const bare = join(dir, 'bare.ts');
   writeFileSync(bare, "export const d = { module: 'bank', procedure: 'health' };\n");
   assert.deepEqual(deskReadSite(load(bare)), []);
-  // `ReadSpec` imported, `readOf` not: a desk read that imports `readOf` from the same place.
+  // `ReadSpec` imported, `readOf` not: a desk read that imports `readOf` from its home.
   const typed = join(dir, 'typed.ts');
   writeFileSync(
     typed,
@@ -1318,7 +1331,7 @@ test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RE
   );
   assert.deepEqual(
     deskReadSite(load(typed)).map((s) => s.helperFrom),
-    ['@/lib/ops-desk'],
+    ['@/lib/desk-read'],
   );
   // An operator tool beside `toolOf`: its kind is its own, and `edgeModule` and `kind` are what the record replaces.
   const tools = join(dir, 'tools.ts');
@@ -2222,6 +2235,39 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
     accessText({ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }),
     "{ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }",
   );
+  // svc-bank's rows: `scopedProcedure(scope, guards)` with a nested Region and Kyc. Before, every one of them was named
+  // "which this reader does not map to a record's", and its callers stayed by name.
+  const bank = (path, fields) =>
+    `    Call {\n        path: "${path}",\n        kind: Kind::Query,\n        access: Access::Scope(Scoped {\n${fields
+      .map((f) => `            ${f},`)
+      .join('\n')}\n        }),\n        slice: Slice::Accounts,\n        has_input: true,\n    },`;
+  const kycFull =
+    'region: Some(Region {\n                kyc: Some(Kyc {\n                    module: "bank",\n                    min_tier: "full",\n                }),\n            })';
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      bank('salary.details', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull, 'own_session: None']),
+      bank('convertCash.carry', [
+        'scope: "bank:write"',
+        'tier: Some("full")',
+        'person: false',
+        'region: Some(Region { kyc: None })',
+        'own_session: None',
+      ]),
+      bank('ops.free', ['scope: "admin:read"', 'tier: None', 'person: true', 'region: None', 'own_session: Some("bank.own_only")']),
+      bank('no.tier', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: Some(Region { kyc: None })', 'own_session: None']),
+      bank('other.module', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull.replace('"bank"', '"pay"'), 'own_session: None']),
+      bank('odd.field', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: None', 'own_session: None', 'plane: Some("x")']),
+    ].join('\n'),
+  );
+  const bankCalls = Object.fromEntries(callsOf(dir, 'bank'));
+  assert.deepEqual(bankCalls['salary.details'].access, { caller: 'scope', scope: 'bank:read', module: 'bank' });
+  assert.deepEqual(bankCalls['convertCash.carry'].access, { caller: 'scope', scope: 'bank:write', module: 'bank', tier: 'full' });
+  assert.deepEqual(bankCalls['ops.free'].access, { caller: 'scope', scope: 'admin:read', person: true, ownSession: 'bank.own_only' });
+  for (const path of ['no.tier', 'other.module', 'odd.field']) {
+    assert.equal(bankCalls[path].access, null, path);
+    assert.match(bankCalls[path].why, /which this reader does not map to a record's/, path);
+  }
   writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
   assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });
@@ -2236,12 +2282,49 @@ test("a record's input is held to the door's tree: the same zod parts match, one
   assert.notEqual(canon(treeOf(z.strictObject({ slug: z.string().min(2) }))), canon(doorTree(nodes, 0)));
 });
 
+test("a door record is held as the door names it: a refine whatever its arrow's parentheses, a fixed length, and each record the run wrote", async () => {
+  const { z } = await contractsZod();
+  // svc-bank's recorder names `value=>/[1-9]/.test(value)`; prettier writes the record's `(value) => /[1-9]/.test(value)`.
+  knowRefines([['value=>/[1-9]/.test(value)', 'some_nonzero_digit']]);
+  const tree = treeOf(
+    z.strictObject({ amount: z.string().refine((value) => /[1-9]/.test(value), 'above zero'), currency: z.string().length(3) }),
+  );
+  assert.equal(tree.shape[0][1].checks[0].id, 'some_nonzero_digit');
+  assert.deepEqual(tree.shape[1][1].checks, [{ k: 'length_equals', n: 3 }]);
+  // A record the run just wrote is not in the registry yet: it is held all the same. Before, it was skipped, and the run
+  // printed "3 records held; 0 differ" over seven new svc-bank records, every one of which differed.
+  const registered = { name: 'bank.old', transport: 'trpc' };
+  const written = { name: 'bank.new', transport: 'trpc' };
+  assert.deepEqual(recordsToHold({ OLD: registered }, [{ NEW: written, base: { service: 'svc-bank' } }]), [written]);
+  assert.deepEqual(recordsToHold({ OLD: registered }, []), [registered]);
+});
+
 test("a door record's accepted sample is the door's own accepted request, and none is guessed without one", async () => {
   const { z } = await contractsZod();
   const record = { name: 'X', path: 'p', input: z.object({ from: z.string() }) };
   assert.match(samplesFor(record, new Map([['p', { from: '2026-01-01' }]])), /verdict: 'accept', input: \{"from":"2026-01-01"\}/);
   assert.throws(() => samplesFor(record, new Map()), /the door lets through/);
   assert.match(samplesFor(record), /verdict: 'accept'/);
+});
+
+test("svc-bank's replay gives each call the first input its door let through; one it refused every way gives none", () => {
+  const ans = (byInput) =>
+    Object.fromEntries(
+      Object.entries(byInput).flatMap(([input, st]) => [
+        [`${input} anon`, [401, 0]],
+        [`${input} customer`, [st, 1]],
+      ]),
+    );
+  const inputs = { sample: '{"currency":"xxx"}', 'sample-nulls': '{"currency":null}' };
+  assert.deepEqual(bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 412, 'sample-nulls': 400 })), { currency: 'xxx' });
+  assert.deepEqual(bankAccepted({ sample: '{"a":1}' }, ans({ absent: 400, empty: 200, sample: 400 })), {});
+  assert.equal(typeof bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 400, 'sample-nulls': 403 })), 'symbol');
+  // The recording itself: before, svc-bank's parts were read as svc-agents' and named no call, so every bank record was
+  // left with "no accepted input found the door lets through".
+  const bank = doorAccepts('crates/svc-bank');
+  assert.deepEqual(bank.get('salary.form'), { currency: 'xxx' });
+  assert.deepEqual(bank.get('salary.details'), {});
+  assert.equal(bank.has('analytics.compare'), false, 'its recorded sample is refused by every caller');
 });
 
 test('a type a record reads is imported as a type (contracts builds with verbatimModuleSyntax), beside the value it types', () => {
@@ -2428,6 +2511,29 @@ test('a generic helper moves with its own type parameter; a package import moves
     "r: sideSchema comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it",
   ]);
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: T is not declared anywhere it can be read'], 'a T no helper declares stays');
+});
+
+test("a schema picked by the service's settings is named as such, not as a name nobody declares", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-settings-'));
+  mkdirSync(join(repo, 'packages/contracts/src'), { recursive: true });
+  writeFileSync(join(repo, 'packages/contracts/src/wire.ts'), 'export const unused = 1;\n');
+  writeFileSync(join(repo, 'packages/contracts/package.json'), JSON.stringify({ dependencies: { zod: '^4' } }));
+  mkdirSync(join(repo, 'svc'), { recursive: true });
+  writeFileSync(
+    join(repo, 'svc/router.ts'),
+    [
+      "import { z } from 'zod';",
+      'const base = z.object({ id: z.string() }).strict();',
+      "function needsApproval(): boolean { return process.env.NEEDS_APPROVAL === 'true'; }",
+      'function inputSchema() { return needsApproval() ? base.extend({ approvalId: z.string() }) : base; }',
+      'const a = inputSchema();',
+      '',
+    ].join('\n'),
+  );
+  const p = load(join(repo, 'svc/router.ts'));
+  const { problems } = closureOf(repo, [{ p, node: p.program.body[4].declarations[0].init, where: 'r' }]);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /needsApproval: reads process\.env, so its schema changes with the service's settings/);
 });
 
 test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {
@@ -2815,6 +2921,41 @@ test("a bank write spec's `procedure: 'x.y'` becomes `record: RECORD`, its hand 
     [...f.imports].map(([spec, names]) => [spec, [...names]]),
     [['@intafaced/contracts/bank-earn-procedures', ['BANK_EARN_DEPOSIT']]],
   );
+});
+
+test("a bank write spec's `procedure:` picked by a `? :` chain is one site per call, written back as one `record: t ? A : B`", async () => {
+  const { fanIn } = await import('./fan.mjs');
+  const { callText } = await import('./index.mjs');
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('call-records-spec-fan-', {
+    [`${money}/contracts-business.ts`]: [
+      "import { z } from 'zod';",
+      "export const businessWrites = { 'business.approve': z.object({ a: z.string() }), 'business.reject': z.object({ ok: z.literal(true) }), 'business.cancel': z.object({ ok: z.literal(true) }) };",
+    ],
+    [`${money}/components.tsx`]: ['export type ActionSpec = { title: string; procedure: string; notes: string[]; input: () => object };'],
+    [`${money}/Approvals.tsx`]: [
+      "import { type ActionSpec } from './components';",
+      "export const act = (open: (s: ActionSpec) => void, action: string) => open({ title: 'Act', procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel', notes: [], input: () => ({}) });",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.shape === 'write-spec');
+  assert.deepEqual(
+    sites.map((s) => `${s.path} ${s.fan.at}/${s.fan.size} ${s.fan.test ?? '-'} ${s.problem ?? 'moves'}`),
+    ["business.approve 0/3 action === 'approve' moves", "business.reject 1/3 action === 'reject' moves", 'business.cancel 2/3 - moves'],
+  );
+  assert.ok(
+    sites.every((s) => s.schema),
+    'each call keeps its hand schema in view',
+  );
+  const changes = new Changes();
+  for (const s of sites)
+    rewriteSite(changes, s, `BANK_${s.path.split('.')[1].toUpperCase()}`, '@intafaced/contracts/bank-business-procedures', false);
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const file = join(repo, `${money}/Approvals.tsx`);
+  const code = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(code, /record: action === 'approve' \? BANK_APPROVE : action === 'reject' \? BANK_REJECT : BANK_CANCEL, notes/);
+  assert.deepEqual(planned.hand, []);
 });
 
 test('dead-hand-schemas deletes only the bank hand schemas no caller spells, each with its own comment', async () => {
@@ -3242,6 +3383,101 @@ test("a run's new type error is owned by the moved call whose caller is in its f
   assert.deepEqual([...owners.get('apps/customer/src/screens/trade/terminal/index.tsx').keys()], ['copy.list']);
 });
 
+test("a run's new type error leaves only the moved call the code around it names: in its caller's file the call it sits in, in a screen the api member it calls; with none named, every candidate", async () => {
+  const { ownersOf } = await import('./run.mjs');
+  const api = 'apps/customer/src/features/pay/portal/money/api.ts';
+  const screen = 'apps/customer/src/features/pay/portal/money/Destinations.tsx';
+  const other = 'apps/customer/src/features/pay/portal/money/Other.tsx';
+  const moved = [
+    { path: 'settlement.list', record: 'PAY_SETTLEMENT_LIST', files: [api] },
+    { path: 'payment.list', record: 'PAY_PAYMENT_LIST', files: [api] },
+    { path: 'merchant.payoutDestinations.add', record: 'PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD', files: [api] },
+  ];
+  const sources = {
+    [api]: [
+      "import { PAY_SETTLEMENT_LIST, PAY_PAYMENT_LIST, PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD } from '@intafaced/contracts/pay';",
+      'export const moneyApi = ({ queryRecord, mutateRecord }) => ({',
+      '  settlements: (merchantId, status) => queryRecord(PAY_SETTLEMENT_LIST, { merchantId, ...(status ? { status } : {}) }),',
+      '  payments: async (merchantId) => {',
+      '    const page = await queryRecord(PAY_PAYMENT_LIST, { merchantId });',
+      '    return page;',
+      '  },',
+      '  destinationAdd: (input) => mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD, input),',
+      '});',
+    ].join('\n'),
+    [screen]: [
+      "import { moneyApi } from './api';",
+      'export function Destinations({ portal, page }) {',
+      '  const shown = page.items;',
+      '  return <Review perform={() => portal.destinationAdd({ ref: shown })} />;',
+      '}',
+    ].join('\n'),
+    [other]: ["import { moneyApi } from './api';", 'export const x = (page) => page.kind;'].join('\n'),
+  };
+  const err = (file, line, col, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(${line},${col}): ${msg}`, line, col });
+  const owners = ownersOf(
+    [
+      err(api, 3, 80, 'error TS2345: Argument of type A'),
+      err(screen, 4, 23, 'error TS2322: Type B is not assignable to type C'),
+      err(other, 2, 27, 'error TS2339: Property D'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  // The settlements line's own call, not the two below it in the same file.
+  assert.deepEqual([...owners.get(api).keys()], ['settlement.list']);
+  // The screen calls portal.destinationAdd; its local `page` is not the api's local `page`.
+  assert.deepEqual([...owners.get(screen).keys()], ['merchant.payoutDestinations.add']);
+  // Nothing around the error names a moved call: every candidate, as before.
+  assert.deepEqual([...owners.get(other).keys()], ['settlement.list', 'payment.list', 'merchant.payoutDestinations.add']);
+});
+
+test("a type error in the run's own service is owned by the record mounted around it, and one that names no record by none", async () => {
+  // The failure it prevents: on 24 Nov 2026 the svc-pay run typechecked only the apps, and shipped a service whose
+  // mountRecord(PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, ...) handler no longer fit its record (#10717's first head).
+  const { ownersOf } = await import('./run.mjs');
+  const router = 'services/svc-pay/src/merchant-ops/router.ts';
+  const audit = 'services/svc-pay/src/control/audit.ts';
+  const moved = [
+    { path: 'merchantOps.permissions.catalogue', record: 'PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE', files: ['apps/customer/src/a.ts'] },
+    { path: 'merchantOps.team.invite', record: 'PAY_MERCHANT_OPS_TEAM_INVITE', files: ['apps/customer/src/a.ts'] },
+  ];
+  const sources = {
+    [router]: [
+      "import { PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, PAY_MERCHANT_OPS_TEAM_INVITE } from '@intafaced/contracts/pay';",
+      'export const merchantOpsRouter = router({',
+      '  invite: mountRecord(PAY_MERCHANT_OPS_TEAM_INVITE, ({ input }) => invite(input), payRefusal),',
+      '  catalogue: mountRecord(',
+      '    PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,',
+      '    ({ ctx }) => catalogue(ctx),',
+      '    payRefusal,',
+      '  ),',
+      '  other: memberRead.query(() => 1),',
+      '});',
+    ].join('\n'),
+    [audit]: ['export const list = (rows) => rows.map((row) => ({ before: row.before }));'].join('\n'),
+  };
+  const err = (file, line, col, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(${line},${col}): ${msg}`, line, col });
+  const owners = ownersOf(
+    [
+      err(router, 6, 5, 'error TS2769: No overload matches this call.'),
+      err(router, 9, 10, 'error TS2322: Type A'),
+      err(audit, 1, 50, 'error TS2719: Type B'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  // Only the record whose mount the error sits in; the error outside any mount, and the one in audit.ts, are nobody's.
+  assert.deepEqual([...owners.get(router).keys()], ['merchantOps.permissions.catalogue']);
+  assert.equal(owners.has(audit), false);
+});
+
 test('a credential-named uuid field gets no sample, since a uuid cannot say it is a placeholder: its record stays by name, and no token literal is written', async () => {
   const { z } = await contractsZod();
   assert.throws(
@@ -3252,4 +3488,347 @@ test('a credential-named uuid field gets no sample, since a uuid cannot say it i
     samplesFor({ name: 'x.get', path: 'p', input: z.object({ id: z.string().uuid() }) }),
     /"id":"11111111-1111-4111-8111-111111111111"/,
   );
+});
+
+test("a caller's schema that names fewer fields than the answer keeps it (callAs), else stays by name", async () => {
+  const { fieldsOf, droppedFields } = await import('./narrow.mjs');
+  const { keepNarrowing } = await import('./index.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-narrow-'));
+  const dir = join(root, 'apps/customer/src/features/session');
+  mkdirSync(dir, { recursive: true });
+  // The past mistake (identity's auth.refresh): the page's session schema drops the refresh token the router answers with.
+  const router = join(root, 'router.ts');
+  writeFileSync(
+    router,
+    [
+      "import { z } from 'zod';",
+      'const base = z.object({ accessToken: z.string(), expiresAt: z.string() });',
+      'export const sessionOutput = base.extend({ refreshToken: z.string().optional(), userId: z.string() }).strict();',
+      'export const wide = z.object({ a: z.string() }).passthrough();',
+    ].join('\n'),
+  );
+  const caller = join(dir, 'restore.ts');
+  writeFileSync(
+    caller,
+    [
+      "import { z } from 'zod';",
+      'const sessionSchema = z.object({ accessToken: z.string(), expiresAt: z.string(), userId: z.string() });',
+      'const whole = z.object({ accessToken: z.string(), expiresAt: z.string(), userId: z.string(), refreshToken: z.string().optional() });',
+      "export const a = () => api.mutate('identity', 'auth.refresh', {}, sessionSchema);",
+      "export const b = () => api.mutate('identity', 'auth.refresh', {}, whole);",
+      "export const c = () => founderCall(x, 'identity', 'auth.refresh', {}, parse(sessionSchema));",
+    ].join('\n'),
+  );
+  const r = load(router);
+  const c = load(caller);
+  const out = r.program.body[2].declaration.declarations[0].init;
+  const decl = (i) => c.program.body[i].declarations[0].init;
+  assert.deepEqual(fieldsOf(r, out), ['accessToken', 'expiresAt', 'refreshToken', 'userId']);
+  assert.equal(fieldsOf(r, r.program.body[3].declaration.declarations[0].init), undefined, 'passthrough keeps every field: unknown');
+  assert.deepEqual(droppedFields(c, decl(1), r, out), ['refreshToken']);
+  assert.deepEqual(droppedFields(c, decl(2), r, out), []);
+
+  const callOf = (i) => c.program.body[i].declaration.declarations[0].init.body;
+  const site = (i, shape) => ({ file: caller, shape, node: callOf(i), path: 'auth.refresh' });
+  const narrow = site(3, 'mutate');
+  const same = site(4, 'mutate');
+  const hand = [];
+  const kept = keepNarrowing([narrow, same], [r, out], hand);
+  assert.deepEqual(kept, [narrow, same]);
+  assert.equal(narrow.checked, 'sessionSchema', 'the narrowing caller reads through its own schema');
+  assert.equal(same.checked, undefined, 'a caller that names every field takes the record as it is');
+  assert.deepEqual(hand, []);
+
+  // Outside the customer app there is no callAs: the call stays by name, naming what it drops.
+  const adminFile = join(root, 'apps/admin/src/x.ts');
+  mkdirSync(dirname(adminFile), { recursive: true });
+  writeFileSync(adminFile, readFileSync(caller, 'utf8'));
+  const a = load(adminFile);
+  const adminSite = {
+    file: adminFile,
+    shape: 'mutate',
+    node: a.program.body[3].declaration.declarations[0].init.body,
+    path: 'auth.refresh',
+  };
+  const left = [];
+  assert.equal(keepNarrowing([adminSite], [r, out], left).length, 0);
+  assert.match(left[0].why, /drops refreshToken from the answer/);
+});
+
+test('an answer schema imported, or re-exported, from another file is read by its fields', async () => {
+  const { fieldsOf } = await import('./narrow.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-narrow-import-'));
+  writeFileSync(
+    join(root, 'schemas.ts'),
+    "import { z } from 'zod';\nexport const sessionOutput = z.object({ accessToken: z.string(), refreshToken: z.string() });\n",
+  );
+  writeFileSync(join(root, 'index.ts'), "export { sessionOutput } from './schemas';\n");
+  writeFileSync(join(root, 'router.ts'), "import { sessionOutput } from './index';\nexport const out = sessionOutput.strict();\n");
+  const r = load(join(root, 'router.ts'));
+  assert.deepEqual(fieldsOf(r, r.program.body[1].declaration.declarations[0].init), ['accessToken', 'refreshToken']);
+});
+
+test('a founder call whose answer goes to .safeParse() is read softly: it stays by name', async () => {
+  const { softlyParsed } = await import('./narrow.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-soft-'));
+  const file = join(root, 'founder-session.ts');
+  // The past mistake (admin's staffTestStatus): an answer it can't read is "not staff" (403), a record call's is a 502.
+  writeFileSync(
+    file,
+    [
+      'export async function a() { return schema.safeParse(await founderEdgeCall(c, "identity", "staffTestStatus", "GET", {}, t)); }',
+      'export async function b() { const raw = await founderEdgeCall(c, "identity", "x", "GET", {}, t); return schema.safeParse(raw); }',
+      'export async function d() { return schema.parse(await founderEdgeCall(c, "identity", "y", "GET", {}, t)); }',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const calls = [];
+  for (const stmt of p.program.body)
+    (function find(n) {
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'CallExpression' && n.callee.name === 'founderEdgeCall') calls.push(n);
+      for (const k of Object.keys(n)) if (k !== 'parent') (Array.isArray(n[k]) ? n[k] : [n[k]]).forEach(find);
+    })(stmt);
+  assert.deepEqual(
+    calls.map((c) => softlyParsed(p, c)),
+    [true, true, false],
+  );
+});
+
+test('a const with only query that the test hands on as `api` (a mocked useSession) gets a call too', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'm.test.tsx');
+  // The past miss (identity's membership.offer): `useSession: () => ({ userId, api })`, the double a const of its own.
+  writeFileSync(
+    file,
+    [
+      'const api = { query: async () => 1 };',
+      'const other = { query: async () => 2 };',
+      "vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));",
+      '',
+    ].join('\n'),
+  );
+  assert.equal(doublesIn(file).out.length, 1, 'only the const handed on as api');
+});
+
+test("a desk read imports readOf from its one home, never from the ops desk's server-only entry", async () => {
+  const { deskReadSite } = await import('./sites.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-desk-read-'));
+  const dir = join(root, 'apps/admin/src/lib/account-search');
+  mkdirSync(dir, { recursive: true });
+  // The past mistake (admin's account search): `import type { ReadSpec } from '@/lib/ops-desk'`, read by a client
+  // component; a run that imported `readOf` from there pulled `import 'server-only'` into the browser bundle.
+  const f = join(dir, 'search.ts');
+  writeFileSync(
+    f,
+    "import type { ReadSpec } from '@/lib/ops-desk';\nexport const s: ReadSpec = { module: 'identity', procedure: 'accountDirectory.search' };\n",
+  );
+  const [site] = deskReadSite(load(f));
+  assert.equal(site.problem, undefined);
+  assert.equal(site.helperFrom, '@/lib/desk-read');
+});
+
+test('report --service: only the services it names, in order; an unknown or missing name is refused, naming the rest', async () => {
+  const { chosen } = await import('./report.mjs');
+  const all = ['svc-a', 'svc-b', 'svc-c'];
+  assert.deepEqual(chosen(all, []), { rows: all });
+  assert.deepEqual(chosen(all, ['--service', 'svc-c,svc-a']), { rows: ['svc-a', 'svc-c'], only: ['svc-c', 'svc-a'] });
+  assert.match(chosen(all, ['--service', 'svc-a,svc-x']).error, /names from: svc-a, svc-b, svc-c \(not: svc-x\)/);
+  assert.match(chosen(all, ['--service']).error, /not: none given/);
+});
+
+test('portable: follows z.lazy(() => schema) and a single-return helper function returning a refined schema', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-lazy-helper-'));
+  writeFileSync(
+    join(dir, 'schemas.ts'),
+    [
+      "import { z } from 'zod';",
+      'function unique<T extends z.ZodTypeAny>(s: T, max: number) {',
+      "  return z.array(s).min(1).max(max).refine((v) => new Set(v).size === v.length, 'Duplicate selections are not allowed');",
+      '}',
+      'const innerSchema = z.object({',
+      "  tierId: z.string().refine((t) => t !== 'regular', 'a pass grants a tier above regular').nullable(),",
+      '});',
+      'export const outSchema = z.object({',
+      '  pending: z.lazy(() => innerSchema).nullable().default(null),',
+      "  interests: unique(z.enum(['a', 'b']), 2),",
+      "  markets: unique(z.enum(['spot', 'perp']), 2),",
+      '});',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'r-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { outSchema } from './schemas.js';",
+      "export const R = defineProcedure({ name: 'x.get', input: NO_INPUT, output: outSchema, samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const why =
+    `x.get.output cannot be exported without losing meaning: ` +
+    `x.get.output.pending.tierId ${refine}; x.get.output.interests ${refine}; x.get.output.markets ${refine}`;
+  const { edits, left } = plan({ get: why }, [record]);
+  assert.deepEqual(left, []);
+  const inserted = [...edits.get(record).edits.values()].map((e) => e.text).join('');
+  assert.match(inserted, /tier_id_holds: \{ at: "output\.pending\.tierId", says: "a pass grants a tier above regular" \}/);
+  assert.match(
+    inserted,
+    /unique_holds: \{ at: \["output\.interests", "output\.markets"\], says: "Duplicate selections are not allowed" \}/,
+  );
+});
+
+test('samples: distinct uuids, prefixed regex, multi-nullable object, duplicate array refusal, and optional pair refusal', async () => {
+  const { z } = await contractsZod();
+  const distinct = samplesFor({
+    name: 'ops.merge',
+    path: 'ops.merge',
+    input: z
+      .object({ sourceId: z.string().uuid(), targetId: z.string().uuid() })
+      .refine((v) => v.sourceId !== v.targetId, 'Choose two distinct contacts'),
+    checks: { merge_holds: { at: 'input', says: 'Choose two distinct contacts' } },
+  });
+  assert.match(distinct, /"verdict": 'accept'|verdict: 'accept'/);
+  assert.match(distinct, /by: 'merge_holds'/);
+
+  const prefixed = samplesFor({
+    name: 'ops.save',
+    path: 'ops.save',
+    input: z.object({ id: z.string().regex(/^announcement:[0-9a-f]{16,64}$/), snapshot: z.string().regex(/^[a-f0-9]{64}$/) }),
+  });
+  assert.match(prefixed, /"id":"announcement:[0-9a-f]{16}"/);
+  assert.match(prefixed, /"snapshot":"[a-f0-9]{64}"/);
+  // A credential-named `key` field whose pattern cannot carry a self-declaring placeholder gets no sample,
+  // so the codemod never writes a literal that trips tooling/ci/secret-scan.mjs.
+  assert.throws(
+    () =>
+      samplesFor({
+        name: 'ops.announcements.save',
+        path: 'announcements.save',
+        input: z.object({ key: z.string().regex(/^announcement:[0-9a-f]{16,64}$/) }),
+      }),
+    /no accepted input found/,
+  );
+
+  const multiNullable = samplesFor({
+    name: 'ops.stage',
+    path: 'ops.stage',
+    input: z
+      .object({
+        stage: z.enum(['new', 'closed']),
+        disposition: z.enum(['won', 'lost']).nullable(),
+        evidence: z.string().min(1).nullable(),
+        nextAction: z.object({ note: z.string().min(1) }).nullable(),
+      })
+      .superRefine((v, ctx) => {
+        const closed = v.stage === 'closed';
+        const closingPresent = v.disposition !== null && v.evidence !== null;
+        if (closed ? !closingPresent : v.disposition !== null || v.evidence !== null)
+          ctx.addIssue({ code: 'custom', message: 'Closing facts must match the stage' });
+        if (closed ? v.nextAction !== null : v.nextAction === null)
+          ctx.addIssue({ code: 'custom', message: 'Next action must match the stage' });
+      }),
+    checks: { stage_holds: { at: 'input', says: 'Closing facts must match the stage; Next action must match the stage' } },
+  });
+  assert.match(multiNullable, /"disposition":null,"evidence":null/);
+  assert.match(multiNullable, /by: 'stage_holds'/);
+
+  const uniqueArray = samplesFor({
+    name: 'ops.codes',
+    path: 'ops.codes',
+    input: z.object({
+      codes: z
+        .array(z.string().regex(/^[a-z][a-z0-9_]*$/))
+        .min(1)
+        .refine((xs) => new Set(xs).size === xs.length, 'reason codes must be unique'),
+    }),
+    checks: { codes_holds: { at: 'input.codes', says: 'reason codes must be unique' } },
+  });
+  assert.match(uniqueArray, /by: 'codes_holds', input: \{"codes":\["([^"]+)","\1"\]\}/);
+
+  const optionalInterval = samplesFor({
+    name: 'ops.metrics',
+    path: 'ops.metrics',
+    input: z
+      .object({
+        tag: z
+          .string()
+          .regex(/^tag:[a-z]{8}$/)
+          .optional(),
+        from: z.string().datetime({ offset: true }).optional(),
+        before: z.string().datetime({ offset: true }).optional(),
+      })
+      .superRefine((v, ctx) => {
+        if (v.from && v.before && Date.parse(v.from) >= Date.parse(v.before))
+          ctx.addIssue({ code: 'custom', message: 'Capture interval must be increasing' });
+      }),
+    checks: { metrics_holds: { at: 'input', says: 'Capture interval must be increasing' } },
+  });
+  assert.match(optionalInterval, /by: 'metrics_holds'/);
+
+  const nestedOptional = samplesFor({
+    name: 'campaigns.create',
+    path: 'campaigns.create',
+    input: z.object({
+      name: z.string().min(1),
+      trialPass: z
+        .object({
+          tierId: z
+            .string()
+            .regex(/^[A-Za-z0-9_.-]{1,64}$/)
+            .refine((t) => t !== 'regular', 'a pass grants a tier above regular')
+            .nullable(),
+          seconds: z.number().int().min(60).nullable(),
+        })
+        .nullish(),
+    }),
+    checks: { tier_id_holds: { at: 'input.trialPass.tierId', says: 'a pass grants a tier above regular' } },
+  });
+  assert.match(nestedOptional, /by: 'tier_id_holds', input: .*"tierId":"regular"/);
+});
+
+test('ownersOf: a screen calling createRoomApi whose error names one method leaves only that method, not every method of the factory', async () => {
+  const { ownersOf } = await import('./run.mjs');
+  const api = 'apps/customer/src/screens/trade/rooms/api.ts';
+  const screen = 'apps/customer/src/screens/trade/rooms/QuoteDesk.tsx';
+  const moved = [
+    { path: 'otc.deskStatus', record: 'TRADE_OTC_DESK_STATUS', files: [api] },
+    { path: 'rfq.quote', record: 'TRADE_RFQ_QUOTE', files: [api] },
+    { path: 'rfq.board', record: 'TRADE_RFQ_BOARD', files: [api] },
+  ];
+  const sources = {
+    [api]: [
+      "import { TRADE_OTC_DESK_STATUS, TRADE_RFQ_QUOTE, TRADE_RFQ_BOARD } from '@intafaced/contracts/trade';",
+      'export function createRoomApi(api) {',
+      '  return {',
+      '    deskStatus: () => api.call(TRADE_OTC_DESK_STATUS, undefined),',
+      '    rfqQuote: (input) => api.call(TRADE_RFQ_QUOTE, input),',
+      '    rfqBoard: (w) => api.call(TRADE_RFQ_BOARD, w),',
+      '  };',
+      '}',
+    ].join('\n'),
+    [screen]: [
+      "import { createRoomApi } from './api';",
+      'export async function QuoteDesk({ transport }) {',
+      '  const room = createRoomApi(transport);',
+      '  const r = await room.rfqQuote({ side: "buy" });',
+      '  return renderQuote(r.data);',
+      '}',
+    ].join('\n'),
+  };
+  const err = {
+    file: screen,
+    key: `${screen}: error TS2345: Argument of type A`,
+    text: `${screen}(5,22): error TS2345: Argument of type A`,
+    line: 5,
+    col: 22,
+  };
+  const owners = ownersOf([err], moved, (f) => {
+    if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+    return sources[f];
+  });
+  assert.deepEqual([...owners.get(screen).keys()], ['rfq.quote']);
 });

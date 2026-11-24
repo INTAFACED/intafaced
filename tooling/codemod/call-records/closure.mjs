@@ -116,7 +116,13 @@ export function closureOf(repo, roots) {
       }
       const b = bindingOf(p, use, name);
       if (b.kind === 'global') {
-        if (!GLOBALS.has(name)) problems.push(`${where}: ${name} is not declared anywhere it can be read`);
+        // A schema picked by the service's own settings can't be one record: the record takes the widest input and the
+        // handler refuses what the setting rules out (svc-trade's accountControls.change, by hand).
+        if (name === 'process')
+          problems.push(
+            `${where}: reads process.env, so its schema changes with the service's settings: a record takes one schema; write it with the setting's field optional and refuse in the handler`,
+          );
+        else if (!GLOBALS.has(name)) problems.push(`${where}: ${name} is not declared anywhere it can be read`);
         continue;
       }
       if (b.kind === 'param') {

@@ -89,6 +89,20 @@ async function call(key, procedure, input, method = 'GET') {
   }).then(json);
 }
 
+/**
+ * One read of the agents API with `key`, opened in a browser as the person's code would show it: Edge's JSON answer as
+ * the browser draws it, the step's picture. Returns the page (its context closed by the caller), the status and the body
+ * read back from the screen.
+ */
+async function shownRead(browser, key, procedure, input) {
+  const url = new URL(`${EDGE}/api/agents/trpc/${procedure}`);
+  if (input !== undefined) url.searchParams.set('input', JSON.stringify(input));
+  const context = await browser.newContext({ extraHTTPHeaders: { authorization: `Bearer ${key}` } });
+  const page = await context.newPage();
+  const res = await page.goto(url.href);
+  return { page, status: res?.status(), body: JSON.parse(await page.locator('pre').first().innerText()) };
+}
+
 /** One tRPC call through Edge as `who`, on their own sign-in (not a key): the independent source. */
 async function as(who, path, input, method = 'GET') {
   const door = await api(who);
@@ -434,7 +448,7 @@ function readInputs() {
   return Object.fromEntries(Object.entries(reads).map(([at, e]) => [at, 'input' in e ? fill(e.input) : undefined]));
 }
 
-test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async () => {
+test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async ({ browser, stepPicture }) => {
   const inputs = readInputs();
   // Every read of the session API, as the service's own router lists them, is tried exactly once. The session API is the
   // part of the router about a person's sessions and what ran in them: their sessions (session.*), runs (run.*), usage
@@ -457,6 +471,12 @@ test(`${J} #1 calls the session API with a key lacking the agents read scope: re
   expect(await mine()).toEqual(sessionsBefore);
   expect(await logOf(agents.account(), kept('sessionId'))).toEqual(logBefore);
   expect(ok(await call(kept('onKey'), 'run.get', { runId: kept('runId') })).state).toBe('completed');
+
+  // The refusal as the person's code shows it: session A's events read with the key lacking the scope, in a browser.
+  const shown = await shownRead(browser, kept('offKey'), 'session.events', { sessionId: kept('sessionId'), limit: 500 });
+  scopeDenied(shown, 'agents:read');
+  await stepPicture(shown.page);
+  await shown.page.context().close();
 });
 
 test(`${J} #2 opens a background run with a key holding the scope: a run id and a status`, async () => {
@@ -483,7 +503,10 @@ test(`${J} #2 opens a background run with a key holding the scope: a run id and 
   });
 });
 
-test(`${J} #3 tries to start a run with the key: refused, runs start only in the person's own session; then a background run started there, its events listed from a cursor`, async () => {
+test(`${J} #3 tries to start a run with the key: refused, runs start only in the person's own session; then a background run started there, its events listed from a cursor`, async ({
+  browser,
+  stepPicture,
+}) => {
   const sessionId = kept('sessionId');
   const onKey = kept('onKey');
   const sessionB = kept('sessionB');
@@ -599,6 +622,11 @@ test(`${J} #3 tries to start a run with the key: refused, runs start only in the
     expect(toUnits(after.events[0].cost) > 0n).toBe(true);
     for (const event of after.events) expect(event.sessionId).toBe(sessionC);
     expect(JSON.stringify(after)).not.toContain(LATER_ASK);
+    // The list as the person's code shows it: the same read from the held cursor, in a browser, only the run's action.
+    const shown = await shownRead(browser, onKey, 'session.events', { sessionId: sessionC, cursor: held.cursor, limit: 500 });
+    expect(ok(shown)).toEqual(after);
+    await stepPicture(shown.page);
+    await shown.page.context().close();
     // Another person's key reads none of it.
     refusedWith(
       await call(kept('otherKey'), 'session.events', { sessionId: sessionC, cursor: held.cursor, limit: 500 }),
@@ -610,7 +638,10 @@ test(`${J} #3 tries to start a run with the key: refused, runs start only in the
   }
 });
 
-test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal codes as keys, no prompt text`, async () => {
+test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal codes as keys, no prompt text`, async ({
+  browser,
+  stepPicture,
+}) => {
   const sessionId = kept('sessionId');
   const onKey = kept('onKey');
   const runId = kept('runId');
@@ -700,9 +731,19 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
   // The same for the run in the person's open session B.
   refusedWith(await call(kept('otherKey'), 'run.get', { runId: kept('runBId') }), 404, NOT_YOUR_RUN);
   expect((await call(onKey, 'run.get', { runId })).body).toEqual(finished.body);
+
+  // The refused run as the person's code shows it: its refusal code as a key, no reply, no cost and no prompt text.
+  const shown = await shownRead(browser, onKey, 'run.get', { runId: refusedId });
+  expect(shown.body).toEqual(refused.body);
+  for (const ask of ASKS) expect(JSON.stringify(shown.body)).not.toContain(ask);
+  await stepPicture(shown.page);
+  await shown.page.context().close();
 });
 
-test(`${J} #5 registers a webhook with the key: one signed delivery per finished run the person started in their own session`, async () => {
+test(`${J} #5 registers a webhook with the key: one signed delivery per finished run the person started in their own session`, async ({
+  browser,
+  stepPicture,
+}) => {
   const onKey = kept('onKey');
   // This test's own TEST receiver on loopback: every request it takes, with its headers and raw body.
   const posts = [];
@@ -865,6 +906,12 @@ test(`${J} #5 registers a webhook with the key: one signed delivery per finished
         .map((runId) => ({ runId, state: 'delivered', attempts: 1, lastStatus: 200 })),
     );
     expect(ok(await call(kept('otherKey'), 'webhook.deliveries', { endpointId, limit: 500 }))).toEqual([]);
+
+    // The deliveries as the person's code shows them: one per finished run, each delivered on its first attempt.
+    const shown = await shownRead(browser, onKey, 'webhook.deliveries', { endpointId, limit: 500 });
+    expect(ok(shown)).toEqual(read);
+    await stepPicture(shown.page);
+    await shown.page.context().close();
   } finally {
     await new Promise((resolve) => hook.close(resolve));
   }

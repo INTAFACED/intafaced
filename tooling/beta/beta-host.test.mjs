@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { userVenueKind } from '../scripts/local-test-venue.mjs';
+import opsService from '../scripts/local-stack-services/ops.mjs';
+import { GRANT } from './beta-invited.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -358,6 +361,56 @@ test('reserved names never reach a service, so they pass; a real host that only 
     ['PAY_MERCHANT_TERMS_URL', 'https://terms.example/t'],
   ]);
   assert.deepEqual(found, []);
+});
+
+test("the beta's Customer build shows only rooms finished in Volt; the switch is the beta's alone", () => {
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).INTAFACED_BETA_VOLT_ONLY, '1');
+  // The trade desks run on Hyperliquid's test network, not the stack's stand-in venue (#10603); the stack's own switch
+  // reads it (local-test-venue.mjs userVenueKind), so a value it refuses could never reach the beta.
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE, 'hl-testnet');
+  assert.equal(
+    stackEnv(betaPaths('/home/x'), { LOCAL_STACK_USER_VENUE: 'on' }).LOCAL_STACK_USER_VENUE,
+    'hl-testnet',
+    'the beta wins over a shell',
+  );
+  assert.equal(userVenueKind(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE), 'hl-testnet');
+  // The journeys' TEST markets stay off the beta's board (#10599): the stack's switch (local-stack-services/trade.mjs)
+  // reads exactly 'off', and the beta wins over a shell.
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_TEST_MARKETS, 'off');
+  assert.equal(stackEnv(betaPaths('/home/x'), { LOCAL_STACK_TEST_MARKETS: 'on' }).LOCAL_STACK_TEST_MARKETS, 'off');
+  // The beta publishes svc-ops' labelled TEST price list (#10632): without it valuation.prices returns
+  // valuation.prices_unset and Home and Money show "No total" even after the tester's TEST partner account is funded.
+  const betaVal = stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_VALUATION_PRICES;
+  assert.equal(betaVal, 'test');
+  assert.equal(stackEnv(betaPaths('/home/x'), { LOCAL_STACK_VALUATION_PRICES: 'off' }).LOCAL_STACK_VALUATION_PRICES, 'test');
+  const opsProfile = JSON.parse(fs.readFileSync(new URL('../profiles/test-owner-values/ops.json', import.meta.url), 'utf8'));
+  const prices = opsProfile.values.OPS_VALUATION_TEST_PRICES?.value ?? '';
+  assert.match(
+    prices,
+    new RegExp(`(?:^|,)${GRANT.asset}=\\d+(?:\\.\\d+)?(?:,|$)`),
+    `OPS_VALUATION_TEST_PRICES must price the invited tester's ${GRANT.asset} grant`,
+  );
+  // Check the exact wiring into local-stack-services/ops.mjs: setting the beta's value populates OPS_VALUATION_TEST_PRICES
+  // from the ops profile, and leaving it unset leaves it absent (the journeys' default).
+  const readOpsEnv = () =>
+    opsService({
+      c: () => ({}),
+      secrets: {},
+      dbUrl: () => 'postgres://127.0.0.1/db',
+      urlOf: (n) => `http://127.0.0.1/${n}`,
+      PORTS: { ops: 1 },
+      opsOutreachEnv: () => ({}),
+    }).env();
+  const prevVal = process.env.LOCAL_STACK_VALUATION_PRICES;
+  try {
+    delete process.env.LOCAL_STACK_VALUATION_PRICES;
+    assert.equal(readOpsEnv().OPS_VALUATION_TEST_PRICES, undefined);
+    process.env.LOCAL_STACK_VALUATION_PRICES = betaVal;
+    assert.equal(readOpsEnv().OPS_VALUATION_TEST_PRICES, prices);
+  } finally {
+    if (prevVal === undefined) delete process.env.LOCAL_STACK_VALUATION_PRICES;
+    else process.env.LOCAL_STACK_VALUATION_PRICES = prevVal;
+  }
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {

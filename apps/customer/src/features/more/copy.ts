@@ -331,15 +331,16 @@ const messages = {
   'blueprint.no.mentors.are.shortlisted': 'No mentors are shortlisted',
   'blueprint.basis.points.of.fit': ' basis points of fit · ',
   'blueprint.your.data': 'Your data',
-  'blueprint.export.blueprint.json': 'Export Blueprint JSON',
+  'blueprint.export.blueprint.json': 'Download your Blueprint data',
   'blueprint.erase.your.blueprint': 'Erase your Blueprint',
   'blueprint.hard.delete.the.profile.crew.membership.match':
-    'Hard-delete the profile, crew membership, match records and mentor relationships held by this service. Your financial account is separate.',
+    'Permanently delete your Blueprint profile, crew membership, matches and mentor links. Your financial account stays separate.',
   'blueprint.type.erase.blueprint': 'Type ERASE BLUEPRINT',
   'blueprint.permanently.erase.blueprint': 'Permanently erase Blueprint',
   'blueprint.erase.blueprint.permanently': 'Erase Blueprint permanently',
   'blueprint.blueprint.erasure.confirmed': 'Blueprint erasure confirmed',
-  'blueprint.this.cannot.be.undone.the.service.returns': 'This cannot be undone. The service returns a receipt for the records removed.',
+  'blueprint.this.cannot.be.undone.the.service.returns':
+    'This cannot be undone. A confirmation receipt is shown once your records are removed.',
   'blueprint.review.permanent.erasure': 'Review permanent erasure',
   'blueprint.guided.blueprint.session': 'Guided Blueprint session',
   'blueprint.initial.visibility': 'Initial visibility',
@@ -393,8 +394,7 @@ const messages = {
   'market.catalogue': 'Catalogue',
   'market.my.listings': 'My listings',
   'market.publish.a.strategy.subscription': 'Publish a strategy subscription',
-  'market.the.house.commission.is.unpublished.the.service':
-    'The house commission is unpublished, so the service refuses listing creation and purchases.',
+  'market.the.house.commission.is.unpublished.the.service': 'No marketplace fee is set, so creating and buying listings is paused.',
   'market.seller.application': 'Seller application',
   'market.seller': 'Seller',
   'market.status': 'Status',
@@ -419,7 +419,7 @@ const messages = {
   'market.release.2': 'Release',
   'market.create.a.listing': 'Create a listing',
   'market.approval.and.stake.capacity.are.enforced.by':
-    'Approval and stake capacity are enforced by the service. Strategy subscriptions sell access for one paid period; return ranking and profit share are unavailable.',
+    'You need an approved seller profile and an open listing slot to publish. Strategy subscriptions sell access for one paid period; return rankings and profit sharing are not offered.',
   'market.review.listing': 'Review listing',
   'market.publish.listing': 'Publish listing',
   'market.listing.published': 'Listing published',
@@ -436,7 +436,7 @@ const messages = {
   'market.listing.description': 'Listing description',
   'market.offer.type': 'Offer type',
   'market.price.asset.id': 'Price asset ID',
-  'market.paid.period.in.seconds': 'Paid period in seconds',
+  'market.paid.period.in.seconds': 'Access period (seconds)',
   'market.your.listings': 'Your listings',
   'market.browse.listings': 'Browse listings',
   'market.you.have.no.listings': 'You have no listings',
@@ -515,16 +515,16 @@ const messages = {
   'moreroutes.more': 'More',
   'moreroutes.explore.the.rooms.behind.your.everyday.account': 'Explore the rooms behind your everyday account.',
   'moreroutes.learn.practise.and.join.hosted.sessions': 'Learn, practise and join hosted sessions.',
-  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Permissions, engine sessions and your activity log.',
+  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Browse agents, start a session and review your activity.',
   'moreroutes.identity.blueprint': 'Identity Blueprint',
   'moreroutes.a.profile.you.can.keep.private.share': 'A profile you can keep private, share, export and erase.',
   'moreroutes.prepare.a.grounded.proposal.for.human.review': 'Prepare a grounded proposal for human review.',
   'moreroutes.issuance.and.sale.participation.require.their.owned': 'Issuance and sale participation require their owned contracts.',
-  'moreroutes.published.catalogue.terms.and.your.seller.workspace': 'Published catalogue terms and your seller workspace.',
+  'moreroutes.published.catalogue.terms.and.your.seller.workspace': 'Browse listings or manage what you sell.',
   'moreroutes.listed.questions.result.sources.and.fully.collateralized':
     'Listed questions, result sources and fully collateralized instruments.',
   'moreroutes.pool.status.without.invented.miners.or.rewards': 'Pool status without invented miners or rewards.',
-  'moreroutes.exact.stake.records.access.and.governance': 'Exact stake records, access and governance.',
+  'moreroutes.exact.stake.records.access.and.governance': 'Your stakes, access tier and governance.',
   'moreroutes.simulated.strategy.research.with.explicit.historical.evidence':
     'Simulated strategy research with explicit historical evidence.',
   'moreroutes.help.requests.and.your.conversation.with.the': 'Help articles and your support requests.',
@@ -583,10 +583,10 @@ const messages = {
   'quant.rooms': 'Quant rooms',
   'quant.simulated.no.live.trading.authority': 'Simulated · no live trading authority',
   'quant.strategy.sandbox': 'Strategy sandbox',
-  'quant.isolate': 'The strategy runner is connected.',
+  'quant.isolate': 'Simulations run here.',
   'quant.runner.off': 'The strategy runner is not connected, so simulations can’t run.',
   'quant.trade.only.vault': "Trade-only exchange access for strategies is set up (it can't withdraw).",
-  'quant.exchange.off': 'Exchange access for strategies is not set up.',
+  'quant.exchange.off': 'Strategies have no exchange access here, so every run is a simulation.',
   'quant.review.simulated.run': 'Review simulated run',
   'quant.run.simulation': 'Run simulation',
   'quant.simulation.received': 'Simulation received',
@@ -594,7 +594,8 @@ const messages = {
   'quant.starting.cash': 'Starting cash',
   'quant.environment': 'Environment',
   'quant.simulated.starting.cash': 'Simulated starting cash',
-  'quant.user.supplied.simulation.input.separate.from.your': 'User-supplied simulation input, separate from your ledger balance.',
+  'quant.user.supplied.simulation.input.separate.from.your':
+    'Pretend money for this simulation only. It is not your balance and nothing is spent.',
   'quant.strategy.source': 'Strategy source',
   'quant.review.simulation': 'Review simulation',
   'quant.live.deployment.requires.a.separate.approved.execution': 'Going live needs a separate approval. This sandbox can’t do it.',
@@ -622,6 +623,8 @@ const messages = {
   'quant.kill.threshold': 'Kill threshold',
   'quant.strategy.name': 'Strategy name',
   'quant.order.block': 'Order block ',
+  'quant.side.buy': 'Buy',
+  'quant.side.sell': 'Sell',
   'quant.remove.block': 'Remove block ',
   'quant.add.block': 'Add block',
   'quant.max.drawdown.service.unit.unspecified': 'Max drawdown (service unit unspecified)',
@@ -732,14 +735,12 @@ const messages = {
   'token.action': 'Action',
   'token.your.token.stakes': 'Your token stakes',
   'token.asset.identity.unavailable': ' · token not named',
-  'token.unstake.unavailable.asset.identity.missing': 'Unstaking is off: INTAFACED does not say which token balance would move',
-  'token.staking.asset.identity': 'Which token is staked',
-  'token.staking.and.unstaking.are.unavailable.until.the':
-    'Staking and unstaking are off because INTAFACED does not say which token balance they would move.',
+  'token.unstake.unavailable.asset.identity.missing': 'Unstaking is paused because no staking token is set',
+  'token.staking.asset.identity': 'Staking status',
+  'token.staking.and.unstaking.are.unavailable.until.the': 'Staking and unstaking are paused because no staking token is set.',
   'token.the.token.asset.is.deployment.configurable.stake':
-    'Your stake and access readings show amounts only and do not name the token. Without a named token we do not guess which balance would move.',
-  'token.your.existing.stake.records.remain.readable.a':
-    'You can still see your existing stake. Staking and unstaking are off because the token balance is not named.',
+    'Your existing stakes stay visible here, shown as amounts without a token symbol.',
+  'token.your.existing.stake.records.remain.readable.a': 'Your existing stakes stay visible here.',
   'token.proposals': 'Proposals',
   'token.no.proposals.are.published': 'No proposals are published',
   'token.proposal': 'Proposal',
@@ -847,20 +848,20 @@ const messages = {
   'academyrooms.no.expiry.supplied': 'No expiry supplied',
   'academyrooms.no.threshold.supplied': 'No threshold supplied',
   'agents.metered.cost': 'Metered cost: {value1} {value2}',
-  'agents.product.boundaries': 'Product boundaries',
+  'agents.product.boundaries': 'Limits and scope',
   'agents.a.spend.cap.or.its.fee.asset': 'A spend cap or its fee asset is unavailable',
   'agents.the.runsession.contracts.require.a.caller.supplied':
     'Tool runs need a tier plan that isn’t published, and you can’t set your own, so tool runs stay unavailable.',
   'agents.signal.ranking.also.requires.a.sealed.input':
-    'Signal ranking also requires a sealed input law and tier matrix. Neither is published through a customer-owned read. No quotes, ranking recipe, or signal count is invented.',
+    'Signal ranking needs a published rule set and tier table, which are not open here. No quotes, ranking rules or signal counts are made up.',
   'agents.a.published.threshold.minimum.sample.count.rail':
     'This needs published thresholds, a minimum sample size, an approved list of payment routes and your merchant metrics. None of these can be set from here.',
   'agents.leader.fixtures.must.come.from.the.live':
     'Leader data must come from the live source with an approved list. Profit and loss you type in isn’t accepted. Copy settings and real leader data are on Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
-    'The service portfolio port is unconnected. No holdings, target order legs or live rebalancing are manufactured.',
+    'Portfolio rebalancing is not connected. No holdings, target orders or live rebalances are shown.',
   'agents.draft.assessment.is.not.issuance.screening.list':
-    'Draft assessment is not issuance, screening-list publication, or KYC approval. Those actions require their owned source contracts.',
+    'Reviewing a draft does not issue an asset, update screening lists or approve verification. Each of those requires its own review.',
   'availabilityrooms.none.registered': 'None registered',
   'availabilityrooms.the.market.seller.lifecycle.can.publish.catalogue':
     'The Market seller lifecycle can publish catalogue access listings. It cannot create a tradeable asset or sale round.',
@@ -873,7 +874,7 @@ const messages = {
   'campaigns.proposal.received.publication.remains.a.separate.human':
     'Proposal received: {value1}. Publication remains a separate human action.',
   'campaigns.no.publication.requested': 'No publication requested',
-  'market.published.house.commission.basis.points.charged.to': 'Published house commission: {value1} basis points, charged to the seller.',
+  'market.published.house.commission.basis.points.charged.to': 'Marketplace fee: {value1}%, charged to the seller.',
   'market.seconds': ' / {value1} seconds',
   'market.buy.2': 'Buy {value1}',
   'market.one.time.purchase': 'One-time purchase',
@@ -944,7 +945,7 @@ const messages = {
   'quant.simulated.units': '{amount} simulated units',
   'quant.historical.quote.units': '{amount} historical quote units',
   'token.asset.identity.unavailable.2': '{amount} · token not named',
-  'token.basis.points': '{bps} basis points',
+  'token.basis.points': '{bps}%',
   'token.filter.all': 'All',
   'token.status.active': 'Active',
   'token.status.pending': 'Pending',
@@ -1291,16 +1292,16 @@ const es = {
   'blueprint.no.mentors.are.shortlisted': 'No hay mentores en la lista',
   'blueprint.basis.points.of.fit': ' puntos básicos de afinidad · ',
   'blueprint.your.data': 'Tus datos',
-  'blueprint.export.blueprint.json': 'Exportar Blueprint en JSON',
+  'blueprint.export.blueprint.json': 'Descargar los datos de tu Blueprint',
   'blueprint.erase.your.blueprint': 'Borrar tu Blueprint',
   'blueprint.hard.delete.the.profile.crew.membership.match':
-    'Eliminar de forma definitiva el perfil, la pertenencia al equipo, los registros de coincidencias y las relaciones de mentoría que conserva este servicio. Tu cuenta financiera es independiente.',
+    'Elimina de forma permanente tu perfil de Blueprint, tu pertenencia al equipo, tus coincidencias y tus vínculos de mentoría. Tu cuenta financiera permanece aparte.',
   'blueprint.type.erase.blueprint': 'Escribe ERASE BLUEPRINT',
   'blueprint.permanently.erase.blueprint': 'Borrar Blueprint de forma permanente',
   'blueprint.erase.blueprint.permanently': 'Borrar Blueprint permanentemente',
   'blueprint.blueprint.erasure.confirmed': 'Borrado de Blueprint confirmado',
   'blueprint.this.cannot.be.undone.the.service.returns':
-    'Esta acción no se puede deshacer. El servicio devuelve un comprobante de los registros eliminados.',
+    'Esta acción no se puede deshacer. Se muestra un comprobante una vez eliminados tus registros.',
   'blueprint.review.permanent.erasure': 'Revisar borrado permanente',
   'blueprint.guided.blueprint.session': 'Sesión guiada de Blueprint',
   'blueprint.initial.visibility': 'Visibilidad inicial',
@@ -1357,7 +1358,7 @@ const es = {
   'market.my.listings': 'Mis listados',
   'market.publish.a.strategy.subscription': 'Publicar una suscripción de estrategia',
   'market.the.house.commission.is.unpublished.the.service':
-    'La comisión de la casa no está publicada, así que el servicio rechaza la creación de listados y las compras.',
+    'No se ha fijado ninguna comisión del mercado, así que crear y comprar listados está en pausa.',
   'market.seller.application': 'Solicitud de vendedor',
   'market.seller': 'Vendedor',
   'market.status': 'Estado',
@@ -1382,7 +1383,7 @@ const es = {
   'market.release.2': 'Liberar',
   'market.create.a.listing': 'Crear un listado',
   'market.approval.and.stake.capacity.are.enforced.by':
-    'El servicio aplica los requisitos de aprobación y capacidad de staking. Las suscripciones de estrategias venden acceso por un periodo pagado; la clasificación por rentabilidad y el reparto de beneficios no están disponibles.',
+    'Necesitas un perfil de vendedor aprobado y una plaza disponible para publicar. Las suscripciones a estrategias venden acceso por un periodo pagado; no se ofrecen clasificaciones por rentabilidad ni reparto de beneficios.',
   'market.review.listing': 'Revisar listado',
   'market.publish.listing': 'Publicar listado',
   'market.listing.published': 'Listado publicado',
@@ -1399,7 +1400,7 @@ const es = {
   'market.listing.description': 'Descripción del listado',
   'market.offer.type': 'Tipo de oferta',
   'market.price.asset.id': 'ID del activo del precio',
-  'market.paid.period.in.seconds': 'Periodo pagado en segundos',
+  'market.paid.period.in.seconds': 'Periodo de acceso (segundos)',
   'market.your.listings': 'Tus listados',
   'market.browse.listings': 'Explorar listados',
   'market.you.have.no.listings': 'No tienes listados',
@@ -1484,17 +1485,17 @@ const es = {
   'moreroutes.more': 'Más',
   'moreroutes.explore.the.rooms.behind.your.everyday.account': 'Explora las salas que acompañan a tu cuenta cotidiana.',
   'moreroutes.learn.practise.and.join.hosted.sessions': 'Aprende, practica y únete a sesiones alojadas.',
-  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Permisos, sesiones del motor y tu registro de actividad.',
+  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Explora los agentes, inicia una sesión y revisa tu actividad.',
   'moreroutes.identity.blueprint': 'Identity Blueprint',
   'moreroutes.a.profile.you.can.keep.private.share': 'Un perfil que puedes mantener privado, compartir, exportar y borrar.',
   'moreroutes.prepare.a.grounded.proposal.for.human.review': 'Prepara una propuesta fundamentada para revisión humana.',
   'moreroutes.issuance.and.sale.participation.require.their.owned':
     'La emisión y la participación en ventas requieren sus contratos correspondientes.',
-  'moreroutes.published.catalogue.terms.and.your.seller.workspace': 'Condiciones publicadas del catálogo y tu espacio de vendedor.',
+  'moreroutes.published.catalogue.terms.and.your.seller.workspace': 'Explora los listados o gestiona lo que vendes.',
   'moreroutes.listed.questions.result.sources.and.fully.collateralized':
     'Preguntas listadas, fuentes de resultados e instrumentos totalmente colateralizados.',
   'moreroutes.pool.status.without.invented.miners.or.rewards': 'Estado del pool sin mineros ni recompensas inventados.',
-  'moreroutes.exact.stake.records.access.and.governance': 'Registros exactos de staking, acceso y gobernanza.',
+  'moreroutes.exact.stake.records.access.and.governance': 'Tu staking, tu nivel de acceso y gobernanza.',
   'moreroutes.simulated.strategy.research.with.explicit.historical.evidence':
     'Investigación simulada de estrategias con pruebas históricas explícitas.',
   'moreroutes.help.requests.and.your.conversation.with.the': 'Artículos de ayuda y tus solicitudes de soporte.',
@@ -1556,10 +1557,10 @@ const es = {
   'quant.rooms': 'Salas de Quant',
   'quant.simulated.no.live.trading.authority': 'Simulado · sin autoridad de trading real',
   'quant.strategy.sandbox': 'Entorno de pruebas de estrategias',
-  'quant.isolate': 'El ejecutor de estrategias está conectado.',
+  'quant.isolate': 'Aquí se ejecutan simulaciones.',
   'quant.runner.off': 'El ejecutor de estrategias no está conectado, así que no se pueden ejecutar simulaciones.',
   'quant.trade.only.vault': 'El acceso al mercado solo para operar está configurado para las estrategias (no puede retirar fondos).',
-  'quant.exchange.off': 'El acceso al mercado para las estrategias no está configurado.',
+  'quant.exchange.off': 'Las estrategias no tienen acceso a un mercado aquí, así que cada ejecución es una simulación.',
   'quant.review.simulated.run': 'Revisar ejecución simulada',
   'quant.run.simulation': 'Ejecutar simulación',
   'quant.simulation.received': 'Simulación recibida',
@@ -1568,7 +1569,7 @@ const es = {
   'quant.environment': 'Entorno',
   'quant.simulated.starting.cash': 'Efectivo inicial simulado',
   'quant.user.supplied.simulation.input.separate.from.your':
-    'Entrada de simulación proporcionada por el usuario, independiente del saldo de tu libro contable.',
+    'Dinero ficticio solo para esta simulación. No es tu saldo y no se gasta nada.',
   'quant.strategy.source': 'Código de la estrategia',
   'quant.review.simulation': 'Revisar simulación',
   'quant.live.deployment.requires.a.separate.approved.execution':
@@ -1597,6 +1598,8 @@ const es = {
   'quant.kill.threshold': 'Umbral de parada',
   'quant.strategy.name': 'Nombre de la estrategia',
   'quant.order.block': 'Bloque de órdenes ',
+  'quant.side.buy': 'Comprar',
+  'quant.side.sell': 'Vender',
   'quant.remove.block': 'Eliminar bloque ',
   'quant.add.block': 'Añadir bloque',
   'quant.max.drawdown.service.unit.unspecified': 'Caída máxima (unidad del servicio no especificada)',
@@ -1710,14 +1713,13 @@ const es = {
   'token.your.token.stakes': 'Tu staking de tokens',
   'token.asset.identity.unavailable': ' · token sin nombrar',
   'token.unstake.unavailable.asset.identity.missing':
-    'La retirada del staking está desactivada: INTAFACED no indica qué saldo de token se movería',
-  'token.staking.asset.identity': 'Qué token está en staking',
+    'La retirada del staking está en pausa porque no se ha fijado ningún token de staking',
+  'token.staking.asset.identity': 'Estado del staking',
   'token.staking.and.unstaking.are.unavailable.until.the':
-    'El staking y su retirada están desactivados porque INTAFACED no indica qué saldo de token moverían.',
+    'El staking y su retirada están en pausa porque no se ha fijado ningún token de staking.',
   'token.the.token.asset.is.deployment.configurable.stake':
-    'Las lecturas de tu staking y acceso muestran solo importes y no nombran el token. Sin un token nombrado, no suponemos qué saldo se movería.',
-  'token.your.existing.stake.records.remain.readable.a':
-    'Sigues viendo tu stake actual. El staking y su retirada están desactivados porque no se ha nombrado el saldo de token.',
+    'Tus stakings actuales siguen visibles aquí, mostrados como importes sin símbolo de token.',
+  'token.your.existing.stake.records.remain.readable.a': 'Tus stakings actuales siguen visibles aquí.',
   'token.proposals': 'Propuestas',
   'token.no.proposals.are.published': 'No hay propuestas publicadas',
   'token.proposal': 'Propuesta',
@@ -1829,20 +1831,20 @@ const es = {
   'academyrooms.no.expiry.supplied': 'Vencimiento no proporcionado',
   'academyrooms.no.threshold.supplied': 'Umbral no proporcionado',
   'agents.metered.cost': 'Coste medido: {value1} {value2}',
-  'agents.product.boundaries': 'Límites del producto',
+  'agents.product.boundaries': 'Límites y alcance',
   'agents.a.spend.cap.or.its.fee.asset': 'No está disponible un límite de gasto o su activo de comisión',
   'agents.the.runsession.contracts.require.a.caller.supplied':
     'Las ejecuciones de herramientas necesitan un plan de niveles que no está publicado, y no puedes definir el tuyo, así que siguen sin estar disponibles.',
   'agents.signal.ranking.also.requires.a.sealed.input':
-    'La clasificación de señales también requiere reglas de entrada selladas y una matriz de niveles. Ninguna se publica mediante una consulta propia del cliente. No se inventan cotizaciones, reglas de clasificación ni recuentos de señales.',
+    'La clasificación de señales necesita reglas y una tabla de niveles publicadas que no están abiertas aquí. No se inventan cotizaciones, reglas de clasificación ni recuentos de señales.',
   'agents.a.published.threshold.minimum.sample.count.rail':
     'Esto necesita umbrales publicados, un tamaño mínimo de muestra, una lista aprobada de vías de pago y tus métricas de comercio. No se puede definir nada de esto desde aquí.',
   'agents.leader.fixtures.must.come.from.the.live':
     'Los datos de líderes deben venir de la fuente en vivo con una lista aprobada. No se acepta el resultado que escribas a mano. Los ajustes de copia y los datos reales de líderes están en Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
-    'La conexión de cartera del servicio está desconectada. No se fabrican tenencias, tramos de órdenes objetivo ni rebalanceos reales.',
+    'El rebalanceo de cartera no está conectado. No se muestran tenencias, órdenes objetivo ni rebalanceos reales.',
   'agents.draft.assessment.is.not.issuance.screening.list':
-    'La evaluación de un borrador no es emisión, publicación de listas de control ni aprobación KYC. Estas acciones requieren sus contratos de origen correspondientes.',
+    'Evaluar un borrador no emite un activo, no actualiza listas de control ni aprueba la verificación. Cada una requiere su propia revisión.',
   'availabilityrooms.none.registered': 'Ninguno registrado',
   'availabilityrooms.the.market.seller.lifecycle.can.publish.catalogue':
     'El ciclo del vendedor de Market puede publicar listados de acceso al catálogo. No puede crear un activo negociable ni una ronda de venta.',
@@ -1855,8 +1857,7 @@ const es = {
   'campaigns.proposal.received.publication.remains.a.separate.human':
     'Propuesta recibida: {value1}. La publicación sigue siendo una acción humana independiente.',
   'campaigns.no.publication.requested': 'No se ha solicitado publicación',
-  'market.published.house.commission.basis.points.charged.to':
-    'Comisión de la casa publicada: {value1} puntos básicos, a cargo del vendedor.',
+  'market.published.house.commission.basis.points.charged.to': 'Comisión del mercado: {value1} %, a cargo del vendedor.',
   'market.seconds': ' / {value1} segundos',
   'market.buy.2': 'Comprar {value1}',
   'market.one.time.purchase': 'Compra única',
@@ -1928,7 +1929,7 @@ const es = {
   'quant.simulated.units': '{amount} unidades simuladas',
   'quant.historical.quote.units': '{amount} unidades históricas de cotización',
   'token.asset.identity.unavailable.2': '{amount} · token sin nombrar',
-  'token.basis.points': '{bps} puntos básicos',
+  'token.basis.points': '{bps} %',
   'token.filter.all': 'Todos',
   'token.status.active': 'Activo',
   'token.status.pending': 'Pendiente',
@@ -2278,16 +2279,16 @@ const fr = {
   'blueprint.no.mentors.are.shortlisted': 'Aucun mentor n’est sélectionné',
   'blueprint.basis.points.of.fit': ' points de base d’affinité · ',
   'blueprint.your.data': 'Tes données',
-  'blueprint.export.blueprint.json': 'Exporter le Blueprint en JSON',
+  'blueprint.export.blueprint.json': 'Télécharger les données de ton Blueprint',
   'blueprint.erase.your.blueprint': 'Effacer ton Blueprint',
   'blueprint.hard.delete.the.profile.crew.membership.match':
-    'Supprimer définitivement le profil, l’appartenance à l’équipe, les enregistrements de correspondances et les relations de mentorat conservés par ce service. Ton compte financier est distinct.',
+    'Supprime définitivement ton profil Blueprint, ton appartenance à l’équipe, tes correspondances et tes liens de mentorat. Ton compte financier reste séparé.',
   'blueprint.type.erase.blueprint': 'Saisis ERASE BLUEPRINT',
   'blueprint.permanently.erase.blueprint': 'Effacer définitivement le Blueprint',
   'blueprint.erase.blueprint.permanently': 'Effacer le Blueprint définitivement',
   'blueprint.blueprint.erasure.confirmed': 'Effacement du Blueprint confirmé',
   'blueprint.this.cannot.be.undone.the.service.returns':
-    'Cette action est irréversible. Le service renvoie un reçu des enregistrements supprimés.',
+    'Cette action est irréversible. Un reçu de confirmation s’affiche une fois tes données supprimées.',
   'blueprint.review.permanent.erasure': 'Vérifier l’effacement définitif',
   'blueprint.guided.blueprint.session': 'Session guidée de Blueprint',
   'blueprint.initial.visibility': 'Visibilité initiale',
@@ -2343,7 +2344,7 @@ const fr = {
   'market.my.listings': 'Mes offres',
   'market.publish.a.strategy.subscription': 'Publier un abonnement à une stratégie',
   'market.the.house.commission.is.unpublished.the.service':
-    'La commission de la maison n’est pas publiée : le service refuse la création d’offres et les achats.',
+    'Aucun frais de place de marché n’est fixé : la création et l’achat d’offres sont en pause.',
   'market.seller.application': 'Candidature de vendeur',
   'market.seller': 'Vendeur',
   'market.status': 'Statut',
@@ -2368,7 +2369,7 @@ const fr = {
   'market.release.2': 'Libérer',
   'market.create.a.listing': 'Créer une offre',
   'market.approval.and.stake.capacity.are.enforced.by':
-    'Le service applique les exigences d’approbation et de capacité de staking. Les abonnements aux stratégies vendent un accès pour une période payée ; le classement par rendement et le partage des bénéfices sont indisponibles.',
+    'Un profil vendeur approuvé et un emplacement disponible sont nécessaires pour publier. Les abonnements à une stratégie vendent un accès pour une période payée ; le classement par rendement et le partage des bénéfices ne sont pas proposés.',
   'market.review.listing': 'Vérifier l’offre',
   'market.publish.listing': 'Publier l’offre',
   'market.listing.published': 'Offre publiée',
@@ -2385,7 +2386,7 @@ const fr = {
   'market.listing.description': 'Description de l’offre',
   'market.offer.type': 'Type d’offre',
   'market.price.asset.id': 'ID de l’actif du prix',
-  'market.paid.period.in.seconds': 'Période payée en secondes',
+  'market.paid.period.in.seconds': 'Durée d’accès (secondes)',
   'market.your.listings': 'Vos offres',
   'market.browse.listings': 'Parcourir les offres',
   'market.you.have.no.listings': 'Vous n’avez aucune offre',
@@ -2471,17 +2472,17 @@ const fr = {
   'moreroutes.more': 'Plus',
   'moreroutes.explore.the.rooms.behind.your.everyday.account': 'Explore les salons qui accompagnent ton compte au quotidien.',
   'moreroutes.learn.practise.and.join.hosted.sessions': 'Apprends, entraîne-toi et rejoins des sessions hébergées.',
-  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Autorisations, sessions du moteur et ton journal d’activité.',
+  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Parcours les agents, ouvre une session et consulte ton activité.',
   'moreroutes.identity.blueprint': 'Identity Blueprint',
   'moreroutes.a.profile.you.can.keep.private.share': 'Un profil que tu peux garder privé, partager, exporter et effacer.',
   'moreroutes.prepare.a.grounded.proposal.for.human.review': 'Prépare une proposition étayée pour une vérification humaine.',
   'moreroutes.issuance.and.sale.participation.require.their.owned':
     'L’émission et la participation aux ventes nécessitent leurs contrats propres.',
-  'moreroutes.published.catalogue.terms.and.your.seller.workspace': 'Conditions publiées du catalogue et ton espace vendeur.',
+  'moreroutes.published.catalogue.terms.and.your.seller.workspace': 'Parcours les offres ou gère ce que tu vends.',
   'moreroutes.listed.questions.result.sources.and.fully.collateralized':
     'Questions listées, sources de résultats et instruments entièrement collatéralisés.',
   'moreroutes.pool.status.without.invented.miners.or.rewards': 'État du pool sans mineurs ni récompenses inventés.',
-  'moreroutes.exact.stake.records.access.and.governance': 'Enregistrements exacts de staking, accès et gouvernance.',
+  'moreroutes.exact.stake.records.access.and.governance': 'Ton staking, ton niveau d’accès et la gouvernance.',
   'moreroutes.simulated.strategy.research.with.explicit.historical.evidence':
     'Recherche simulée de stratégies avec des preuves historiques explicites.',
   'moreroutes.help.requests.and.your.conversation.with.the': 'Articles d’aide et tes demandes de support.',
@@ -2542,10 +2543,10 @@ const fr = {
   'quant.rooms': 'Salles Quant',
   'quant.simulated.no.live.trading.authority': 'Simulé · aucune autorité de trading réel',
   'quant.strategy.sandbox': 'Bac à sable de stratégies',
-  'quant.isolate': 'L’exécuteur de stratégies est connecté.',
+  'quant.isolate': 'Les simulations s’exécutent ici.',
   'quant.runner.off': 'L’exécuteur de stratégies n’est pas connecté : les simulations ne peuvent pas s’exécuter.',
   'quant.trade.only.vault': 'L’accès au marché réservé au trading est configuré pour les stratégies (il ne peut pas retirer de fonds).',
-  'quant.exchange.off': 'L’accès au marché pour les stratégies n’est pas configuré.',
+  'quant.exchange.off': 'Les stratégies n’ont pas accès à un marché ici : chaque exécution est donc une simulation.',
   'quant.review.simulated.run': 'Vérifier l’exécution simulée',
   'quant.run.simulation': 'Exécuter la simulation',
   'quant.simulation.received': 'Simulation reçue',
@@ -2554,7 +2555,7 @@ const fr = {
   'quant.environment': 'Environnement',
   'quant.simulated.starting.cash': 'Liquidités initiales simulées',
   'quant.user.supplied.simulation.input.separate.from.your':
-    'Donnée de simulation fournie par l’utilisateur, distincte de ton solde dans le grand livre.',
+    'De l’argent fictif pour cette simulation seulement. Ce n’est pas ton solde et rien n’est dépensé.',
   'quant.strategy.source': 'Code source de la stratégie',
   'quant.review.simulation': 'Vérifier la simulation',
   'quant.live.deployment.requires.a.separate.approved.execution':
@@ -2583,6 +2584,8 @@ const fr = {
   'quant.kill.threshold': 'Seuil d’arrêt',
   'quant.strategy.name': 'Nom de la stratégie',
   'quant.order.block': 'Bloc d’ordres ',
+  'quant.side.buy': 'Acheter',
+  'quant.side.sell': 'Vendre',
   'quant.remove.block': 'Supprimer le bloc ',
   'quant.add.block': 'Ajouter un bloc',
   'quant.max.drawdown.service.unit.unspecified': 'Baisse maximale (unité du service non précisée)',
@@ -2695,15 +2698,13 @@ const fr = {
   'token.action': 'Action',
   'token.your.token.stakes': 'Ton staking de tokens',
   'token.asset.identity.unavailable': ' · token non nommé',
-  'token.unstake.unavailable.asset.identity.missing':
-    'Le retrait du staking est désactivé : INTAFACED n’indique pas quel solde de token bougerait',
-  'token.staking.asset.identity': 'Quel token est en staking',
+  'token.unstake.unavailable.asset.identity.missing': 'Le retrait du staking est en pause car aucun token de staking n’est défini',
+  'token.staking.asset.identity': 'Statut du staking',
   'token.staking.and.unstaking.are.unavailable.until.the':
-    'Le staking et son retrait sont désactivés car INTAFACED n’indique pas quel solde de token ils feraient bouger.',
+    'Le staking et son retrait sont en pause car aucun token de staking n’est défini.',
   'token.the.token.asset.is.deployment.configurable.stake':
-    'Les relevés de ton staking et de ton accès n’affichent que des montants et ne nomment pas le token. Sans token nommé, nous ne devinons pas quel solde bougerait.',
-  'token.your.existing.stake.records.remain.readable.a':
-    'Tu vois toujours ton stake actuel. Le staking et son retrait sont désactivés car le solde de token n’est pas nommé.',
+    'Tes stakings existants restent visibles ici, affichés en montants sans symbole de token.',
+  'token.your.existing.stake.records.remain.readable.a': 'Tes stakings existants restent visibles ici.',
   'token.proposals': 'Propositions',
   'token.no.proposals.are.published': 'Aucune proposition n’est publiée',
   'token.proposal': 'Proposition',
@@ -2814,20 +2815,20 @@ const fr = {
   'academyrooms.no.expiry.supplied': 'Expiration non fournie',
   'academyrooms.no.threshold.supplied': 'Seuil non fourni',
   'agents.metered.cost': 'Coût mesuré : {value1} {value2}',
-  'agents.product.boundaries': 'Limites du produit',
+  'agents.product.boundaries': 'Limites et portée',
   'agents.a.spend.cap.or.its.fee.asset': 'Un plafond de dépenses ou son actif de frais est indisponible',
   'agents.the.runsession.contracts.require.a.caller.supplied':
     'Les exécutions d’outils nécessitent un plan de niveaux qui n’est pas publié, et tu ne peux pas définir le tien : elles restent donc indisponibles.',
   'agents.signal.ranking.also.requires.a.sealed.input':
-    'Le classement des signaux nécessite également des règles d’entrée scellées et une matrice de niveaux. Aucun des deux n’est publié via une consultation propre au client. Aucun cours, aucune règle de classement ni aucun nombre de signaux n’est inventé.',
+    'Le classement des signaux nécessite des règles et une grille de niveaux publiées qui ne sont pas ouvertes ici. Aucun cours, aucune règle de classement ni aucun nombre de signaux n’est inventé.',
   'agents.a.published.threshold.minimum.sample.count.rail':
     'Cela nécessite des seuils publiés, une taille d’échantillon minimale, une liste approuvée de voies de paiement et tes indicateurs de commerçant. Rien de tout cela ne peut être défini ici.',
   'agents.leader.fixtures.must.come.from.the.live':
     'Les données des leaders doivent provenir de la source en direct avec une liste approuvée. Un résultat saisi à la main n’est pas accepté. Les réglages de copie et les vraies données des leaders se trouvent dans Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
-    'Le port de portefeuille du service est déconnecté. Aucune position détenue, aucune jambe d’ordre cible ni aucun rééquilibrage réel n’est fabriqué.',
+    'Le rééquilibrage de portefeuille n’est pas connecté. Aucune position, aucun ordre cible ni aucun rééquilibrage réel n’est affiché.',
   'agents.draft.assessment.is.not.issuance.screening.list':
-    'L’évaluation d’un brouillon ne constitue ni une émission, ni une publication de liste de contrôle, ni une approbation KYC. Ces actions nécessitent leurs propres contrats sources.',
+    'Évaluer un brouillon n’émet pas d’actif, ne met pas à jour les listes de contrôle et n’approuve pas la vérification. Chacune de ces actions demande son propre examen.',
   'availabilityrooms.none.registered': 'Aucun enregistré',
   'availabilityrooms.the.market.seller.lifecycle.can.publish.catalogue':
     'Le cycle du vendeur de Market peut publier des offres d’accès au catalogue. Il ne peut pas créer un actif négociable ni un tour de vente.',
@@ -2840,8 +2841,7 @@ const fr = {
   'campaigns.proposal.received.publication.remains.a.separate.human':
     'Proposition reçue : {value1}. La publication reste une action humaine distincte.',
   'campaigns.no.publication.requested': 'Aucune publication demandée',
-  'market.published.house.commission.basis.points.charged.to':
-    'Commission de la maison publiée : {value1} points de base, à la charge du vendeur.',
+  'market.published.house.commission.basis.points.charged.to': 'Frais de la place de marché : {value1} %, à la charge du vendeur.',
   'market.seconds': ' / {value1} secondes',
   'market.buy.2': 'Acheter {value1}',
   'market.one.time.purchase': 'Achat unique',
@@ -2913,7 +2913,7 @@ const fr = {
   'quant.simulated.units': '{amount} unités simulées',
   'quant.historical.quote.units': '{amount} unités historiques de cotation',
   'token.asset.identity.unavailable.2': '{amount} · token non nommé',
-  'token.basis.points': '{bps} points de base',
+  'token.basis.points': '{bps} %',
   'token.filter.all': 'Tous',
   'token.status.active': 'Actif',
   'token.status.pending': 'En attente',

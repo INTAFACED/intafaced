@@ -1,6 +1,8 @@
+// volt-room: /money/activity/:id
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
-import { Amount, Button, Skeleton, StateBlock } from './ui-deps';
+import { Amount, Button, StateBlock } from '@intafaced/ui/lit';
+import { KeyValue, RecordListTemplate, Skeleton, type KeyValueRow, type RoomState } from '@intafaced/ui/lit/templates';
 import { coinHref, fmtAmount, navigate, refusalCopy, useActivity, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { ActivityNote } from './ActivityNote';
@@ -14,21 +16,14 @@ import { withDeviceHandle } from '../../data';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="money-fact">
-      <dt>{label}</dt>
-      <dd>{children}</dd>
-    </div>
-  );
-}
+const READY: RoomState = { kind: 'ready' };
+const AMOUNT_TONE = { in: 'lt-up', out: 'lt-down' } as const;
 
 function CopyButton({ value, copy }: { value: string; copy: Copy }) {
   const [done, setDone] = useState(false);
   return (
     <Button
-      variant="secondary"
-      size={40}
+      tone="secondary"
       onClick={() => {
         void navigator.clipboard?.writeText(value).then(
           () => {
@@ -64,7 +59,7 @@ function RefundPointer({ item, copy }: { item: ActivityItem; copy: Copy }) {
   return (
     <p className="lt-hint" data-testid="money-refund">
       {copy.t(sent ? 'Refund sent note' : 'Refund received note', { handle })}{' '}
-      <a href={href} data-testid="money-refund-link">
+      <a className="lt-link" href={href} data-testid="money-refund-link">
         {sent ? copy.t('Refund sent link') : copy.t('Refund received link', { handle })}
       </a>
     </p>
@@ -77,7 +72,7 @@ const titleFor = (item: ActivityItem, copy: Copy) => titleOf(item, copy.t, (key,
 export default function ActivityDetail({ rawId }: { rawId: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances, timeZone } = usePreferences();
+  const { hideBalances, layoutMode, timeZone } = usePreferences();
   const { userId } = useSession();
   const id = idFromPath(rawId);
   const activity = useActivity({ pageSize: 100 });
@@ -94,7 +89,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
 
   const back = (
     <a
-      className="money-back"
+      className="lt-button lt-button-secondary"
       href="/money/activity"
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -108,12 +103,12 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     </a>
   );
 
+  let pageTitle = t('Activity');
   let body: React.ReactNode;
   if (activity.status === 'loading') {
     body = (
       <div aria-busy="true" role="status" aria-label={t('Looking for this transaction')} className="lt-stack">
-        <Skeleton width={220} height={36} className="bg-field" />
-        <Skeleton width={160} height={20} className="bg-field" />
+        <Skeleton shape="rows" count={3} />
       </div>
     );
   } else if (activity.status === 'error') {
@@ -133,7 +128,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
   } else if (!group) {
     body = (
       <div aria-busy="true" role="status" aria-label={t('Looking for this transaction')} className="lt-stack">
-        <Skeleton width={220} height={36} className="bg-field" />
+        <Skeleton shape="rows" count={3} />
         <p className="lt-hint">{t('Looking for this transaction')}</p>
       </div>
     );
@@ -144,26 +139,37 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     const cancelled = group.kind === 'cancelled';
     const holding = group.kind === 'open' || item.kind === 'order_hold';
     const title = cancelled ? t('Order cancelled · nothing spent') : titleFor(item, copy);
+    pageTitle = title;
     const amount = fmtAmount(item.amount);
     // The asset page of a purchase: the asset its purchase line brought in. A sale or a refund has no such line.
     const bought = group.lines.find((line) => line.purchase === true)?.asset ?? null;
     const sharedOrderId = group.lines.length > 1 ? sharedOrder(group.lines) : null;
+    const facts: KeyValueRow[] = [
+      { label: t('Type'), value: title },
+      { label: t('Direction'), value: up ? t('Money in direction') : t('Money out direction') },
+      { label: t('Asset'), value: item.asset },
+      ...(item.counterparty ? [{ label: t('Counterparty'), value: `@${item.counterparty.handle}` }] : []),
+      ...(item.paymentNote ? [{ label: t('Payment note'), value: item.paymentNote }] : []),
+      ...(item.spaceName ? [{ label: t('Account'), value: item.spaceName }] : []),
+      { label: t('When'), value: <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time> },
+      { label: t('Reference'), value: <code className="lt-mono">{item.txId}</code>, ltr: true },
+      { label: t('Record number'), value: <code className="lt-mono">{item.id}</code>, ltr: true },
+    ];
     body = (
-      <>
-        <header className="lt-stack">
-          <h1 className="money-title">{title}</h1>
+      <div className="lt-stack">
+        <div className="lt-stack lt-stack-tight">
           <Amount
             value={cancelled ? `${amount} ${item.asset}` : `${up ? '+' : '−'}${amount} ${item.asset}`}
             hidden={hideBalances}
-            className={`money-detail__amount ${holding || cancelled ? '' : up ? 'text-up-text' : 'text-down-text'}`}
+            className={holding || cancelled ? undefined : AMOUNT_TONE[item.direction]}
           />
-          <p className="money-detail__status">
+          <p className="lt-row lt-hint">
             {holding ? (
-              <span data-testid="money-act__hold" className="money-act__hold">
+              <span data-testid="money-act__hold" className="lt-muted lt-nowrap">
                 {t('Set aside')}
               </span>
             ) : (
-              <span data-testid="money-act__done" className="money-act__done">
+              <span data-testid="money-act__done" className="lt-row lt-row-nowrap lt-nowrap">
                 <Check size={14} aria-hidden="true" />
                 {t('Completed')}
               </span>
@@ -172,41 +178,25 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
           </p>
           {holding && <p className="lt-hint">{t('Set aside note')}</p>}
-        </header>
-        <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Details')}>
-          <h2 className="money-detail__h">{t('Details')}</h2>
-          <dl className="money-facts">
-            <Fact label={t('Type')}>{title}</Fact>
-            <Fact label={t('Direction')}>{up ? t('Money in direction') : t('Money out direction')}</Fact>
-            <Fact label={t('Asset')}>{item.asset}</Fact>
-            {item.counterparty && <Fact label={t('Counterparty')}>@{item.counterparty.handle}</Fact>}
-            {item.paymentNote && <Fact label={t('Payment note')}>{item.paymentNote}</Fact>}
-            {item.spaceName && <Fact label={t('Account')}>{item.spaceName}</Fact>}
-            <Fact label={t('When')}>
-              <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
-            </Fact>
-            <Fact label={t('Reference')}>
-              <code className="money-code">{item.txId}</code>
-            </Fact>
-            <Fact label={t('Record number')}>
-              <code className="money-code">{item.id}</code>
-            </Fact>
-          </dl>
+        </div>
+        <section data-testid="money-card" className="lt-panel lt-stack" aria-label={t('Details')}>
+          <h2>{t('Details')}</h2>
+          <KeyValue rows={facts} label={t('Details')} />
           <p className="lt-hint">{t('Reference note')}</p>
-          <div className="money-detail__actions">
+          <div className="lt-actions">
             <CopyButton value={item.txId} copy={copy} />
-            <Button variant="secondary" size={40} nativeButton={false} render={<a href="/support" />}>
+            <a className="lt-button lt-button-secondary" href="/support">
               {t('Report a problem')}
-            </Button>
+            </a>
             {bought && (
-              <Button variant="secondary" size={40} nativeButton={false} render={<a href={coinHref(bought, 'simple')} />}>
+              <a className="lt-button lt-button-secondary" href={coinHref(bought, 'simple')}>
                 {t('See {asset} history', { asset: bought })}
-              </Button>
+              </a>
             )}
             {item.orderId && (
-              <Button variant="secondary" size={40} nativeButton={false} render={<a href="/money/activity?tab=orders" />}>
+              <a className="lt-button lt-button-secondary" href="/money/activity?tab=orders">
                 {t('See the order')}
-              </Button>
+              </a>
             )}
           </div>
           <p className="lt-hint">{t('Report a problem note')}</p>
@@ -214,50 +204,59 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
           <ActivityNote key={item.id} item={item} />
         </section>
         {group.lines.length > 1 && (
-          <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Parts of this transaction')}>
-            <h2 className="money-detail__h">{t('Parts of this transaction')}</h2>
+          <section data-testid="money-card" className="lt-panel lt-stack" aria-label={t('Parts of this transaction')}>
+            <h2>{t('Parts of this transaction')}</h2>
             {sharedOrderId && (
               <p className="lt-hint" data-label="shared-reference">
-                {t('Parts share order')} <code className="money-code">{sharedOrderId}</code>
+                {t('Parts share order')} <code className="lt-mono">{sharedOrderId}</code>
               </p>
             )}
-            <table data-testid="money-table" className="money-table money-table--activity">
-              <thead>
-                <tr>
-                  <th scope="col">{t('Part')}</th>
-                  <th scope="col">{t('Date')}</th>
-                  <th scope="col" className="money-num">
-                    {t('Amount')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.lines.map((line) => (
-                  <tr key={line.id}>
-                    <td>{titleFor(line, copy)}</td>
-                    <td data-testid="money-act__time" className="money-act__time">
-                      <time dateTime={line.postedAt}>{stamp(line.postedAt, timeZone)}</time>
-                    </td>
-                    <td className="money-num">
-                      <Amount
-                        value={`${line.direction === 'in' ? '+' : '−'}${fmtAmount(line.amount)} ${line.asset}`}
-                        hidden={hideBalances}
-                        className={line.direction === 'in' ? 'text-up-text' : 'text-down-text'}
-                      />
-                    </td>
+            <div className="lt-table-scroll">
+              <table data-testid="money-table" className="lt-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('Part')}</th>
+                    <th scope="col">{t('Date')}</th>
+                    <th scope="col" className="lt-end">
+                      {t('Amount')}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {group.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td data-label={t('Part')}>{titleFor(line, copy)}</td>
+                      <td data-testid="money-act__time" data-label={t('Date')} className="lt-nowrap">
+                        <time dateTime={line.postedAt}>{stamp(line.postedAt, timeZone)}</time>
+                      </td>
+                      <td data-label={t('Amount')} className="lt-end">
+                        <Amount
+                          value={`${line.direction === 'in' ? '+' : '−'}${fmtAmount(line.amount)} ${line.asset}`}
+                          hidden={hideBalances}
+                          className={AMOUNT_TONE[line.direction]}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
-      </>
+      </div>
     );
   }
   return (
-    <div data-testid="if-money" className="if-money if-money--activity money-detail">
-      {back}
-      {body}
+    <div data-testid="if-money" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
+      <RecordListTemplate
+        title={pageTitle}
+        state={READY}
+        mode={layoutMode === 'pro' ? 'pro' : 'simple'}
+        roomAction={back}
+        detailOnly
+        list={null}
+        detail={body}
+      />
     </div>
   );
 }

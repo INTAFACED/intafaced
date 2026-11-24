@@ -314,6 +314,9 @@ export function effectiveState(row: Pick<CampaignRow, 'state' | 'starts_at' | 'e
 
 const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly string[]).includes(type);
 
+/** Whether a campaign pays from a budget. A fee-saver coupon campaign and a trial pass move no value, so they have none. */
+const budgetRequired = (row: CampaignRow) => !(row.type === 'voucher' && Boolean(row.vouchers?.feeSaver)) && row.type !== 'trial_pass';
+
 /**
  * The activation gate (ENGINE LC-3): every blank by name, in order. Called by `submit` and `activate`, never a screen.
  * A `listed` campaign with a blank region list refuses `campaigns.region_list_unset`: the list is a compliance value.
@@ -327,7 +330,7 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
   const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
   // A trial pass moves no value either: it grants a fee tier for a span, so it has no budget.
-  if (!feeSaver && row.type !== 'trial_pass' && (!row.budget_asset || row.budget_limit === null))
+  if (budgetRequired(row) && (!row.budget_asset || row.budget_limit === null))
     missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
@@ -594,7 +597,9 @@ function toView(
 ): CampaignView | null {
   const c = toCampaign(r, timeZone, now);
   if (!(CUSTOMER_STATES as readonly string[]).includes(c.state)) return null;
-  if (!c.startsAt || !c.endsAt || !c.budget || !c.participation) return null;
+  if (!c.startsAt || !c.endsAt || !c.participation) return null;
+  // A campaign that pays needs its budget to be shown; one that pays nothing (the gate's own exemptions) has none.
+  if (!c.budget && budgetRequired(r)) return null;
   return {
     id: c.id,
     name: c.name,

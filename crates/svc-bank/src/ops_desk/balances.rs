@@ -32,21 +32,81 @@ const MAX_LIMIT: i64 = 200;
 
 /// `writeCustomerBalancesAudit`: the line is written before any figure is read, or the read refuses.
 pub fn audit(actor: &str, owner: &str, what: &str) -> Result<(), Refusal> {
-    use std::io::Write;
-    let line = Json::obj([
+    write_audit(Json::obj([
         ("level", Json::str("info")),
         ("service", Json::str("svc-bank")),
         ("event", Json::str("bank.ops.customer_balances_read")),
         ("actorUserId", Json::str(actor)),
         ("ownerUserId", Json::str(owner)),
         ("what", Json::str(what)),
-    ]);
+    ]))
+}
+
+/// `writeCustomerPartnerBalancesAudit` (J-derivatives-26 #8): the same rule for the partner-held read.
+pub fn partner_audit(actor: &str, owner: &str) -> Result<(), Refusal> {
+    write_audit(Json::obj([
+        ("level", Json::str("info")),
+        ("service", Json::str("svc-bank")),
+        (
+            "event",
+            Json::str("bank.ops.customer_partner_balances_read"),
+        ),
+        ("actorUserId", Json::str(actor)),
+        ("ownerUserId", Json::str(owner)),
+    ]))
+}
+
+fn write_audit(line: Json) -> Result<(), Refusal> {
+    use std::io::Write;
     writeln!(std::io::stdout(), "{}", line.compact()).map_err(|_| {
         refuse(
             "bank.ops_audit_unavailable",
             "The read could not be recorded, so nothing was read",
         )
     })
+}
+
+/// The owner list's cap (`OWNER_LIST_CAP`): the desk reads one page, the most the owner can ask for.
+const PARTNER_SPACES_PAGE: i64 = 200;
+
+/// `customerPartnerBalances` (J-derivatives-26 #8, `SpaceService.partnerHeldFigures`): the person's spaces with the figure
+/// the partner holding their money reports, each built by `space::held_figure` as the person's own `spaces.list` builds
+/// it. No partner holds their money: `heldByPartner: false` and no spaces; no ledger figure is read. Writes nothing (no
+/// `ensure_held_primaries`), so a main balance whose label row the owner has not read into being yet is not listed.
+pub fn partner_held(
+    store: &crate::db::Store,
+    money: &Money<'_>,
+    user_id: &str,
+) -> Result<Json, Refusal> {
+    let Some(partner) = money.held(user_id) else {
+        return Ok(Json::obj([
+            ("userId", Json::str(user_id)),
+            ("heldByPartner", Json::Bool(false)),
+            ("spaces", Json::Array(Vec::new())),
+        ]));
+    };
+    let spaces = crate::spaces::space::list(store, money, user_id, None, PARTNER_SPACES_PAGE)?;
+    let reports = partner.balances(user_id, money.now);
+    let mut out = Vec::new();
+    for s in spaces {
+        let f = crate::spaces::space::held_figure(&partner, &reports, &s, money.now)?;
+        out.push(Json::obj([
+            ("spaceId", Json::str(s.id.clone())),
+            ("assetId", Json::str(s.asset_id.clone())),
+            ("kind", Json::str(s.kind.clone())),
+            ("name", Json::str(s.name.clone())),
+            ("balance", Json::str(format_amount(f.amount))),
+            ("source", Json::str(f.label)),
+            ("asOf", Json::str(f.as_of.iso())),
+            ("state", Json::str(if f.stale { "stale" } else { "known" })),
+            ("staleAfterMs", Json::int(crate::partner::STALE_AFTER_MS)),
+        ]));
+    }
+    Ok(Json::obj([
+        ("userId", Json::str(user_id)),
+        ("heldByPartner", Json::Bool(true)),
+        ("spaces", Json::Array(out)),
+    ]))
 }
 
 /// A ledger read that failed: `LedgerError`, which the guard answers opaquely.

@@ -1,10 +1,10 @@
 // volt-room: /trade/positions
 import { useRef, useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Select } from '@intafaced/ui/lit';
 import { MonitorTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { ScrollTable, Waiting } from '../../more';
 import { useSession } from '../../session';
-import { usePolled } from '../../protocol';
+import { TabList, usePolled } from '../../protocol';
 import { closeWorstPrice } from '../../../screens/trade/futures/VenueFuturesDesk';
 import { compareDecimal } from '../../../data/decimal';
 import { useVenueMode } from '../use-venue-mode';
@@ -20,6 +20,7 @@ import {
   type VenueLeverageChange,
   type VenueMarket,
   type VenuePosition,
+  type VenuePositionMode,
   type VenueUp,
 } from '../venue-api';
 import { VENUE_POLL_MS } from '../venue/poll';
@@ -39,12 +40,15 @@ import {
 import { positionsCopy } from './positions-copy';
 import { LiquidationAftermath, LiquidationPanel } from './LiquidationPanels';
 import { AutoTopUpPanel } from './AutoTopUpPanel';
+import { MarginCalls, RiskAlertsPanel } from './RiskAlertsPanel';
+import { PreLiquidationStopPanel, StopOnRow, usePreLiquidationStops } from './PreLiquidationStop';
 
 /**
  * The positions room (`/trade/positions`, J-derivatives-05): the person's futures positions on every connected venue with
  * product tags and the venue named, totals that are the sum of the rows, each position's details, the venue's position
- * modes, a leverage change with the venue's margin difference stated before signing, close all from a reviewed list, and
- * the venue sub-accounts with their positions and the margin moved between them. Every figure is the venue's own, with
+ * modes and the switch between them where the venue offers one, a leverage change with the venue's margin difference
+ * stated before signing, close all from a reviewed list, and the venue sub-accounts with their positions, the margin moved
+ * between them, and a position moved where the venue moves positions. Every figure is the venue's own, with
  * its time; the venue holds the margin, INTAFACED holds none of it, and the ledger posts nothing.
  */
 export function PositionsRoom({ path }: { path: string }) {
@@ -63,7 +67,7 @@ export function PositionsRoom({ path }: { path: string }) {
       mode="pro"
       figures={[]}
       roomAction={link ? deskLink : undefined}
-      explain={<p className="lt-hint">{t('eyebrow')}</p>}
+      explain={<p className="lt-hint">{t('explain')}</p>}
     />
   );
   if (!userId)
@@ -97,7 +101,7 @@ export function PositionsRoom({ path }: { path: string }) {
             <Owned>{(owner) => <Room owner={owner} status={status} path={path} />}</Owned>
           </div>
         }
-        explain={<p className="lt-hint">{t('eyebrow')}</p>}
+        explain={<p className="lt-hint">{t('explain')}</p>}
       />
     </VenueFrame>
   );
@@ -115,12 +119,14 @@ interface Venue {
   readonly id: string;
   readonly name: string;
   readonly down: string | null;
-  readonly modes: readonly ('one_way' | 'hedge')[];
+  readonly modes: readonly VenuePositionMode[];
+  /** True where the venue moves an open position between the main account and a sub-account. */
+  readonly moves: boolean;
 }
 
 function venuesOf(status: VenueUp): Venue[] {
   const listed = status.venues ?? [];
-  if (listed.length === 0) return [{ id: status.venue.id, name: status.venue.displayName, down: null, modes: ['one_way'] }];
+  if (listed.length === 0) return [{ id: status.venue.id, name: status.venue.displayName, down: null, modes: ['one_way'], moves: false }];
   return listed
     .filter((v): v is typeof v & { venueId: string } => v.venueId !== null)
     .map((v) => ({
@@ -128,6 +134,7 @@ function venuesOf(status: VenueUp): Venue[] {
       name: v.displayName ?? v.venueId,
       down: v.health.state === 'down' ? String((v.health as { reason?: unknown }).reason ?? '') : null,
       modes: v.positionModes ?? ['one_way'],
+      moves: v.positionMoves === true,
     }));
 }
 
@@ -148,6 +155,7 @@ interface VenueRead {
 const FILLS_WINDOW_MS = 7 * 24 * 3_600_000;
 
 function Room({ owner, status, path }: { owner: string; status: VenueUp; path: string }) {
+  const { t } = positionsCopy.useCopy();
   const venue = useVenueApi();
   const venues = venuesOf(status);
   const since = useRef(new Date(Date.now() - FILLS_WINDOW_MS).toISOString()).current;
@@ -200,37 +208,63 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
   const fillsOf = (venueId: string) => reads.data?.find((r) => r.venue.id === venueId)?.fills ?? [];
   const reload = () => reads.reload();
   const addressed = new URL(path, location.origin).searchParams.get('subAccount');
+  const [tab, setTab] = useState<'positions' | 'calls'>(
+    new URL(path, location.origin).searchParams.get('tab') === 'margin-calls' ? 'calls' : 'positions',
+  );
+  const up = venues.find((v) => v.down === null);
   return (
-    <>
-      <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
-      <AllPositions
-        owner={owner}
-        reads={reads.data}
-        rows={rows}
-        marketOf={marketOf}
-        fillsOf={fillsOf}
-        run={run}
-        onDone={reload}
-        test={status.test}
-        builder={status.builder}
-      />
-      <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
-      <Modes venues={venues} />
-      {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
-      {venues
-        .filter((v) => v.down === null)
-        .map((v) => (
-          <SubAccounts
-            key={v.id}
+    <TabList
+      label={t('tabsLabel')}
+      tabs={[
+        { id: 'positions', label: t('tabPositions') },
+        { id: 'calls', label: t('tabCalls') },
+      ]}
+      value={tab}
+      onChange={setTab}
+    >
+      {tab === 'calls' ? (
+        up ? (
+          <MarginCalls owner={owner} venue={up} />
+        ) : null
+      ) : (
+        <>
+          <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
+          <AllPositions
             owner={owner}
-            venue={v}
-            mainRows={rows.filter((r) => r.venue.id === v.id)}
-            marketOf={(symbol) => marketOf(v.id, symbol)}
+            reads={reads.data}
+            rows={rows}
+            marketOf={marketOf}
+            fillsOf={fillsOf}
             run={run}
             onDone={reload}
+            test={status.test}
+            builder={status.builder}
+            desk={{ id: status.venue.id, name: status.venue.displayName }}
           />
-        ))}
-    </>
+          <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
+          <Modes
+            owner={owner}
+            venues={venues}
+            perpsOf={(venueId) => (markets.data?.[venueId] ?? []).filter((m) => m.kind === 'perpetual').map((m) => m.symbol)}
+            run={run}
+          />
+          {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
+          {venues
+            .filter((v) => v.down === null)
+            .map((v) => (
+              <SubAccounts
+                key={v.id}
+                owner={owner}
+                venue={v}
+                mainRows={rows.filter((r) => r.venue.id === v.id)}
+                marketOf={(symbol) => marketOf(v.id, symbol)}
+                run={run}
+                onDone={reload}
+              />
+            ))}
+        </>
+      )}
+    </TabList>
   );
 }
 
@@ -326,6 +360,7 @@ function AllPositions({
   onDone,
   test,
   builder,
+  desk,
 }: {
   owner: string;
   reads: VenueRead[] | null;
@@ -336,10 +371,14 @@ function AllPositions({
   onDone: () => void;
   test: boolean;
   builder: VenueUp['builder'];
+  /** The venue the door sends protections to (a pre-liquidation stop rests there). */
+  desk: { id: string; name: string };
 }) {
   const { t } = positionsCopy.useCopy();
   const headers = useHeaders();
-  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin'; key: string } | null>(null);
+  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin' | 'stop'; key: string } | null>(null);
+  const stops = usePreLiquidationStops(owner);
+  const stopOf = (row: Row) => (row.venue.id === desk.id ? stops.stops.get(row.position.symbol) : undefined);
   const openRow = open ? (rows.find((r) => rowKey(r) === open.key) ?? null) : null;
   // The liquidation panel names its venue and market, not a row: it stays open when the venue closes the position.
   const [liquidation, setLiquidation] = useState<{ venue: Venue; symbol: string } | null>(null);
@@ -374,9 +413,15 @@ function AllPositions({
                   {t('changeLeverage')}
                 </Button>{' '}
                 {row.position.marginMode === 'isolated' ? (
-                  <Button tone="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
-                    {t('adjustMargin')}
-                  </Button>
+                  <>
+                    <Button tone="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
+                      {t('adjustMargin')}
+                    </Button>{' '}
+                    <Button tone="secondary" onClick={() => setOpen({ kind: 'stop', key: rowKey(row) })}>
+                      {t('plsButton')}
+                    </Button>{' '}
+                    <StopOnRow stop={stopOf(row)} />
+                  </>
                 ) : null}{' '}
                 <Button tone="secondary" onClick={() => setLiquidation({ venue: row.venue, symbol: row.position.symbol })}>
                   {t('liquidationButton')}
@@ -402,6 +447,24 @@ function AllPositions({
       ) : null}
       {open?.kind === 'margin' && openRow ? (
         <IsolatedMargin key={open.key} row={openRow} owner={owner} run={run} onDone={onDone} onClose={() => setOpen(null)} />
+      ) : null}
+      {open?.kind === 'stop' && openRow ? (
+        <PreLiquidationStopPanel
+          key={open.key}
+          owner={owner}
+          position={openRow.position}
+          venue={openRow.venue}
+          desk={desk}
+          market={entryOf(marketOf(openRow.venue.id, openRow.position.symbol))}
+          stop={stopOf(openRow)}
+          builder={builder}
+          run={run}
+          onDone={() => {
+            stops.reload();
+            onDone();
+          }}
+          onClose={() => setOpen(null)}
+        />
       ) : null}
       {liquidation ? (
         <LiquidationPanel
@@ -805,6 +868,7 @@ function IsolatedMargin({
         </p>
       ) : null}
       {now ? <AutoTopUpPanel owner={owner} symbol={p.symbol} venueName={row.venue.name} /> : null}
+      {now ? <RiskAlertsPanel owner={owner} symbol={p.symbol} venueName={row.venue.name} /> : null}
       <Button tone="secondary" onClick={onClose}>
         {t('close')}
       </Button>
@@ -946,34 +1010,115 @@ function CloseAll({
   );
 }
 
-/** The position modes (#3): each venue's modes, offered only where the venue offers them, the others with the reason. */
-function Modes({ venues }: { venues: Venue[] }) {
+/**
+ * The position modes (#3): each venue's modes, offered only where the venue offers them, the others with the reason; a
+ * venue that offers more than one gets the switch, one perpetual at a time.
+ */
+function Modes({
+  owner,
+  venues,
+  perpsOf,
+  run,
+}: {
+  owner: string;
+  venues: Venue[];
+  perpsOf: (venueId: string) => string[];
+  run: RunAction;
+}) {
   const { t } = positionsCopy.useCopy();
   return (
     <section className="lt-stack" aria-label={t('modesTitle')} data-testid="positions-modes">
       <h2>{t('modesTitle')}</h2>
       {venues.map((v) => (
-        <dl key={v.id} data-venue={v.id}>
-          <dt>{t('modeOneWay')}</dt>
-          <dd data-mode="one_way" data-offered={String(v.modes.includes('one_way'))}>
-            {v.modes.includes('one_way')
-              ? t(v.modes.length === 1 ? 'modeCurrent' : 'modeOffered', { venue: v.name })
-              : t('modeOneWayNotOffered', { venue: v.name })}
-          </dd>
-          <dt>{t('modeHedge')}</dt>
-          <dd data-mode="hedge" data-offered={String(v.modes.includes('hedge'))}>
-            {v.modes.includes('hedge') ? t('modeOffered', { venue: v.name }) : t('modeHedgeNotOffered', { venue: v.name })}
-          </dd>
-        </dl>
+        <div key={v.id} className="lt-stack">
+          <dl data-venue={v.id}>
+            <dt>{t('modeOneWay')}</dt>
+            <dd data-mode="one_way" data-offered={String(v.modes.includes('one_way'))}>
+              {v.modes.includes('one_way')
+                ? t(v.modes.length === 1 ? 'modeCurrent' : 'modeOffered', { venue: v.name })
+                : t('modeOneWayNotOffered', { venue: v.name })}
+            </dd>
+            <dt>{t('modeHedge')}</dt>
+            <dd data-mode="hedge" data-offered={String(v.modes.includes('hedge'))}>
+              {v.modes.includes('hedge') ? t('modeOffered', { venue: v.name }) : t('modeHedgeNotOffered', { venue: v.name })}
+            </dd>
+          </dl>
+          {v.modes.length > 1 && v.down === null && perpsOf(v.id).length > 0 ? (
+            <ModeSwitch owner={owner} venue={v} symbols={perpsOf(v.id)} run={run} />
+          ) : null}
+        </div>
       ))}
     </section>
   );
 }
 
 /**
+ * The switch on a venue that offers more than one mode (#3): the mode the venue reports for one perpetual, and one
+ * signed change to another it offers. The venue takes it or refuses it; its reason is shown as it gave it.
+ */
+function ModeSwitch({ owner, venue: v, symbols, run }: { owner: string; venue: Venue; symbols: string[]; run: RunAction }) {
+  const { t } = positionsCopy.useCopy();
+  const venue = useVenueApi();
+  const [picked, setPicked] = useState('');
+  const symbol = symbols.includes(picked) ? picked : symbols[0]!;
+  const mode = usePolled(
+    (signal) => venue.positionMode(owner, { symbol, venueId: v.id }, signal),
+    `position-mode:${owner}:${v.id}:${symbol}`,
+    VENUE_POLL_MS,
+  );
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const draft = useRef<{ id: string; of: string } | null>(null);
+  const now = mode.data?.value ?? null;
+  const nameOf = (m: VenuePositionMode) => t(m === 'hedge' ? 'modeHedge' : 'modeOneWay');
+
+  async function choose(target: VenuePositionMode) {
+    setResult(null);
+    const of = `${symbol}|${target}`;
+    if (!draft.current || draft.current.of !== of) draft.current = { id: draftId(), of };
+    const changeKey = keys.positionMode(owner, symbol, target, draft.current.id);
+    const answer = await run({ kind: 'set_position_mode', symbol, mode: target, changeKey }, { venueId: v.id });
+    if (!keepsDraft(answer)) draft.current = null;
+    setResult(answer);
+    mode.reload();
+  }
+
+  return (
+    <fieldset className="lt-stack" data-testid="positions-mode-switch" data-venue={v.id}>
+      <legend>{t('modeSwitchTitle', { venue: v.name })}</legend>
+      <Select
+        label={t('modeSwitchMarket')}
+        value={symbol}
+        onChange={(value) => {
+          setPicked(value);
+          setResult(null);
+        }}
+        options={symbols}
+      />
+      {mode.failure ? (
+        <p className="lt-refusal" role="alert" data-refusal={mode.failure.code}>
+          {t('modeNotKnown', { venue: v.name, detail: mode.failure.message })}
+        </p>
+      ) : (
+        <p data-line="mode-now" data-symbol={symbol}>
+          {t('modeNow', { symbol, venue: v.name })}: <span data-value="mode-now">{now ? nameOf(now) : t('modeReading')}</span>
+        </p>
+      )}
+      {v.modes.map((m) => (
+        <Button key={m} tone="secondary" disabled={now === null || now === m} onClick={() => void choose(m)}>
+          {t('modeChoose', { symbol, mode: nameOf(m) })}
+        </Button>
+      ))}
+      <p className="lt-hint">{t('modeHedgeNote', { venue: v.name })}</p>
+      <AsOfLine asOf={mode.data?.asOf ?? null} />
+      <OutcomeLine result={result} owner={owner} venueId={v.id} />
+    </fieldset>
+  );
+}
+
+/**
  * One venue's sub-accounts (#6 #7): each with its positions and totals, read as its owner (the main wallet); the margin
- * moved between the main account and a sub-account as one signed venue transfer, shown on both; and a position move,
- * refused in words, since the venue moves no open position between accounts.
+ * moved between the main account and a sub-account as one signed venue transfer, shown on both; and a position move:
+ * one signed venue action where the venue moves positions, refused in words where it moves none.
  */
 function SubAccounts({
   owner,
@@ -999,14 +1144,30 @@ function SubAccounts({
   const [chosen, setChosen] = useState('');
   const [amount, setAmount] = useState('');
   const [moveSymbol, setMoveSymbol] = useState('');
+  const [positionDirection, setPositionDirection] = useState<'into_sub_account' | 'out_of_sub_account'>('into_sub_account');
   const [problem, setProblem] = useState<string | null>(null);
   const [positionRefusal, setPositionRefusal] = useState<string | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
+  const [positionResult, setPositionResult] = useState<ActionResult | null>(null);
   const draft = useRef<{ id: string; of: string } | null>(null);
+  const positionDraft = useRef<{ id: string; of: string } | null>(null);
   const list = subs.data?.value ?? [];
   const sub = chosen || list[0]?.subAccount || '';
   const words = { venue: v.name };
   const mainUsdc = main.data?.value.find((b) => b.asset === 'USDC');
+  // The chosen sub-account's positions: what can move out of it.
+  const subHeld = usePolled(
+    (signal) => venue.positions(owner, signal, { venueId: v.id, ...(sub ? { subAccount: sub } : {}) }),
+    `subs-move:${owner}:${v.id}:${sub}`,
+    VENUE_POLL_MS,
+  );
+  const movable =
+    positionDirection === 'into_sub_account'
+      ? mainRows.map((r) => r.position.symbol)
+      : sub
+        ? (subHeld.data?.value ?? []).map((p) => p.symbol)
+        : [];
+  const symbolToMove = movable.includes(moveSymbol) ? moveSymbol : (movable[0] ?? '');
 
   async function open() {
     setProblem(null);
@@ -1038,6 +1199,25 @@ function SubAccounts({
     if (!keepsDraft(answer)) draft.current = null;
     setResult(answer);
     main.reload();
+    onDone();
+  }
+
+  /** The whole position and its margin, moved by the venue in one signed action; refused in words where it moves none. */
+  async function movePosition() {
+    setPositionRefusal(null);
+    setPositionResult(null);
+    if (!sub || !symbolToMove) return;
+    if (!v.moves) return setPositionRefusal(t('positionMoveRefused', words));
+    const of = `${sub}|${positionDirection}|${symbolToMove}`;
+    if (!positionDraft.current || positionDraft.current.of !== of) positionDraft.current = { id: draftId(), of };
+    const moveKey = keys.positionMove(owner, positionDraft.current.id);
+    const answer = await run(
+      { kind: 'move_position', subAccount: sub, direction: positionDirection, symbol: symbolToMove, moveKey },
+      { actionKey: moveKey, venueId: v.id },
+    );
+    if (!keepsDraft(answer)) positionDraft.current = null;
+    setPositionResult(answer);
+    subHeld.reload();
     onDone();
   }
 
@@ -1094,31 +1274,46 @@ function SubAccounts({
           <Button onClick={() => void move()}>{t('moveButton')}</Button>
         </fieldset>
       ) : null}
-      {list.length > 0 && mainRows.length > 0 ? (
+      {list.length > 0 ? (
         <fieldset className="lt-stack" data-testid="positions-move-position">
           <legend>{t('positionMoveTitle')}</legend>
-          <label className="lt-field">
-            <span>{t('positionMovePick')}</span>
-            <select
-              value={moveSymbol || mainRows[0]!.position.symbol}
-              onChange={(e) => setMoveSymbol(e.target.value)}
-              aria-label={t('positionMovePick')}
-            >
-              {mainRows.map((r) => (
-                <option key={r.position.symbol} value={r.position.symbol}>
-                  {r.position.symbol}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button tone="secondary" onClick={() => setPositionRefusal(t('positionMoveRefused', words))}>
-            {t('positionMoveButton')}
-          </Button>
+          <p className="lt-hint">{t(v.moves ? 'positionMoveLead' : 'positionMoveNone', words)}</p>
+          <Select
+            label={t('positionMoveDirection')}
+            value={positionDirection}
+            onChange={(value) => setPositionDirection(value === 'out_of_sub_account' ? 'out_of_sub_account' : 'into_sub_account')}
+            options={[
+              { value: 'into_sub_account', label: t('intoSub') },
+              { value: 'out_of_sub_account', label: t('outOfSub') },
+            ]}
+          />
+          {movable.length > 0 ? (
+            <>
+              <label className="lt-field">
+                <span>{t('positionMovePick')}</span>
+                <select value={symbolToMove} onChange={(e) => setMoveSymbol(e.target.value)} aria-label={t('positionMovePick')}>
+                  {movable.map((symbol) => (
+                    <option key={symbol} value={symbol}>
+                      {symbol}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button tone="secondary" onClick={() => void movePosition()}>
+                {t('positionMoveButton')}
+              </Button>
+            </>
+          ) : (
+            <p className="lt-hint" data-line="nothing-to-move">
+              {t('positionMoveEmpty')}
+            </p>
+          )}
           {positionRefusal ? (
             <p className="lt-refusal" role="alert" data-testid="positions-move-position-refused">
               {positionRefusal}
             </p>
           ) : null}
+          <OutcomeLine result={positionResult} owner={owner} venueId={v.id} />
         </fieldset>
       ) : null}
       {problem ? (

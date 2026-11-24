@@ -85,8 +85,8 @@ impl Slice {
     }
 }
 
-/// The 531 calls.
-pub static CALLS: [Call; 531] = [
+/// The 532 calls.
+pub static CALLS: [Call; 533] = [
     Call {
         path: "accountDetails.get",
         kind: Kind::Query,
@@ -6198,6 +6198,19 @@ pub static CALLS: [Call; 531] = [
         has_input: true,
     },
     Call {
+        path: "ops.customerPartnerBalances",
+        kind: Kind::Query,
+        access: Access::Scope(Scoped {
+            scope: "admin:read",
+            tier: None,
+            person: false,
+            region: None,
+            own_session: None,
+        }),
+        slice: Slice::OpsDesk,
+        has_input: true,
+    },
+    Call {
         path: "ops.customerTransfers",
         kind: Kind::Query,
         access: Access::Scope(Scoped {
@@ -8929,6 +8942,24 @@ pub static CALLS: [Call; 531] = [
         kind: Kind::Mutation,
         access: Access::Scope(Scoped {
             scope: "bank:write",
+            tier: None,
+            person: false,
+            region: Some(Region {
+                kyc: Some(Kyc {
+                    module: "bank",
+                    min_tier: "full",
+                }),
+            }),
+            own_session: None,
+        }),
+        slice: Slice::Transfers,
+        has_input: true,
+    },
+    Call {
+        path: "transfers.sent",
+        kind: Kind::Query,
+        access: Access::Scope(Scoped {
+            scope: "bank:read",
             tier: None,
             person: false,
             region: Some(Region {
