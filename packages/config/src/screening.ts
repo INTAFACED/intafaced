@@ -244,6 +244,8 @@ export const SANCTIONED_LIST_ROWS: readonly SanctionedRow[] = [
   row('UA-40', 'Sevastopol, Crimea region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
   row('UA-14', 'Donetsk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
   row('UA-09', 'Luhansk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
+  row('UA-65', 'Kherson region of Ukraine: non-government-controlled areas sanctioned (Ukraine-/Russia-related sanctions)'),
+  row('UA-23', 'Zaporizhzhia region of Ukraine: non-government-controlled areas sanctioned (Ukraine-/Russia-related sanctions)'),
 ];
 
 /** Provenance of a list built from the rows. Names the config, never a value from the env. */
