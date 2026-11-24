@@ -46,6 +46,7 @@
     "garden/no-raw-stored-search": "error",
     "garden/no-call-by-name": "error",
     "garden/no-runtime-swap": "error",
+    "garden/no-switch-router": "error",
     "garden/no-cross-feature-import": "error",
     "garden/no-source-text-test": "error",
     "garden/no-restyled-kit-part": "error",

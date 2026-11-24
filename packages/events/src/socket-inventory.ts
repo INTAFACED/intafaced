@@ -162,6 +162,7 @@ export const EVENT_BUS_MATRIX = {
   copyStopped: { kind: 'live' },
   recurringBuySuspended: { kind: 'live' },
   venueDelistingScheduled: { kind: 'live' },
+  venueRiskAlerted: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
   quantOrderFilled: { kind: 'live' },
