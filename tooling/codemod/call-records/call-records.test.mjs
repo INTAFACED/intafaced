@@ -3438,3 +3438,28 @@ test('a const with only query that the test hands on as `api` (a mocked useSessi
   );
   assert.equal(doublesIn(file).out.length, 1, 'only the const handed on as api');
 });
+
+test('a desk read whose helper would come from a server-only entry it takes only types from stays by name', async () => {
+  const { deskReadSite } = await import('./sites.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-server-only-'));
+  const app = join(root, 'apps/admin/src');
+  mkdirSync(join(app, 'lib/ops-desk'), { recursive: true });
+  mkdirSync(join(app, 'lib/account-search'), { recursive: true });
+  mkdirSync(join(app, 'lib/plain'), { recursive: true });
+  writeFileSync(
+    join(app, 'lib/ops-desk/index.ts'),
+    "import 'server-only';\nexport const readOf = () => ({});\nexport type ReadSpec = {};\n",
+  );
+  writeFileSync(join(app, 'lib/plain/index.ts'), 'export const readOf = () => ({});\nexport type ReadSpec = {};\n');
+  // The past mistake (admin's account search): `import type { ReadSpec } from '@/lib/ops-desk'`, read by a client component.
+  const spec = (from, kind) =>
+    `import ${kind} { ReadSpec } from '${from}';\nexport const s: ReadSpec = { module: 'identity', procedure: 'accountDirectory.search' };\n`;
+  const site = (name, from, kind) => {
+    const f = join(app, 'lib/account-search', name);
+    writeFileSync(f, spec(from, kind));
+    return deskReadSite(load(f))[0];
+  };
+  assert.match(site('a.ts', '@/lib/ops-desk', 'type').problem, /server-only/);
+  assert.equal(site('b.ts', '@/lib/ops-desk', '').problem, undefined, 'a file that already takes values from it changes nothing');
+  assert.equal(site('c.ts', '@/lib/plain', 'type').problem, undefined, 'an entry that is not server-only moves');
+});
