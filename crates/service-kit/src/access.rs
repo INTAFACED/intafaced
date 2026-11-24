@@ -215,11 +215,11 @@ const SANCTIONED_LIST_ROWS: [(&str, &str); 10] = [
     ),
     (
         "UA-65",
-        "Kherson region of Ukraine: non-government-controlled areas sanctioned (Ukraine-/Russia-related sanctions)",
+        "Kherson region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions",
     ),
     (
         "UA-23",
-        "Zaporizhzhia region of Ukraine: non-government-controlled areas sanctioned (Ukraine-/Russia-related sanctions)",
+        "Zaporizhzhia region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions",
     ),
 ];
 const SANCTIONED_ROWS_SOURCE_UNSIGNED: &str = "config:SANCTIONED_LIST_ROWS (unsigned, agents' reading, not Hyperliquid's text; dev/test only)";

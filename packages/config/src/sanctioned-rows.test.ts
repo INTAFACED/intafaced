@@ -199,9 +199,13 @@ describe('residence and citizenship read the same rows', () => {
   });
 
   it.each(['UA-65', 'UA-23'])('%s refuses a sign-up and a trade like the other Ukrainian rows', (region) => {
-    const residence = checkAccess({ module: 'trade', plane: 'fiat', region, kycTier: 'full', screening: ROWS_LIST, business: [] });
-    expect(residence.code).toBe('denied.region_blocked');
-    expect(residence.blockedBy).toBe('screening');
+    // Sign-up reads residence as svc-identity's sign-up does: the identity module at tier none.
+    const signUp = checkAccess({ module: 'identity', plane: 'fiat', region, kycTier: 'none', screening: ROWS_LIST, business: [] });
+    expect(signUp.code).toBe('denied.region_blocked');
+    expect(signUp.blockedBy).toBe('screening');
+    const trade = checkAccess({ module: 'trade', plane: 'fiat', region, kycTier: 'full', screening: ROWS_LIST, business: [] });
+    expect(trade.code).toBe('denied.region_blocked');
+    expect(trade.blockedBy).toBe('screening');
     const citizen = checkCitizenship({ citizenship: region, screening: ROWS_LIST });
     expect(citizen.code).toBe('denied.region_blocked');
     expect(citizen.blockedBy).toBe('screening');
