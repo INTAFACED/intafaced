@@ -302,6 +302,11 @@ const SAVED_ENV = vi.hoisted(() => {
 /** svc-trade calls with no `.output()`: the call-records codemod can't make their record. Lower it as each gains one; never raise it. */
 const ANSWERLESS_AT_MOST = 135;
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
 /** One review part holds 400 KB and a new file is one hunk, so each recorded file stays under this. */
@@ -1671,12 +1676,12 @@ async function writeGolden(g: Golden) {
 
 function readGolden(): Golden {
   const g: Golden = {
-    callers: JSON.parse(readFileSync(new URL('./wire-replay.golden/callers.json', import.meta.url), 'utf8')),
+    callers: JSON.parse(readFileSync(new URL('./wire-replay.golden/callers.json', import.meta.url), 'utf8').replaceAll(RECORDED_STACK, '')),
     inputs: {},
     answers: {},
   };
   for (const file of readdirSync(GOLDEN).filter((f) => f !== 'callers.json')) {
-    const shard = JSON.parse(readFileSync(goldenJson(file.replace(/\.json$/, '')), 'utf8')) as {
+    const shard = JSON.parse(readFileSync(goldenJson(file.replace(/\.json$/, '')), 'utf8').replaceAll(RECORDED_STACK, '')) as {
       inputs: Record<string, Samples>;
       bodies: string[];
       answers: Record<string, Record<string, [number, number]>>;
