@@ -115,6 +115,27 @@ describe("the beta's menus", () => {
     expect(simpleTrade?.items.map((item) => item.href)).toContain('/trade/buy');
   });
 
+  it('shows API keys and the API permissions reference (/developers/permissions) on the beta while keeping /developers blocked (J-developer-03 #7 #9)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/uc/safe/api-keys', '/uc/safe/api-keys'],
+      ['/uc/safe/api-keys/new', '/uc/safe/api-keys/new'],
+      ['/uc/safe/api-keys/:keyId', '/uc/safe/api-keys/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d'],
+      ['/developers/permissions', '/developers/permissions'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(betaOffFeatureFor(sample), sample).toBeUndefined();
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    expect(betaOffFeatureFor('/developers')?.id).toBe('developer-portal');
+    expect(betaOffFeatureFor('/developers/hosts')?.id).toBe('developer-portal');
+    expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
+    expect(isHiddenPath('/developers')).toBe(true);
+    expect(isHiddenPath('/developers/hosts')).toBe(true);
+  });
+
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
     expect(betaRooms()).toBeUndefined();
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);

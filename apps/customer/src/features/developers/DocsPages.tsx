@@ -160,13 +160,13 @@ export function PermissionsPage({ title }: { title: string }) {
               {permissionTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope}>
                   <th scope="row">
-                    <code>{row.scope}</code>
+                    <code className="lt-mono">{row.scope}</code>
                   </th>
                   <td>
                     <ul>
                       {row.routes.map((route) => (
                         <li key={routeLine(route)}>
-                          <code>{routeLine(route)}</code>
+                          <code className="lt-mono">{routeLine(route)}</code>
                         </li>
                       ))}
                     </ul>
@@ -176,7 +176,7 @@ export function PermissionsPage({ title }: { title: string }) {
               {neverOnAKeyTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope} data-never-on-key="">
                   <th scope="row">
-                    <code>{row.scope}</code>
+                    <code className="lt-mono">{row.scope}</code>
                   </th>
                   <td>
                     {row.routes.length > 0 ? t('neverOnKeyStaff') : t('neverOnKey')}
@@ -184,7 +184,7 @@ export function PermissionsPage({ title }: { title: string }) {
                       <ul>
                         {row.routes.map((route) => (
                           <li key={routeLine(route)}>
-                            <code>{routeLine(route)}</code>
+                            <code className="lt-mono">{routeLine(route)}</code>
                           </li>
                         ))}
                       </ul>

@@ -27,6 +27,11 @@ export function KeySafety() {
         <li>{t('safetyAgents')}</li>
         <li>{t('safetyWithdraw')}</li>
       </ul>
+      <p>
+        <a className="lt-link lt-link-alone" href="/developers/permissions">
+          {t('permissionsTableLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+        </a>
+      </p>
     </section>
   );
 }
