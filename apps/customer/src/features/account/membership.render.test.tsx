@@ -15,6 +15,16 @@ const api = {
       return { ok: false, reason: 'error', code: 'contract_mismatch', message: 'bad' };
     return answer;
   },
+  call(
+    this: { query: (...args: never[]) => unknown },
+    record: { kind: string; module: string; path: string; output: unknown },
+    input?: unknown,
+    opts?: unknown,
+  ) {
+    // tooling/codemod/call-records: a call by its record reaches this double's own query, as the client sends it; it has no other.
+    if (record.kind !== 'query') throw new TypeError('this API double has no mutate');
+    return Reflect.apply(this.query, this, [record.module, record.path, input, record.output, opts]);
+  },
 };
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));
 

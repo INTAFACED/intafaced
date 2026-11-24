@@ -11,6 +11,7 @@ import { recoveryKeysCopy as copy } from './recovery-keys-copy';
 import { cleanHandle, resolveHandle } from '../../data/identity';
 import { makeRecoveryKey, recoveryPlanTarget, recoveryStepUp, shortFingerprint, type MadeRecoveryKey } from './recovery-keys';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import { IDENTITY_RECOVERY_KEYS_LIST } from '@intafaced/contracts/identity-recovery-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** One change on its way: sent once without a confirmation, so a refusal costs none, then again with one. */
@@ -59,10 +60,7 @@ export function RecoveryKeys() {
     };
   }, []);
   const { resource, reload } = useResource(
-    (signal) =>
-      userId
-        ? api.query('identity', 'recovery.keys.list', {}, recoveryViewSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_RECOVERY_KEYS_LIST, {}, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `recovery-keys:${userId}`,
   );
   useEffect(() => {

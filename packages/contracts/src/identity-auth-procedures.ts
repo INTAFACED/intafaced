@@ -522,3 +522,41 @@ export const IDENTITY_AUTH_REGISTER = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * Is the founder enrolment door open? True only while the founder pair is not
+ * pinned, invites are configured, the expiry has not passed and one is unspent.
+ * Public and input-free; reveals nothing else.
+ */
+export const IDENTITY_AUTH_FOUNDER_ENROLMENT_STATUS = defineProcedure({
+  ...base,
+  name: 'identity.auth.founderEnrolmentStatus',
+  kind: 'query',
+  path: 'auth.founderEnrolmentStatus',
+  access: { caller: 'public' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({ open: z.boolean() }),
+  samples: [{ verdict: 'accept' }],
+});
+
+export const IDENTITY_AUTH_REFRESH = defineProcedure({
+  ...base,
+  name: 'identity.auth.refresh',
+  kind: 'mutation',
+  path: 'auth.refresh',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z
+    .object({
+      refreshToken: z.string().min(1).optional(),
+      /** The app saw no use since its last refresh (an unused tab's timer): the idle sign-out keeps counting. */
+      idle: z.boolean().optional(),
+    })
+    .optional(),
+  output: sessionOutput,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

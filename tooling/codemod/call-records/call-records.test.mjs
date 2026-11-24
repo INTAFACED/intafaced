@@ -3387,3 +3387,149 @@ test('a credential-named uuid field gets no sample, since a uuid cannot say it i
     /"id":"11111111-1111-4111-8111-111111111111"/,
   );
 });
+
+test("a caller's schema that names fewer fields than the answer keeps it (callAs), else stays by name", async () => {
+  const { fieldsOf, droppedFields } = await import('./narrow.mjs');
+  const { keepNarrowing } = await import('./index.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-narrow-'));
+  const dir = join(root, 'apps/customer/src/features/session');
+  mkdirSync(dir, { recursive: true });
+  // The past mistake (identity's auth.refresh): the page's session schema drops the refresh token the router answers with.
+  const router = join(root, 'router.ts');
+  writeFileSync(
+    router,
+    [
+      "import { z } from 'zod';",
+      'const base = z.object({ accessToken: z.string(), expiresAt: z.string() });',
+      'export const sessionOutput = base.extend({ refreshToken: z.string().optional(), userId: z.string() }).strict();',
+      'export const wide = z.object({ a: z.string() }).passthrough();',
+    ].join('\n'),
+  );
+  const caller = join(dir, 'restore.ts');
+  writeFileSync(
+    caller,
+    [
+      "import { z } from 'zod';",
+      'const sessionSchema = z.object({ accessToken: z.string(), expiresAt: z.string(), userId: z.string() });',
+      'const whole = z.object({ accessToken: z.string(), expiresAt: z.string(), userId: z.string(), refreshToken: z.string().optional() });',
+      "export const a = () => api.mutate('identity', 'auth.refresh', {}, sessionSchema);",
+      "export const b = () => api.mutate('identity', 'auth.refresh', {}, whole);",
+      "export const c = () => founderCall(x, 'identity', 'auth.refresh', {}, parse(sessionSchema));",
+    ].join('\n'),
+  );
+  const r = load(router);
+  const c = load(caller);
+  const out = r.program.body[2].declaration.declarations[0].init;
+  const decl = (i) => c.program.body[i].declarations[0].init;
+  assert.deepEqual(fieldsOf(r, out), ['accessToken', 'expiresAt', 'refreshToken', 'userId']);
+  assert.equal(fieldsOf(r, r.program.body[3].declaration.declarations[0].init), undefined, 'passthrough keeps every field: unknown');
+  assert.deepEqual(droppedFields(c, decl(1), r, out), ['refreshToken']);
+  assert.deepEqual(droppedFields(c, decl(2), r, out), []);
+
+  const callOf = (i) => c.program.body[i].declaration.declarations[0].init.body;
+  const site = (i, shape) => ({ file: caller, shape, node: callOf(i), path: 'auth.refresh' });
+  const narrow = site(3, 'mutate');
+  const same = site(4, 'mutate');
+  const hand = [];
+  const kept = keepNarrowing([narrow, same], [r, out], hand);
+  assert.deepEqual(kept, [narrow, same]);
+  assert.equal(narrow.checked, 'sessionSchema', 'the narrowing caller reads through its own schema');
+  assert.equal(same.checked, undefined, 'a caller that names every field takes the record as it is');
+  assert.deepEqual(hand, []);
+
+  // Outside the customer app there is no callAs: the call stays by name, naming what it drops.
+  const adminFile = join(root, 'apps/admin/src/x.ts');
+  mkdirSync(dirname(adminFile), { recursive: true });
+  writeFileSync(adminFile, readFileSync(caller, 'utf8'));
+  const a = load(adminFile);
+  const adminSite = {
+    file: adminFile,
+    shape: 'mutate',
+    node: a.program.body[3].declaration.declarations[0].init.body,
+    path: 'auth.refresh',
+  };
+  const left = [];
+  assert.equal(keepNarrowing([adminSite], [r, out], left).length, 0);
+  assert.match(left[0].why, /drops refreshToken from the answer/);
+});
+
+test('an answer schema imported, or re-exported, from another file is read by its fields', async () => {
+  const { fieldsOf } = await import('./narrow.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-narrow-import-'));
+  writeFileSync(
+    join(root, 'schemas.ts'),
+    "import { z } from 'zod';\nexport const sessionOutput = z.object({ accessToken: z.string(), refreshToken: z.string() });\n",
+  );
+  writeFileSync(join(root, 'index.ts'), "export { sessionOutput } from './schemas';\n");
+  writeFileSync(join(root, 'router.ts'), "import { sessionOutput } from './index';\nexport const out = sessionOutput.strict();\n");
+  const r = load(join(root, 'router.ts'));
+  assert.deepEqual(fieldsOf(r, r.program.body[1].declaration.declarations[0].init), ['accessToken', 'refreshToken']);
+});
+
+test('a founder call whose answer goes to .safeParse() is read softly: it stays by name', async () => {
+  const { softlyParsed } = await import('./narrow.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-soft-'));
+  const file = join(root, 'founder-session.ts');
+  // The past mistake (admin's staffTestStatus): an answer it can't read is "not staff" (403), a record call's is a 502.
+  writeFileSync(
+    file,
+    [
+      'export async function a() { return schema.safeParse(await founderEdgeCall(c, "identity", "staffTestStatus", "GET", {}, t)); }',
+      'export async function b() { const raw = await founderEdgeCall(c, "identity", "x", "GET", {}, t); return schema.safeParse(raw); }',
+      'export async function d() { return schema.parse(await founderEdgeCall(c, "identity", "y", "GET", {}, t)); }',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const calls = [];
+  for (const stmt of p.program.body)
+    (function find(n) {
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'CallExpression' && n.callee.name === 'founderEdgeCall') calls.push(n);
+      for (const k of Object.keys(n)) if (k !== 'parent') (Array.isArray(n[k]) ? n[k] : [n[k]]).forEach(find);
+    })(stmt);
+  assert.deepEqual(
+    calls.map((c) => softlyParsed(p, c)),
+    [true, true, false],
+  );
+});
+
+test('a const with only query that the test hands on as `api` (a mocked useSession) gets a call too', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'm.test.tsx');
+  // The past miss (identity's membership.offer): `useSession: () => ({ userId, api })`, the double a const of its own.
+  writeFileSync(
+    file,
+    [
+      'const api = { query: async () => 1 };',
+      'const other = { query: async () => 2 };',
+      "vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));",
+      '',
+    ].join('\n'),
+  );
+  assert.equal(doublesIn(file).out.length, 1, 'only the const handed on as api');
+});
+
+test('a desk read whose helper would come from a server-only entry it takes only types from stays by name', async () => {
+  const { deskReadSite } = await import('./sites.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-server-only-'));
+  const app = join(root, 'apps/admin/src');
+  mkdirSync(join(app, 'lib/ops-desk'), { recursive: true });
+  mkdirSync(join(app, 'lib/account-search'), { recursive: true });
+  mkdirSync(join(app, 'lib/plain'), { recursive: true });
+  writeFileSync(
+    join(app, 'lib/ops-desk/index.ts'),
+    "import 'server-only';\nexport const readOf = () => ({});\nexport type ReadSpec = {};\n",
+  );
+  writeFileSync(join(app, 'lib/plain/index.ts'), 'export const readOf = () => ({});\nexport type ReadSpec = {};\n');
+  // The past mistake (admin's account search): `import type { ReadSpec } from '@/lib/ops-desk'`, read by a client component.
+  const spec = (from, kind) =>
+    `import ${kind} { ReadSpec } from '${from}';\nexport const s: ReadSpec = { module: 'identity', procedure: 'accountDirectory.search' };\n`;
+  const site = (name, from, kind) => {
+    const f = join(app, 'lib/account-search', name);
+    writeFileSync(f, spec(from, kind));
+    return deskReadSite(load(f))[0];
+  };
+  assert.match(site('a.ts', '@/lib/ops-desk', 'type').problem, /server-only/);
+  assert.equal(site('b.ts', '@/lib/ops-desk', '').problem, undefined, 'a file that already takes values from it changes nothing');
+  assert.equal(site('c.ts', '@/lib/plain', 'type').problem, undefined, 'an entry that is not server-only moves');
+});

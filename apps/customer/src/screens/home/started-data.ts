@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { startedKycSchema, startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
+import { startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 import type { ZodType } from 'zod';
 import { NOTIFY_ALERTS } from '@intafaced/contracts/notify-notify-procedures';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
@@ -146,7 +147,7 @@ function ever(resource: Resource<{ found: boolean }>, verify: StepStatus): EverR
  * stored on this device, so clearing the browser changes no step. A read that fails is `unknown`, never `done`.
  */
 export function useGetStarted(enabled: boolean): Step[] {
-  const kyc = useProbe(enabled, 'kyc', 'identity', 'kyc.status', { limit: 10 }, startedKycSchema);
+  const kyc = useRecordProbe(enabled, 'kyc', IDENTITY_KYC_STATUS, { limit: 10 });
   const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, startedPasskeysSchema);
   const alerts = useRecordProbe(enabled, 'alerts', NOTIFY_ALERTS, { limit: 100 });
   const venueAccounts = useVenueAccounts(enabled);

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IDENTITY_REVOKE_SESSION } from '@intafaced/contracts/identity-revoke-session-procedures';
 import { PlaceDoor } from './place-door.js';
 import { listSessions } from './list-sessions.js';
 import { requireRevokeSessionIds, revokeNamedSession } from './revoke-session.js';
@@ -185,10 +186,12 @@ describe('revokeNamedSession', () => {
     expect(src).toMatch(/AND user_id = /);
     expect(src).not.toMatch(/UPDATE api_keys/);
     expect(src).not.toMatch(/INSERT /);
-    expect(routerSrc).toMatch(/scopedProcedure\('identity:write'\)/);
-    expect(routerSrc).toMatch(/userId: z\.string\(\)\.guid\(\)/);
-    expect(routerSrc).toMatch(/sessionId: z\.string\(\)\.guid\(\)/);
-    expect(routerSrc).toMatch(/revokeSession:/);
+    expect(routerSrc).toMatch(/revokeSession: mountRecord\(\s*IDENTITY_REVOKE_SESSION,/);
+    expect(IDENTITY_REVOKE_SESSION.access).toEqual({ caller: 'scope', scope: 'identity:write' });
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(IDENTITY_REVOKE_SESSION.input.safeParse({ userId: id, sessionId: id }).success).toBe(true);
+    expect(IDENTITY_REVOKE_SESSION.input.safeParse({ userId: 'x', sessionId: id }).success).toBe(false);
+    expect(IDENTITY_REVOKE_SESSION.input.safeParse({ userId: id, sessionId: 'x' }).success).toBe(false);
   });
 });
 
