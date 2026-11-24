@@ -64,7 +64,6 @@ export function wireCampaigns(deps: {
   const warn = (msg: string, detail: Record<string, unknown>) => log.warn({ ...detail }, msg);
 
   const tgeSchedule = parseTgeSchedule(env.CAMPAIGNS_TGE_SCHEDULE_JSON);
-  const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule });
   const timeZone = parseTimeZone(env.CAMPAIGNS_PLATFORM_TIME_ZONE);
   const participantsWired = Boolean(env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET);
   const participants = participantsWired
@@ -114,6 +113,8 @@ export function wireCampaigns(deps: {
     rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
   });
   const payTo = (accountId: string, forwarded: Parameters<TaskService['recordPayTo']>[1]) => tasks.recordPayTo(accountId, forwarded);
+  // Limited drops (J-campaigns-20 #5): a drop with value is owed through the saga and paid to the claimer's wallet.
+  const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule, saga, payTo, log: warn });
   /** Referral programmes (CM-referral-02): each invitee once, and their own events that count towards qualifying. */
   const referrals = new ReferralService({ sql, markets });
 

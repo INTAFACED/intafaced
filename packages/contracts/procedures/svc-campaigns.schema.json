@@ -53,7 +53,8 @@
               "trial_pass",
               "gift_card",
               "points",
-              "welcome"
+              "welcome",
+              "drop"
             ]
           },
           "state": {
@@ -1095,7 +1096,8 @@
                     "trial_pass",
                     "gift_card",
                     "points",
-                    "welcome"
+                    "welcome",
+                    "drop"
                   ]
                 },
                 "blocker": {
@@ -1141,7 +1143,8 @@
                     "trial_pass",
                     "gift_card",
                     "points",
-                    "welcome"
+                    "welcome",
+                    "drop"
                   ]
                 },
                 "state": {
@@ -2943,15 +2946,67 @@
               },
               "kind": {
                 "type": "string",
-                "const": "entitlement"
+                "enum": ["entitlement", "value"]
               },
               "claimedAt": {
                 "type": "string",
                 "format": "date-time",
                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "reward": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "rewardKey": {
+                        "type": "string"
+                      },
+                      "asset": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "held",
+                          "review",
+                          "reclaiming",
+                          "cancelled",
+                          "qualified",
+                          "posting",
+                          "owed",
+                          "paid",
+                          "locked",
+                          "settling",
+                          "posted",
+                          "pending_funding",
+                          "pending_retry",
+                          "unknown",
+                          "withheld",
+                          "failed",
+                          "forfeited"
+                        ]
+                      },
+                      "payTo": {
+                        "type": ["string", "null"]
+                      },
+                      "chainTx": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": ["rewardKey", "asset", "amount", "state", "payTo", "chainTx"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
-            "required": ["dropId", "claimKey", "kind", "claimedAt"],
+            "required": ["dropId", "claimKey", "kind", "claimedAt", "reward"],
             "additionalProperties": false
           },
           "created": {
@@ -3096,7 +3151,33 @@
                 },
                 "kind": {
                   "type": "string",
-                  "const": "entitlement"
+                  "enum": ["entitlement", "value"]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "campaignId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "asset": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                        }
+                      },
+                      "required": ["campaignId", "asset", "amount"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "state": {
                   "type": "string",
@@ -3117,15 +3198,67 @@
                         },
                         "kind": {
                           "type": "string",
-                          "const": "entitlement"
+                          "enum": ["entitlement", "value"]
                         },
                         "claimedAt": {
                           "type": "string",
                           "format": "date-time",
                           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "reward": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "rewardKey": {
+                                  "type": "string"
+                                },
+                                "asset": {
+                                  "type": "string"
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "held",
+                                    "review",
+                                    "reclaiming",
+                                    "cancelled",
+                                    "qualified",
+                                    "posting",
+                                    "owed",
+                                    "paid",
+                                    "locked",
+                                    "settling",
+                                    "posted",
+                                    "pending_funding",
+                                    "pending_retry",
+                                    "unknown",
+                                    "withheld",
+                                    "failed",
+                                    "forfeited"
+                                  ]
+                                },
+                                "payTo": {
+                                  "type": ["string", "null"]
+                                },
+                                "chainTx": {
+                                  "type": ["string", "null"]
+                                }
+                              },
+                              "required": ["rewardKey", "asset", "amount", "state", "payTo", "chainTx"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
-                      "required": ["dropId", "claimKey", "kind", "claimedAt"],
+                      "required": ["dropId", "claimKey", "kind", "claimedAt", "reward"],
                       "additionalProperties": false
                     },
                     {
@@ -3134,7 +3267,7 @@
                   ]
                 }
               },
-              "required": ["id", "title", "seasonId", "count", "remaining", "opensAt", "closesAt", "kind", "state", "mine"],
+              "required": ["id", "title", "seasonId", "count", "remaining", "opensAt", "closesAt", "kind", "value", "state", "mine"],
               "additionalProperties": false
             }
           },
@@ -3244,7 +3377,8 @@
                     "trial_pass",
                     "gift_card",
                     "points",
-                    "welcome"
+                    "welcome",
+                    "drop"
                   ]
                 },
                 "state": {
@@ -5298,7 +5432,8 @@
                   "trial_pass",
                   "gift_card",
                   "points",
-                  "welcome"
+                  "welcome",
+                  "drop"
                 ]
               },
               "state": {
@@ -7769,7 +7904,8 @@
                         "trial_pass",
                         "gift_card",
                         "points",
-                        "welcome"
+                        "welcome",
+                        "drop"
                       ]
                     },
                     "state": {
