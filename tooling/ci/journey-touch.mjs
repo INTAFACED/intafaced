@@ -120,6 +120,8 @@ export const JOURNEY_CI = [
   'tooling/ci/journey-touch.mjs',
   'tooling/ci/journey-verdict.mjs',
   'tooling/ci/journey-verdict.test.mjs',
+  // The hosted beta's rule the verdict runs (notOnBeta).
+  'tooling/ci/beta-hides.mjs',
   // The scoreboard's shard download ("Merge the shards").
   'tooling/ci/shard-download.mjs',
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
@@ -207,6 +209,7 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/journey-fail-fast-retries.test.mjs',
   'tooling/scripts/journey-freeze-guard.test.mjs',
   'tooling/scripts/journey-reach.test.mjs',
+  'tooling/scripts/journey-screens.test.mjs',
   'tooling/scripts/journey-world.test.mjs',
   'tooling/scripts/local-founder-seed.test.mjs',
   'tooling/scripts/local-tester-seed.test.mjs',
