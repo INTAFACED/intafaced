@@ -23,9 +23,9 @@ const ROOT = process.cwd();
 const DIR = join(ROOT, 'tooling');
 // gate-tools.test.mjs only imports two of the files below; running it too would run those twice.
 const ENTRY_ONLY = new Set(['tooling/scripts/gate-tools.test.mjs']);
-// It reads packages/contracts/dist and skips itself without it, so here it would only ever skip: CI's build job runs it
+// They read built packages (packages/contracts/dist; the fixture skips itself without it), so CI's build job runs them
 // after the build (.github/workflows/ci.yml, "Tooling tests that need the build").
-export const NEEDS_BUILD = ['tooling/preview/outreach/fixture.test.mjs'];
+export const NEEDS_BUILD = ['tooling/preview/outreach/fixture.test.mjs', 'tooling/lint/deep-entries.test.mjs'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo']);
 // The whole run's limit, and each file's: a file that leaves a server running is stopped and named, not left to hold the
 // gates job until its 10-minute limit. The run took about 4 of its 5 minutes one file at a time by 22 Nov (#9648 and

@@ -343,7 +343,7 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   run.write({ ...run.read(), paidVoucherId: claimed.id });
 });
 
-test(`${J} #6 uses part of a voucher: the remainder, never more than the face value`, async ({ browser }) => {
+test(`${J} #6 uses part of a voucher: the remainder, never more than the face value`, async ({ browser, stepPicture }) => {
   const { me, voucherId } = state('me', 'voucherId');
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
@@ -352,18 +352,20 @@ test(`${J} #6 uses part of a voucher: the remainder, never more than the face va
   await expect(row.getByTestId('voucher-remaining')).toHaveText(`0.015 ${ASSET} left of 0.02 ${ASSET}`);
   await expect(row.getByTestId('voucher-state')).toHaveText('Partly used');
   // More than is left refuses, and nothing changes.
-  await row.getByRole('textbox', { name: 'Amount to redeem' }).fill('0.016');
-  await row.getByRole('button', { name: 'Redeem' }).click();
+  await row.getByRole('textbox', { name: 'Amount to redeem', exact: true }).fill('0.016');
+  await row.getByRole('button', { name: 'Redeem', exact: true }).click();
   await expect(row.getByTestId('voucher-refusal')).toHaveAttribute('data-code', 'campaigns.voucher_exceeds_remaining');
   await expect(row.getByTestId('voucher-remaining')).toHaveText(`0.015 ${ASSET} left of 0.02 ${ASSET}`);
   // The rest redeems; nothing is left and the voucher is used.
-  await row.getByRole('textbox', { name: 'Amount to redeem' }).fill('0.015');
-  await row.getByRole('button', { name: 'Redeem' }).click();
+  await row.getByRole('textbox', { name: 'Amount to redeem', exact: true }).fill('0.015');
+  await row.getByRole('button', { name: 'Redeem', exact: true }).click();
   await expect(row.getByTestId('voucher-state')).toHaveText('Used', { timeout: 30_000 });
   await expect(row.getByTestId('voucher-remaining')).toHaveText(`0 ${ASSET} left of 0.02 ${ASSET}`);
   const [v] = (await walletOf(me)).filter((x) => x.id === voucherId);
   expect(v.redemptions.map((r) => r.amount)).toEqual([PART, '0.015']);
-  await expect(row.getByRole('button', { name: 'Redeem' })).toHaveCount(0);
+  await expect(row.getByRole('button', { name: 'Redeem', exact: true })).toHaveCount(0);
+  // The step's picture: the whole of My vouchers, the used voucher's remainder of 0 and both its parts on screen.
+  await stepPicture(page);
 });
 
 test(`${J} #7 lets a voucher expire: it expires once and a late redemption refuses; what was already paid stays in the wallet and the record says it was paid`, async ({

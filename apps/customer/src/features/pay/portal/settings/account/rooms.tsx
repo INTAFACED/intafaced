@@ -1,6 +1,6 @@
 import './account.css';
 import { Button } from '@intafaced/ui';
-import { readyAccess, useMerchantAccess } from '../../access/MerchantAccess';
+import { readyAccess, useMerchantAccess, type MerchantAccessValue } from '../../access/MerchantAccess';
 import { Gate } from '../../components';
 import type { RoomTable } from '../../rooms-model';
 import { ActivityRoom } from '../activity/Activity';
@@ -17,7 +17,7 @@ import { LinkButton } from '../../volt/parts';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
 import type { PortalApi } from '../../api';
 import { accountCopy } from './copy';
-import { OwnerSetsUp } from './ui';
+import { OwnerSetsUp, TwoStepFirst } from './ui';
 import type { Access } from '../../access/resolve';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
@@ -29,6 +29,16 @@ const t = portalCopy.t;
 
 /** A person who belongs to a business without owning it. */
 export const isTeamMember = (access: Access): boolean => access.status === 'ready' && access.role !== 'owner';
+
+/**
+ * No business, and this session may not open one: the service refused even `merchant.me` and the session carries no
+ * `pay:onboard` (issued only with two-step sign-in). The setup page then starts with turning that on, not a refusal.
+ */
+const cannotOpenYet = ({ access, merchant, sessionScopes }: MerchantAccessValue): boolean =>
+  access.status === 'none' &&
+  merchant.status === 'failed' &&
+  merchant.failure.reason === 'forbidden' &&
+  !(sessionScopes?.has('pay:onboard') ?? false);
 
 /** The account's own mode, for pages that belong to platform accounts only. */
 function useMode(): string | null {
@@ -86,6 +96,8 @@ export const accountRooms: RoomTable = {
     render: (route, { portal, access, starterFee }) =>
       isTeamMember(access.access) ? (
         <OwnerSetsUp />
+      ) : cannotOpenYet(access) ? (
+        <TwoStepFirst />
       ) : (
         <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
           {(record) => (

@@ -4,7 +4,6 @@ import { Page, Tabs } from '../../../shared/ui';
 import { protocolCopy } from '../copy';
 import '../protocol.css';
 import { walletCopy } from './copy';
-import { ClaimLinksPanel } from './ClaimLinksPanel';
 import { ConnectPanel } from './ConnectPanel';
 import { WalletHomeRoom } from './WalletHomeRoom';
 import { SafetyPanel } from './SafetyPanel';
@@ -37,8 +36,6 @@ export function WalletRoom({ section: initial }: { section: Section }) {
       </>
     ) : section === 'scan' ? (
       <ScanPanel />
-    ) : section === 'claimLinks' ? (
-      <ClaimLinksPanel />
     ) : null;
 
   // The overview is drawn on its own monitor template (features/protocol/wallet/WalletHomeRoom.tsx).

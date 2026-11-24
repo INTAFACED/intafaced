@@ -32,6 +32,7 @@ use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
+use crate::card::renderer::CardRenderer;
 use crate::db::Store;
 use crate::errors::Refusal;
 
@@ -247,13 +248,18 @@ pub fn not_ported(slice: Slice) -> Refusal {
 }
 
 /// The slices' answers.
-fn handle(store: &Store, ctx: &Ctx<'_>) -> Result<Option<Json>, Refusal> {
+fn handle(
+    store: &Store,
+    renderer: &dyn CardRenderer,
+    ctx: &Ctx<'_>,
+) -> Result<Option<Json>, Refusal> {
     match ctx.call.slice {
         Slice::Door => Ok(Some(Json::obj([
             ("ok", Json::Bool(true)),
             ("service", Json::str("svc-blueprint")),
         ]))),
         Slice::Profile => crate::profile::handle(store, ctx),
+        Slice::Card => crate::card::handle(store, renderer, ctx),
         other => Err(not_ported(other)),
     }
 }
@@ -284,6 +290,8 @@ pub struct DoorConfig {
     pub now: fn() -> Instant,
     /// The `blueprint` schema's pool (`db::open`), or a store that refuses every query.
     pub store: Store,
+    /// The card rasterizer (`card::renderer::from_env`, as `index.ts` picks it).
+    pub renderer: Box<dyn CardRenderer>,
 }
 
 pub struct BlueprintDoor {
@@ -293,6 +301,7 @@ pub struct BlueprintDoor {
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
     store: Store,
+    renderer: Box<dyn CardRenderer>,
 }
 
 /// The system clock.
@@ -321,6 +330,7 @@ impl BlueprintDoor {
             requests: RequestIds::new(),
             edge_key: None,
             store: config.store,
+            renderer: config.renderer,
         })
     }
 
@@ -401,7 +411,7 @@ impl BlueprintDoor {
             region: &region,
             now,
         };
-        let answer = handle(&self.store, &ctx).map_err(|r| {
+        let answer = handle(&self.store, self.renderer.as_ref(), &ctx).map_err(|r| {
             if call.mapped {
                 r.mapped()
             } else {

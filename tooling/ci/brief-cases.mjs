@@ -218,7 +218,6 @@ function ask(call, { repo, extraDir, prompt, schema, question, out }) {
     '--strict-mcp-config',
     '--mcp-config',
     '{"mcpServers":{}}',
-    '--no-session-persistence',
     '--output-format',
     'json',
     '--json-schema',
