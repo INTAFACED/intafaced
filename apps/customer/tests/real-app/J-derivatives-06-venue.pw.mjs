@@ -468,6 +468,8 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
     );
     const asked = signatures(wallet);
     await set.click();
+    // Two sheets, one after the other: the builder-fee approval, then the close order itself.
+    await continueInWallet(page);
     await continueInWallet(page);
     await expect(panel.getByTestId('pre-liquidation-stop-said')).toHaveText(
       `Set: ${venue.name} holds the close order at mark ${trigger}.`,
