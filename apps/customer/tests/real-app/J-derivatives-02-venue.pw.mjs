@@ -4,6 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, restartService, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -218,7 +219,11 @@ test(`${J} #1 opens the standalone margin and P&L calculator: margin, liquidatio
     `Leverage 15x is above ${displayName}’s tier 2 cap of 10x for this notional on ${SYMBOL}.`,
   );
 
-  // Unpublished tiers (BTC-PERP): maintenance margin and liquidation price say "not published", never invented.
+  // Unpublished tiers (BTC-PERP): Margin tier says "not published" (nothing invented), while its published flat
+  // maintenance rate (0.5%) is used with the flat-rate formula named.
+  const btcMarket = await venueMarket(owner, UNPUBLISHED);
+  expect(btcMarket.marginTiers).toEqual({ known: false });
+  expect(btcMarket.maintenanceMarginRate.known).toBe(true);
   await page
     .getByTestId('venue-contract-list')
     .getByRole('button', { name: `${UNPUBLISHED} · ${displayName}`, exact: true })
@@ -229,8 +234,11 @@ test(`${J} #1 opens the standalone margin and P&L calculator: margin, liquidatio
   await panel.getByLabel('Leverage', { exact: true }).fill('5');
   await panel.getByRole('button', { name: 'Calculate', exact: true }).click();
   expect(await valueOf('Margin tier')).toBe(`not published by ${displayName}`);
-  expect(await valueOf('Maintenance margin')).toBe(`not published by ${displayName}`);
-  expect(await valueOf('Liquidation price')).toBe(`not published by ${displayName}`);
+  const flatMaint = (toUnits('6000') * toUnits(btcMarket.maintenanceMarginRate.value)) / 10n ** 18n;
+  expect(sameDecimal((await valueOf('Maintenance margin')).replace(/ USDC$/, ''), fromUnits(flatMaint))).toBe(true);
+  await expect(panel.getByTestId('venue-calculator-formulas')).toContainText(
+    `Maintenance margin = notional × maintenance rate (${percent(btcMarket.maintenanceMarginRate.value)}, as ${displayName} publishes it)`,
+  );
 
   // Nothing sent, signed, or held on the venue.
   expect(sent).toEqual([]);
@@ -480,8 +488,9 @@ test(`${J} #5 previews above the order cap and outside the price band: split off
     // Reload the already-wired page so the existing TEST wallet binding is reused without re-registering it.
     await page.reload();
     await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-    await page.getByRole('button', { name: 'Connect TEST Wallet', exact: true }).click();
-    await expect(page.getByTestId('venue-wallet-address')).toHaveText(owner);
+    const addr = page.getByTestId('venue-wallet-address');
+    await connectWhenAsked(page, addr);
+    await expect(addr).toHaveText(owner);
     await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, { timeout: 20_000 });
     const ticket = page.getByTestId('venue-ticket');
     await ticket.getByRole('button', { name: 'Long', exact: true }).click();
