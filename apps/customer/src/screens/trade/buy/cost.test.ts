@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { draftSchema, previewSchema } from '../../../features/trade/trade-api';
 import { BuyReview } from './BuyReview';
-import { afterFee, afterQuoteFee, aboutValue, costRows, limitFor, protectedTotal } from './cost';
+import { afterFee, afterQuoteFee, aboutValue, costRows, feeUsd, limitFor, protectedTotal, spreadOf } from './cost';
 import { formatGet } from './cost-format';
 import { fmtUsd } from './deps';
 
@@ -12,6 +12,40 @@ import { fmtUsd } from './deps';
 vi.mock('./cost', async (original) => {
   const real = await original<typeof import('./cost')>();
   return Object.fromEntries(Object.entries(real).map(([name, value]) => [name, typeof value === 'function' ? vi.fn(value) : value]));
+});
+
+describe('feeUsd (#10702: every fee in dollars as well as its own unit)', () => {
+  it('a fee in a dollar coin is that many dollars', () => {
+    expect(feeUsd('0.04915925', 'USDT', 'BTC', 'USDT', '64683.23')).toBe('0.04915925');
+    expect(feeUsd('0.1', 'USDC', 'BTC', 'USDC', null)).toBe('0.1');
+  });
+  it("a fee in the coin is counted at the order's price, rounded up", () => {
+    // 0.00000154 BTC at 64,871.11 = 0.0999015094
+    expect(feeUsd('0.00000154', 'BTC', 'BTC', 'USDT', '64871.11')).toBe('0.0999015094');
+  });
+  it('is unknown without a price, for another asset, or with no fee', () => {
+    expect(feeUsd('0.00000154', 'BTC', 'BTC', 'USDT', null)).toBeNull();
+    expect(feeUsd('1', 'IFC', 'BTC', 'USDT', '65000')).toBeNull();
+    expect(feeUsd('0.001', 'ETH', 'ETH', 'BTC', '0.05')).toBeNull();
+    expect(feeUsd(null, 'USDT', 'BTC', 'USDT', '65000')).toBeNull();
+    expect(feeUsd('0.1', null, 'BTC', 'USDT', '65000')).toBeNull();
+  });
+});
+
+describe('spreadOf', () => {
+  it('is the ask less the bid, and its share of the middle price', () => {
+    // The walk: 64,683.23 and 64,871.11 are 187.88 apart, 0.2900...% of the middle 64,777.17
+    const spread = spreadOf('64683.23', '64871.11');
+    expect(spread).toMatchObject({ bid: '64683.23', ask: '64871.11', width: '187.88' });
+    expect(spread!.ratio.startsWith('0.0029')).toBe(true);
+    expect(spreadOf('100', '100')).toMatchObject({ width: '0', ratio: '0' });
+  });
+  it('is unknown with either side missing, or an ask below the bid', () => {
+    expect(spreadOf(null, '1')).toBeNull();
+    expect(spreadOf('1', null)).toBeNull();
+    expect(spreadOf('2', '1')).toBeNull();
+    expect(spreadOf('0', '1')).toBeNull();
+  });
 });
 
 describe('protectedTotal', () => {
@@ -61,7 +95,7 @@ describe('costRows', () => {
       preview: { estimatedFee: '0.065', feeAsset: 'USDT', protectionPrice: '65325.001' },
     });
     expect(rows.estimated).toBe('65');
-    expect(rows.fee).toEqual({ amount: '0.065', asset: 'USDT' });
+    expect(rows.fee).toEqual({ amount: '0.065', asset: 'USDT', usd: '0.065' });
     expect(rows.get).toEqual({ kind: 'coin', amount: '0.001', afterFee: false });
     // 0.001 * 65325.001 = 65.325001, plus the 0.065 USDT fee = 65.390001 -> 65.40
     expect(rows.limit).toBe('65.4');
@@ -243,7 +277,16 @@ describe('limitFor (the card and the review dialog share one worst case)', () =>
           }),
         ),
       );
-      const seen = { pay: shown('review-pay'), get: shown('review-get'), limit: shown('review-limit') };
+      const seen = {
+        pay: shown('review-pay'),
+        get: shown('review-get'),
+        limit: shown('review-limit'),
+        bid: shown('review-bid'),
+        ask: shown('review-ask'),
+        spread: shown('review-spread'),
+        fee: shown('review-fee'),
+        feeUsd: shown('review-fee-usd'),
+      };
       const called = Object.entries(bare).flatMap(([name, helper]) => (vi.mocked(helper).mock.calls.length ? [name] : []));
       return { seen, costRowsCalls: vi.mocked(costRows).mock.calls.length, called };
     } finally {
@@ -282,7 +325,10 @@ describe('limitFor (the card and the review dialog share one worst case)', () =>
         postOnly: false,
         clientOrderId: 'TEST-1',
       });
-      const { seen, costRowsCalls, called } = await draw({ draft, preview, price: shape.price, changed: shape.changed ?? false }, shape);
+      const { seen, costRowsCalls, called } = await draw(
+        { draft, preview, price: shape.price, bid: null, ask: null, changed: shape.changed ?? false },
+        shape,
+      );
       expect(costRowsCalls, 'the dialog reads costRows').toBeGreaterThan(0);
       expect(called, 'bare helpers the dialog called').toEqual([]);
       const rows = costRows({ side: shape.side, base: '0.001', price: shape.price, baseAsset: 'BTC', quoteAsset: 'USDT', preview });
@@ -323,15 +369,55 @@ describe('limitFor (the card and the review dialog share one worst case)', () =>
         postOnly: false,
         clientOrderId: 'TEST-1',
       });
-      const { seen } = await draw({ draft, preview, price: '65000', changed: false });
+      const { seen } = await draw({ draft, preview, price: '65000', bid: null, ask: null, changed: false });
       expect(seen.limit, side).toBe(after);
       expect(fmtUsd(protectedTotal(side, '0.001', protection)!), side).toBe(bareTotal);
     }
   });
 
+  it('shows the best bid, the best ask, the spread, and the fee in dollars beside its own unit (#10702)', async () => {
+    const preview = previewSchema.parse({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'market',
+      amount: '0.00153846',
+      price: null,
+      timeInForce: 'IOC',
+      holdAsset: 'USDT',
+      holdAmount: '100.41',
+      protectionPrice: '65195.47',
+      estimatedFee: '0.00000154',
+      feeAsset: 'BTC',
+      feeBps: 10,
+      feeRole: 'taker',
+      orderable: true,
+      refusals: [],
+    });
+    const draft = draftSchema.parse({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'market',
+      amount: '0.00153846',
+      timeInForce: 'IOC',
+      postOnly: false,
+      clientOrderId: 'TEST-1',
+    });
+    const { seen } = await draw({ draft, preview, price: '64871.11', bid: '64683.23', ask: '64871.11', changed: false });
+    expect(seen).toMatchObject({
+      bid: '$64,683.23',
+      ask: '$64,871.11',
+      spread: '$187.88 (0.290%)',
+      fee: '0.00000154 BTC',
+      feeUsd: ' (about $0.0999)',
+    });
+    // Unknown sides read as a dash, never a guessed spread.
+    const blank = await draw({ draft, preview, price: '64871.11', bid: null, ask: '64871.11', changed: false });
+    expect(blank.seen).toMatchObject({ bid: '—', ask: '$64,871.11', spread: '—' });
+  });
+
   it('with no review open, asks for no figures at all', async () => {
     const { seen, costRowsCalls, called } = await draw(null);
-    expect(seen).toEqual({ pay: null, get: null, limit: null });
+    expect(seen).toEqual({ pay: null, get: null, limit: null, bid: null, ask: null, spread: null, fee: null, feeUsd: null });
     expect(costRowsCalls).toBe(0);
     expect(called).toEqual([]);
   });

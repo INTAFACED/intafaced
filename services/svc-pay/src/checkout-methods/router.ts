@@ -1,8 +1,6 @@
 import type { Sql } from 'postgres';
 import {
-  checkoutMethodOfferSchema,
   checkoutMethodsGetInputSchema,
-  checkoutMethodsPreviewInputSchema,
   checkoutMethodsSaveInputSchema,
   checkoutMethodsSavedSchema,
   checkoutMethodsSchema,
@@ -14,6 +12,9 @@ import { ownMerchantRead } from '../own-merchant-read.js';
 import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import type { MethodRails } from './catalogue.js';
 import { CheckoutMethodSettings } from './methods.js';
+import { PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW } from '@intafaced/contracts/pay-merchant-checkout-methods-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 export interface CheckoutMethodsMountDeps {
   readonly sql: Sql;
@@ -45,10 +46,11 @@ export function createCheckoutMethodsRouter(deps: CheckoutMethodsMountDeps | und
         .input(checkoutMethodsGetInputSchema)
         .output(checkoutMethodsSchema)
         .query(({ ctx }) => wrapOps(async () => need().settings.get(await callerOf(ctx)))),
-      preview: read
-        .input(checkoutMethodsPreviewInputSchema)
-        .output(checkoutMethodOfferSchema)
-        .query(({ ctx, input }) => wrapOps(async () => need().settings.preview(await callerOf(ctx), input))),
+      preview: mountRecord(
+        PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW,
+        ({ ctx, input }) => wrapOps(async () => need().settings.preview(await callerOf(ctx), input)),
+        payRefusal,
+      ),
       save: write
         .input(checkoutMethodsSaveInputSchema)
         .output(checkoutMethodsSavedSchema)

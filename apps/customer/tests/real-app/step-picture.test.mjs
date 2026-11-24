@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fromTop } from './step-picture.mjs';
+import { BROWSER_HOOK_TIMEOUT, launchTestBrowser } from './test-browser.mjs';
 
 // The step picture's readying (journey.mjs stepPicture) on planted pages in a real Chromium: a page left scrolled down
 // gets a whole-page picture with its bar at the top (J-agents-21 #11 read BROKEN for the bar drawn over the content), a
@@ -8,13 +9,8 @@ import { fromTop } from './step-picture.mjs';
 let browser = null;
 let why = '';
 beforeAll(async () => {
-  try {
-    const { chromium } = await import('@playwright/test');
-    browser = await chromium.launch().catch(() => chromium.launch({ channel: 'chrome' }));
-  } catch (error) {
-    why = String(error?.message ?? error).split('\n')[0];
-  }
-});
+  ({ browser, why } = await launchTestBrowser());
+}, BROWSER_HOOK_TIMEOUT);
 afterAll(() => browser?.close());
 
 const BAR = [255, 0, 0];

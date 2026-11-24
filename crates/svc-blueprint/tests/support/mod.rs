@@ -24,6 +24,7 @@ use postgres::{Client, NoTls};
 use service_kit::edge;
 use service_kit::json::{self, Json};
 use service_kit::server::Request;
+use svc_blueprint::card::renderer::{CardRenderer, Unconfigured};
 use svc_blueprint::db::{self, Store};
 use svc_blueprint::door::{BlueprintDoor, DoorConfig, Kind};
 
@@ -142,9 +143,14 @@ impl TestDb {
         db::open(&self.url, "svc-blueprint", 2, false).unwrap()
     }
 
-    /// The Rust door over this database.
+    /// The Rust door over this database, with no card renderer.
     pub fn door(&self) -> BlueprintDoor {
         door(self.store())
+    }
+
+    /// The Rust door over this database, with this card renderer.
+    pub fn door_with(&self, renderer: Box<dyn CardRenderer>) -> BlueprintDoor {
+        door_rendering(self.store(), renderer)
     }
 }
 
@@ -161,8 +167,13 @@ impl Drop for TestDb {
 
 pub const SECRET: &str = "a-blueprint-database-suite-edge-secret-long-enough";
 
-/// The door over `store`, in the replay's environment.
+/// The door over `store`, in the replay's environment, with no card renderer.
 pub fn door(store: Store) -> BlueprintDoor {
+    door_rendering(store, Box::new(Unconfigured))
+}
+
+/// The door over `store` and `renderer`, in the replay's environment.
+pub fn door_rendering(store: Store, renderer: Box<dyn CardRenderer>) -> BlueprintDoor {
     let env: BTreeMap<String, String> = [
         ("APP_ENV", "test"),
         ("INTAFACED_SCREENING_FAIL_CLOSED", "off"),
@@ -177,6 +188,7 @@ pub fn door(store: Store) -> BlueprintDoor {
         env,
         now: svc_blueprint::door::system_now,
         store,
+        renderer,
     })
     .unwrap()
 }

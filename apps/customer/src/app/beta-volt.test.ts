@@ -162,6 +162,12 @@ describe('betaHides', () => {
     expect(betaHides('/coin/eth', undefined)).toBe(false);
   });
 
+  it("shows a futures contract's address exactly when the futures desk is shown", () => {
+    const desk = (state: string) => betaRoomList([{ key: '/trade/futures', area: 'trade', state }], rooms);
+    expect(betaHides('/trade/futures/BTC-PERP', desk('volt'))).toBe(false);
+    expect(betaHides('/trade/futures/BTC-PERP', desk('not-migrated'))).toBe(true);
+  });
+
   it('never hides sign-in, the public pages or the merchant portal pages', () => {
     const list = betaRoomList(count.rooms, rooms);
     expect(betaHides('/login', list)).toBe(false);

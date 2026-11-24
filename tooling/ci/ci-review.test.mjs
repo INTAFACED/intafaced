@@ -1671,7 +1671,10 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
   // call's exit read, so a part that fails ends the step like the one call did.
   assert.match(plain, /for part in "\$dir" "\$dir"\/parts\/\*; do\n\s+\[ -f "\$part\/prompt\.txt" \] \|\| continue\n\s+ask "\$part" &\n/);
   assert.match(plain, /ask\(\) \{\n\s+schema="\$\(cat "\$1\/schema\.json"\)"\n/);
-  assert.match(plain, /< "\$1\/prompt\.txt" > "\$1\/answer\.json" 2> "\$1\/answer\.json\.stderr"\n/);
+  assert.match(
+    plain,
+    /< "\$1\/prompt\.txt" > "\$1\/answer\.json" 2> "\$1\/answer\.json\.stderr" \|\| rc=\$\?\n\s+usage "\$1\/answer\.json"\n\s+return "\$rc"\n/,
+  );
   assert.match(plain, /wait "\$\{pids\[\$i\]\}" \|\| rc=\$\?\n\s+\[ "\$rc" = 0 \] && continue\n/);
   // A failed part: a spare key only for a key failure, each spare once, and any other failure ends the step as one call
   // did (reviewer-error.test.mjs runs each case).

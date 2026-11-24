@@ -7,6 +7,6 @@ import 'server-only';
  */
 export { asTier, type TierView } from './control-model';
 export { loadApprovalQueue, loadDashboard, loadTreasury, type ApprovalQueueData, type DashboardData, type TreasuryData } from './loaders';
-export { parseWith, payCall, payRecordCall, payRecordRead, type PayCallContext, type PayCallResult } from './pay-call';
+export { payRecordCall, payRecordRead, type PayCallContext, type PayCallResult } from './pay-call';
 export { asList } from './registry-model';
 export type { ChipSpec } from './chips';

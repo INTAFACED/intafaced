@@ -42,6 +42,7 @@
     "garden/no-journey-sql-read": "error",
     "garden/no-hand-row": "error",
     "garden/no-hand-clock": "error",
+    "garden/no-deep-entry": "error",
     "garden/test-postgres-helper": "error",
     "garden/no-raw-stored-search": "error",
     "garden/no-call-by-name": "error",

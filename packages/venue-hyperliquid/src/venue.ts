@@ -37,6 +37,7 @@ import {
 import { assertSigningAgrees, SigningCrossCheckError } from './cross-check.js';
 import type { MsgpackValue } from './msgpack.js';
 import { NOT_OFFERED, isBuiltIntent } from './not-offered.js';
+import { BUILDER_FEE_CAP_BPS } from './market-terms.js';
 import { HyperliquidReads } from './reads.js';
 import {
   HL_TESTNET_CHAIN,
@@ -302,6 +303,10 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         );
     }
     if (intent.kind === 'place_order' && intent.builderFee) {
+      const cap = BUILDER_FEE_CAP_BPS[(await this.market(intent.symbol)).kind];
+      if (compare(intent.builderFee.feeBps, cap) > 0) {
+        throw refusal(this.venue.id, 'builder_fee_above_cap', `the builder fee is above the venue's cap on this market kind`);
+      }
       const approved = (await this.builderFeeApproval(account, intent.builderFee.builder)).value;
       if (compare(approved, intent.builderFee.feeBps) < 0) {
         throw refusal(this.venue.id, 'builder_fee_not_approved', 'this account has approved less for the builder than the order carries');

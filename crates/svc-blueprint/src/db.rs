@@ -107,3 +107,46 @@ pub fn open(
         pool_max.max(1),
     )))
 }
+
+/// `isSerializationFailure` (`packages/db`): `serialization_failure` or `deadlock_detected`.
+pub fn is_serialization_failure(r: &crate::errors::Refusal) -> bool {
+    matches!(r, crate::errors::Refusal::Other { code: Some(c), .. } if c == "40001" || c == "40P01")
+}
+
+/// `transaction(sql, fn)` from `@intafaced/db`: one `serializable` transaction, committed when `f` succeeds and rolled
+/// back when it refuses, run again (up to five attempts, full-jitter backoff) when it fails with a serialization
+/// failure or a deadlock; any other refusal stands.
+pub fn transaction<T>(
+    store: &Store,
+    mut f: impl FnMut(&mut postgres::Transaction<'_>) -> Result<T, crate::errors::Refusal>,
+) -> Result<T, crate::errors::Refusal> {
+    const MAX_ATTEMPTS: u32 = 5;
+    let pool = store.pool()?;
+    let mut attempt = 1;
+    loop {
+        let mut once = || -> Result<T, crate::errors::Refusal> {
+            let mut conn = pool.get().map_err(StoreError::from)?;
+            let client = conn.client().map_err(StoreError::from)?;
+            let mut tx = client
+                .build_transaction()
+                .isolation_level(postgres::IsolationLevel::Serializable)
+                .start()
+                .map_err(StoreError::from)?;
+            let out = f(&mut tx)?;
+            tx.commit().map_err(StoreError::from)?;
+            Ok(out)
+        };
+        match once() {
+            Err(e) if is_serialization_failure(&e) && attempt < MAX_ATTEMPTS => {
+                // `Math.random() * 2 ** attempt * 5` milliseconds; the clock's nanoseconds stand in for the randomness.
+                let ceiling = (1u64 << attempt) * 5;
+                let nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| u64::from(d.subsec_nanos()));
+                std::thread::sleep(std::time::Duration::from_millis(nanos % ceiling));
+                attempt += 1;
+            }
+            out => return out,
+        }
+    }
+}
