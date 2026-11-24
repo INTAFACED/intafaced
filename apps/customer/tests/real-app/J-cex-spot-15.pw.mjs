@@ -32,17 +32,17 @@ test(`${J} #1 opens /developers: each listed surface links to a real route, and 
     // A real route draws its own page with a top heading, and neither not-found screen.
     await expect(opened.getByRole('heading', { level: 1 }).first(), `${href} has its own page`).toBeVisible();
     await expect(opened, `${href} is not a dead entry`).not.toContainText(DEAD);
-    // A section whose page is not written in this build says what it waits for, by its slice id: an honest state on a
-    // real route, never a blank page.
-    const waits = opened.getByText(/It waits for [A-Z]{2}-[a-z-]+-\d{2}\./);
-    if (await waits.count()) await expect(waits).toBeVisible();
+    // A section whose page is not written yet says what it is waiting on: an honest state on a real route, never a
+    // blank page.
+    const waits = opened.locator('[data-waits-for]');
+    if (await waits.count()) await expect(waits).toContainText(/It is waiting on /);
   }
   // The two surfaces a bot builder reads first are listed and written here.
   await page.goto('/developers');
   for (const name of ['Order types', 'Bot policy']) {
     const link = main.getByRole('link', { name, exact: true });
     await expect(link).toBeVisible();
-    await expect(link.locator('xpath=..')).toContainText('Page in this portal');
+    await expect(link.locator('xpath=..')).toHaveAttribute('data-section-state', 'page');
   }
 });
 
