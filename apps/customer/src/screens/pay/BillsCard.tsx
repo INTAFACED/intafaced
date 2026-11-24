@@ -7,11 +7,12 @@ import {
   BANK_BILLS_RECURRING_CREATE,
   BANK_BILLS_RECURRING_LIST,
 } from '@intafaced/contracts/bank-bills-procedures';
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { useResource } from '../../shared/resource';
 import { personalCopy } from './personal-copy';
 import { payCopy } from './copy';
 import { fmtAmount, refusalCopy, useSession } from './deps';
-import { Reason, sourceLabel, Steps, useSources } from './journey';
+import { Reason, Steps } from './journey';
 
 /** The refusal a biller search gives while no directory answers for the person: no biller network is connected. */
 const NOT_CONNECTED = 'bank.bills_directory_unset';
@@ -36,7 +37,6 @@ const STATUS_WORDS = {
 export function BillsCard() {
   const { t } = personalCopy.useCopy();
   const { api, userId } = useSession();
-  const { sources, state } = useSources();
   const [query, setQuery] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
   const [billerId, setBillerId] = useState('');
@@ -54,6 +54,20 @@ export function BillsCard() {
     `bills-billers:${userId}:${asked ?? ''}`,
   );
   const recurring = useResource((signal) => api.call(BANK_BILLS_RECURRING_LIST, { limit: 20 }, { signal }), `bills-recurring:${userId}`);
+  // Every balance the person may set a bill against, the partner's included: the bill pays from it on its dates, so
+  // it is offered whatever it holds today (Pay's own sources leave out partner-held balances and empty ones). A
+  // balance locked until a later date is left out.
+  const spaces = useResource((signal) => api.call(BANK_SPACES_LIST, { limit: 200 }, { signal }), `bills-spaces:${userId}`);
+  const state = spaces.resource.status === 'loading' ? 'loading' : 'ready';
+  const sources =
+    spaces.resource.status === 'ready'
+      ? spaces.resource.data
+          .filter((s) => !s.lockedUntil || Date.parse(s.lockedUntil) <= Date.now())
+          .map((s) => ({
+            id: s.id,
+            label: `${s.kind === 'named' ? `${s.assetId} · ${s.name}` : s.assetId} · ${fmtAmount(s.balance, { places: 8, round: 'down' })}`,
+          }))
+      : [];
   const paid = useResource((signal) => api.call(BANK_BILLS_LIST, { limit: 20 }, { signal }), `bills-paid:${userId}`);
 
   const notConnected = found.resource.status === 'failed' && found.resource.failure.code === NOT_CONNECTED;
@@ -147,7 +161,7 @@ export function BillsCard() {
             options={
               sources.length === 0
                 ? [{ value: '', label: state === 'loading' ? '…' : t('payFromNone') }]
-                : sources.map((row) => ({ value: row.id, label: sourceLabel(row) }))
+                : sources.map((row) => ({ value: row.id, label: row.label }))
             }
           />
           <Field

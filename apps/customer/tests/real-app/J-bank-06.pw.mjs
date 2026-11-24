@@ -1020,7 +1020,9 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
     await expect(sources).not.toContainText('bank.');
     await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
     await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
-    await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
+    // Bills still show: #5 turned the person's bank rail at the partner on, so no reason stands against them.
+    await expect(sources.getByTestId('cal-source-bills')).toHaveAttribute('data-state', 'ok');
+    await expect(sources.getByTestId('cal-source-bills')).toContainText('Bills: 0 in this month.');
     await expect(page.getByTestId(`cal-open-${due}:0`)).toHaveText('Standing order');
     await page.getByRole('button', { name: 'List', exact: true }).click();
     await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
