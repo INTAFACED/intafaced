@@ -1414,7 +1414,7 @@ export class UserVenueDoor {
       ...answered,
       value: {
         ...answered.value,
-        builderFeeBps: priced.builderFee ? priced.builderFee.feeBps : null,
+        builderFeeBps: withFee.builderFee ? withFee.builderFee.feeBps : null,
         feeDiscount: discount,
       },
     };

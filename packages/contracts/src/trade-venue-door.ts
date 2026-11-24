@@ -737,7 +737,8 @@ export const venuePreviewSchema = z.object({
   role: z.enum(['maker', 'taker']),
   venueFee: maybeKnown(assetAmount),
   builderFee: maybeKnown(assetAmount),
-  // Our builder fee rate in bps for this order (the version in force, less any discount); null when it carries none
+  // Our builder fee rate in bps in force for this order's market and side (the schedule version in force, before any
+  // per-order discount, so one wallet approval covers both discounted and normal orders); null when it carries none
   // (a spot buy). Absent from an older door.
   builderFeeBps: decimalSchema.nullable().optional(),
   // The venue's rates for this account on this market, from the preview itself (J-cex-spot-10 #1).
