@@ -15,9 +15,13 @@ import {
 
 // J-charts-desk-01, with the user-venue door off, on our own engine (docs/roadmap/journeys.json): a person opens
 // `/charts/BTC-USDT` signed out, switches interval and style, reads history and the numbers the chart plots. The bars
-// are the stack's own TEST trades (pnpm local:market), read through Edge. `J-charts-desk-01-venue.pw.mjs` carries the
-// canonical `#1` to `#8` step titles against the TEST venue's own record (`venueRecord`); here each engine-path check
-// keeps running as "part of #<n>, checked on today's engine chart".
+// are the stack's own TEST trades (pnpm local:market), read through Edge.
+// Steps #1, #2 and #4 to #8 are venue steps at launch (`docs/adr/2026-11-10-launch-money-model.md`):
+// `J-charts-desk-01-venue.pw.mjs` alone carries their step titles on `/charts/BTC-USDT` and `/trade/spot/BTC-USDT`
+// against the TEST venue's own record (`venueRecord`). Here they keep every assertion running as
+// "J-charts-desk-01, part of #<n>, checked on today's engine chart", and the journeys verdict on main turns red when
+// any of them fails after passing on main (`tooling/ci/journey-verdict.mjs` judge, matching `J-derivatives-01.pw.mjs`
+// and `J-cex-spot-04.pw.mjs`). Step #3 stays titled here and in the venue file.
 const J = 'J-charts-desk-01';
 const CHART = '/charts/BTC-USDT';
 
@@ -144,8 +148,9 @@ test(`${J}, part of #2, checked on today's engine chart: picks 1h, then another 
   await keepsRightEdge(page, '30m');
 });
 
-test(`${J}, part of #3, checked on today's engine chart: switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({
+test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({
   page,
+  stepPicture,
 }) => {
   await openChart(page);
   const styles = page.getByRole('group', { name: 'Chart style' }).first();
@@ -231,6 +236,7 @@ test(`${J}, part of #3, checked on today's engine chart: switches between candle
       ];
     })
     .toEqual(['Candlestick', true, true, true, 'Candlestick', true, 'ok']);
+  await stepPicture();
 });
 
 test(`${J}, part of #4, checked on today's engine chart: scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({

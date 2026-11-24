@@ -1,6 +1,7 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
+import { approverSessions, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, journeyState, toUnits } from './stack.mjs';
 import { closedMinute, MINUTE, minuteStart } from './clock.mjs';
 import {
@@ -15,22 +16,23 @@ import {
   viewOf,
 } from './charts-desk-01.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { ownSpotMarket } from './own-market.mjs';
+import { ownSpotMarket, venueListingWrite } from './own-market.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-charts-desk-01 on the launch model, in the running app against the stack's TEST venue simulator
-// (docs/roadmap/journeys.json): a person opens the chart workbench on a listed venue market (signed out), switches
+// (docs/roadmap/journeys.json): a person opens `/charts/BTC-USDT` on the TEST venue (signed out), switches
 // interval and chart style, scrolls back through venue candle history, jumps to a date, changes colours and price
 // source, reads the venue's plotted numbers and tick-size axis formatting, and sees an unoffered interval refused.
 // Every candle and market rule is compared straight against the TEST venue's own record (venueRecord), never from our
 // own engine's book or `/ohlcv`. J-charts-desk-01.pw.mjs keeps the engine-path checks on `/charts/BTC-USDT` as
-// "part of #<n>" beside this file.
+// "part of #<n>" beside this file (judged on main by tooling/ci/journey-verdict.mjs).
 const J = 'J-charts-desk-01';
-const SYMBOL = 'BTC-USDC';
+const SYMBOL = 'BTC-USDT';
 const CHART = `/charts/${SYMBOL}`;
 const DESK = `/trade/spot/${SYMBOL}`;
 const VENUE_READER = otherTraderKey('charts01-live-btc').address.toLowerCase();
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const trpcData = (res) => res.json?.result?.data?.json ?? res.json?.result?.data;
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
@@ -98,15 +100,66 @@ async function lastVenueCandle(interval, symbol = SYMBOL) {
   return body.value[body.value.length - 1];
 }
 
+/** Read the spot desk PriceChart's main Candlestick series points directly from Lightweight Charts via React fiber. */
+async function deskLibraryPoints(host) {
+  return host.evaluate((el) => {
+    const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
+    for (let fiber = key ? el[key] : null; fiber; fiber = fiber.return) {
+      for (let hook = fiber.memoizedState; hook && typeof hook === 'object' && 'next' in hook; hook = hook.next) {
+        const series = hook.memoizedState?.current;
+        if (
+          series &&
+          typeof series.seriesType === 'function' &&
+          typeof series.data === 'function' &&
+          series.seriesType() === 'Candlestick'
+        ) {
+          const points = series.data().map((p) => ({ time: p.time, open: p.open, high: p.high, low: p.low, close: p.close }));
+          return { type: series.seriesType(), points };
+        }
+      }
+    }
+    return null;
+  });
+}
+
+/** BTC-USDT on the TEST venue, and our listing of it open: added and listed once per stack (as J-copy-bots-otc-20 does). */
+async function btcUsdtListed() {
+  const venueMarkets = await venueRecord(VENUE_READER, '/markets', {});
+  if (!venueMarkets.value.some((m) => m.symbol === SYMBOL)) {
+    const added = await testVenue('/test/market-add', {
+      symbol: SYMBOL,
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      maxOrderQty: '10',
+      maxOrderNotional: '1000000',
+    });
+    expect(added.status, JSON.stringify(added.body)).toBe(200);
+    expect(added.body.label).toBe('TEST');
+  }
+  const ctx = await makeContext({ log: () => undefined });
+  const sessions = await approverSessions(ctx);
+  const listed = await ctx.edge.query('trade', 'admin.venueMarkets.list', undefined, await sessions.a.tradeOpsToken());
+  const row = trpcData(listed)?.markets.find((m) => m.symbol === SYMBOL);
+  if (row?.listing?.open) return;
+  await venueListingWrite(
+    J,
+    SYMBOL,
+    'trade.venue_listing_set',
+    'listingSet',
+    { opensAt: new Date(Date.now() - 60_000).toISOString() },
+    String(row?.listing?.version ?? 0),
+  );
+}
+
 /** Execute one real signed TEST trade on the TEST venue against a resting maker ask so a live print lands now. */
 async function executeLiveVenueTrade(symbol, price, amount, tag) {
   const sellerName = `charts01-seller-${tag}`;
   const buyerName = `charts01-buyer-${tag}`;
   const seller = otherTraderKey(sellerName).address.toLowerCase();
   const buyer = otherTraderKey(buyerName).address.toLowerCase();
-  const base = symbol.split('-')[0];
+  const [base, quote] = symbol.split('-');
   expect(await testDeposit(seller, base, '100', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-  expect(await testDeposit(buyer, 'USDC', '100000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  expect(await testDeposit(buyer, quote, '100000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
   const suffix = randomBytes(4).toString('hex');
   const sell = await otherTraderRun(sellerName, {
     kind: 'place_order',
@@ -137,14 +190,15 @@ async function executeLiveVenueTrade(symbol, price, amount, tag) {
 }
 
 /**
- * TEST setup (not a step): seed past TEST prints on the TEST venue's BTC-USDC spanning 90 hours (for 15m history > 240
- * bars and an earlier empty region inside the 7.5-day 720-bar 15m window) plus 320 consecutive 1m prints (for 1m
- * scroll-back > 240 bars), plus one verified account for #1's spot-desk chart check, and one 4-decimal own TEST venue
- * spot market for #7's tick-size check.
+ * TEST setup (not a step): list BTC-USDT on the TEST venue (if not already open), seed past TEST prints spanning
+ * 90 hours (for 15m history > 240 bars and an earlier empty region inside the 7.5-day 720-bar 15m window) plus 320
+ * consecutive 1m prints (for 1m scroll-back > 240 bars) and one live signed trade, plus one verified account for #1's
+ * spot-desk verification, and one 4-decimal own TEST venue spot market for #7's tick-size check.
  */
 test.beforeAll(async ({ browser }) => {
   if (process.env.JOURNEY_RUN_ID && run.read().seeded && run.read().account && run.read().smallMarket) return;
   test.setTimeout(300_000);
+  await btcUsdtListed();
   const nowMin = minuteStart(Date.now());
   const entries = [];
   // 100 prints spaced every 30 min from 90 h ago to 40.5 h ago (inside 7.5 d 15m depth, older than 240 15m bars = 60 h).
@@ -165,23 +219,8 @@ test.beforeAll(async ({ browser }) => {
   }
   const seeded = await testVenue('/test/seed-prints', { symbol: SYMBOL, entries });
   expect(seeded.status, JSON.stringify(seeded.body)).toBe(200);
-  // One live signed TEST buy crossing the seeded BTC-USDC ask (60010) so the current 1m/15m bucket has a live print.
-  const takerName = 'charts01-live-btc';
-  const taker = otherTraderKey(takerName).address.toLowerCase();
-  expect(await testDeposit(taker, 'USDC', '10000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-  const initBuy = await otherTraderRun(takerName, {
-    kind: 'place_order',
-    symbol: SYMBOL,
-    side: 'buy',
-    type: 'limit',
-    amount: '0.001',
-    price: '60100',
-    timeInForce: 'IOC',
-    reduceOnly: false,
-    clientOrderKey: `order:jcd01:init:${randomBytes(4).toString('hex')}`,
-    builderFee: null,
-  });
-  expect(initBuy.accepted, JSON.stringify(initBuy)).toBe(true);
+  // One live signed TEST trade on BTC-USDT so the current 1m/15m bucket has a live print.
+  await executeLiveVenueTrade(SYMBOL, '60010', '0.001', 'init');
 
   // A second TEST venue spot market with a 4-decimal tick size (0.0001) and one real signed trade for #7.
   const small = await ownSpotMarket(J, 'JCD', 'A', { tickSize: '0.0001', lotSize: '1' });
@@ -198,11 +237,11 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test(`${J} #1 opens /charts/BTC-USDC on the launch model and sees the last bars at the saved interval with a header naming both`, async ({
+test(`${J} #1 opens /charts/BTC-USDT on the launch model and sees the last bars at the saved interval with a header naming both`, async ({
   page,
   stepPicture,
 }) => {
-  // Signed out on /charts/BTC-USDC: draws the TEST venue's own bars (never our engine's).
+  // Signed out on /charts/BTC-USDT: draws the TEST venue's own bars (never our engine's).
   await openChart(page);
   await expect(title(page)).toHaveText(`${SYMBOL} · 15m`);
   await expect(pressedInterval(page)).toHaveText('15m');
@@ -227,25 +266,53 @@ test(`${J} #1 opens /charts/BTC-USDC on the launch model and sees the last bars 
   await expect.poll(async () => (await drawn(page)).heldLast, { timeout: 30_000 }).toBe((await expectedWindow('1h')).last);
   await stepPicture();
 
-  // The spot desk shows the same venue market's chart: at 1m its newest close equals the TEST venue's newest 1m close.
+  // The spot desk shows the same venue market's chart body: real canvas, 1m library bars matching the TEST venue's
+  // 1m candle window and OHLC, and newest close matching the TEST venue's newest 1m close.
   const { account } = run.read();
   await signIn(page, account);
   await page.goto(DESK);
   const venueChart = page.getByTestId('venue-chart').first();
   const desk = venueChart.getByRole('img', { name: `Price chart of ${SYMBOL}`, exact: true }).first();
   await expect(desk).toBeVisible({ timeout: 30_000 });
+  await expect(venueChart.locator('canvas').first()).toBeVisible();
   const deskIntervals = venueChart.getByRole('group', { name: 'Chart intervals', exact: true });
   await deskIntervals.getByRole('button', { name: '1m', exact: true }).click();
   await expect(deskIntervals.getByRole('button', { name: '1m', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  let deskBars = [];
   await expect
     .poll(
       async () => {
-        const latest = await lastVenueCandle('1m');
-        return shownUnits(await desk.getByTestId('pc-legend').locator('b').nth(3).textContent()) === toUnits(latest.closePrice);
+        const [want, latest, series] = [
+          await expectedWindow('1m'),
+          await lastVenueCandle('1m'),
+          await deskLibraryPoints(venueChart.getByTestId('pc-host').first()),
+        ];
+        deskBars = series?.points ?? [];
+        const legendClose = shownUnits(await desk.getByTestId('pc-legend').locator('b').nth(3).textContent());
+        return [
+          series?.type === 'Candlestick',
+          deskBars.length === want.bars,
+          deskBars[0]?.time * 1000 === want.first,
+          deskBars[deskBars.length - 1]?.time * 1000 === want.last,
+          legendClose !== null && legendClose === toUnits(latest.closePrice),
+        ];
       },
       { timeout: 30_000 },
     )
-    .toBe(true);
+    .toEqual([true, true, true, true, true]);
+  const venue1m = (await venueCandles(SYMBOL, '1m', 240)).value;
+  const byTime = new Map(venue1m.map((row) => [Math.floor(Date.parse(row.openAt) / 1000), row]));
+  const shared = deskBars.slice(0, -1).filter((b) => byTime.has(b.time));
+  expect(shared.length, 'TEST venue serves 1m candles among the bars the spot desk chart draws').toBeGreaterThan(0);
+  for (const b of shared) {
+    const row = byTime.get(b.time);
+    expect([b.open, b.high, b.low, b.close], `desk 1m candle at ${b.time}`).toEqual([
+      Number(row.openPrice),
+      Number(row.highPrice),
+      Number(row.lowPrice),
+      Number(row.closePrice),
+    ]);
+  }
 });
 
 test(`${J} #2 picks 1h on the launch model, then another interval from More, and the pressed one is marked`, async ({
@@ -513,7 +580,7 @@ test(`${J} #7 reads the numbers the chart plots on the launch model: the venue's
   page,
   stepPicture,
 }) => {
-  // Place a fresh live signed trade on BTC-USDC at a distinct price so the newest 1m bar updates from the venue.
+  // Place a fresh live signed trade on BTC-USDT at a distinct price so the newest 1m bar updates from the venue.
   await executeLiveVenueTrade(SYMBOL, '60005', '0.002', 'step7');
   await openChart(page, `${CHART}?interval=1m`);
   const legend = page.getByTestId('chart-legend').first();
@@ -527,11 +594,19 @@ test(`${J} #7 reads the numbers the chart plots on the launch model: the venue's
       { timeout: 30_000 },
     )
     .toBe(true);
+  // Plotted library bars are built from the TEST venue's own 1m candles with epoch-second bar times (not ms).
+  let plotted = [];
   await expect
     .poll(
       async () => {
-        const [got, latest] = [await drawn(page), Date.parse((await lastVenueCandle('1m')).openAt)];
+        const [got, lib, latest] = [await drawn(page), await libraryPoints(page), Date.parse((await lastVenueCandle('1m')).openAt)];
+        plotted = lib.points;
         return [
+          lib.type === 'Candlestick',
+          lib.own,
+          plotted.length === got.held,
+          plotted[0]?.time * 1000 === got.heldFirst,
+          plotted[plotted.length - 1]?.time * 1000 === got.heldLast,
           got.last === got.heldLast,
           got.first === got.heldFirst,
           minuteStart(got.last) === got.last,
@@ -541,12 +616,30 @@ test(`${J} #7 reads the numbers the chart plots on the launch model: the venue's
       },
       { timeout: 30_000 },
     )
-    .toEqual([true, true, true, true, true]);
+    .toEqual([true, true, true, true, true, true, true, true, true, true]);
+  for (const b of plotted) {
+    expect(b.time, 'bar time is in epoch seconds, not milliseconds').toBeGreaterThan(1_000_000_000);
+    expect(b.time, 'bar time is in epoch seconds, not milliseconds').toBeLessThan(10_000_000_000);
+    expect(b.time % 60, '1m bar time sits on a whole minute in seconds').toBe(0);
+  }
+  const venueRows = (await venueCandles(SYMBOL, '1m', 240)).value;
+  const byTime = new Map(venueRows.map((row) => [Math.floor(Date.parse(row.openAt) / 1000), row]));
+  const shared = plotted.slice(0, -1).filter((b) => byTime.has(b.time));
+  expect(shared.length, 'TEST venue serves 1m candles among the bars the chart plots').toBeGreaterThan(0);
+  for (const b of shared) {
+    const row = byTime.get(b.time);
+    expect([b.open, b.high, b.low, b.close], `plotted 1m candle at ${b.time}`).toEqual([
+      Number(row.openPrice),
+      Number(row.highPrice),
+      Number(row.lowPrice),
+      Number(row.closePrice),
+    ]);
+  }
 
-  // Axis format comes from each venue market's published tick size: BTC-USDC (1 -> 0 decimals) and our 0.0001 market (4 decimals).
+  // Axis format comes from each venue market's published tick size: BTC-USDT (0.1 -> 1 decimal) and our 0.0001 market (4 decimals).
   const { smallMarket } = run.read();
   for (const [symbol, expectedTick, expectedFormat, pattern] of [
-    [SYMBOL, '1', '0', /^[\d,]+$/],
+    [SYMBOL, '0.1', '0.0', /^[\d,]+\.\d$/],
     [smallMarket, '0.0001', '0.0000', /^[\d,]+\.\d{4}$/],
   ]) {
     const tick = (await venueMarketOf(symbol)).tickSize;
