@@ -10,7 +10,6 @@ import {
   doorOk,
   openVenueDesk,
   sameDecimal,
-  shownBalance,
   signPrepared,
   testDeposit,
   testVenue,
@@ -516,7 +515,8 @@ test(`${J} #7 sends an order whose request deadline has passed: refused as expir
 
   // On the desk, the venue account shows zero locked USDC matching the venue's own record.
   await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
-  const shown = await shownBalance(page, 'USDC');
-  expect(sameDecimal(shown.used, finalOwn.locked)).toBe(true);
+  const usedCell = page.getByTestId('venue-account').locator('dl[data-asset="USDC"] [data-cell="used"]');
+  await expect(usedCell).toBeVisible();
+  await expect.poll(async () => sameDecimal((await usedCell.innerText()).replace(/\s*USDC\s*$/, ''), finalOwn.locked)).toBe(true);
   await stepPicture();
 });
