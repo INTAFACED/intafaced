@@ -475,7 +475,7 @@ const t = initTRPC
       const p2pLimit = p2pLimitOf(cause);
       // tRPC adds the server's stack (with file paths) whenever NODE_ENV is not
       // 'production', which a test stack or the beta may run. An error reply
-      // carries only its code and message; the trace stays in the server log (#10604).
+      // carries only its code and message; the trace stays in the server log.
       const { stack: _serverStack, ...publicData } = shape.data;
       return {
         ...shape,
