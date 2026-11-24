@@ -1,5 +1,8 @@
+import { useState } from 'react';
+import { consumeMenuSpotNavigation, defaultDeskPair } from '../../../app/navigation';
 import { useResource } from '../../../shared/resource';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
+import type { VenueMarket } from '../../../features/trade/venue-api';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { VenueFrame, useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
@@ -10,6 +13,25 @@ import { VenueVerifyDesk } from './VenueVerifyDesk';
 
 /** The desk's own symbol form ("BTC-USDC"), whichever way the address writes it. */
 const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
+
+/**
+ * Picks the venue spot market for `symbol`. Exact matches always win. When opened from a generic menu link
+ * (`Trade › Spot` or phone Pro `Trade` tab on the default desk pair `BTC-USDT`) and the venue quotes spot in another
+ * currency (e.g. `BTC-USDC`), resolves to the venue's spot market on the same base asset or its first listed spot
+ * market; explicit `/trade/spot/*` addresses stay on exact matching so custodial pairs remain reachable.
+ */
+export function pickVenueSpotMarket<M extends Pick<VenueMarket, 'kind' | 'symbol' | 'baseAsset'>>(
+  markets: readonly M[],
+  symbol: string,
+  fromMenu = false,
+): M | undefined {
+  const spot = markets.filter((m) => m.kind === 'spot');
+  const exact = spot.find((m) => m.symbol === symbol);
+  if (exact) return exact;
+  if (!fromMenu || symbol !== defaultDeskPair) return undefined;
+  const base = defaultDeskPair.split('-')[0];
+  return spot.find((m) => m.baseAsset === base) ?? spot[0];
+}
 
 /**
  * The spot page in venue mode: loading, today's desk for a pair the venue doesn't list, the Verify desk, the venue's
@@ -40,8 +62,9 @@ export function VenueSpotGate({
   const venue = useVenueApi();
   const markets = useResource((signal) => venue.markets(signal), 'venue-markets');
   const symbol = venueSymbolOf(pair);
+  const [fromMenu] = useState(consumeMenuSpotNavigation);
   const r = markets.resource;
-  const market = r.status === 'ready' ? r.data.value.find((m) => m.kind === 'spot' && m.symbol === symbol) : undefined;
+  const market = r.status === 'ready' ? pickVenueSpotMarket(r.data.value, symbol, fromMenu) : undefined;
   const choice = spotGateChoice(
     mode.status.available,
     r.status === 'ready'

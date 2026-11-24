@@ -3636,3 +3636,199 @@ test('report --service: only the services it names, in order; an unknown or miss
   assert.match(chosen(all, ['--service', 'svc-a,svc-x']).error, /names from: svc-a, svc-b, svc-c \(not: svc-x\)/);
   assert.match(chosen(all, ['--service']).error, /not: none given/);
 });
+
+test('portable: follows z.lazy(() => schema) and a single-return helper function returning a refined schema', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-lazy-helper-'));
+  writeFileSync(
+    join(dir, 'schemas.ts'),
+    [
+      "import { z } from 'zod';",
+      'function unique<T extends z.ZodTypeAny>(s: T, max: number) {',
+      "  return z.array(s).min(1).max(max).refine((v) => new Set(v).size === v.length, 'Duplicate selections are not allowed');",
+      '}',
+      'const innerSchema = z.object({',
+      "  tierId: z.string().refine((t) => t !== 'regular', 'a pass grants a tier above regular').nullable(),",
+      '});',
+      'export const outSchema = z.object({',
+      '  pending: z.lazy(() => innerSchema).nullable().default(null),',
+      "  interests: unique(z.enum(['a', 'b']), 2),",
+      "  markets: unique(z.enum(['spot', 'perp']), 2),",
+      '});',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'r-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { outSchema } from './schemas.js';",
+      "export const R = defineProcedure({ name: 'x.get', input: NO_INPUT, output: outSchema, samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const why =
+    `x.get.output cannot be exported without losing meaning: ` +
+    `x.get.output.pending.tierId ${refine}; x.get.output.interests ${refine}; x.get.output.markets ${refine}`;
+  const { edits, left } = plan({ get: why }, [record]);
+  assert.deepEqual(left, []);
+  const inserted = [...edits.get(record).edits.values()].map((e) => e.text).join('');
+  assert.match(inserted, /tier_id_holds: \{ at: "output\.pending\.tierId", says: "a pass grants a tier above regular" \}/);
+  assert.match(
+    inserted,
+    /unique_holds: \{ at: \["output\.interests", "output\.markets"\], says: "Duplicate selections are not allowed" \}/,
+  );
+});
+
+test('samples: distinct uuids, prefixed regex, multi-nullable object, duplicate array refusal, and optional pair refusal', async () => {
+  const { z } = await contractsZod();
+  const distinct = samplesFor({
+    name: 'ops.merge',
+    path: 'ops.merge',
+    input: z
+      .object({ sourceId: z.string().uuid(), targetId: z.string().uuid() })
+      .refine((v) => v.sourceId !== v.targetId, 'Choose two distinct contacts'),
+    checks: { merge_holds: { at: 'input', says: 'Choose two distinct contacts' } },
+  });
+  assert.match(distinct, /"verdict": 'accept'|verdict: 'accept'/);
+  assert.match(distinct, /by: 'merge_holds'/);
+
+  const prefixed = samplesFor({
+    name: 'ops.save',
+    path: 'ops.save',
+    input: z.object({ id: z.string().regex(/^announcement:[0-9a-f]{16,64}$/), snapshot: z.string().regex(/^[a-f0-9]{64}$/) }),
+  });
+  assert.match(prefixed, /"id":"announcement:[0-9a-f]{16}"/);
+  assert.match(prefixed, /"snapshot":"[a-f0-9]{64}"/);
+  // A credential-named `key` field whose pattern cannot carry a self-declaring placeholder gets no sample,
+  // so the codemod never writes a literal that trips tooling/ci/secret-scan.mjs.
+  assert.throws(
+    () =>
+      samplesFor({
+        name: 'ops.announcements.save',
+        path: 'announcements.save',
+        input: z.object({ key: z.string().regex(/^announcement:[0-9a-f]{16,64}$/) }),
+      }),
+    /no accepted input found/,
+  );
+
+  const multiNullable = samplesFor({
+    name: 'ops.stage',
+    path: 'ops.stage',
+    input: z
+      .object({
+        stage: z.enum(['new', 'closed']),
+        disposition: z.enum(['won', 'lost']).nullable(),
+        evidence: z.string().min(1).nullable(),
+        nextAction: z.object({ note: z.string().min(1) }).nullable(),
+      })
+      .superRefine((v, ctx) => {
+        const closed = v.stage === 'closed';
+        const closingPresent = v.disposition !== null && v.evidence !== null;
+        if (closed ? !closingPresent : v.disposition !== null || v.evidence !== null)
+          ctx.addIssue({ code: 'custom', message: 'Closing facts must match the stage' });
+        if (closed ? v.nextAction !== null : v.nextAction === null)
+          ctx.addIssue({ code: 'custom', message: 'Next action must match the stage' });
+      }),
+    checks: { stage_holds: { at: 'input', says: 'Closing facts must match the stage; Next action must match the stage' } },
+  });
+  assert.match(multiNullable, /"disposition":null,"evidence":null/);
+  assert.match(multiNullable, /by: 'stage_holds'/);
+
+  const uniqueArray = samplesFor({
+    name: 'ops.codes',
+    path: 'ops.codes',
+    input: z.object({
+      codes: z
+        .array(z.string().regex(/^[a-z][a-z0-9_]*$/))
+        .min(1)
+        .refine((xs) => new Set(xs).size === xs.length, 'reason codes must be unique'),
+    }),
+    checks: { codes_holds: { at: 'input.codes', says: 'reason codes must be unique' } },
+  });
+  assert.match(uniqueArray, /by: 'codes_holds', input: \{"codes":\["([^"]+)","\1"\]\}/);
+
+  const optionalInterval = samplesFor({
+    name: 'ops.metrics',
+    path: 'ops.metrics',
+    input: z
+      .object({
+        tag: z
+          .string()
+          .regex(/^tag:[a-z]{8}$/)
+          .optional(),
+        from: z.string().datetime({ offset: true }).optional(),
+        before: z.string().datetime({ offset: true }).optional(),
+      })
+      .superRefine((v, ctx) => {
+        if (v.from && v.before && Date.parse(v.from) >= Date.parse(v.before))
+          ctx.addIssue({ code: 'custom', message: 'Capture interval must be increasing' });
+      }),
+    checks: { metrics_holds: { at: 'input', says: 'Capture interval must be increasing' } },
+  });
+  assert.match(optionalInterval, /by: 'metrics_holds'/);
+
+  const nestedOptional = samplesFor({
+    name: 'campaigns.create',
+    path: 'campaigns.create',
+    input: z.object({
+      name: z.string().min(1),
+      trialPass: z
+        .object({
+          tierId: z
+            .string()
+            .regex(/^[A-Za-z0-9_.-]{1,64}$/)
+            .refine((t) => t !== 'regular', 'a pass grants a tier above regular')
+            .nullable(),
+          seconds: z.number().int().min(60).nullable(),
+        })
+        .nullish(),
+    }),
+    checks: { tier_id_holds: { at: 'input.trialPass.tierId', says: 'a pass grants a tier above regular' } },
+  });
+  assert.match(nestedOptional, /by: 'tier_id_holds', input: .*"tierId":"regular"/);
+});
+
+test('ownersOf: a screen calling createRoomApi whose error names one method leaves only that method, not every method of the factory', async () => {
+  const { ownersOf } = await import('./run.mjs');
+  const api = 'apps/customer/src/screens/trade/rooms/api.ts';
+  const screen = 'apps/customer/src/screens/trade/rooms/QuoteDesk.tsx';
+  const moved = [
+    { path: 'otc.deskStatus', record: 'TRADE_OTC_DESK_STATUS', files: [api] },
+    { path: 'rfq.quote', record: 'TRADE_RFQ_QUOTE', files: [api] },
+    { path: 'rfq.board', record: 'TRADE_RFQ_BOARD', files: [api] },
+  ];
+  const sources = {
+    [api]: [
+      "import { TRADE_OTC_DESK_STATUS, TRADE_RFQ_QUOTE, TRADE_RFQ_BOARD } from '@intafaced/contracts/trade';",
+      'export function createRoomApi(api) {',
+      '  return {',
+      '    deskStatus: () => api.call(TRADE_OTC_DESK_STATUS, undefined),',
+      '    rfqQuote: (input) => api.call(TRADE_RFQ_QUOTE, input),',
+      '    rfqBoard: (w) => api.call(TRADE_RFQ_BOARD, w),',
+      '  };',
+      '}',
+    ].join('\n'),
+    [screen]: [
+      "import { createRoomApi } from './api';",
+      'export async function QuoteDesk({ transport }) {',
+      '  const room = createRoomApi(transport);',
+      '  const r = await room.rfqQuote({ side: "buy" });',
+      '  return renderQuote(r.data);',
+      '}',
+    ].join('\n'),
+  };
+  const err = {
+    file: screen,
+    key: `${screen}: error TS2345: Argument of type A`,
+    text: `${screen}(5,22): error TS2345: Argument of type A`,
+    line: 5,
+    col: 22,
+  };
+  const owners = ownersOf([err], moved, (f) => {
+    if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+    return sources[f];
+  });
+  assert.deepEqual([...owners.get(screen).keys()], ['rfq.quote']);
+});

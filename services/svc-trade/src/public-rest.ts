@@ -1,4 +1,4 @@
-import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
+import { spotOrderTypes, venueSpotOrderTypes, type VenueSpotMarketOrderCapabilities } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { TradingSchedule, UpcomingMaintenance } from '@intafaced/contracts';
 import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
@@ -118,6 +118,12 @@ export interface PublicRestDeps {
   pairRiskForMarkets?(markets: readonly Market[]): Promise<ReadonlyMap<string, PairRisk>>;
   /** Warn sink for a failed pair-rules read (the listing degrades, never fails). Defaults to console.warn. */
   onPairRulesReadError?(err: unknown): void;
+  /**
+   * The venue's listed markets when the user-venue door is on (J-cex-spot-15 #4). Present: `GET /api/v1/order-types`
+   * reads the listed venue spot market's own `orderTypes` and `timeInForce` (optional `?symbol=`, else the first listed
+   * spot market) so a bot reads the same list `VenueSpotDesk.tsx` draws. Absent: serves the own-book `spotOrderTypes()`.
+   */
+  venueSpotMarkets?: () => Promise<readonly VenueSpotMarketOrderCapabilities[]>;
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
    * Recent public prints for a market (no user/order ids). Empty when nothing
@@ -795,11 +801,46 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   });
 
   /**
-   * Spot order types (SP-order-entry-01; J-cex-spot-15 #4): every type the spot ticket offers and how `POST
-   * /api/v1/orders` takes it, then each listed type the create door refuses, with its code. The one list in
-   * `@intafaced/contracts/spot-order-types` also draws the ticket's tabs, so a bot reads exactly what the ticket shows.
+   * Spot order types (SP-order-entry-01; J-cex-spot-15 #4): every type the spot ticket offers and how it is sent, then
+   * each listed type that is refused, with its code. When the user-venue door is on (`deps.venueSpotMarkets`), reads the
+   * venue's own spot market capabilities (`?symbol=` or the first listed spot market) so the API matches `VenueSpotDesk`.
+   * Otherwise serves the own-book list from `@intafaced/contracts/spot-order-types`.
    */
-  app.get('/api/v1/order-types', publicRead, async (_req, reply) => reply.code(200).send(spotOrderTypes()));
+  app.get<{ Querystring: { symbol?: string } }>('/api/v1/order-types', publicRead, async (req, reply) => {
+    if (!deps.venueSpotMarkets) return reply.code(200).send(spotOrderTypes());
+    let listed: readonly VenueSpotMarketOrderCapabilities[];
+    try {
+      listed = await deps.venueSpotMarkets();
+    } catch {
+      return sendCcxt(reply, {
+        status: 503,
+        body: {
+          code: 'ExchangeNotAvailable',
+          message: 'The venue’s spot markets could not be read just now',
+          intafacedCode: 'trade.venue.venue_down',
+        },
+      });
+    }
+    const spot = listed.filter((m) => m.kind === 'spot');
+    const wanted = typeof req.query.symbol === 'string' ? req.query.symbol.trim() : '';
+    const market = wanted ? spot.find((m) => m.symbol === wanted) : spot[0];
+    if (!market) {
+      return sendCcxt(
+        reply,
+        wanted
+          ? badRequest(`${wanted} is not a listed venue spot market`, 'trade.venue.unknown_market')
+          : {
+              status: 503,
+              body: {
+                code: 'ExchangeNotAvailable',
+                message: 'No venue spot market is listed right now',
+                intafacedCode: 'trade.venue.not_offered',
+              },
+            },
+      );
+    }
+    return reply.code(200).send(venueSpotOrderTypes(market));
+  });
 
   /**
    * Futures margin modes on our own book (D-portfolio-wallet-05; J-dex-protocol-06 #7): every named mode, whether it is

@@ -77,6 +77,21 @@ const provenance = {
   firstKnownSource: null,
   latestKnownSource: null,
 };
+const deliveryRow = (overrides: {
+  kind: string;
+  status: 'pending' | 'unconfigured' | 'accepted' | 'delivered' | 'failed' | 'unresolved';
+  error_code?: string | null;
+}) => ({
+  id: randomUUID(),
+  business_key: `${overrides.kind}:${submissionId}`,
+  kind: overrides.kind,
+  status: overrides.status,
+  attempts: 1,
+  acceptance_ref: null,
+  error_code: overrides.error_code ?? null,
+  created_at: now,
+  updated_at: now,
+});
 const detail = {
   opportunity,
   submission,
@@ -84,7 +99,7 @@ const detail = {
   organisation: null,
   activities: [],
   tasks: [],
-  deliveries: [{ status: 'unconfigured' }],
+  deliveries: [deliveryRow({ kind: 'enquiry_acknowledgement', status: 'unconfigured' })],
 };
 const enabled = { status: 'enabled', userId, version: '1', changedAt: now };
 function request(path: string, method = 'GET', body?: unknown) {
@@ -158,8 +173,8 @@ describe('protected founder CRM workflows', () => {
       getOpportunity: {
         ...detail,
         deliveries: [
-          { kind: 'enquiry_acknowledgement', status: 'failed', error_code: 'ops.crm.notification_unconfigured' },
-          { kind: 'follow_up', status: 'unconfigured' },
+          deliveryRow({ kind: 'enquiry_acknowledgement', status: 'failed', error_code: 'ops.crm.notification_unconfigured' }),
+          deliveryRow({ kind: 'follow_up', status: 'unconfigured' }),
         ],
       },
       getContactProvenance: provenance,
