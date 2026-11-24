@@ -6,14 +6,29 @@ import { approverSessions, makeContext, twoPerson } from '../../../../tooling/sc
 import { api, journeyState, tool } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { openVenueDesk, sameDecimal, testDeposit, testVenue, venueBalance, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
+import {
+  doorOk,
+  openVenueDesk,
+  sameDecimal,
+  shownBalance,
+  signPrepared,
+  testDeposit,
+  testVenue,
+  venueBalance,
+  venueForThisFile,
+  venueInfo,
+  venueRecord,
+  venueWrites,
+  walletDoorAct,
+} from './venue.mjs';
 
-// J-cex-spot-04 #2 and #6, in the running app (docs/roadmap/journeys.json), on the stack's outside TEST venue: at launch a
-// pair's rules are the venue's own (CUSTODY-DELTA: "Rules now come from the venue"), so the person reads them as the
-// venue publishes them, with the venue named, and a rule the venue does not publish, or a protection the owner has left
-// blank, refuses in words instead of defaulting. One test per step, titled "J-cex-spot-04 #<n>". J-cex-spot-04.pw.mjs
-// holds every step on today's desk, #2 and #6 included (its market Info list and the owner's blank band and cap), so
-// both tests count for those two steps.
+// J-cex-spot-04 #2, #3, #5, #6 and #7, in the running app (docs/roadmap/journeys.json), on the stack's outside TEST
+// venue: at launch a pair's rules are the venue's own (CUSTODY-DELTA: "Rules now come from the venue"), so the person
+// reads them as the venue publishes them, with the venue named; below-minimum orders and finer digits refuse before
+// preview; reaching the venue's open-order cap refuses naming how many are open and the cap; a rule the venue does not
+// publish, or a protection the owner has left blank, refuses in words instead of defaulting; and an order whose request
+// deadline has passed refuses as expired before any lock. One test per step, titled "J-cex-spot-04 #<n>".
+// J-cex-spot-04.pw.mjs holds #1 and #4 and keeps "part of #<n>" checks on today's custodial desk.
 //
 // Each step trades a TEST spot market of its own: a fresh symbol the TEST venue lists by its `/test/market-add` control
 // with the rules the step needs, listed for INTAFACED by svc-trade's two-person door as setup (as J-cex-spot-16 does),
@@ -145,6 +160,14 @@ const limitBuy = (owner, symbol, amount, price, tag) => ({
 async function venueOwn(owner, symbol) {
   const open = (await venueRecord(owner, '/open-orders')).value.filter((o) => o.symbol === symbol);
   return { open, locked: (await venueBalance(owner, 'USDC')).locked };
+}
+
+/** Waits until svc-trade's user-venue door has refreshed its market list to see a newly added `symbol`. */
+async function waitForDoorMarket(client, owner, symbol) {
+  const probe = limitBuy(owner, symbol, '1', '20', 'probe');
+  await expect
+    .poll(async () => (await client.post('/api/v1/venue/preview', { owner, intent: probe })).status, { timeout: 90_000 })
+    .toBe(200);
 }
 
 /** Restarts trade with the door still on and `settings` set for this restart only. */
@@ -308,4 +331,192 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   const ruledAfter = await venueOwn(c.owner, ruled);
   expect(ruledAfter.open).toHaveLength(ruledBefore.open.length);
   expect(sameDecimal(ruledAfter.locked, ruledBefore.locked)).toBe(true);
+});
+
+test(`${J} #3 types an amount below the smallest order, or finer than the lot or tick: "Too small" in words; finer digits cannot be typed; nothing is previewed or sent`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
+  const c = customer();
+  const { symbol, base } = await freshMarket('S', RULES);
+  await listByApi(symbol);
+  const own = await venueMarket(c.owner, symbol);
+  expect(sameDecimal(own.minOrderNotional, RULES.minOrderNotional)).toBe(true);
+  const before = await venueOwn(c.owner, symbol);
+  expect(before.open).toHaveLength(0);
+
+  const wallet = await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
+  const asked = [];
+  page.on('request', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (r.method() === 'POST' && ['/api/v1/venue/preview', '/api/v1/venue/prepare', '/api/v1/venue/submit'].includes(p)) asked.push(p);
+  });
+
+  // Finer digits than the venue's tick or lot cannot be typed.
+  const tickPlaces = (own.tickSize.split('.')[1] ?? '').length;
+  const priceOnTick = tickPlaces > 0 ? `20.${'1'.repeat(tickPlaces)}` : '20';
+  const priceBox = buyForm(page).getByRole('textbox', { name: 'Price', exact: true });
+  await priceBox.fill('');
+  await priceBox.pressSequentially(`${priceOnTick}5`);
+  await expect(priceBox).toHaveValue(priceOnTick);
+
+  const amountBox = buyForm(page).getByRole('textbox', { name: 'Amount', exact: true });
+  await amountBox.fill('');
+  await amountBox.pressSequentially(`${own.lotSize}5`);
+  await expect(amountBox).toHaveValue(own.lotSize);
+
+  // That order (20.1 × 0.001 = 0.0201 USDC) is below the venue's smallest order value (10 USDC): "Too small" in words,
+  // Buy disabled, and nothing previewed or sent.
+  const note = buyForm(page).getByTestId('venue-ticket-below-min');
+  await expect(note).toHaveText(`Too small: the smallest order is ${own.minOrderNotional} USDC. Nothing was previewed or sent.`);
+  await expect(buyForm(page).getByRole('button', { name: `Buy ${base}`, exact: true })).toBeDisabled();
+  await stepPicture();
+
+  // Nothing was previewed, prepared, signed or locked on the TEST venue itself.
+  const after = await venueOwn(c.owner, symbol);
+  expect(asked).toEqual([]);
+  expect(wallet.requests).toHaveLength(0);
+  expect(after.open).toHaveLength(0);
+  expect(sameDecimal(after.locked, before.locked)).toBe(true);
+});
+
+test(`${J} #5 reaches the open-order cap: refused with the cap and how many are open; nothing held`, async ({ page, stepPicture }) => {
+  test.setTimeout(300_000);
+  const c = customer();
+  const key = privateKeyToAccount(c.walletKey);
+  const client = await api(c.account);
+  const venue = await venueInfo();
+  const { symbol, base } = await freshMarket('C', RULES);
+  await listByApi(symbol);
+  await waitForDoorMarket(client, c.owner, symbol);
+
+  const own = await venueMarket(c.owner, symbol);
+  const cap = own.maxOpenOrders;
+  expect(Number.isInteger(cap) && cap > 0).toBe(true);
+  expect((await venueRecord(c.owner, '/open-orders')).value).toHaveLength(0);
+
+  const placedKeys = [];
+  try {
+    for (let i = 0; i < cap; i++) {
+      const intent = limitBuy(c.owner, symbol, '1', '20', `cap-${i}`);
+      await walletDoorAct(client, key, { intent });
+      placedKeys.push(intent.clientOrderKey);
+    }
+    expect((await venueRecord(c.owner, '/open-orders')).value).toHaveLength(cap);
+    const lockedAtCap = (await venueBalance(c.owner, 'USDC')).locked;
+
+    // On the desk, typing another valid order is refused naming how many are open and the venue's cap; nothing is signed.
+    const wallet = await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
+    const writes = venueWrites(page);
+    await buyForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('20');
+    await buyForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1');
+    const note = buyForm(page).getByTestId('venue-ticket-refused');
+    await expect(note).toBeVisible({ timeout: 15_000 });
+    await expect(note).toContainText(`this account has ${cap} open orders and ${venue.displayName} allows ${cap}`);
+    await expect(buyForm(page).getByRole('button', { name: `Buy ${base}`, exact: true })).toBeDisabled();
+    expect(writes).toEqual([]);
+    expect(wallet.requests).toHaveLength(0);
+    await stepPicture();
+
+    // Direct prepare on our door refuses with the same venue cap, before anything is prepared or locked.
+    const refused = await client.post('/api/v1/venue/prepare', {
+      owner: c.owner,
+      signer: { role: 'owner', address: c.owner },
+      intent: limitBuy(c.owner, symbol, '1', '20', 'over-cap'),
+    });
+    expect(refused.status, JSON.stringify(refused.body).slice(0, 300)).toBe(422);
+    expect(refused.body.intafacedCode).toBe('trade.venue.open_orders_above_venue_cap');
+    expect(refused.body.message).toContain(`${cap} open orders`);
+    expect(refused.body.message).toContain(`allows ${cap}`);
+    expect((await venueRecord(c.owner, '/open-orders')).value).toHaveLength(cap);
+    expect(sameDecimal((await venueBalance(c.owner, 'USDC')).locked, lockedAtCap)).toBe(true);
+  } finally {
+    for (const clientOrderKey of placedKeys) {
+      await walletDoorAct(client, key, {
+        intent: { kind: 'cancel_order', symbol, clientOrderKey },
+        actionKey: `cancel:${clientOrderKey}`,
+      });
+    }
+  }
+  expect((await venueRecord(c.owner, '/open-orders')).value).toHaveLength(0);
+});
+
+test(`${J} #7 sends an order whose request deadline has passed: refused as expired before any hold`, async ({ page, stepPicture }) => {
+  test.setTimeout(300_000);
+  const c = customer();
+  const key = privateKeyToAccount(c.walletKey);
+  const client = await api(c.account);
+  const { symbol } = await freshMarket('D', RULES);
+  await listByApi(symbol);
+  await waitForDoorMarket(client, c.owner, symbol);
+
+  await venueMarket(c.owner, symbol);
+  const before = await venueOwn(c.owner, symbol);
+  expect(before.open).toHaveLength(0);
+
+  // 1. Expired deadline on prepare: 400 trade.request_expired, nothing prepared or locked on the venue.
+  const expiredPrep = await client.post('/api/v1/venue/prepare', {
+    owner: c.owner,
+    signer: { role: 'owner', address: c.owner },
+    intent: limitBuy(c.owner, symbol, '1', '20', 'expired-prep'),
+    requestDeadline: new Date(Date.now() - 60_000).toISOString(),
+  });
+  expect(expiredPrep.status, JSON.stringify(expiredPrep.body).slice(0, 300)).toBe(400);
+  expect(expiredPrep.body.intafacedCode).toBe('trade.request_expired');
+  const afterPrep = await venueOwn(c.owner, symbol);
+  expect(afterPrep.open).toHaveLength(0);
+  expect(sameDecimal(afterPrep.locked, before.locked)).toBe(true);
+
+  // 2. Prepared and signed before the deadline, then submitted after it passed: 400 trade.request_expired, nothing locked.
+  const subIntent = limitBuy(c.owner, symbol, '1', '20', 'expired-sub');
+  const prep = doorOk(
+    await client.post('/api/v1/venue/prepare', {
+      owner: c.owner,
+      signer: { role: 'owner', address: c.owner },
+      intent: subIntent,
+      requestDeadline: new Date(Date.now() + 60_000).toISOString(),
+    }),
+  );
+  const sig = await signPrepared(key, prep.prepared);
+  const expiredSub = await client.post('/api/v1/venue/submit', {
+    actionKey: prep.actionKey,
+    signature: sig,
+    requestDeadline: new Date(Date.now() - 1_000).toISOString(),
+  });
+  expect(expiredSub.status, JSON.stringify(expiredSub.body).slice(0, 300)).toBe(400);
+  expect(expiredSub.body.intafacedCode).toBe('trade.request_expired');
+  const afterSub = await venueOwn(c.owner, symbol);
+  expect(afterSub.open).toHaveLength(0);
+  expect(sameDecimal(afterSub.locked, before.locked)).toBe(true);
+
+  // 3. Control: the exact same signed order with a future deadline succeeds on the venue, proving the deadline caused
+  // the refusal; then cancel it cleanly.
+  try {
+    const sent = doorOk(
+      await client.post('/api/v1/venue/submit', {
+        actionKey: prep.actionKey,
+        signature: sig,
+        requestDeadline: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    );
+    expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+    const placed = await venueOwn(c.owner, symbol);
+    expect(placed.open).toHaveLength(1);
+    expect(sameDecimal(placed.locked, '20')).toBe(true);
+  } finally {
+    await walletDoorAct(client, key, {
+      intent: { kind: 'cancel_order', symbol, clientOrderKey: subIntent.clientOrderKey },
+      actionKey: `cancel:${subIntent.clientOrderKey}`,
+    });
+  }
+  const finalOwn = await venueOwn(c.owner, symbol);
+  expect(finalOwn.open).toHaveLength(0);
+  expect(sameDecimal(finalOwn.locked, before.locked)).toBe(true);
+
+  // On the desk, the venue account shows zero locked USDC matching the venue's own record.
+  await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
+  const shown = await shownBalance(page, 'USDC');
+  expect(sameDecimal(shown.used, finalOwn.locked)).toBe(true);
+  await stepPicture();
 });

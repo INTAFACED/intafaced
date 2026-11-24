@@ -1042,9 +1042,16 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/preview', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
-    const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null }>(req, reply);
+    const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
-    return answer(reply, async (d) => d.preview(principal, b.owner ?? '', b.intent as VenueIntent), b.venueId);
+    return answer(
+      reply,
+      async (d) => {
+        d.assertRequestDeadline(b.requestDeadline ?? null);
+        return d.preview(principal, b.owner ?? '', b.intent as VenueIntent);
+      },
+      b.venueId,
+    );
   });
 
   // A Convert sell priced by the venue's own preview on the customer's account, stored under its business key. Sends
@@ -1169,6 +1176,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       actionKey?: string | null;
       stepUpApprovalId?: string | null;
       venueId?: string | null;
+      requestDeadline?: string | null;
     }>(req, reply);
     if (!b) return;
     return answer(
@@ -1182,6 +1190,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           actionKey: b.actionKey ?? null,
           stepUpApprovalId: b.stepUpApprovalId ?? null,
           idempotencyKey: idempotencyHeader(req) ?? null,
+          requestDeadline: b.requestDeadline ?? null,
         }),
       b.venueId,
       (v) => (v as { reused?: boolean }).reused === true,
@@ -1228,7 +1237,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/submit', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
-    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature }>(req, reply);
+    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
     return answer(
       reply,
@@ -1240,7 +1249,11 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           if (key !== '' && key !== fromHeader) throw new VenueWireError('with an Idempotency-Key, leave actionKey out');
           key = fromHeader;
         }
-        return r.submit(principal, key, b.signature as VenueSignature);
+        return r.submitRequest(principal, {
+          actionKey: key,
+          signature: b.signature as VenueSignature,
+          requestDeadline: b.requestDeadline ?? null,
+        });
       },
       null,
       (v) => (v as { replayed?: boolean }).replayed === true,

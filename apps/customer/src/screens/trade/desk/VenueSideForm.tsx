@@ -552,6 +552,10 @@ export function VenueSideForm({
           <p className="lt-note">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
         ) : issue === 'price_step' && price ? (
           <p className="lt-note">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
+        ) : issue === 'below_min' && market.minOrderNotional != null ? (
+          <p className="lt-note lt-note-bad" role="alert" data-testid="venue-ticket-below-min">
+            {t('Too small', { min: market.minOrderNotional, quote: market.quoteAsset })}
+          </p>
         ) : live?.state === 'checking' ? (
           <p className="lt-note">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (

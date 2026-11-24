@@ -8,9 +8,9 @@ import { awayBid, fundedTrader, held, openDesk, openOrders, placements, previewe
 // ledger. The band and cap are the stack's LOCAL TEST values, set through the operator pair's two-person door
 // (`local-test-gates.mjs limits`); the journey reads them from the public market list and never assumes a number.
 // Step 6 takes BTC/USDC's band and cap away through the same door, and puts them back after.
-// #2 and #6 are venue steps at launch (CUSTODY-DELTA): J-cex-spot-04-venue.pw.mjs alone carries their step titles and
-// checks them against the TEST venue's own record. Here they are titled "J-cex-spot-04, part of #<n>, checked on today's
-// custodial desk", so today's desk keeps its checks and the journeys verdict still judges them (#8327).
+// #2, #3, #5, #6 and #7 are venue steps at launch (CUSTODY-DELTA): J-cex-spot-04-venue.pw.mjs alone carries their step
+// titles and checks them against the TEST venue's own record. Here they are titled "J-cex-spot-04, part of #<n>,
+// checked on today's custodial desk", so today's desk keeps its checks and the journeys verdict still judges them (#8327).
 const J = 'J-cex-spot-04';
 const SYMBOL = 'BTC/USDT';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -164,7 +164,9 @@ test(`${J}, part of #2, checked on today's custodial desk: reads the pair's rule
   await expect(page.locator('dl[aria-label="Market rules"]').last()).toContainText(`Up to ${rules.protection.openOrdersPerMarket}`);
 });
 
-test(`${J} #3 types an order below the smallest value, or finer than the lot or tick: refused in words, nothing sent`, async ({ page }) => {
+test(`${J}, part of #3, checked on today's custodial desk: types an order below the smallest value, or finer than the lot or tick: refused in words, nothing sent`, async ({
+  page,
+}) => {
   const who = account();
   const rules = await rulesOf();
   await openDesk(page, who);
@@ -233,7 +235,9 @@ test(`${J} #4 types a buy price above the band: refused with the band named; cho
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(before);
 });
 
-test(`${J} #5 reaches the open-order cap: the next order is refused with the cap and how many are open, nothing held`, async ({ page }) => {
+test(`${J}, part of #5, checked on today's custodial desk: reaches the open-order cap: the next order is refused with the cap and how many are open, nothing held`, async ({
+  page,
+}) => {
   const who = account();
   const rules = await rulesOf();
   const cap = Number(rules.protection.openOrdersPerMarket);
@@ -354,7 +358,7 @@ test(`${J}, part of #6, checked on today's custodial desk: trades a pair whose b
   expect([restored.collar, restored.openOrdersPerMarket]).toEqual([published.collar, published.openOrdersPerMarket]);
 });
 
-test(`${J} #7 sends an order whose request deadline has passed: refused as expired before any hold`, async () => {
+test(`${J}, part of #7, checked on today's custodial desk: sends an order whose request deadline has passed: refused as expired before any hold`, async () => {
   const who = account();
   const rules = await rulesOf();
   const trader = await api(who);
