@@ -10,12 +10,25 @@ import { venueCopy } from './venue-copy';
 /** A discount in basis points of the fee as a percent of it, without trailing zeros: 5000 is "50", 25 is "0.25". */
 export const bpsPercent = (bps: number): string => String(bps / 100);
 
+/** The builder fee rate in bps this order requires approved: the preview's versioned rate, else the door's status rate. */
+export function requiredBuilderFeeBps(
+  status: Pick<VenueUp, 'builder'>,
+  preview?: Pick<VenuePreview, 'builderFeeBps'> | null,
+): string | null {
+  if (preview && preview.builderFeeBps !== undefined) return preview.builderFeeBps;
+  return status.builder?.feeBps ?? null;
+}
+
 /** Whether the account's approval covers our builder fee, from the venue's own record. */
-export function builderApproved(account: VenueAccount, status: VenueUp): boolean | null {
-  if (!status.builder) return null;
+export function builderApproved(
+  account: VenueAccount,
+  status: VenueUp,
+  requiredBps: string | null = status.builder?.feeBps ?? null,
+): boolean | null {
+  if (!status.builder || requiredBps === null) return null;
   const approved = account.approval.data?.value;
   if (approved === undefined) return null;
-  return parseAmount(approved) >= parseAmount(status.builder.feeBps);
+  return parseAmount(approved) >= parseAmount(requiredBps);
 }
 
 /**
@@ -88,19 +101,20 @@ export function ReviewDialog({
   const { t: ui, languageFor: uiLanguage } = uiCopy.useCopy();
   const p = preview.value;
   const carries = carriesBuilderFee(p.builderFee);
-  const approved = carries ? builderApproved(account, status) : true;
+  const requiredBps = requiredBuilderFeeBps(status, p);
+  const approved = carries ? builderApproved(account, status, requiredBps) : true;
   const [approving, setApproving] = useState<ActionResult | null>(null);
   // The draft this review's builder approval is asked under (keys.builderApproval).
   const [approvalDraft] = useState(() => draftId());
   const [busy, setBusy] = useState(false);
-  const feeBps = status.builder?.feeBps ?? '';
+  const feeBps = requiredBps ?? '';
 
   async function approve() {
-    if (!status.builder || busy) return;
+    if (!status.builder || !requiredBps || busy) return;
     setBusy(true);
     const answer = await run(
-      { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-      { actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps, undefined, approvalDraft) },
+      { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: requiredBps },
+      { actionKey: keys.builderApproval(owner, status.builder.address, requiredBps, undefined, approvalDraft) },
     );
     setBusy(false);
     setApproving(answer);

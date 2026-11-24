@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react';
+import { Button } from '@intafaced/ui/lit';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure, Panel } from '../../shared/ui';
 import { navigate } from '../../app/location';
-import { Read, TextArea } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
 import { identityWordsKey } from './agent-room/IdentityPage';
+import { Failure, Panel, Read, TextArea } from './agent-room/parts';
 import { type OwnAgentProposal } from '@intafaced/contracts/agents-own';
 import {
   AGENTS_OWN_ASSISTANT_STATE,
@@ -91,7 +91,7 @@ export function AssistantPanel() {
         </Read>
       ) : null}
       <TextArea label={t('describeAgent')} value={description} maxLength={4000} onChange={setDescription} />
-      <Button disabled={busy || !engine || !description.trim()} onClick={() => void draft()}>
+      <Button tone="primary" disabled={busy || !engine || !description.trim()} onClick={() => void draft()}>
         {t('draftIt')}
       </Button>
       {engine && !description.trim() ? <p className="lt-muted">{t('draftHint')}</p> : null}
@@ -121,11 +121,11 @@ export function AssistantPanel() {
               ))}
             </ul>
           ) : null}
-          <div className="depth-card-actions">
-            <Button disabled={busy} onClick={() => void accept(proposal)}>
+          <div className="lt-actions">
+            <Button tone="primary" disabled={busy} onClick={() => void accept(proposal)}>
               {t('acceptDraft')}
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => setProposal(null)}>
+            <Button tone="secondary" disabled={busy} onClick={() => setProposal(null)}>
               {t('discardDraft')}
             </Button>
           </div>

@@ -34,6 +34,7 @@ const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':pair': 'BTC-USDT',
   ':asset': 'BTC',
   ':runId': '00000000-0000-4000-8000-000000000001',
+  ':sandboxId': '00000000-0000-4000-8000-000000000002',
   ':id': 'test-1',
   ':campaignId': 'cmp_TEST',
   ':listingId': 'TEST-listing',
@@ -41,11 +42,13 @@ const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':poolId': `0x${'9'.repeat(40)}`,
 };
 /**
- * A parameter whose shape differs between the routes that share its name: a wallet holding's `:token` is a token's address
- * (the router answers anything else not found), where a pay claim's or a shared backtest's `:token` is a link token.
+ * A parameter whose shape differs between the routes that share its name: a wallet holding's `:token` and a wallet
+ * claim's `:linkId` are 20-byte addresses (the router answers anything else not found), where a pay claim's `:token` or
+ * a pay link's `:linkId` is an id.
  */
 const SAMPLE_ROUTE_PARAMS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   '/wallet/tokens/:token': { ':token': `0x${'7'.repeat(40)}` },
+  '/wallet/claim/:linkId': { ':linkId': `0x${'8'.repeat(40)}` },
 };
 const opened = (route: string) =>
   route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_ROUTE_PARAMS[route]?.[param] ?? SAMPLE_PARAMS[param] ?? param);

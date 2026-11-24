@@ -8,6 +8,7 @@ import {
   protocolOpsPoolRestoreInputSchema,
   protocolOpsMarketDelistInputSchema,
   protocolOpsMarketRestoreInputSchema,
+  protocolOpsReasonCodesSetInputSchema,
 } from './protocol-ops.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -127,5 +128,22 @@ export const OPS_PROTOCOL_LISTING_MARKETS_RESTORE = defineProcedure({
   samples: [
     { verdict: 'accept', input: { symbol: 'USDC', approvalId: 'USDC', operationId: 'USDC' } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_PROTOCOL_LISTING_REASON_CODES_SET = defineProcedure({
+  ...base,
+  name: 'ops.protocolListing.reasonCodes.set',
+  kind: 'mutation',
+  path: 'protocolListing.reasonCodes.set',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: protocolOpsReasonCodesSetInputSchema,
+  checks: { codes_holds: { at: 'input.codes', says: 'reason codes must be unique' } },
+  output: protocolOpsReasonCodesOutputSchema,
+  samples: [
+    { verdict: 'accept', input: { codes: ['sample'] } },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'codes_holds', input: { codes: ['sample', 'sample'] } },
   ],
 });

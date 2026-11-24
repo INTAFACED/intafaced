@@ -3,7 +3,7 @@ import { displayAmount } from '../../../shared/money';
 import { type AsOf, type OrderIntent, type VenuePreview, type VenueSelfTradeMode, type VenueUp } from '../../../features/trade/venue-api';
 import { Known, TestMark, word } from '../../../features/trade/venue/VenueKit';
 import { rateShown } from '../../../features/trade/venue/fee-rates';
-import { bpsPercent, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
+import { bpsPercent, carriesBuilderFee, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { spotVenueCopy } from './venue-copy';
 import { useClock } from './VenueAccountPanel';
@@ -75,6 +75,7 @@ export function VenueReviewRows({
   const clock = useClock();
   const p = preview.value;
   const carries = carriesBuilderFee(p.builderFee);
+  const requiredBps = requiredBuilderFeeBps(status, p);
   return (
     <div data-testid="venue-review" className="lt-stack">
       <TestMark test={status.test} />
@@ -101,7 +102,7 @@ export function VenueReviewRows({
               <>
                 <Known value={p.builderFee.known ? { known: true, value: p.builderFee.value.amount } : { known: false }} />{' '}
                 {p.builderFee.known ? p.builderFee.value.asset : ''}
-                {approved === false ? ` · ${v('Builder not approved', { bps: status.builder.feeBps })}` : ''}
+                {approved === false && requiredBps ? ` · ${v('Builder not approved', { bps: requiredBps })}` : ''}
               </>
             ) : (
               <span role="alert">{v('Builder fee owner blank')}</span>

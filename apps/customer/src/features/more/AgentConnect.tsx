@@ -1,13 +1,16 @@
+// volt-room: /agents/connect
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyCreateOutput, ApiKeyList } from '@intafaced/contracts/api-keys';
+import { Button, Checkbox, Field, Select, Tag } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { useSession } from '../session';
 import { StepUpConfirm } from '../money';
 import { useWallet } from '../protocol';
-import { useVenueMode, VenueFrame, WalletBar } from '../trade';
+import { useVenueMode, VoltVenueFrame as VenueFrame, VoltWalletBar as WalletBar } from '../trade';
 import { endOfDayUtc } from '../account';
+import { EmptyNote, FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
 import {
   ASSISTANT_SCOPES,
   WITHDRAW_SCOPE,
@@ -113,30 +116,39 @@ function AgentConnectRoom() {
   const data = resource.status === 'ready' ? resource.data : resource.status === 'loading' ? last.current : null;
 
   return (
-    <div className="lt-stack" data-testid="agent-connect">
-      <a className="lt-link" href="/agents">
-        {t('back')}
-      </a>
-      <CanCannot terms={data && !data.off ? data.terms : null} />
-      {resource.status === 'loading' && !data && <Loading label={t('loading')} />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {data?.off && (
-        <Panel title={t('accountsTitle')} data-testid="agent-connect__accounts">
-          <p className="lt-muted" role="status">
-            {t('doorOff')}
-          </p>
-          <Button disabled>{t('create')}</Button>
-        </Panel>
-      )}
-      {data && !data.off && <Room data={data} reload={reload} />}
-    </div>
+    <FlowTemplate
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      step={
+        <div className="lt-stack" data-testid="agent-connect">
+          <a className="lt-link" href="/agents">
+            {t('back')}
+          </a>
+          <CanCannot terms={data && !data.off ? data.terms : null} />
+          {resource.status === 'loading' && !data && <Waiting label={t('loading')} />}
+          {resource.status === 'failed' && <FailureNote result={resource.failure} retry={reload} />}
+          {data?.off && (
+            <Section className="lt-stack" title={t('accountsTitle')} data-testid="agent-connect__accounts">
+              <p className="lt-muted" role="status">
+                {t('doorOff')}
+              </p>
+              <Button tone="primary" disabled>
+                {t('create')}
+              </Button>
+            </Section>
+          )}
+          {data && !data.off && <Room data={data} reload={reload} />}
+        </div>
+      }
+    />
   );
 }
 
 function CanCannot({ terms }: { terms: AgentTerms | null }) {
   const { t } = copy.useCopy();
   return (
-    <Panel title={t('canTitle')} data-testid="agent-connect__can">
+    <Section className="lt-stack" title={t('canTitle')} data-testid="agent-connect__can">
       <ul>
         <li>{t('can1')}</li>
         <li>{t('can2')}</li>
@@ -159,7 +171,7 @@ function CanCannot({ terms }: { terms: AgentTerms | null }) {
             : t('ceilingUnset')}
         </p>
       )}
-    </Panel>
+    </Section>
   );
 }
 
@@ -168,17 +180,17 @@ function Room({ data, reload }: { data: Extract<Ready, { off: false }>; reload: 
   const open = data.accounts.filter((a) => a.status === 'open');
   return (
     <>
-      <Panel title={t('accountsTitle')} data-testid="agent-connect__accounts">
+      <Section className="lt-stack" title={t('accountsTitle')} data-testid="agent-connect__accounts">
         {data.accounts.length === 0 ? (
-          <EmptyState title={t('accountsEmpty')} />
+          <EmptyNote title={t('accountsEmpty')} />
         ) : (
-          <DataTable label={t('accountsTitle')} headers={[t('colAccount'), t('colStatus'), t('colBalance'), t('colCap'), t('colLimits')]}>
+          <ScrollTable label={t('accountsTitle')} headers={[t('colAccount'), t('colStatus'), t('colBalance'), t('colCap'), t('colLimits')]}>
             {data.accounts.map((a) => {
               const total = venueTotal(a);
               return (
                 <tr key={a.accountId} data-account={a.accountId}>
                   <td>
-                    <bdi lang="und">{a.name}</bdi> {a.test ? <span className="badge">{t('testLabel')}</span> : null}
+                    <bdi lang="und">{a.name}</bdi> {a.test ? <Tag tone="neutral">{t('testLabel')}</Tag> : null}
                   </td>
                   <td data-testid="agent-connect__status">{STATUS_KEY[a.status] ? t(STATUS_KEY[a.status]!) : a.status}</td>
                   <td data-testid="agent-connect__balance">{total === null ? t('notOpened') : `${total} ${a.asset}`}</td>
@@ -189,13 +201,13 @@ function Room({ data, reload }: { data: Extract<Ready, { off: false }>; reload: 
                 </tr>
               );
             })}
-          </DataTable>
+          </ScrollTable>
         )}
         {open.map((a) => (
           <AccountControls key={a.accountId} account={a} reload={reload} />
         ))}
         <CreateAccount terms={data.terms} reload={reload} />
-      </Panel>
+      </Section>
       <ConnectAssistant open={open} keys={data.keys} reload={reload} />
       <Connections connections={data.connections} keys={data.keys} accounts={data.accounts} reload={reload} />
     </>
@@ -313,7 +325,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       <h3 id="agent-connect-create">{t('createTitle')}</h3>
       <WalletBar />
       {!formOpen && !ask && (
-        <Button onClick={() => setFormOpen(true)} disabled={busy !== null}>
+        <Button tone="primary" onClick={() => setFormOpen(true)} disabled={busy !== null}>
           {t('create')}
         </Button>
       )}
@@ -332,8 +344,10 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
             </p>
           )}
           <div className="lt-actions">
-            <Button type="submit">{t('create')}</Button>
-            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+            <Button tone="primary" type="submit">
+              {t('create')}
+            </Button>
+            <Button tone="secondary" onClick={() => setFormOpen(false)}>
               {t('cancel')}
             </Button>
           </div>
@@ -348,7 +362,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
             disabled={busy !== null}
             onApproved={(id) => void confirmed(id)}
           />
-          <Button variant="secondary" disabled={busy !== null} onClick={() => setAsk(null)}>
+          <Button tone="secondary" disabled={busy !== null} onClick={() => setAsk(null)}>
             {t('cancel')}
           </Button>
         </>
@@ -358,11 +372,16 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
           {busy}
         </p>
       )}
-      {message && (
-        <p className={message.failed ? 'error-text' : 'muted'} role={message.failed ? 'alert' : 'status'}>
-          {message.text}
-        </p>
-      )}
+      {message &&
+        (message.failed ? (
+          <p className="lt-refusal" role="alert">
+            {message.text}
+          </p>
+        ) : (
+          <p className="lt-muted" role="status">
+            {message.text}
+          </p>
+        ))}
     </section>
   );
 }
@@ -374,14 +393,9 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
  */
 function PermissionReach({ permission }: { permission: AgentPermission | null }) {
   const { t } = copy.useCopy();
-  const others = permission?.reach !== 'own_account_only';
+  const reachClass = permission?.reach !== 'own_account_only' ? 'lt-refusal' : 'lt-muted';
   return (
-    <p
-      className={others ? 'error-text' : 'muted'}
-      role="note"
-      data-testid="agent-connect__reach"
-      data-reach={permission?.reach ?? 'unknown'}
-    >
+    <p className={reachClass} role="note" data-testid="agent-connect__reach" data-reach={permission?.reach ?? 'unknown'}>
       {permission === null
         ? t('reachUnknown')
         : permission.reach === 'own_account_only'
@@ -476,7 +490,7 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
       />
     );
   return (
-    <Panel title={t('connectTitle')} data-testid="agent-connect__connect">
+    <Section className="lt-stack" title={t('connectTitle')} data-testid="agent-connect__connect">
       <p className="lt-muted">{t('connectIntro')}</p>
       {open.length === 0 ? (
         <p className="lt-muted">{t('connectNeedsAccount')}</p>
@@ -496,48 +510,42 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
             void makeKey(event.currentTarget);
           }}
         >
-          <label className="lt-field">
-            <span id="agent-connect-account-label">{t('connectAccount')}</span>
-            <select name="accountId" aria-labelledby="agent-connect-account-label" defaultValue={open[0]!.accountId}>
-              {open.map((a) => (
-                <option key={a.accountId} value={a.accountId}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label={t('connectAccount')}
+            name="accountId"
+            defaultValue={open[0]!.accountId}
+            options={open.map((a) => ({ value: a.accountId, label: a.name }))}
+          />
           <Field label={t('keyName')} hint={t('keyNameHint')} name="name" autoComplete="off" maxLength={64} />
-          <fieldset>
+          <fieldset className="lt-stack">
             <legend>{t('permissions')}</legend>
             {[...ASSISTANT_SCOPES, WITHDRAW_SCOPE].map((scope) => (
-              <label key={scope} className="field field--inline">
-                <input
-                  type="checkbox"
-                  name="scope"
-                  value={scope}
-                  checked={scopes.includes(scope)}
-                  onChange={(event) => {
-                    const on = event.currentTarget.checked;
-                    setScopes((current) => (on ? [...current, scope] : current.filter((s) => s !== scope)));
-                  }}
-                />
-                <span>{t(SCOPE_KEY[scope]!)}</span>
-              </label>
+              <Checkbox
+                key={scope}
+                name="scope"
+                value={scope}
+                checked={scopes.includes(scope)}
+                onCheckedChange={(on) => {
+                  setScopes((current) => (on ? [...current, scope] : current.filter((s) => s !== scope)));
+                }}
+              >
+                {t(SCOPE_KEY[scope]!)}
+              </Checkbox>
             ))}
           </fieldset>
           <Field label={t('ends')} hint={t('endsHint')} name="ends" type="date" />
           <Field label={t('endsTime')} hint={t('endsTimeHint')} name="endsTime" type="time" />
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {busy ? t('connecting') : t('connect')}
           </Button>
         </form>
       )}
       {refusal && (
-        <p className="error-text" role="alert" data-testid="agent-connect__refusal">
+        <p className="lt-refusal" role="alert" data-testid="agent-connect__refusal">
           {refusal}
         </p>
       )}
-    </Panel>
+    </Section>
   );
 }
 
@@ -548,10 +556,10 @@ function ShownOnce({ shown, onDone }: { shown: Made; onDone: () => void }) {
   const { made, account } = shown;
   const setup = mcpSetup(window.location.origin, made.key, made.signingSecret ?? null);
   return (
-    <Panel title={t('secretTitle')} data-testid="agent-connect__secret">
+    <Section className="lt-stack" title={t('secretTitle')} data-testid="agent-connect__secret">
       <p role="alert">{t('secretOnce')}</p>
       <p>
-        <bdi lang="und">{made.record.name}</bdi> {made.record.kind === 'agent' && <span className="badge">{t('tagAgent')}</span>}
+        <bdi lang="und">{made.record.name}</bdi> {made.record.kind === 'agent' && <Tag tone="neutral">{t('tagAgent')}</Tag>}
       </p>
       <p data-testid="agent-connect__bound">{t('boundTo', { account: account.name })}</p>
       <p data-testid="agent-connect__scopes">{t('scopesHeld', { scopes: made.record.scopes.join(', ') })}</p>
@@ -572,13 +580,12 @@ function ShownOnce({ shown, onDone }: { shown: Made; onDone: () => void }) {
       <pre data-testid="agent-connect__mcp" aria-labelledby="agent-connect-mcp" lang="und">
         {setup}
       </pre>
-      <label className="field field--inline">
-        <input type="checkbox" checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} />
-        <span>{t('stored')}</span>
-      </label>
-      <Button disabled={!stored} onClick={onDone}>
+      <Checkbox checked={stored} onCheckedChange={setStored}>
+        {t('stored')}
+      </Checkbox>
+      <Button tone="primary" disabled={!stored} onClick={onDone}>
         {t('done')}
       </Button>
-    </Panel>
+    </Section>
   );
 }

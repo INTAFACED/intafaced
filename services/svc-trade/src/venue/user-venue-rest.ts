@@ -28,6 +28,7 @@
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
  *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
+ *   GET  /api/v1/venue/arrivals?owner=                 the credits into the account from outside it: deposits and transfers in (J-portfolio-06 #3)
  *   GET  /api/v1/venue/deposit-routes                  how the venue takes each asset as a deposit, as it publishes it (J-wallet-24 #5 #6)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
@@ -428,6 +429,38 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
   );
 
+  // J-charts-desk-01: public venue markets and candles for the chart workbench, signed in or signed out.
+  // Door off refuses 404 trade.user_venue_off so the workbench falls back only when the venue door is switched off.
+  app.get<{ Querystring: Query }>('/api/v1/venue/chart-markets', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.chartMarkets(), req.query.venueId);
+  });
+  app.get<{ Querystring: Query & { symbol?: string; interval?: string; limit?: string; since?: string } }>(
+    '/api/v1/venue/chart-candles',
+    publicRead,
+    async (req, reply) => {
+      return answer(
+        reply,
+        async (d) => {
+          const interval = req.query.interval ?? '';
+          if (!isCandleInterval(interval)) throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+          const sinceRaw = req.query.since;
+          let since: Date | undefined;
+          if (sinceRaw !== undefined && sinceRaw !== '') {
+            since = new Date(sinceRaw);
+            if (Number.isNaN(since.getTime())) throw new VenueWireError('since must be an ISO time');
+          }
+          return d.chartCandles({
+            symbol: symbolOf(req.query.symbol),
+            interval,
+            limit: whole(req.query.limit, 'limit', UserVenueDoor.CHART_CANDLE_DEPTH, 240),
+            since,
+          });
+        },
+        req.query.venueId,
+      );
+    },
+  );
+
   // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.
   app.get<{ Querystring: Query & { base?: string; since?: string } }>('/api/v1/venue/funding-history', publicRead, async (req, reply) => {
     return answer(reply, async (d) => {
@@ -638,7 +671,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
     return raw;
   };
-  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string };
+  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string; since?: string };
   app.get<{ Querystring: MarketQuery }>('/api/v1/venue/book', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
     return answer(reply, async (d) => d.marketBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)));
@@ -653,7 +686,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       const interval = req.query.interval ?? '';
       if (!Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
         throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
-      return d.marketCandles(symbolOf(req.query.symbol), interval as VenueCandleInterval, whole(req.query.limit, 'limit', 500, 240));
+      const sinceRaw = req.query.since;
+      let since: Date | undefined;
+      if (sinceRaw !== undefined && sinceRaw !== '') {
+        since = new Date(sinceRaw);
+        if (Number.isNaN(since.getTime())) throw new VenueWireError('since must be an ISO time');
+      }
+      return d.marketCandles({
+        symbol: symbolOf(req.query.symbol),
+        interval: interval as VenueCandleInterval,
+        limit: whole(req.query.limit, 'limit', UserVenueDoor.CHART_CANDLE_DEPTH, 240),
+        since,
+      });
     });
   });
 
@@ -706,6 +750,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       if (!venue.deposits)
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
       return venue.deposits(a);
+    },
+    // J-portfolio-06 #3: the credits into the account from outside it (deposits, transfers in); a venue that publishes none refuses not_offered.
+    '/api/v1/venue/arrivals': async (d, _q, { account: a }) => {
+      const venue = await d.venue();
+      if (!venue.arrivals)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no credit list' });
+      return venue.arrivals(a);
     },
     // J-bank-31 #3: the venue's published withdrawal terms for an asset, read before anything is signed; a venue that
     // publishes none refuses not_offered, and the review shows every term as not known.
@@ -934,6 +985,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
     '/api/v1/venue/deposits',
+    '/api/v1/venue/arrivals',
     '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/deposit-routes',
     '/api/v1/venue/leverage',
@@ -1042,9 +1094,16 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/preview', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
-    const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null }>(req, reply);
+    const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
-    return answer(reply, async (d) => d.preview(principal, b.owner ?? '', b.intent as VenueIntent), b.venueId);
+    return answer(
+      reply,
+      async (d) => {
+        d.assertRequestDeadline(b.requestDeadline ?? null);
+        return d.preview(principal, b.owner ?? '', b.intent as VenueIntent);
+      },
+      b.venueId,
+    );
   });
 
   // A Convert sell priced by the venue's own preview on the customer's account, stored under its business key. Sends
@@ -1169,6 +1228,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       actionKey?: string | null;
       stepUpApprovalId?: string | null;
       venueId?: string | null;
+      requestDeadline?: string | null;
     }>(req, reply);
     if (!b) return;
     return answer(
@@ -1182,6 +1242,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           actionKey: b.actionKey ?? null,
           stepUpApprovalId: b.stepUpApprovalId ?? null,
           idempotencyKey: idempotencyHeader(req) ?? null,
+          requestDeadline: b.requestDeadline ?? null,
         }),
       b.venueId,
       (v) => (v as { reused?: boolean }).reused === true,
@@ -1228,7 +1289,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/submit', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
-    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature }>(req, reply);
+    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
     return answer(
       reply,
@@ -1240,7 +1301,11 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           if (key !== '' && key !== fromHeader) throw new VenueWireError('with an Idempotency-Key, leave actionKey out');
           key = fromHeader;
         }
-        return r.submit(principal, key, b.signature as VenueSignature);
+        return r.submitRequest(principal, {
+          actionKey: key,
+          signature: b.signature as VenueSignature,
+          requestDeadline: b.requestDeadline ?? null,
+        });
       },
       null,
       (v) => (v as { replayed?: boolean }).replayed === true,

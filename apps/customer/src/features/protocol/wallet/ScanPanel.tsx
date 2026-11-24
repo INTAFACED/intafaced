@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { Button, Field } from '@intafaced/ui/lit';
 import { navigate } from '../../../app/location';
-import { Button, Dialog, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { networkLabel } from '../blockers';
+import { Dialog, Panel } from '../volt/parts';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID } from './eip1193';
 import { DECIMALS_CALL, isTokenDecimals, readScan } from './transfer';
@@ -99,11 +100,11 @@ export function ScanPanel() {
 
   return (
     <Panel title={t('scanTitle')}>
-      <section aria-label={t('scanTitle')} className="protocol-scan">
+      <section aria-label={t('scanTitle')} className="lt-stack">
         <p className="lt-muted">{t('scanNote')}</p>
         {Detector ? (
           <>
-            <Button variant="secondary" onClick={() => setCamera(camera === 'on' ? 'off' : 'on')}>
+            <Button tone="secondary" onClick={() => setCamera(camera === 'on' ? 'off' : 'on')}>
               {camera === 'on' ? t('scanCameraStop') : t('scanCamera')}
             </Button>
             {camera === 'on' && <video ref={video} muted playsInline aria-label={t('scanCamera')} />}
@@ -113,6 +114,7 @@ export function ScanPanel() {
           <p className="lt-muted">{t('scanCameraNone')}</p>
         )}
         <form
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void read(text);
@@ -128,7 +130,7 @@ export function ScanPanel() {
               setOutcome({ kind: 'idle' });
             }}
           />
-          <Button type="submit" disabled={text.trim() === '' || outcome.kind === 'reading'}>
+          <Button tone="primary" type="submit" disabled={text.trim() === '' || outcome.kind === 'reading'}>
             {t('scanRead')}
           </Button>
         </form>
@@ -141,11 +143,11 @@ export function ScanPanel() {
           <p className="lt-muted" role="note" data-code="owner.decision">
             {relayProjectId ? t('remoteNotBuilt') : t('connectBlocked')}
           </p>
-          <div className="protocol-actions">
-            <Button variant="secondary" onClick={() => setOutcome({ kind: 'idle' })}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setOutcome({ kind: 'idle' })}>
               {t('connectCancel')}
             </Button>
-            <Button disabled aria-disabled="true">
+            <Button tone="primary" disabled aria-disabled="true">
               {t('connectApprove')}
             </Button>
           </div>

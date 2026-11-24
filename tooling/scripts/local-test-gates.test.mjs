@@ -1049,9 +1049,19 @@ for (const [args, usage] of [
   assert.ok(sql.includes("c.follow_id = 'follow-1' AND c.leader_id = f.leader"), "only that follow, and only of the fill's leader");
   assert.ok(sql.includes("date_trunc('milliseconds', created_at)"), "the driver's own millisecond order");
   assert.ok(sql.includes('p.id::text < f.id::text'), 'the cursor lands just before the fill, so the fill is tried again');
+  const venueFill = 'venue:0x1111111111111111111111111111111111111111:1795500000123:sim-fill-7';
+  const venueSql = copyCursorRewindSql('follow-1', venueFill);
+  assert.ok(
+    venueSql.includes("TIMESTAMPTZ 'epoch' + (1795500000123::bigint * INTERVAL '1 millisecond')"),
+    'venue fill rewinds to its exact ms',
+  );
+  assert.ok(venueSql.includes('copy_cursor_fill = NULL'), 'venue fill clears cursor fill so the fill at that ms is read again');
+  assert.ok(venueSql.includes("c.follow_id = 'follow-1' AND v.follow_id = c.follow_id"), 'only a venue-bound follow moves');
   for (const [followId, fillId] of [
     ["x'; DROP TABLE trade.copy_follows; --", fill],
     ['follow-1', "0b9f2c1e-4a5d-4e6f-8a7b-9c0d1e2f3a4b' OR '1'='1"],
+    ['follow-1', "venue:0x1111111111111111111111111111111111111111:1795500000123:x'; DROP TABLE trade.copy_follows; --"],
+    ['follow-1', 'venue:0xshort:1795500000123:sim-fill-7'],
     ['follow-1', 'not-a-fill'],
     ['', fill],
     [undefined, undefined],

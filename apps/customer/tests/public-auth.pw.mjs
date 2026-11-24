@@ -349,7 +349,7 @@ test('unknown registration survives Help/remount; fresh sign-in never certifies 
   await expect(page.locator('input[autocomplete="new-password"]')).toHaveValue('');
   await helpBack(page);
   await expect(registerUnknown(page)).toBeVisible();
-  await page.locator('.auth-form').getByRole('link', { name: 'Sign in', exact: true }).click();
+  await page.locator('[data-testid="auth-form"]').getByRole('link', { name: 'Sign in', exact: true }).click();
   await fields(page, false, { identifier: 'fresh-auth@example.invalid' });
   await submit(page).click();
   await expect(page).toHaveURL(new URL('/money', test.info().project.use.baseURL).href);

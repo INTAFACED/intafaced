@@ -1,6 +1,6 @@
 import type { ResearchProvenance as Provenance } from '@intafaced/contracts/agents-research';
 import { usePreferences } from '../../shared/preferences';
-import { Details } from './common';
+import { Details } from './catalogue-parts';
 import { researchProvenanceCopy } from './research-provenance-copy';
 
 /**
