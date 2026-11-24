@@ -74,11 +74,15 @@ test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeh
   const tabs = page.getByRole('tablist', { name: 'Copy trading sections', exact: true });
   for (const name of TABS) await expect(tabs.getByRole('tab', { name, exact: true })).toBeVisible();
 
-  // No journey ever lists a signal leader, so that tab is the empty directory: the words, and no row at all.
+  // No journey ever lists a signal leader, so that tab is the empty directory: the words, and no row at all (not a
+  // placeholder leader row, nor a row of dashes: the only row is the empty state's own). The Leaders tab lists every
+  // mode, and on a shared stack other journeys' leaders are listed there, so its own empty state is not reached here.
   await tabs.getByRole('tab', { name: 'Signal', exact: true }).click();
   await expect(page).toHaveURL(/tab=signal/);
-  await expect(page.getByText('No leaders are listed', { exact: true })).toBeVisible();
-  await expect(page.getByRole('table', { name: /Leaders/i }).getByRole('button', { name: /^Follow / })).toHaveCount(0);
+  const directory = page.getByRole('table', { name: 'Leaders', exact: true });
+  await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed yet');
+  await expect(directory.locator('tbody tr')).toHaveCount(1);
+  await expect(directory.locator('[data-slot="table-row"]')).toHaveCount(0);
 
   // A control with no back end answers with a typed refusal, never a dead button: a ranked list is not offered, so
   // pressing one asks the service, which refuses by code, and the room says so in words.
@@ -184,6 +188,7 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
 
 test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead's real trades with entry, margin, TP/SL, close and ROI`, async ({
   page,
+  stepPicture,
 }) => {
   const tag = state('tag');
   // The lead trades on the TEST book at the best price: two buys, then a sell that closes the first one. The taker fee
@@ -277,6 +282,8 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   const roiCents = roiAbs / 10n ** 16n + ((roiAbs / 10n ** 15n) % 10n >= 5n ? 1n : 0n);
   const roiShown = `${roi18 < 0n && roiCents > 0n ? '−' : ''}${roiCents / 100n}.${String(roiCents % 100n).padStart(2, '0')}%`;
   expect(await cell(1, 'Return before fees'), 'the return, from the fills').toBe(roiShown);
+  // The step ends on the profile with its metrics and trade table: the picture is taken here, before the test leaves.
+  await stepPicture();
 
   // An unknown leader page is a typed not-found, never an empty profile.
   await page.goto('/trade/copy/no-such-leader');
