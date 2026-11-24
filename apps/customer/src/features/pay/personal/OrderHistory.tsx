@@ -145,8 +145,8 @@ function OrderRows({ userId, rows, unread }: { userId: string | null; rows: Row[
   const { t } = orderHistoryCopy.useCopy();
   const headers = [payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), t('statusColumn'), ''];
   return (
-    <div className="lt-table-scroll">
-      <table className="lt-table" aria-label={payCopy.t('yourP2pOrders')}>
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={payCopy.t('yourP2pOrders')}>
+      <table className="lt-table">
         <thead>
           <tr>
             {headers.map((header, index) => (
