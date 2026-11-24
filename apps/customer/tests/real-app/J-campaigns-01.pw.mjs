@@ -424,6 +424,8 @@ test(`${J} #6 pressing Join twice is one participation; a campaign outside its w
     return (await reply).json();
   };
   const first = await press(page, detail);
+  // Every campaign this customer joins in this run, kept as it happens, so #7 counts exactly these even after a retry.
+  run.write({ ...run.read(), joinedIds: [...(run.read().joinedIds ?? []), target.id] });
   await expect(detail.getByTestId('campaign-joined')).toContainText('Joined');
   const second = await press(other, otherDetail);
   await expect(otherDetail.getByTestId('campaign-joined')).toContainText('Joined');
@@ -469,6 +471,11 @@ test(`${J} #6 pressing Join twice is one participation; a campaign outside its w
     'This campaign does not run at this time. Try again inside its days and hours.',
   );
   await expect(detail.getByTestId('campaign-joined')).toHaveCount(0);
+  // The service names which window refused: the hour, not the day.
+  const hoursJoin = await mine.post('/api/campaigns/trpc/participation.join', { campaignId: later.id });
+  const hoursRefusal = hoursJoin.body?.error?.message ?? JSON.stringify(hoursJoin.body);
+  expect(hoursRefusal).toContain('[campaign.outside_window]');
+  expect(hoursRefusal).toContain('This campaign does not run at this hour');
   // Neither refused campaign became a participation.
   const last = await mine.get('/api/campaigns/trpc/participation.mine');
   const ids = last.body?.result?.data?.campaigns.map((m) => m.campaign.id);
@@ -480,7 +487,7 @@ test(`${J} #6 pressing Join twice is one participation; a campaign outside its w
 });
 
 test(`${J} #7 /campaigns/mine shows the campaign I joined`, async ({ browser, stepPicture }) => {
-  const { me, joinedId, joinedName, refusedIds } = state('me', 'joinedId', 'joinedName', 'refusedIds');
+  const { me, joinedId, joinedName, joinedIds, refusedIds } = state('me', 'joinedId', 'joinedName', 'joinedIds', 'refusedIds');
   const page = await customer(browser);
   await signIn(page, me);
   await page.goto('/campaigns/mine');
@@ -488,11 +495,11 @@ test(`${J} #7 /campaigns/mine shows the campaign I joined`, async ({ browser, st
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect(row.getByRole('link', { name: joinedName, exact: true })).toBeVisible();
   await expect(row).toContainText('Joined');
-  // The campaign I joined shows once, the campaigns that refused me are not here, and no row is invented.
+  // The campaign I joined shows once, the campaigns that refused me are not here, and the list holds exactly the
+  // campaigns I joined in this run (one, or one per attempt of #6 after a retry).
   await expect(row).toHaveCount(1);
   for (const id of refusedIds) await expect(page.locator(`[data-testid="my-campaign"][data-campaign-id="${id}"]`)).toHaveCount(0);
-  const listed = (await (await api(me)).get('/api/campaigns/trpc/participation.mine')).body?.result?.data?.campaigns;
-  expect(listed.map((m) => m.campaign.id)).toContain(joinedId);
-  await expect(page.getByTestId('my-campaign')).toHaveCount(listed.length);
+  const drawn = await page.getByTestId('my-campaign').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-campaign-id')));
+  expect(drawn.toSorted()).toEqual(joinedIds.toSorted());
   await stepPicture(page);
 });
