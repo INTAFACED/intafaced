@@ -2244,8 +2244,12 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
         return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
-    // A seal still waiting for its inputs (WAIT_STEP) reads them all once they finish: re-running it would be a second verdict.
-    if (seal.status !== 'completed' && (seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+    // A seal still waiting for its inputs (WAIT_STEP, or judge-repair.mjs's REPAIR_STEP) reads them all once they finish:
+    // re-running it would be a second verdict.
+    if (
+      seal.status !== 'completed' &&
+      (seal.steps ?? []).some((s) => [WAIT_STEP, REPAIR_STEP].includes(s?.name) && s?.status !== 'completed')
+    )
       return { act: 'done', msg: `the seal in run ${runId} is waiting for its inputs and judges once they finish` };
     if (seal.status !== 'completed')
       return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
@@ -2587,6 +2591,11 @@ export function waitStep({ pull, sha, going }) {
 
 /** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
 export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
+/**
+ * The seal job's step that judges a change to the judges alone (judge-repair.mjs REPAIR_STEP, which this must equal:
+ * judge-repair.test.mjs). Written here, not imported, so the journeys run, which reads this file, never reads that one.
+ */
+export const REPAIR_STEP = 'A change to the judges alone: every other check green, and a PASS from the CI review';
 /**
  * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
  * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on

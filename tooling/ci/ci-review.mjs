@@ -1467,14 +1467,16 @@ async function cmdDiff(dir) {
       images = [...images, ...got2.images];
     } else console.log(`look pictures: none (${look.why})`);
   }
-  const loadWords = async () => {
+  // The project-state read token (the App token minted in ci-review.yml): without it, `what` is unreadable.
+  const psToken = (what) => {
     const t = process.env.PROJECT_STATE_READ_TOKEN;
     if (!t)
       throw new Error(
-        'the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the step words are unreadable and nothing is decided',
+        `no project-state read token (the App token minted in ci-review.yml), so ${what} is unreadable and nothing is decided`,
       );
-    return readWordsApi(t);
+    return t;
   };
+  const loadWords = async () => readWordsApi(psToken('the step words'));
   console.log(
     await writeReviewInputs(dir, {
       diff: summarizeDeleted(summarizeGenerated(r.text, { readBlob }), (p) =>
@@ -1488,14 +1490,7 @@ async function cmdDiff(dir) {
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),
       images,
-      loadOwner: (rows) => {
-        const t = process.env.PROJECT_STATE_READ_TOKEN;
-        if (!t)
-          throw new Error(
-            "the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the owner's record is unreadable and nothing is decided",
-          );
-        return readOwnerRecord(t, getText, rows);
-      },
+      loadOwner: (rows) => readOwnerRecord(psToken("the owner's record"), getText, rows),
       revertOf: await automaticRevert({
         repo,
         pull,
