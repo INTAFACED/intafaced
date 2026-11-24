@@ -374,6 +374,7 @@ test(`${J} #7 leaves max investment blank and later terminates: no auto-close an
 
 test(`${J} #8 opens the share page: cost always shown; value reads "Not set" without a mark feed; the profit percentage appears with a feed; the share sheet makes no server write`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = state('who');
@@ -416,7 +417,7 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   await signIn(page, who);
   writes.length = 0;
   await page.goto(`/trade/bots/dca?share=${encodeURIComponent(ruleId)}`);
-  const card = page.getByRole('region', { name: 'Recurring buy result' });
+  const card = page.getByRole('region', { name: 'Recurring buy result', exact: true });
   await expect(card).toContainText(/Cost\s*10 USDC/);
   expect(sameDecimal(venueCost, '10'), `the venue's fills cost ${venueCost}`).toBe(true);
   // The venue itself has no bid on that coin, so no mid: the value is not guessed.
@@ -443,19 +444,28 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
     sameDecimal(priced.result.value, fromScaled(venueValue)),
     `value ${priced.result.value}, the venue's ${fromScaled(venueValue)}`,
   ).toBe(true);
+  // The profit percentage is the value's gain on the cost, to the cent of a percent: (value - 10) / 10 * 100.
+  expect(priced.result.profitPct).not.toBeNull();
+  const gain = (venueValue - toUnits('10')) * 10n;
+  const off = toUnits(priced.result.profitPct) - gain;
+  expect(off < toUnits('0.01') && off > -toUnits('0.01'), `profit ${priced.result.profitPct}%, the venue's ${fromScaled(gain)}%`).toBe(
+    true,
+  );
+  const exact = (v) => v.replace(/[.-]/g, '\\$&');
   await page.reload();
   await expect(card).toContainText(/Cost\s*10 USDC/);
-  await expect(card).toContainText(new RegExp(`Value\\s*${priced.result.value.replace('.', '\\.')}`));
-  await expect(card).toContainText(/Profit\s*-?[0-9.]+%/);
+  await expect(card).toContainText(new RegExp(`Value\\s*${exact(priced.result.value)} USDC`));
+  await expect(card).toContainText(new RegExp(`Profit\\s*${exact(priced.result.profitPct)}%`));
 
   // The share sheet only offers the words to copy: no write leaves the page from opening it on (the reload above may
   // refresh the session, which is the sign-in's own write, not the sheet's).
   writes.length = 0;
   await page.getByRole('button', { name: 'Share', exact: true }).click();
-  const sheet = page.getByRole('dialog', { name: 'Share your result' });
+  const sheet = page.getByRole('dialog', { name: 'Share your result', exact: true });
   await expect(sheet.getByTestId('recurring-share-text')).toContainText('Cost 10 USDC');
-  await expect(sheet.getByTestId('recurring-share-text')).toContainText('Profit');
+  await expect(sheet.getByTestId('recurring-share-text')).toContainText(`Profit ${priced.result.profitPct}%`);
   expect(writes).toEqual([]);
+  await stepPicture();
 });
 
 // Last on purpose: #3 is not built and fails at its first missing part, and a failed test starts a new worker for what
