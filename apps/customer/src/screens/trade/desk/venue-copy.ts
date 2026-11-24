@@ -78,6 +78,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Checking verification': 'Checking your verification…',
   'Verification unread': 'Your verification could not be read, so no order is sent. Reload to try again.',
   'Not a step': '{field} must be a multiple of {step}.',
+  'Too small': 'Too small: the smallest order is {min} {quote}. Nothing was previewed or sent.',
 
   // The market's rules, as the venue publishes them (J-cex-spot-04 #2)
   'Rules title': 'Market rules',

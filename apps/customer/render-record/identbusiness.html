@@ -97,53 +97,79 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div lang="en">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Business verification</h1>
-<p class="lt-muted">A company is verified when you open a merchant account. That is where the checks, documents and status live, so this page points you there.</p>
+<h1 class="lt-title">Business verification</h1>
+<p class="lt-description">A company is verified when you open a merchant account. That is where the checks, documents and status live, so this page points you there.</p>
 </div>
 </header>
-<div class="pub-card pub-card--flat">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-sections">
+<section class="lt-stack">
 <h2>Where it happens</h2>
 <p class="lt-muted">The merchant set-up has three steps. Each opens in Pay, and you can leave and come back.</p>
-<ol class="pub-list">
-<li>
-<span>
+<ol class="lt-list lt-list-rule">
+<li class="lt-row lt-row-between">
+<span class="lt-stack-tight">
 <strong>Business details</strong>
 <span class="lt-muted">Save your legal business and contact details.</span>
 </span>
-<a class="text-link" href="/pay/onboarding/business">Open →</a>
+<a class="lt-link" href="/pay/onboarding/business">Open <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
 </li>
-<li>
-<span>
+<li class="lt-row lt-row-between">
+<span class="lt-stack-tight">
 <strong>Business verification</strong>
 <span class="lt-muted">Submit your verification and follow its status.</span>
 </span>
-<a class="text-link" href="/pay/onboarding/verification">Open →</a>
+<a class="lt-link" href="/pay/onboarding/verification">Open <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
 </li>
-<li>
-<span>
+<li class="lt-row lt-row-between">
+<span class="lt-stack-tight">
 <strong>Payout destination</strong>
 <span class="lt-muted">Review where payouts go and what is needed to go live.</span>
 </span>
-<a class="text-link" href="/pay/onboarding/go-live">Open →</a>
+<a class="lt-link" href="/pay/onboarding/go-live">Open <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
 </li>
 </ol>
-</div>
-<div class="pub-grid">
-<section class="pub-card">
-<h2>Start from the beginning</h2>
-<p>The set-up page shows which steps are done and which come next.</p>
-<a class="lt-button lt-button-primary" href="/pay/merchant">Open merchant set-up</a>
 </section>
-<section class="pub-card">
-<h2>Your own identity</h2>
-<p>Verifying you as a person is separate from verifying a company.</p>
-<a class="text-link" href="/verification">Open personal verification →</a>
-</section>
-</div>
 <p class="lt-muted">Verification is decided by the verification service. A step that is not available there shows its reason on that page.</p>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<div class="lt-sections">
+<section class="lt-stack">
+<h2>Start from the beginning</h2>
+<p class="lt-muted">The set-up page shows which steps are done and which come next.</p>
+<div class="lt-actions">
+<a class="lt-button lt-button-primary" href="/pay/merchant">Open merchant set-up</a>
+</div>
+</section>
+<section class="lt-stack">
+<h2>Your own identity</h2>
+<p class="lt-muted">Verifying you as a person is separate from verifying a company.</p>
+<a class="lt-link" href="/verification">Open personal verification <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
+</section>
+</div>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

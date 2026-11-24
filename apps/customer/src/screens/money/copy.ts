@@ -45,6 +45,7 @@ const messages = {
   'Movers unranked': 'No 24-hour price to compare, so not ranked: {assets}',
   'How these values are worked out': 'How these values are worked out',
   'Valued at {time}, refreshed every {seconds} seconds': 'Valued at {time}. This page asks for new prices every {seconds} seconds.',
+  'Valuation price sources': 'Prices come from {published} and last trades on {venue}.',
   'Valued on this device at {time}': 'Worked out on this device at {time}, from the latest prices it could read.',
   'Stable coins rule':
     'USDT, USDC and USD count as exactly $1. Any other coin is valued at the last trade on its USDT market, or its USDC market if it has no USDT market. A coin with no price is listed as not counted, never as zero.',

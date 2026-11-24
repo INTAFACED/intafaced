@@ -118,6 +118,23 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
+<div lang="en">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Create an API key</h1>
+<p class="lt-description">The key is shown once, when it is made. Nobody can show it again, including us.</p>
+</div>
+<div class="lt-room-action">
+<a class="lt-link lt-link-alone" href="/uc/safe/api-keys">
+<span class="lt-arrow lt-arrow-back" aria-hidden="true">
+</span> Back to API keys</a>
+</div>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
@@ -126,6 +143,27 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<section data-testid="security__card" aria-labelledby="api-keys-safety">
+<h2 id="api-keys-safety">Keeping a key safe</h2>
+<ul>
+<li>Make one key for each program, so you can switch one off without stopping the others.</li>
+<li>Give a key only the permissions it needs. A key that only reads cannot trade.</li>
+<li>Keep keys out of source code and shared files. Put them in a secret store or an environment variable.</li>
+<li>Add the IP addresses your program runs from. A copied key then fails from anywhere else.</li>
+<li>For an automated agent, use a key on a sub-account that holds only what the agent may use.</li>
+<li>No key can withdraw or move money off the platform. That needs you, signed in on a device.</li>
+</ul>
+</section>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

@@ -40,6 +40,7 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  VENUE_CANDLE_INTERVALS,
   type VenueCandleInterval,
 } from '@intafaced/venue-contracts';
 import { requireMarketSlippageCapBps } from '../spot/risk.js';
@@ -145,6 +146,8 @@ export interface DoorCaller {
   readonly liveRun?: boolean;
   /** Set only by Convert (src/venue/venue-convert.ts): its orders are stored under `convert:` keys. */
   readonly convert?: boolean;
+  /** Optional ISO-8601 caller deadline (J-cex-spot-04 #7), enforced on first submit before any venue call or lock. */
+  readonly requestDeadline?: string | null;
 }
 
 /** A live strategy run's keys (`algo:order:`, `algo:liquidate:`, `algo:stop:`, `algo:deploy:`): only the run stores or sends one. */
@@ -222,6 +225,7 @@ const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
 export type UserVenueDoorCode =
   | 'trade.user_venue_off'
+  | 'trade.request_expired'
   | 'trade.cancel_all_after_rejected'
   | 'trade.cancel_all_after_unset'
   | 'trade.venue.withdraw_own_wallet_only'
@@ -588,6 +592,12 @@ export interface PrepareRequest {
    * `orderKeyOfIdempotencyKey(header)`, which becomes its `clientOrderKey`.
    */
   readonly idempotencyKey?: string | null;
+  /**
+   * Optional ISO-8601 caller deadline (J-cex-spot-04 #7). If already passed when a fresh action is prepared or submitted,
+   * the door refuses `trade.request_expired` before asking the venue, spending step-up, or locking anything. Waived on
+   * replay of an already-stored action.
+   */
+  readonly requestDeadline?: string | null;
 }
 
 export interface PreparedAnswer {
@@ -612,6 +622,27 @@ export interface SubmitAnswer {
 
 function invalid(message: string): never {
   throw new UserVenueDoorError(message, 'trade.venue_request_invalid', 400);
+}
+
+const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T/;
+
+/** Parse an optional ISO-8601 `requestDeadline` to epoch ms, or null when omitted; malformed refuses 400 invalid. */
+function parseRequestDeadline(requestDeadline: string | null | undefined): number | null {
+  if (requestDeadline === undefined || requestDeadline === null) return null;
+  if (typeof requestDeadline !== 'string' || !ISO_TIMESTAMP_RE.test(requestDeadline)) {
+    invalid('requestDeadline must be an ISO-8601 timestamp');
+  }
+  const at = Date.parse(requestDeadline);
+  if (Number.isNaN(at)) invalid('requestDeadline must be an ISO-8601 timestamp');
+  return at;
+}
+
+/** Refuse a caller deadline that has already passed (J-cex-spot-04 #7), before any venue call, hold or step-up. */
+function assertRequestDeadline(requestDeadline: string | null | undefined, now: Date): void {
+  const at = parseRequestDeadline(requestDeadline);
+  if (at !== null && at <= now.getTime()) {
+    throw new UserVenueDoorError('the request deadline has passed; nothing was prepared, signed or locked', 'trade.request_expired', 400);
+  }
 }
 
 const SIDES: ReadonlySet<unknown> = new Set(['buy', 'sell']);
@@ -1381,7 +1412,11 @@ export class UserVenueDoor {
   async spotCandles(base: string, interval: VenueCandleInterval, limit: number) {
     const venue = await this.venue();
     const wanted = base.toUpperCase();
-    const spot = (await this.markets()).value.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
+    const markets = (await this.markets()).value;
+    const spot =
+      markets.find(
+        (m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted && ['USDC', 'USDT', 'USD'].includes(m.quoteAsset.toUpperCase()),
+      ) ?? markets.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
     if (!spot)
       throw new VenueRefusalError({
         venueId: venue.venue.id,
@@ -1394,11 +1429,47 @@ export class UserVenueDoor {
     return { ...read, symbol: spot.symbol, test: isTestVenue(venue.venue) };
   }
 
-  async marketCandles(symbol: string, interval: VenueCandleInterval, limit: number) {
-    const venue = await this.listedVenue(symbol);
+  /** The deepest history one candle read answers on the chart workbench (matches HISTORY_DEPTH). */
+  static readonly CHART_CANDLE_DEPTH = 720;
+
+  async marketCandles(read: { symbol: string; interval: VenueCandleInterval; limit: number; since?: Date }) {
+    const venue = await this.listedVenue(read.symbol);
     if (!venue.candles)
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no candles' });
-    return { ...(await venue.candles(symbol, interval, limit)), test: isTestVenue(venue.venue) };
+    const query = read.since ? { limit: read.limit, since: read.since } : read.limit;
+    return { ...(await venue.candles(read.symbol, read.interval, query)), test: isTestVenue(venue.venue) };
+  }
+
+  /**
+   * Public chart markets (J-charts-desk-01): every venue market we list, with its tick and lot sizes, venue status,
+   * listing routing and the intervals this venue serves, signed in or signed out.
+   */
+  async chartMarkets() {
+    const venue = await this.venue();
+    const read = await this.markets();
+    return {
+      venueId: read.venueId,
+      venueName: venue.venue.displayName,
+      test: isTestVenue(venue.venue),
+      intervals: Object.keys(VENUE_CANDLE_INTERVALS),
+      asOf: read.asOf,
+      value: read.value.map((m) => ({
+        symbol: m.symbol,
+        kind: m.kind,
+        baseAsset: m.baseAsset,
+        quoteAsset: m.quoteAsset,
+        tickSize: m.tickSize,
+        lotSize: m.lotSize,
+        minOrderNotional: m.minOrderNotional ?? null,
+        status: m.status ?? null,
+        listing: m.listing,
+      })),
+    };
+  }
+
+  /** Public chart candles (J-charts-desk-01): the venue's own candles on a listed market, signed in or signed out. */
+  async chartCandles(read: { symbol: string; interval: VenueCandleInterval; limit: number; since?: Date }) {
+    return { ...(await this.marketCandles(read)), depth: UserVenueDoor.CHART_CANDLE_DEPTH };
   }
 
   /** The venue, once `symbol` is a market we list on it; else `not_offered`. */
@@ -1423,6 +1494,11 @@ export class UserVenueDoor {
     }
   }
 
+  /** Refuse an optional ISO-8601 caller deadline that has already passed (J-cex-spot-04 #7). */
+  assertRequestDeadline(requestDeadline: string | null | undefined): void {
+    assertRequestDeadline(requestDeadline, this.deps.now());
+  }
+
   async preview(principal: Principal, owner: string, intent: VenueIntent) {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     assertPlaceIntent(intent);
@@ -1439,7 +1515,14 @@ export class UserVenueDoor {
     // (J-cex-spot-04 #6); blank owner values still refuse in assertMarketProtection.
     await this.assertMarketProtection(venue, withFee);
     const answered = await venue.preview(account, priced);
-    return { ...answered, value: { ...answered.value, feeDiscount: discount } };
+    return {
+      ...answered,
+      value: {
+        ...answered.value,
+        builderFeeBps: withFee.builderFee ? withFee.builderFee.feeBps : null,
+        feeDiscount: discount,
+      },
+    };
   }
 
   /**
@@ -1640,6 +1723,19 @@ export class UserVenueDoor {
     if (intent.kind === 'amend_order' || intent.kind === 'replace_order') assertChangeIntent(intent);
     if (intent.kind === 'cancel_orders') assertCancelsIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
+    const deadlineAt = parseRequestDeadline(req.requestDeadline);
+    // J-cex-spot-04 #7: a fresh action whose request deadline has passed is refused before any step-up, venue call or
+    // hold. A replay of an already-stored key is waived so retries still see their stored action.
+    if (deadlineAt !== null && deadlineAt <= this.deps.now().getTime()) {
+      const existing = await this.deps.store.find(principal.userId, key);
+      if (!existing) {
+        throw new UserVenueDoorError(
+          'the request deadline has passed; nothing was prepared, signed or locked',
+          'trade.request_expired',
+          400,
+        );
+      }
+    }
     assertDoorMay(intent.kind, caller, key);
     assertLiveRunKey(key, caller);
     assertConvertKey(key, caller);
@@ -1870,6 +1966,7 @@ export class UserVenueDoor {
   }
 
   async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
+    const deadlineAt = parseRequestDeadline(caller?.requestDeadline);
     const key = (actionKey ?? '').trim();
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
@@ -1926,6 +2023,11 @@ export class UserVenueDoor {
     // answer about the action it already applied.
     if (row.signature !== null && row.lastOutcome?.definite === true) {
       return { actionKey: key, outcome: row.lastOutcome, readBack: null, replayed: true };
+    }
+    // J-cex-spot-04 #7: an action never sent to the venue whose request deadline has passed is refused before storing
+    // the signature or sending to the venue (replays and read-backs of bytes already sent are never refused here).
+    if (!row.signature && deadlineAt !== null && deadlineAt <= this.deps.now().getTime()) {
+      throw new UserVenueDoorError('the request deadline has passed; nothing was sent or locked', 'trade.request_expired', 400);
     }
     // One request sends a key at a time: a second one at the same moment is told to retry, never raced to the venue.
     const at = this.deps.now();

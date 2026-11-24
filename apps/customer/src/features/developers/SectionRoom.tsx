@@ -27,8 +27,11 @@ import { QuantApiPage } from './quant/QuantApiPage';
 import { DeveloperSupportPage } from './support/DeveloperSupportPage';
 
 const key = (id: string) => id.replace(/-/g, '_');
-type SectionKey = Extract<Parameters<ReturnType<typeof developersCopy.useCopy>['t']>[0], `section_${string}`>;
+type PortalCopy = ReturnType<typeof developersCopy.useCopy>['t'];
+type SectionKey = Extract<Parameters<PortalCopy>[0], `section_${string}`>;
+type BlockerKey = Extract<Parameters<PortalCopy>[0], `blocker_${string}`>;
 const sectionKey = (id: string) => `section_${key(id)}` as SectionKey;
+const blockerKey = (id: string) => `blocker_${key(id)}` as BlockerKey;
 
 /** One page per section the model marks `page: true`: a section id without a component here does not compile. */
 const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = {
@@ -70,13 +73,13 @@ export function SectionPage({ id }: { id: string }) {
         description={`${t('sectionFor')} ${t(`audience_${audience}` as const)}`}
         state={{ kind: 'ready' }}
         body={
-          <section className="lt-stack" role="status">
+          <section className="lt-stack" role="status" data-waits-for={section.waitsFor}>
             {section.published ? (
               <a className="lt-button lt-button-primary" href={section.published.href}>
                 {t('sectionOpenPublished')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
               </a>
             ) : (
-              <p>{section.waitsFor ? t('waitsForBody', { slice: section.waitsFor }) : t('unpublished')}</p>
+              <p>{section.waitsFor ? t('waitsForBody', { blocker: t(blockerKey(section.id)) }) : t('unpublished')}</p>
             )}
           </section>
         }

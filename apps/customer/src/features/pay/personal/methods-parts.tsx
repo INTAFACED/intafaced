@@ -84,7 +84,7 @@ export function MethodsSection({
   children: ReactNode;
 }) {
   return (
-    <section id={id} data-testid="pay-section" aria-labelledby={`${id}-title`}>
+    <section id={id} className="lt-stack" data-testid="pay-section" aria-labelledby={`${id}-title`}>
       <h2 id={`${id}-title`}>{title}</h2>
       {description ? <p className="lt-hint">{description}</p> : null}
       {children}
@@ -114,28 +114,28 @@ export function MethodsPages({
   setLimit: (limit: number) => void;
 }) {
   const full = count === limit;
+  if (!full) return null;
   return (
     <div className="lt-toolbar">
       <p className="lt-hint">
         {payCopy.t('recordsWindow', { count: String(count), limit: String(limit) })}
-        {full ? payCopy.t('moreRecordsMayExist') : ''}
+        {payCopy.t('moreRecordsMayExist')}
       </p>
-      {full && limit < max ? (
+      {limit < max ? (
         <Button tone="secondary" onClick={() => setLimit(max)}>
           {payCopy.t('showRecords', { max: String(max) })}
         </Button>
       ) : null}
-      {full && limit === max ? <p className="lt-hint">{payCopy.t('thisServiceHasNoContinuationCursorThis')}</p> : null}
+      {limit === max ? <p className="lt-hint">{payCopy.t('thisServiceHasNoContinuationCursorThis')}</p> : null}
     </div>
   );
 }
 
 /** A record's state as the service names it ("enabled", "active"), its underscores as spaces. */
 export function MethodStatus({ value }: { value: string }) {
-  // The same four kinds as the rest of Pay: refused, done, waiting, and every other state (enabled, disabled) unmarked.
-  const status = ['failed', 'rejected', 'cancelled'].includes(value)
+  const status = ['failed', 'rejected', 'cancelled', 'disabled'].includes(value)
     ? 'failed'
-    : ['captured', 'settled', 'active', 'approved'].includes(value)
+    : ['captured', 'settled', 'active', 'approved', 'enabled'].includes(value)
       ? 'done'
       : ['pending', 'open'].includes(value)
         ? 'pending'

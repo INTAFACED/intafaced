@@ -105,13 +105,13 @@ interface Held extends CandleStream {
 }
 
 /** Keeps one socket for `symbol` and `interval`; the poll stays the fallback whenever the socket is not delivering. */
-export function useCandleStream(symbol: string, interval: ChartInterval, open: OpenSocket = defaultOpen): CandleStream {
+export function useCandleStream(symbol: string, interval: ChartInterval, open: OpenSocket = defaultOpen, enabled = true): CandleStream {
   const [held, setState] = useState<Held>({ mode: 'poll', live: null, symbol, interval });
   const openRef = useRef(open);
   openRef.current = open;
   useEffect(() => {
     setState({ mode: 'poll', live: null, symbol, interval });
-    if (!isStreamInterval(interval) || typeof WebSocket === 'undefined') return;
+    if (!enabled || !isStreamInterval(interval) || typeof WebSocket === 'undefined') return;
     let closed = false;
     let socket: SocketLike | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -164,7 +164,7 @@ export function useCandleStream(symbol: string, interval: ChartInterval, open: O
       socket = null;
       current?.close();
     };
-  }, [symbol, interval]);
+  }, [symbol, interval, enabled]);
   // A frame held from another symbol or interval (the effect resets after the first render with new props) is never shown.
   // One object per state, so the chart's memo on this value holds between ticks.
   const current = held.symbol === symbol && held.interval === interval;

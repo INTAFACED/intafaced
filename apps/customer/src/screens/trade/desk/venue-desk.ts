@@ -132,7 +132,7 @@ export function tagProblem(tag: string): boolean {
 }
 
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
+export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'below_min' | 'no_book' | 'no_cap';
 
 /** A rule a spot order is checked against, which the venue may leave unpublished (J-cex-spot-04 #6). */
 export type VenueRule = 'min' | 'band' | 'cap';
@@ -159,9 +159,23 @@ export function bpsAsPercent(bps: string): string {
 export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
-  if (fields.type === 'market') return !capSet ? 'no_cap' : worst === null ? 'no_book' : null;
+  if (fields.type === 'market') {
+    if (!capSet) return 'no_cap';
+    if (worst === null) return 'no_book';
+    // A market buy's worst price is at or above the best ask, so below min there is strictly below min on the book;
+    // a market sell's worst bound may sit far below the book, so its value is left to the venue's reference price.
+    if (market.kind === 'spot' && fields.side === 'buy' && market.minOrderNotional != null) {
+      const notional = valueOf(fields.amount, worst);
+      if (notional !== null && parseAmount(notional) < parseAmount(market.minOrderNotional)) return 'below_min';
+    }
+    return null;
+  }
   if (!fields.price.trim() || !isDecimal(fields.price)) return 'price';
   if (!onStep(fields.price, market.tickSize)) return 'price_step';
+  if (market.kind === 'spot' && market.minOrderNotional != null) {
+    const notional = valueOf(fields.amount, fields.price);
+    if (notional !== null && parseAmount(notional) < parseAmount(market.minOrderNotional)) return 'below_min';
+  }
   return null;
 }
 

@@ -18,7 +18,7 @@ import {
   type ActionResult,
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
-import { builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
+import { builderApproved, carriesBuilderFee, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
 import { useSignPrepared } from '../futures/VenueProtect';
 import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
@@ -158,11 +158,12 @@ export function VenueSideForm({
 
   /** A sell that carries our builder fee, with no approval on the venue: the wallet signs the approval first. */
   async function approve() {
-    if (!status.builder || sending.current) return;
+    const requiredBps = requiredBuilderFeeBps(status, review?.preview.value);
+    if (!status.builder || !requiredBps || sending.current) return;
     sending.current = true;
     const answer = await run(
-      { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, status.builder.feeBps, undefined, approvalDraft) },
+      { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: requiredBps },
+      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, requiredBps, undefined, approvalDraft) },
     );
     sending.current = false;
     setApproving(answer);
@@ -328,7 +329,10 @@ export function VenueSideForm({
       setProblem(t('Not enough free', { asset: lacking.asset, lock: displayAmount(lacking.lock), free: displayAmount(lacking.free) }));
       return;
     }
-    if (carriesBuilderFee(now.data.value.builderFee) && builderApproved(account, status) !== true) {
+    if (
+      carriesBuilderFee(now.data.value.builderFee) &&
+      builderApproved(account, status, requiredBuilderFeeBps(status, now.data.value)) !== true
+    ) {
       sending.current = false;
       setMoved(false);
       setReviewProblem(null);
@@ -537,6 +541,10 @@ export function VenueSideForm({
           <p className="lt-note">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
         ) : issue === 'price_step' && price ? (
           <p className="lt-note">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
+        ) : issue === 'below_min' && market.minOrderNotional != null ? (
+          <p className="lt-note lt-note-bad" role="alert" data-testid="venue-ticket-below-min">
+            {t('Too small', { min: market.minOrderNotional, quote: market.quoteAsset })}
+          </p>
         ) : live?.state === 'checking' ? (
           <p className="lt-note">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (
@@ -589,7 +597,10 @@ export function VenueSideForm({
               <Button
                 tone={side === 'buy' ? 'up' : 'down'}
                 size="md"
-                disabled={carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) !== true}
+                disabled={
+                  carriesBuilderFee(review.preview.value.builderFee) &&
+                  builderApproved(account, status, requiredBuilderFeeBps(status, review.preview.value)) !== true
+                }
                 onClick={() => void confirm()}
               >
                 {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
@@ -611,7 +622,7 @@ export function VenueSideForm({
             intent={review.intent}
             preview={review.preview}
             status={status}
-            approved={builderApproved(account, status)}
+            approved={builderApproved(account, status, requiredBuilderFeeBps(status, review.preview.value))}
             protectionBps={protectionBps}
             selfTrade={venueSelfTrade(market)}
             tag={tag.trim()}
@@ -623,7 +634,8 @@ export function VenueSideForm({
               <AgentPermission owner={owner} />
             </>
           ) : null}
-          {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
+          {carriesBuilderFee(review.preview.value.builderFee) &&
+          builderApproved(account, status, requiredBuilderFeeBps(status, review.preview.value)) === false ? (
             <Button tone="secondary" size="md" onClick={() => void approve()}>
               {v('Approve in wallet')}
             </Button>

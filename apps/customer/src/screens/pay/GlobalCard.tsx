@@ -621,7 +621,7 @@ export function GlobalCard() {
       {unavailable ? <Reason title={unavailable.title}>{unavailable.body}</Reason> : null}
       {standIn ? (
         <p className="lt-hint" role="note" data-testid="global-stand-in">
-          {g('standIn', { label: standIn })}
+          {g('standIn')}
         </p>
       ) : null}
       <Steps

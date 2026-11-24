@@ -235,6 +235,7 @@ pub struct TaxDeps {
     pub now: Box<dyn Fn() -> Instant + Send + Sync>,
     pub deposit_basis: Option<DepositBasisPolicy>,
     pub prices: Option<Arc<dyn PriceAtTime>>,
+    pub venue_prices: Option<Arc<dyn PriceAtTime>>,
     pub closes: Option<Arc<dyn CloseSeriesSource>>,
     pub basis: Option<Arc<dyn BasisStore>>,
     pub choices: Option<Arc<dyn ChoiceStore>>,
@@ -259,6 +260,7 @@ impl TaxDeps {
             now,
             deposit_basis: None,
             prices: None,
+            venue_prices: None,
             closes: None,
             basis: None,
             choices: None,
@@ -277,6 +279,7 @@ pub struct TaxService {
     now: Box<dyn Fn() -> Instant + Send + Sync>,
     deposit_basis: Option<DepositBasisPolicy>,
     prices: Option<Arc<dyn PriceAtTime>>,
+    venue_prices: Option<Arc<dyn PriceAtTime>>,
     closes: Option<Arc<dyn CloseSeriesSource>>,
     basis: Option<Arc<dyn BasisStore>>,
     choices: Option<Arc<dyn ChoiceStore>>,
@@ -437,6 +440,7 @@ impl TaxService {
             now: deps.now,
             deposit_basis: deps.deposit_basis,
             prices: deps.prices,
+            venue_prices: deps.venue_prices,
             closes: deps.closes,
             basis: deps.basis,
             choices: deps.choices,
@@ -485,7 +489,18 @@ impl TaxService {
         } else {
             self.book_choices(&saved)
         };
-        let main = self.book_with(user_id, preview, &saved, choices.clone())?;
+        self.book_for(user_id, preview, &saved, choices, with_venue_accounts)
+    }
+
+    fn book_for(
+        &self,
+        user_id: &str,
+        preview: Option<EngineMethod>,
+        saved: &CostBasisChoices,
+        choices: BookChoices,
+        with_venue_accounts: bool,
+    ) -> Result<LotBook, Failure> {
+        let main = self.book_with(user_id, preview, saved, choices.clone())?;
         if !with_venue_accounts {
             return Ok(main);
         }
@@ -499,6 +514,7 @@ impl TaxService {
         let mut residuals: Vec<&'static str> = Vec::new();
         let mut extras = VenueExtras::default();
         let override_prices;
+        let venue_prices = self.venue_prices.as_deref().or(self.prices.as_deref());
         if !arrived.is_empty() {
             let active = self.active_basis(user_id)?;
             for a in &arrived {
@@ -510,13 +526,13 @@ impl TaxService {
                         space_id: None,
                     })
                     .collect();
-                let valued = self.value_inflows(&arrivals, &mut residuals);
+                let valued = self.value_inflows(&arrivals, venue_prices, &mut residuals);
                 extras.inflows.insert(crate::venue_book::key_of(a), valued);
             }
             override_prices = prices_of(&active)?;
             extras.override_price_per_unit = override_prices.as_ref();
         }
-        let rules_fn = sale_rules(&saved, DEFAULT_LOT_BOOK_METHOD, preview);
+        let rules_fn = sale_rules(saved, DEFAULT_LOT_BOOK_METHOD, preview);
         let rules = SaleRules::By(&rules_fn);
         let shared = BookShared {
             method: main.method,
@@ -641,7 +657,7 @@ impl TaxService {
                 space_id: Some(&s.space_id),
             }))
             .collect();
-        let inflows = self.value_inflows(&arrivals, &mut extra);
+        let inflows = self.value_inflows(&arrivals, self.prices.as_deref(), &mut extra);
         let out = outside_withdrawals(filled.withdrawal_holds.as_deref().unwrap_or(&[]));
         let mut dropped: Vec<&'static str> = Vec::new();
         let withdrawals = self.value_withdrawals(
@@ -762,6 +778,7 @@ impl TaxService {
     fn value_inflows(
         &self,
         lines: &[Arrival<'_>],
+        prices: Option<&dyn PriceAtTime>,
         residuals: &mut Vec<&'static str>,
     ) -> Vec<Inflow> {
         if self.deposit_basis.is_none() && lines.iter().any(|a| !is_par(&a.line.asset_id)) {
@@ -771,7 +788,7 @@ impl TaxService {
         let mut out = Vec::new();
         for a in lines.iter().filter(|a| !is_par(&a.line.asset_id)) {
             let line = a.line;
-            let price = match &self.prices {
+            let price = match prices {
                 None => None,
                 Some(prices) => {
                     let key = format!("{}|{}", line.asset_id, line.posted_at.0.div_euclid(60_000));
@@ -992,7 +1009,7 @@ impl TaxService {
                 asset_id: input.asset_id.clone(),
                 lot_id: lot_id.clone(),
             });
-            let book = self.book_with(user_id, None, &with_pick, self.book_choices(&saved))?;
+            let book = self.book_for(user_id, None, &with_pick, self.book_choices(&saved), true)?;
             let sale = book
                 .sales
                 .iter()
