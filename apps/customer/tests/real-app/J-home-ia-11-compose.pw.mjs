@@ -1,6 +1,6 @@
 // World: stack
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
@@ -77,7 +77,7 @@ function notHealthyLogs(env) {
 // `compose-env` writes for this state directory (LOCAL TEST settings and generated keys), on a state directory nothing
 // else has written. The real-app run seeds the `pnpm local:stack` stack too (#1 in J-home-ia-11.pw.mjs); this one
 // passes only when a fresh compose up starts and its seed service runs once and reports what it made.
-test(`${J} #1 a fresh compose up with the tester profile seeds`, () => {
+test(`${J} #1 a fresh compose up with the tester profile seeds`, async ({ page, stepPicture }) => {
   test.setTimeout(30 * 60_000);
   const state = mkdtempSync(path.join(tmpdir(), 'compose-tester-'));
   const env = { APP_ENV: 'test', LOCAL_STACK_STATE: state };
@@ -130,6 +130,13 @@ test(`${J} #1 a fresh compose up with the tester profile seeds`, () => {
     // Once: the seed service has exactly one container, exited 0.
     const runs = compose(['ps', '-a', '--format', '{{.Service}} {{.State}} {{.ExitCode}}', 'seed'], env);
     expect(runs.out.trim().split('\n')).toEqual(['seed exited 0']);
+    // Healthy services as the compose edge reports them in a browser: the step's picture, while the seeded stack is up.
+    const marker = JSON.parse(readFileSync(path.join(state, 'LOCAL-TEST-STACK.json'), 'utf8'));
+    const readyRes = await page.goto(`http://127.0.0.1:${marker.ports.edge}/ready`);
+    expect(readyRes?.status()).toBe(200);
+    const ready = JSON.parse(await page.locator('pre').first().innerText());
+    expect(ready.ready).toBe(true);
+    await stepPicture();
     // The same image, started as staging or production, exits 2 with the typed refusal and seeds nothing.
     for (const appEnv of ['staging', 'production']) {
       const refused = compose(['run', '--rm', '-e', `APP_ENV=${appEnv}`, 'seed'], env);
