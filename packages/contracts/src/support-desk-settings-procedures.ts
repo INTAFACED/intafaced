@@ -25,6 +25,7 @@ import {
   supportKbTemplateSaveInputSchema,
   supportKbTemplateSchema,
 } from './support-kb-review.js';
+import { supportDisclosureSchema } from './support-read-grants.js';
 import {
   supportDisclosureReadInputSchema,
   supportRecordVerificationCheckInputSchema,
@@ -75,6 +76,8 @@ const STATUS = {
   'support.disclosure_unwired': 'PRECONDITION_FAILED',
   'support.verification_attempts_unset': 'PRECONDITION_FAILED',
   'support.verification_attempts_exhausted': 'TOO_MANY_REQUESTS',
+  'support.read_grant_required': 'PRECONDITION_FAILED',
+  'support.read_withdrawal_unlinked': 'PRECONDITION_FAILED',
 } as const satisfies Record<string, RefusalStatus>;
 type Code = keyof typeof STATUS;
 const refuse = (...codes: Code[]): Refusals => Object.freeze(Object.fromEntries(codes.map((c) => [c, STATUS[c]])));
@@ -96,7 +99,13 @@ const FILES = [
   'support.attachment_scan_refused',
   'support.attachment_scan_unknown',
 ] as const;
-const GATE = ['support.not_found', 'support.ticket_closed', 'support.verification_checks_required', 'support.disclosure_unwired'] as const;
+const GATE = [
+  'support.not_found',
+  'support.ticket_closed',
+  'support.read_grant_required',
+  'support.read_withdrawal_unlinked',
+  'support.disclosure_unwired',
+] as const;
 
 const base = { service: 'svc-support', module: 'support', transport: 'trpc' } as const;
 const PUBLIC = { caller: 'public' } as const;
@@ -334,7 +343,7 @@ export const SUPPORT_DESK_RECORD_VERIFICATION_CHECK = defineProcedure({
   ],
 });
 
-/** A read behind the gate has no success answer svc-support can give today: it always refuses, so no reply parses. */
+/** A read under the customer's live grant (`support-read-grants.ts`): refused without one, and listed to the customer. */
 export const SUPPORT_DESK_READ_DISCLOSURE = defineProcedure({
   ...base,
   name: 'support.readDisclosure',
@@ -343,7 +352,7 @@ export const SUPPORT_DESK_READ_DISCLOSURE = defineProcedure({
   access: DESK,
   refusals: refuse(...GATE),
   input: supportDisclosureReadInputSchema,
-  output: z.never(),
+  output: supportDisclosureSchema,
   samples: [
     { verdict: 'accept', input: { ticketId: TICKET, kind: 'balance' } },
     { verdict: 'refuse', input: { ticketId: TICKET, kind: 'password' } },

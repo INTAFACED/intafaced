@@ -17130,6 +17130,84 @@
           "input": 42
         }
       ]
+    },
+    "trade.support.customerBalance": {
+      "service": "svc-trade",
+      "transport": "http",
+      "method": "POST",
+      "path": "/internal/support/customer-balance",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-support"]
+      },
+      "refusals": {
+        "trade.unauthenticated": "UNAUTHORIZED",
+        "trade.support_read_forbidden": "FORBIDDEN",
+        "trade.support_read_input": "BAD_REQUEST",
+        "trade.support_read_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "balances": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "free": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "used": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["free", "used", "total"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["balances"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "someone"
+          }
+        }
+      ]
     }
   }
 }

@@ -1,6 +1,11 @@
 {
   "callers": [
     {
+      "path": "listComments",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
       "path": "listKb",
       "type": "query",
       "caller": "public"
@@ -92,6 +97,11 @@
     },
     {
       "path": "ratingSummary",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "readAccess",
       "type": "query",
       "caller": "scope"
     },
@@ -229,19 +239,12 @@
       "path": "setStatus",
       "type": "mutation",
       "caller": "scope"
-    },
-    {
-      "path": "settle",
-      "type": "mutation",
-      "caller": "scope"
-    },
-    {
-      "path": "signature",
-      "type": "query",
-      "caller": "scope"
     }
   ],
   "inputs": {
+    "listComments": {
+      "ticketId": "33333333-3333-4333-8333-333333333333"
+    },
     "listKb": {},
     "listMine": {},
     "listQueue": {},
@@ -298,6 +301,9 @@
     "ratingSummary": {
       "from": "2026-11-19T00:00:00.000Z",
       "to": "2026-11-19T00:00:00.000Z"
+    },
+    "readAccess": {
+      "ticketId": "33333333-3333-4333-8333-333333333333"
     },
     "readDisclosure": {
       "ticketId": "33333333-3333-4333-8333-333333333333",
@@ -390,13 +396,89 @@
     "setStatus": {
       "ticketId": "33333333-3333-4333-8333-333333333333",
       "status": "open"
-    },
-    "settle": {
-      "act": "complete_withdrawal"
-    },
-    "signature": null
+    }
   },
   "answers": {
+    "listComments valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments valid customer": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"support.list_comments_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments valid ops": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"support.list_comments_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments valid none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "listComments absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments absent customer": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments absent ops": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments absent none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "listComments wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments wrong-type customer": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments wrong-type ops": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments wrong-type none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "listComments empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments empty customer": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"ticketId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments empty ops": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"ticketId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments empty none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "listComments extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments extra-key customer": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"support.list_comments_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments extra-key ops": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"support.list_comments_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\"}}}"
+    },
+    "listComments extra-key none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"listComments\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
     "listKb valid anon": {
       "status": 412,
       "body": "{\"error\":{\"message\":\"support.list_kb_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"listKb\",\"requestId\":\"<request>\"}}}"
@@ -1916,6 +1998,86 @@
     "ratingSummary extra-key none": {
       "status": 403,
       "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ratingSummary\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "readAccess valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess valid customer": {
+      "status": 404,
+      "body": "{\"error\":{\"message\":\"We could not find that.\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess valid ops": {
+      "status": 404,
+      "body": "{\"error\":{\"message\":\"We could not find that.\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess valid none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "readAccess absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess absent customer": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess absent ops": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess absent none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "readAccess wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess wrong-type customer": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess wrong-type ops": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess wrong-type none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "readAccess empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess empty customer": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"ticketId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess empty ops": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"ticketId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess empty none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "readAccess extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess extra-key customer": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess extra-key ops": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\"}}}"
+    },
+    "readAccess extra-key none": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"support:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"readAccess\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
     },
     "readDisclosure valid anon": {
       "status": 401,
@@ -4076,166 +4238,6 @@
     "setStatus extra-key none": {
       "status": 403,
       "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"setStatus\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle valid anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle valid customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle valid ops": {
-      "status": 412,
-      "body": "{\"error\":{\"message\":\"support.settle.refused\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle valid none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle absent anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle absent customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle absent ops": {
-      "status": 400,
-      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle absent none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle wrong-type anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle wrong-type customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle wrong-type ops": {
-      "status": 400,
-      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle wrong-type none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle empty anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle empty customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle empty ops": {
-      "status": 400,
-      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"complete_withdrawal\\\",\\n      \\\"unfreeze_account\\\",\\n      \\\"move_money\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"act\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"complete_withdrawal\\\\\\\"|\\\\\\\"unfreeze_account\\\\\\\"|\\\\\\\"move_money\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle empty none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle extra-key anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle extra-key customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "settle extra-key ops": {
-      "status": 412,
-      "body": "{\"error\":{\"message\":\"support.settle.refused\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\"}}}"
-    },
-    "settle extra-key none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"settle\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature valid anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\"}}}"
-    },
-    "signature valid customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature valid ops": {
-      "status": 200,
-      "body": "{\"result\":{\"data\":{\"signature\":null,\"revision\":0}}}"
-    },
-    "signature valid none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature absent anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\"}}}"
-    },
-    "signature absent customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature absent ops": {
-      "status": 200,
-      "body": "{\"result\":{\"data\":{\"signature\":null,\"revision\":0}}}"
-    },
-    "signature absent none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature wrong-type anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\"}}}"
-    },
-    "signature wrong-type customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature wrong-type ops": {
-      "status": 200,
-      "body": "{\"result\":{\"data\":{\"signature\":null,\"revision\":0}}}"
-    },
-    "signature wrong-type none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature empty anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\"}}}"
-    },
-    "signature empty customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature empty ops": {
-      "status": 200,
-      "body": "{\"result\":{\"data\":{\"signature\":null,\"revision\":0}}}"
-    },
-    "signature empty none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature extra-key anon": {
-      "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\"}}}"
-    },
-    "signature extra-key customer": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
-    },
-    "signature extra-key ops": {
-      "status": 200,
-      "body": "{\"result\":{\"data\":{\"signature\":null,\"revision\":0}}}"
-    },
-    "signature extra-key none": {
-      "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"support:ops\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signature\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
     }
   }
 }
