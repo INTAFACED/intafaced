@@ -97,8 +97,9 @@ pub trait Sources {
     fn runs(&self, wanted: &[(String, i64)]) -> Result<Vec<Run>, Refusal>;
     /// `bills.listRecurring({ userId, limit })`.
     fn recurring_bills(&self, user_id: &str, limit: i64) -> Result<Vec<RecurringBill>, Refusal>;
-    /// `bills.railStatus() === 'live'`.
-    fn bill_rail_live(&self) -> bool;
+    /// Whether a bill can be paid for this person: our own rail is live (`bills.railStatus() === 'live'`), or the
+    /// partner that holds their money pays billers for them.
+    fn bill_rail_live(&self, user_id: &str) -> bool;
     /// `directDebits.dated({ userId, from, to, limit, now })`.
     fn collections(
         &self,
@@ -520,7 +521,7 @@ fn bills(
     }
     // With no bill partner a recurring bill cannot be set up, so an empty source says why rather than looking idle.
     let mut a = Answer::ok(items, full(&recurring, limit));
-    if !src.bill_rail_live() {
+    if !src.bill_rail_live(user_id) {
         a.code = Some("bank.bills_psp_unset".to_owned());
     }
     Ok(a)
@@ -679,8 +680,14 @@ impl Sources for DoorSources<'_> {
             .collect()
     }
 
-    fn bill_rail_live(&self) -> bool {
-        self.d.door.bills_deps(self.d.now, |b| b.w.pay.rail_live())
+    fn bill_rail_live(&self, user_id: &str) -> bool {
+        self.d.door.bills_deps(self.d.now, |b| {
+            b.w.pay.rail_live()
+                || b.t
+                    .custody
+                    .bank_for(user_id)
+                    .is_some_and(|p| p.billers(user_id, "").is_ok())
+        })
     }
 
     fn collections(
@@ -841,7 +848,7 @@ mod tests {
         fn recurring_bills(&self, _: &str, _: i64) -> Result<Vec<RecurringBill>, Refusal> {
             take(&self.bills)
         }
-        fn bill_rail_live(&self) -> bool {
+        fn bill_rail_live(&self, _: &str) -> bool {
             self.rail_live
         }
         fn collections(

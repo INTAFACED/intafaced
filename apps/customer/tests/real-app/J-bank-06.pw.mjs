@@ -5,6 +5,7 @@ import { DEVICE_KEY, EDGE, ORIGIN, STACK_PORTS, api as stackApi, fromUnits, jour
 import { signIn, signUp, verify } from './desk.mjs';
 import { venueBalance, venueRecord } from './venue.mjs';
 import { ageRecord } from './test-age.mjs';
+import { DAY, utcDay } from './clock.mjs';
 
 // J-bank-06, in the running app (docs/roadmap/journeys.json): I schedule payments and standing orders. The person's bank
 // money is held at the TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded
@@ -15,7 +16,8 @@ import { ageRecord } from './test-age.mjs';
 // TEST value of 60 minutes. Step 4 (BK-xfer-11): direct debits through the stack's TEST scheme stand-in (`dd-sim`),
 // whose creditors set up mandates and present collections only by its signed job doors, which this file calls as the
 // scheme would; the collection run is its job door too. Step 5 (BK-acct-10): the money calendar over what steps 1 to 4
-// left, read only. Step 6 (BK-acct-10): the payment reminder rule saved under its business key, money-moving rules
+// left, read only, and a monthly bill the person sets up in Bills once their bank rail at the TEST partner is on
+// (`testPartner.set({ bankRail: 'test' })`: the partner pays its own TEST billers); setting it up sends nothing. Step 6 (BK-acct-10): the payment reminder rule saved under its business key, money-moving rules
 // refused while their terms are unpublished, the notification choices read from the account's own settings, and the
 // notices the bank's notice job owes, run with its signed job door as a scheduler would. Step 8: the person's TEST switch
 // (`testPartner.set({ calendarSource })`, svc-bank `partner/test-partner-switches.ts`) fails the direct debits source,
@@ -618,8 +620,9 @@ async function calendarMonth(page, month) {
   await expect(shown).toHaveAttribute('data-month', month);
 }
 
-test(`${J} #5 opens the calendar: standing orders and direct debits on their dates, each opening its room, and loans and bills say why they show none`, async ({
+test(`${J} #5 opens the calendar: standing orders, direct debits and a monthly bill on their dates, each opening its room; loans say why they show none, and bills until the partner pays them`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const who = person();
@@ -738,6 +741,78 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   await calendarMonth(page, ranMonth);
   await page.getByTestId(`cal-open-${due}:0`).click();
   await expect(page).toHaveURL(/\/bank\/transfers$/);
+
+  // Bills: with the person's bank rail at the TEST partner off, Bills says no biller directory is connected.
+  const owner = await userIdOf(who);
+  const movesBefore = await partnerMoves(owner);
+  const heldBefore = await partnerMain(owner);
+  await page.goto('/pay/bills');
+  const bills = page.getByTestId('bills-card');
+  await bills.getByLabel('Biller', { exact: true }).fill('Water');
+  await bills.getByTestId('bills-search').click();
+  await expect(bills.getByTestId('pay-reason')).toContainText('Bill pay isn’t connected');
+  await expect(bills.getByTestId('bills-review')).toBeDisabled();
+
+  // The TEST partner pays billers once the person's bank rail is on there: its own TEST billers answer the search, and
+  // the person sets up a monthly bill from their main balance, first paid on the 1st of next month.
+  const railOn = await api.mutate('testPartner.set', { bankRail: 'test' });
+  expect(railOn.ok, JSON.stringify(railOn.body ?? '')).toBe(true);
+  await page.reload();
+  await bills.getByLabel('Biller', { exact: true }).fill('Water');
+  await bills.getByTestId('bills-search').click();
+  await bills.getByLabel('Choose a biller', { exact: true }).selectOption({ label: 'TEST Water' });
+  await expect(bills.getByTestId('pay-reason')).toHaveCount(0);
+  const reference = `ACC-${randomUUID().slice(0, 8)}`;
+  await bills.getByLabel('Bill reference or account number', { exact: true }).fill(reference);
+  await bills.getByLabel('Amount', { exact: true }).fill('3');
+  const mainSpace = main(await spaces(who));
+  await bills.getByLabel('Pay from', { exact: true }).selectOption(mainSpace.id);
+  // The 1st of next month: the last day of this month, then the day after it.
+  const thisMonthEnd = new Date(`${utcDay(Date.now()).slice(0, 7)}-28T00:00:00.000Z`);
+  const firstOfNext = `${utcDay(thisMonthEnd.getTime() + 4 * DAY).slice(0, 7)}-01`;
+  await bills.getByLabel('First payment on', { exact: true }).fill(firstOfNext);
+  await bills.getByTestId('bills-review').click();
+  await expect(bills.getByTestId('bills-outcome')).toHaveAttribute('data-state', 'ok');
+  const recurring = (await api.query('bills.recurring.list', { limit: 20 })).data.filter((b) => b.reference === reference);
+  expect(recurring).toHaveLength(1);
+  const bill = recurring[0];
+  expect(bill).toMatchObject({
+    billerId: 'test-biller-water',
+    amount: '3',
+    assetId: 'USDT',
+    fromSpaceId: mainSpace.id,
+    cadence: 'monthly',
+    status: 'active',
+    nextRunAt: `${firstOfNext}T00:00:00.000Z`,
+  });
+  await expect(bills.getByTestId(`bill-recurring-${bill.id}`)).toContainText(`TEST Water · ${reference}`);
+  // Setting a bill up sends nothing: the partner's book and the person's balance there are as they were.
+  expect(await partnerMoves(owner)).toEqual(movesBefore);
+  expect(await partnerMain(owner)).toBe(heldBefore);
+
+  // The bank's calendar for that month: the bill on its date, its source with no reason against it.
+  const billMonth = monthOf(firstOfNext);
+  const billView = await read(billMonth);
+  expect(byKey(billView, `${bill.id}:0`)).toMatchObject({
+    source: 'bills',
+    refId: bill.id,
+    date: bill.nextRunAt,
+    label: reference,
+    amount: '3',
+    status: 'upcoming',
+  });
+  expect(billView.sources.find((s) => s.source === 'bills')?.code ?? null).toBeNull();
+
+  // In the app: the bill on its day in that month, and it opens Bills.
+  await page.goto('/bank/calendar');
+  await calendarMonth(page, billMonth);
+  const billItem = day(firstOfNext).getByTestId(`cal-open-${bill.id}:0`);
+  await expect(billItem).toHaveText(`Bill: ${reference}`);
+  await expect(page.getByTestId('cal-sources').getByTestId('cal-source-bills')).not.toContainText('no bill payment partner');
+  await stepPicture();
+  await billItem.click();
+  await expect(page).toHaveURL(/\/pay\/bills$/);
+  await expect(page.getByTestId(`bill-recurring-${bill.id}`)).toContainText(reference);
 
   // Reading the calendar moved nothing.
   expect(main(await spaces(who)).balance).toBe(before);

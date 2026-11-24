@@ -535,7 +535,36 @@ fn payees_key(p: Option<&Vec<Payee>>) -> String {
     })
 }
 
+/// The TEST partner's own billers (`TEST_BILLERS`): the bill-payment directory it offers on a test stack, each named TEST
+/// so no one takes it for a real biller. (id, name, country, category.)
+pub const TEST_BILLERS: [(&str, &str, &str, &str); 3] = [
+    ("test-biller-water", "TEST Water", "GB", "utilities"),
+    ("test-biller-energy", "TEST Energy", "GB", "utilities"),
+    ("test-biller-phone", "TEST Phone", "GB", "telecom"),
+];
+
 impl State {
+    /// The billers the partner pays for this person whose names hold `query` (every one for a blank query), once the
+    /// person's bank rail is on (`bankRail: 'test'`); else the rail's own refusal, as `pay` gives it.
+    pub fn billers(
+        &self,
+        user_id: &str,
+        query: &str,
+    ) -> Result<Vec<(&'static str, &'static str, &'static str, &'static str)>, Refusal> {
+        if self.board.read(user_id, |s| s.bank_rail != "test") {
+            return Err(refuse(
+                "rail.bank",
+                "A bill payment needs rail.bank. It is switched off in this build.",
+            ));
+        }
+        let q = query.trim().to_lowercase();
+        Ok(TEST_BILLERS
+            .iter()
+            .filter(|b| q.is_empty() || b.1.to_lowercase().contains(&q))
+            .copied()
+            .collect())
+    }
+
     fn new(boot: String) -> State {
         State {
             board: Board::default(),
