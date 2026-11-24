@@ -714,6 +714,38 @@ export const venuePublicFeesSchema = asOf(
   }),
 );
 export type VenuePublicFees = z.infer<typeof venuePublicFeesSchema>;
+/**
+ * `GET /venue/market-states` (J-cex-spot-14 #1 #2), signed in or not: each market we show, with the venue's own trading
+ * state (`null`: the venue reports none) and session as it reports them, and our listing beside them. `asOf` is the
+ * venue read's time.
+ */
+export const venueMarketStateSchema = z.object({
+  symbol: z.string(),
+  kind: z.enum(['spot', 'perpetual']),
+  baseAsset: z.string(),
+  quoteAsset: z.string(),
+  tickSize: decimalSchema,
+  lotSize: decimalSchema,
+  status: venueMarketSchema.shape.status.unwrap(),
+  session: venueMarketSchema.shape.session,
+  listing: z.object({
+    opensAt: isoTime,
+    delistsAt: isoTime.nullable(),
+    routing: z.enum(['show', 'close_only', 'stop']),
+    open: z.boolean(),
+    delisted: z.boolean(),
+  }),
+});
+export type VenueMarketState = z.infer<typeof venueMarketStateSchema>;
+export const venueMarketStatesSchema = asOf(
+  z.object({
+    venue: z.object({ id: z.string(), displayName: z.string() }),
+    markets: z.array(venueMarketStateSchema),
+    test: z.boolean(),
+    label: z.literal('TEST').optional(),
+  }),
+);
+export type VenueMarketStates = z.infer<typeof venueMarketStatesSchema>;
 /** One fee the venue publishes beside its trading fees (J-derivatives-12 #2), in bps of what it is charged on. */
 export const venueOtherFeeSchema = z.object({
   kind: z.enum(['settlement', 'liquidation', 'other']),

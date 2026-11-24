@@ -502,6 +502,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
   });
 
+  // J-cex-spot-14 #1 #2: each market we show with the venue's own trading state and session and our listing beside them,
+  // signed in or not: the markets list and /status read the venue, never our own book.
+  app.get<{ Querystring: Query }>('/api/v1/venue/market-states', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.marketStates(), req.query.venueId);
+  });
+
   // J-derivatives-31 #1: the vaults the venue lists, signed in or not, each with its lock-up, leader profit share, value and
   // past return as the venue publishes them (null: not published). A venue that lists none refuses not_offered.
   app.get<{ Querystring: Query }>('/api/v1/venue/vaults', publicRead, async (req, reply) => {

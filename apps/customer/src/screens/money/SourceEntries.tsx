@@ -82,7 +82,7 @@ export function SourceEntries({ status, rawAsset, search }: { status: VenueUp; r
           </Link>
         ))}
       </div>
-      <SourceActivity status={status} filters={NO_FILTERS} asset={asset} hidden={hideBalances} source={source} />
+      <SourceActivity status={status} filters={NO_FILTERS} asset={asset} hidden={hideBalances} source={source} includeOrders={false} />
     </div>
   );
 }

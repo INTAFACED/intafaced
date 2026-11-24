@@ -7,36 +7,8 @@
  * shared writer, and one intent keeps one request id until the numbers change.
  */
 import { useEffect, useRef, useState } from 'react';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Checkbox,
-  EmptyState,
-  Field,
-  Input,
-  KeyValue,
-  Menu,
-  MenuContent,
-  MenuGroup,
-  MenuItem,
-  MenuLabel,
-  MenuTrigger,
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverTrigger,
-  SegmentedControl,
-  Skeleton,
-  StateBlock,
-  StatusChip,
-  Switch,
-  type KeyValueItem,
-} from '@intafaced/ui';
+import { Button, Field, Menu, Popover, PopoverContent, PopoverTrigger, Segmented, StateBlock, Switch } from '@intafaced/ui/lit';
+import { Checkbox, DecimalInput, FreshnessChip, KeyValue, Sheet, Skeleton } from '@intafaced/ui/lit/templates';
 import { dec, fractionDigits, isPositive, str } from '../../../data/decimal';
 import { fmtAmount, fmtPct, fmtPctPoints, fmtPrice } from '../../../data/format';
 import { bpsToRatio } from '../desk/form-logic';
@@ -69,6 +41,8 @@ import {
 } from './ticket-logic';
 import type { Pending } from '../buy/write-lock';
 import type { WriteOutcome } from './write';
+import { kvRows, type KvItem } from './kv-rows';
+import { RegionNote } from './notes';
 
 export interface TicketProps {
   market: FuturesListing;
@@ -102,7 +76,8 @@ interface Confirm {
 type BookType = 'market' | 'limit';
 const BOOK_TYPES: readonly BookType[] = ['market', 'limit'];
 const PERCENTS = [25, 50, 75, 100] as const;
-const note = 'text-xs text-fg-2';
+const note = 'lt-note';
+const warn = 'lt-note lt-note-warn';
 
 /** Words for the order type ids the service's catalogue lists; an id without words is shown as sent. */
 const TYPE_NAMES = {
@@ -249,23 +224,14 @@ export function Ticket(props: TicketProps) {
     writer.note.state !== 'none' ? ('locked' as const) : size === null || !isPositive(size) ? ('noSize' as const) : (typeOff ?? labelOff);
 
   if (planeOff)
-    return (
-      <EmptyState
-        variant="unavailable"
-        size="panel"
-        title={t('Plane off title')}
-        reason={t('Plane off reason')}
-        code="trade.futures_disabled"
-      />
-    );
+    return <RegionNote variant="unavailable" title={t('Plane off title')} reason={t('Plane off reason')} code="trade.futures_disabled" />;
   if (signedOut)
     return (
-      <EmptyState
+      <RegionNote
         variant="refused"
-        size="panel"
         title={t('Signed out title')}
         reason={t('Signed out body')}
-        action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(window.location.pathname)}`, variant: 'secondary' }}
+        action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(window.location.pathname)}` }}
       />
     );
   if (balances.status === 'error') return <StateBlock kind="error" thing={t('Balance error')} onRetry={balances.retry} />;
@@ -381,7 +347,7 @@ export function Ticket(props: TicketProps) {
 
   const money = (v: string | null) => (v === null ? null : `${fmtAmount(v)} ${asset}`);
   const price = (v: string | null) => (v === null ? null : fmtPrice(v, market.precision.price));
-  const costItems = (p: PositionPreview, at: number | null): KeyValueItem[] => {
+  const costItems = (p: PositionPreview, at: number | null): KvItem[] => {
     const cost = allInCost(p, free);
     const distance = previewLiquidationDistance(p);
     const source = typeof p.markSource === 'string' ? t('Mark source', { source: p.markSource }) : undefined;
@@ -406,7 +372,7 @@ export function Ticket(props: TicketProps) {
     ];
   };
   /** The margin tier the order carries this side into, from the service's own ladder at today's depth. */
-  const tierItems = (p: PositionPreview): KeyValueItem[] => {
+  const tierItems = (p: PositionPreview): KvItem[] => {
     if (p.riskTier === undefined) return [];
     const tier = p.riskTier;
     return [
@@ -419,7 +385,7 @@ export function Ticket(props: TicketProps) {
     ];
   };
   /** The open interest this account may still add on the contract, and the limit that sets it (D-margin-05). */
-  const openInterestItems = (p: PositionPreview): KeyValueItem[] => {
+  const openInterestItems = (p: PositionPreview): KvItem[] => {
     if (p.openInterest === undefined) return [];
     const oi = p.openInterest;
     const base = market.base;
@@ -459,9 +425,9 @@ export function Ticket(props: TicketProps) {
     });
   };
   /** The band, the price the order is held and sent at, the slippage cap and the max-order: the limits this order meets. */
-  const controlItems = (p: PositionPreview): KeyValueItem[] => {
+  const controlItems = (p: PositionPreview): KvItem[] => {
     if (p.band === undefined) return [];
-    const items: KeyValueItem[] = [
+    const items: KvItem[] = [
       {
         label: t('Price band'),
         value: p.band === null ? t('Not set') : t('Band range', { low: price(p.band.low) ?? '', high: price(p.band.high) ?? '' }),
@@ -521,133 +487,129 @@ export function Ticket(props: TicketProps) {
   const sideWord = side === 'long' ? t('Long') : t('Short');
 
   return (
-    <section aria-label={t('Ticket')} className="flex flex-col gap-3 p-3">
-      <SegmentedControl
-        aria-label={t('Direction')}
-        size={40}
-        fullWidth
+    <section aria-label={t('Ticket')} className="lt-stack">
+      <Segmented
+        label={t('Direction')}
         value={side}
-        onValueChange={(v) => {
-          setSide(v as Side);
+        onChange={(v: Side) => {
+          setSide(v);
           touch();
         }}
         // Reduce-only names what the order does, since a buy lowers a short and a sell lowers a long.
-        items={[
-          { value: 'long', label: reduceOnly ? t('Reduce direction buy') : t('Long'), tone: 'up' },
-          { value: 'short', label: reduceOnly ? t('Reduce direction sell') : t('Short'), tone: 'down' },
+        options={[
+          { value: 'long', label: reduceOnly ? t('Reduce direction buy') : t('Long') },
+          { value: 'short', label: reduceOnly ? t('Reduce direction sell') : t('Short') },
         ]}
       />
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="lt-hint">{t('Margin mode')}</span>
-        <span className="flex items-center gap-2">
-          <SegmentedControl
-            aria-label={t('Margin mode')}
-            size={28}
+      <div className="lt-row lt-row-between">
+        <span className="lt-quiet">{t('Margin mode')}</span>
+        <span className="lt-row">
+          <Segmented
+            label={t('Margin mode')}
             value="isolated"
-            onValueChange={(v) =>
+            onChange={(v) =>
               // Only isolated is live. Choosing another mode changes nothing and sends nothing: it names the rule.
               setModeAsked(v === 'cross' ? 'trade.cross_margin_unsupported' : v === 'portfolio' ? 'trade.portfolio_margin_unset' : null)
             }
-            items={[
+            options={[
               { value: 'isolated', label: t('Isolated') },
               { value: 'cross', label: t('Cross') },
               { value: 'portfolio', label: t('Portfolio') },
             ]}
           />
           <Popover>
-            <PopoverTrigger render={<Button variant="ghost" size={28} />}>{t('Why only isolated')}</PopoverTrigger>
+            <PopoverTrigger render={<Button tone="quiet" size="sm" />}>{t('Why only isolated')}</PopoverTrigger>
             <PopoverContent>
-              <PopoverDescription>{t('Isolated rule')}</PopoverDescription>
+              <p className="lt-note">{t('Isolated rule')}</p>
             </PopoverContent>
           </Popover>
         </span>
       </div>
       {modeAsked ? (
-        <p role="status" className="text-xs text-warn" data-code={modeAsked}>
+        <p role="status" className={warn} data-code={modeAsked}>
           {futuresRefusal({ code: modeAsked }).title}. {futuresRefusal({ code: modeAsked }).body}
         </p>
       ) : null}
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="lt-hint">{t('Margin from')}</span>
+      <div className="lt-row lt-row-between">
+        <span className="lt-quiet">{t('Margin from')}</span>
         {/* Cash is the margin. Another choice is sent to the review as chosen, so the service names its own refusal. */}
-        <SegmentedControl
-          aria-label={t('Margin from')}
-          size={28}
+        <Segmented
+          label={t('Margin from')}
           value={collateral}
-          onValueChange={(v) => {
-            setCollateral(v as CollateralChoice);
+          onChange={(v: CollateralChoice) => {
+            setCollateral(v);
             touch();
           }}
-          items={COLLATERAL_CHOICES.map((c) => ({ value: c, label: t(`Margin from ${c}`), disabled: reduceOnly }))}
+          options={COLLATERAL_CHOICES.map((c) => ({ value: c, label: t(`Margin from ${c}`), disabled: reduceOnly }))}
         />
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="lt-hint">{t('Order type')}</span>
-        <span className="flex items-center gap-2">
-          <SegmentedControl
-            aria-label={t('Order type')}
-            size={32}
+      <div className="lt-row lt-row-between">
+        <span className="lt-quiet">{t('Order type')}</span>
+        <span className="lt-row">
+          <Segmented
+            label={t('Order type')}
             value={orderType}
-            onValueChange={(v) => {
-              setOrderType(v as BookType);
+            onChange={(v: BookType) => {
+              setOrderType(v);
               touch();
             }}
-            items={BOOK_TYPES.map((id) => ({
+            options={BOOK_TYPES.map((id) => ({
               value: id,
               label: t(id === 'market' ? 'Type market' : 'Type limit'),
               disabled: !offered.includes(id),
             }))}
           />
-          <Menu>
-            <MenuContent align="end">
-              <MenuGroup>
-                <MenuLabel>{catalogue.status === 'ready' ? t('Order types off') : t('Off types loading')}</MenuLabel>
-                {refusedTypes.map((entry) => (
-                  <MenuItem key={entry.id} disabled>
-                    <span className="flex flex-col">
-                      <span>{typeName(entry.id)}</span>
-                      <span className="text-2xs text-fg-3">
-                        {futuresRefusal({ code: entry.code ?? 'trade.order_type_unsupported' }).body}
-                      </span>
-                    </span>
-                  </MenuItem>
-                ))}
-              </MenuGroup>
-            </MenuContent>
-            <MenuTrigger render={<Button variant="ghost" size={32} aria-label={t('Other order types')} />}>
-              {t('More types')}
-              <span aria-hidden="true"> ▾</span>
-            </MenuTrigger>
-          </Menu>
+          <Menu
+            size="sm"
+            triggerLabel={t('Other order types')}
+            label={
+              <>
+                {t('More types')}
+                <span aria-hidden="true"> ▾</span>
+              </>
+            }
+            note={catalogue.status === 'ready' ? t('Order types off') : t('Off types loading')}
+            items={refusedTypes.map((entry) => ({
+              key: entry.id,
+              disabled: true,
+              onSelect: () => undefined,
+              label: (
+                <span className="lt-stack-tight lt-tight">
+                  <span>{typeName(entry.id)}</span>
+                  <span className="lt-note">{futuresRefusal({ code: entry.code ?? 'trade.order_type_unsupported' }).body}</span>
+                </span>
+              ),
+            }))}
+          />
         </span>
       </div>
       <p className={note}>{orderType === 'market' ? t('Market rule') : t('Limit rule')}</p>
       {orderType === 'limit' ? (
-        <Field label={t('Limit price')} hint={t('Limit price hint')}>
-          <Input
-            kind="decimal"
-            value={limitRaw}
-            precision={fractionDigits(market.precision.price) ?? 2}
-            onValueChange={(v) => {
-              setLimitRaw(v);
-              touch();
-            }}
-            trailing={asset}
-          />
-        </Field>
+        <DecimalInput
+          label={t('Limit price')}
+          hint={t('Limit price hint')}
+          value={limitRaw}
+          precision={fractionDigits(market.precision.price) ?? 2}
+          onValueChange={(v) => {
+            setLimitRaw(v);
+            touch();
+          }}
+          unit={asset}
+        />
       ) : null}
       {orderType === 'limit' ? (
-        <div className="lt-stack">
-          <div className="flex items-center justify-between gap-2">
-            <span id="ticket-correct" className="lt-hint">
+        <div className="lt-stack-tight lt-tight">
+          <div className="lt-row lt-row-between">
+            <span id="ticket-correct" className="lt-quiet">
               {t('Price correction')}
             </span>
             <Switch
+              label={t('Price correction')}
               checked={adjust}
-              onCheckedChange={(on) => {
+              onChange={(on) => {
                 setAdjust(on);
                 touch();
               }}
@@ -661,11 +623,11 @@ export function Ticket(props: TicketProps) {
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between gap-2" aria-live="polite">
-        <span className="lt-hint">{t('Mark')}</span>
-        <span className="flex items-center gap-2">
-          <span className="if-num">{markNow === null ? '—' : price(markNow)}</span>
-          <StatusChip
+      <div className="lt-row lt-row-between" aria-live="polite">
+        <span className="lt-quiet">{t('Mark')}</span>
+        <span className="lt-row">
+          <span className="lt-num">{markNow === null ? '—' : price(markNow)}</span>
+          <FreshnessChip
             kind={markNow === null && strip.status === 'ready' ? 'unknown' : undefined}
             asOf={markAsOf}
             now={now}
@@ -673,35 +635,32 @@ export function Ticket(props: TicketProps) {
             refused={strip.status === 'refused'}
             labels={{ stale: t('Stale mark'), unknown: t('No mark') }}
             reason={markNow === null ? t('No mark reason') : undefined}
-            density="dense"
           />
         </span>
       </div>
 
-      <Field label={t('Size')} hint={baseNote ?? undefined}>
-        <Input
-          kind="decimal"
-          value={sizeRaw}
-          precision={sizePlaces(market)}
-          onValueChange={(v) => {
-            setSizeRaw(v);
-            touch();
-          }}
-          trailing={unit === 'base' ? market.base : t('Contracts')}
-        />
-      </Field>
+      <DecimalInput
+        label={t('Size')}
+        hint={baseNote ?? undefined}
+        value={sizeRaw}
+        precision={sizePlaces(market)}
+        onValueChange={(v) => {
+          setSizeRaw(v);
+          touch();
+        }}
+        unit={unit === 'base' ? market.base : t('Contracts')}
+      />
       {contractsAllowed(market) ? (
-        <SegmentedControl
-          aria-label={t('Size unit')}
-          size={28}
+        <Segmented
+          label={t('Size unit')}
           value={unit}
-          onValueChange={(v) => {
+          onChange={(v: SizeUnit) => {
             // A converted number would need division and could round; starting empty keeps the size exact.
-            setUnit(v as SizeUnit);
+            setUnit(v);
             setSizeRaw('');
             touch();
           }}
-          items={[
+          options={[
             { value: 'base', label: t('Base', { asset: market.base }) },
             { value: 'contracts', label: t('Contracts') },
           ]}
@@ -709,12 +668,12 @@ export function Ticket(props: TicketProps) {
       ) : (
         <p className={note}>{t('Contracts off')}</p>
       )}
-      <div role="group" aria-label={t('Percent of max group')} className="lt-actions">
+      <div role="group" aria-label={t('Percent of max group')} className="lt-row">
         {PERCENTS.map((pct) => (
           <Button
             key={pct}
-            variant="secondary"
-            size={28}
+            tone="secondary"
+            size="sm"
             disabled={reduceOnly || percentTo(pct) === null}
             onClick={() => {
               setSizeRaw(percentTo(pct) ?? '');
@@ -731,26 +690,25 @@ export function Ticket(props: TicketProps) {
           : (percentOff ?? (markNow === null || free === null ? t('Percent needs mark') : t('Percent is estimate')))}
       </p>
 
-      <Field label={t('Leverage')} hint={reduceOnly ? t('Leverage reduce hint') : t('Leverage hint')}>
-        <Input
-          kind="decimal"
-          value={leverage}
-          disabled={reduceOnly}
-          precision={2}
-          onValueChange={(v) => {
-            setLeverage(v);
-            touch();
-          }}
-          trailing="x"
-        />
-      </Field>
+      <DecimalInput
+        label={t('Leverage')}
+        hint={reduceOnly ? t('Leverage reduce hint') : t('Leverage hint')}
+        value={leverage}
+        disabled={reduceOnly}
+        precision={2}
+        onValueChange={(v) => {
+          setLeverage(v);
+          touch();
+        }}
+        unit="x"
+      />
       {presets.length > 0 ? (
-        <div role="group" aria-label={t('Leverage presets')} className="lt-actions">
+        <div role="group" aria-label={t('Leverage presets')} className="lt-row">
           {presets.map((x) => (
             <Button
               key={x}
-              variant="secondary"
-              size={28}
+              tone="secondary"
+              size="sm"
               disabled={reduceOnly}
               onClick={() => {
                 setLeverage(x);
@@ -763,14 +721,15 @@ export function Ticket(props: TicketProps) {
         </div>
       ) : null}
 
-      <div className="lt-stack">
-        <div className="flex items-center justify-between gap-2">
-          <span id="ticket-reduce" className="lt-hint">
+      <div className="lt-stack-tight lt-tight">
+        <div className="lt-row lt-row-between">
+          <span id="ticket-reduce" className="lt-quiet">
             {t('Reduce only')}
           </span>
           <Switch
+            label={t('Reduce only')}
             checked={reduceOnly}
-            onCheckedChange={(on) => {
+            onChange={(on) => {
               setReduceOnly(on);
               // A take profit or stop loss attaches only to an order that opens or adds.
               if (on) {
@@ -787,8 +746,8 @@ export function Ticket(props: TicketProps) {
           {reduceOnly ? t('Reduce only on') : t('Reduce only off')}
         </p>
       </div>
-      <section aria-labelledby="ticket-tpsl" className="lt-stack">
-        <h3 id="ticket-tpsl" className="text-sm text-fg-2">
+      <section aria-labelledby="ticket-tpsl" className="lt-stack-tight">
+        <h3 id="ticket-tpsl" className="lt-quiet">
           {t('Take profit stop loss')}
         </h3>
         <p className={note}>{reduceOnly ? t('Entry protection reduce') : t('Entry protection hint')}</p>
@@ -797,81 +756,66 @@ export function Ticket(props: TicketProps) {
           const set = leg === 'take_profit' ? setTakeProfit : setStopLoss;
           const problem = legProblems[leg];
           return (
-            <Field
+            <DecimalInput
               key={leg}
               label={t(leg === 'take_profit' ? 'Entry take profit' : 'Entry stop loss', { quote: asset })}
               hint={t(legSide(side, leg) === 'above' ? 'Entry side above' : 'Entry side below')}
               error={problem ? t(`Entry problem ${problem}`) : undefined}
-            >
-              <Input
-                kind="decimal"
-                value={value}
-                disabled={reduceOnly}
-                precision={fractionDigits(market.precision.price) ?? 2}
-                trailing={asset}
-                onValueChange={(v) => {
-                  set(v);
-                  // Part of the order's request, so a changed one is sent under a new id. The review stays: it does
-                  // not price the protection, and a review still loading must land.
-                  setNonce(newNonce());
-                  if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
-                }}
-              />
-            </Field>
+              value={value}
+              disabled={reduceOnly}
+              precision={fractionDigits(market.precision.price) ?? 2}
+              unit={asset}
+              onValueChange={(v) => {
+                set(v);
+                // Part of the order's request, so a changed one is sent under a new id. The review stays: it does
+                // not price the protection, and a review still loading must land.
+                setNonce(newNonce());
+                if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
+              }}
+            />
           );
         })}
       </section>
 
-      <Field label={t('Order label')} hint={t('Order label hint')} error={labelBad ? t('Order label invalid') : undefined}>
-        <Input
-          value={label}
-          maxLength={36}
-          onValueChange={(v) => {
-            setLabel(v);
-            // Part of the order's request, so a changed label is sent under a new id.
-            setNonce(newNonce());
-            if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
-          }}
-        />
-      </Field>
+      <Field
+        label={t('Order label')}
+        hint={t('Order label hint')}
+        error={labelBad ? t('Order label invalid') : undefined}
+        value={label}
+        maxLength={36}
+        onChange={(e) => {
+          setLabel(e.currentTarget.value);
+          // Part of the order's request, so a changed label is sent under a new id.
+          setNonce(newNonce());
+          if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
+        }}
+      />
 
-      <Button
-        variant="secondary"
-        fullWidth
-        disabled={reviewOff !== null}
-        loading={review.status === 'loading'}
-        onClick={() => void runReview()}
-      >
+      <Button tone="secondary" block disabled={reviewOff !== null} busy={review.status === 'loading'} onClick={() => void runReview()}>
         {review.status === 'loading' ? t('Reviewing') : t('Review')}
       </Button>
       {reviewOff !== null ? <p className={note}>{offWords[reviewOff]}</p> : null}
 
-      <h3 className="text-sm font-medium">{t('All in cost')}</h3>
-      {review.status === 'loading' ? <Skeleton className="h-40 w-full" /> : null}
+      <h3 className="lt-strong">{t('All in cost')}</h3>
+      {review.status === 'loading' ? <Skeleton shape="keys" /> : null}
       {review.status === 'error' ? <StateBlock kind="error" thing={t('Preview error')} onRetry={() => void runReview()} /> : null}
       {review.status === 'refused' ? (
-        <EmptyState
-          variant="refused"
-          size="inline"
-          title={review.refusal.title}
-          reason={review.refusal.body}
-          code={review.refusal.code ?? undefined}
-        />
+        <RegionNote variant="refused" title={review.refusal.title} reason={review.refusal.body} code={review.refusal.code ?? undefined} />
       ) : null}
       {shown && review.status === 'ready' ? (
         <>
-          <KeyValue density="dense" items={costItems(shown, review.at)} unknownLabel={t('Unknown figure')} now={now} />
+          <KeyValue rows={kvRows(costItems(shown, review.at), t('Unknown figure'), { now })} />
           {shown.refusals.map((r) => {
             const words = r.field === 'collateral' ? collateralRefusal(r.venue) : null;
             return (
-              <p key={`${r.code}:${r.field}`} role="status" className="text-xs text-warn" data-code={r.code}>
+              <p key={`${r.code}:${r.field}`} role="status" className={warn} data-code={r.code}>
                 {words ? `${words.title}. ${words.body}` : r.message}
               </p>
             );
           })}
           {shown.split && splitShown ? (
-            <section aria-label={t('Split title')} className="flex flex-col gap-2 rounded-lg border border-line p-3">
-              <h4 className="text-sm font-medium">{t('Split title')}</h4>
+            <section aria-label={t('Split title')} className="lt-callout">
+              <h4 className="lt-strong">{t('Split title')}</h4>
               <p className={note}>
                 {t('Split body', {
                   max: money(shown.maxOrderNotional ?? null) ?? '—',
@@ -880,8 +824,8 @@ export function Ticket(props: TicketProps) {
                 })}
               </p>
               <Button
-                variant="secondary"
-                size={32}
+                tone="secondary"
+                size="sm"
                 disabled={splitOff !== null}
                 onClick={() => setConfirm({ data: shown, changed: false, checking: false, split: true, tierAccepted: false })}
               >
@@ -896,10 +840,10 @@ export function Ticket(props: TicketProps) {
       ) : null}
 
       <Button
-        variant={side === 'long' ? 'buy' : 'sell'}
-        fullWidth
+        tone={side === 'long' ? 'up' : 'down'}
+        block
         disabled={reduceOnly ? reduceOff !== null || writer.busy : openOff !== null}
-        loading={writer.busy}
+        busy={writer.busy}
         onClick={() =>
           reduceOnly
             ? setReduceConfirm(true)
@@ -927,21 +871,27 @@ export function Ticket(props: TicketProps) {
         }}
       />
 
-      <AlertDialog open={reduceConfirm} onOpenChange={(open) => !open && setReduceConfirm(false)}>
-        {reduceConfirm ? (
-          <AlertDialogContent className="max-h-[calc(100dvh-32px)] overflow-y-auto">
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {side === 'long' ? t('Confirm reduce buy', { symbol: market.symbol }) : t('Confirm reduce sell', { symbol: market.symbol })}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {side === 'long' ? t('Confirm reduce body buy') : t('Confirm reduce body sell')}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <KeyValue
-              density="dense"
-              unknownLabel={t('Unknown figure')}
-              items={[
+      {reduceConfirm ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={side === 'long' ? t('Confirm reduce buy', { symbol: market.symbol }) : t('Confirm reduce sell', { symbol: market.symbol })}
+          description={side === 'long' ? t('Confirm reduce body buy') : t('Confirm reduce body sell')}
+          onClose={() => setReduceConfirm(false)}
+          footer={
+            <>
+              <Button tone="secondary" onClick={() => setReduceConfirm(false)}>
+                {t('Cancel')}
+              </Button>
+              <Button tone={side === 'long' ? 'up' : 'down'} disabled={reduceOff !== null} onClick={() => void confirmReduce()}>
+                {side === 'long' ? t('Confirm reduce buy button') : t('Confirm reduce sell button')}
+              </Button>
+            </>
+          }
+        >
+          <KeyValue
+            rows={kvRows(
+              [
                 { label: t('Direction'), value: side === 'long' ? t('Reduce direction buy') : t('Reduce direction sell') },
                 { label: t('Size row'), value: size === null ? null : `${fmtAmount(size)} ${market.base}` },
                 {
@@ -950,50 +900,61 @@ export function Ticket(props: TicketProps) {
                 },
                 { label: t('Reduce only'), value: t('Reduce only yes') },
                 { label: t('Mark price'), value: price(markNow) },
-              ]}
-            />
-            <AlertDialogFooter>
-              <Button variant="secondary" onClick={() => setReduceConfirm(false)}>
+              ],
+              t('Unknown figure'),
+            )}
+          />
+        </Sheet>
+      ) : null}
+
+      {confirm ? (
+        // A long review (the cost rows, a split, a new margin tier) scrolls inside the sheet on a short screen.
+        <Sheet
+          open
+          role="alertdialog"
+          title={side === 'long' ? t('Confirm title long', { symbol: market.symbol }) : t('Confirm title short', { symbol: market.symbol })}
+          description={
+            confirm.changed
+              ? t('Confirm changed')
+              : allInCost(confirm.data, free).totalToCommit === null
+                ? t('Confirm body unknown')
+                : t('Confirm body', { total: fmtAmount(allInCost(confirm.data, free).totalToCommit), asset })
+          }
+          onClose={() => {
+            if (!confirm.checking) setConfirm(null);
+          }}
+          footer={
+            <>
+              <Button tone="secondary" disabled={confirm.checking} onClick={() => setConfirm(null)}>
                 {t('Cancel')}
               </Button>
-              <Button variant={side === 'long' ? 'buy' : 'sell'} disabled={reduceOff !== null} onClick={() => void confirmReduce()}>
-                {side === 'long' ? t('Confirm reduce buy button') : t('Confirm reduce sell button')}
+              <Button
+                tone={side === 'long' ? 'up' : 'down'}
+                busy={confirm.checking}
+                disabled={
+                  (confirm.split ? gate(splitPreview(confirm.data)) : gate(confirm.data)) !== null ||
+                  (tierToConfirm(confirm.data) !== null && !confirm.tierAccepted)
+                }
+                onClick={() => void confirmOpen()}
+              >
+                {confirm.checking ? t('Checking') : side === 'long' ? t('Confirm open long') : t('Confirm open short')}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
-
-      <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && !confirm?.checking && setConfirm(null)}>
-        {confirm ? (
-          // A long review (the cost rows, a split, a new margin tier) scrolls inside the dialog on a short screen.
-          <AlertDialogContent className="max-h-[calc(100dvh-32px)] overflow-y-auto">
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {side === 'long' ? t('Confirm title long', { symbol: market.symbol }) : t('Confirm title short', { symbol: market.symbol })}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {confirm.changed
-                  ? t('Confirm changed')
-                  : allInCost(confirm.data, free).totalToCommit === null
-                    ? t('Confirm body unknown')
-                    : t('Confirm body', { total: fmtAmount(allInCost(confirm.data, free).totalToCommit), asset })}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            {confirm.data.riskTier?.confirmRequired ? (
-              <TierConfirm
-                tier={confirm.data.riskTier}
-                leverage={form?.leverage ?? null}
-                cap={confirm.data.leverageCap}
-                accepted={confirm.tierAccepted}
-                disabled={confirm.checking}
-                onAccept={(accepted) => setConfirm({ ...confirm, tierAccepted: accepted })}
-              />
-            ) : null}
-            <KeyValue
-              density="dense"
-              unknownLabel={t('Unknown figure')}
-              items={[
+            </>
+          }
+        >
+          {confirm.data.riskTier?.confirmRequired ? (
+            <TierConfirm
+              tier={confirm.data.riskTier}
+              leverage={form?.leverage ?? null}
+              cap={confirm.data.leverageCap}
+              accepted={confirm.tierAccepted}
+              disabled={confirm.checking}
+              onAccept={(accepted) => setConfirm({ ...confirm, tierAccepted: accepted })}
+            />
+          ) : null}
+          <KeyValue
+            rows={kvRows(
+              [
                 { label: t('Direction'), value: sideWord },
                 { label: t('Size row'), value: form ? `${fmtAmount(form.size)} ${market.base}` : null },
                 ...(confirm.split && confirm.data.split
@@ -1011,27 +972,12 @@ export function Ticket(props: TicketProps) {
                     ]
                   : []),
                 ...costItems(confirm.data, null),
-              ]}
-            />
-            <AlertDialogFooter>
-              <Button variant="secondary" disabled={confirm.checking} onClick={() => setConfirm(null)}>
-                {t('Cancel')}
-              </Button>
-              <Button
-                variant={side === 'long' ? 'buy' : 'sell'}
-                loading={confirm.checking}
-                disabled={
-                  (confirm.split ? gate(splitPreview(confirm.data)) : gate(confirm.data)) !== null ||
-                  (tierToConfirm(confirm.data) !== null && !confirm.tierAccepted)
-                }
-                onClick={() => void confirmOpen()}
-              >
-                {confirm.checking ? t('Checking') : side === 'long' ? t('Confirm open long') : t('Confirm open short')}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+              ],
+              t('Unknown figure'),
+            )}
+          />
+        </Sheet>
+      ) : null}
     </section>
   );
 }
@@ -1054,15 +1000,15 @@ function TierConfirm(props: {
   const { tier } = props;
   const tierWord = String(tier.projected);
   return (
-    <section aria-label={t('Tier confirm title')} className="mb-4 flex flex-col gap-2 rounded-lg border border-warn p-3">
-      <h4 className="text-sm font-medium">{t('Tier confirm heading', { tier: tierWord })}</h4>
-      <p className="text-xs text-fg-2">
+    <section aria-label={t('Tier confirm title')} className="lt-callout lt-callout-warn">
+      <h4 className="lt-strong">{t('Tier confirm heading', { tier: tierWord })}</h4>
+      <p className="lt-note">
         {tier.current === null
           ? t('Tier confirm opens', { tier: tierWord })
           : t('Tier confirm moves', { from: String(tier.current), tier: tierWord })}{' '}
         {t('Tier confirm rate', { tier: tierWord, rate: fmtPct(tier.maintenanceRate, { signed: false }) })}
       </p>
-      <p className="text-xs text-fg-2">
+      <p className="lt-note">
         {props.cap === null
           ? t('Tier confirm leverage no cap', { leverage: props.leverage ? `${fmtAmount(props.leverage)}x` : '—' })
           : t('Tier confirm leverage', {
@@ -1070,10 +1016,12 @@ function TierConfirm(props: {
               cap: `${fmtAmount(props.cap)}x`,
             })}
       </p>
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox checked={props.accepted} disabled={props.disabled} onCheckedChange={(v) => props.onAccept(v === true)} />
-        <span>{t('Tier confirm accept', { tier: tierWord })}</span>
-      </label>
+      <Checkbox
+        label={t('Tier confirm accept', { tier: tierWord })}
+        checked={props.accepted}
+        disabled={props.disabled}
+        onChange={(e) => props.onAccept(e.currentTarget.checked)}
+      />
     </section>
   );
 }
@@ -1082,31 +1030,28 @@ function TierConfirm(props: {
 function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending: Pending, resend?: boolean): void; onAgain(): void }) {
   const { t } = ticketCopy.useCopy();
   const { outcome, note: held } = writer;
-  if (held.state === 'unreadable')
-    return <EmptyState variant="refused" size="inline" title={t('Unknown title')} reason={t('Unreadable body')} />;
+  if (held.state === 'unreadable') return <RegionNote variant="refused" title={t('Unknown title')} reason={t('Unreadable body')} />;
   if (held.state === 'pending' || outcome?.kind === 'uncertain') {
     const pending = held.state === 'pending' ? held.pending : null;
     return (
-      <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
-        <h3 className="text-sm font-medium">{t('Unknown title')}</h3>
+      <div role="status" className="lt-callout">
+        <h3 className="lt-strong">{t('Unknown title')}</h3>
         <p className={note}>{t('Unknown body')}</p>
-        <p className="if-mono break-all text-xs text-fg-2">
-          {t('Unknown id', { id: pending?.id ?? (outcome?.kind === 'uncertain' ? outcome.id : '—') })}
-        </p>
+        <p className="lt-note lt-mono">{t('Unknown id', { id: pending?.id ?? (outcome?.kind === 'uncertain' ? outcome.id : '—') })}</p>
         {pending ? (
-          <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending)}>
+          <Button tone="secondary" size="sm" busy={writer.busy} onClick={() => onCheck(pending)}>
             {t('Check status')}
           </Button>
         ) : null}
         {pending && outcome?.kind === 'uncertain' && outcome.notFound ? (
           <>
             <p className={note}>{outcome.found ? t('Split partly found', { count: String(outcome.found.length) }) : t('Not found body')}</p>
-            <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending, true)}>
+            <Button tone="secondary" size="sm" busy={writer.busy} onClick={() => onCheck(pending, true)}>
               {t('Send same request again')}
             </Button>
           </>
         ) : null}
-        {outcome?.kind === 'blocked' ? <p className="text-xs text-warn">{t(`Blocked ${outcome.reason}`)}</p> : null}
+        {outcome?.kind === 'blocked' ? <p className={warn}>{t(`Blocked ${outcome.reason}`)}</p> : null}
       </div>
     );
   }
@@ -1120,36 +1065,36 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
     if (outcome.orders && (outcome.orders.length > 1 || outcome.stopped)) {
       const stopped = outcome.stopped ? futuresRefusal({ code: outcome.stopped.code, message: outcome.stopped.message }) : null;
       return (
-        <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
-          <h3 className="text-sm font-medium">
+        <div role="status" className="lt-callout">
+          <h3 className="lt-strong">
             {stopped
               ? t('Split stopped title', { placed: String(outcome.orders.length) })
               : t('Split placed title', { parts: String(outcome.orders.length) })}
           </h3>
           {stopped ? (
-            <p className="text-xs text-warn" data-code={stopped.code ?? undefined}>
+            <p className={warn} data-code={stopped.code ?? undefined}>
               {t('Split stopped body', { reason: `${stopped.title}. ${stopped.body}` })}
             </p>
           ) : null}
-          <ul className="flex flex-col gap-1 text-sm">
+          <ul className="lt-list">
             {outcome.orders.map((child) => (
-              <li key={child.orderId} className="if-num">
+              <li key={child.orderId} className="lt-num">
                 {child.status === 'open'
                   ? t('Split child resting', { qty: fmtAmount(child.qty), price: fmtAmount(child.limitPrice) })
                   : t('Split child filled', { filled: fmtAmount(child.filledQty), qty: fmtAmount(child.qty) })}
               </li>
             ))}
           </ul>
-          <Button variant="secondary" size={32} onClick={onAgain}>
+          <Button tone="secondary" size="sm" onClick={onAgain}>
             {t('Open another')}
           </Button>
         </div>
       );
     }
     return (
-      <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
-        <h3 className="text-sm font-medium">{resting ? t('Resting title') : partly ? t('Partly title') : t('Opened title')}</h3>
-        <p className="text-sm">
+      <div role="status" className="lt-callout">
+        <h3 className="lt-strong">{resting ? t('Resting title') : partly ? t('Partly title') : t('Opened title')}</h3>
+        <p>
           {order
             ? resting
               ? t('Resting body', { qty: fmtAmount(order.qty), price: fmtAmount(order.limitPrice) })
@@ -1158,7 +1103,7 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
               ? t('Opened body', { id: outcome.position.id, status: word })
               : t('Opened no id', { status: word })}
         </p>
-        <Button variant="secondary" size={32} onClick={onAgain}>
+        <Button tone="secondary" size="sm" onClick={onAgain}>
           {order?.reduceOnly ? t('Place another') : t('Open another')}
         </Button>
       </div>
@@ -1166,17 +1111,11 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
   }
   if (outcome?.kind === 'refused')
     return (
-      <EmptyState
-        variant="refused"
-        size="inline"
-        title={outcome.refusal.title}
-        reason={outcome.refusal.body}
-        code={outcome.refusal.code ?? undefined}
-      />
+      <RegionNote variant="refused" title={outcome.refusal.title} reason={outcome.refusal.body} code={outcome.refusal.code ?? undefined} />
     );
   if (outcome?.kind === 'blocked')
     return (
-      <p role="status" className="text-xs text-warn">
+      <p role="status" className={warn}>
         {t(`Blocked ${outcome.reason}`)}
       </p>
     );

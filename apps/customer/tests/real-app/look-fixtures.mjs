@@ -154,6 +154,10 @@ export const TRPC = {
   },
   // protocol: the one TEST wallet the account connected; the venue account it owns is its trading account (row d115).
   'protocol:venueWallet.status': () => ({ connections: [venueConnection()] }),
+  // pay: a personal account with no business yet (matches `bank:business.list: () => []`), so business rooms show their
+  // no-business state with one "Open a business account" menu entry and `/pay/onboarding` opens on the first setup step.
+  'pay:merchant.myAccess': () => ({ memberships: [] }),
+  'pay:merchant.me': () => null,
 };
 
 export const REST = {

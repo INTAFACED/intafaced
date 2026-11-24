@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Amount, Badge, Button, ChoiceGroup, EmptyState, Price, Table, type TableColumn } from '@intafaced/ui';
+import { Amount, Tag, Button, Price, Segmented } from '@intafaced/ui/lit';
+import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { usePreferences } from '../../../shared/preferences';
@@ -10,6 +11,7 @@ import { LoadGate, TabHeader } from './HistoryTab';
 import { cancellable, FuturesOrderOrigin, FuturesOrderStatus } from './OrderStatus';
 import { futuresRefusal } from './refusals';
 import { tabsCopy } from './tabs-copy';
+import { RegionNote } from './notes';
 
 type Scope = 'open' | 'all';
 
@@ -41,34 +43,32 @@ export function OrdersTab({
     onChanged();
   };
 
-  const columns: TableColumn<FuturesOrder>[] = [
-    { id: 'time', header: t('Order time'), value: (o) => (o.createdAt ? dayTime(Date.parse(o.createdAt), timeZone) : '') },
-    { id: 'contract', header: t('Contract'), value: (o) => o.symbol ?? o.marketId },
+  const columns: Column<FuturesOrder>[] = [
+    { key: 'time', label: t('Order time'), cell: (o) => (o.createdAt ? dayTime(Date.parse(o.createdAt), timeZone) : '') },
+    { key: 'contract', label: t('Contract'), cell: (o) => o.symbol ?? o.marketId },
     {
-      id: 'side',
-      header: t('Side'),
+      key: 'side',
+      label: t('Side'),
       cell: (o) => (
-        <span className="flex items-center gap-1">
-          <Badge variant="outline" tone={o.side === 'buy' ? 'up' : 'down'}>
-            {o.side === 'buy' ? t('Buy') : t('Sell')}
-          </Badge>
-          {o.reduceOnly ? <Badge>{t('Reduce only')}</Badge> : null}
+        <span className="lt-row">
+          <Tag tone={o.side === 'buy' ? 'up' : 'down'}>{o.side === 'buy' ? t('Buy') : t('Sell')}</Tag>
+          {o.reduceOnly ? <Tag>{t('Reduce only')}</Tag> : null}
         </span>
       ),
     },
-    { id: 'type', header: t('Order type'), value: (o) => (o.type === 'limit' ? t('Limit') : t('Market')) },
-    { id: 'price', header: t('Order price'), numeric: true, cell: (o) => <Price value={fmtPrice(o.limitPrice, undefined)} /> },
-    { id: 'size', header: t('Size'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.qty, { places: 8 })} /> },
-    { id: 'filled', header: t('Order filled qty'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.filledQty, { places: 8 })} /> },
-    { id: 'held', header: t('Order margin held'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.holdAmount, { places: 4 })} /> },
-    { id: 'origin', header: t('Order origin'), cell: (o) => <FuturesOrderOrigin origin={o.origin} label={o.orderLabel} /> },
-    { id: 'status', header: t('Status'), cell: (o) => <FuturesOrderStatus order={o} /> },
+    { key: 'type', label: t('Order type'), cell: (o) => (o.type === 'limit' ? t('Limit') : t('Market')) },
+    { key: 'price', label: t('Order price'), align: 'end', cell: (o) => <Price value={fmtPrice(o.limitPrice, undefined)} /> },
+    { key: 'size', label: t('Size'), align: 'end', cell: (o) => <Amount value={fmtAmount(o.qty, { places: 8 })} /> },
+    { key: 'filled', label: t('Order filled qty'), align: 'end', cell: (o) => <Amount value={fmtAmount(o.filledQty, { places: 8 })} /> },
+    { key: 'held', label: t('Order margin held'), align: 'end', cell: (o) => <Amount value={fmtAmount(o.holdAmount, { places: 4 })} /> },
+    { key: 'origin', label: t('Order origin'), cell: (o) => <FuturesOrderOrigin origin={o.origin} label={o.orderLabel} /> },
+    { key: 'status', label: t('Status'), cell: (o) => <FuturesOrderStatus order={o} /> },
     {
-      id: 'action',
-      header: t('Order action'),
+      key: 'action',
+      label: t('Order action'),
       cell: (o) =>
         cancellable(o) ? (
-          <Button variant="secondary" size={28} loading={cancelling === o.orderId} onClick={() => void cancel(o)}>
+          <Button tone="secondary" size="sm" busy={cancelling === o.orderId} onClick={() => void cancel(o)}>
             {t('Cancel order')}
           </Button>
         ) : null,
@@ -76,19 +76,21 @@ export function OrdersTab({
   ];
 
   return (
-    <section aria-label={t('Orders table')} className="flex flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2">
-        <ChoiceGroup
-          items={['open', 'all']}
+    <section aria-label={t('Orders table')} className="lt-stack">
+      <div className="lt-row lt-row-between">
+        <Segmented
+          options={[
+            { value: 'open', label: t('Orders open') },
+            { value: 'all', label: t('Orders all') },
+          ]}
           value={scope}
-          onChange={(value) => setScope(value as Scope)}
+          onChange={(value: Scope) => setScope(value)}
           label={t('Orders scope')}
-          labels={{ open: t('Orders open'), all: t('Orders all') }}
         />
       </div>
       <TabHeader title={scope === 'open' ? t('Orders open heading') : t('Orders all heading')} load={load} />
       {failure ? (
-        <p role="status" className="m-0 px-3 text-xs text-warn">
+        <p role="status" className="lt-note lt-note-warn">
           {t('Cancel failed', { reason: failure })}
         </p>
       ) : null}
@@ -96,20 +98,17 @@ export function OrdersTab({
         {(orders) => (
           <>
             <Table
-              label={t('Orders table')}
-              density="dense"
+              mode="pro"
+              dense
+              caption={t('Orders table')}
               columns={columns}
               rows={orders}
-              getRowId={(o) => o.orderId}
-              emptyState={
-                <EmptyState
-                  size="inline"
-                  title={scope === 'open' ? t('Orders open empty') : t('Orders all empty')}
-                  reason={t('Orders empty reason')}
-                />
+              rowKey={(o) => o.orderId}
+              empty={
+                <RegionNote title={scope === 'open' ? t('Orders open empty') : t('Orders all empty')} reason={t('Orders empty reason')} />
               }
             />
-            <p className="m-0 px-3 py-2 text-xs text-fg-2">{t('Orders footer')}</p>
+            <p className="lt-note">{t('Orders footer')}</p>
           </>
         )}
       </LoadGate>

@@ -4,7 +4,7 @@ import { Button } from '../../shared/ui';
 import { useSession } from '../session';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { type LineTotal } from './contracts';
-import { LineTotals } from './StatementExtras';
+import { LineTotals } from './LineTotals';
 import { DepthPanel } from './DepthParts';
 import { dayIsOver, endedBy, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
 import { statementCentreCopy } from './statement-centre-copy';

@@ -34,7 +34,6 @@
   "/charts/:symbol",
   "/trade/buy",
   "/trade/margin",
-  "/trade/futures",
   "/trade/options",
   "/trade/copy",
   "/trade/copy/:ref",
