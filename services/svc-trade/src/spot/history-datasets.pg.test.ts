@@ -42,18 +42,18 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
   let db: TestDatabase;
 
   beforeAll(async () => {
-    db = await createTestDatabase({ baseUrl: testDatabaseUrl(), migrations });
-  });
+    db = await createTestDatabase({ service: 'trade', url: testDatabaseUrl(), migrations });
+  }, 180_000);
 
   afterAll(async () => {
-    await db.drop();
+    if (db) await db.drop();
   });
 
   beforeEach(async () => {
     await db.sql`TRUNCATE trade.history_corrections, trade.history_datasets, trade.history_book_snapshots, trade.fills, trade.orders, trade.markets CASCADE`;
     await db.sql`
-      INSERT INTO trade.markets (id, symbol, base_asset, quote_asset, tick_size, lot_size, min_qty, min_notional, maker_fee_bps, taker_fee_bps, status, kind, paper)
-      VALUES (${MARKET_ID}, 'BTC/USDT', 'BTC', 'USDT', 0.01, 0.0001, 0.0001, 1, 8, 10, 'open', 'spot', false)
+      INSERT INTO trade.markets (id, symbol, base_asset, quote_asset, tick_size, lot_size, min_qty, min_notional, maker_bps, taker_bps, status, kind, paper, display_name, listed_at)
+      VALUES (${MARKET_ID}, 'BTC/USDT', 'BTC', 'USDT', 0.01, 0.0001, 0.0001, 1, 8, 10, 'active', 'spot', false, 'BTC/USDT', now())
     `;
     await db.sql`
       INSERT INTO trade.orders (id, user_id, market_id, client_order_id, side, type, price, qty, status, tif, hold_asset, hold_amount, seeded)
@@ -69,8 +69,8 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
       const fillId = `00000000-0000-4000-8000-${String(seq).padStart(12, '0')}`;
       const ts = new Date(`2026-11-24T00:00:${String(seq % 60).padStart(2, '0')}.000Z`);
       await db.sql`
-        INSERT INTO trade.fills (id, order_id, counter_order_id, market_id, user_id, price, qty, quote_amount, fee_asset, fee_amount, liquidity, sequence, ts)
-        VALUES (${fillId}, ${ORDER_TAKER}, ${ORDER_MAKER}, ${MARKET_ID}, ${USER_A}, 65000, 0.01, 650, 'BTC', 0, 'taker', ${seq}, ${ts})
+        INSERT INTO trade.fills (id, order_id, counter_order_id, market_id, user_id, side, price, qty, quote_amount, fee_asset, fee_amount, fee_bps, liquidity, sequence, ts)
+        VALUES (${fillId}, ${ORDER_TAKER}, ${ORDER_MAKER}, ${MARKET_ID}, ${USER_A}, 'buy', 65000, 0.01, 650, 'BTC', 0, 0, 'taker', ${seq}, ${ts})
       `;
     }
 

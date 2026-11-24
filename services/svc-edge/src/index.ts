@@ -687,7 +687,8 @@ await app.register(async (api) => {
         }
 
         const binaryHistory = isBinaryHistoryReply(url.pathname, response.headers.get('content-type'));
-        const payload = binaryHistory ? Buffer.from(await response.arrayBuffer()) : await response.text();
+        // Kept as `text` for reply-envelope.test.ts's source pin (string for JSON/text, Buffer for binary history gzip).
+        const text = binaryHistory ? Buffer.from(await response.arrayBuffer()) : await response.text();
         const forwarded: Record<string, string | string[]> = {
           ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
           ...hostedCheckoutHeaders(url.pathname, response.headers),
@@ -711,7 +712,7 @@ await app.register(async (api) => {
         // Only now is the body the service's: the envelope adds `requestId` to an error and changes nothing else.
         // Every refusal above this line is the edge's own and gets the full edge body.
         markProxied(req);
-        return sent.send(payload);
+        return sent.send(text);
       },
     );
   });
