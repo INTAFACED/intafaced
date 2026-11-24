@@ -12,6 +12,8 @@ import {
 } from '@intafaced/contracts/procedure';
 import { loadConsoleMode } from '@/lib/console-mode/read';
 import { staffReadAreasOf, type OperatorAccess } from '@/lib/operator-access';
+import { IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS } from '@intafaced/contracts/identity-account-controls-procedures';
+import { IDENTITY_STAFF_TEST_STATUS } from '@intafaced/contracts/identity-staff-test-status-procedures';
 
 export const ADMIN_COOKIE = '__Host-intafaced-admin';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -349,7 +351,7 @@ export async function assertCurrentFounder(
   config: AdminSessionConfig,
   env: Record<string, string | undefined> = process.env,
 ): Promise<OperatorAccess> {
-  const raw = await founderEdgeCall(config, 'identity', 'accountControls.operatorStatus', 'GET', {}, session.accessToken);
+  const raw = await founderEdgeRecordRead(config, IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS, {}, session.accessToken);
   const status = accountOperatorEntitlementSchema.safeParse(raw);
   if (!status.success) throw new AdminSessionError('admin.upstream_invalid', 502);
   if (status.data.status === 'enabled' && status.data.userId === session.userId) return { kind: 'founder' };
@@ -361,7 +363,7 @@ export async function assertCurrentFounder(
     isExplicitDevOrTest(env.APP_ENV)
   ) {
     const staff = staffTestStatusSchema.safeParse(
-      await founderEdgeCall(config, 'identity', 'staffTestStatus', 'GET', {}, session.accessToken),
+      await founderEdgeRecordRead(config, IDENTITY_STAFF_TEST_STATUS, undefined, session.accessToken),
     );
     // Only a well-formed answer naming this user and a TEST role admits. Anything else (no role, another user, an answer
     // this console can't read) is not shown to be staff, so it gets the same refusal as any other non-founder.

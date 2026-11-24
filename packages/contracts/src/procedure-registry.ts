@@ -944,6 +944,9 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE,
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
   IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
 } from './identity-account-controls-procedures.js';
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES, IDENTITY_ACCOUNT_DIRECTORY_SEARCH } from './identity-account-directory-procedures.js';
@@ -1188,6 +1191,8 @@ import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedure
 import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
 
 import { IDENTITY_STAFF_ACCEPT_INVITE, IDENTITY_STAFF_INVITATION, IDENTITY_STAFF_LIST } from './identity-staff-procedures.js';
+
+import { IDENTITY_STAFF_TEST_STATUS } from './identity-staff-test-status-procedures.js';
 
 import {
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -3374,6 +3379,9 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE,
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
   IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
 ];
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [
@@ -3654,6 +3662,8 @@ const part_identity_staff_procedures: readonly ProcedureRecord[] = [
   IDENTITY_STAFF_INVITATION,
   IDENTITY_STAFF_LIST,
 ];
+
+const part_identity_staff_test_status_procedures: readonly ProcedureRecord[] = [IDENTITY_STAFF_TEST_STATUS];
 
 const part_identity_sub_accounts_procedures: readonly ProcedureRecord[] = [
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -5108,6 +5118,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_set_idle_signout_procedures,
   ...part_identity_signin_methods_procedures,
   ...part_identity_staff_procedures,
+  ...part_identity_staff_test_status_procedures,
   ...part_identity_sub_accounts_procedures,
   ...part_identity_support_recovery_procedures,
   ...part_identity_totp_manage_procedures,
