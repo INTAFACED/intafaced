@@ -385,7 +385,7 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
             <Icon size={18} />
           </span>
           <span className="lt-stack lt-stack-tight">
-            <a data-testid="money-act__title" className="lt-link lt-strong" href={detailHref(group)}>
+            <a data-testid="money-act__title" className="lt-link lt-strong lt-nowrap" href={detailHref(group)}>
               {title}
             </a>
             {sub ? (
@@ -402,7 +402,9 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
         </div>
       </td>
       <td data-testid="money-act__time" className="lt-nowrap">
-        <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
+        <time className="lt-nowrap" dateTime={item.postedAt}>
+          {stamp(item.postedAt, timeZone)}
+        </time>
       </td>
       <td data-testid="money-act__amount" className="lt-end">
         <Amount
@@ -414,11 +416,11 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
       </td>
       <td data-testid="money-act__status">
         {holding ? (
-          <span data-testid="money-act__hold" className="lt-muted">
+          <span data-testid="money-act__hold" className="lt-muted lt-nowrap">
             {t('Set aside')}
           </span>
         ) : (
-          <span data-testid="money-act__done" className="lt-row lt-row-nowrap">
+          <span data-testid="money-act__done" className="lt-row lt-row-nowrap lt-nowrap">
             <Check size={14} aria-hidden="true" />
             {t('Completed')}
           </span>
@@ -567,12 +569,18 @@ function Body({
         <table data-testid="money-table" className="lt-table">
           <thead>
             <tr>
-              <th scope="col">{t('Activity')}</th>
-              <th scope="col">{t('Date')}</th>
+              <th scope="col">
+                <span className="lt-nowrap">{t('Activity')}</span>
+              </th>
+              <th scope="col">
+                <span className="lt-nowrap">{t('Date')}</span>
+              </th>
               <th scope="col" className="lt-end">
                 {t('Amount')}
               </th>
-              <th scope="col">{t('Status')}</th>
+              <th scope="col">
+                <span className="lt-nowrap">{t('Status')}</span>
+              </th>
             </tr>
           </thead>
           <tbody>

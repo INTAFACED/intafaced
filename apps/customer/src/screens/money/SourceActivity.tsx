@@ -226,12 +226,18 @@ function Sources({
           <table data-testid="money-table" className="lt-table">
             <thead>
               <tr>
-                <th scope="col">{t('Activity')}</th>
-                <th scope="col">{t('Date')}</th>
+                <th scope="col">
+                  <span className="lt-nowrap">{t('Activity')}</span>
+                </th>
+                <th scope="col">
+                  <span className="lt-nowrap">{t('Date')}</span>
+                </th>
                 <th scope="col" className="lt-end">
                   {t('Amount')}
                 </th>
-                <th scope="col">{t('Status')}</th>
+                <th scope="col">
+                  <span className="lt-nowrap">{t('Status')}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -401,7 +407,7 @@ function LineRow({
                   </Button>
                 </span>
               ) : (
-                <span data-testid="money-act__title" className="lt-strong">
+                <span data-testid="money-act__title" className="lt-strong lt-nowrap">
                   {titleOf(line, t)}
                 </span>
               )}
@@ -427,7 +433,9 @@ function LineRow({
           </div>
         </td>
         <td data-testid="money-act__time" className="lt-nowrap">
-          <time dateTime={line.at}>{stamp(line.at, zone)}</time>
+          <time className="lt-nowrap" dateTime={line.at}>
+            {stamp(line.at, zone)}
+          </time>
         </td>
         <td data-testid="money-act__amount" className="lt-end">
           <Amount
@@ -439,7 +447,7 @@ function LineRow({
         </td>
         <td data-testid="money-act__status">
           {line.state === 'completed' ? (
-            <span data-testid="money-act__done" className="lt-row lt-row-nowrap">
+            <span data-testid="money-act__done" className="lt-row lt-row-nowrap lt-nowrap">
               <Check size={14} aria-hidden="true" />
               {t('Completed')}
             </span>
