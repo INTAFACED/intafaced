@@ -759,4 +759,67 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     expect(readDepositRoute({ ...ROUTE, chainId: '84532' })).toBeNull();
     expect(readDepositRoute({ ...ROUTE, asset: ' ' })).toBeNull();
   });
+
+  it('stores and enriches order labels per person, filters history by origin and label, and refuses invalid labels (J-derivatives-04 #1 #2)', async () => {
+    const d = door();
+    const account = await d.account(owner);
+    sim.deposit(account, 'USDC', a('100'), `84532:${'0x'.padEnd(66, '9')}:0`);
+    // An invalid label is refused before anything is prepared or stored.
+    await expect(
+      d.prepare(principal, {
+        owner,
+        signer,
+        intent: {
+          kind: 'place_order',
+          symbol: 'BTC-USDC',
+          side: 'buy',
+          type: 'limit',
+          amount: a('0.001'),
+          price: a('40000'),
+          timeInForce: 'GTC',
+          reduceOnly: false,
+          label: 'two words',
+          clientOrderKey: 'order:jd04:bad-label',
+          builderFee: null,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'trade.order_label_invalid', status: 400 });
+
+    // A valid labelled order is stored, signed and enriched on openOrders, orderHistory, orderByClientId and orderRecord.
+    const prepared = await d.prepare(principal, {
+      owner,
+      signer,
+      intent: {
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'buy',
+        type: 'limit',
+        amount: a('0.001'),
+        price: a('40000'),
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        label: 'grid-7',
+        clientOrderKey: 'order:jd04:labelled-1',
+        builderFee: null,
+      },
+    });
+    const sig = await sign(prepared.prepared);
+    const submitted = await d.submit(principal, prepared.actionKey, sig);
+    expect(submitted.outcome).toMatchObject({ definite: true, accepted: true });
+    const cloid = prepared.prepared.venueClientOrderId!;
+
+    const open = (await d.openOrders(principal, account)).value.find((o) => o.venueClientOrderId === cloid);
+    expect(open).toMatchObject({ origin: 'user', originRef: null, label: 'grid-7' });
+    const byId = (await d.orderByClientId(principal, account, cloid)).value;
+    expect(byId).toMatchObject({ origin: 'user', originRef: null, label: 'grid-7' });
+    const rec = await d.orderRecord(principal, account, cloid);
+    expect(rec).toMatchObject({ venueName: sim.venue.displayName, origin: 'user', originRef: null, label: 'grid-7' });
+    const page = await d.orderHistory(principal, account, { label: 'grid-7', origin: 'user' });
+    expect(page.venueName).toBe(sim.venue.displayName);
+    expect(page.orders.map((r) => r.order.venueClientOrderId)).toEqual([cloid]);
+    await expect(d.orderHistory(principal, account, { label: 'bad label' })).rejects.toMatchObject({
+      code: 'trade.order_label_invalid',
+      status: 400,
+    });
+  });
 });

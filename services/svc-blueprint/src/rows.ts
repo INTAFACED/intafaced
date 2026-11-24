@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { blueprintProfileSchema, cardSizeSchema, guardrailsSchema, visibilitySchema } from '@intafaced/contracts/blueprint';
+import {
+  blueprintProfileSchema,
+  cardSizeSchema,
+  guardrailsSchema,
+  openerKindSchema,
+  visibilitySchema,
+} from '@intafaced/contracts/blueprint';
 
 /**
  * The rows `BlueprintService` checks as it reads them. Their own file so the Rust port's recorder
@@ -32,4 +38,11 @@ export const ShareRow = z.object({
   size: cardSizeSchema,
   created_at: z.date(),
   revoked_at: z.date().nullable(),
+});
+
+export const OpenerRow = z.object({
+  kind: openerKindSchema,
+  first_opened: z.date(),
+  last_opened: z.date(),
+  open_count: z.number(),
 });

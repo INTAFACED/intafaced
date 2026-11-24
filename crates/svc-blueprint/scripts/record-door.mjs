@@ -51,7 +51,7 @@ process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 const { createBlueprintRouter } = await import(`${SVC}router.ts`);
 const { BlueprintService, BlueprintError } = await import(`${SVC}blueprint-service.ts`);
-const { BlueprintRow, MentorMatchRow, ShareRow } = await import(`${SVC}rows.ts`);
+const { BlueprintRow, MentorMatchRow, OpenerRow, ShareRow } = await import(`${SVC}rows.ts`);
 const zeroPii = await import(`${SVC}attestations/zero-pii.ts`);
 const { composeCard } = await import(`${SVC}card/compose.ts`);
 const { HttpCardRenderer } = await import(`${SVC}card/http-renderer.ts`);
@@ -260,6 +260,7 @@ const rowParts = {
   BlueprintRow: node(BlueprintRow.array()),
   MentorMatchRow: node(MentorMatchRow.array()),
   ShareRow: node(ShareRow.array()),
+  OpenerRow: node(OpenerRow.array()),
   // Not a row: the card renderer's answer (`card/http-renderer.ts`), checked as one.
   RendererResponse: node(RendererResponse.array()),
 };

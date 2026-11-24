@@ -343,6 +343,9 @@ export const venueBalanceSchema = z.object({
 });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
 
+export const venueOrderOriginSchema = z.enum(['user', 'stop', 'take_profit', 'liquidation', 'adl']);
+export type VenueOrderOrigin = z.infer<typeof venueOrderOriginSchema>;
+
 export const venueOrderSchema = z.object({
   venueOrderId: z.string().nullable(),
   venueClientOrderId: z.string().nullable(),
@@ -373,21 +376,43 @@ export const venueOrderSchema = z.object({
     .optional(),
   /** Why the venue cancelled it, where it says (`position_closed`, `linked`, `scheduled_cancel`, `self_trade`). */
   cancelReason: z.string().nullable().optional(),
+  /** Where the order came from (`user`, `stop`, `take_profit`, `liquidation`, `adl`), as the venue reports it (J-derivatives-04 #2). */
+  origin: venueOrderOriginSchema.optional(),
+  /** The venue's own id for what placed it (e.g. a liquidation part id), when not the person directly. */
+  originRef: z.string().nullable().optional(),
+  /** The trader's label on this order, when set (J-derivatives-04 #2). */
+  label: z.string().nullable().optional(),
 });
 export type VenueOrder = z.infer<typeof venueOrderSchema>;
 
-/** One page of the venue's own order history (`GET /venue/orders/history`, J-cex-spot-06 #1), newest placed first. */
+/** One page of the venue's own order history (`GET /venue/orders/history`, J-cex-spot-06 #1, J-derivatives-04 #1 #2), newest placed first. */
 export const venueHistoryPageSchema = z.object({
+  venueId: z.string().optional(),
+  venueName: z.string().optional(),
   orders: z.array(z.object({ order: venueOrderSchema, placedAt: isoTime })),
   next: z.string().nullable(),
   asOf: isoTime,
 });
 export type VenueHistoryPage = z.infer<typeof venueHistoryPageSchema>;
-export type VenueHistoryQuery = { side?: string; status?: string; from?: string; to?: string; limit?: string; before?: string };
+export type VenueHistoryQuery = {
+  side?: string;
+  status?: string;
+  symbol?: string;
+  origin?: string;
+  label?: string;
+  from?: string;
+  to?: string;
+  limit?: string;
+  before?: string;
+};
 
-/** Our own record of one venue order (`GET /venue/orders/record`): the amendments the venue accepted and our builder fee. */
+/** Our own record of one venue order (`GET /venue/orders/record`): the amendments the venue accepted, our builder fee, origin and label. */
 export const venueOrderRecordSchema = z.object({
+  venueName: z.string().optional(),
   placedAt: isoTime.nullable(),
+  origin: venueOrderOriginSchema.optional(),
+  originRef: z.string().nullable().optional(),
+  label: z.string().nullable().optional(),
   amendments: z.array(z.object({ actionKey: z.string(), amount: decimalSchema, price: decimalSchema, recordedAt: isoTime })),
   builderFee: z
     .object({ chargedBps: decimalSchema, publishedBps: decimalSchema.nullable(), discountBps: z.number().int().nullable() })
@@ -434,6 +459,16 @@ export const venueFillSchema = z.object({
   filledAt: isoTime,
 });
 export type VenueFill = z.infer<typeof venueFillSchema>;
+
+/** One credit into the account from outside it, as the venue reports it (J-portfolio-06 #3). */
+export const venueArrivalSchema = z.object({
+  arrivalId: z.string(),
+  kind: z.enum(['deposit', 'transfer_in']),
+  asset: z.string(),
+  amount: decimalSchema,
+  arrivedAt: isoTime,
+});
+export type VenueArrival = z.infer<typeof venueArrivalSchema>;
 
 export const venuePositionSchema = z.object({
   symbol: z.string(),
@@ -793,6 +828,10 @@ export const venuePreviewSchema = z.object({
   role: z.enum(['maker', 'taker']),
   venueFee: maybeKnown(assetAmount),
   builderFee: maybeKnown(assetAmount),
+  // Our builder fee rate in bps in force for this order's market and side (the schedule version in force, before any
+  // per-order discount, so one wallet approval covers both discounted and normal orders); null when it carries none
+  // (a spot buy). Absent from an older door.
+  builderFeeBps: decimalSchema.nullable().optional(),
   // The venue's rates for this account on this market, from the preview itself (J-cex-spot-10 #1).
   rates: feeRatesSchema.optional(),
   // What lowered our builder fee on this order (J-campaigns-09 #2): a fee-saver coupon or the rank, the larger of the two.

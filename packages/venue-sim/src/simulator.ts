@@ -3001,13 +3001,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         p.size = ZERO;
         const at = this.clock();
         const liquidationId = `liq-${++this.liquidationCounter}`;
+        const partId = `${liquidationId}-1`;
         state.liquidations.push({
           liquidationId,
           symbol: market.symbol,
           side: p.side,
           state: 'done',
-          parts: [{ partId: `${liquidationId}-1`, size: qty, price: mark, fee, feeAsset: market.quoteAsset, liquidatedAt: at }],
+          parts: [{ partId, size: qty, price: mark, fee, feeAsset: market.quoteAsset, liquidatedAt: at }],
           startedAt: at,
+        });
+        this.recordLiquidationOrder({
+          state,
+          market,
+          positionSide: p.side,
+          qty,
+          mark,
+          asset: market.quoteAsset,
+          partId,
+          at,
         });
         this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
       }
@@ -4267,6 +4278,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         locked: lockAmount,
         lockedAsset: lockAsset,
         reduceOnly: intent.reduceOnly,
+        origin: 'user',
+        originRef: null,
+        ...(intent.label ? { label: intent.label } : {}),
       },
     };
     state.orders.set(cloid, order);
@@ -4593,6 +4607,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         trigger: { price: trigger.price, source: trigger.source, role: trigger.role, state: 'waiting', triggeredAt: null, failure: null },
         parentClientOrderId: parent?.order.venueClientOrderId ?? null,
         cancelReason: null,
+        origin: trigger.role === 'take_profit' ? 'take_profit' : 'stop',
+        originRef: null,
+        ...(intent.label ? { label: intent.label } : {}),
       },
     };
     state.orders.set(cloid, order);
@@ -4916,8 +4933,57 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     p.margin = sub(p.margin, released);
     p.size = sub(p.size, qty);
     const at = this.clock();
+    const partId = `${liquidationId}-${n}`;
+    this.recordLiquidationOrder({ state, market, positionSide: p.side, qty, mark, asset, partId, at });
     this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
-    return { partId: `${liquidationId}-${n}`, size: qty, price: mark, fee, feeAsset: asset, liquidatedAt: at };
+    return { partId, size: qty, price: mark, fee, feeAsset: asset, liquidatedAt: at };
+  }
+
+  /** Record the venue's own liquidation close as a filled order in the account's history (J-derivatives-04 #2). */
+  private recordLiquidationOrder(input: {
+    state: AccountState;
+    market: SimMarketConfig;
+    positionSide: 'long' | 'short';
+    qty: Amount;
+    mark: Amount;
+    asset: string;
+    partId: string;
+    at: Date;
+  }): void {
+    const { state, market, positionSide, qty, mark, asset, partId, at } = input;
+    const cloid = venueClientOrderId(this.venue.id, `liquidation:${partId}`);
+    this.venueOrderCounter += 1;
+    this.seqCounter += 1;
+    state.orders.set(cloid, {
+      account: state,
+      seq: this.seqCounter,
+      placedAt: at,
+      builderFee: null,
+      leverageBps: null,
+      marginMode: null,
+      lockPerUnit: ZERO,
+      marginAccount: market.marginAccount?.name ?? null,
+      order: {
+        venueOrderId: `sim-${this.venueOrderCounter}`,
+        venueClientOrderId: cloid,
+        symbol: market.symbol,
+        side: positionSide === 'long' ? 'sell' : 'buy',
+        type: 'market',
+        timeInForce: 'IOC',
+        price: mark,
+        amount: qty,
+        filled: qty,
+        remaining: ZERO,
+        averagePrice: mark,
+        status: 'filled',
+        locked: ZERO,
+        lockedAsset: asset,
+        reduceOnly: true,
+        origin: 'liquidation',
+        originRef: partId,
+        label: null,
+      },
+    });
   }
 
   /** Cancel every resting and waiting order of the account on `symbol`, its locks released once. */
