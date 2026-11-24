@@ -12,17 +12,6 @@ import {
   conversionLateFillSweepResultSchema,
   conversionHoldSweepResultSchema,
 } from '@intafaced/contracts/conversion';
-import {
-  founderChangeSubmitInputSchema,
-  founderChangeSubmitResultSchema,
-  founderChangeConfirmInputSchema,
-  founderPendingChangeListInputSchema,
-  founderPendingChangeListSchema,
-  founderApprovalQueueInputSchema,
-  founderApprovalQueueSchema,
-  founderApprovalDestinationInputSchema,
-  founderApprovalDestinationSchema,
-} from '@intafaced/contracts/founder-admin';
 import { TRPCError, router } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -336,38 +325,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
           { refusalOf: payRefusal, founder },
         ),
       }),
-      changes: router(
-        control
-          ? founderChangeProcedures(founder, control)
-          : {
-              submit: founder
-                .input(founderChangeSubmitInputSchema)
-                .output(founderChangeSubmitResultSchema)
-                .mutation(() => notBuilt('founderAdmin.changes.submit')),
-              confirm: founder
-                .input(founderChangeConfirmInputSchema)
-                .output(founderChangeSubmitResultSchema)
-                .mutation(() => notBuilt('founderAdmin.changes.confirm')),
-              pending: founder
-                .input(founderPendingChangeListInputSchema)
-                .output(founderPendingChangeListSchema)
-                .query(() => notBuilt('founderAdmin.changes.pending')),
-            },
-      ),
-      approvals: router(
-        control
-          ? founderApprovalProcedures(founder, control)
-          : {
-              list: founder
-                .input(founderApprovalQueueInputSchema)
-                .output(founderApprovalQueueSchema)
-                .query(() => notBuilt('founderAdmin.approvals.list')),
-              destination: founder
-                .input(founderApprovalDestinationInputSchema)
-                .output(founderApprovalDestinationSchema)
-                .mutation(() => notBuilt('founderAdmin.approvals.destination')),
-            },
-      ),
+      changes: router(founderChangeProcedures(founder, control)),
+      approvals: router(founderApprovalProcedures(founder, control)),
       // W1 control room (tier definitions, pricing layers, usage, founder payout approvals). Mounted only with a ControlService.
       ...(control ? { control: createFounderControlRouter(founder, control) } : {}),
       conversion: router({

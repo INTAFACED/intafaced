@@ -7,19 +7,17 @@ import {
   accountControlStateSchema,
   type AccountControlTarget,
 } from '@intafaced/contracts';
-import {
-  adminSessionErrorResponse,
-  AdminSessionError,
-  authorizeAdminRequest,
-  founderEdgeCall,
-  founderEdgeRecordCall,
-} from '@/lib/founder-session';
+import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeRecordCall } from '@/lib/founder-session';
 import {
   IDENTITY_ACCOUNT_CONTROLS_CHANGE,
   IDENTITY_ACCOUNT_CONTROLS_GET_STATE,
   IDENTITY_ACCOUNT_CONTROLS_HISTORY,
 } from '@intafaced/contracts/identity-account-controls-procedures';
-import { TRADE_ACCOUNT_CONTROLS_GET_STATE, TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
+import {
+  TRADE_ACCOUNT_CONTROLS_CHANGE,
+  TRADE_ACCOUNT_CONTROLS_GET_STATE,
+  TRADE_ACCOUNT_CONTROLS_HISTORY,
+} from '@intafaced/contracts/trade-account-controls-procedures';
 import {
   PAY_ACCOUNT_CONTROLS_CHANGE,
   PAY_ACCOUNT_CONTROLS_GET_STATE,
@@ -93,17 +91,17 @@ export async function POST(request: Request) {
     parsed.data.requestId = parsed.data.requestId.toLowerCase();
     if (parsed.data.target.area === 'merchant') parsed.data.target.merchantId = parsed.data.target.merchantId.toLowerCase();
     else parsed.data.target.userId = parsed.data.target.userId.toLowerCase();
-    // Trading's change keeps its call by name: its input grows an approval id when the four-eyes setting is on.
     const area = parsed.data.target.area;
-    const data: unknown =
+    const data: unknown = await founderEdgeRecordCall(
+      config,
       area === 'trading'
-        ? await founderEdgeCall(config, 'trade', 'accountControls.change', 'POST', parsed.data, session.accessToken)
-        : await founderEdgeRecordCall(
-            config,
-            area === 'identity' ? IDENTITY_ACCOUNT_CONTROLS_CHANGE : PAY_ACCOUNT_CONTROLS_CHANGE,
-            parsed.data,
-            session.accessToken,
-          );
+        ? TRADE_ACCOUNT_CONTROLS_CHANGE
+        : area === 'identity'
+          ? IDENTITY_ACCOUNT_CONTROLS_CHANGE
+          : PAY_ACCOUNT_CONTROLS_CHANGE,
+      parsed.data,
+      session.accessToken,
+    );
     const result = accountControlResultSchema.safeParse(data);
     if (!result.success) throw new AdminSessionError('admin.upstream_invalid', 502);
     if (

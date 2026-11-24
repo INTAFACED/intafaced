@@ -1,6 +1,5 @@
 import 'server-only';
 import {
-  founderApprovalQueueSchema,
   type FounderGlobalMetrics,
   type FounderMerchantDrilldown,
   type FounderMerchantList,
@@ -17,7 +16,7 @@ import { asPricingRule, asTier, asUsage, type PricingRuleView, type TierView, ty
 import { addDays, dayOf, midnight } from './dates';
 import { listInputFor, type MerchantListQuery } from './list-params';
 import { PAY_HALTS_HISTORY, PAY_HALTS_OPERATOR_STATUS } from '@intafaced/contracts/pay-halt-procedures';
-import { payCall, payRecordCall, parseWith, type PayCallContext, type PayCallResult, payRecordRead } from './pay-call';
+import { payCall, payRecordCall, type PayCallContext, type PayCallResult, payRecordRead } from './pay-call';
 import { loadPendingClears } from '@/lib/founder-ops';
 import {
   asEvent,
@@ -44,6 +43,7 @@ import {
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_APPROVALS_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
@@ -223,13 +223,7 @@ export async function loadApprovalQueue(ctx: PayCallContext): Promise<PayCallRes
   const approvals: FounderApprovalQueueItem[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < APPROVAL_MAX_PAGES; page += 1) {
-    const result = await payCall(
-      ctx,
-      'founderAdmin.approvals.list',
-      'GET',
-      { limit: APPROVAL_PAGE, ...(cursor ? { cursor } : {}) },
-      parseWith(founderApprovalQueueSchema),
-    );
+    const result = await payRecordCall(ctx, PAY_FOUNDER_ADMIN_APPROVALS_LIST, { limit: APPROVAL_PAGE, ...(cursor ? { cursor } : {}) });
     if (result.kind !== 'ok') return result;
     approvals.push(...result.data.approvals);
     if (result.data.nextCursor === null) return { kind: 'ok', data: { approvals, truncated: false } };
