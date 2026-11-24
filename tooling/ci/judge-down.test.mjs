@@ -708,3 +708,7 @@ test('project-state#2962: readGoing reads the newest finished Model check run on
     'the Model check run 31 (judge down: a model could not be checked, no verdict; re-run it once the cause in its log is gone)',
   ]);
 });
+
+test('planted fault for the judge-repair trial (project-state#4001): this red check must stop the seal', () => {
+  assert.fail('planted: a red check on a change to the judges alone');
+});
