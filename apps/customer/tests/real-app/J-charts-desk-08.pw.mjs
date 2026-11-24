@@ -255,7 +255,7 @@ test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar
   await expect.poll(async () => Number(await canvas.getAttribute('data-last'))).toBeGreaterThanOrEqual(Number(newest));
 });
 
-test(`${J} #6 uses chart and desk shortcuts, and each does what its help list says`, async ({ page }) => {
+test(`${J} #6 uses chart and desk shortcuts, and each does what its help list says`, async ({ page, stepPicture }) => {
   await openGrid(page);
   await canvasOf(page, 0).focus();
   await page.keyboard.press('?');
@@ -374,8 +374,13 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await canvasOf(page, 0).focus();
   await page.keyboard.press('Alt+T');
   await expect(page).toHaveURL(/\/trade\/spot\/ETH-USDT/);
+  // The desk itself is drawn for this market: its ticket buys ETH and its chart is ETH/USDT's, not a page still opening.
+  await expect(page.getByRole('button', { name: 'Buy ETH', exact: true })).toBeVisible();
+  await expect(page.getByTestId('dk-chart').getByRole('img', { name: 'Price chart of ETH/USDT', exact: true }).first()).toBeVisible();
   await page.waitForLoadState('networkidle');
   expect(sent, 'order requests sent by Alt+T').toEqual([]);
+  // The step's picture is the desk the last key opened, for this chart's market, with nothing sent.
+  await stepPicture();
 });
 
 test(`${J} #4 applies RSI to every chart of a 2x2 sync group at once: each cell draws its RSI pane`, async ({ page }) => {
