@@ -61,14 +61,14 @@ describe('Account & Info customer copy (#6177)', () => {
         <AuthForm register={false} />
       </SessionProvider>,
     );
-    expect(host.querySelector('.public-auth-context')).toBeNull();
+    expect(host.querySelector('[data-testid="public-auth-context"]')).toBeNull();
     expect(host.textContent).not.toContain('After sign-in');
 
     await act(async () => {
       history.pushState(null, '', '/login?redirect=%2Fuc%2Fsafe');
       dispatchEvent(new PopStateEvent('popstate'));
     });
-    expect(host.querySelector('.public-auth-context')?.textContent).toContain('Security');
+    expect(host.querySelector('[data-testid="public-auth-context"]')?.textContent).toContain('Security');
   });
 
   it('/about-us drops internal room counts and "service or rail is not connected" jargon', () => {

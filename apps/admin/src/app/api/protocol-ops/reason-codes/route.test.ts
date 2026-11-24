@@ -32,7 +32,19 @@ afterEach(() => {
 
 describe('POST /api/protocol-ops/reason-codes', () => {
   it('sends the whole new list to svc-ops as the signed-in admin', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => Response.json({ result: { data: { source: 'admin' } } }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) =>
+      Response.json({
+        result: {
+          data: {
+            asOf: '2026-10-20T12:00:00.000Z',
+            source: 'admin',
+            codes: ['scam_or_fraud', 'owner_request'],
+            updatedAt: '2026-10-20T12:00:00.000Z',
+            updatedBy: ctx.session.userId,
+          },
+        },
+      }),
+    );
     vi.stubGlobal('fetch', fn);
     const res = await POST(post({ codes: ['scam_or_fraud', 'owner_request'] }));
     expect(await res.json()).toEqual({ ok: true });

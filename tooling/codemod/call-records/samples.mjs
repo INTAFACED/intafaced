@@ -48,7 +48,19 @@ const STRINGS = [
 
 /** Values a JSON Schema allows, most likely first (`depth` keeps nested objects small). */
 // A field named like a credential gets a value the secret scan reads as one (tooling/ci/secret-scan.mjs: /placeholder/i).
-const CREDENTIAL_KEY = /pass(word|phrase)?|token|secret|api[_-]?key|private|credential/i;
+const CREDENTIAL_KEY = /pass(word|phrase)?|token|secret|api[_-]?key|private|credential|(?:^|[._-])keys?$/i;
+
+/** A string matching an anchored `[<prefix>][<class>]{m,n}` / `+` / `*` pattern (e.g. `^announcement:[0-9a-f]{16,64}$`, `^[a-f0-9]{64}$`). */
+function sampleFromPattern(pattern) {
+  const m = /^\^([A-Za-z0-9_.:/-]*)\[([^\]]+)\](?:\{(\d+)(?:,\d*)?\}|(\+)|(\*))?\$$/.exec(pattern);
+  if (!m) return undefined;
+  const [, prefix, cls, exact, plus] = m;
+  const count = exact !== undefined ? Number(exact) : plus ? 1 : 0;
+  const ch = cls.startsWith('\\') ? cls[1] : cls[0];
+  if (!ch) return undefined;
+  const cand = prefix + ch.repeat(count);
+  return new RegExp(pattern, 'u').test(cand) ? cand : undefined;
+}
 
 function candidates(schema, depth = 0, key = '') {
   if (!schema || typeof schema !== 'object' || depth > 8) return [null];
@@ -67,6 +79,15 @@ function candidates(schema, depth = 0, key = '') {
       const out = [base];
       // A second try per field: its next candidate, for a field whose first one the schema's own checks refuse.
       for (const k of req) for (const alt of candidates(props[k], depth + 1, k).slice(1, 4)) out.push({ ...base, [k]: alt });
+      // Also try with every nullable required field set to null (and single-field non-null swaps), for cross-field
+      // refinements where one branch requires a group of fields to be null together (e.g. open vs closed stage).
+      const nullable = req.filter((k) => candidates(props[k], depth + 1, k).includes(null));
+      if (nullable.length >= 2) {
+        const nulled = { ...base };
+        for (const k of nullable) nulled[k] = null;
+        out.push(nulled);
+        for (const k of nullable) if (base[k] !== null) out.push({ ...nulled, [k]: base[k] });
+      }
       return out;
     }
     case 'array': {
@@ -77,7 +98,8 @@ function candidates(schema, depth = 0, key = '') {
     case 'string': {
       // A uuid can't say it is a placeholder, so a credential-named one gets no sample: the secret scan would read the
       // literal as a committed credential, and its call stays by name (no accepted input) rather than land one.
-      if (schema.format === 'uuid') return CREDENTIAL_KEY.test(key) ? [] : ['11111111-1111-4111-8111-111111111111'];
+      if (schema.format === 'uuid')
+        return CREDENTIAL_KEY.test(key) ? [] : ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
       if (schema.format === 'date-time') return ['2026-01-01T00:00:00.000Z'];
       if (schema.format === 'date') return ['2026-01-01'];
       if (schema.format === 'email') return ['a@example.com'];
@@ -87,7 +109,9 @@ function candidates(schema, depth = 0, key = '') {
       let list = STRINGS.filter((s) => s.length >= min && s.length <= max);
       if (schema.pattern) {
         const re = new RegExp(schema.pattern, 'u');
+        const synth = sampleFromPattern(schema.pattern);
         list = [
+          ...(synth ? [synth] : []),
           ...STRINGS,
           ...Array.from({ length: 6 }, (_, i) => 'a'.repeat(Math.max(1, min + i))),
           ...Array.from({ length: 6 }, (_, i) => '1'.repeat(Math.max(1, min + i))),
@@ -98,6 +122,9 @@ function candidates(schema, depth = 0, key = '') {
         const fake = `placeholder${'x'.repeat(Math.max(0, min - 11))}`;
         const fits = fake.length <= max && (!schema.pattern || new RegExp(schema.pattern, 'u').test(fake));
         if (fits) return [fake];
+        // A pattern that cannot carry a self-declaring placeholder (save an EVM address or <=2 chars, which
+        // secret-scan.mjs accepts) gets no sample, so a run never writes a credential-shaped literal.
+        return list.filter((s) => /^0x[0-9a-f]{40}$/i.test(s) || /^.{1,2}$/.test(s) || /placeholder|sample/i.test(s));
       }
       return list.slice(0, 6);
     }
@@ -154,6 +181,75 @@ function setAt(v, steps, value) {
 /** `input.items[].reason` after the root as steps: `['items', '[]', 'reason']`. */
 const stepsOf = (at) => [...at.replace(/^input/, '').matchAll(/\.([\w$]+)|\[\]/g)].map((m) => m[1] ?? '[]');
 
+/** The value in `v` at `steps`, or undefined when the path is not there. */
+function getAt(v, steps) {
+  let cur = v;
+  for (const step of steps) {
+    if (step === '[]') {
+      if (!Array.isArray(cur) || !cur.length) return undefined;
+      cur = cur[0];
+    } else if (typeof cur === 'object' && cur !== null && !Array.isArray(cur) && step in cur) {
+      cur = cur[step];
+    } else return undefined;
+  }
+  return cur;
+}
+
+/** Optional-property combinations over `base`: singles, same-shape pairs (e.g. `from`/`before`), and all optional set. */
+function optionalCombos(json, base) {
+  if (!base || typeof base !== 'object' || Array.isArray(base) || json?.type !== 'object' || !json.properties) return [];
+  const req = new Set(json.required ?? []);
+  const opts = Object.entries(json.properties)
+    .filter(([k]) => !req.has(k))
+    .map(([k, s]) => ({ k, val: candidates(s, 1, k)[0], tag: `${s?.type ?? ''}:${s?.format ?? ''}` }))
+    .filter((o) => o.val !== undefined);
+  if (!opts.length) return [];
+  const out = opts.map((o) => ({ ...base, [o.k]: o.val }));
+  for (let i = 0; i < opts.length; i++)
+    for (let j = i + 1; j < opts.length; j++)
+      if (opts[i].tag === opts[j].tag) out.push({ ...base, [opts[i].k]: opts[i].val, [opts[j].k]: opts[j].val });
+  const all = { ...base };
+  for (const o of opts) all[o.k] = o.val;
+  out.push(all);
+  return out;
+}
+
+/** Walks `schema` one step (`prop` or `[]`), stepping into the non-null branch of anyOf/oneOf. */
+function schemaStep(schema, step) {
+  if (!schema || typeof schema !== 'object') return undefined;
+  for (const k of ['anyOf', 'oneOf']) {
+    if (!schema[k]) continue;
+    for (const s of schema[k]) {
+      if (s?.type === 'null') continue;
+      const hit = schemaStep(s, step);
+      if (hit !== undefined) return hit;
+    }
+  }
+  if (step === '[]') return schema.items;
+  return schema.properties?.[step];
+}
+
+/** Ensures every parent container along `steps` exists in `v`, filling missing optional/null parents from `schema`. */
+function ensurePath(v, schema, steps) {
+  if (steps.length <= 1 || !schema) return v;
+  const [step, ...rest] = steps;
+  if (step === '[]') {
+    const itemSchema = schemaStep(schema, '[]');
+    const arr = Array.isArray(v) && v.length ? v : itemSchema ? [candidates(itemSchema, 1)[0]] : undefined;
+    if (!arr || arr[0] === undefined) return undefined;
+    const head = ensurePath(arr[0], itemSchema, rest);
+    return head === undefined ? undefined : [head, ...arr.slice(1)];
+  }
+  const propSchema = schemaStep(schema, step);
+  if (!propSchema) return v;
+  const obj = typeof v === 'object' && v !== null && !Array.isArray(v) ? v : {};
+  let child = obj[step];
+  if (child === undefined || child === null) child = candidates(propSchema, 1, step).find((c) => c !== undefined && c !== null);
+  if (child === undefined) return undefined;
+  const next = ensurePath(child, propSchema, rest);
+  return next === undefined ? undefined : { ...obj, [step]: next };
+}
+
 /**
  * For each input check the record names, an input refused by that check alone: every issue zod raises is its own words
  * (a custom issue whose message is one of the check's), so the export, which carries the check only by name, accepts it.
@@ -161,10 +257,11 @@ const stepsOf = (at) => [...at.replace(/^input/, '').matchAll(/\.([\w$]+)|\[\]/g
  * `.refine` written with no message (a door's, named by the door: door-refine.mjs) raises zod's own words, and is known
  * by them at the very place the value was tried.
  */
-function checkRefusals(record, bases) {
+function checkRefusals(record, bases, json) {
   const out = [];
   for (const [name, check] of Object.entries(record.checks ?? {})) {
     const says = new Set(check.says.split('; '));
+    const saysWords = [...new Set(check.says.match(/[A-Za-z0-9_.-]{2,}/g) ?? [])];
     const alone = (v, steps) => {
       const quiet = quietRefineAt(record.input, steps);
       const r = record.input.safeParse(v);
@@ -175,7 +272,15 @@ function checkRefusals(record, bases) {
     let found;
     for (const at of typeof check.at === 'string' ? [check.at] : check.at) {
       const steps = stepsOf(at);
-      const tries = bases.flatMap((b) => (steps.length ? CHECK_TRIES.map((t) => setAt(b, steps, t)) : [b]));
+      const tries = steps.length
+        ? bases.flatMap((b) => {
+            const filled = ensurePath(b, json, steps);
+            const target = filled ?? b;
+            const cur = getAt(target, steps);
+            const dup = Array.isArray(cur) && cur.length > 0 ? [[cur[0], cur[0]]] : [];
+            return [...dup, ...saysWords, ...CHECK_TRIES].map((t) => setAt(target, steps, t));
+          })
+        : [...bases, ...optionalCombos(json, bases[0])];
       found = tries.find((v) => v !== undefined && alone(v, steps));
       if (found !== undefined) break;
     }
@@ -274,7 +379,7 @@ export function samplesFor(record, doorValid) {
   if (accept === undefined && (doorValid || !ok(undefined)))
     throw new Error(`${record.name}: no accepted input found${doorValid ? ' the door lets through' : ''}; write its samples by hand`);
   const a = accept === undefined ? "{ verdict: 'accept' }" : `{ verdict: 'accept', input: ${JSON.stringify(accept)} }`;
-  const byCheck = checkRefusals(record, [...(accept === undefined ? [] : [accept]), ...tries.filter((v) => v !== undefined)]);
+  const byCheck = checkRefusals(record, [...(accept === undefined ? [] : [accept]), ...tries.filter((v) => v !== undefined)], json);
   return `[${[a, `{ verdict: 'refuse', input: ${JSON.stringify(refuse)} }`, ...byCheck].join(', ')}]`;
 }
 

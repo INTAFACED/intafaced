@@ -1,9 +1,30 @@
 import { expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { journeyState, tool } from './stack.mjs';
+import { journeyState, stackUrl, tool, toolAwaited } from './stack.mjs';
+import { venueRecord } from './venue.mjs';
 
-/** A floor no TEST book reaches, so a min threshold on it must FAIL. */
-export const HIGH_FLOOR = '1000000000000';
+/** The TEST venue and TEST partner report stand-in on loopback (`local-test-rail-statements.mjs`), read directly via `venueRecord`. */
+export const OWN_REPORTS = stackUrl('rail-statements');
+
+/** Reads one TEST venue's or TEST partner's own report for `place` at `asOf` directly from loopback, never through our app. */
+export async function ownReportRecord(reporter, place, asOf = new Date().toISOString()) {
+  return (await venueRecord(place, '/report', { reporter, asOf }, OWN_REPORTS)).value;
+}
+
+/** One asset's signed amount from a TEST venue or partner report returned by `ownReportRecord`, or null when absent. */
+export const reportAmount = (report, asset) => report?.balances?.find((b) => b.assetId === asset)?.amount ?? null;
+
+/**
+ * Seeds one of INTAFACED's own TEST obligations: writes the reporter's line first (unless `ledgerOnly` is true, to create
+ * a genuine break between our ledger and the outside report), then books our ledger record through its real recipe.
+ * Returns `{ out, tx }` where `tx` is the booked ledger transaction id.
+ */
+export async function seedOwnRecord(reporter, place, asset, amount, ref, { ledgerOnly = false } = {}) {
+  const args = ['seed-own-record', reporter, place, asset, amount, '--ref', ref, ...(ledgerOnly ? ['--ledger-only'] : [])];
+  const out = await toolAwaited('local-test-stack.mjs', ...args);
+  const tx = out.match(/ledger tx ([0-9a-f-]{36})/i)?.[1] ?? null;
+  return { out, tx };
+}
 
 /**
  * Renew a kept founder session before a step starts once fewer than 6 minutes remain before its 15-minute access token

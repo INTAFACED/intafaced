@@ -5,8 +5,10 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BETA_SCREENS, menuReach, pathsOf, readReport, stepOf } from './menu-reach.mjs';
+import { EventEmitter } from 'node:events';
+import { BETA_MOVES, BETA_SCREENS, menuReach, pathsOf, readReport, stepOf } from './menu-reach.mjs';
 import { MENU_REACH, crawlFrom, linkPath } from '../scripts/menu-crawl.mjs';
+import { makeMoves } from '../scripts/journey-moves.mjs';
 
 const ROOMS = {
   '/': '/',
@@ -223,4 +225,195 @@ test('crawlFrom: each room opened once, a redirect is an edge, a page that fails
   assert.equal(r.partial, false);
   const capped = await crawlFrom(['/'], { open, links, roomOf, origin: 'http://h.test', limit: 2 });
   assert.equal(capped.partial, true);
+});
+
+// The in-app moves of passing steps (tooling/scripts/journey-moves.mjs): a room only a record the step made leads to.
+const AGENT = '/agents/0f9a7c';
+const roomOfAgents = (path) => {
+  if (path === '/agents' || path === '/agents/new' || path === '/unreached' || path === '/unreached/next')
+    return { room: path, alias: false };
+  if (path.startsWith('/agents/')) return { room: '/agents/:agentId', alias: false };
+  return roomOf(path);
+};
+const AGENT_EDGES = [...EDGES, ['/home', '/agents'], ['/agents', '/agents/new']];
+const AGENT_OPENED = [...OPENED, ['/agents', '/agents'], ['/agents/new', '/agents/new']];
+const agents = (moves, hidden = new Set(), shown = { 'J-agents-02#1': [AGENT] }) =>
+  menuReach({ crawl: crawl(AGENT_EDGES, AGENT_OPENED), screens: screens(shown), moves, roomOf: roomOfAgents, hidden });
+
+test('known-good: an in-app move from a reached room reaches a record’s own room, with that path', () => {
+  assert.deepEqual(agents([]).notReached, [{ step: 'J-agents-02#1', paths: [AGENT] }], 'the crawl alone: no link to it');
+  const r = agents([['/agents/new', AGENT]]);
+  assert.deepEqual(r.notReached, []);
+  assert.deepEqual(r.reached['/agents/:agentId'], ['/home', '/agents', '/agents/new', AGENT]);
+  // Another agent of the same room is reached by the one address.
+  assert.deepEqual(agents([['/agents/new', AGENT]], new Set(), { 'J-agents-08#3': ['/agents/77aa'] }).notReached, []);
+});
+
+test('planted fault: a move from a room no path reaches leaves both unreached', () => {
+  const r = agents([['/unreached', '/unreached/next']], new Set(), { 'J-x-01#1': ['/unreached', '/unreached/next'] });
+  assert.deepEqual(r.notReached, [{ step: 'J-x-01#1', paths: ['/unreached', '/unreached/next'] }]);
+  // Nor does a chain that starts there reach the record's room.
+  assert.deepEqual(agents([['/unreached', AGENT]]).notReached, [{ step: 'J-agents-02#1', paths: [AGENT] }]);
+});
+
+test('planted fault: a move through a room the beta hides is dropped, at either end', () => {
+  const hidden = new Set(['/hidden/room']);
+  assert.deepEqual(agents([['/hidden/room', AGENT]], hidden).notReached, [{ step: 'J-agents-02#1', paths: [AGENT] }]);
+  const r = agents(
+    [
+      ['/agents/new', '/hidden/room'],
+      ['/hidden/room', AGENT],
+    ],
+    hidden,
+  );
+  assert.equal(r.reached['/hidden/room'], undefined);
+  assert.deepEqual(r.notReached, [{ step: 'J-agents-02#1', paths: [AGENT] }]);
+  // The same moves with nothing hidden do reach it: the drop is the beta's rule, not a missing link.
+  assert.deepEqual(agents([['/hidden/room', AGENT]]).notReached, []);
+});
+
+/** A report of one crawl and steps, each { title, status, screens, moves }; the crawl's own moves are its own. */
+const movesReport = (steps) => ({
+  suites: [
+    {
+      title: 'a',
+      specs: [
+        {
+          title: 'menu reach: the links from the front page and Home',
+          file: 'menu-reach.pw.mjs',
+          ok: true,
+          tests: [
+            {
+              status: 'expected',
+              annotations: [{ type: BETA_MOVES, description: JSON.stringify([['/hidden/room', AGENT]]) }],
+              results: [{ annotations: [{ type: MENU_REACH, description: JSON.stringify(crawl(AGENT_EDGES, AGENT_OPENED)) }] }],
+            },
+          ],
+        },
+        ...steps.map(({ title, status = 'expected', ok = status === 'expected', shown, moves }) => ({
+          title,
+          ok,
+          tests: [
+            {
+              status,
+              annotations: [
+                { type: BETA_SCREENS, description: JSON.stringify(shown) },
+                ...(moves ? [{ type: BETA_MOVES, description: typeof moves === 'string' ? moves : JSON.stringify(moves) }] : []),
+              ],
+              results: [],
+            },
+          ],
+        })),
+      ],
+    },
+  ],
+});
+
+test('readReport: moves only from steps that passed first time, never from the crawl, a bad annotation none', () => {
+  const { moves } = readReport(
+    movesReport([
+      { title: 'J-agents-02 #1 a', shown: [AGENT], moves: [['/agents/new', AGENT]] },
+      { title: 'J-agents-02 #2 again', shown: [AGENT], moves: [['/agents/new', AGENT]] }, // the same move once
+      { title: 'J-agents-03 #1 failed', status: 'unexpected', shown: [], moves: [['/agents', '/unreached']] },
+      { title: 'J-agents-03 #2 flaky', status: 'flaky', shown: [], moves: [['/agents', '/unreached/next']] },
+      { title: 'J-agents-03 #3 ok but not', ok: false, status: 'expected', shown: [], moves: [['/agents', '/x']] },
+      { title: 'J-agents-04 #1 junk', shown: [], moves: 'not json' },
+      { title: 'J-agents-04 #2 odd', shown: [], moves: [['/a'], ['/a', 7], ['http://x.test/a', '/b'], 'x'] },
+      { title: 'J-agents-04 setup', shown: [], moves: [['/agents', '/y']] }, // not a step
+    ]),
+  );
+  assert.deepEqual(moves, [['/agents/new', AGENT]]);
+});
+
+test('planted fault: a step that failed made its move, and the room stays unreached', () => {
+  const read = readReport(
+    movesReport([
+      { title: 'J-agents-02 #1 shows', shown: [AGENT] },
+      { title: 'J-agents-02 #2 fails', status: 'unexpected', shown: [AGENT], moves: [['/agents/new', AGENT]] },
+    ]),
+  );
+  assert.deepEqual(read.moves, []);
+  const r = menuReach({ ...read, roomOf: roomOfAgents, hidden: new Set() });
+  assert.deepEqual(
+    r.notReached.map((x) => x.step),
+    ['J-agents-02#1', 'J-agents-02#2'],
+  );
+});
+
+/** A page as Playwright drives it: typed entries navigate while they run; `app(url)` is a click the app follows. */
+function drivenPage() {
+  const page = new EventEmitter();
+  let url = 'about:blank';
+  const main = { url: () => url };
+  const nav = (next) => ((url = new URL(next, 'http://127.0.0.1:5173').href), page.emit('framenavigated', main));
+  page.mainFrame = () => main;
+  page.url = () => url;
+  page.goto = async (next) => nav(next);
+  page.app = nav;
+  return page;
+}
+
+test('planted fault: a room entered by page.goto, recorded by journey.mjs’s recorder, stays unreached; a click reaches it', async () => {
+  const recorder = makeMoves((u) => new URL(u).port === '5173');
+  const run = async (drive) => {
+    const page = drivenPage();
+    recorder.watch(page);
+    const seen = recorder.begin();
+    await drive(page);
+    const note = recorder.end(seen);
+    const report = movesReport([{ title: 'J-agents-02 #1 opens it', shown: [AGENT] }]);
+    if (note) report.suites[0].specs[1].tests[0].annotations.push(note);
+    return menuReach({ ...readReport(report), roomOf: roomOfAgents, hidden: new Set() });
+  };
+  const typed = await run(async (page) => {
+    await page.goto('/agents/new');
+    await page.goto(AGENT);
+  });
+  assert.deepEqual(typed.notReached, [{ step: 'J-agents-02#1', paths: [AGENT] }]);
+  const clicked = await run(async (page) => {
+    await page.goto('/agents/new');
+    page.app(AGENT);
+  });
+  assert.deepEqual(clicked.notReached, []);
+});
+
+test('the CLI reads the moves, counts them, and passes their paths to the beta rule', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'menu-reach-moves-'));
+  writeFileSync(
+    join(dir, 'report.json'),
+    JSON.stringify(
+      movesReport([
+        { title: 'J-agents-02 #1 a', shown: [AGENT], moves: [['/agents/new', AGENT]] },
+        { title: 'J-agents-02 #2 b', shown: ['/agents/hidden-one'], moves: [['/agents/new', '/agents/hidden-one']] },
+      ]),
+    ),
+  );
+  writeFileSync(
+    join(dir, 'rule.mjs'),
+    "import { readFileSync } from 'node:fs'; const p = JSON.parse(readFileSync(0, 'utf8')); process.stdout.write(JSON.stringify({ hidden: p.filter((x) => x.includes('hidden')) }));\n",
+  );
+  writeFileSync(
+    join(dir, 'routes.mjs'),
+    "export const findRoom = (p) => (['/', '/home', '/agents', '/agents/new'].includes(p) ? { path: p } : p.startsWith('/agents/') ? { path: '/agents/:agentId' } : undefined);\n",
+  );
+  const cli = fileURLToPath(new URL('./menu-reach.mjs', import.meta.url));
+  execFileSync(
+    process.execPath,
+    [
+      cli,
+      '--report',
+      join(dir, 'report.json'),
+      '--out',
+      join(dir, 'out.json'),
+      '--beta-rule',
+      join(dir, 'rule.mjs'),
+      '--routes',
+      join(dir, 'routes.mjs'),
+    ],
+    { encoding: 'utf8', env: { ...process.env, GITHUB_STEP_SUMMARY: '' } },
+  );
+  const out = JSON.parse(readFileSync(join(dir, 'out.json'), 'utf8'));
+  assert.equal(out.moves, 2);
+  assert.deepEqual(out.notReached, []);
+  assert.deepEqual(out.reached['/agents/:agentId'], ['/home', '/agents', '/agents/new', AGENT]);
 });
