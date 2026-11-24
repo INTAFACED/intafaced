@@ -236,14 +236,13 @@ test(`${J} #2 several wrong passwords give a typed lockout with the minutes left
     return { status: res.status(), code: data.intafacedCode ?? data.cause?.code ?? data.code, retryAfterSeconds: data.retryAfterSeconds };
   };
   // svc-identity's password policy (ATTEMPT_POLICY.password): ten wrong passwords in fifteen minutes lock sign-in for
-  // fifteen minutes. The first nine are wrong passwords, refused as such; the tenth is the one that sets the lock.
-  for (let i = 0; i < 9; i++) {
+  // fifteen minutes. All ten are still checked and refused as wrong passwords; the tenth is the last permitted guess and
+  // sets the lock (attempt-lockout.ts), so a lock after nine fails here.
+  for (let i = 0; i < 10; i++) {
     expect((await signIn(`${who.password}-wrong-${i}`)).code, `wrong password ${i + 1}`).toBe('auth.invalid_credentials');
     await expect(refusal).toContainText('Those details did not work');
     await page.reload();
   }
-  await signIn(`${who.password}-wrong-9`);
-  await page.reload();
   // Even the right password waits out the pause: a typed lockout, with the time left in the reply.
   const locked = await signIn(who.password);
   expect(locked.status).toBe(429);
