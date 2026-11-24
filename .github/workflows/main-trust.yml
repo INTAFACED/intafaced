@@ -38,10 +38,9 @@ name: Main trust
 # no longer red on gets its branch updated from main, once per main recovery, so it runs again on its own and merges if it
 # is otherwise green; a red of its own stays red.
 #
-# After each Real-app journeys run on main that finished green (`map`): the touched-journeys map is built from main's
-# newest whole runs, verified, and kept as the `journey-reach-map` artifact (tooling/ci/journey-reach-map.mjs builtMap).
-# Until 24 Nov 2026 its own workflow did this, started by every journeys run on main: 693 of its 906 runs in 7 days were
-# skipped, since GitHub can't start a workflow_run only for a green run (project-state#4001, step 4a).
+# After each Real-app journeys run on main that finished green (`map`): start the touched-journeys map's build
+# (journey-reach-map.yml) on main. Until 24 Nov 2026 every journeys run on main started that workflow itself, and its
+# job skipped for every run that wasn't green (project-state#4001, step 4a).
 #
 # Ends: with each run of the workflows it follows (workflow_run): one run per finished run of theirs on main, so it
 # stops only when they do, and they never end on their own; `revive` runs on the hourly timer and ends never. A stop
@@ -232,17 +231,12 @@ jobs:
           MODE: ${{ github.event_name == 'schedule' && 'all' || 'main' }}
         run: node tooling/ci/journeys-revive.mjs "$MODE"
 
-  # The touched-journeys map (R3 C4; OWNER 248, phase 0, point 2): `build` reads the `journey-reach` records of main's
-  # newest whole full Real-app journeys runs and writes the map that lets a one-service pull request run only its
-  # journeys. Nothing here writes to the repository: committing a map is an ordinary pull request, and CI's Doctrine
-  # gates rebuild that map with main's builder and compare it byte for byte. After the build, the job checks its own map
-  # with `verify` (it rebuilds up to the newest run the map names and must match), then plants one edit in a copy and
-  # requires `verify` to fail on it, so every build also proves the check a pull request is held to.
-  # Only a verified map is kept as `journey-reach-map`, the artifact the journeys touch job and the seal read
-  # (journey-reach-map.mjs builtMap, which reads it only from a workflow_run run of this file on main); a build that fails
-  # keeps its map as `journey-reach-map-unverified`, to be read by a person.
+  # The touched-journeys map (journey-reach-map.yml) is built after each green journeys run on main. Its dispatch with
+  # this job's token runs the workflow's copy on main; journey-reach-map.mjs mapBuilds counts only such a build (started
+  # by github-actions[bot], its commit in main's history). The condition is the one the map workflow's own job had, word
+  # for word, when a workflow_run started it.
   map:
-    name: Build the map from main's runs
+    name: Start the map build after a green journeys run
     if: >-
       github.event.workflow_run.name == 'Real-app journeys' &&
       github.event.workflow_run.conclusion == 'success' &&
@@ -250,65 +244,12 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository &&
       contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30 # healthy run: a few minutes, most of it downloading the newest whole runs' reports twice (build, then verify)
+    timeout-minutes: 5 # healthy run: seconds
     permissions:
-      contents: read
-      actions: read # main's Real-app journeys runs and their report artifacts
+      actions: write # start journey-reach-map.yml on main
     steps:
-      # fetch-depth: 0: the builder lists the journey files at each run's head commit.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-
-      # Exit 3 is the builder's refusal (fewer than 3 whole runs): it still writes a map, whose mode is 'full'.
-      - name: Build the map
+      - name: Start the map build on main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/reach-map"
-          set +e
-          node tooling/ci/journey-reach-map.mjs build --out "$RUNNER_TEMP/reach-map/journey-reach-map.json"
-          code=$?
-          set -e
-          if [ "$code" = 3 ]; then echo "::warning::the builder refused: the map it wrote is full"; elif [ "$code" != 0 ]; then exit "$code"; fi
-          node tooling/ci/journey-reach-map.mjs show --map "$RUNNER_TEMP/reach-map/journey-reach-map.json"
-
-      # The check a pull request that commits this map is held to, on the map just built, then on a planted edit of it.
-      - name: Verify the map, and that a planted edit fails
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          map="$RUNNER_TEMP/reach-map/journey-reach-map.json"
-          node tooling/ci/journey-reach-map.mjs verify --map "$map"
-          # The planted edit is judged against the map just built (no second download): verify's comparison must fail it.
-          node --input-type=module -e '
-            import { readFileSync } from "node:fs";
-            import { pathToFileURL } from "node:url";
-            const { verifyMap, mapText } = await import(pathToFileURL("tooling/ci/journey-reach-map.mjs").href);
-            const built = readFileSync(process.argv[1], "utf8");
-            const planted = JSON.parse(built);
-            planted.skipped = [...(planted.skipped ?? []), "0: planted"];
-            const r = verifyMap(mapText(planted), () => built);
-            if (r.ok) { console.log("::error::verify passed a planted edit"); process.exit(1); }
-            console.log("verify failed the planted edit, as it must: " + r.why);
-          ' "$map"
-
-      # Kept only when both steps above passed: the artifact's name is the verdict builtMap reads.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: journey-reach-map
-          path: ${{ runner.temp }}/reach-map/journey-reach-map.json
-          if-no-files-found: error
-          retention-days: 14
-      # A refusal that found no whole run writes a map naming none, which verify cannot rebuild: kept so it can be read.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
-        with:
-          name: journey-reach-map-unverified
-          path: ${{ runner.temp }}/reach-map/journey-reach-map.json
-          if-no-files-found: ignore
-          retention-days: 14
+          REPO: ${{ github.repository }}
+        run: gh workflow run journey-reach-map.yml --repo "$REPO" --ref main

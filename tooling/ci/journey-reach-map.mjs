@@ -27,8 +27,9 @@
  * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
  * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
  * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
- * 7561-R1 #2). Main trust's `map` job (main-trust.yml) builds it in CI after each green journeys run on main, with the
- * job's own read-only token, and keeps it as an artifact; nothing pushes it to main.
+ * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml, started by Main trust after each green journeys
+ * run on main) builds it in CI with the workflow's own read-only token and keeps it as an artifact; nothing pushes it to
+ * main.
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
@@ -887,35 +888,46 @@ export function runsBehind(map, runs, repo = REPO) {
   ).length;
 }
 
-/** The workflow that builds the map after every green full run on main (its `map` job), and the artifact it uploads only
- *  once the build is verified. Until 24 Nov 2026 the map had a workflow of its own (journey-reach-map.yml, deleted by
- *  project-state#4001 step 4a); its builds are not read: until Main trust's first build, the committed map stands. */
-export const MAP_WORKFLOW = 'main-trust.yml';
+/** The workflow that builds the map after every green full run on main, and the artifact it uploads. */
+export const MAP_WORKFLOW = 'journey-reach-map.yml';
 export const MAP_ARTIFACT = 'journey-reach-map';
+/** Who starts a counted dispatch: the workflow token of Main trust's `map` job. A person's or an agent's dispatch never counts. */
+export const MAP_STARTER = 'github-actions[bot]';
 
 /**
- * Which build of the map speaks for main, from a list of MAP_WORKFLOW's runs that hold a MAP_ARTIFACT: the newest one
- * started by main's own journeys run (`workflow_run`, which always runs the default branch's workflow; a dispatch runs
- * whatever ref it names, so it never counts), in this repository, created no later than `before` (ms; the journeys run's
- * own creation, so its touch job and the seal pick the same build), or null. The `map` job uploads the artifact only after
- * its verify step passed, and Main trust's other jobs may still run, or fail, so the run's conclusion is not read.
- * (Failure it prevents: on 9 Nov 2026 the committed map was built from runs up to 8 Nov 20:39 UTC, and since nobody pays
- * for a map pull request, every product pull request's journeys ran all 33 shards from 18:00 UTC: the OG on
- * project-state#1574, 23:51 UTC.) Pure.
+ * The builds of the map that may speak for main, newest first, from a list of MAP_WORKFLOW's runs: each succeeded (so
+ * its verify step passed), ran on main in this repository, was created no later than `before` (ms; the journeys run's
+ * own creation, so its touch job and the seal pick the same build), and was started either by main's own journeys run
+ * (`workflow_run`, which always runs the default branch's workflow; its builds until 24 Nov 2026) or by a dispatch on
+ * main by MAP_STARTER (Main trust's `map` job starts one after each green journeys run on main, project-state#4001 step
+ * 4a). A dispatch runs whatever ref it names, and a tag called main reads as branch main, so builtMap takes a dispatched
+ * build only when its commit is in main's history (onMain). (Failure it prevents: on 9 Nov 2026 the committed map was built from runs up
+ * to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's journeys ran all 33
+ * shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
  */
-export function mapBuild(runs, { before = Infinity, repo = REPO } = {}) {
-  return (
-    (runs ?? [])
-      .filter(
-        (r) =>
-          r?.head_branch === 'main' &&
-          r?.head_repository?.full_name === repo &&
-          r?.event === 'workflow_run' &&
-          String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
-          Date.parse(r?.created_at) <= before,
-      )
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
-  );
+export function mapBuilds(runs, { before = Infinity, repo = REPO } = {}) {
+  return (runs ?? [])
+    .filter(
+      (r) =>
+        r?.status === 'completed' &&
+        r?.conclusion === 'success' &&
+        r?.head_branch === 'main' &&
+        r?.head_repository?.full_name === repo &&
+        (r?.event === 'workflow_run' || (r?.event === 'workflow_dispatch' && r?.triggering_actor?.login === MAP_STARTER)) &&
+        String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
+        Date.parse(r?.created_at) <= before,
+    )
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+/** The newest of mapBuilds, or null. Pure. */
+export const mapBuild = (runs, opts) => mapBuilds(runs, opts)[0] ?? null;
+
+/** Whether commit `sha` is in main's history: main is identical to it or ahead of it (`get` returns the API's JSON). */
+export async function onMain(sha, { get, repo = REPO }) {
+  if (!/^[0-9a-f]{40}$/i.test(String(sha ?? ''))) return false;
+  const status = (await get(`/repos/${repo}/compare/${sha}...main`))?.status;
+  return status === 'identical' || status === 'ahead';
 }
 
 /** Whether a map holds what mapProblem needs before its age: version, reach mode, enough runs, journeys. Pure. */
@@ -936,70 +948,35 @@ export function newerMap(built, committed) {
   return Date.parse(built.runs[0].created) > Date.parse(committed.runs[0].created) ? built : committed;
 }
 
-/** How many list pages builtMap reads at most; past that the read is incomplete, so null (the committed map stands). */
-const PAGES = 20;
-
 /**
- * The newest built map main's map job uploaded for a run created no later than `before` (mapBuild), or null when there is
- * none or it can't be read whole. Two lists, newest first, a page of 100 at a time: MAP_WORKFLOW's runs on main created by
- * `before`, and the repository's MAP_ARTIFACT artifacts. An artifact is never older than its run, so once the artifacts
- * read reach back past a run, every build newer than that run is in hand. The pick is read only when nothing unread can
- * outrank it: runs are read until one of them holds a build (later pages are older), and artifacts until they reach back
- * past the pick, or past the oldest run read while there is none. Any failed or capped read is null, never a guess.
- * `get(path)` returns the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
+ * The newest built map main's map workflow uploaded no later than `before` (mapBuild), or null when there is none or it
+ * can't be read. `get(path)` returns the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
  */
 export async function builtMap({ get, raw, before = Date.now(), repo = REPO }) {
   try {
-    const at = new Date(Math.min(before, Date.now() + 864e5)).toISOString().replace(/\.\d{3}Z$/, 'Z');
-    const runs = [];
-    const arts = new Map();
-    let runPage = 0;
-    let runsDone = false;
-    let artPage = 0;
-    let artsDone = false;
-    let oldestArt = Infinity;
-    for (let reads = 0; reads < PAGES; reads++) {
-      const pick = mapBuild(
-        runs.filter((r) => arts.has(r.id)),
-        { before, repo },
-      );
-      const oldestRun = runs.length ? Math.min(...runs.map((r) => Date.parse(r.created_at))) : Infinity;
-      const bar = pick ? Date.parse(pick.created_at) : oldestRun;
-      const artsCovered = artsDone || oldestArt < bar;
-      if (pick && artsCovered) {
-        const dir = mkdtempSync(join(tmpdir(), 'reach-map-'));
-        try {
-          const zip = join(dir, 'a.zip');
-          writeFileSync(zip, await raw(`/repos/${repo}/actions/artifacts/${arts.get(pick.id).id}/zip`));
-          return JSON.parse(execFileSync('unzip', ['-p', zip, 'journey-reach-map.json'], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
-        } finally {
-          rmSync(dir, { recursive: true, force: true });
-        }
+    const runs = (await get(`/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&status=success&per_page=100`))
+      ?.workflow_runs;
+    // The newest build, a dispatched one only when its commit is main's: one that isn't counts for nothing, never a stop.
+    let run = null;
+    for (const r of mapBuilds(runs, { before, repo })) {
+      if (r.event === 'workflow_run' || (await onMain(r.head_sha, { get, repo }))) {
+        run = r;
+        break;
       }
-      if (runPage > 0 && runs.length === 0 && runsDone) return null; // no run on main by then: no build
-      if (runPage > 0 && runs.length > 0 && !artsCovered) {
-        artPage += 1;
-        const batch = (await get(`/repos/${repo}/actions/artifacts?name=${MAP_ARTIFACT}&per_page=100&page=${artPage}`))?.artifacts ?? [];
-        for (const a of batch) {
-          oldestArt = Math.min(oldestArt, Date.parse(a?.created_at));
-          if (a?.name === MAP_ARTIFACT && !a?.expired && a?.workflow_run?.id && !arts.has(a.workflow_run.id))
-            arts.set(a.workflow_run.id, a);
-        }
-        if (batch.length < 100) artsDone = true;
-        continue;
-      }
-      if (runsDone) return null; // every run and every artifact that could hold a build read: none
-      runPage += 1;
-      const batch =
-        (
-          await get(
-            `/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&event=workflow_run&created=${encodeURIComponent(`<=${at}`)}&per_page=100&page=${runPage}`,
-          )
-        )?.workflow_runs ?? [];
-      runs.push(...batch);
-      if (batch.length < 100) runsDone = true;
     }
-    return null;
+    if (!run) return null;
+    const art = ((await get(`/repos/${repo}/actions/runs/${run.id}/artifacts?name=${MAP_ARTIFACT}`))?.artifacts ?? []).find(
+      (a) => a?.name === MAP_ARTIFACT && !a?.expired,
+    );
+    if (!art) return null;
+    const dir = mkdtempSync(join(tmpdir(), 'reach-map-'));
+    try {
+      const zip = join(dir, 'a.zip');
+      writeFileSync(zip, await raw(`/repos/${repo}/actions/artifacts/${art.id}/zip`));
+      return JSON.parse(execFileSync('unzip', ['-p', zip, 'journey-reach-map.json'], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   } catch {
     return null;
   }
