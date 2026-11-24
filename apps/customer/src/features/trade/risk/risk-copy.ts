@@ -57,6 +57,8 @@ const en = {
     'Connect the wallet that owns your venue account. Until then your orders and positions are not read, so their counts are unknown.',
   venueOrdersUnread: 'Your open orders could not be read from the venue, so their count is unknown.',
   venueCloseConfirm: 'Close {count} selected',
+  venueCloseApprove:
+    'Your venue account hasn’t approved our builder fee of {fee} bps, which every order on it carries. Confirming signs that one-time approval first, then the closes.',
   venueCloseKeep: 'Keep positions',
   venueCloseTitle: 'Close the selected positions?',
   venueCloseIntro: 'Each position closes with a reduce-only order at the market: it never opens or hedges. Orders are not touched.',

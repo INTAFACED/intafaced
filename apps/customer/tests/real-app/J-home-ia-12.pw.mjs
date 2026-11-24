@@ -292,8 +292,10 @@ test(`${J} #3 presses Cancel all orders and confirms: asked first, naming how ma
   );
   await expect(exposure).toContainText('You have no open orders.', { timeout: 30_000 });
   await stepPicture();
+  // The room's own Close, beside the answer (the sheet's corner has a Close of its own).
   await page
     .getByRole('dialog', { name: 'Cancel every open order?', exact: true })
+    .getByTestId('risk-cancel-actions')
     .getByRole('button', { name: 'Close', exact: true })
     .click();
   await expect(section(page, 'Cancel all orders').getByRole('button', { name: 'Cancel all orders', exact: true })).toBeDisabled();
@@ -306,6 +308,8 @@ test(`${J} #5 ticks two positions and presses Close selected positions: Select a
 }) => {
   test.setTimeout(300_000);
   const s = state();
+  // The door's own status answer to this page: what it says our builder fee is.
+  const statusAnswer = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/venue/status') && r.ok(), { timeout: 60_000 });
   const wallet = await openRoom(page, s.account, s.walletKey);
   const door = doorCalls(page);
   const positions = await venuePositions(s.owner);
@@ -328,14 +332,22 @@ test(`${J} #5 ticks two positions and presses Close selected positions: Select a
   await close.click();
   const review = page.getByTestId('risk-venue-close');
   await expect(review).toContainText('Each position closes with a reduce-only order at the market: it never opens or hedges.');
+  // Every order on the venue carries our builder fee (the stack's door says which), and this account has approved none:
+  // the review says the one-time approval is signed first, then the closes.
+  const status = await (await statusAnswer).json();
+  expect(status.builder, JSON.stringify(status).slice(0, 300)).not.toBeNull();
+  await expect(review.getByTestId('risk-venue-approve')).toContainText(
+    `Your venue account hasn’t approved our builder fee of ${status.builder.feeBps} bps, which every order on it carries.`,
+  );
   expect(door.of('prepare')).toHaveLength(0);
   const asked = signatures(wallet);
   await review.getByRole('button', { name: 'Close 2 selected', exact: true }).click();
-  for (let i = 0; i < positions.length; i += 1) await continueInWallet(page);
+  for (let i = 0; i < positions.length + 1; i += 1) await continueInWallet(page);
   await expect(review.getByTestId('venue-outcome')).toHaveCount(2, { timeout: 30_000 });
-  // Each chosen position closed by its own reduce-only order, its full size, on the opposite side.
-  expect(signatures(wallet)).toBe(asked + positions.length);
-  const sent = door.of('prepare').map((c) => c.body.intent);
+  // The approval, then each chosen position closed by its own reduce-only order, its full size, on the opposite side.
+  expect(signatures(wallet)).toBe(asked + positions.length + 1);
+  const [approve, ...sent] = door.of('prepare').map((c) => c.body.intent);
+  expect(approve).toEqual({ kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps });
   expect(sent.map((i) => [i.symbol, i.side, i.amount, i.reduceOnly, i.timeInForce]).sort()).toEqual(
     positions.map((p) => [p.symbol, 'sell', p.size, true, 'IOC']).sort(),
   );

@@ -90,7 +90,7 @@ export function CancelEverything({
                 {note.text}
               </p>
             ) : null}
-            <div className="lt-actions">
+            <div className="lt-actions" data-testid="risk-cancel-actions">
               <Button tone="secondary" disabled={busy} onClick={close}>
                 {verdict ? t('cancelClose') : t('cancelKeep')}
               </Button>

@@ -4,6 +4,7 @@ import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { usePolled } from '../../protocol';
 import { Section, Waiting } from '../../more';
 import { displayAmount } from '../../../shared/money';
+import { compareDecimal } from '../../../data/decimal';
 import { closeWorstPrice } from '../../../screens/trade/futures/VenueFuturesDesk';
 import { useAsk } from '../../../screens/trade/desk/VenueOrderChanges';
 import type { VenueMode } from '../use-venue-mode';
@@ -166,6 +167,7 @@ function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T })
             run={ask}
             signing={signing}
             onDone={reload}
+            builder={status.builder}
             t={t}
           />
         )}
@@ -183,6 +185,7 @@ function Reduce({
   run,
   signing,
   onDone,
+  builder,
   t,
 }: {
   owner: string;
@@ -192,8 +195,13 @@ function Reduce({
   run: RunAction;
   signing: boolean;
   onDone: () => void;
+  /** Our builder fee, which every order on the venue carries; an account that has not approved it signs the approval first. */
+  builder: VenueUp['builder'];
   t: T;
 }) {
+  const venue = useVenueApi();
+  // The one-time builder-fee approval the review asks for, with its id held until the venue answers it definitely.
+  const [approval, setApproval] = useState<{ id: string; done: boolean; answer: ActionResult | null } | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   // The positions under review, each with its close id: a press after an answer that was not definite is the same close,
   // and a position the venue answered definitely is never sent again.
@@ -210,12 +218,36 @@ function Reduce({
       return next;
     });
   }
+  async function open() {
+    const rows = chosen.map((position) => ({ position, id: draftId() }));
+    let needed = false;
+    if (builder) {
+      const read = await venue.builderFeeApproval(owner);
+      needed = !read.ok || compareDecimal(read.data.value, builder.feeBps) === -1;
+    }
+    setResults({});
+    setApproval(needed ? { id: draftId(), done: false, answer: null } : null);
+    setReview(rows);
+  }
   async function confirm() {
     if (!review || sending.current || !priced) return;
     sending.current = true;
     setBusy(true);
     const out: Record<string, ActionResult> = { ...results };
     try {
+      if (builder && approval && !approval.done) {
+        const answer = await run(
+          { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
+          { actionKey: keys.builderApproval(owner, builder.address, builder.feeBps, undefined, approval.id) },
+        );
+        if (answer.kind !== 'outcome' || !answer.outcome.accepted) {
+          // No close is sent before the approval it needs. A press again is the same approval until the venue answers it
+          // definitely; after a definite no, a new one.
+          setApproval({ id: answer.kind === 'outcome' ? draftId() : approval.id, done: false, answer });
+          return;
+        }
+        setApproval({ ...approval, done: true, answer });
+      }
       for (const row of review) {
         const p = row.position;
         const key = rowId(p);
@@ -271,11 +303,7 @@ function Reduce({
         </span>
       </div>
       <div className="lt-actions">
-        <Button
-          tone="primary"
-          disabled={review !== null || chosen.length === 0}
-          onClick={() => setReview(chosen.map((position) => ({ position, id: draftId() })))}
-        >
+        <Button tone="primary" disabled={review !== null || chosen.length === 0} onClick={() => void open()}>
           {t('reduceButton')}
         </Button>
         {chosen.length === 0 ? <span className="lt-hint">{t('reduceNeedsSelection')}</span> : null}
@@ -284,6 +312,12 @@ function Reduce({
         <section className="lt-stack" aria-label={t('venueCloseTitle')} data-testid="risk-venue-close">
           <h3>{t('venueCloseTitle')}</h3>
           <p className="lt-hint">{t('venueCloseIntro')}</p>
+          {builder && approval && !approval.done ? (
+            <div data-testid="risk-venue-approve">
+              <p>{t('venueCloseApprove', { fee: builder.feeBps })}</p>
+              {approval.answer ? <OutcomeLine result={approval.answer} owner={owner} /> : null}
+            </div>
+          ) : null}
           <ul className="lt-rows">
             {review.map(({ position: p }) => (
               <li key={rowId(p)} data-symbol={p.symbol}>
