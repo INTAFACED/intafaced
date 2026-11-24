@@ -31,17 +31,33 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-testid="support-guest-verify">
-<header class="pub-heading">
-<p class="eyebrow">Support request</p>
-<h1>This link does not open a request</h1>
-</header>
-<div class="pub-notice" role="alert" data-testid="support-guest-link-dead">
-<p>The link is incomplete or no longer works. Send your request again.</p>
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">This link does not open a request</h1>
+<p class="lt-description">Support request</p>
 </div>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack" data-testid="support-guest-verify">
+<div class="lt-refusal" role="alert" data-testid="support-guest-link-dead">
+<p class="lt-refusal-body">The link is incomplete or no longer works. Send your request again.</p>
+</div>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="help">
 <p>
 <a class="lt-link" href="/support/new" data-testid="support-guest-back">Back to the request form</a>
 </p>
+</section>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { sessionSchema } from '../session';
 import { recoveryCodeCopy } from './recovery-code-copy';
 
@@ -19,31 +19,42 @@ export function RecoveryCodeUsed({
   left,
   onContinue,
   onSecurity,
-  heading: Heading = 'h1',
+  heading = 'h1',
 }: {
   left: number;
   onContinue: () => void;
   onSecurity: () => void;
-  /** `h2` where the page keeps its own heading (sign-in by a mailed code, inside the sign-in page). */
-  heading?: 'h1' | 'h2';
+  /** `h2` where the page keeps its own heading (sign-in by a mailed code, inside the sign-in page); `none` when the room frame draws the `h1`. */
+  heading?: 'h1' | 'h2' | 'none';
 }) {
   const { t, languageFor } = recoveryCodeCopy.useCopy();
+  const Heading = heading === 'none' ? null : heading;
   return (
-    <section className="public-auth-recovery-used stack" role="status" aria-labelledby="recovery-used-title">
-      <Heading id="recovery-used-title" lang={languageFor('title')}>
-        {t('title')}
-      </Heading>
+    <section
+      data-testid="recovery-code-used"
+      className="lt-stack"
+      role="status"
+      aria-labelledby={Heading ? 'recovery-used-title' : undefined}
+      aria-label={Heading ? undefined : t('title')}
+    >
+      {Heading && (
+        <Heading id="recovery-used-title" lang={languageFor('title')}>
+          {t('title')}
+        </Heading>
+      )}
       <p lang={languageFor('spent')}>{t('spent')}</p>
       <p lang={languageFor('left')}>
         <strong>{t('left', { count: left })}</strong>
       </p>
       {left === 0 && <p lang={languageFor('none')}>{t('none')}</p>}
-      <Button variant={left === 0 ? 'secondary' : undefined} onClick={onContinue}>
-        {t('continue')}
-      </Button>
-      <Button variant={left === 0 ? undefined : 'secondary'} onClick={onSecurity}>
-        {t('security')}
-      </Button>
+      <div className="lt-actions">
+        <Button tone={left === 0 ? 'secondary' : 'primary'} onClick={onContinue}>
+          {t('continue')}
+        </Button>
+        <Button tone={left === 0 ? 'primary' : 'secondary'} onClick={onSecurity}>
+          {t('security')}
+        </Button>
+      </div>
     </section>
   );
 }

@@ -31,72 +31,87 @@
 </a>
 </header>
 <main id="main">
-<section class="auth-layout" lang="en">
-<div class="auth-story">
-<svg data-slot="brand-iris" data-mode="open" class="brand-iris auth-story-mark" viewBox="0 0 1000 1000" width="64" height="64" fill="currentColor" focusable="false" aria-hidden="true">
-<g class="brand-iris__spin">
-<g transform="rotate(0 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-<g transform="rotate(45 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-<g transform="rotate(90 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-<g transform="rotate(135 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-<g transform="rotate(180 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-<g transform="rotate(225 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-<g transform="rotate(270 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-<g transform="rotate(315 500 500)">
-<g transform="translate(435.3 63.5)">
-<path class="brand-iris__blade" d="M-307.4 101.5 L0 0 L93.1 103.5 L163.8 247 L-54.3 193.6 L-248.1 124.5 L-64.2 151.9 L41.2 137.5Z">
-</path>
-</g>
-</g>
-</g>
-</svg>
-<p class="eyebrow">YOUR ACCOUNT, CONNECTED</p>
-<p class="auth-story-title">Welcome<br>
-<span>back.</span>
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title" lang="en">Sign in to your account</h1>
+<p class="lt-description">SIGN IN</p>
+</div>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack" data-testid="auth-form" lang="en">
+<p role="status" aria-live="polite">
 </p>
-<p>Money, trading and payments.<br>One place to keep perspective.</p>
-<div class="auth-story-line">
+<div class="lt-note lt-stack-tight" data-testid="public-auth-context">
+<span lang="en" dir="ltr" data-i18n="public.auth.after">After sign-in</span>
+<span>Home</span>
+</div>
+<form class="lt-stack">
+<p class="lt-muted">
+<span lang="en" dir="ltr" data-i18n="public.auth.method">Use your password or start a new passkey sign-in.</span>
+</p>
+<div class="lit-field-control">
+<label for="_r_1_">Email or handle</label>
+<input autocomplete="username" required="" data-public-auth-sensitive="true" aria-invalid="false" id="_r_1_" type="text" value="" name="identifier">
+</div>
+<div class="lit-field-control">
+<label for="_r_2_">Password</label>
+<input autocomplete="current-password" required="" minlength="1" maxlength="200" data-public-auth-sensitive="true" id="_r_2_" type="password" value="" name="password">
+</div>
+<div class="lit-field-control">
+<label for="_r_3_">Two-factor or recovery code (if enabled)</label>
+<input autocomplete="one-time-code" data-public-auth-sensitive="true" id="_r_3_" value="" name="totp">
+</div>
+<div class="lt-actions">
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Sign in</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Use a passkey</button>
+</div>
+<p class="lt-muted" data-testid="auth-form-links">Need an account? <a class="lt-link" href="/register">Create one</a>
+</p>
+<a class="lt-link" href="/findPwd">Recover account access</a>
+<a class="lt-link" href="/cannot-sign-in">I cannot sign in</a>
+</form>
+<section class="lt-stack" aria-labelledby="_r_4_-title">
+<h2 id="_r_4_-title">Sign in with a code instead</h2>
+<form method="post" class="lt-stack">
+<p class="lt-muted">We email a 6-digit code to the address on your account. No password needed.</p>
+<div class="lit-field-control">
+<label for="_r_5_">Email or handle for the code</label>
+<input autocomplete="username" maxlength="320" required="" id="_r_5_" name="codeIdentifier">
+</div>
+<div class="lt-actions">
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Email me a code</button>
+</div>
+</form>
+</section>
+<div class="lt-stack">
+<p class="lt-muted">Or</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a social account</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a wallet</button>
 </div>
 </div>
-<div class="auth-form">
-<div class="language-menu public-auth-language" data-language-menu="true">
-<label for="_r_1_" lang="en">Language</label>
-<select id="_r_1_">
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<div class="lt-stack" lang="en">
+<span class="lit-logo" data-lit="true">
+<svg data-slot="brand-mark" data-drawing="small" viewBox="0 0 1000 1000" width="48" height="48" fill="currentColor" focusable="false" role="img" aria-label="INTAFACED">
+<path d="M142.9 166.4 L433.4 70.5 L523.4 170.4 L588 301.6 L382.6 251.3 L238.1 206.5 L369.5 231.3 L448.6 198.1 L143.4 166.6Z M483.4 11.6 L756.7 149.2 L749.6 283.5 L702.5 421.9 L592.9 241.2 L522.3 107.3 L597.7 217.7 L677.1 250.2 L483.6 12.1Z M833.6 142.9 L929.5 433.4 L829.6 523.4 L698.4 588 L748.7 382.6 L793.5 238.1 L768.7 369.5 L801.9 448.6 L833.4 143.4Z M988.4 483.4 L850.8 756.7 L716.5 749.6 L578.1 702.5 L758.8 592.9 L892.7 522.3 L782.3 597.7 L749.8 677.1 L987.9 483.6Z M857.1 833.6 L566.6 929.5 L476.6 829.6 L412 698.4 L617.4 748.7 L761.9 793.5 L630.5 768.7 L551.4 801.9 L856.6 833.4Z M516.6 988.4 L243.3 850.8 L250.4 716.5 L297.5 578.1 L407.1 758.8 L477.7 892.7 L402.3 782.3 L322.9 749.8 L516.4 987.9Z M166.4 857.1 L70.5 566.6 L170.4 476.6 L301.6 412 L251.3 617.4 L206.5 761.9 L231.3 630.5 L198.1 551.4 L166.6 856.6Z M11.6 516.6 L149.2 243.3 L283.5 250.4 L421.9 297.5 L241.2 407.1 L107.3 477.7 L217.7 402.3 L250.2 322.9 L12.1 516.4Z">
+</path>
+</svg>
+</span>
+<p class="lt-hint">YOUR ACCOUNT, CONNECTED</p>
+<p>
+<strong>Welcome back.</strong>
+</p>
+<p class="lt-muted">Money, trading and payments. One place to keep perspective.</p>
+<div class="lt-field" data-language-menu="true">
+<label for="_r_6_" lang="en">Language</label>
+<select id="_r_6_">
 <optgroup label="Written in the app" lang="en">
 <option value="en" lang="en" dir="ltr">English</option>
 <option value="es" lang="es" dir="ltr">español · 47% written · Machine-translated</option>
@@ -231,58 +246,15 @@
 <option value="ak" lang="ak" dir="ltr">Akan</option>
 </optgroup>
 </select>
-<small data-language-note="true" lang="en">English is the language the app is written in.</small>
-<small data-language-kept="browser" lang="en">Saved in this browser only.</small>
-</div>
-<p role="status" aria-live="polite">
-</p>
-<p class="eyebrow">SIGN IN</p>
-<h1>Sign in to your account</h1>
-<div class="public-auth-context">
-<span lang="en" dir="ltr" data-i18n="public.auth.after">After sign-in</span>
-<span>Home</span>
-</div>
-<form class="lt-stack">
-<p class="public-auth-method">
-<span lang="en" dir="ltr" data-i18n="public.auth.method">Use your password or start a new passkey sign-in.</span>
-</p>
-<label class="lt-field" for="identifier-_r_2_">
-<span id="identifier-_r_2_-label">Email or handle</span>
-<input autocomplete="username" required="" data-public-auth-sensitive="true" id="identifier-_r_2_" aria-labelledby="identifier-_r_2_-label" aria-invalid="false" type="text" value="" name="identifier">
-</label>
-<label class="lt-field" for="password-_r_3_">
-<span id="password-_r_3_-label">Password</span>
-<input autocomplete="current-password" required="" minlength="1" maxlength="200" data-public-auth-sensitive="true" id="password-_r_3_" aria-labelledby="password-_r_3_-label" aria-invalid="false" type="password" value="" name="password">
-</label>
-<label class="lt-field" for="totp-_r_4_">
-<span id="totp-_r_4_-label">Two-factor or recovery code (if enabled)</span>
-<input autocomplete="one-time-code" data-public-auth-sensitive="true" id="totp-_r_4_" aria-labelledby="totp-_r_4_-label" aria-invalid="false" value="" name="totp">
-</label>
-<button type="submit" class="button button--primary ">Sign in</button>
-<button type="button" class="button button--secondary ">Use a passkey</button>
-<p class="muted public-auth-form-links">Need an account? <a class="lt-link" href="/register">Create one</a>
-</p>
-<a class="text-link public-auth-help" href="/findPwd">Recover account access</a>
-<a class="text-link public-auth-help" href="/cannot-sign-in">I cannot sign in</a>
-</form>
-<section class="public-auth-code" aria-labelledby="_r_5_-title">
-<h2 id="_r_5_-title">Sign in with a code instead</h2>
-<form method="post" class="lt-stack">
-<p class="lt-muted">We email a 6-digit code to the address on your account. No password needed.</p>
-<label class="lt-field" for="codeIdentifier-_r_6_">
-<span id="codeIdentifier-_r_6_-label">Email or handle for the code</span>
-<input autocomplete="username" maxlength="320" required="" id="codeIdentifier-_r_6_" aria-labelledby="codeIdentifier-_r_6_-label" aria-invalid="false" name="codeIdentifier">
-</label>
-<button type="submit" class="button button--secondary ">Email me a code</button>
-</form>
-</section>
-<div class="public-auth-social">
-<p class="lt-muted">Or</p>
-<button type="button" class="button button--secondary ">Continue with a social account</button>
-<button type="button" class="button button--secondary ">Continue with a wallet</button>
+<small class="lt-hint" data-language-note="true" lang="en">English is the language the app is written in.</small>
+<small class="lt-hint" data-language-kept="browser" lang="en">Saved in this browser only.</small>
 </div>
 </div>
 </section>
+</div>
+</div>
+</div>
+</div>
 </main>
 <footer class="public-footer">
 <a href="/" class="brand" aria-label="INTAFACED">

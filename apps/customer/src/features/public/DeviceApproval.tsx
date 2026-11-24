@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
+import { FailureNote } from '../../shared/failure-note';
 import { useSession, type Session } from '../session';
 import { validAuthSession } from './public-auth-guards';
 import { deviceApprovalCopy } from './device-approval-copy';
@@ -116,7 +117,7 @@ export function DeviceApproval({
 
   const expires = new Date(waiting.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return (
-    <section className="public-auth-code" aria-labelledby="device-approval-title">
+    <section className="lt-stack" aria-labelledby="device-approval-title">
       <h2 id="device-approval-title" ref={heading} tabIndex={-1}>
         {t('title')}
       </h2>
@@ -135,36 +136,46 @@ export function DeviceApproval({
             required
             disabled={busy}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? t('checking') : t('approve')}
-          </Button>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
+              {busy ? t('checking') : t('approve')}
+            </Button>
+          </div>
         </form>
       )}
       {!final && (
         <>
           <p className="lt-muted">{t('fromOther')}</p>
-          <Button
-            variant="secondary"
-            disabled={busy}
-            onClick={() => void call(() => api.call(IDENTITY_AUTH_DEVICE_COMPLETE, { flowId: waiting.flowId, secret: waiting.secret }))}
-          >
-            {t('continue')}
-          </Button>
+          <div className="lt-actions">
+            <Button
+              tone="secondary"
+              disabled={busy}
+              onClick={() => void call(() => api.call(IDENTITY_AUTH_DEVICE_COMPLETE, { flowId: waiting.flowId, secret: waiting.secret }))}
+            >
+              {t('continue')}
+            </Button>
+          </div>
           <small className="lt-muted">{t('expires', { time: expires })}</small>
         </>
       )}
       {refusal &&
         (refusal.code === 'codeMissing' || worded(refusal.code) ? (
-          <div className="pub-notice" role="alert">
-            <p>{refusal.code === 'codeMissing' ? t('codeMissing') : t(refusal.code as Worded)}</p>
-            {refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
+          <div className="lt-refusal" role="alert">
+            <p className="lt-refusal-body">{refusal.code === 'codeMissing' ? t('codeMissing') : t(refusal.code as Worded)}</p>
+            {refusal.code !== 'codeMissing' && (
+              <small className="lt-ref" lang="zxx">
+                {refusal.code}
+              </small>
+            )}
           </div>
         ) : (
-          <Failure result={refusal} />
+          <FailureNote result={refusal} />
         ))}
-      <Button variant="ghost" disabled={busy} onClick={onCancel}>
-        {t('cancel')}
-      </Button>
+      <div className="lt-actions">
+        <Button tone="quiet" disabled={busy} onClick={onCancel}>
+          {t('cancel')}
+        </Button>
+      </div>
     </section>
   );
 }

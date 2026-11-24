@@ -34,6 +34,7 @@ const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':pair': 'BTC-USDT',
   ':asset': 'BTC',
   ':runId': '00000000-0000-4000-8000-000000000001',
+  ':sandboxId': '00000000-0000-4000-8000-000000000002',
   ':id': 'test-1',
   ':campaignId': 'cmp_TEST',
   ':listingId': 'TEST-listing',

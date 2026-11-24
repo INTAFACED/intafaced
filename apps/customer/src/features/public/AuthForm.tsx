@@ -1,5 +1,8 @@
+// volt-room: /login
+// volt-room: /login/returnUrl/:returnUrl
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { BrandIris } from '@intafaced/ui';
+import { Button, Field, Logo } from '@intafaced/ui/lit';
+import { FlowTemplate, SelectField } from '@intafaced/ui/lit/templates';
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
 import { TesterBuild } from './TesterBuild';
@@ -12,11 +15,11 @@ import { recoveryCodeCopy } from './recovery-code-copy';
 import { MfaReset } from './MfaReset';
 import { mfaResetCopy } from './mfa-reset-copy';
 import { supportRecoveryCopy } from './support-recovery-copy';
-import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
+import { FailureNote } from '../../shared/failure-note';
 import { uiCopy } from '../../shared/ui-copy';
 import { LanguageMenu } from '../../shared/LanguageMenu';
-import { useAccountViewStatus } from '../account';
+import { selfFreezeCopy, useAccountViewStatus } from '../account';
 import { savePreferences } from '../../shared/preferences';
 import { passwordIssue } from '../../shared/password';
 import {
@@ -47,7 +50,6 @@ import {
   type AuthKind,
   type AuthRecord,
 } from './public-auth-guards';
-import './public-auth.css';
 import { IDENTITY_AUTH_LOGIN, IDENTITY_AUTH_REGISTER } from '@intafaced/contracts/identity-auth-procedures';
 
 type Original = {
@@ -65,9 +67,10 @@ type Problem = 'changed' | 'storage' | 'locks' | 'another' | 'cleared' | 'retain
 export function AuthForm({ register }: { register: boolean }) {
   const { t: p, languageFor: publicLanguageFor } = publicCopy.useCopy();
   const { t, Copy, requestedLocale, languageFor } = publicAuthCopy.useCopy();
-  const { Copy: SharedCopy } = uiCopy.useCopy();
+  const { t: sharedT } = uiCopy.useCopy();
   const { t: r, languageFor: recoveryLanguageFor } = recoveryCodeCopy.useCopy();
   const { t: m, languageFor: resetLanguageFor } = mfaResetCopy.useCopy();
+  const freezeCopy = selfFreezeCopy.useCopy();
   const recovery = supportRecoveryCopy.useCopy();
   const { api, commit, userId, restoring } = useSession();
   const accountStatus = useAccountViewStatus();
@@ -551,386 +554,398 @@ export function AuthForm({ register }: { register: boolean }) {
   const ownFreeze = frozenByYou && frozenByYou.url === location.href ? frozenByYou : null;
   // A second step a code answers: the authenticator app's, or one of the recovery codes saved with it.
   const codeStep = passwordStep === 'needCode' || passwordStep === 'needCodeOrPasskey' || passwordStep === 'codeMismatch';
+  const roomTitleText = ownFreeze
+    ? freezeCopy.t('frozenTitle')
+    : spentCode
+      ? r('title')
+      : register
+        ? p('Create your account')
+        : p('Sign in to your account');
+  const roomTitleLang = ownFreeze
+    ? freezeCopy.languageFor('frozenTitle')
+    : spentCode
+      ? recoveryLanguageFor('title')
+      : publicLanguageFor('SIGN IN');
   return (
-    <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
-      <div className="auth-story">
-        {/* The sign-in moment: the mark opens once (the header beside it carries the lockup with the name). */}
-        <BrandIris size={64} mode="open" className="auth-story-mark" />
-        <p className="eyebrow">{p('YOUR ACCOUNT, CONNECTED')}</p>
-        <p className="auth-story-title">
-          {register ? (
-            <>
-              {p('Make your')}
-              <br />
-              {p('next move.')}
-            </>
-          ) : (
-            <>
-              {p('Welcome')}
-              <br />
-              <span>{p('back.')}</span>
-            </>
-          )}
-        </p>
-        <p>
-          {p('Money, trading and payments.')}
-          <br />
-          {p('One place to keep perspective.')}
-        </p>
-        <div className="auth-story-line" />
-      </div>
-      <div className="auth-form">
-        <LanguageMenu
-          className="public-auth-language"
-          keptIn={userId ? (accountStatus === 'not-saved' ? 'not-saved' : 'account') : 'browser'}
-          onSelect={(language) => savePreferences({ language })}
-        />
-        {journal.records.length > 0 && (
-          <div className="public-auth-history">
-            <p>
-              {journal.records.length === 1 ? (
-                <Copy k="historySingle" />
-              ) : (
-                <Copy k="historyWindow" params={{ total: journal.records.length }} />
-              )}
-            </p>
-            <label>
-              <Copy k="historySelect" />
-              <select
+    <FlowTemplate
+      title={roomTitleText}
+      titleLang={roomTitleLang}
+      description={ownFreeze || spentCode ? undefined : register ? p('GET STARTED') : p('SIGN IN')}
+      state={{ kind: 'ready' }}
+      step={
+        <div className="lt-stack" data-testid="auth-form" lang={publicLanguageFor('SIGN IN')}>
+          {journal.records.length > 0 && (
+            <div className="lt-stack">
+              <p className="lt-muted">
+                {journal.records.length === 1 ? (
+                  <Copy k="historySingle" />
+                ) : (
+                  <Copy k="historyWindow" params={{ total: journal.records.length }} />
+                )}
+              </p>
+              <SelectField
+                label={<Copy k="historySelect" />}
                 aria-label={t('historySelect')}
                 lang={languageFor('historySelect')}
                 value={selectedRef ?? ''}
-                onChange={(event) => setSelectedRef(event.target.value)}
-              >
-                {journal.records
+                onChange={setSelectedRef}
+                options={journal.records
                   .slice()
                   .reverse()
-                  .map((record) => (
-                    <option key={record.localRef} value={record.localRef} lang="zxx">
-                      {record.localRef}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          </div>
-        )}
-        {(selected ? [selected] : []).map((record) => (
-          <section
-            key={record.localRef}
-            className="public-auth-unknown"
-            aria-label={t(
-              pending && activeRecord === record.localRef
-                ? record.kind === 'register'
-                  ? 'registerPending'
-                  : 'pending'
-                : record.kind === 'register'
-                  ? 'registerUnknown'
-                  : record.kind === 'options'
-                    ? 'optionsUnknown'
-                    : 'signInUnknown',
-            )}
-          >
-            <h2>
-              <Copy
-                k={
-                  pending && activeRecord === record.localRef
-                    ? record.kind === 'register'
-                      ? 'registerPending'
-                      : 'pending'
-                    : record.kind === 'register'
-                      ? 'registerUnknown'
-                      : record.kind === 'options'
-                        ? 'optionsUnknown'
-                        : 'signInUnknown'
-                }
+                  .map((record) => ({ value: record.localRef, label: record.localRef, lang: 'zxx' }))}
               />
-            </h2>
-            <p>
-              <Copy
-                k={
-                  pending && activeRecord === record.localRef
-                    ? 'pendingBody'
-                    : record.kind === 'register'
-                      ? 'registerMeaning'
-                      : record.kind === 'options'
-                        ? 'optionsMeaning'
-                        : 'signInMeaning'
-                }
-              />
-            </p>
-            <p className="lt-muted">
-              <Copy k="original" /> · <Copy k={record.kind} />
-            </p>
-            <small>
-              <Copy k="browserRef" /> · <span lang="zxx">{record.localRef}</span>
-            </small>
-            <p className="lt-muted">
-              <Copy k="after" /> ·{' '}
-              {record.target === 'invite' ? <Copy k="invitation" /> : roomTitle(findRoom(record.target)!, requestedLocale)}
-            </p>
-            <p className="lt-muted">
-              <Copy k={register ? 'separateRegister' : 'separate'} />
-            </p>
-            {register && (
-              <a className="public-auth-help" href={freshSignInHref}>
-                <Copy k="freshSignIn" /> ↗
+            </div>
+          )}
+          {(selected ? [selected] : []).map((record) => (
+            <section
+              key={record.localRef}
+              className="lt-note lt-stack"
+              data-testid="public-auth-unknown"
+              aria-label={t(
+                pending && activeRecord === record.localRef
+                  ? record.kind === 'register'
+                    ? 'registerPending'
+                    : 'pending'
+                  : record.kind === 'register'
+                    ? 'registerUnknown'
+                    : record.kind === 'options'
+                      ? 'optionsUnknown'
+                      : 'signInUnknown',
+              )}
+            >
+              <h2>
+                <Copy
+                  k={
+                    pending && activeRecord === record.localRef
+                      ? record.kind === 'register'
+                        ? 'registerPending'
+                        : 'pending'
+                      : record.kind === 'register'
+                        ? 'registerUnknown'
+                        : record.kind === 'options'
+                          ? 'optionsUnknown'
+                          : 'signInUnknown'
+                  }
+                />
+              </h2>
+              <p>
+                <Copy
+                  k={
+                    pending && activeRecord === record.localRef
+                      ? 'pendingBody'
+                      : record.kind === 'register'
+                        ? 'registerMeaning'
+                        : record.kind === 'options'
+                          ? 'optionsMeaning'
+                          : 'signInMeaning'
+                  }
+                />
+              </p>
+              <p className="lt-muted">
+                <Copy k="original" /> · <Copy k={record.kind} />
+              </p>
+              <small className="lt-hint">
+                <Copy k="browserRef" /> · <span lang="zxx">{record.localRef}</span>
+              </small>
+              <p className="lt-muted">
+                <Copy k="after" /> ·{' '}
+                {record.target === 'invite' ? <Copy k="invitation" /> : roomTitle(findRoom(record.target)!, requestedLocale)}
+              </p>
+              <p className="lt-muted">
+                <Copy k={register ? 'separateRegister' : 'separate'} />
+              </p>
+              {register && (
+                <a className="lt-link" href={freshSignInHref}>
+                  <Copy k="freshSignIn" />
+                </a>
+              )}
+              <a className="lt-link" href="/help">
+                <Copy k="help" />
               </a>
-            )}
-            <a className="public-auth-help" href="/help">
-              <Copy k="help" /> ↗
-            </a>
-          </section>
-        ))}
-        {(journal.failed || (problem && !(problem === 'cleared' && register))) && (
-          <p className="notice public-auth-feedback" role="status">
-            <Copy k={journal.failed ? 'storage' : problem!} />
+            </section>
+          ))}
+          {(journal.failed || (problem && !(problem === 'cleared' && register))) && (
+            <p className="lt-note" data-testid="public-auth-feedback" role="status">
+              <Copy k={journal.failed ? 'storage' : problem!} />
+            </p>
+          )}
+          <p role="status" aria-live="polite">
+            {(pending && activeRecord) || landing ? <Copy k="pending" /> : null}
           </p>
-        )}
-        <p role="status" aria-live="polite">
-          {(pending && activeRecord) || landing ? <Copy k="pending" /> : null}
-        </p>
-        {challengeTries !== null && (
-          <p role="status" aria-live="polite" data-testid="signin-challenge">
-            {challengeTries === 0 ? t('challengeStarting') : t('challenging', { tries: challengeTries })}
-          </p>
-        )}
-        {ownFreeze ? (
-          <FrozenByYou
-            freeze={ownFreeze.freeze}
-            onContinue={() => navigate(ownFreeze.next, true)}
-            onSecurity={() => navigate('/uc/safe', true)}
-          />
-        ) : spentCode ? (
-          <RecoveryCodeUsed
-            left={spentCode.left}
-            onContinue={() => {
-              // Past the spent code, a sign-in still asks whether its owner froze the account.
-              setRecoveryUsed(null);
-              if (register) navigate(spentCode.next, true);
-              else setLanding({ next: spentCode.next, url: location.href });
-            }}
-            onSecurity={() => navigate('/uc/safe', true)}
-          />
-        ) : (
-          <>
-            <p className="eyebrow">{register ? p('GET STARTED') : p('SIGN IN')}</p>
-            <h1>{register ? p('Create your account') : p('Sign in to your account')}</h1>
-            <div className="public-auth-context">
+          {challengeTries !== null && (
+            <p role="status" aria-live="polite" data-testid="signin-challenge">
+              {challengeTries === 0 ? t('challengeStarting') : t('challenging', { tries: challengeTries })}
+            </p>
+          )}
+          {ownFreeze ? (
+            <FrozenByYou
+              heading="none"
+              freeze={ownFreeze.freeze}
+              onContinue={() => navigate(ownFreeze.next, true)}
+              onSecurity={() => navigate('/uc/safe', true)}
+            />
+          ) : spentCode ? (
+            <RecoveryCodeUsed
+              heading="none"
+              left={spentCode.left}
+              onContinue={() => {
+                // Past the spent code, a sign-in still asks whether its owner froze the account.
+                setRecoveryUsed(null);
+                if (register) navigate(spentCode.next, true);
+                else setLanding({ next: spentCode.next, url: location.href });
+              }}
+              onSecurity={() => navigate('/uc/safe', true)}
+            />
+          ) : (
+            <div className="lt-note lt-stack-tight" data-testid="public-auth-context">
               <Copy k="after" />
               <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
             </div>
-          </>
-        )}
-        {spentCode || ownFreeze || landing ? null : lostAuthenticator ? (
-          <MfaReset identifier={identifier} onBack={() => setLostAuthenticator(false)} />
-        ) : waitingDevice ? (
-          <DeviceApproval
-            waiting={waitingDevice}
-            onSignedIn={() => {
-              const next = inviteToken ? `/invite?token=${encodeURIComponent(inviteToken)}` : destination;
-              // The second step spent a recovery code before this browser was approved: say so now.
-              if (waitingDevice.recoveryCodesLeft !== undefined)
-                setRecoveryUsed({ left: waitingDevice.recoveryCodesLeft, next, url: location.href });
-              else if (register) navigate(next, true);
-              else setLanding({ next, url: location.href });
-            }}
-            onCancel={() => setResult(null)}
-          />
-        ) : (
-          <>
-            <form ref={form} className="lt-stack" onSubmit={submit}>
-              {!register && (
-                <p className="public-auth-method">
-                  <Copy k="method" />
+          )}
+          {spentCode || ownFreeze || landing ? null : lostAuthenticator ? (
+            <MfaReset identifier={identifier} onBack={() => setLostAuthenticator(false)} />
+          ) : waitingDevice ? (
+            <DeviceApproval
+              waiting={waitingDevice}
+              onSignedIn={() => {
+                const next = inviteToken ? `/invite?token=${encodeURIComponent(inviteToken)}` : destination;
+                // The second step spent a recovery code before this browser was approved: say so now.
+                if (waitingDevice.recoveryCodesLeft !== undefined)
+                  setRecoveryUsed({ left: waitingDevice.recoveryCodesLeft, next, url: location.href });
+                else if (register) navigate(next, true);
+                else setLanding({ next, url: location.href });
+              }}
+              onCancel={() => setResult(null)}
+            />
+          ) : (
+            <>
+              <form ref={form} className="lt-stack" onSubmit={submit}>
+                {!register && (
+                  <p className="lt-muted">
+                    <Copy k="method" />
+                  </p>
+                )}
+                {register && (
+                  <Field
+                    label={p('Handle')}
+                    name="handle"
+                    autoComplete="username"
+                    required
+                    minLength={3}
+                    maxLength={32}
+                    pattern="[a-zA-Z0-9_]+"
+                    disabled={pending}
+                    data-public-auth-sensitive="true"
+                    value={handle}
+                    onChange={(event) => sameRender() && setHandle(event.target.value)}
+                  />
+                )}
+                <Field
+                  label={register ? p('Email') : p('Email or handle')}
+                  name="identifier"
+                  type={register ? 'email' : 'text'}
+                  autoComplete={register ? 'email' : 'username'}
+                  required
+                  disabled={pending}
+                  data-public-auth-sensitive="true"
+                  value={identifier}
+                  aria-invalid={missingPasskeyIdentifier}
+                  error={missingPasskeyIdentifier ? sharedT('passkeyIdentifier') : undefined}
+                  onChange={(event) => {
+                    if (!sameRender()) return;
+                    setIdentifier(event.target.value);
+                    setMissingPasskeyIdentifier(false);
+                  }}
+                />
+                <Field
+                  label={p('Password')}
+                  name="password"
+                  type="password"
+                  autoComplete={register ? 'new-password' : 'current-password'}
+                  required
+                  minLength={register ? 12 : 1}
+                  maxLength={200}
+                  hint={register ? p('At least 12 characters.') : undefined}
+                  disabled={pending}
+                  data-public-auth-sensitive="true"
+                  value={password}
+                  onChange={(event) => sameRender() && setPassword(event.target.value)}
+                />
+                {register ? (
+                  <Field
+                    label={p('Country code (optional)')}
+                    name="region"
+                    maxLength={2}
+                    minLength={2}
+                    placeholder={p('ISO two-letter code')}
+                    disabled={pending}
+                    data-public-auth-sensitive="true"
+                    value={region}
+                    onChange={(event) => sameRender() && setRegion(event.target.value)}
+                  />
+                ) : (
+                  <Field
+                    label={recoveryCode ? r('field') : p('Two-factor or recovery code (if enabled)')}
+                    hint={recoveryCode ? r('fieldHint') : undefined}
+                    name="totp"
+                    autoComplete={recoveryCode ? 'off' : 'one-time-code'}
+                    disabled={pending}
+                    data-public-auth-sensitive="true"
+                    value={totp}
+                    onChange={(event) => sameRender() && setTotp(event.target.value)}
+                  />
+                )}
+                <div className="lt-actions">
+                  <Button tone="primary" type="submit" disabled={pending || restoring}>
+                    {pending ? p('Connecting…') : register ? p('Create account') : p('Sign in')}
+                  </Button>
+                  {!register && (
+                    <Button tone="secondary" disabled={pending || restoring} onClick={() => void run('options')}>
+                      {p('Use a passkey')}
+                    </Button>
+                  )}
+                </div>
+                {result && !result.ok && (
+                  <div lang="und">
+                    {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
+                      // The per-account pause: say how long, from the service's own Retry-After.
+                      <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor('locked')}>
+                        {result.retryAfterSeconds
+                          ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
+                          : t('lockedPlain')}
+                      </p>
+                    ) : secondStep ? (
+                      // The second step, on the page that asks for it. A wrong code and a used one read the same.
+                      <div data-testid="failure" className="lt-refusal" role="alert">
+                        <p className="lt-refusal-body" lang={languageFor(secondStep)}>
+                          {t(secondStep)}
+                        </p>
+                        {codeStep && (
+                          <Button
+                            tone="secondary"
+                            disabled={pending}
+                            lang={recoveryLanguageFor(recoveryCode ? 'useApp' : 'useCode')}
+                            onClick={() => {
+                              setRecoveryCode(!recoveryCode);
+                              form.current?.querySelector<HTMLInputElement>('input[name=totp]')?.focus();
+                            }}
+                          >
+                            {r(recoveryCode ? 'useApp' : 'useCode')}
+                          </Button>
+                        )}
+                        {codeStep && (
+                          <Button
+                            tone="quiet"
+                            disabled={pending}
+                            lang={resetLanguageFor('lost')}
+                            onClick={() => setLostAuthenticator(true)}
+                          >
+                            {m('lost')}
+                          </Button>
+                        )}
+                        {passkeyOptions && (
+                          <Button tone="secondary" disabled={pending} onClick={() => void run('secondStep', passkeyOptions)}>
+                            {t('usePasskeyStep')}
+                          </Button>
+                        )}
+                        {passkeyOptions && passkeyStopped && <p lang={languageFor(stoppedWords)}>{t(stoppedWords)}</p>}
+                      </div>
+                    ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
+                      // Sent only after the password verified: name the state and the one way forward.
+                      <div data-testid="failure" className="lt-refusal" role="alert">
+                        <p className="lt-refusal-body" lang={languageFor(result.accountState)}>
+                          {t(result.accountState)}
+                        </p>
+                        <a className="lt-link" href="/help" lang={languageFor('stateHelp')}>
+                          {t('stateHelp')}
+                        </a>
+                        {result.accountState === 'frozen' && (
+                          <a className="lt-link" href="/appeal" lang={languageFor('stateAppeal')}>
+                            {t('stateAppeal')}
+                          </a>
+                        )}
+                        {result.accountState === 'closed' && (
+                          <ClosedAppeal
+                            take={() => {
+                              const proof = closedProof.current;
+                              closedProof.current = null;
+                              return proof;
+                            }}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <FailureNote result={result} />
+                    )}
+                    {result.code && <small lang="zxx">{result.code}</small>}
+                  </div>
+                )}
+                <p className="lt-muted" data-testid="auth-form-links">
+                  {register ? (
+                    <>
+                      {p('Already have an account?')}{' '}
+                      <a className="lt-link" href={publicAuthHref(authContext, '/login')}>
+                        {p('Sign in')}
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      {p('Need an account?')}{' '}
+                      <a className="lt-link" href={publicAuthHref(authContext, '/register')}>
+                        {p('Create one')}
+                      </a>
+                    </>
+                  )}
+                </p>
+                {!register && (
+                  <a className="lt-link" href={publicAuthHref(authContext, '/findPwd')}>
+                    {p('Recover account access')}
+                  </a>
+                )}
+                {!register && (
+                  <a className="lt-link" href="/cannot-sign-in">
+                    {recovery.t('link')}
+                  </a>
+                )}
+              </form>
+              {!register && <TesterBuild />}
+              {!register && <CodeSignIn />}
+              {!register && walletStopped && (
+                <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
+                  {t(walletWordsStopped[walletStopped])}
                 </p>
               )}
-              {register && (
-                <Field
-                  label={p('Handle')}
-                  name="handle"
-                  autoComplete="username"
-                  required
-                  minLength={3}
-                  maxLength={32}
-                  pattern="[a-zA-Z0-9_]+"
-                  disabled={pending}
-                  data-public-auth-sensitive="true"
-                  value={handle}
-                  onChange={(event) => sameRender() && setHandle(event.target.value)}
-                />
-              )}
-              <Field
-                label={register ? p('Email') : p('Email or handle')}
-                name="identifier"
-                type={register ? 'email' : 'text'}
-                autoComplete={register ? 'email' : 'username'}
-                required
-                disabled={pending}
-                data-public-auth-sensitive="true"
-                value={identifier}
-                error={missingPasskeyIdentifier ? <SharedCopy k="passkeyIdentifier" /> : undefined}
-                onChange={(event) => {
-                  if (!sameRender()) return;
-                  setIdentifier(event.target.value);
-                  setMissingPasskeyIdentifier(false);
-                }}
-              />
-              <Field
-                label={p('Password')}
-                name="password"
-                type="password"
-                autoComplete={register ? 'new-password' : 'current-password'}
-                required
-                minLength={register ? 12 : 1}
-                maxLength={200}
-                hint={register ? p('At least 12 characters.') : undefined}
-                disabled={pending}
-                data-public-auth-sensitive="true"
-                value={password}
-                onChange={(event) => sameRender() && setPassword(event.target.value)}
-              />
+              {!register && <SocialSignIn onWallet={walletSignIn} />}
+            </>
+          )}
+        </div>
+      }
+      summary={
+        <div className="lt-stack" lang={publicLanguageFor('SIGN IN')}>
+          <Logo variant="mark" size={48} lit />
+          <p className="lt-hint">{p('YOUR ACCOUNT, CONNECTED')}</p>
+          <p>
+            <strong>
               {register ? (
-                <Field
-                  label={p('Country code (optional)')}
-                  name="region"
-                  maxLength={2}
-                  minLength={2}
-                  placeholder={p('ISO two-letter code')}
-                  disabled={pending}
-                  data-public-auth-sensitive="true"
-                  value={region}
-                  onChange={(event) => sameRender() && setRegion(event.target.value)}
-                />
+                <>
+                  {p('Make your')} {p('next move.')}
+                </>
               ) : (
-                <Field
-                  label={recoveryCode ? r('field') : p('Two-factor or recovery code (if enabled)')}
-                  hint={recoveryCode ? r('fieldHint') : undefined}
-                  name="totp"
-                  autoComplete={recoveryCode ? 'off' : 'one-time-code'}
-                  disabled={pending}
-                  data-public-auth-sensitive="true"
-                  value={totp}
-                  onChange={(event) => sameRender() && setTotp(event.target.value)}
-                />
+                <>
+                  {p('Welcome')} {p('back.')}
+                </>
               )}
-              <Button type="submit" disabled={pending || restoring}>
-                {pending ? p('Connecting…') : register ? p('Create account') : p('Sign in')}
-              </Button>
-              {!register && (
-                <Button variant="secondary" disabled={pending || restoring} onClick={() => void run('options')}>
-                  {p('Use a passkey')}
-                </Button>
-              )}
-              {result && !result.ok && (
-                <div lang="und">
-                  {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
-                    // The per-account pause: say how long, from the service's own Retry-After.
-                    <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor('locked')}>
-                      {result.retryAfterSeconds
-                        ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
-                        : t('lockedPlain')}
-                    </p>
-                  ) : secondStep ? (
-                    // The second step, on the page that asks for it. A wrong code and a used one read the same.
-                    <div data-testid="failure" className="lt-refusal" role="alert">
-                      <p lang={languageFor(secondStep)}>{t(secondStep)}</p>
-                      {codeStep && (
-                        <Button
-                          variant="secondary"
-                          disabled={pending}
-                          lang={recoveryLanguageFor(recoveryCode ? 'useApp' : 'useCode')}
-                          onClick={() => {
-                            setRecoveryCode(!recoveryCode);
-                            form.current?.querySelector<HTMLInputElement>('input[name=totp]')?.focus();
-                          }}
-                        >
-                          {r(recoveryCode ? 'useApp' : 'useCode')}
-                        </Button>
-                      )}
-                      {codeStep && (
-                        <Button
-                          variant="ghost"
-                          disabled={pending}
-                          lang={resetLanguageFor('lost')}
-                          onClick={() => setLostAuthenticator(true)}
-                        >
-                          {m('lost')}
-                        </Button>
-                      )}
-                      {passkeyOptions && (
-                        <Button variant="secondary" disabled={pending} onClick={() => void run('secondStep', passkeyOptions)}>
-                          {t('usePasskeyStep')}
-                        </Button>
-                      )}
-                      {passkeyOptions && passkeyStopped && <p lang={languageFor(stoppedWords)}>{t(stoppedWords)}</p>}
-                    </div>
-                  ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
-                    // Sent only after the password verified: name the state and the one way forward.
-                    <div data-testid="failure" className="lt-refusal" role="alert">
-                      <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
-                      <a className="lt-link" href="/help" lang={languageFor('stateHelp')}>
-                        {t('stateHelp')}
-                      </a>
-                      {result.accountState === 'frozen' && (
-                        <a className="lt-link" href="/appeal" lang={languageFor('stateAppeal')}>
-                          {t('stateAppeal')}
-                        </a>
-                      )}
-                      {result.accountState === 'closed' && (
-                        <ClosedAppeal
-                          take={() => {
-                            const proof = closedProof.current;
-                            closedProof.current = null;
-                            return proof;
-                          }}
-                        />
-                      )}
-                    </div>
-                  ) : (
-                    <Failure result={result} />
-                  )}
-                  {result.code && <small lang="zxx">{result.code}</small>}
-                </div>
-              )}
-              <p className="muted public-auth-form-links">
-                {register ? (
-                  <>
-                    {p('Already have an account?')}{' '}
-                    <a className="lt-link" href={publicAuthHref(authContext, '/login')}>
-                      {p('Sign in')}
-                    </a>
-                  </>
-                ) : (
-                  <>
-                    {p('Need an account?')}{' '}
-                    <a className="lt-link" href={publicAuthHref(authContext, '/register')}>
-                      {p('Create one')}
-                    </a>
-                  </>
-                )}
-              </p>
-              {!register && (
-                <a className="text-link public-auth-help" href={publicAuthHref(authContext, '/findPwd')}>
-                  {p('Recover account access')}
-                </a>
-              )}
-              {!register && (
-                <a className="text-link public-auth-help" href="/cannot-sign-in">
-                  {recovery.t('link')}
-                </a>
-              )}
-            </form>
-            {!register && <TesterBuild />}
-            {!register && <CodeSignIn />}
-            {!register && walletStopped && (
-              <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
-                {t(walletWordsStopped[walletStopped])}
-              </p>
-            )}
-            {!register && <SocialSignIn onWallet={walletSignIn} />}
-          </>
-        )}
-      </div>
-    </section>
+            </strong>
+          </p>
+          <p className="lt-muted">
+            {p('Money, trading and payments.')} {p('One place to keep perspective.')}
+          </p>
+          <LanguageMenu
+            keptIn={userId ? (accountStatus === 'not-saved' ? 'not-saved' : 'account') : 'browser'}
+            onSelect={(language) => savePreferences({ language })}
+          />
+        </div>
+      }
+    />
   );
 }
