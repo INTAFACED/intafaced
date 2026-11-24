@@ -5,7 +5,8 @@
 import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
-import { isServiceNotConnected, type ApiResult } from '../../../shared/api';
+import { isVerifyFirst, isServiceNotConnected, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import { canTryAgain, embeddedKey, RAW_CODE } from '../../../shared/failure-words';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
 import { refusalCopy } from '../../../data/refusals';
@@ -15,6 +16,7 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** A call that did not succeed, in the person's words, with a way to try again when a second attempt can help. */
 export function Failure({ result, retry }: { result: Refusal; retry?: () => void }) {
   const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   const again =
     retry && canTryAgain(result) ? (
       <Button tone="secondary" onClick={retry}>

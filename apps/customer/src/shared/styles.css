@@ -582,16 +582,29 @@ html[data-theme='light'] .button--danger {
 }
 
 /*
- * The ask to verify is made once per room (shared/verify-first.tsx). Every note after the first in the page, in document
- * order, keeps only its sentence: it follows a sibling that is or holds a note, itself or through an ancestor.
+ * The ask to verify is made once per room (shared/verify-first.tsx). Every note after the first one a person can see, in
+ * document order, keeps only its sentence: it follows a sibling that is or holds a shown note, itself or through an
+ * ancestor. A note inside a closed disclosure is not shown, so it never stands as the first.
  */
-main :is([data-refusal='verify'], :has([data-refusal='verify'])) ~ [data-refusal='verify'],
-main :is([data-refusal='verify'], :has([data-refusal='verify'])) ~ * [data-refusal='verify'] {
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ [data-refusal='verify'],
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ *
+  [data-refusal='verify'] {
   background: none;
   border: 0;
   padding: 0;
 }
-main :is([data-refusal='verify'], :has([data-refusal='verify'])) ~ [data-refusal='verify'] :is(.lt-refusal-title, .lt-link),
-main :is([data-refusal='verify'], :has([data-refusal='verify'])) ~ * [data-refusal='verify'] :is(.lt-refusal-title, .lt-link) {
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ [data-refusal='verify']
+  :is(.lt-refusal-title, .lt-link),
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ *
+  [data-refusal='verify']
+  :is(.lt-refusal-title, .lt-link) {
   display: none;
 }
