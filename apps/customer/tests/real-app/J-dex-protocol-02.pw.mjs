@@ -6,7 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
 import { withMiningPaused } from './chain-node.mjs';
-import { restartWithSetting } from './stack.mjs';
+import { restartService } from './stack.mjs';
 import { chainBalance } from './venue.mjs';
 
 // J-dex-protocol-02, in the running app (docs/roadmap/journeys.json): swap one token for another. One test per step,
@@ -484,7 +484,7 @@ test(`${J} #6 presses Swap with no allowance: one approve step for the exact amo
     await amountIn(resetPage).fill('10');
     await swapButton(resetPage).click();
     await acceptRepresentation(resetPage);
-    const resetSteps = resetPage.getByRole('list', { name: 'Swap steps' });
+    const resetSteps = resetPage.getByRole('list', { name: 'Swap steps', exact: true });
     await expect(resetSteps.getByRole('listitem')).toHaveCount(3);
     await expect(resetSteps.getByRole('listitem').nth(0)).toHaveText(
       `Reset the allowance for ${TEST_RESET.name} to 0 first (this token requires it)`,
@@ -558,13 +558,13 @@ test(`${J} #7 chooses a network fee level and reads the fee line: three levels f
   expect(record.swapPaymaster, 'the TEST chain seeded a swap paymaster').toMatch(/^0x[0-9a-fA-F]{40}$/);
   expect(await chainFresh.getCode({ address: record.swapPaymaster })).not.toBe('0x');
   expect(await chainFresh.getBalance({ address: record.swapPaymaster })).toBeGreaterThan(0n);
-  restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER', 'on');
+  await restartService('protocol', { LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER: 'on' });
   try {
     await page.reload();
     await expect(swap(page)).toBeVisible(UNBUILT);
     await expect(swap(page).getByTestId('fee-line')).toHaveText('Network fee sponsored');
   } finally {
-    restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER', null);
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER: null });
   }
 });
 

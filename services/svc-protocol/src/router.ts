@@ -291,7 +291,7 @@ export interface ProtocolRouterDeps {
   /** `PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI`, the fee cap. Null or absent: `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`. */
   swapFeeCapWei?: () => bigint | null;
   /** `PROTOCOL_SWAP_PAYMASTER_ADDRESS` (D-swap-06). Null, zero or absent: `amm.feeLevels` reports `sponsored: false`. */
-  swapPaymasterAddress?: () => Address | null;
+  swapPaymasterAddress?: () => string | null;
   /**
    * `PROTOCOL_FEE_RELAY_ADDRESS`, `_URL` and `_GAS_LIMIT` (RC-dex-protocol-02). Null or absent: paying the network fee in
    * a token refuses `protocol.fee_relay_unset`.
@@ -1042,7 +1042,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           const paymaster = deps.swapPaymasterAddress?.() ?? null;
           const [quote, sponsored] = await Promise.all([
             chain.gasPrice(setting, deps.now?.() ?? new Date()),
-            paymaster && !isZeroAddress(paymaster) ? chain.paymasterFunded(paymaster) : Promise.resolve(false),
+            paymaster && !isZeroAddress(paymaster) ? chain.paymasterFunded(toChecksum(paymaster)) : Promise.resolve(false),
           ]);
           return feeLevels(quote, cap, sponsored);
         } catch (err) {
