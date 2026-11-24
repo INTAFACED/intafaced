@@ -126,7 +126,7 @@ export async function copiedOrdersLoaded(detail) {
   await expect(
     table
       .locator('tbody tr')
-      .filter({ hasText: /\w\/\w|No copied orders/ })
+      .filter({ hasText: /\w[/-]\w|No copied orders/ })
       .first(),
   ).toBeVisible();
   return copiedOrders(detail);
@@ -194,8 +194,8 @@ export const copiedOrders = (detail) =>
   detail
     .getByRole('table', { name: 'Copied orders' })
     .locator('tbody tr:not([data-slot="table-empty-row"])')
-    // Rows with a market only: while the list loads, its placeholder rows have none.
-    .filter({ hasText: /\w\/\w/ });
+    // Rows with a market only (BTC/USDT or BTC-USDC): while the list loads, its placeholder rows have none.
+    .filter({ hasText: /\w[/-]\w/ });
 
 /**
  * Gives `who` their own venue account on the stack's LOCAL TEST venue, as a lead applicant has one (J-copy-bots-otc-04
