@@ -166,6 +166,11 @@ describe('resolveAlias (UI-SPEC 3.2)', () => {
     expect(resolve('/exchange/BTC%2FUSDT')).toBe('/trade/spot/BTC-USDT');
     expect(resolve('/exchange/btc%2fusdt', '?x=1')).toBe('/trade/spot/BTC-USDT?x=1');
   });
+  it('opens the futures desk on the contract its address names', () => {
+    expect(resolve('/trade/futures/BTC-PERP')).toBe('/trade/futures?symbol=BTC-PERP');
+    expect(resolve('/trade/futures/eth-perp', '?from=markets')).toBe('/trade/futures?from=markets&symbol=ETH-PERP');
+    expect(resolve('/trade/futures')).toBeUndefined();
+  });
   it('maps the old order and record pages onto Activity tabs', () => {
     expect(resolve('/uc/record')).toBe('/money/activity');
     expect(resolve('/uc/record', '?tab=trades')).toBe('/money/activity?tab=trades');
