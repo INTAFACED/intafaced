@@ -1420,19 +1420,17 @@ const oldRun = (id, created, over = {}) =>
 test('mapBuild: the newest verified build from main, created no later than the journeys run', () => {
   const runs = [
     mapRun(1, '2026-11-09T15:00:00Z'),
-    oldRun(2, '2026-11-09T18:00:00Z'),
+    mapRun(2, '2026-11-09T18:00:00Z'),
     mapRun(3, '2026-11-09T23:00:00Z'),
-    oldRun(4, '2026-11-09T19:00:00Z', { conclusion: 'failure' }), // the old workflow uploaded even when verify failed
+    oldRun(4, '2026-11-09T22:40:00Z'), // the deleted map workflow's build: not read
     mapRun(5, '2026-11-09T20:00:00Z', { head_branch: 'u4/x', event: 'workflow_dispatch' }), // another branch's builder
     mapRun(8, '2026-11-09T23:30:00Z', { event: 'workflow_dispatch' }), // a dispatch runs whatever ref it names (a tag called main)
-    oldRun(9, '2026-11-09T23:40:00Z', { event: 'workflow_dispatch' }),
     mapRun(10, '2026-11-09T23:50:00Z', { event: 'pull_request' }), // a fork's branch called main
     mapRun(6, '2026-11-09T21:00:00Z', { head_repository: { full_name: 'someone/fork' } }),
     mapRun(7, '2026-11-09T22:00:00Z', { path: '.github/workflows/other.yml' }),
   ];
   assert.equal(mapBuild(runs, { repo: REPO })?.id, 3);
-  assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T22:30:00Z'), repo: REPO })?.id, 2);
-  assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T17:00:00Z'), repo: REPO })?.id, 1);
+  assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T22:50:00Z'), repo: REPO })?.id, 2);
   assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T14:00:00Z'), repo: REPO }), null);
   assert.equal(mapBuild(null), null);
 });
@@ -1457,12 +1455,13 @@ test('main-trust.yml builds the map only after a green journeys run on main, and
   assert.ok(!existsSync(join(ROOT_DIR, '.github/workflows/journey-reach-map.yml')), 'no second builder');
 });
 
-test('builtMap: reads the build’s artifact; any failed read is null, so the committed map stays', async () => {
+test('builtMap: reads the newest build its run lists prove newest; any failed or capped read is null', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'built-map-test-'));
   try {
     writeFileSync(join(dir, 'journey-reach-map.json'), mapText(MAP));
     execFileSync('zip', ['-q', 'a.zip', 'journey-reach-map.json'], { cwd: dir });
     const zip = readFileSync(join(dir, 'a.zip'));
+    const t = (min) => new Date(Date.parse('2026-11-09T00:00:00Z') + min * 60_000).toISOString().replace('.000Z', 'Z');
     const art = (id, run, created, over = {}) => ({
       id,
       name: 'journey-reach-map',
@@ -1471,54 +1470,83 @@ test('builtMap: reads the build’s artifact; any failed read is null, so the co
       workflow_run: { id: run, head_branch: 'main' },
       ...over,
     });
-    const all = [
-      mapRun(3, '2026-11-09T23:00:00Z'),
-      mapRun(4, '2026-11-09T23:20:00Z', { event: 'workflow_dispatch' }), // a dispatch's build: never counts
-      mapRun(10, '2026-11-09T07:59:00Z'), // re-run late: its artifact came 33 minutes after the cut below (review B-S1)
-      mapRun(11, '2026-11-09T07:30:00Z'), // no artifact: a run of Main trust after CI, say
-    ];
-    const old = [oldRun(5, '2026-11-09T20:00:00Z'), oldRun(6, '2026-11-09T21:00:00Z', { conclusion: 'failure' })];
-    const artifacts = [
-      art(78, 4, '2026-11-09T23:25:00Z'),
-      art(75, 9, '2026-11-09T23:06:00Z', { workflow_run: { id: 9, head_branch: 'u4/x' } }), // another branch's
-      art(77, 3, '2026-11-09T23:05:00Z'),
-      art(79, 6, '2026-11-09T21:05:00Z'), // the old workflow uploaded even when verify failed
-      art(76, 5, '2026-11-09T20:05:00Z'),
-      art(80, 10, '2026-11-09T08:32:00Z'),
-    ];
-    const asked = [];
-    const get = async (path) => {
-      asked.push(path);
-      const u = new URL(path, 'https://x');
-      if (u.pathname.endsWith('/actions/artifacts')) return u.searchParams.get('page') === '1' ? { artifacts } : { artifacts: [] };
-      const file = /\/workflows\/([^/]+)\/runs$/.exec(u.pathname)?.[1];
-      if (file) {
-        assert.equal(u.searchParams.get('branch'), 'main');
-        assert.equal(u.searchParams.get('event'), 'workflow_run');
-        const cut = Date.parse(u.searchParams.get('created').replace(/^<=/, ''));
-        const list = (file === 'main-trust.yml' ? all : file === 'journey-reach-map.yml' ? old : [])
-          .filter((r) => Date.parse(r.created_at) <= cut)
-          .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-        return { workflow_runs: u.searchParams.get('page') === '1' ? list : [] };
-      }
-      throw new Error(`unexpected ${path}`);
+    // A fake GitHub: pages of 100, newest first, the runs list cut at `created<=`.
+    const world = (runs, artifacts) => {
+      const asked = [];
+      const page = (list, u) => {
+        const n = Number(u.searchParams.get('page'));
+        return list.slice((n - 1) * 100, n * 100);
+      };
+      const get = async (path) => {
+        asked.push(path);
+        const u = new URL(path, 'https://x');
+        if (u.pathname.endsWith('/actions/artifacts')) {
+          assert.equal(u.searchParams.get('name'), 'journey-reach-map');
+          return {
+            artifacts: page(
+              [...artifacts].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
+              u,
+            ),
+          };
+        }
+        if (u.pathname.endsWith('/actions/workflows/main-trust.yml/runs')) {
+          assert.equal(u.searchParams.get('branch'), 'main');
+          assert.equal(u.searchParams.get('event'), 'workflow_run');
+          const cut = Date.parse(u.searchParams.get('created').replace(/^<=/, ''));
+          const list = runs
+            .filter((r) => Date.parse(r.created_at) <= cut)
+            .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+          return { workflow_runs: page(list, u) };
+        }
+        throw new Error(`unexpected ${path}`);
+      };
+      return { get, asked };
     };
     const zips = (want) => async (path) => (path.endsWith(`/artifacts/${want}/zip`) ? zip : null);
-    const at = (iso) => Date.parse(iso);
-    assert.deepEqual(await builtMap({ get, raw: zips(77), before: at('2026-11-10T00:00:00Z'), repo: REPO }), MAP);
-    // Before build 3's run: the old workflow's green run 5, never its red run 6.
-    assert.deepEqual(await builtMap({ get, raw: zips(76), before: at('2026-11-09T22:00:00Z'), repo: REPO }), MAP);
-    // The run counts by its creation, whenever its artifact came (B-S1).
-    assert.deepEqual(await builtMap({ get, raw: zips(80), before: at('2026-11-09T08:00:00Z'), repo: REPO }), MAP);
-    // No build of main by then: none.
-    assert.equal(await builtMap({ get, raw: zips(80), before: at('2026-11-09T07:00:00Z'), repo: REPO }), null);
-    assert.equal(await builtMap({ get: async () => Promise.reject(new Error('HTTP 502')), raw: zips(77), repo: REPO }), null);
-    const expired = async (path) =>
-      path.includes('/actions/artifacts?') ? { artifacts: artifacts.map((a) => ({ ...a, expired: true })) } : get(path);
-    assert.equal(await builtMap({ get: expired, raw: zips(77), before: at('2026-11-10T00:00:00Z'), repo: REPO }), null);
-    // The old workflow's list gone (its file deleted): Main trust's builds still read.
-    const noOld = async (path) => (path.includes('/workflows/journey-reach-map.yml/') ? Promise.reject(new Error('HTTP 404')) : get(path));
-    assert.deepEqual(await builtMap({ get: noOld, raw: zips(77), before: at('2026-11-10T00:00:00Z'), repo: REPO }), MAP);
+    const before = Date.parse(t(10_000));
+
+    // The usual case: the newest build, one page of each list.
+    const base = [mapRun(3, t(600)), mapRun(4, t(620), { event: 'workflow_dispatch' }), mapRun(11, t(590))];
+    const arts = [art(78, 4, t(625)), art(75, 9, t(606), { workflow_run: { id: 9, head_branch: 'u4/x' } }), art(77, 3, t(605))];
+    const w = world(base, arts);
+    assert.deepEqual(await builtMap({ get: w.get, raw: zips(77), before, repo: REPO }), MAP);
+    assert.equal(w.asked.length, 2, 'one page of runs, one of artifacts');
+    assert.ok(!w.asked.some((p) => p.includes('journey-reach-map.yml')), "the deleted workflow's runs are never read");
+
+    // Late artifact (review B-S1): the run counts by its creation, however late its artifact came.
+    const late = world([mapRun(10, t(479))], [art(80, 10, t(512))]);
+    assert.deepEqual(await builtMap({ get: late.get, raw: zips(80), before: Date.parse(t(480)), repo: REPO }), MAP);
+
+    // The newest build on the second page of runs (round 2 S1): 100 newer runs hold none.
+    const crowd = Array.from({ length: 100 }, (_, i) => mapRun(1000 + i, t(5000 + i)));
+    const second = world([...crowd, mapRun(20, t(4000)), mapRun(21, t(3000))], [art(81, 20, t(4010)), art(82, 21, t(3010))]);
+    assert.deepEqual(await builtMap({ get: second.get, raw: zips(81), before, repo: REPO }), MAP);
+
+    // A newer build's artifact behind 100 newer artifacts of other branches (round 2 S2): it still wins over an older build.
+    const noise = Array.from({ length: 100 }, (_, i) =>
+      art(2000 + i, 9000 + i, t(8000 + i), { workflow_run: { id: 9000 + i, head_branch: 'x' } }),
+    );
+    const deep = world([mapRun(30, t(7000)), mapRun(31, t(6000))], [...noise, art(83, 30, t(7010)), art(84, 31, t(6010))]);
+    assert.deepEqual(await builtMap({ get: deep.get, raw: zips(83), before, repo: REPO }), MAP);
+    assert.equal(await builtMap({ get: deep.get, raw: zips(84), before, repo: REPO }), null, 'never the older build');
+
+    // Nothing by then (and no artifact read for an empty run list: round 2 S4).
+    const empty = world(base, arts);
+    assert.equal(await builtMap({ get: empty.get, raw: zips(77), before: Date.parse(t(100)), repo: REPO }), null);
+    assert.equal(empty.asked.length, 1);
+
+    // Failed reads: null, so the committed map stands (round 2 S3: no list is read as empty on an error).
+    assert.equal(await builtMap({ get: async () => Promise.reject(new Error('HTTP 502')), raw: zips(77), before, repo: REPO }), null);
+    const artsDown = async (path) => (path.includes('/actions/artifacts?') ? Promise.reject(new Error('HTTP 502')) : w.get(path));
+    assert.equal(await builtMap({ get: artsDown, raw: zips(77), before, repo: REPO }), null);
+    const expired = world(
+      base,
+      arts.map((a) => ({ ...a, expired: true })),
+    );
+    assert.equal(await builtMap({ get: expired.get, raw: zips(77), before, repo: REPO }), null);
+    // Capped: more pages than builtMap reads, none holding a build: null.
+    const many = Array.from({ length: 2500 }, (_, i) => mapRun(5000 + i, t(9000 - i * 3)));
+    assert.equal(await builtMap({ get: world(many, []).get, raw: zips(77), before, repo: REPO }), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

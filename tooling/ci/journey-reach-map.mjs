@@ -888,37 +888,30 @@ export function runsBehind(map, runs, repo = REPO) {
 }
 
 /** The workflow that builds the map after every green full run on main (its `map` job), and the artifact it uploads only
- *  once the build is verified. */
+ *  once the build is verified. Until 24 Nov 2026 the map had a workflow of its own (journey-reach-map.yml, deleted by
+ *  project-state#4001 step 4a); its builds are not read: until Main trust's first build, the committed map stands. */
 export const MAP_WORKFLOW = 'main-trust.yml';
 export const MAP_ARTIFACT = 'journey-reach-map';
-/** The map's own workflow until 24 Nov 2026 (project-state#4001, step 4a): it uploaded the artifact even when verify
- *  failed, so its builds count only from a run that succeeded. Read until the last of its artifacts expires (14 days). */
-export const OLD_MAP_WORKFLOW = 'journey-reach-map.yml';
 
 /**
- * Which build of the map speaks for main, from a list of workflow runs that hold a MAP_ARTIFACT: the newest one started
- * by main's own journeys run (`workflow_run`, which always runs the default branch's workflow; a dispatch runs whatever
- * ref it names, so it never counts), in this repository, created no later than `before` (ms; the journeys run's own
- * creation, so its touch job and the seal pick the same build), and verified: a MAP_WORKFLOW run uploads the artifact
- * only after its verify step passed (its other jobs may still run, or fail, so its conclusion is not read), and an
- * OLD_MAP_WORKFLOW run only counts when it succeeded. Or null. (Failure it prevents: on 9 Nov 2026 the committed map
- * was built from runs up to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's
- * journeys ran all 33 shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
+ * Which build of the map speaks for main, from a list of MAP_WORKFLOW's runs that hold a MAP_ARTIFACT: the newest one
+ * started by main's own journeys run (`workflow_run`, which always runs the default branch's workflow; a dispatch runs
+ * whatever ref it names, so it never counts), in this repository, created no later than `before` (ms; the journeys run's
+ * own creation, so its touch job and the seal pick the same build), or null. The `map` job uploads the artifact only after
+ * its verify step passed, and Main trust's other jobs may still run, or fail, so the run's conclusion is not read.
+ * (Failure it prevents: on 9 Nov 2026 the committed map was built from runs up to 8 Nov 20:39 UTC, and since nobody pays
+ * for a map pull request, every product pull request's journeys ran all 33 shards from 18:00 UTC: the OG on
+ * project-state#1574, 23:51 UTC.) Pure.
  */
 export function mapBuild(runs, { before = Infinity, repo = REPO } = {}) {
-  const verified = (r) => {
-    const path = String(r?.path ?? '');
-    if (path.endsWith(`/${MAP_WORKFLOW}`)) return true;
-    return path.endsWith(`/${OLD_MAP_WORKFLOW}`) && r?.status === 'completed' && r?.conclusion === 'success';
-  };
   return (
     (runs ?? [])
       .filter(
         (r) =>
-          verified(r) &&
           r?.head_branch === 'main' &&
           r?.head_repository?.full_name === repo &&
           r?.event === 'workflow_run' &&
+          String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
           Date.parse(r?.created_at) <= before,
       )
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
@@ -943,75 +936,68 @@ export function newerMap(built, committed) {
   return Date.parse(built.runs[0].created) > Date.parse(committed.runs[0].created) ? built : committed;
 }
 
-/** How many pages of 100 builtMap reads at most, of either list, before it gives up (null: the committed map stays). */
-const PAGES = 5;
+/** How many list pages builtMap reads at most; past that the read is incomplete, so null (the committed map stands). */
+const PAGES = 20;
 
 /**
  * The newest built map main's map job uploaded for a run created no later than `before` (mapBuild), or null when there is
- * none or it can't be read. It reads the map workflows' runs on main created by `before`, newest first, and the
- * repository's MAP_ARTIFACT artifacts, newest first, a page at a time: an artifact is never older than its run, so once
- * the artifacts read reach back past the oldest run read, every build among those runs is in hand. `get(path)` returns
- * the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
+ * none or it can't be read whole. Two lists, newest first, a page of 100 at a time: MAP_WORKFLOW's runs on main created by
+ * `before`, and the repository's MAP_ARTIFACT artifacts. An artifact is never older than its run, so once the artifacts
+ * read reach back past a run, every build newer than that run is in hand. The pick is read only when nothing unread can
+ * outrank it: runs are read until one of them holds a build (later pages are older), and artifacts until they reach back
+ * past the pick, or past the oldest run read while there is none. Any failed or capped read is null, never a guess.
+ * `get(path)` returns the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
  */
 export async function builtMap({ get, raw, before = Date.now(), repo = REPO }) {
   try {
     const at = new Date(Math.min(before, Date.now() + 864e5)).toISOString().replace(/\.\d{3}Z$/, 'Z');
-    const lists = [MAP_WORKFLOW, OLD_MAP_WORKFLOW].map((file) => ({
-      file,
-      page: 0,
-      done: false,
-      runs: [],
-    }));
+    const runs = [];
     const arts = new Map();
+    let runPage = 0;
+    let runsDone = false;
     let artPage = 0;
     let artsDone = false;
     let oldestArt = Infinity;
-    for (let round = 0; round < PAGES; round++) {
-      for (const l of lists) {
-        if (l.done) continue;
-        l.page += 1;
-        let batch = [];
-        try {
-          batch =
-            (
-              await get(
-                `/repos/${repo}/actions/workflows/${l.file}/runs?branch=main&event=workflow_run&created=${encodeURIComponent(`<=${at}`)}&per_page=100&page=${l.page}`,
-              )
-            )?.workflow_runs ?? [];
-        } catch (e) {
-          if (l.file !== OLD_MAP_WORKFLOW) throw e; // the old file's list may be gone once its runs are deleted
-        }
-        l.runs.push(...batch);
-        if (batch.length < 100) l.done = true;
-      }
-      const runs = lists.flatMap((l) => l.runs);
-      const oldestRun = Math.min(...runs.map((r) => Date.parse(r.created_at)).filter(Number.isFinite), Infinity);
-      // Artifacts until they reach back past the oldest run read (an artifact is never older than its run).
-      while (!artsDone && oldestArt >= oldestRun && artPage < PAGES * 2) {
-        artPage += 1;
-        const batch = (await get(`/repos/${repo}/actions/artifacts?name=${MAP_ARTIFACT}&per_page=100&page=${artPage}`))?.artifacts ?? [];
-        for (const a of batch) {
-          if (a?.name !== MAP_ARTIFACT || a?.expired || !a?.workflow_run?.id) continue;
-          if (!arts.has(a.workflow_run.id)) arts.set(a.workflow_run.id, a);
-          oldestArt = Math.min(oldestArt, Date.parse(a.created_at));
-        }
-        if (batch.length < 100) artsDone = true;
-      }
-      const run = mapBuild(
+    for (let reads = 0; reads < PAGES; reads++) {
+      const pick = mapBuild(
         runs.filter((r) => arts.has(r.id)),
         { before, repo },
       );
-      if (run) {
+      const oldestRun = runs.length ? Math.min(...runs.map((r) => Date.parse(r.created_at))) : Infinity;
+      const bar = pick ? Date.parse(pick.created_at) : oldestRun;
+      const artsCovered = artsDone || oldestArt < bar;
+      if (pick && artsCovered) {
         const dir = mkdtempSync(join(tmpdir(), 'reach-map-'));
         try {
           const zip = join(dir, 'a.zip');
-          writeFileSync(zip, await raw(`/repos/${repo}/actions/artifacts/${arts.get(run.id).id}/zip`));
+          writeFileSync(zip, await raw(`/repos/${repo}/actions/artifacts/${arts.get(pick.id).id}/zip`));
           return JSON.parse(execFileSync('unzip', ['-p', zip, 'journey-reach-map.json'], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
         } finally {
           rmSync(dir, { recursive: true, force: true });
         }
       }
-      if (lists.every((l) => l.done)) return null;
+      if (runPage > 0 && runs.length === 0 && runsDone) return null; // no run on main by then: no build
+      if (runPage > 0 && runs.length > 0 && !artsCovered) {
+        artPage += 1;
+        const batch = (await get(`/repos/${repo}/actions/artifacts?name=${MAP_ARTIFACT}&per_page=100&page=${artPage}`))?.artifacts ?? [];
+        for (const a of batch) {
+          oldestArt = Math.min(oldestArt, Date.parse(a?.created_at));
+          if (a?.name === MAP_ARTIFACT && !a?.expired && a?.workflow_run?.id && !arts.has(a.workflow_run.id))
+            arts.set(a.workflow_run.id, a);
+        }
+        if (batch.length < 100) artsDone = true;
+        continue;
+      }
+      if (runsDone) return null; // every run and every artifact that could hold a build read: none
+      runPage += 1;
+      const batch =
+        (
+          await get(
+            `/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&event=workflow_run&created=${encodeURIComponent(`<=${at}`)}&per_page=100&page=${runPage}`,
+          )
+        )?.workflow_runs ?? [];
+      runs.push(...batch);
+      if (batch.length < 100) runsDone = true;
     }
     return null;
   } catch {
