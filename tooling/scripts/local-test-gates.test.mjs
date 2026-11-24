@@ -70,6 +70,8 @@ import {
   isCancelOf,
   TRADE_CANCELS,
   gatesUsage,
+  personToken,
+  PERSON_TEST_PARTNER_SCOPES,
 } from './local-test-gates.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -1126,6 +1128,32 @@ console.log('local-test-gates: marker, builder, hash and planning checks passed'
   } finally {
     rmSync(state, { recursive: true, force: true });
   }
+}
+
+// #10632: a person's TEST partner token carries the scope svc-bank's door asks of `testPartner.set` and `testPartner.fund`
+// (a token with no scopes was refused `403 Scope "bank:write" is required` on every beta pass), and nothing more.
+{
+  const calls = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'crates', 'svc-bank', 'src', 'door', 'calls.rs'),
+    'utf8',
+  );
+  for (const path of ['testPartner.set', 'testPartner.fund']) {
+    const at = calls.indexOf(`path: "${path}",`);
+    assert.ok(at > 0, `${path} is in svc-bank's door`);
+    const scope = /scope: "([^"]+)"/.exec(calls.slice(at))?.[1];
+    assert.ok(PERSON_TEST_PARTNER_SCOPES.includes(scope), `${path} needs ${scope}, which the person's TEST partner token carries`);
+  }
+  assert.deepEqual([...PERSON_TEST_PARTNER_SCOPES], ['bank:read', 'bank:write']);
+  let minted;
+  const ctx = {
+    secrets: { jwt: 'test-secret' },
+    tokens: { issueAccessToken: async (claims, opts) => ((minted = { claims, opts }), { token: 'tok' }) },
+  };
+  const ids = { userId: '76030d60-1af1-467f-96ae-b6bbbb47acb2', sessionId: 'b38c4959-f293-4386-b979-96b5e678b919' };
+  assert.equal(await personToken(ctx, ids), 'tok');
+  assert.deepEqual(minted.claims, { ...ids, scopes: ['bank:read', 'bank:write'], tier: 'none', mfa: false });
+  assert.equal(minted.opts.accessTtlSeconds, 120);
+  await assert.rejects(personToken(ctx, { userId: 'x', sessionId: ids.sessionId }), /needs a user id and a live session id/);
 }
 
 await source.unregister();
