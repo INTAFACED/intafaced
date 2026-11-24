@@ -3,7 +3,8 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'rea
 import { Button, Field, Input } from '@intafaced/ui';
 import { FlowTemplate, KeyValue, formatMoney } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { verifyFirstRefusal } from '../../../shared/verify-first';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { leadApplyCopy } from './lead-apply-copy';
@@ -140,6 +141,8 @@ export function LeadApplyRoom() {
         },
       };
     if (mine.resource.status === 'loading') return { kind: 'loading' };
+    if (mine.resource.status === 'failed' && isVerifyFirst(mine.resource.failure))
+      return { kind: 'refused', refusal: verifyFirstRefusal() };
     if (mine.resource.status === 'failed')
       return {
         kind: 'refused',
