@@ -83,7 +83,7 @@ export async function crawlFrom(roots, { open, links, roomOf, origin, limit = 50
       enqueue(to);
     }
   }
-  return { edges: dedupe(edges), opened, errors, partial };
+  return { edges: dedupe(edges), opened, errors, partial, left: queue.length };
 }
 
 const dedupe = (edges) => [...new Map(edges.map((e) => [e.join('\n'), e])).values()];

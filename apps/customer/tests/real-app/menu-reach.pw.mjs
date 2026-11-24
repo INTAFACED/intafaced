@@ -18,12 +18,31 @@ test('menu reach: the links from the front page and Home', async ({ page }) => {
     const { rooms, findRoom } = await import('../../src/app/navigation.ts');
     const origin = new URL(test.info().project.use.baseURL).origin;
     const roomOf = (path) => findRoom(path)?.path ?? null;
+    // After its first page, a crawl moves the way the app's own links do (location.ts navigate: a history entry, then
+    // popstate), not by reloading the app each time: a reload took about 4 s a page. The crawl reads links, never acts.
+    let loaded = false;
     const open = async (path) => {
-      await page.goto(path, { waitUntil: 'domcontentloaded', timeout: PAGE_MS });
+      if (loaded) {
+        await page.evaluate((to) => {
+          history.pushState(null, '', to);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }, path);
+      } else await page.goto(path, { waitUntil: 'domcontentloaded', timeout: PAGE_MS });
+      loaded = true;
       await page.waitForLoadState('networkidle', { timeout: 1_500 }).catch(() => {});
       return new URL(page.url()).pathname.replace(/\/+$/, '') || '/';
     };
-    const crawl = (roots) => crawlFrom(roots, { open, links: () => pageLinks(page), roomOf, origin, deadline: Date.now() + CRAWL_MS });
+    // The top bar is on every page, so its menus are opened on a crawl's first page only.
+    const crawl = (roots) => {
+      let first = true;
+      loaded = false;
+      const links = () => {
+        const menus = first;
+        first = false;
+        return pageLinks(page, { menus });
+      };
+      return crawlFrom(roots, { open, links, roomOf, origin, deadline: Date.now() + CRAWL_MS });
+    };
     const emailed = rooms.filter((room) => room.publicFrame && !/[:*]/.test(room.path)).map((room) => room.path);
     const signedOutRoots = ['/', ...emailed.filter((path) => path !== '/')];
     record.signedOut = { roots: signedOutRoots, ...(await crawl(signedOutRoots)) };
