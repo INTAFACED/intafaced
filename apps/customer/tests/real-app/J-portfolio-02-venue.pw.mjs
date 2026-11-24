@@ -52,11 +52,14 @@ const QUOTE_BID = '100';
 const QUOTE_ASK = '140';
 /** TEST USDC in the person's venue account, enough for #1's buy and #7's. */
 const FUNDS = '5000';
-/** TEST: #7 buys 1 coin with dollars first (a known cost), then pays 0.5 of it for 1 of a second TEST coin priced in the first. */
-const FIRST_FOR_7 = '1';
+/**
+ * TEST: #7 buys 2 coins with dollars first (a known cost), then pays 1 of them for 2 of a second TEST coin priced at 0.5 in
+ * the first: 1 is the smallest order the venue takes on that market.
+ */
+const FIRST_FOR_7 = '2';
 const FIRST_PRICE_7 = '77';
 const SECOND_PRICE = '0.5';
-const SECOND_AMOUNT = '1';
+const SECOND_AMOUNT = '2';
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const trades = journeyState(`${J}-venue-trades-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
