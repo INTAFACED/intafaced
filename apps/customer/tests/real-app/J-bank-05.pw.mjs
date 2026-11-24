@@ -202,7 +202,7 @@ test(`${J} #1 reads the quote: rate, fee, receive amount and valid-until from th
   const readQuote = async (on, amount, want) => {
     await on.getByLabel('You send', { exact: true }).fill(amount);
     const asked = Date.now();
-    await on.getByRole('button', { name: 'Get a quote', exact: true }).click();
+    const answer = await quoted(page, on);
     const quote = on.getByTestId('global-quote');
     const cell = (term) =>
       quote
@@ -214,9 +214,10 @@ test(`${J} #1 reads the quote: rate, fee, receive amount and valid-until from th
     await expect(cell('Fee')).toHaveText(`${want.fee} ${want.feeAsset}`);
     await expect(cell('They receive')).toHaveText(`${want.receive} ${want.currency}`);
     const answered = Date.now();
-    const valid = on.getByText(/^Valid until \S+$/);
-    await expect(valid).toHaveCount(1);
-    const until = Date.parse((await valid.innerText()).replace(/^Valid until /, ''));
+    // The service's own answer carries the provider's figures, and the screen shows its valid-until instant exactly.
+    expect(answer).toMatchObject({ rate: want.rate, fee: want.fee, feeAsset: want.feeAsset, receiveAmount: want.receive });
+    await expect(on.getByText(`Valid until ${answer.validUntil}`, { exact: true })).toBeVisible();
+    const until = Date.parse(answer.validUntil);
     // Valid-until is the provider's own lock for this pair, counted from when it quoted: not a fixed instant.
     expect(Number.isNaN(until)).toBe(false);
     expect(until).toBeGreaterThanOrEqual(asked + want.seconds * 1000 - 2000);
@@ -244,7 +245,7 @@ test(`${J} #1 reads the quote: rate, fee, receive amount and valid-until from th
   );
   // The lock counts down from the provider's own seconds for USD, not the catalogue's default.
   expect(usd.seconds).toBeLessThan(CATALOGUE.quoteValidSeconds);
-  await expect(us.getByTestId('global-lock')).toHaveText(/^Rate locked for 0:[0-5]\d\. Confirm inside it/);
+  await expect(us.getByTestId('global-lock')).toHaveText(/^Rate locked for 0:[012]\d\. Confirm inside it/);
   await stepPicture(page);
 });
 
