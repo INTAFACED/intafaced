@@ -4,7 +4,7 @@ import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { cashOutCopy } from './cash-out-copy';
-import { date, funds, useBankRead, useBankRecord } from './components';
+import { date, funds, useBankRecord } from './components';
 import { type CashOutQuote, type CashOutReceipt, type CashOutRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import { WithdrawStepUp } from './WithdrawStepUp';
@@ -18,6 +18,7 @@ import {
 import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
 import { RefusalCode } from '../../shared/RefusalCode';
 import { shownCode } from '../../shared/reference';
+import { BANK_CURRENCIES_LIST } from '@intafaced/contracts/bank-currencies-procedures';
 
 /**
  * Cash out to a linked bank account (J-bank-03): the amount, one of the person's linked accounts, and what the bank
@@ -330,7 +331,7 @@ function Requests() {
 export function CashOut() {
   const { t } = cashOutCopy.useCopy();
   const { api, profiles } = useSession();
-  const currencies = useBankRead('currencies.list', { profile: profiles.active });
+  const currencies = useBankRecord(BANK_CURRENCIES_LIST, { profile: profiles.active });
   const linked = useBankRecord(BANK_LINKED_ACCOUNTS_LIST, undefined);
   const assets = currencies.resource.status === 'ready' ? currencies.resource.data.currencies.map((c) => c.assetId) : [];
   const accounts = linked.resource.status === 'ready' ? linked.resource.data.accounts : [];

@@ -453,9 +453,15 @@ import { AGENTS_USAGE_CURRENT, AGENTS_USAGE_SUMMARY } from './agents-usage-proce
 
 import { AGENTS_WEBHOOK_REGISTER, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_DELIVERIES } from './agents-webhooks-procedures.js';
 
+import { BANK_ACCOUNT_DETAILS_LIST } from './bank-account-details-procedures.js';
+
+import { BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE } from './bank-accounts-procedures.js';
+
 import { BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS } from './bank-activity-procedures.js';
 
-import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from './bank-add-money-procedures.js';
+import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS, BANK_ADD_MONEY_METHODS } from './bank-add-money-procedures.js';
+
+import { BANK_ANALYTICS_COMPARE } from './bank-analytics-2-procedures.js';
 
 import {
   BANK_ANALYTICS_BUDGETS,
@@ -568,6 +574,8 @@ import {
   BANK_CREDIT_CARD_APPLICATION,
   BANK_OPS_FRAUD_PREVIEW,
 } from './bank-credit-preview-procedures.js';
+
+import { BANK_CURRENCIES_LIST } from './bank-currencies-procedures.js';
 
 import {
   BANK_DEPOSITS_ASSETS,
@@ -756,7 +764,7 @@ import { BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET }
 
 import { BANK_SAFETY_REGION_NOTICE } from './bank-safety-procedures.js';
 
-import { BANK_SALARY_CREDITS } from './bank-salary-procedures.js';
+import { BANK_SALARY_CREDITS, BANK_SALARY_DETAILS, BANK_SALARY_FORM } from './bank-salary-procedures.js';
 
 import {
   BANK_SHARED_POTS_LIST,
@@ -2804,9 +2812,19 @@ const part_agents_webhooks_procedures: readonly ProcedureRecord[] = [
   AGENTS_WEBHOOK_DELIVERIES,
 ];
 
+const part_bank_account_details_procedures: readonly ProcedureRecord[] = [BANK_ACCOUNT_DETAILS_LIST];
+
+const part_bank_accounts_procedures: readonly ProcedureRecord[] = [BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE];
+
 const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS];
 
-const part_bank_add_money_procedures: readonly ProcedureRecord[] = [BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS];
+const part_bank_add_money_procedures: readonly ProcedureRecord[] = [
+  BANK_ADD_MONEY_REQUEST,
+  BANK_ADD_MONEY_REQUESTS,
+  BANK_ADD_MONEY_METHODS,
+];
+
+const part_bank_analytics_2_procedures: readonly ProcedureRecord[] = [BANK_ANALYTICS_COMPARE];
 
 const part_bank_analytics_procedures: readonly ProcedureRecord[] = [
   BANK_ANALYTICS_BUDGETS,
@@ -2928,6 +2946,8 @@ const part_bank_credit_preview_procedures: readonly ProcedureRecord[] = [
   BANK_CREDIT_CARD_APPLICATION,
   BANK_OPS_FRAUD_PREVIEW,
 ];
+
+const part_bank_currencies_procedures: readonly ProcedureRecord[] = [BANK_CURRENCIES_LIST];
 
 const part_bank_deposit_procedures: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ASSETS,
@@ -3130,7 +3150,7 @@ const part_bank_rules_procedures: readonly ProcedureRecord[] = [BANK_RULES_SET_R
 
 const part_bank_safety_procedures: readonly ProcedureRecord[] = [BANK_SAFETY_REGION_NOTICE];
 
-const part_bank_salary_procedures: readonly ProcedureRecord[] = [BANK_SALARY_CREDITS];
+const part_bank_salary_procedures: readonly ProcedureRecord[] = [BANK_SALARY_CREDITS, BANK_SALARY_DETAILS, BANK_SALARY_FORM];
 
 const part_bank_shared_pots_procedures: readonly ProcedureRecord[] = [
   BANK_SHARED_POTS_LIST,
@@ -4869,8 +4889,11 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_agents_team_procedures,
   ...part_agents_usage_procedures,
   ...part_agents_webhooks_procedures,
+  ...part_bank_account_details_procedures,
+  ...part_bank_accounts_procedures,
   ...part_bank_activity_procedures,
   ...part_bank_add_money_procedures,
+  ...part_bank_analytics_2_procedures,
   ...part_bank_analytics_procedures,
   ...part_bank_assets_procedures,
   ...part_bank_auto_invest_2_procedures,
@@ -4886,6 +4909,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_cash_leg_procedures,
   ...part_bank_cash_out_procedures,
   ...part_bank_credit_preview_procedures,
+  ...part_bank_currencies_procedures,
   ...part_bank_deposit_procedures,
   ...part_bank_direct_debits_procedures,
   ...part_bank_dormancy_procedures,
