@@ -1,6 +1,6 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
-import { Button, Segmented } from '@intafaced/ui/lit';
+import { Button, Segmented, Switch } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -72,11 +72,14 @@ import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
+import { VenueCalculator } from './VenueCalculator';
+import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
+import { VenueTierConfirm } from './VenueTierConfirm';
 import { venueRiskCopy } from './venue-risk-copy';
 import { VenueFunding } from './VenueFunding';
 import { VenueAccount as VenueAccountPanel } from './VenueAccount';
 import { intervalText } from './venue-funding-logic';
-import { roomLeft, takenAssets } from './venue-risk-logic';
+import { bpsToPercent, clampToBand, planSplitOrders, projectedVenueTier, roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
 
@@ -797,6 +800,7 @@ function Ticket({
   const [type, setType] = useState<'limit' | 'market'>(market.orderTypes.includes('market') ? 'market' : 'limit');
   const [size, setSize] = useState('');
   const [price, setPrice] = useState('');
+  const [adjustPrice, setAdjustPrice] = useState(false);
   const [marginAsset, setMarginAsset] = useState(market.quoteAsset);
   const [takeProfit, setTakeProfit] = useState('');
   const [stopLoss, setStopLoss] = useState('');
@@ -806,8 +810,29 @@ function Ticket({
   const p = venueProtectCopy.useCopy().t;
   const r = venueRiskCopy.useCopy().t;
   const signPrepared = useSignPrepared(owner);
+  const best = usePolled((signal) => venue.bestPrices(market.symbol, signal), `best:${market.symbol}`, VENUE_POLL_MS);
   const [problem, setProblem] = useState<string | null>(null);
-  const [review, setReview] = useState<{ intent: OrderIntent; preview: AsOf<VenuePreview> } | null>(null);
+  const [problemCode, setProblemCode] = useState<string | null>(null);
+  const [bandRefusal, setBandRefusal] = useState<string | null>(null);
+  const [priceCorrected, setPriceCorrected] = useState<{ asked: string; applied: string } | null>(null);
+  const [splitOffer, setSplitOffer] = useState<{
+    parts: string[];
+    capLabel: string;
+    price: string;
+    priceCorrected: { asked: string; applied: string } | null;
+  } | null>(null);
+  const [splitReview, setSplitReview] = useState<SplitReviewData | null>(null);
+  const [splitResult, setSplitResult] = useState<ActionResult | null>(null);
+  const [splitPlaced, setSplitPlaced] = useState<{
+    count: number;
+    legs: Array<{ size: string; price: string; status: string }>;
+  } | null>(null);
+  const [tierAccepted, setTierAccepted] = useState(false);
+  const [review, setReview] = useState<{
+    intent: OrderIntent;
+    preview: AsOf<VenuePreview>;
+    priceCorrected: { asked: string; applied: string } | null;
+  } | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [last, setLast] = useState<ActionResult | null>(null);
   const counter = useRef(0);
@@ -823,9 +848,21 @@ function Ticket({
   };
   const assets = [...new Set([market.quoteAsset, ...(account.balances.data?.value.map((b) => b.asset) ?? [])])];
   const offered = market.orderTypes.filter((x): x is 'limit' | 'market' => x === 'limit' || x === 'market');
+  const band = market.priceBand?.known ? market.priceBand.value : null;
+  const slippageCap = best.data?.slippageCapBps ?? null;
+
+  function clearChecks() {
+    setProblem(null);
+    setProblemCode(null);
+    setBandRefusal(null);
+    setPriceCorrected(null);
+    setSplitOffer(null);
+    setSplitPlaced(null);
+    setTierAccepted(false);
+  }
 
   async function openReview() {
-    setProblem(null);
+    clearChecks();
     setResult(null);
     setAttached(null);
     // What the venue publishes it takes as margin decides, naming the venue (J-derivatives-02 #4); with no list published,
@@ -842,14 +879,56 @@ function Ticket({
     if (!price.trim()) return setProblem(v('Enter price'));
     if (!onStep(size, market.lotSize)) return setProblem(v('Not a step', { field: v('Amount'), step: market.lotSize }));
     if (!onStep(price, market.tickSize)) return setProblem(v('Not a step', { field: v('Price'), step: market.tickSize }));
+
+    const askedSize = canonicalDecimal(size);
+    const askedPrice = canonicalDecimal(price);
+    let effectivePrice = askedPrice;
+    let corrected: { asked: string; applied: string } | null = null;
+    let outsideBand: string | null = null;
+
+    if (type === 'limit' && band) {
+      const check = clampToBand(askedPrice, band, market.tickSize);
+      if (check.outside) {
+        if (adjustPrice) {
+          effectivePrice = check.adjusted;
+          corrected = { asked: askedPrice, applied: effectivePrice };
+          setPriceCorrected(corrected);
+        } else {
+          outsideBand = r('Price outside band', {
+            price: askedPrice,
+            quote: market.quoteAsset,
+            venue: status.venue.displayName,
+            low: displayAmount(band.bandLow),
+            high: displayAmount(band.bandHigh),
+            width: bpsToPercent(band.widthBps),
+          });
+          setBandRefusal(outsideBand);
+        }
+      }
+    }
+
+    const split = planSplitOrders(askedSize, effectivePrice, market);
+    if (split) {
+      if (!split.splitable) {
+        setProblemCode('trade.venue.order_above_venue_max');
+        setProblem(r('Order above cap unsplit', { venue: status.venue.displayName, cap: split.capLabel }));
+      } else {
+        setProblemCode('trade.venue.order_above_venue_max');
+        setProblem(r('Order above cap', { venue: status.venue.displayName, cap: split.capLabel, parts: String(split.parts.length) }));
+        setSplitOffer({ parts: split.parts, capLabel: split.capLabel, price: effectivePrice, priceCorrected: corrected });
+      }
+      return;
+    }
+    if (outsideBand) return;
+
     const trimmedLabel = label.trim();
     const intent: OrderIntent = {
       kind: 'place_order',
       symbol: market.symbol,
       side,
       type,
-      amount: canonicalDecimal(size),
-      price: canonicalDecimal(price),
+      amount: askedSize,
+      price: effectivePrice,
       timeInForce: type === 'market' ? 'IOC' : (market.timeInForce[0] ?? 'GTC'),
       reduceOnly,
       clientOrderKey: keys.order(owner, market.symbol, draftId(Date.now(), counter.current++)),
@@ -859,7 +938,10 @@ function Ticket({
     if (status.routes) {
       // J-derivatives-28: several venues, so the router chooses one for this order and says why.
       const route = await venue.routePreview(owner, intent);
-      if (!route.ok) return setProblem(v('Outcome refused', { detail: route.message }));
+      if (!route.ok) {
+        setProblemCode(route.code ?? null);
+        return setProblem(v('Outcome refused', { detail: route.message }));
+      }
       setRouted({ intent, route: route.data });
       return;
     }
@@ -871,9 +953,88 @@ function Ticket({
       const now = fresh?.ok ? fresh.data.value.find((m) => m.symbol === market.symbol) : undefined;
       const room = now ? roomLeft(now) : null;
       const refused = v('Outcome refused', { detail: preview.message });
+      setProblemCode(preview.code ?? null);
       return setProblem(room === null ? refused : `${refused}. ${r('Room left', { room: displayAmount(room), base: market.baseAsset })}`);
     }
-    setReview({ intent, preview: preview.data });
+    setTierAccepted(false);
+    setReview({ intent, preview: preview.data, priceCorrected: corrected });
+  }
+
+  async function openSplitReview() {
+    if (!splitOffer || bandRefusal) return;
+    const most = status.ordersPerAction ?? 1;
+    if (splitOffer.parts.length > most) {
+      setProblemCode('trade.venue.not_offered');
+      return setProblem(
+        r('Split too many', { parts: String(splitOffer.parts.length), venue: status.venue.displayName, max: String(most) }),
+      );
+    }
+    const actionKey = keys.split(owner, market.symbol, draftId(Date.now(), counter.current++));
+    const trimmedLabel = label.trim();
+    const orders: OrderIntent[] = splitOffer.parts.map((part, i) => ({
+      kind: 'place_order',
+      symbol: market.symbol,
+      side,
+      type,
+      amount: part,
+      price: splitOffer.price,
+      timeInForce: type === 'market' ? 'IOC' : (market.timeInForce[0] ?? 'GTC'),
+      reduceOnly,
+      clientOrderKey: `${actionKey}:${i + 1}`,
+      builderFee: null,
+      ...(trimmedLabel !== '' ? { label: trimmedLabel } : {}),
+    }));
+    const previews: AsOf<VenuePreview>[] = [];
+    for (const order of orders) {
+      const answered = await venue.preview(owner, order);
+      if (!answered.ok) {
+        setProblemCode(answered.code ?? null);
+        return setProblem(v('Outcome refused', { detail: answered.message }));
+      }
+      previews.push(answered.data);
+    }
+    const tier = projectedVenueTier(
+      market,
+      account.positions.data?.value ?? [],
+      side,
+      canonicalDecimal(size),
+      splitOffer.price,
+      reduceOnly,
+    );
+    setSplitResult(null);
+    setSplitReview({ actionKey, orders, previews, priceCorrected: splitOffer.priceCorrected, tier });
+  }
+
+  async function confirmSplit() {
+    if (!splitReview || sending.current) return;
+    sending.current = true;
+    const answer = await run(
+      { kind: 'place_orders', actionKey: splitReview.actionKey, orders: splitReview.orders },
+      { actionKey: splitReview.actionKey },
+    );
+    sending.current = false;
+    setSplitResult(answer);
+    setLast(answer);
+    account.reload();
+    if (answer.kind === 'outcome' && answer.outcome.accepted) {
+      const legs = (answer.outcome.legs ?? []).map((leg, i) => {
+        const ord = splitReview.orders[i]!;
+        if (leg.accepted && leg.order?.venueClientOrderId) {
+          keysHeld.set(leg.order.venueClientOrderId, ord.clientOrderKey);
+          if (ord.label) tags.set(leg.order.venueClientOrderId, ord.label);
+        }
+        return {
+          size: ord.amount,
+          price: ord.price,
+          status: leg.accepted ? word(v, 'status', leg.order?.status ?? 'open') : leg.refusal.detail,
+        };
+      });
+      setSplitReview(null);
+      setSplitOffer(null);
+      setProblem(null);
+      setProblemCode(null);
+      setSplitPlaced({ count: splitReview.orders.length, legs });
+    }
   }
 
   async function confirm() {
@@ -929,6 +1090,19 @@ function Ticket({
 
   const perp = review?.preview.value.perpetual ?? null;
   const total = review ? totalToCommit(review.preview.value) : null;
+  const reviewTier =
+    perp?.riskTier ??
+    (review
+      ? projectedVenueTier(
+          market,
+          account.positions.data?.value ?? [],
+          review.intent.side,
+          review.intent.amount,
+          review.intent.price,
+          review.intent.reduceOnly,
+        )
+      : null);
+  const needsTierConfirm = reviewTier?.confirmRequired === true;
   return (
     <section className="lt-panel" aria-label={t('Ticket')} data-testid="venue-ticket">
       <h2 className="lt-panel-title">{t('Ticket')}</h2>
@@ -938,12 +1112,23 @@ function Ticket({
           { value: 'sell', label: t('Short') },
         ]}
         value={side}
-        onChange={(s) => setSide(s as 'buy' | 'sell')}
+        onChange={(s) => {
+          setSide(s as 'buy' | 'sell');
+          clearChecks();
+        }}
         label={t('Ticket')}
       />
       <div role="group" aria-label={t('Order types')} data-testid="venue-order-types">
         {offered.map((x) => (
-          <Button key={x} tone={type === x ? 'primary' : 'secondary'} aria-pressed={type === x} onClick={() => setType(x)}>
+          <Button
+            key={x}
+            tone={type === x ? 'primary' : 'secondary'}
+            aria-pressed={type === x}
+            onClick={() => {
+              setType(x);
+              clearChecks();
+            }}
+          >
             {word(v, 'type', x)}
           </Button>
         ))}
@@ -959,7 +1144,10 @@ function Ticket({
           inputMode="decimal"
           aria-label={t('Size', { asset: market.baseAsset })}
           value={size}
-          onChange={(e) => setSize(e.target.value)}
+          onChange={(e) => {
+            setSize(e.target.value);
+            clearChecks();
+          }}
         />
       </label>
       <label className="lt-field">
@@ -968,9 +1156,57 @@ function Ticket({
           inputMode="decimal"
           aria-label={type === 'market' ? t('Worst price') : t('Price')}
           value={price}
-          onChange={(e) => setPrice(e.target.value)}
+          onChange={(e) => {
+            setPrice(e.target.value);
+            clearChecks();
+          }}
         />
       </label>
+      {type === 'limit' ? (
+        <div className="lt-stack-tight" data-testid="venue-price-band">
+          <p className="lt-note">
+            <strong>{r('Price band')}:</strong>{' '}
+            {band
+              ? r('Price band range', {
+                  low: displayAmount(band.bandLow),
+                  high: displayAmount(band.bandHigh),
+                  quote: market.quoteAsset,
+                  width: bpsToPercent(band.widthBps),
+                })
+              : r('Price band not published', { venue: status.venue.displayName })}
+          </p>
+          {band?.widened ? (
+            <p className="lt-note" role="status" data-testid="venue-price-band-widened">
+              {r('Price band widened', {
+                width: bpsToPercent(band.widthBps),
+                usual: bpsToPercent(band.usualWidthBps),
+                reason: band.reason ?? '',
+              })}
+            </p>
+          ) : null}
+          {band ? (
+            <div className="lt-stack-tight">
+              <div className="lt-row lt-row-between">
+                <span className="lt-quiet">{r('Price correction')}</span>
+                <Switch
+                  label={r('Price correction')}
+                  checked={adjustPrice}
+                  onChange={(on) => {
+                    setAdjustPrice(on);
+                    clearChecks();
+                  }}
+                />
+              </div>
+              <p className="lt-note">{adjustPrice ? r('Price correction on') : r('Price correction off')}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : !reduceOnly && slippageCap !== null ? (
+        <p className="lt-note" data-testid="venue-slippage-cap" data-code={slippageCap.known ? undefined : 'trade.slippage_cap_unset'}>
+          <strong>{r('Slippage cap')}:</strong>{' '}
+          {slippageCap.known ? r('Slippage cap bps', { bps: slippageCap.value }) : r('Slippage cap unset')}
+        </p>
+      ) : null}
       <label className="lt-field">
         <span>{p('Take profit optional')}</span>
         <input
@@ -1005,12 +1241,76 @@ function Ticket({
       <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
         {side === 'buy' ? t('Review long') : t('Review short')}
       </Button>
+      {priceCorrected ? (
+        <p className="lt-note" role="status" data-testid="venue-price-moved">
+          {r('Price moved')}:{' '}
+          {r('Price moved value', { asked: priceCorrected.asked, applied: priceCorrected.applied, quote: market.quoteAsset })}
+        </p>
+      ) : null}
+      {bandRefusal ? (
+        <p className="lt-callout lt-callout-bad" role="alert" data-code="trade.venue.price_outside_venue_band">
+          {bandRefusal}
+        </p>
+      ) : null}
       {problem ? (
-        <p className="lt-callout lt-callout-bad" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert" data-code={problemCode ?? undefined}>
           {problem}
         </p>
       ) : null}
-      <OutcomeLine result={review || routed ? null : last} owner={owner} />
+      {splitOffer ? (
+        <section aria-label={r('Split title')} data-testid="venue-split-offer" className="lt-callout lt-stack-tight">
+          <h3 className="lt-strong">{r('Split title')}</h3>
+          <p>
+            {r('Split body', {
+              cap: splitOffer.capLabel,
+              parts: String(splitOffer.parts.length),
+              sizes: splitOffer.parts.map((x) => `${x} ${market.baseAsset}`).join(', '),
+              price: splitOffer.price,
+              quote: market.quoteAsset,
+            })}
+          </p>
+          <Button tone="primary" disabled={bandRefusal !== null} onClick={() => void openSplitReview()}>
+            {r('Split button', { parts: String(splitOffer.parts.length) })}
+          </Button>
+        </section>
+      ) : null}
+      {splitPlaced ? (
+        <div role="status" data-testid="venue-split-placed" className="lt-callout lt-stack-tight">
+          <h3 className="lt-strong">{r('Split placed heading', { parts: String(splitPlaced.count) })}</h3>
+          <ul>
+            {splitPlaced.legs.map((leg, i) => (
+              <li key={`${i}:${leg.size}:${leg.price}`}>
+                {r('Split child line', {
+                  index: String(i + 1),
+                  size: leg.size,
+                  base: market.baseAsset,
+                  price: leg.price,
+                  quote: market.quoteAsset,
+                  status: leg.status,
+                })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <OutcomeLine result={review || routed || splitReview ? null : last} owner={owner} />
+      {splitReview ? (
+        <VenueSplitReview
+          data={splitReview}
+          side={side}
+          market={market}
+          status={status}
+          account={account}
+          owner={owner}
+          run={run}
+          result={splitResult}
+          onConfirm={() => void confirmSplit()}
+          onClose={() => {
+            setSplitReview(null);
+            setSplitResult(null);
+          }}
+        />
+      ) : null}
       {routed ? (
         <RoutedReview
           title={t('Review open', { side: side === 'buy' ? t('Long').toLowerCase() : t('Short').toLowerCase() })}
@@ -1039,17 +1339,62 @@ function Ticket({
           owner={owner}
           run={run}
           confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
+          confirmDisabled={needsTierConfirm && !tierAccepted}
+          beforeConfirm={
+            needsTierConfirm && reviewTier && perp ? (
+              <VenueTierConfirm
+                symbol={market.symbol}
+                tier={reviewTier}
+                leverageTimes={leverageTimes(perp.leverageBps)}
+                accepted={tierAccepted}
+                onAccept={setTierAccepted}
+              />
+            ) : null
+          }
           result={result}
           onConfirm={() => void confirm()}
           onClose={() => {
             setReview(null);
             setResult(null);
             setAttached(null);
+            setTierAccepted(false);
           }}
           after={attached ? <AttachedLine attached={attached} /> : null}
           extra={
             perp ? (
               <>
+                {reviewTier ? (
+                  <div>
+                    <dt>{r('Margin tier')}</dt>
+                    <dd data-line="margin-tier">
+                      {r('Margin tier value', {
+                        tier: String(reviewTier.projected),
+                        rate: percentOf(reviewTier.maintenanceRate),
+                        maxLeverage: String(reviewTier.maxLeverageBps / 10_000),
+                      })}
+                    </dd>
+                  </div>
+                ) : null}
+                {band ? (
+                  <div>
+                    <dt>{r('Price band')}</dt>
+                    <dd className="lt-num" data-line="price-band">
+                      {r('Price band range', {
+                        low: displayAmount(band.bandLow),
+                        high: displayAmount(band.bandHigh),
+                        quote: market.quoteAsset,
+                        width: bpsToPercent(band.widthBps),
+                      })}
+                      {band.widened
+                        ? ` · ${r('Price band widened', {
+                            width: bpsToPercent(band.widthBps),
+                            usual: bpsToPercent(band.usualWidthBps),
+                            reason: band.reason ?? '',
+                          })}`
+                        : ''}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>{t('Initial margin')}</dt>
                   <dd className="lt-num" data-line="initial-margin">
@@ -1074,6 +1419,26 @@ function Ticket({
                     <Known value={total === null ? { known: false } : { known: true, value: total }} /> {market.quoteAsset}
                   </dd>
                 </div>
+                {review.priceCorrected ? (
+                  <div>
+                    <dt>{r('Price moved')}</dt>
+                    <dd className="lt-num" data-line="price-moved">
+                      {r('Price moved value', {
+                        asked: review.priceCorrected.asked,
+                        applied: review.priceCorrected.applied,
+                        quote: market.quoteAsset,
+                      })}
+                    </dd>
+                  </div>
+                ) : null}
+                {review.intent.type === 'market' && !review.intent.reduceOnly && slippageCap?.known ? (
+                  <div>
+                    <dt>{r('Slippage cap')}</dt>
+                    <dd className="lt-num" data-line="slippage-cap">
+                      {r('Slippage cap bps', { bps: slippageCap.value })}
+                    </dd>
+                  </div>
+                ) : null}
               </>
             ) : null
           }
@@ -1176,7 +1541,7 @@ function Blotter({
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const s = spotVenueCopy.useCopy().t;
-  const [tab, setTab] = useState<'positions' | 'orders' | 'history' | 'funding'>('positions');
+  const [tab, setTab] = useState<'positions' | 'orders' | 'history' | 'funding' | 'calculator'>('positions');
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
   const tags = useMemo(() => heldTags(owner), [owner]);
   const open = account.openOrders.data?.value ?? [];
@@ -1195,12 +1560,22 @@ function Blotter({
           { value: 'orders', label: t('Orders') },
           { value: 'history', label: t('History') },
           { value: 'funding', label: t('Funding') },
+          { value: 'calculator', label: t('Calculator') },
         ]}
         value={tab}
         onChange={(x) => setTab(x as typeof tab)}
         label={t('Positions')}
       />
       {tab === 'funding' ? <VenueFunding market={market} owner={owner} venueName={status.venue.displayName} test={status.test} /> : null}
+      {tab === 'calculator' ? (
+        <VenueCalculator
+          key={market.symbol}
+          market={market}
+          venueName={status.venue.displayName}
+          builderFeeBps={status.builder?.feeBps ?? null}
+          test={status.test}
+        />
+      ) : null}
       {tab === 'positions' ? (
         <PositionsTable
           positions={positions}
@@ -1277,7 +1652,7 @@ function Blotter({
             />
           ) : null}
         </>
-      ) : tab === 'funding' ? null : (
+      ) : tab === 'funding' || tab === 'calculator' ? null : (
         <>
           <Settlements owner={owner} test={status.test} />
           <History fills={account.fills.data} test={status.test} />

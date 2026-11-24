@@ -361,11 +361,11 @@ test(`${J}, part of #6, checked on today's engine chart: changes the colour sche
   await expect.poll(async () => [(await drawn(page)).up, (await drawn(page)).down]).toEqual([standard.down, standard.up]);
   await page.getByLabel('Price source').first().selectOption({ label: 'Best bid' });
   const refusal = page.locator('[data-code="trade.chart.basis_unpublished"]').first();
-  await expect(refusal).toContainText('can’t draw Best bid');
+  await expect(refusal).toContainText('Best bid is unavailable here');
   await expect(refusal).toContainText('last trade prices');
   await expect(page.getByLabel('Price source').first()).toHaveValue('last');
   await page.getByLabel('Price source').first().selectOption({ label: 'Mark price' });
-  await expect(refusal).toContainText('can’t draw Mark price');
+  await expect(refusal).toContainText('Mark price is unavailable here');
 });
 
 test(`${J}, part of #7, checked on today's engine chart: reads the numbers the chart plots: the service's bars, the axis format from the tick size`, async ({

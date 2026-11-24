@@ -70,16 +70,20 @@ describe("the beta's menus", () => {
     expect(searchRooms('perp', 'Personal').map((room) => room.path)).toContain('/trade/futures');
   });
 
-  it('shows Agents (/agents) and own-agent pages (/agents/:agentId) in Volt, More, All services and search on the beta (J-agents-08)', () => {
+  it('shows Agents (/agents), Connect your assistant (/agents/connect) and own-agent pages (/agents/:agentId) in Volt, More, All services and search on the beta (J-agents-08, J-agents-21)', () => {
     const betaList = betaRoomList(count.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     expect(state.get('/agents')).toBe('volt');
+    expect(state.get('/agents/connect')).toBe('volt');
     expect(state.get('/agents/:agentId')).toBe('volt');
     expect(betaHides('/agents', betaList)).toBe(false);
+    expect(betaHides('/agents/connect', betaList)).toBe(false);
     expect(betaHides('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70', betaList)).toBe(false);
     expect(betaOffFeatureFor('/agents')).toBeUndefined();
+    expect(betaOffFeatureFor('/agents/connect')).toBeUndefined();
     expect(betaOffFeatureFor('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBeUndefined();
     expect(isHiddenPath('/agents')).toBe(false);
+    expect(isHiddenPath('/agents/connect')).toBe(false);
     expect(isHiddenPath('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBe(false);
     expect(visibleSections().flatMap((group) => group.tiles.map((tile) => tile.href))).toContain('/agents');
     expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/agents');
@@ -134,6 +138,30 @@ describe("the beta's menus", () => {
     expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
     expect(isHiddenPath('/developers')).toBe(true);
     expect(isHiddenPath('/developers/hosts')).toBe(true);
+  });
+
+  it('shows Notices (/notice, /notice/:id, /announcement, /announcement/:id) on the beta while keeping Lab, App and Partner blocked (J-cex-spot-10 #10)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/notice', '/notice'],
+      ['/notice/:id', '/notice/33333333-3333-4333-8333-333333333333'],
+      ['/announcement/:id', '/announcement/33333333-3333-4333-8333-333333333333'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(betaOffFeatureFor(sample), sample).toBeUndefined();
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    expect(betaHides('/announcement', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/announcement')).toBeUndefined();
+    expect(isHiddenPath('/announcement')).toBe(false);
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/notice');
+    expect(searchRooms('notices', 'Personal').map((room) => room.path)).toContain('/notice');
+    for (const blockedPath of ['/lab', '/app', '/partner']) {
+      expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('public-extras');
+      expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
+    }
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {

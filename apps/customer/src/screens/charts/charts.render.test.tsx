@@ -411,7 +411,7 @@ describe('chart workbench', () => {
 
   it('says so for an interval the stream does not serve', async () => {
     await open('/charts/BTC-USDT', '?interval=3m', () => new FakeSocket());
-    expect(host.querySelector('[data-testid="chart-feed"]')?.textContent).toContain('This interval is read from the service');
+    expect(host.querySelector('[data-testid="chart-feed"]')?.textContent).toContain('This interval refreshes every 10 seconds');
   });
 
   it('shows the empty, error and refused states from the candle read', async () => {
@@ -463,7 +463,7 @@ describe('chart workbench', () => {
       select('Price source').dispatchEvent(new Event('change', { bubbles: true }));
     });
     const note = host.querySelector('[data-code="trade.chart.basis_unpublished"]');
-    expect(note?.textContent).toContain('can’t draw Best bid');
+    expect(note?.textContent).toContain('Best bid is unavailable here');
     expect(select('Price source').value).toBe('last');
   });
 
