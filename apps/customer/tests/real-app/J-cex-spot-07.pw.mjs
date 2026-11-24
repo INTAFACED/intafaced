@@ -606,6 +606,12 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
   await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
 
   // Every movement each source reports, one row each, and nothing else: no line of our own ledger.
+  const { displayName: venueName } = await venueInfo();
+  const sourceLabel = {
+    wallet: 'Your wallet on Base Sepolia test network',
+    venue: `Your venue account on ${venueName} TEST`,
+    partner: `Your account at ${PARTNER_BANK}`,
+  };
   const rows = list.getByTestId('money-act');
   await expect(rows).toHaveCount(expected.length, { timeout: 30_000 });
   for (const { source, ref } of expected) {
@@ -613,7 +619,7 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
     await expect(row).toHaveCount(expected.filter((e) => e.source === source && e.ref === ref).length);
     // Its source, and the source's own reference, in words the person reads.
     for (const r of await row.all()) {
-      await expect(r.getByTestId('money-act__source')).toBeVisible();
+      await expect(r.getByTestId('money-act__source')).toHaveText(sourceLabel[source]);
       await expect(r.getByTestId('money-act__ref')).toHaveText(`Reference ${ref}`);
     }
   }
