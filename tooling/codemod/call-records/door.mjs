@@ -158,12 +158,24 @@ function callBodies(src) {
   return out;
 }
 
+/** The text inside the braces that open at `opener` (its last character a `{`), nested braces kept whole; or undefined. */
+function nested(src, opener) {
+  const at = src.indexOf(opener);
+  if (at < 0) return undefined;
+  let depth = 1;
+  let i = at + opener.length;
+  for (; i < src.length && depth; i++) depth += src[i] === '{' ? 1 : src[i] === '}' ? -1 : 0;
+  return src.slice(at + opener.length, i - 1);
+}
+
 /**
  * Who may call, as a record's `access` names it (`packages/contracts/src/procedure.ts`), or why no record can: the
  * row's `access` and its `pre`. `Access::Scope("x")` is a scope checked in the module's region (svc-academy);
- * `Access::Scope(Scoped { scope, person, module })` names each (svc-agents); `Pre::PersonOnly(code)` is the record's
- * `ownSession`; any other unit `Pre` (`Pre::CoachRun`) is the record's `check` (`coachRun`). Anything else (svc-agents'
- * `Settle`, svc-bank's tier and region) is named, not guessed.
+ * `Access::Scope(Scoped { scope, person, module })` names each (svc-agents); `Access::Scope(Scoped { scope, tier, person,
+ * region, own_session })` is svc-bank's `scopedProcedure(scope, guards)`: `region: Some(Region { .. })` is `guards.module`
+ * (its `kyc`, the module's own tier rule, is what `module` checks; `kyc: None` only beside the call's own `tier`), `tier`
+ * is `guards.tier`, `own_session` is `ownSession`. `Pre::PersonOnly(code)` is the record's `ownSession`; any other unit
+ * `Pre` (`Pre::CoachRun`) is the record's `check` (`coachRun`). Anything else (svc-agents' `Settle`) is named, not guessed.
  */
 function accessOf(body, module) {
   const pre = body.match(/pre: (Pre::[^\n]*?),?\n/)?.[1].trim();
@@ -178,20 +190,43 @@ function accessOf(body, module) {
   const flat = body.match(/access: Access::Scope\("([^"]+)"\)/);
   if (flat)
     return { access: { caller: 'scope', scope: flat[1], module, ...(ownSession ? { ownSession } : {}), ...(check ? { check } : {}) } };
-  const scoped = body.match(/access: Access::Scope\(Scoped \{([^}]*)\}\)/);
-  if (scoped) {
-    const fields = Object.fromEntries([...scoped[1].matchAll(/(\w+): ([^,\n]+)/g)].map((f) => [f[1], f[2].trim()]));
-    const odd = Object.keys(fields).filter((k) => !['scope', 'person', 'module'].includes(k));
-    const scope = fields.scope?.match(/^"([^"]+)"$/)?.[1];
-    if (!scope || odd.length || !/^(true|false)$/.test(fields.person ?? '') || !/^(true|false)$/.test(fields.module ?? ''))
-      return { why: `access Scoped { ${scoped[1].trim().replace(/\s+/g, ' ')} }, which this reader does not map to a record's` };
+  const scoped = nested(body, 'access: Access::Scope(Scoped {');
+  if (scoped !== undefined) {
+    const text = scoped.replace(/\s+/g, ' ').trim();
+    const odd = { why: `access Scoped { ${text} }, which this reader does not map to a record's` };
+    // Each field the reader knows, taken out of the text; anything left over is a field it would be guessing at.
+    let rest = text;
+    const take = (re) => {
+      const m = re.exec(rest);
+      if (m) rest = rest.replace(m[0], '');
+      return m;
+    };
+    const scope = take(/\bscope: "([^"]+)",?/)?.[1];
+    const person = take(/\bperson: (true|false),?/)?.[1];
+    const flag = take(/\bmodule: (true|false),?/)?.[1];
+    const tierM = take(/\btier: (?:None|Some\("([^"]+)"\)),?/);
+    const regionM = take(
+      /\bregion: (?:None|Some\(Region \{ kyc: (?:None|Some\(Kyc \{ module: "([^"]+)", min_tier: "[^"]+",? \}\)),? \}\)),?/,
+    );
+    const ownM = take(/\bown_session: (?:None|Some\("([^"]+)"\)),?/);
+    if (!scope || !person || rest.trim() !== '' || (flag !== undefined && regionM)) return odd;
+    const tier = tierM?.[1];
+    const region = regionM && !/^region: None/.test(regionM[0]);
+    // `kyc: None` is the door's mark that the call's own tier already asks what the module asks: without a tier, it names
+    // a region checked with no tier rule, which no record names.
+    if (region && regionM[1] === undefined && !tier) return odd;
+    if (regionM?.[1] !== undefined && regionM[1] !== module) return odd;
+    const own = ownM?.[1];
+    if (own && ownSession && own !== ownSession) return odd;
+    const session = own ?? ownSession;
     return {
       access: {
         caller: 'scope',
         scope,
-        ...(fields.module === 'true' ? { module } : {}),
-        ...(fields.person === 'true' ? { person: true } : {}),
-        ...(ownSession ? { ownSession } : {}),
+        ...(flag === 'true' || region ? { module } : {}),
+        ...(tier ? { tier } : {}),
+        ...(person === 'true' ? { person: true } : {}),
+        ...(session ? { ownSession: session } : {}),
         ...(check ? { check } : {}),
       },
     };

@@ -2228,6 +2228,39 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
     accessText({ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }),
     "{ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }",
   );
+  // svc-bank's rows: `scopedProcedure(scope, guards)` with a nested Region and Kyc. Before, every one of them was named
+  // "which this reader does not map to a record's", and its callers stayed by name.
+  const bank = (path, fields) =>
+    `    Call {\n        path: "${path}",\n        kind: Kind::Query,\n        access: Access::Scope(Scoped {\n${fields
+      .map((f) => `            ${f},`)
+      .join('\n')}\n        }),\n        slice: Slice::Accounts,\n        has_input: true,\n    },`;
+  const kycFull =
+    'region: Some(Region {\n                kyc: Some(Kyc {\n                    module: "bank",\n                    min_tier: "full",\n                }),\n            })';
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      bank('salary.details', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull, 'own_session: None']),
+      bank('convertCash.carry', [
+        'scope: "bank:write"',
+        'tier: Some("full")',
+        'person: false',
+        'region: Some(Region { kyc: None })',
+        'own_session: None',
+      ]),
+      bank('ops.free', ['scope: "admin:read"', 'tier: None', 'person: true', 'region: None', 'own_session: Some("bank.own_only")']),
+      bank('no.tier', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: Some(Region { kyc: None })', 'own_session: None']),
+      bank('other.module', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull.replace('"bank"', '"pay"'), 'own_session: None']),
+      bank('odd.field', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: None', 'own_session: None', 'plane: Some("x")']),
+    ].join('\n'),
+  );
+  const bankCalls = Object.fromEntries(callsOf(dir, 'bank'));
+  assert.deepEqual(bankCalls['salary.details'].access, { caller: 'scope', scope: 'bank:read', module: 'bank' });
+  assert.deepEqual(bankCalls['convertCash.carry'].access, { caller: 'scope', scope: 'bank:write', module: 'bank', tier: 'full' });
+  assert.deepEqual(bankCalls['ops.free'].access, { caller: 'scope', scope: 'admin:read', person: true, ownSession: 'bank.own_only' });
+  for (const path of ['no.tier', 'other.module', 'odd.field']) {
+    assert.equal(bankCalls[path].access, null, path);
+    assert.match(bankCalls[path].why, /which this reader does not map to a record's/, path);
+  }
   writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
   assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });
