@@ -105,7 +105,7 @@ function readyAdapter(setting: EmbeddedWalletSetting) {
 
 export async function createEmbeddedWallet(
   deps: EmbeddedWalletDeps,
-  input: { userId: string; passkey: EmbeddedWalletPasskey },
+  input: { userId: string; passkey: EmbeddedWalletPasskey; forwarded?: Record<string, string> },
   now: Date = new Date(),
 ): Promise<{ row: EmbeddedWalletRow; created: boolean }> {
   const adapter = readyAdapter(deps.setting());
@@ -115,7 +115,12 @@ export async function createEmbeddedWallet(
   const idempotencyKey = embeddedWalletKey(input.userId);
   let wallet;
   try {
-    wallet = await adapter.createWallet({ ownerRef: input.userId, idempotencyKey, passkey: input.passkey });
+    wallet = await adapter.createWallet({
+      ownerRef: input.userId,
+      idempotencyKey,
+      passkey: input.passkey,
+      ...(input.forwarded ? { forwarded: input.forwarded } : {}),
+    });
   } catch (err) {
     if (err instanceof ProviderRefusedError)
       throw new EmbeddedWalletRefusedError(

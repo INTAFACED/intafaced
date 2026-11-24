@@ -1,17 +1,13 @@
 import { createECDH, createPrivateKey, createSign, type KeyObject } from 'node:crypto';
 import { isRecord } from '@intafaced/contracts/guards';
-import type { ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
+import type { EmbeddedWalletPasskey } from '@intafaced/contracts/protocol-embedded-wallet';
 import { getAddress, isAddress, type Address } from 'viem';
-import {
-  PROVIDER_TIMEOUT_MS,
-  ProviderRefusedError,
-  ProviderUnavailableError,
-  type EmbeddedWalletProviderAdapter,
-  type ProviderWallet,
-} from './provider.js';
 
 /**
- * THE OWNER'S EMBEDDED-WALLET PROVIDER, the one the owner's settings name `turnkey`. Server side only, with no vendor SDK: svc-protocol signs each request with the
+ * THE OWNER'S EMBEDDED-WALLET PROVIDER (J-wallet-22), the one svc-protocol's setting names `turnkey`. It lives in
+ * svc-identity, the owner of people and their passkeys, so svc-protocol declares no key of any kind
+ * (svc-protocol `sovereignty.test.ts`); svc-protocol asks for a wallet through `IDENTITY_EMBEDDED_WALLET_PROVISION`.
+ * Server side only, with no vendor SDK: svc-identity signs each request with the
  * organisation's backend API key (P-256), the way the provider's own Apache-2.0 `api-key-stamper` does, and asks two
  * things:
  *
@@ -43,8 +39,36 @@ const TRANSPORTS: Record<string, string> = {
   hybrid: 'AUTHENTICATOR_TRANSPORT_HYBRID',
   'smart-card': 'AUTHENTICATOR_TRANSPORT_SMART_CARD',
 };
-/** The room names where the key is kept without naming the vendor (user-facing copy names no partner). */
-const TURNKEY_DISPLAY_NAME = 'your wallet provider';
+/** How long svc-identity waits for the provider before it says the provider is down. */
+export const PROVIDER_TIMEOUT_MS = 8000;
+
+export interface ProviderWallet {
+  readonly walletId: string;
+  readonly address: Address;
+  /** The INTAFACED person the provider bound the wallet to. */
+  readonly ownerRef: string;
+}
+
+/** The provider answered, and refused to make the wallet with what it was given (a 4xx): retrying won't help. */
+export class ProviderRefusedError extends Error {
+  constructor(readonly status: number) {
+    super(`wallet provider: refused (${status})`);
+    this.name = 'ProviderRefusedError';
+  }
+}
+
+/** The provider did not answer, or answered with an error. The message never carries the provider's body. */
+export class ProviderUnavailableError extends Error {
+  constructor(readonly detail: string) {
+    super(`wallet provider: ${detail}`);
+    this.name = 'ProviderUnavailableError';
+  }
+}
+
+/** Makes the person's one wallet bound to their passkey, or returns the one the provider already holds for them. */
+export interface EmbeddedWalletMaker {
+  createWallet(input: { ownerRef: string; passkey: EmbeddedWalletPasskey }): Promise<ProviderWallet>;
+}
 
 export interface TurnkeySettings {
   readonly organizationId: string | undefined;
@@ -72,8 +96,7 @@ export function turnkeyApiKey(settings: TurnkeySettings): { organizationId: stri
     !publicKey && 'TURNKEY_API_PUBLIC_KEY',
     !privateKey && 'TURNKEY_API_PRIVATE_KEY',
   ].filter(Boolean);
-  if (missing.length)
-    throw new Error(`PROTOCOL_EMBEDDED_WALLET_PROVIDER=turnkey needs ${missing.join(', ')}, which is blank. Refusing to boot.`);
+  if (missing.length) throw new Error(`The wallet provider needs ${missing.join(', ')}, which is blank. Refusing to boot.`);
   if (!/^[0-9a-f-]{1,64}$/.test(organizationId)) throw new Error('TURNKEY_ORGANIZATION_ID is not an organisation id. Refusing to boot.');
   if (!/^(02|03)[0-9a-f]{64}$/.test(publicKey))
     throw new Error('TURNKEY_API_PUBLIC_KEY is not a compressed P-256 public key in hex. Refusing to boot.');
@@ -114,17 +137,18 @@ export function turnkeyStamp(body: string, publicKey: string, key: KeyObject): s
 
 const providerId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(v);
 
-export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch = fetch): EmbeddedWalletProviderAdapter {
+/**
+ * The key settings, read once at boot: all three blank is unset (null: provisioning refuses
+ * `wallet.embedded_provider_unset`); any one set and every one must be, well formed, or boot refuses.
+ */
+export function turnkeyFromSettings(settings: TurnkeySettings, fetcher: typeof fetch = fetch): EmbeddedWalletMaker | null {
+  const blank = [settings.organizationId, settings.apiPublicKey, settings.apiPrivateKey].every((v) => !v?.trim());
+  return blank ? null : turnkeyAdapter(settings, fetcher);
+}
+
+export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch = fetch): EmbeddedWalletMaker {
   const { organizationId, publicKey, key } = turnkeyApiKey(settings);
   const base = settings.baseUrl ?? TURNKEY_API_BASE_URL;
-  const info: ProtocolEmbeddedWalletProvider = {
-    id: 'turnkey',
-    displayName: TURNKEY_DISPLAY_NAME,
-    test: false,
-    // Export and a second passkey run in the provider's own browser flow, which this build's page does not carry yet:
-    // the room says so in words instead of offering a button that fails.
-    capabilities: { export: false, recovery: false },
-  };
 
   /** One signed call. 5xx, no answer, a non-JSON answer or our own key refused (401/403) is down; any other 4xx refused. */
   async function call(path: string, payload: unknown): Promise<unknown> {
@@ -138,15 +162,14 @@ export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch 
         signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
     } catch {
-      throw new ProviderUnavailableError(info.displayName, 'did not answer');
+      throw new ProviderUnavailableError('did not answer');
     }
-    if (res.status >= 500 || res.status === 401 || res.status === 403)
-      throw new ProviderUnavailableError(info.displayName, `answered ${res.status}`);
-    if (res.status >= 400) throw new ProviderRefusedError(info.displayName, res.status);
+    if (res.status >= 500 || res.status === 401 || res.status === 403) throw new ProviderUnavailableError(`answered ${res.status}`);
+    if (res.status >= 400) throw new ProviderRefusedError(res.status);
     try {
       return await res.json();
     } catch {
-      throw new ProviderUnavailableError(info.displayName, 'answered with something that is not JSON');
+      throw new ProviderUnavailableError('answered with something that is not JSON');
     }
   }
 
@@ -175,22 +198,21 @@ export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch 
     const ids = isRecord(found) && Array.isArray(found.organizationIds) ? found.organizationIds.filter(providerId) : [];
     const [subOrgId, ...others] = ids;
     if (subOrgId === undefined) return null;
-    if (others.length > 0) throw new ProviderUnavailableError(info.displayName, 'holds more than one wallet for this person');
+    if (others.length > 0) throw new ProviderUnavailableError('holds more than one wallet for this person');
     const listed = await call('/public/v1/query/list_wallets', { organizationId: subOrgId });
     const wallets = isRecord(listed) && Array.isArray(listed.wallets) ? listed.wallets : [];
     const walletId = wallets.map((w) => (isRecord(w) ? w.walletId : null)).find(providerId);
-    if (!walletId) throw new ProviderUnavailableError(info.displayName, 'holds this person but no wallet');
+    if (!walletId) throw new ProviderUnavailableError('holds this person but no wallet');
     const address = await addressOf(subOrgId, walletId);
-    if (!address) throw new ProviderUnavailableError(info.displayName, 'holds a wallet with no Ethereum account');
+    if (!address) throw new ProviderUnavailableError('holds a wallet with no Ethereum account');
     return { walletId: `${subOrgId}/${walletId}`, address, ownerRef };
   }
 
   return {
-    info,
     async createWallet(input) {
       const registration = input.passkey.registration;
       // The provider binds a passkey only from its WebAuthn registration; a passkey without one cannot be bound.
-      if (!registration) throw new ProviderRefusedError(info.displayName, 400);
+      if (!registration) throw new ProviderRefusedError(400);
       const already = await existing(input.ownerRef);
       if (already) return already;
       const answer = await call('/public/v1/submit/create_sub_organization', {
@@ -224,17 +246,16 @@ export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch 
       });
       const activity = isRecord(answer) && isRecord(answer.activity) ? answer.activity : null;
       const status = activity?.status;
-      if (status === 'ACTIVITY_STATUS_FAILED' || status === 'ACTIVITY_STATUS_REJECTED')
-        throw new ProviderRefusedError(info.displayName, 400);
+      if (status === 'ACTIVITY_STATUS_FAILED' || status === 'ACTIVITY_STATUS_REJECTED') throw new ProviderRefusedError(400);
       if (status !== 'ACTIVITY_STATUS_COMPLETED' || !isRecord(activity?.result))
-        throw new ProviderUnavailableError(info.displayName, 'did not finish making the wallet');
+        throw new ProviderUnavailableError('did not finish making the wallet');
       const result = Object.entries(activity.result).find(([k, v]) => k.startsWith('createSubOrganizationResult') && isRecord(v))?.[1];
       const subOrgId = isRecord(result) ? result.subOrganizationId : null;
       const wallet = isRecord(result) && isRecord(result.wallet) ? result.wallet : null;
       const walletId = wallet?.walletId;
       const address = Array.isArray(wallet?.addresses) ? wallet.addresses[0] : null;
       if (!providerId(subOrgId) || !providerId(walletId) || typeof address !== 'string' || !isAddress(address, { strict: false }))
-        throw new ProviderUnavailableError(info.displayName, 'answered with no wallet');
+        throw new ProviderUnavailableError('answered with no wallet');
       return { walletId: `${subOrgId}/${walletId}`, address: getAddress(address), ownerRef: input.ownerRef };
     },
   };

@@ -5,7 +5,8 @@ import type {
   ProtocolEmbeddedWalletProvider,
 } from '@intafaced/contracts/protocol-embedded-wallet';
 import { getAddress, isAddress, type Address } from 'viem';
-import { turnkeyAdapter, type TurnkeySettings } from './turnkey.js';
+import { IDENTITY_EMBEDDED_WALLET_PROVISION } from '@intafaced/contracts/identity-embedded-wallet-procedures';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 
 /**
  * THE EMBEDDED-WALLET PROVIDER INTERFACE (J-wallet-22, OWNER 237). The owner's provider makes the person's wallet and
@@ -15,7 +16,8 @@ import { turnkeyAdapter, type TurnkeySettings } from './turnkey.js';
  * person's browser and the provider, never through INTAFACED.
  *
  * Adapters: `test`, the labelled TEST provider (tooling/scripts/local-test-wallet-provider.mjs), refused outside APP_ENV
- * dev or test; `turnkey`, the owner's provider (turnkey.ts). `privy` is known but unwired and refuses
+ * dev or test; `turnkey`, the owner's provider, reached through svc-identity, which holds its API key
+ * (`identityProvisionAdapter`): svc-protocol declares no key of any kind. `privy` is known but unwired and refuses
  * `wallet.embedded_provider_unwired`. No vendor SDK is in this build.
  */
 
@@ -33,7 +35,13 @@ export interface EmbeddedWalletProviderAdapter {
    * provider is idempotent on `ownerRef` and on `idempotencyKey`). Throws `ProviderUnavailableError` when it cannot be
    * reached or answers with an error.
    */
-  createWallet(input: { ownerRef: string; idempotencyKey: string; passkey: EmbeddedWalletPasskey }): Promise<ProviderWallet>;
+  createWallet(input: {
+    ownerRef: string;
+    idempotencyKey: string;
+    passkey: EmbeddedWalletPasskey;
+    /** The person's own edge-signed principal from this request (`forwardedPrincipalHeaders`), passed on unchanged. */
+    forwarded?: Record<string, string>;
+  }): Promise<ProviderWallet>;
 }
 
 /** The provider answered, and refused to make the wallet with what it was given (a 4xx): not down, and retrying won't help. */
@@ -76,7 +84,7 @@ export const PROVIDER_TIMEOUT_MS = 8000;
  * one; it needs
  * `PROTOCOL_EMBEDDED_WALLET_TEST_URL`, a loopback URL. `TEST:test-no-export` is the same TEST provider standing in for a
  * provider whose plan offers no key export (J-wallet-22 #5): it reports `export: false`, so the room says so. `turnkey` is the
- * owner's provider (turnkey.ts), read with its API key settings, each refusing to boot when blank or malformed. `privy` is
+ * owner's provider, made through svc-identity at `identityUrl`, refusing to boot when that is blank. `privy` is
  * known and unwired in this build. Anything
  * else refuses to boot, so a mistyped provider never reads as unset.
  */
@@ -86,7 +94,7 @@ export function embeddedWalletFromSetting(
   rawAppEnv: string | undefined,
   fetcher: typeof fetch = fetch,
   rawBetaPosture?: string,
-  turnkey: TurnkeySettings = { organizationId: undefined, apiPublicKey: undefined, apiPrivateKey: undefined },
+  identityUrl?: string,
 ): EmbeddedWalletSetting {
   const value = raw?.trim() ?? '';
   if (!value) return { kind: 'unset' };
@@ -103,7 +111,7 @@ export function embeddedWalletFromSetting(
       );
     return { kind: 'ready', adapter: testProviderAdapter(requireLoopbackUrl(testUrl), fetcher, { export: id === 'test' }) };
   }
-  if (value === 'turnkey') return { kind: 'ready', adapter: turnkeyAdapter(turnkey, fetcher) };
+  if (value === 'turnkey') return { kind: 'ready', adapter: identityProvisionAdapter(requireIdentityUrl(identityUrl), fetcher) };
   if (value === 'privy') return { kind: 'unwired', id: value };
   if (value === 'test')
     throw new Error(
@@ -127,10 +135,74 @@ function requireLoopbackUrl(raw: string | undefined): string {
   return url.origin;
 }
 
+function requireIdentityUrl(raw: string | undefined): string {
+  const value = raw?.trim() ?? '';
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'http:' || url.protocol === 'https:') return url.origin;
+  } catch {
+    // refused below
+  }
+  throw new Error(
+    'PROTOCOL_EMBEDDED_WALLET_PROVIDER=turnkey needs IDENTITY_URL, svc-identity’s URL, which holds the provider’s key. Refusing to boot.',
+  );
+}
+
+/** The room names where the key is kept without naming the vendor (user-facing copy names no partner). */
+export const OWNER_PROVIDER_DISPLAY_NAME = 'your wallet provider';
+
+/**
+ * The owner's provider (`turnkey`), reached through svc-identity's `embeddedWallet.provision`, which holds the provider's
+ * API key. The call carries the person's own edge-signed principal, so svc-identity makes the wallet for that person
+ * only; without one nothing is asked. A 409 is the provider refusing the passkey; any other failure is down.
+ */
+export function identityProvisionAdapter(identityUrl: string, fetcher: typeof fetch = fetch): EmbeddedWalletProviderAdapter {
+  const info: ProtocolEmbeddedWalletProvider = {
+    id: 'turnkey',
+    displayName: OWNER_PROVIDER_DISPLAY_NAME,
+    test: false,
+    // Export and a second passkey run in the provider's own browser flow, which this build's page does not carry yet:
+    // the room says so in words instead of offering a button that fails.
+    capabilities: { export: false, recovery: false },
+  };
+  return {
+    info,
+    async createWallet(input) {
+      if (!input.forwarded || Object.keys(input.forwarded).length === 0)
+        throw new ProviderUnavailableError(info.displayName, 'was not asked: no signed-in person on this request');
+      const sent = trpcRecordRequest(IDENTITY_EMBEDDED_WALLET_PROVISION, identityUrl, { passkey: input.passkey });
+      let res: Response;
+      try {
+        res = await fetcher(sent.url, {
+          method: sent.method,
+          headers: { 'content-type': 'application/json', ...input.forwarded },
+          body: sent.body,
+          // svc-identity waits up to PROVIDER_TIMEOUT_MS for the provider itself.
+          signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS + 2000),
+        });
+      } catch {
+        throw new ProviderUnavailableError(info.displayName, 'did not answer');
+      }
+      if (res.status === 409) throw new ProviderRefusedError(info.displayName, res.status);
+      if (!res.ok) throw new ProviderUnavailableError(info.displayName, `answered ${res.status}`);
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        throw new ProviderUnavailableError(info.displayName, 'answered with something that is not JSON');
+      }
+      const reply = trpcRecordReply(IDENTITY_EMBEDDED_WALLET_PROVISION, body);
+      const wallet = reply && readWallet(reply);
+      if (!wallet) throw new ProviderUnavailableError(info.displayName, 'answered with no wallet');
+      return wallet;
+    },
+  };
+}
+
 function readWallet(body: unknown): ProviderWallet | null {
   if (!body || typeof body !== 'object') return null;
   const { walletId, address, ownerRef } = body as Record<string, unknown>;
-  if (typeof walletId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(walletId)) return null;
+  if (typeof walletId !== 'string' || !/^[A-Za-z0-9_/-]{1,160}$/.test(walletId)) return null;
   if (typeof address !== 'string' || !isAddress(address, { strict: false })) return null;
   if (typeof ownerRef !== 'string' || !ownerRef) return null;
   // Only these three fields leave this function: anything else the provider sent is dropped, never stored or logged.

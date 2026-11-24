@@ -1,10 +1,18 @@
 import { createECDH, createPublicKey, createVerify } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { isRecord } from '@intafaced/contracts/guards';
-import { embeddedWalletKey, type EmbeddedWalletPasskey } from '@intafaced/contracts/protocol-embedded-wallet';
-import { EmbeddedWalletRefusedError, MemoryEmbeddedWalletStore, createEmbeddedWallet } from './embedded.js';
-import { embeddedWalletFromSetting } from './provider.js';
-import { TURNKEY_API_BASE_URL, turnkeyAdapter, turnkeyApiKey, turnkeyStamp, turnkeySubOrgName, type TurnkeySettings } from './turnkey.js';
+import type { EmbeddedWalletPasskey } from '@intafaced/contracts/protocol-embedded-wallet';
+import { createEmbeddedWalletRouter } from './router.js';
+import {
+  TURNKEY_API_BASE_URL,
+  turnkeyAdapter,
+  turnkeyApiKey,
+  turnkeyFromSettings,
+  turnkeyStamp,
+  turnkeySubOrgName,
+  type EmbeddedWalletMaker,
+  type TurnkeySettings,
+} from './turnkey.js';
 
 /** The owner's wallet provider. Every request is checked against the provider's published API shape. */
 const ALICE = '11111111-1111-4111-8111-111111111111';
@@ -61,19 +69,35 @@ const COMPLETED = {
     },
   },
 };
-const create = (adapter: ReturnType<typeof turnkeyAdapter>, passkey = PASSKEY) =>
-  adapter.createWallet({ ownerRef: ALICE, idempotencyKey: embeddedWalletKey(ALICE), passkey });
+const create = (adapter: EmbeddedWalletMaker, passkey = PASSKEY) => adapter.createWallet({ ownerRef: ALICE, passkey });
+
+/** `embeddedWallet.provision` called as ALICE's own signed-in session. */
+function provision(maker: EmbeddedWalletMaker | null, passkey = PASSKEY) {
+  const caller = createEmbeddedWalletRouter(maker).createCaller({
+    principal: { userId: ALICE, scopes: ['identity:write'], kycTier: 0, kind: 'user' },
+    service: null,
+    region: 'XX',
+    requestId: 'r',
+  } as never);
+  return caller.embeddedWallet.provision({ passkey });
+}
+/** The refusal code a failed provision carries (its cause's `code`). */
+const refusalOf = async (work: Promise<unknown>) => {
+  const err: unknown = await work.then(
+    () => null,
+    (e: unknown) => e,
+  );
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  return isRecord(cause) ? cause.code : err;
+};
 
 describe('the owner’s wallet provider: settings', () => {
-  it('blank stays unset; turnkey with its key settings is ready, named without the vendor, and offers no export or recovery yet', () => {
-    expect(embeddedWalletFromSetting('', undefined, 'staging', fetch, undefined, SETTINGS)).toEqual({ kind: 'unset' });
-    const ready = embeddedWalletFromSetting('turnkey', undefined, 'staging', fetch, undefined, SETTINGS);
-    expect(ready.kind === 'ready' && ready.adapter.info).toEqual({
-      id: 'turnkey',
-      displayName: 'your wallet provider',
-      test: false,
-      capabilities: { export: false, recovery: false },
-    });
+  it('all three blank stays unset and provisioning refuses wallet.embedded_provider_unset; all three set is ready', async () => {
+    const blank = turnkeyFromSettings({ organizationId: undefined, apiPublicKey: ' ', apiPrivateKey: '' });
+    expect(blank).toBeNull();
+    expect(await refusalOf(provision(blank))).toBe('wallet.embedded_provider_unset');
+    expect(turnkeyFromSettings(SETTINGS)).not.toBeNull();
+    expect(() => turnkeyFromSettings({ ...SETTINGS, apiPrivateKey: '' })).toThrow(/needs TURNKEY_API_PRIVATE_KEY, which is blank/);
   });
 
   it('refuses to boot on a missing or malformed key setting, naming the setting and never its value', () => {
@@ -195,13 +219,10 @@ describe('the owner’s wallet provider: making the wallet', () => {
       () => ({ status: 400, body: { code: 3, message: 'invalid attestation' } }),
       ok({ activity: { status: 'ACTIVITY_STATUS_FAILED', failure: { message: 'x' } } }),
     ]) {
-      const { fetcher } = provider({ ...NONE, '/public/v1/submit/create_sub_organization': answer });
-      const store = new MemoryEmbeddedWalletStore();
-      const deps = { store, setting: () => ({ kind: 'ready' as const, adapter: turnkeyAdapter(SETTINGS, fetcher) }) };
-      const err = await createEmbeddedWallet(deps, { userId: ALICE, passkey: PASSKEY }).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(EmbeddedWalletRefusedError);
-      expect((err as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_wallet_mismatch');
-      expect(store.rows.size).toBe(0);
+      const { fetcher, calls } = provider({ ...NONE, '/public/v1/submit/create_sub_organization': answer });
+      expect(await refusalOf(provision(turnkeyAdapter(SETTINGS, fetcher)))).toBe('wallet.embedded_wallet_mismatch');
+      // Nothing was made: the one create the provider refused is the last call.
+      expect(calls.at(-1)!.url.endsWith('create_sub_organization')).toBe(true);
     }
   });
 
@@ -224,23 +245,23 @@ describe('the owner’s wallet provider: making the wallet', () => {
     const notJson: typeof fetch = async () => new Response('<html>', { status: 200 });
     const fetchers = [...downs.map((d) => provider(d).fetcher), thrown, notJson];
     for (const fetcher of fetchers) {
-      const store = new MemoryEmbeddedWalletStore();
-      const deps = { store, setting: () => ({ kind: 'ready' as const, adapter: turnkeyAdapter(SETTINGS, fetcher) }) };
-      const err = await createEmbeddedWallet(deps, { userId: ALICE, passkey: PASSKEY }).catch((e: unknown) => e);
-      expect((err as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_provider_down');
-      expect((err as Error).message).toContain('your wallet provider');
+      const work = provision(turnkeyAdapter(SETTINGS, fetcher));
+      const err: unknown = await work.catch((e: unknown) => e);
+      expect(await refusalOf(Promise.reject(err))).toBe('wallet.embedded_provider_down');
       expect((err as Error).message).not.toContain(PRIVATE);
-      expect(store.rows.size).toBe(0);
     }
   });
 
-  it('records the wallet under the person’s business key, holding no key material', async () => {
-    const { fetcher } = provider({ ...NONE, '/public/v1/submit/create_sub_organization': ok(COMPLETED) });
-    const store = new MemoryEmbeddedWalletStore();
-    const deps = { store, setting: () => ({ kind: 'ready' as const, adapter: turnkeyAdapter(SETTINGS, fetcher) }) };
-    const { row, created } = await createEmbeddedWallet(deps, { userId: ALICE, passkey: PASSKEY });
-    expect(created).toBe(true);
-    expect(row).toMatchObject({ provider: 'turnkey', providerWalletId: `${SUB}/${WALLET}`, address: ADDRESS, test: false });
-    expect(row.idempotencyKey).toBe(embeddedWalletKey(ALICE));
+  it('provisions for the signed-in person only, answering the record’s shape with no key material', async () => {
+    const { fetcher, calls } = provider({ ...NONE, '/public/v1/submit/create_sub_organization': ok(COMPLETED) });
+    const reply = await provision(turnkeyAdapter(SETTINGS, fetcher));
+    expect(reply).toEqual({ walletId: `${SUB}/${WALLET}`, address: ADDRESS, ownerRef: ALICE });
+    expect(calls[0]!.body.filterValue).toBe(turnkeySubOrgName(ALICE));
+    expect(JSON.stringify(reply)).not.toContain(PRIVATE);
+  });
+
+  it('a wallet the provider bound to anyone else is refused, never answered', async () => {
+    const other: EmbeddedWalletMaker = { createWallet: async () => ({ walletId: 'w', address: ADDRESS, ownerRef: 'someone-else' }) };
+    expect(await refusalOf(provision(other))).toBe('wallet.embedded_wallet_mismatch');
   });
 });

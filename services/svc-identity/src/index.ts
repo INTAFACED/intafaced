@@ -119,6 +119,8 @@ import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createFactorStatusRouter } from './factor-status-router.js';
+import { createEmbeddedWalletRouter } from './embedded-wallet/router.js';
+import { turnkeyFromSettings } from './embedded-wallet/turnkey.js';
 import { createSigninMethodsRouter } from './signin-methods-router.js';
 import { createWorkItemsRouter } from './work-items.js';
 import { createServerTimeRouter } from './server-time-router.js';
@@ -774,6 +776,12 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
 const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env.IDENTITY_SOCIAL_FLOW_TTL_SECONDS });
 
+// The owner's embedded-wallet provider (J-wallet-22): all blank is unset; a half-set or malformed key refuses to boot.
+const embeddedWalletMaker = turnkeyFromSettings({
+  organizationId: env.TURNKEY_ORGANIZATION_ID,
+  apiPublicKey: env.TURNKEY_API_PUBLIC_KEY,
+  apiPrivateKey: env.TURNKEY_API_PRIVATE_KEY,
+});
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
@@ -952,6 +960,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
+  createEmbeddedWalletRouter(embeddedWalletMaker),
   createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social, phone: { sms } }),
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
