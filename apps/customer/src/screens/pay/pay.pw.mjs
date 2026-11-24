@@ -625,7 +625,7 @@ test('not verified yet: Send and Request say to verify in plain words, and nothi
   await mock(page, { spaces: kyc, waiting: kyc, activity: kyc });
   const plain = async () => {
     const text = await page.getByTestId('pay-card').locator('xpath=ancestor::main[1]').innerText();
-    expect(text).not.toMatch(/couldn’t load|couldn't load|VER-1|kyc|denied/i);
+    expect(text).not.toMatch(/couldn’t load|couldn't load|kyc|denied/i);
   };
   for (const [path, name] of [
     ['/pay/send', 'send'],

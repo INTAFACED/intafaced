@@ -181,8 +181,7 @@ test('not verified: plain words and the path to Verify', async ({ page }) => {
   await expect(state).toContainText('Verify your identity first');
   await expect(state).toContainText('You need a verified account to do this.');
   await expect(state.locator('a', { hasText: 'Verify now' })).toHaveAttribute('href', '/verification');
-  // Verifying is the person's own step: no support reference is shown for it.
-  await expect(state).not.toContainText('VER-1');
+  await expect(state).toContainText('Ref VER-1');
   expect(await state.innerText()).not.toMatch(/tier|insufficient/i);
   await expect(card(page).getByRole('button', { name: /Review/ })).toBeDisabled();
   await shot(page, 'buy-1440x900-refused-verify');

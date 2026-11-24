@@ -316,13 +316,11 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
 };
 
-/**
- * What a customer can quote to support instead of the raw service code (UI-SPEC 4.3: no internal terms on screen). A
- * refusal the person settles themselves, such as verifying, has its own action and no reference.
- */
+/** What a customer can quote to support instead of the raw service code (UI-SPEC 4.3: no internal terms on screen). */
 const REFERENCE: Readonly<Partial<Record<RefusalKind, string>>> = {
   screening: 'SCR-1',
   region: 'REG-1',
+  verify: 'VER-1',
   accountOnHold: 'HOLD-1',
   tradingOnHold: 'HOLD-2',
   stepUp: 'MFA-1',
