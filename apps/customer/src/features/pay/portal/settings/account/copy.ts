@@ -55,6 +55,10 @@ const en = {
   startHere: 'Start with step 1, your business details.',
   ownerSetsUpTitle: 'Your business is set up by its owner',
   ownerSetsUpBody: 'The account owner makes the business details, verification and payout destination. Ask them if something is missing.',
+  twoStepFirstTitle: 'First, turn on two-step sign-in',
+  twoStepFirstBody:
+    'Opening a business account needs two-step sign-in on your own account. Turn it on, then sign out and sign in again, and setup starts here with your business details.',
+  twoStepFirstAction: 'Turn on two-step sign-in',
   overviewLeftTitle: 'What is left',
   overviewLeftBody: 'Everything between you and live payments, in order.',
   leftBusiness: 'Tell us about your business (step 1).',
@@ -214,7 +218,18 @@ const en = {
   closePanel: 'Close',
   invitedBy: 'Invited by',
 
+  // ---- what each settings page means (the template's explain slot)
+  businessExplain:
+    'Some changes to your business details wait for review before they take effect. Every change is recorded with who made it.',
+  teamExplain: 'Each person’s role decides what they can see and do on this account. Every invitation and role change is reviewed first.',
+  complianceExplain: 'Your business verification decides what this account may do. Screening results are never shown here.',
+  permissionsExplain: 'Every change to what another business on your platform may do is reviewed first and recorded.',
+  notifPrefsExplain: 'Notifications are shown here in the portal only: nothing is emailed or texted.',
+
   // ---- security
+  secSectionsLabel: 'Security sections',
+  secExplain:
+    'Your own passkeys and two-step codes are managed on your Account page, and API keys under Developers. Changing money settings and team access needs two-step verification.',
   secProtectionTitle: 'Sign-in protection',
   secProtectionBody: 'How this session was signed in, and where to manage your own sign-in.',
   secThisSession: 'This session',

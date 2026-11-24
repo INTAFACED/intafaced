@@ -7,7 +7,8 @@
  * none". The door carries no member-since date, so none is claimed.
  */
 import { z } from 'zod';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { P2pError } from './p2p-service.js';
 
 export type PublicProfileLookup = {

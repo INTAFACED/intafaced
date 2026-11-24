@@ -2,13 +2,16 @@
  * `subAccounts.deleteCheck` and `subAccounts.delete`. Own sub-account, session only.
  * The check reads the money services for this one sub-account; delete spends a step-up, re-reads, then revokes.
  */
-import { z } from 'zod';
-import { protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-account-delete.js';
-
-const blocker = z.object({ code: z.string(), count: z.number().int() });
-const balance = z.object({ assetId: z.string(), amount: z.string() });
+import {
+  IDENTITY_SUB_ACCOUNTS_DELETE_CHECK,
+  IDENTITY_SUB_ACCOUNTS_DELETE,
+  IDENTITY_SUB_ACCOUNTS_ASSETS,
+} from '@intafaced/contracts/identity-sub-accounts-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 export function subAccountDeleteToTrpc(err: unknown): never {
   if (err instanceof TRPCError) throw err;
@@ -44,39 +47,38 @@ export function createSubAccountDeleteProcedures(service: SubAccountDeleteServic
     return service;
   };
   return {
-    deleteCheck: protectedProcedure
-      .input(z.object({ subAccountId: z.string().guid() }).strict())
-      .output(z.object({ blockers: z.array(blocker), balances: z.array(balance) }))
-      .query(async ({ ctx, input }) => {
+    deleteCheck: mountRecord(
+      IDENTITY_SUB_ACCOUNTS_DELETE_CHECK,
+      async ({ ctx, input }) => {
         try {
           return await required().check({ ...actor(ctx.principal), subAccountId: input.subAccountId });
         } catch (err) {
           subAccountDeleteToTrpc(err);
         }
-      }),
-    assets: protectedProcedure
-      .input(z.object({ subAccountId: z.string().guid() }).strict())
-      .output(z.object({ balances: z.array(balance) }))
-      .query(async ({ ctx, input }) => {
+      },
+      codedRefusal,
+    ),
+    assets: mountRecord(
+      IDENTITY_SUB_ACCOUNTS_ASSETS,
+      async ({ ctx, input }) => {
         try {
           return await required().assets({ ...actor(ctx.principal), subAccountId: input.subAccountId });
         } catch (err) {
           subAccountDeleteToTrpc(err);
         }
-      }),
-    delete: protectedProcedure
-      .input(
-        z
-          .object({ subAccountId: z.string().guid(), stepUpApprovalId: z.string().guid(), clientRequestId: z.string().min(1).max(128) })
-          .strict(),
-      )
-      .output(z.object({ deleted: z.literal(true), changed: z.boolean() }))
-      .mutation(async ({ ctx, input }) => {
+      },
+      codedRefusal,
+    ),
+    delete: mountRecord(
+      IDENTITY_SUB_ACCOUNTS_DELETE,
+      async ({ ctx, input }) => {
         try {
           return await required().delete({ ...actor(ctx.principal), ...input });
         } catch (err) {
           subAccountDeleteToTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
   };
 }

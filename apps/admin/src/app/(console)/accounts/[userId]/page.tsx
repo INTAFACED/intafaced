@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { CustomerRecord } from '@/components/customer-record';
-import { customerId, customerTab, tabPlan } from '@/lib/customer-record/record';
+import { customerId, customerTab, requestIdQuery, tabPlan } from '@/lib/customer-record/record';
 import { mayReadTab } from '@/lib/customer-record/tabs';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
@@ -20,11 +20,13 @@ export default async function CustomerRecordPage({
   requireModulePage('accounts');
   const founder = await requireFounderPage();
   const userId = customerId((await params).userId);
-  const tab = customerTab((await searchParams).tab);
+  const query = await searchParams;
+  const tab = customerTab(query.tab);
+  const requestId = tab === 'developer' ? requestIdQuery(query.requestId) : undefined;
   if (userId === null || tab === null) notFound();
   // A tab whose area this person may not read is refused whole: no service is asked, so nothing is read or logged for it.
   const denied = !mayReadTab(founder.operator, tab);
-  const plan = denied ? { reads: [], unwired: [] } : tabPlan(tab, userId);
+  const plan = denied ? { reads: [], unwired: [] } : tabPlan(tab, userId, { requestId });
   const outcomes = await loadReads(founder, plan.reads);
   return (
     <CustomerRecord
@@ -35,6 +37,7 @@ export default async function CustomerRecordPage({
       outcomes={outcomes}
       unwired={plan.unwired}
       denied={denied}
+      requestId={requestId}
     />
   );
 }

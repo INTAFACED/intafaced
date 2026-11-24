@@ -204,12 +204,15 @@ describe('a waiting schedule ends, and its saves land in order', () => {
     );
     const parent = engine.create(USER, input({ triggerPrice: parseAmount('100'), triggerAbove: true }), LOT);
     advance(1_000);
-    await engine.tick(parent.id);
+    // The tick waits for its own save, which waits behind the hung first one: start it, do not await it yet.
+    const ticking = engine.tick(parent.id);
+    await new Promise((r) => setTimeout(r, 10));
     engine.pause(USER, parent.id);
     // Nothing written while the first save hangs: the later ones wait behind it.
     await new Promise((r) => setTimeout(r, 10));
     expect(stored).toHaveLength(0);
     release();
+    await ticking;
     await new Promise((r) => setTimeout(r, 10));
     expect(stored.length).toBeGreaterThan(1);
     // The store's last write is the newest state.

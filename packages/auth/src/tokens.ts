@@ -41,6 +41,12 @@ export const accessClaimsSchema = z.object({
   key_env: z.enum(['live', 'sandbox']).optional(),
   /** Verification tier at issue time; jurisdiction checks read it. */
   tier: z.enum(['none', 'basic', 'full', 'institutional']).default('none'),
+  /**
+   * True when the trading checks alone (legal name, confirmed country and the sanctions screen; no ID document) cleared
+   * the person for trading (OWNER 258 (4)). It opens trading only (`tradeTier`): `tier` stays the level an operator
+   * approved, so custody, transfer and withdrawal gates never read a trading clear as `basic`.
+   */
+  trd: z.boolean().optional(),
   /** True once the session has passed 2FA. Gates SESSION_MFA_SCOPES. */
   mfa: z.boolean().default(false),
   sid: z.string().guid(),
@@ -174,6 +180,8 @@ export interface IssueAccessInput {
   sessionId: string;
   scopes: readonly Scope[] | readonly string[];
   tier?: AccessClaims['tier'];
+  /** The `trd` claim: cleared for trading alone by the trading checks. */
+  tradingCleared?: boolean;
   mfa?: boolean;
   subAccountId?: string;
   apiKeyId?: string;
@@ -227,6 +235,7 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
   const token = await new SignJWT({
     scopes: [...input.scopes],
     tier: input.tier ?? 'none',
+    ...(input.tradingCleared ? { trd: true } : {}),
     mfa: input.mfa ?? false,
     sid: input.sessionId,
     ...(input.familyId ? { fam: input.familyId } : {}),

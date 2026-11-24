@@ -229,6 +229,19 @@ export const CME_GLOBEX: TradingSchedule = {
 };
 
 /**
+ * TEST only: a session that is open one minute a week, Sunday 00:00 to 00:01 UTC, and shut the rest of the time. The
+ * local test stack lists one TEST market on it so a journey can meet a market whose session is shut now, with a real
+ * next opening time (J-cex-spot-14 #6), without waiting for a weekend. svc-trade's database refuses it on any row that
+ * is not a TEST listing (`markets_test_schedule_only_test_ck`); no venue keeps these hours.
+ */
+export const TEST_SUNDAY_MINUTE: TradingSchedule = {
+  kind: 'sessions',
+  timezone: 'UTC',
+  windows: [{ open: { day: 0, time: '00:00' }, close: { day: 0, time: '00:01' } }],
+  holidays: [],
+};
+
+/**
  * Stable keys so a database row can name a schedule without embedding it.
  *
  * THIS OBJECT IS THE AUTHORITY (ADR 2026-08-04 instrument-enum-authority).
@@ -241,6 +254,7 @@ export const TRADING_SCHEDULES = {
   'crypto-24x7': CONTINUOUS,
   'fx-global': FX_GLOBAL,
   'cme-globex': CME_GLOBEX,
+  'test-sunday-minute': TEST_SUNDAY_MINUTE,
 } as const satisfies Record<string, TradingSchedule>;
 
 export type ScheduleKey = keyof typeof TRADING_SCHEDULES;

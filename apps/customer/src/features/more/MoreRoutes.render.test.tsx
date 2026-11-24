@@ -9,8 +9,14 @@ vi.mock('../../shared/preferences', async (original) => {
 vi.stubGlobal('location', new URL('https://app.example.com/'));
 // A room may tidy its own address while it renders; on the server there is no history to tidy.
 vi.stubGlobal('history', { state: null, replaceState: () => undefined, pushState: () => undefined });
+// The rooms render as a signed-out visitor (the app holds every room until the boot refresh answers, #8658), so a private
+// section draws the sign-in panel, whose return link reads the address through a browser store; on the server it is `/`.
+vi.mock('../../app/location', async (original) => {
+  const real = await original<typeof import('../../app/location')>();
+  return { ...real, useReturnLocation: () => '/', currentReturnLocation: () => '/' };
+});
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { MoreRoutes, SECTION_TABS } from './MoreRoutes';
 import { MORE_ROUTES } from './more-room-routes';
 
@@ -48,7 +54,8 @@ describe('More room sections and records (MC-order-01)', () => {
   });
 
   it("opens each section address on its own tab, not on the room's first one (Phantom 24 Oct)", () => {
-    const selected = (html: string) => [...html.matchAll(/aria-pressed="true"[^>]*>([^<]*)</g)].map((hit) => hit[1]);
+    // A room on its Volt template names its open section as the current link of its section links; the others press a tab.
+    const selected = (html: string) => [...html.matchAll(/aria-(?:pressed="true"|current="page")[^>]*>([^<]*)</g)].map((hit) => hit[1]);
     expect(selected(page('/mining'))).toEqual(['Overview']);
     for (const [path, tab] of [
       ['/mining/workers', 'Workers'],
@@ -98,6 +105,31 @@ describe('More room sections and records (MC-order-01)', () => {
       expect(html, path).toContain('Simulated view');
       expect(html, path).toContain(`href="${path}?tab=x"`);
     }
+  });
+
+  it('draws /launch, /predict, /mining and /token on the catalogue template, each on its first section (#9566)', () => {
+    const selected = (html: string) => [...html.matchAll(/aria-pressed="true"[^>]*>([^<]*)</g)].map((hit) => hit[1]);
+    for (const [path, group, tab] of [
+      ['/launch', 'Launch sections', 'Launches'],
+      ['/mining', 'Mining sections', 'Overview'],
+      ['/token', 'Token sections', 'Staking'],
+    ] as const) {
+      const html = page(path);
+      expect(html, path).toContain('data-template="catalogue"');
+      expect(html, path).toContain(`aria-label="${group}"`);
+      expect(selected(html), path).toEqual([tab]);
+    }
+    // Signed out, /launch is the public catalogue with the shared sign-in panel above it (J-more-catalogue-01 #6).
+    expect(page('/launch')).toContain('Sign in to continue');
+  });
+
+  it('keeps the hooks J-more-catalogue-15 #1 finds /predict by, and its blockers word for word', () => {
+    const html = page('/predict');
+    expect(html).toContain('data-template="catalogue"');
+    for (const id of ['prediction-catalogue', 'prediction-blocker', 'prediction-room-review', 'prediction-ticket-blocker'])
+      expect(html, id).toContain(`data-testid="${id}"`);
+    expect(html).toContain('data-not-connected="owner.decision"');
+    expect(html).toContain('Listed questions');
   });
 
   it('shows no simulated label without the flag, or on a room outside the set', () => {

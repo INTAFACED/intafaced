@@ -3,7 +3,7 @@ import { preparedStep, type KeptSignature, type PreparedAnswer } from '../venue-
 import { keepsDraft, type ActionResult } from './VenueKit';
 import { builderApprovalLine, carriesBuilderFee } from './VenueReview';
 import { venueCopy } from './venue-copy';
-import { spotGateChoice } from '../../../screens/trade/desk/VenueSpotDesk';
+import { spotGateChoice } from '../../../screens/trade/desk/VenueSpotGate';
 import { futuresVenueCopy } from '../../../screens/trade/futures/venue-copy';
 
 // The council's round on the venue desks: an answer that is not definite is read back and never re-sent; a definite
@@ -78,6 +78,10 @@ describe('the spot page in venue mode', () => {
     expect(spotGateChoice(true, { status: 'ready', listed: false })).toBe('today');
     expect(spotGateChoice(true, { status: 'ready', listed: true })).toBe('venue');
     expect(spotGateChoice(true, { status: 'failed' })).toBe('down');
+    expect(spotGateChoice(true, { status: 'failed', code: 'trade.venue.venue_down' })).toBe('down');
+    // Not verified for trading: the jurisdiction refuses the market list, and the desk shows its form with Verify.
+    expect(spotGateChoice(true, { status: 'failed', code: 'denied.kyc_required' })).toBe('verify');
+    expect(spotGateChoice(false, { status: 'failed', code: 'denied.kyc_required' })).toBe('down');
     expect(spotGateChoice(false, { status: 'loading' })).toBe('down');
   });
 });

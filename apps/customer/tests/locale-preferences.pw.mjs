@@ -63,6 +63,18 @@ async function network(context, page, baseURL, extra = {}) {
     createdAt: new Date(now - 120000).toISOString(),
     opensAt: new Date(now - 60000).toISOString(),
     closesAt: new Date(now + 3600000).toISOString(),
+    title: null,
+    authorId: null,
+    bodyMd: null,
+    discussionLink: null,
+    businessKey: null,
+    revision: 0,
+    votingType: 'basic',
+    choices: null,
+    snapshot: null,
+    ranking: null,
+    cancel: null,
+    counts: { votes: 0, for: 0, against: 0, abstain: 0 },
   };
   const observe = (current) => current.on('pageerror', (error) => state.errors.push(error.message));
   context.pages().forEach(observe);
@@ -95,7 +107,11 @@ async function network(context, page, baseURL, extra = {}) {
       return reply([]);
     if (procedure === 'listProposals') return reply([proposal]);
     if (procedure === 'getProposal')
-      return reply({ ...proposal, tally: { forWeight: '1', againstWeight: '0', abstainWeight: '0', totalWeight: '1', voterCount: 1 } });
+      return reply({
+        ...proposal,
+        choiceTally: null,
+        tally: { forWeight: '1', againstWeight: '0', abstainWeight: '0', totalWeight: '1', voterCount: 1 },
+      });
     if (procedure === 'stakeOf') return reply({ staked: state.stake });
     if (procedure === 'votingPower.ofProposal')
       return reply({
@@ -377,7 +393,7 @@ test('Token authored current-stake refusal stays English and preserves original 
   state.stake = '0';
   await dialog.getByRole('button', { name: 'Cast vote', exact: true }).click();
   const refusal = page
-    .locator('.failure')
+    .locator(':is(.failure, .lt-refusal)')
     .getByText('You had no voting power when this proposal was created, so you cannot vote on it.', { exact: true });
   await expect(refusal).toBeVisible();
   expect(await refusal.evaluate((node) => node.closest('[lang]')?.getAttribute('lang'))).toBe('en');

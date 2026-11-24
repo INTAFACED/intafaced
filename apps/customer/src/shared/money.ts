@@ -1,27 +1,7 @@
-import { z } from 'zod';
 import { parseAmount, formatAmount } from '@intafaced/money-math';
 
-export const decimalSchema = z.string().refine(
-  (value) => {
-    try {
-      return parseAmount(value) >= 0n;
-    } catch {
-      return false;
-    }
-  },
-  { error: 'Expected an unsigned exact decimal string', abort: true },
-);
-export const signedDecimalSchema = z.string().refine(
-  (value) => {
-    try {
-      parseAmount(value);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  { error: 'Expected an exact decimal string', abort: true },
-);
+/** A service's amount: the one wire schema in `@intafaced/contracts/wire-amount`, held to `parseAmount` by money.test.ts. */
+export { unsignedAmountSchema as decimalSchema, signedAmountSchema as signedDecimalSchema } from '@intafaced/contracts/wire-amount';
 export { parseAmount, formatAmount };
 
 export function displayAmount(value: string | null | undefined, places?: number): string {

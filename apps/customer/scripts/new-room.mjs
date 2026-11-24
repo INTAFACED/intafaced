@@ -1,14 +1,15 @@
 #!/usr/bin/env node
-// The room scaffold (Lit glass redesign): a new customer room is born on one of the eight templates.
+// The room scaffold (the Volt kit): a new customer room is born on one of the eight templates.
 //
 //   pnpm --filter @intafaced/customer room:new -- --path /money/statements --template record-list --area money --name Statements [--dry-run]
 //
-// The route must already be in navigation.ts `rooms` (its title and description are copy keys, so it is added with
+// The route must already be in its area's file under src/app/rooms/ (its title and description are copy keys, so it is added with
 // its copy). The scaffold writes the room's screen on its template (parked until its data is wired: product law, no
-// sample numbers) and records the route as migrated in src/app/room-templates.ts, replacing its unmigrated entry, so
-// the registry test stays green. Then render the new room at that path in the area's routes file. It refuses an
-// unknown route or template, a route already migrated, and an existing file.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+// sample numbers), with the room's `// volt-room: <route>` line that records it as moved (src/app/volt-count.ts), and
+// names its template in src/app/room-templates.ts, so the registry test stays green. Then render the new room at that
+// path in the area's routes file. It refuses an unknown route or template, a route already migrated (a screen file
+// carries its volt-room line), and an existing file.
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,7 +17,7 @@ const APP = fileURLToPath(new URL('..', import.meta.url));
 const SRC = join(APP, 'src');
 const CONTRACTS = join(APP, '..', '..', 'packages', 'ui', 'src', 'lit', 'contracts.ts');
 const REGISTRY = join(SRC, 'app', 'room-templates.ts');
-const NAVIGATION = join(SRC, 'app', 'navigation.ts');
+const ROOMS = join(SRC, 'app', 'rooms');
 
 const COMPONENT = {
   overview: ['OverviewTemplate', 'hero={null}'],
@@ -46,9 +47,9 @@ export function templateIds(contracts = readFileSync(CONTRACTS, 'utf8')) {
   return [...body.matchAll(/^\s+'?([a-z-]+)'?:/gm)].map((m) => m[1]);
 }
 
-export function screenSource({ name, template, title }) {
+export function screenSource({ name, template, title, path }) {
   const [component, slots] = COMPONENT[template];
-  return `import { ${component} } from '@intafaced/ui/lit/templates';
+  return `${path ? `// volt-room: ${path}\n` : ''}import { ${component} } from '@intafaced/ui/lit/templates';
 
 /**
  * ${title}: built on the ${template} template (room scaffold). Parked until its data is wired; replace the state
@@ -74,23 +75,46 @@ export function ${name}Room() {
 }
 
 /**
- * The registry with the route recorded as migrated: its existing (unmigrated) entry is replaced in place, or the
- * entry is added before the end of ROUTE_TEMPLATES. A route already migrated throws.
+ * The registry with the route on `template`: its existing entry is replaced in place, or the entry is added before the
+ * end of ROUTE_TEMPLATES. Whether the room has moved is not here: its screen file's `volt-room` line says so.
  */
-export function registryWith(registry, path, template, file) {
+export function registryWith(registry, path, template) {
   const start = registry.indexOf('export const ROUTE_TEMPLATES');
   const end = registry.indexOf('\n};', start);
   if (start < 0 || end < 0) throw new Error('ROUTE_TEMPLATES not found in room-templates.ts');
-  const entry = `'${path}': { template: '${template}', migrated: { file: '${file}' } },`;
+  const entry = `'${path}': { template: '${template}' },`;
   const lines = registry.slice(start, end).split('\n');
   const at = lines.findIndex((l) => l.trimStart().startsWith(`'${path}':`));
   if (at >= 0) {
-    if (lines[at].includes('migrated')) throw new Error(`${path} is already on its template`);
     if (!lines[at].trimEnd().endsWith('},')) throw new Error(`${path}: its entry spans lines; edit it by hand`);
     lines[at] = lines[at].slice(0, lines[at].indexOf("'")) + entry;
     return registry.slice(0, start) + lines.join('\n') + registry.slice(end);
   }
   return registry.slice(0, end) + `\n  ${entry}` + registry.slice(end);
+}
+
+/** The screen file under `src` whose `// volt-room:` line names `path`, if one does. */
+export function markedFile(path, src = SRC) {
+  const line = `// volt-room: ${path}`;
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (name === 'node_modules') continue;
+      if (statSync(full).isDirectory()) {
+        const hit = walk(full);
+        if (hit) return hit;
+      } else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+        if (
+          readFileSync(full, 'utf8')
+            .split('\n')
+            .some((l) => l.trim() === line)
+        )
+          return relative(src, full);
+      }
+    }
+    return undefined;
+  };
+  return walk(src);
 }
 
 function main() {
@@ -107,13 +131,19 @@ function main() {
   if (!/^[A-Z][A-Za-z0-9]*$/.test(a.name)) fail('--name is PascalCase, e.g. Statements');
   if (!/^[a-z][a-z0-9-]*$/.test(a.area)) fail('--area is a feature folder name, e.g. money');
   if (!/^\/[A-Za-z0-9/:_-]*$/.test(a.path)) fail(`${a.path} is not a route path`);
-  if (!readFileSync(NAVIGATION, 'utf8').includes(`path: '${a.path}'`)) {
-    fail(`${a.path} is not in navigation.ts rooms yet; add it there with its copy keys first`);
+  const roomRows = readdirSync(ROOMS)
+    .filter((f) => f.endsWith('.ts') && !f.includes('.test.'))
+    .map((f) => readFileSync(join(ROOMS, f), 'utf8'))
+    .join('\n');
+  if (!roomRows.includes(`path: '${a.path}'`)) {
+    fail(`${a.path} is not in a room file yet; add it to its area's file in src/app/rooms/ with its copy keys first`);
   }
+  const already = markedFile(a.path);
+  if (already) fail(`${a.path} is already on its template: src/${already}`);
   const registry = readFileSync(REGISTRY, 'utf8');
   let next;
   try {
-    next = registryWith(registry, a.path, a.template, '__FILE__');
+    next = registryWith(registry, a.path, a.template);
   } catch (e) {
     fail(e.message);
   }
@@ -134,8 +164,8 @@ function main() {
     return;
   }
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, screenSource({ name: a.name, template: a.template, title }));
-  writeFileSync(REGISTRY, next.replace('__FILE__', rel));
+  writeFileSync(file, screenSource({ name: a.name, template: a.template, title, path: a.path }));
+  writeFileSync(REGISTRY, next);
   console.log(`Wrote src/${rel}; recorded ${a.path} on ${a.template} in src/app/room-templates.ts.`);
   console.log(`Now render <${a.name}Room /> at ${a.path} in ${a.area}'s routes file.`);
 }

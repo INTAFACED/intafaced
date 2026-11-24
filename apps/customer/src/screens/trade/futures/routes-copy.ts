@@ -65,6 +65,8 @@ export const futuresRoutesCopy = defineCopy('trade.futures.routes', {
     'Before your first order on {venue}, your own wallet signs one approval that lets {venue} charge our builder fee on your orders there: at most {bps} bps of each order. You sign it once for this venue. Declining sends no order.',
   'Approve in wallet': 'Approve in wallet',
   Decline: 'Decline',
+  'Approval limit words':
+    '{venue} refused the approval: {detail}. Revoking one of the other builders you approved there frees a place. No order was sent.',
   'Declined words': 'No order was sent: our builder fee on {venue} was not approved, and every order there carries it.',
   'Send again': 'Send the same order again',
   'Close review': 'Close',

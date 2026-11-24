@@ -1,14 +1,18 @@
+// volt-room: /support
+// volt-room: /support/tickets
+// volt-room: /support/tickets/:ticketId
 import { useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
+import { Button, Segmented, Tag } from '@intafaced/ui/lit';
+import { ReadingTemplate, RecordListTemplate, SelectField, TextAreaField, TextField } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState, Field, Tabs } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { t as copyText } from './copy';
 import { categoryLabel, topicFromAddress } from './support-category';
-import { Details, Read, Select, useAction } from './common';
+import { KitDetails, useKitAction, type KitAction } from './volt-action';
+import { EmptyNote, KitRead } from './volt-parts';
 import { SupportHelpArticles } from './SupportHelpArticles';
 import { chatCopy } from './support-chat-copy';
 import { CustomerStatusBadge, RequestNotFound, SupportAddressUnknown, SupportRequest } from './SupportRequest';
@@ -30,12 +34,18 @@ import {
   type StatusFilter,
 } from './support-desk';
 import { readRatedTicketIds } from './support-calls';
-import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
-import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } from '@intafaced/contracts/support-forms';
-import { SUPPORT_MESSAGE_HEADERS_MAX, supportCategoriesSchema } from '@intafaced/contracts/support-categories';
+import { CATEGORY_VALUES, type Ticket } from './support-schemas';
+import type { SupportField, SupportFieldValue } from '@intafaced/contracts/support-forms';
+import { SUPPORT_MESSAGE_HEADERS_MAX } from '@intafaced/contracts/support-categories';
+import {
+  SUPPORT_CATEGORIES,
+  SUPPORT_CREATE,
+  SUPPORT_CREATED_BY_REQUEST,
+  SUPPORT_GET,
+  SUPPORT_LIST_MINE,
+  SUPPORT_REQUEST_FORMS,
+} from '@intafaced/contracts/support-customer-procedures';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
-
-import './support-desk.css';
 
 /** An answer as the review step reads it: a choice by its label, a box as yes or no, text as typed. */
 function answerText(field: SupportField | undefined, value: SupportFieldValue): string {
@@ -50,7 +60,7 @@ const VIEW_KEY = { help: 'tabHelp', requests: 'tabRequests', new: 'tabNew' } as 
 const VIEW_HREF = { help: '/support', requests: SUPPORT_TICKETS_HREF, new: '/support/new' } as const;
 const FILTER_KEY = { all: 'filterAll', active: 'filterActive', resolved: 'filterResolved', closed: 'filterClosed' } as const;
 /** The page title for each support address. */
-export function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | 'pageUnknown' | null {
+function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | 'pageUnknown' | null {
   if (route.view === 'new') return 'pageNewRequest';
   if (route.view === 'requests') return 'pageMyRequests';
   if (route.view === 'request' || route.view === 'badRequest') return 'pageRequest';
@@ -65,26 +75,24 @@ export function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pa
  */
 export function Support({ path }: { path: string }) {
   const copy = deskCopy.useCopy();
+  const titleKey = supportPageTitleKey(supportRoute(new URL(path, location.origin).pathname, new URL(path, location.origin).search));
   const api = useApi(),
     { userId } = useSession();
   const url = new URL(path, location.origin);
   const route = supportRoute(url.pathname, url.search);
   const view: View = route.view === 'new' ? 'new' : route.view === 'help' || route.view === 'unknown' ? 'help' : 'requests';
   // Replies, closing, rating, attaching and article feedback share one action with no recovery lookup, as before.
-  const action = useAction('support');
+  const action = useKitAction('support');
   // A new request has its own action, because only its key can be read back (support.createdByRequest): a lost answer is
   // recovered by that read, never by sending again. `recovered` holds what the read found: the stored request to open, or
   // null when that send never reached the service.
   const recovered = useRef<Ticket | null | undefined>(undefined);
-  const createAction = useAction('support-create', {
+  const createAction = useKitAction('support-create', {
     recover: async (reference) => {
-      const read = await api.query(
-        'support',
-        'createdByRequest',
+      const read = await api.call(
+        SUPPORT_CREATED_BY_REQUEST,
         { clientRequestId: reference },
-        ticketSchema
-          .nullable()
-          .refine((row) => row === null || row.userId === userId, copyText('support.created.ticket.does.not.match.this.account')),
+        { accept: (row) => row === null || row.userId === userId },
       );
       recovered.current = read.ok ? read.data : undefined;
       return read;
@@ -105,16 +113,7 @@ export function Support({ path }: { path: string }) {
   const followed = useResource(
     (signal) =>
       followsId
-        ? api.query(
-            'support',
-            'get',
-            { ticketId: followsId },
-            ticketSchema.refine(
-              (row) => row.id === followsId && row.userId === userId,
-              copyText('support.ticket.identity.does.not.match.this.account'),
-            ),
-            { signal },
-          )
+        ? api.call(SUPPORT_GET, { ticketId: followsId }, { signal, accept: (row) => row.id === followsId && row.userId === userId })
         : Promise.resolve({ ok: true as const, data: null }),
     `support-follows:${userId}:${followsId ?? ''}`,
   );
@@ -135,16 +134,7 @@ export function Support({ path }: { path: string }) {
     ) : null;
   const limit = 200;
   const tickets = useResource(
-    (signal) =>
-      api.query(
-        'support',
-        'listMine',
-        { limit },
-        z
-          .array(ticketSchema)
-          .refine((rows) => rows.every((row) => row.userId === userId), copyText('support.ticket.ownership.does.not.match.this.account')),
-        { signal },
-      ),
+    (signal) => api.call(SUPPORT_LIST_MINE, { limit }, { signal, accept: (rows) => rows.every((row) => row.userId === userId) }),
     `support:${userId}:${limit}`,
   );
   // Which requests already carry a rating. A failed read shows no chip rather than a wrong one.
@@ -154,13 +144,17 @@ export function Support({ path }: { path: string }) {
     tickets.reload();
     rated.reload();
   }
-  const labels = Object.fromEntries(VIEWS.map((id) => [id, copy.t(VIEW_KEY[id])]));
-  return (
-    <div className="support-desk">
-      <Tabs items={VIEWS} value={view} onChange={(next) => navigate(VIEW_HREF[next as View])} label={copy.t('tabsLabel')} labels={labels} />
+  const body = (
+    <div className="lt-stack" data-room="support">
+      <Segmented
+        options={VIEWS.map((id) => ({ value: id, label: copy.t(VIEW_KEY[id]) }))}
+        value={view}
+        onChange={(next) => navigate(VIEW_HREF[next])}
+        label={copy.t('tabsLabel')}
+      />
       {route.view === 'help' && (
-        <p className="muted" data-testid="support-chat-link">
-          <a className="text-link" href="/support/chat">
+        <p data-testid="support-chat-link">
+          <a className="lt-link lt-link-alone" href="/support/chat">
             <chatCopy.Copy k="openChat" />
           </a>
         </p>
@@ -179,7 +173,7 @@ export function Support({ path }: { path: string }) {
       {route.view === 'badRequest' && <RequestNotFound />}
       {route.view === 'unknown' && <SupportAddressUnknown />}
       {route.view === 'requests' && (
-        <Read resource={tickets.resource} retry={tickets.reload}>
+        <KitRead resource={tickets.resource} retry={tickets.reload}>
           {(rows) => (
             <RequestList
               rows={rows}
@@ -188,20 +182,20 @@ export function Support({ path }: { path: string }) {
               onStart={() => navigate(VIEW_HREF.new)}
             />
           )}
-        </Read>
+        </KitRead>
       )}
       {route.view === 'new' &&
         (followsId && followed.resource.status !== 'ready' ? (
           // The form waits for the followed request, so its draft is there before anything is typed; a failed read says
           // so with a retry. One slot for the form either way, so dropping the follow-up keeps what was typed.
-          <Read resource={followed.resource} retry={followed.reload}>
+          <KitRead resource={followed.resource} retry={followed.reload}>
             {() => null}
-          </Read>
+          </KitRead>
         ) : followed.resource.status === 'ready' && followed.resource.data && !canFollowUp(followed.resource.data.status) ? (
           // A request that is still open takes the reply itself; it is not followed.
-          <p className="notice" role="note">
+          <p role="note">
             {copy.t('followUpNotClosed')}{' '}
-            <Button variant="secondary" onClick={() => navigate(supportRequestHref(followsId!))}>
+            <Button tone="secondary" onClick={() => navigate(supportRequestHref(followsId!))}>
               {copy.t('followUpOpenIt')}
             </Button>
           </p>
@@ -209,7 +203,7 @@ export function Support({ path }: { path: string }) {
           newRequest(followsId && followed.resource.status === 'ready' ? followed.resource.data : null)
         ))}
       {notReached === path && (
-        <p className="notice" role="status" data-testid="support-create-not-reached">
+        <p role="status" data-testid="support-create-not-reached">
           {copy.t('createNotReached')}
         </p>
       )}
@@ -218,6 +212,17 @@ export function Support({ path }: { path: string }) {
       {createAction.dialog}
     </div>
   );
+  const frame = {
+    title: titleKey ? copy.t(titleKey) : copyText('moreroutes.support'),
+    description: copyText('moreroutes.help.requests.and.your.conversation.with.the'),
+    state: { kind: 'ready' as const },
+  };
+  // Your requests (/support/tickets) and one request (/support/tickets/:id) are records: the list on the record-list
+  // template, one request as its own record page. Help and a new request stay on the reading template.
+  if (route.view === 'requests') return <RecordListTemplate {...frame} list={body} />;
+  if (route.view === 'request' || route.view === 'badRequest')
+    return <RecordListTemplate {...frame} detailOnly list={null} detail={body} />;
+  return <ReadingTemplate {...frame} body={body} />;
 }
 
 export function RequestList({
@@ -240,57 +245,52 @@ export function RequestList({
   const shown = filterTickets(rows, filter, text);
   if (rows.length === 0)
     return (
-      <EmptyState title={copy.t('noRequestsTitle')} action={<Button onClick={onStart}>{copy.t('startRequest')}</Button>}>
+      <EmptyNote title={copy.t('noRequestsTitle')} action={<Button onClick={onStart}>{copy.t('startRequest')}</Button>}>
         {copy.t('noRequestsBody')}
-      </EmptyState>
+      </EmptyNote>
     );
   return (
-    <section className="support-pane" aria-label={copy.t('tabRequests')}>
-      <p className="muted">{copy.t('requestsIntro')}</p>
-      <div className="support-toolbar">
-        <div className="support-chips" role="group" aria-label={copy.t('filterLabel')}>
+    <section className="lt-stack" aria-label={copy.t('tabRequests')}>
+      <p className="lt-hint">{copy.t('requestsIntro')}</p>
+      <div className="lt-toolbar">
+        <div className="lt-actions" role="group" aria-label={copy.t('filterLabel')}>
           {STATUS_FILTERS.map((id) => (
-            <button
-              type="button"
-              key={id}
-              className={`support-chip${filter === id ? ' support-chip--on' : ''}`}
-              aria-pressed={filter === id}
-              onClick={() => setFilter(id)}
-            >
+            <Button key={id} tone={filter === id ? 'primary' : 'secondary'} aria-pressed={filter === id} onClick={() => setFilter(id)}>
               {copy.t(FILTER_KEY[id])} <span aria-hidden="true">{counts[id]}</span>
-            </button>
+            </Button>
           ))}
         </div>
-        <Field label={copy.t('searchRequests')} value={text} onChange={(event) => setText(event.target.value)} maxLength={200} />
+        <TextField label={copy.t('searchRequests')} value={text} onChange={setText} maxLength={200} />
       </div>
       {shown.length === 0 ? (
-        <EmptyState title={copy.t('noMatchTitle')}>{copy.t('noMatchBody')}</EmptyState>
+        <EmptyNote title={copy.t('noMatchTitle')}>{copy.t('noMatchBody')}</EmptyNote>
       ) : (
-        <ul className="support-rows">
+        <ul className="lt-stack">
           {shown.map((row) => (
             <li key={row.id}>
-              <button
-                type="button"
-                className="support-row"
+              <Button
+                tone="quiet"
+                block
+                data-testid="support-row"
                 onClick={() => onOpen(row.id)}
                 aria-label={copy.t('openRequest', { subject: row.subject })}
               >
-                <span className="support-row__main">
-                  <span className="support-row__subject" lang="und">
+                <span className="lt-stack">
+                  <strong className="lt-wrap" lang="und">
                     {row.subject}
-                  </span>
-                  <span className="support-row__meta muted">
+                  </strong>
+                  <span className="lt-hint">
                     <span lang="zxx">{ticketReference(row.id)}</span> · {categoryLabel(row.category)} · {copy.t('lastActivity')}{' '}
                     <span lang="zxx">{stamp(row.updatedAt, timeZone)}</span>
                   </span>
                 </span>
                 {ratedIds && showRatePrompt(row.status, true, ratedIds.has(row.id)) ? (
-                  <span className="support-chip support-chip--on" data-testid="rate-chip">
+                  <Tag tone="accent" data-testid="rate-chip">
                     {copy.t('rateChip')}
-                  </span>
+                  </Tag>
                 ) : null}
                 <CustomerStatusBadge row={row} />
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -306,7 +306,7 @@ function NewRequest({
   onClearFollows,
   onSent,
 }: {
-  action: ReturnType<typeof useAction>;
+  action: KitAction;
   /** A subject drafted from the address (the words of a help search that found nothing). */
   subject: string;
   follows: Ticket | null;
@@ -326,16 +326,10 @@ function NewRequest({
   // A paste over the cap is refused with the cap, never cut short: what was pasted is what would be sent.
   const headersTooLong = category === 'phishing' && headers.trim().length > SUPPORT_MESSAGE_HEADERS_MAX;
   // The request types the desk set up, each with its questions (SP-tickets-03). Unread or none: a general request.
-  const catalogue = useResource(
-    (signal) => api.query('support', 'requestForms', undefined, supportRequestFormsSchema, { signal }),
-    `support-forms:${userId}`,
-  );
+  const catalogue = useResource((signal) => api.call(SUPPORT_REQUEST_FORMS, undefined, { signal }), `support-forms:${userId}`);
   const forms = catalogue.resource.status === 'ready' ? catalogue.resource.data : null;
   // Where each category goes (SP-tickets-01): a fraud report goes to compliance, or cannot be sent and says why.
-  const routes = useResource(
-    (signal) => api.query('support', 'categories', undefined, supportCategoriesSchema, { signal }),
-    `support-categories:${userId}`,
-  );
+  const routes = useResource((signal) => api.call(SUPPORT_CATEGORIES, undefined, { signal }), `support-categories:${userId}`);
   // A fraud report can be sent only when the service says where it goes; anything else (unread, refused, or a service
   // that does not list it) blocks the send and says why.
   const fraudRow =
@@ -358,8 +352,9 @@ function NewRequest({
   const sendForm = form && forms ? { formId: form.id, values: formAnswers(form, forms.fields, answers) } : null;
   const formOk = !form || !forms || formReady(form, forms.fields, answers);
   return (
-    <section className="support-pane support-new" aria-label={copy.t('tabNew')}>
+    <section className="lt-stack" aria-label={copy.t('tabNew')}>
       <form
+        className="lt-stack"
         onSubmit={(event) => {
           event.preventDefault();
           // One key per decision: a double tap or a retry of this review returns the first ticket instead of a second, and a
@@ -372,7 +367,7 @@ function NewRequest({
             confirm: () => copyText('support.send.request'),
             success: () => copyText('support.request.created'),
             content: () => (
-              <Details
+              <KitDetails
                 items={[
                   [copyText('support.category'), <span>{categoryLabel(category)}</span>],
                   [copyText('support.subject'), <span lang="und">{subject}</span>],
@@ -391,9 +386,8 @@ function NewRequest({
               />
             ),
             run: async () => {
-              const result = await api.mutate(
-                'support',
-                'create',
+              const result = await api.call(
+                SUPPORT_CREATE,
                 {
                   category,
                   subject: subject.trim(),
@@ -403,10 +397,10 @@ function NewRequest({
                   ...(sendForm ? { form: sendForm } : {}),
                   clientRequestId,
                 },
-                ticketSchema.refine(
-                  (row) => row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
-                  copyText('support.created.ticket.does.not.match.this.account'),
-                ),
+                {
+                  accept: (row) =>
+                    row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
+                },
               );
               if (result.ok) created = result.data;
               return result;
@@ -421,11 +415,11 @@ function NewRequest({
         }}
       >
         {follows && (
-          <p className="notice" role="note">
+          <p role="note">
             {copy.t('followUpBanner', { reference: ticketReference(follows.id) })}{' '}
             <Button
               type="button"
-              variant="secondary"
+              tone="secondary"
               onClick={() => {
                 onClearFollows();
                 setSubject('');
@@ -435,11 +429,9 @@ function NewRequest({
             </Button>
           </p>
         )}
-        <p className="muted">{copy.t('newIntro')}</p>
-        <p className="support-warning" role="note">
-          {copy.t('newWarning')}
-        </p>
-        <Select
+        <p className="lt-hint">{copy.t('newIntro')}</p>
+        <p role="note">{copy.t('newWarning')}</p>
+        <SelectField
           label={copy.t('topicField')}
           value={category}
           onChange={setCategory}
@@ -459,43 +451,35 @@ function NewRequest({
           answers={answers}
           onAnswers={setAnswers}
         />
-        <Field
-          label={copy.t('subjectField')}
+        <TextField label={copy.t('subjectField')} lang="und" value={subject} onChange={setSubject} required maxLength={200} />
+        <TextAreaField
+          label={copy.t('messageField')}
           lang="und"
-          value={subject}
-          onChange={(event) => setSubject(event.target.value)}
-          required
-          maxLength={200}
+          value={body}
+          onChange={setBody}
+          maxLength={10000}
+          rows={7}
+          hint={copy.t('characters', { count: body.length, max: 10000 })}
         />
-        <label className="field">
-          <span>{copy.t('messageField')}</span>
-          <textarea lang="und" value={body} onChange={(event) => setBody(event.target.value)} maxLength={10000} rows={7} />
-          <small>{copy.t('characters', { count: body.length, max: 10000 })}</small>
-        </label>
-        {routeNote && (
-          <p className="support-warning" role="note">
-            {copy.t(routeNote.key)}
-          </p>
-        )}
+        {routeNote && <p role="note">{copy.t(routeNote.key)}</p>}
         {category === 'phishing' && (
           <>
-            <p className="support-warning" role="note">
-              {copy.t('phishingNote')}
-            </p>
-            <label className="field">
-              <span>{copy.t('headersField')}</span>
-              <textarea
-                lang="zxx"
-                value={headers}
-                onChange={(event) => setHeaders(event.target.value)}
-                rows={5}
-                aria-invalid={headersTooLong}
-              />
-              <small>{copy.t('headersHint')}</small>
-              <small>{copy.t('headersCharacters', { count: headers.length, max: SUPPORT_MESSAGE_HEADERS_MAX })}</small>
-            </label>
+            <p role="note">{copy.t('phishingNote')}</p>
+            <TextAreaField
+              label={copy.t('headersField')}
+              lang="zxx"
+              value={headers}
+              onChange={setHeaders}
+              rows={5}
+              aria-invalid={headersTooLong}
+              hint={
+                <>
+                  {copy.t('headersHint')} {copy.t('headersCharacters', { count: headers.length, max: SUPPORT_MESSAGE_HEADERS_MAX })}
+                </>
+              }
+            />
             {headersTooLong && (
-              <p className="notice" role="alert" data-testid="support__headers-cap">
+              <p className="lt-refusal" role="alert" data-testid="support__headers-cap">
                 {copy.t('headersTooLong', {
                   max: SUPPORT_MESSAGE_HEADERS_MAX.toLocaleString('en-US'),
                   count: headers.trim().length.toLocaleString('en-US'),
@@ -506,12 +490,13 @@ function NewRequest({
         )}
         <Button
           type="submit"
+          tone="primary"
           disabled={action.disabled || !subject.trim() || !body.trim() || !formOk || routeNote?.blocks === true || headersTooLong}
         >
           {copy.t('reviewRequest')}
         </Button>
       </form>
-      <aside className="support-tips">
+      <aside className="lt-stack">
         <h3>{copy.t('tipsHeading')}</h3>
         <ul>
           <li>{copy.t('tipWhat')}</li>

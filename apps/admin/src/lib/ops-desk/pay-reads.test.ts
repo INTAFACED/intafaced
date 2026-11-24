@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DESKS, PAY_TRANSFER_DETAIL, allReads } from './catalog';
-import { cellOfRow, displayCell, formatCell, inputFor, readData } from './model';
+import { cellOfRow } from '@/lib/cell-of-row';
+import { displayCell, formatCell, inputFor, readData } from './model';
 
 /**
  * The Personal Pay reads, each fed what svc-bank's own output schema says it returns (services/svc-bank/src/ops/transfer-health.ts,

@@ -1,34 +1,43 @@
 import type { Sql } from 'postgres';
-import { isSerializationFailure, transaction } from '@intafaced/db';
+import { isSerializationFailure, transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
+import { z } from 'zod';
+import type {
+  BlueprintContract,
+  BlueprintExport,
+  BlueprintProfile,
+  BlueprintRecord,
+  CardOpener,
+  CardRender,
+  CardShare,
+  CardSize,
+  CrewRole,
+  EraseReceipt,
+  MentorMatch,
+  OnboardInput,
+  OnboardOutput,
+  Placement,
+  Visibility,
+} from '@intafaced/contracts';
 import {
   blueprintProfileSchema,
   CARD_DIMENSIONS,
-  type BlueprintContract,
-  type BlueprintExport,
-  type BlueprintProfile,
-  type BlueprintRecord,
-  type CardOpener,
-  type CardRender,
-  type CardShare,
-  type CardSize,
-  type CrewRole,
-  type EraseReceipt,
-  type MentorMatch,
-  type OnboardInput,
-  type OnboardOutput,
-  type OpenerKind,
-  type Placement,
-  type Visibility,
-} from '@intafaced/contracts';
+  crewRoleSchema,
+  decisionStyleSchema,
+  energyRhythmSchema,
+  learningModeSchema,
+  openerKindSchema,
+  riskTemperamentSchema,
+} from '@intafaced/contracts/blueprint';
 import { composeCard } from './card/compose.js';
 import { assertZeroPiiSurface } from './attestations/zero-pii.js';
 import { mayViewCard } from './visibility.js';
+import { BlueprintRow, MentorMatchRow, ShareRow, StoredProfile } from './rows.js';
 import type { CardRenderer } from './card/card-renderer.js';
 import { EngineProtocolError, EngineUnavailableError, type BlueprintRequest, type NeuralEngineClient } from './engine/neural-engine.js';
 import { deterministicUuid } from './deterministic.js';
-import { chooseCrew, crewName, newCrewId, rankCrews, type CrewCandidate, type MatchableProfile } from './matching/crew-matching.js';
-import { shortlistMentors, type MentorCandidate, type MentorProfile } from './matching/mentor-matching.js';
+import { chooseCrew, crewName, newCrewId, rankCrews, type CrewCandidate } from './matching/crew-matching.js';
+import { shortlistMentors, type MentorCandidate } from './matching/mentor-matching.js';
 import { setBlueprintSpanAttribute, withBlueprintSpan } from './tracing.js';
 
 /**
@@ -170,16 +179,53 @@ export interface BlueprintServiceOptions {
   opensListLimit?: number;
 }
 
-interface BlueprintRow {
-  id: string;
-  user_id: string;
-  engine_version: string;
-  profile: BlueprintProfile;
-  card_asset_url: string | null;
-  visibility: Visibility;
-  mentor_available: boolean;
-  created_at: Date;
-}
+type BlueprintRow = z.infer<typeof BlueprintRow>;
+
+type ShareRow = z.infer<typeof ShareRow>;
+
+const OpenerRow = z.object({
+  kind: openerKindSchema,
+  first_opened: z.date(),
+  last_opened: z.date(),
+  open_count: z.number(),
+});
+type OpenerRow = z.infer<typeof OpenerRow>;
+
+const IdRow = z.object({ id: z.string() });
+const IdNameRow = z.object({ id: z.string(), name: z.string() });
+const CrewIdRow = z.object({ crew_id: z.string() });
+const ShareIdRow = z.object({ share_id: z.string() });
+const CountRow = z.object({ count: z.number() });
+const NRow = z.object({ n: z.number() });
+const OkRow = z.object({ ok: z.number() });
+
+const CandidateRow = z.object({
+  crew_id: z.string(),
+  capacity: z.number(),
+  occupied: z.number(),
+  members: z.array(
+    z.object({
+      crewRole: crewRoleSchema,
+      decisionStyle: decisionStyleSchema,
+      riskTemperament: riskTemperamentSchema,
+      energyRhythm: energyRhythmSchema,
+      learningMode: learningModeSchema,
+    }),
+  ),
+});
+
+/** `crews.xp` is bigint, which the driver returns as a string. */
+const CrewRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  formed_at: z.date(),
+  season: z.number(),
+  xp: z.string(),
+  lobby_id: z.string().nullable(),
+  capacity: z.number(),
+});
+
+type MentorMatchRow = z.infer<typeof MentorMatchRow>;
 
 export class BlueprintService implements BlueprintContract {
   private readonly crewCapacity: number | undefined;
@@ -303,8 +349,14 @@ export class BlueprintService implements BlueprintContract {
     });
   }
 
-  private async upsertBlueprint(tx: Sql, input: OnboardInput, engineVersion: string, profile: BlueprintProfile): Promise<BlueprintRecord> {
-    const rows = await tx<BlueprintRow[]>`
+  private async upsertBlueprint(
+    tx: Queryable,
+    input: OnboardInput,
+    engineVersion: string,
+    profile: BlueprintProfile,
+  ): Promise<BlueprintRecord> {
+    const rows = BlueprintRow.array().parse(
+      await tx`
       INSERT INTO blueprint.blueprints (user_id, engine_version, profile, visibility, mentor_available)
       VALUES (
         ${input.userId}, ${engineVersion}, ${this.sql.json(profile as never)},
@@ -317,7 +369,8 @@ export class BlueprintService implements BlueprintContract {
         mentor_available = EXCLUDED.mentor_available,
         updated_at       = now()
       RETURNING id, user_id, engine_version, profile, card_asset_url, visibility, mentor_available, created_at
-    `;
+    `,
+    );
 
     const row = rows[0];
     if (!row) throw new BlueprintError('Blueprint write returned no row', 'blueprint.not_found');
@@ -339,15 +392,17 @@ export class BlueprintService implements BlueprintContract {
    * crew" should be answerable from the row, and a re-run that changed nothing
    * is itself a fact worth having.
    */
-  private async placeInCrew(tx: Sql, userId: string, profile: BlueprintProfile): Promise<Placement> {
+  private async placeInCrew(tx: Queryable, userId: string, profile: BlueprintProfile): Promise<Placement> {
     const season = publishedSeason(this.season);
     const candidates = await this.loadCandidates(tx, season);
     const ranked = rankCrews(profile, candidates);
     const choice = chooseCrew(profile, candidates);
 
-    const existing = await tx<Array<{ crew_id: string }>>`
+    const existing = CrewIdRow.array().parse(
+      await tx`
       SELECT crew_id FROM blueprint.crew_members WHERE user_id = ${userId}
-    `;
+    `,
+    );
 
     // The audit trail records EVERY open crew that was scored, not just the
     // ones that cleared the threshold — "why was I not put with them" is the
@@ -407,8 +462,9 @@ export class BlueprintService implements BlueprintContract {
    * itself stable, which matters less than the tie-break in `rankCrews`
    * but costs nothing and removes a variable.
    */
-  private async loadCandidates(tx: Sql, season: number): Promise<CrewCandidate[]> {
-    const rows = await tx<Array<{ crew_id: string; capacity: number; occupied: number; members: MatchableProfile[] }>>`
+  private async loadCandidates(tx: Queryable, season: number): Promise<CrewCandidate[]> {
+    const rows = CandidateRow.array().parse(
+      await tx`
       SELECT
         c.id AS crew_id,
         c.capacity,
@@ -432,7 +488,8 @@ export class BlueprintService implements BlueprintContract {
       WHERE c.season = ${season}
       GROUP BY c.id, c.capacity
       ORDER BY c.id
-    `;
+    `,
+    );
 
     return rows.map((row) => ({
       crewId: row.crew_id,
@@ -449,10 +506,12 @@ export class BlueprintService implements BlueprintContract {
    * `insertMembership` enforces capacity against, so a seat with no profile
    * still makes the derived crew occupied.
    */
-  private async membershipCount(tx: Sql, crewId: string): Promise<number> {
-    const counted = await tx<Array<{ count: number }>>`
+  private async membershipCount(tx: Queryable, crewId: string): Promise<number> {
+    const counted = CountRow.array().parse(
+      await tx`
       SELECT COUNT(*)::int AS count FROM blueprint.crew_members WHERE crew_id = ${crewId}
-    `;
+    `,
+    );
     return counted[0]?.count ?? 0;
   }
 
@@ -464,7 +523,7 @@ export class BlueprintService implements BlueprintContract {
    * forming, and the first zero wins. An empty row is reused. A crew that
    * already has members, including a member with no blueprint, is left alone.
    */
-  private async formStartFreshCrew(tx: Sql, season: number, userId: string): Promise<{ id: string; name: string }> {
+  private async formStartFreshCrew(tx: Queryable, season: number, userId: string): Promise<{ id: string; name: string }> {
     for (let step = 0; ; step += 1) {
       const crewId = startFreshCrewId(season, userId, step);
       if ((await this.membershipCount(tx, crewId)) > 0) continue;
@@ -481,22 +540,34 @@ export class BlueprintService implements BlueprintContract {
    * makes the check correct even if a future caller runs this at a weaker
    * isolation level.
    */
-  private async insertMembership(tx: Sql, crewId: string, userId: string, role: CrewRole): Promise<void> {
-    const crews = await tx<Array<{ capacity: number }>>`
+  private async insertMembership(tx: Queryable, crewId: string, userId: string, role: CrewRole): Promise<void> {
+    const crews = z
+      .object({ capacity: z.number() })
+      .array()
+      .parse(
+        await tx`
       SELECT capacity FROM blueprint.crews WHERE id = ${crewId} FOR UPDATE
-    `;
+    `,
+      );
     const crew = crews[0];
     if (!crew) throw new BlueprintError(`Crew ${crewId} does not exist`, 'blueprint.crew_not_found');
 
-    const counted = await tx<Array<{ count: number }>>`
+    const counted = CountRow.array().parse(
+      await tx`
       SELECT COUNT(*)::int AS count FROM blueprint.crew_members WHERE crew_id = ${crewId}
-    `;
+    `,
+    );
     const size = counted[0]?.count ?? 0;
 
     // Already a member — idempotent, and not a capacity breach.
-    const mine = await tx<Array<{ user_id: string }>>`
+    const mine = z
+      .object({ user_id: z.string() })
+      .array()
+      .parse(
+        await tx`
       SELECT user_id FROM blueprint.crew_members WHERE crew_id = ${crewId} AND user_id = ${userId}
-    `;
+    `,
+      );
     if (mine[0]) return;
 
     if (size >= crew.capacity) {
@@ -518,51 +589,61 @@ export class BlueprintService implements BlueprintContract {
    * finite: when a season already holds the derived name, the id's first bytes
    * disambiguate — still deterministic, still the same name on every retry.
    */
-  private async formCrew(tx: Sql, crewId: string, season: number): Promise<{ id: string; name: string }> {
-    const existing = await tx<Array<{ id: string; name: string }>>`
+  private async formCrew(tx: Queryable, crewId: string, season: number): Promise<{ id: string; name: string }> {
+    const existing = IdNameRow.array().parse(
+      await tx`
       SELECT id, name FROM blueprint.crews WHERE id = ${crewId}
-    `;
+    `,
+    );
     if (existing[0]) return existing[0];
 
     const capacity = publishedCrewCapacity(this.crewCapacity);
     const base = crewName(crewId);
-    const taken = await tx<Array<{ id: string }>>`
+    const taken = IdRow.array().parse(
+      await tx`
       SELECT id FROM blueprint.crews WHERE name = ${base} AND season = ${season}
-    `;
+    `,
+    );
     const name = taken.length > 0 ? `${base} ${crewId.slice(0, 4).toUpperCase()}` : base;
 
-    const rows = await tx<Array<{ id: string; name: string }>>`
+    const rows = IdNameRow.array().parse(
+      await tx`
       INSERT INTO blueprint.crews (id, name, season, capacity)
       VALUES (${crewId}, ${name}, ${season}, ${capacity})
       ON CONFLICT (id) DO NOTHING
       RETURNING id, name
-    `;
+    `,
+    );
 
     const row = rows[0] ?? (await this.loadCrew(tx, crewId));
     return { id: row.id, name: row.name };
   }
 
-  private async loadCrew(tx: Sql, crewId: string): Promise<{ id: string; name: string }> {
-    const rows = await tx<Array<{ id: string; name: string }>>`
+  private async loadCrew(tx: Queryable, crewId: string): Promise<{ id: string; name: string }> {
+    const rows = IdNameRow.array().parse(
+      await tx`
       SELECT id, name FROM blueprint.crews WHERE id = ${crewId}
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new BlueprintError(`Crew ${crewId} does not exist`, 'blueprint.crew_not_found');
     return row;
   }
 
   private async recordMatchRun(
-    tx: Sql,
+    tx: Queryable,
     userId: string,
     candidates: ReadonlyArray<{ crewId: string; size: number }>,
     scores: Record<string, number>,
     placedCrewId: string | null,
   ): Promise<string> {
-    const rows = await tx<Array<{ id: string }>>`
+    const rows = IdRow.array().parse(
+      await tx`
       INSERT INTO blueprint.match_runs (user_id, candidates, scores, placed_crew_id)
       VALUES (${userId}, ${this.sql.json(candidates as never)}, ${this.sql.json(scores as never)}, ${placedCrewId})
       RETURNING id
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new BlueprintError('Match run write returned no row', 'blueprint.not_found');
     return row.id;
@@ -587,13 +668,18 @@ export class BlueprintService implements BlueprintContract {
 
   // ── Mentor shortlist (§7.1) ────────────────────────────────────────────────
 
-  private async writeMentorShortlist(tx: Sql, studentId: string, profile: BlueprintProfile): Promise<MentorMatch[]> {
-    const rows = await tx<Array<{ user_id: string; profile: MentorProfile }>>`
+  private async writeMentorShortlist(tx: Queryable, studentId: string, profile: BlueprintProfile): Promise<MentorMatch[]> {
+    const rows = z
+      .object({ user_id: z.string(), profile: StoredProfile })
+      .array()
+      .parse(
+        await tx`
       SELECT user_id, profile
         FROM blueprint.blueprints
        WHERE mentor_available = true AND user_id <> ${studentId}
        ORDER BY user_id
-    `;
+    `,
+      );
 
     const candidates: MentorCandidate[] = rows.map((r) => ({ userId: r.user_id, profile: r.profile }));
     const shortlist = shortlistMentors(studentId, profile, candidates, publishedMentorShortlistSize(this.mentorShortlistSize));
@@ -616,10 +702,12 @@ export class BlueprintService implements BlueprintContract {
   // ── Reads ──────────────────────────────────────────────────────────────────
 
   async get(input: { userId: string }): Promise<BlueprintRecord | null> {
-    const rows = await this.sql<BlueprintRow[]>`
+    const rows = BlueprintRow.array().parse(
+      await this.sql`
       SELECT id, user_id, engine_version, profile, card_asset_url, visibility, mentor_available, created_at
         FROM blueprint.blueprints WHERE user_id = ${input.userId}
-    `;
+    `,
+    );
     const row = rows[0];
     return row ? toBlueprintRecord(row) : null;
   }
@@ -723,24 +811,30 @@ export class BlueprintService implements BlueprintContract {
     const limit = publishedSharesPerOwner(this.sharesPerOwner);
     return withBlueprintSpan('blueprint.shares.create', { stage: 'share', userId: input.userId }, async () =>
       transaction(this.sql, async (tx) => {
-        const owner = await tx<Array<{ id: string }>>`
+        const owner = IdRow.array().parse(
+          await tx`
           SELECT id FROM blueprint.blueprints WHERE user_id = ${input.userId} FOR UPDATE
-        `;
+        `,
+        );
         if (!owner[0]) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
 
-        const existing = await tx<ShareRow[]>`
+        const existing = ShareRow.array().parse(
+          await tx`
           SELECT id, owner_user_id, size, created_at, revoked_at
             FROM blueprint.card_shares
            WHERE owner_user_id = ${input.userId} AND size = ${input.size} AND revoked_at IS NULL
-        `;
+        `,
+        );
         const already = existing[0];
         if (already) return this.toCardShare(tx, already);
 
-        const active = await tx<Array<{ n: number }>>`
+        const active = NRow.array().parse(
+          await tx`
           SELECT count(*)::int AS n
             FROM blueprint.card_shares
            WHERE owner_user_id = ${input.userId} AND revoked_at IS NULL
-        `;
+        `,
+        );
         if ((active[0]?.n ?? 0) >= limit) {
           throw new BlueprintError(
             'No active share slot is left under the published shares-per-owner limit',
@@ -748,11 +842,13 @@ export class BlueprintService implements BlueprintContract {
           );
         }
 
-        const inserted = await tx<ShareRow[]>`
+        const inserted = ShareRow.array().parse(
+          await tx`
           INSERT INTO blueprint.card_shares (owner_user_id, size)
           VALUES (${input.userId}, ${input.size})
           RETURNING id, owner_user_id, size, created_at, revoked_at
-        `;
+        `,
+        );
         const row = inserted[0];
         if (!row) {
           throw new BlueprintError('The share could not be recorded', 'blueprint.share_limit_reached');
@@ -764,12 +860,14 @@ export class BlueprintService implements BlueprintContract {
 
   async listShares(input: { userId: string }): Promise<CardShare[]> {
     return withBlueprintSpan('blueprint.shares.list', { stage: 'share', userId: input.userId }, async () => {
-      const rows = await this.sql<ShareRow[]>`
+      const rows = ShareRow.array().parse(
+        await this.sql`
         SELECT id, owner_user_id, size, created_at, revoked_at
           FROM blueprint.card_shares
          WHERE owner_user_id = ${input.userId}
          ORDER BY created_at DESC, id DESC
-      `;
+      `,
+      );
       const listed: CardShare[] = [];
       for (const row of rows) listed.push(await this.toCardShare(this.sql, row));
       return listed;
@@ -780,20 +878,24 @@ export class BlueprintService implements BlueprintContract {
   async revokeShare(input: { userId: string; shareId: string }): Promise<CardShare> {
     return withBlueprintSpan('blueprint.shares.revoke', { stage: 'share', userId: input.userId }, async () =>
       transaction(this.sql, async (tx) => {
-        const updated = await tx<ShareRow[]>`
+        const updated = ShareRow.array().parse(
+          await tx`
           UPDATE blueprint.card_shares
              SET revoked_at = now()
            WHERE id = ${input.shareId} AND owner_user_id = ${input.userId} AND revoked_at IS NULL
           RETURNING id, owner_user_id, size, created_at, revoked_at
-        `;
+        `,
+        );
         const fresh = updated[0];
         if (fresh) return this.toCardShare(tx, fresh);
 
-        const stored = await tx<ShareRow[]>`
+        const stored = ShareRow.array().parse(
+          await tx`
           SELECT id, owner_user_id, size, created_at, revoked_at
             FROM blueprint.card_shares
            WHERE id = ${input.shareId} AND owner_user_id = ${input.userId}
-        `;
+        `,
+        );
         const row = stored[0];
         if (!row) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
         return this.toCardShare(tx, row);
@@ -809,12 +911,15 @@ export class BlueprintService implements BlueprintContract {
   async shareOpeners(input: { userId: string; shareId: string }): Promise<CardOpener[]> {
     const limit = publishedOpensListLimit(this.opensListLimit);
     return withBlueprintSpan('blueprint.shares.openers', { stage: 'share', userId: input.userId }, async () => {
-      const owned = await this.sql<Array<{ id: string }>>`
+      const owned = IdRow.array().parse(
+        await this.sql`
         SELECT id FROM blueprint.card_shares WHERE id = ${input.shareId} AND owner_user_id = ${input.userId}
-      `;
+      `,
+      );
       if (!owned[0]) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
       if (limit === 0) return [];
-      const rows = await this.sql<OpenerRow[]>`
+      const rows = OpenerRow.array().parse(
+        await this.sql`
         SELECT CASE
                  WHEN EXISTS (
                    SELECT 1
@@ -831,7 +936,8 @@ export class BlueprintService implements BlueprintContract {
          WHERE s.id = ${input.shareId} AND s.owner_user_id = ${input.userId}
          ORDER BY o.last_opened DESC, o.first_opened DESC
          LIMIT ${limit}
-      `;
+      `,
+      );
       return rows.map(toOpener);
     });
   }
@@ -842,12 +948,14 @@ export class BlueprintService implements BlueprintContract {
    */
   async setVisibility(input: { userId: string; visibility: Visibility }): Promise<BlueprintRecord> {
     return withBlueprintSpan('blueprint.setVisibility', { stage: 'visibility', userId: input.userId }, async () => {
-      const rows = await this.sql<BlueprintRow[]>`
+      const rows = BlueprintRow.array().parse(
+        await this.sql`
         UPDATE blueprint.blueprints
            SET visibility = ${input.visibility}, updated_at = now()
          WHERE user_id = ${input.userId}
         RETURNING id, user_id, engine_version, profile, card_asset_url, visibility, mentor_available, created_at
-      `;
+      `,
+      );
       const row = rows[0];
       if (!row) {
         throw new BlueprintError('No Blueprint to update — run the Blueprint session first', 'blueprint.not_found');
@@ -871,12 +979,17 @@ export class BlueprintService implements BlueprintContract {
     // The crew name is the only thing on the card this service does not already
     // hold in the profile. Absent rows mean "unplaced", which is a real state
     // the card renders honestly rather than a reason to fail.
-    const placed = await db<Array<{ name: string; season: number }>>`
+    const placed = z
+      .object({ name: z.string(), season: z.number() })
+      .array()
+      .parse(
+        await db`
       SELECT c.name, c.season
         FROM blueprint.crew_members m
         JOIN blueprint.crews c ON c.id = m.crew_id
        WHERE m.user_id = ${blueprint.userId}
-    `;
+    `,
+      );
     const crew = placed[0] ?? null;
 
     const svg = composeCard({ profile: blueprint.profile, crewName: crew?.name ?? null, season: crew?.season ?? null }, size);
@@ -901,10 +1014,12 @@ export class BlueprintService implements BlueprintContract {
    */
   async mentors(input: { userId: string }): Promise<MentorMatch[]> {
     return withBlueprintSpan('blueprint.mentors', { stage: 'mentors', userId: input.userId }, async () => {
-      const rows = await this.sql<Array<{ student_id: string; mentor_id: string; fit_score: number; status: string }>>`
+      const rows = MentorMatchRow.array().parse(
+        await this.sql`
         SELECT student_id, mentor_id, fit_score, status
           FROM blueprint.mentor_matches WHERE student_id = ${input.userId} ORDER BY fit_score DESC, mentor_id ASC
-      `;
+      `,
+      );
       return rows.map(toMentorMatch);
     });
   }
@@ -927,52 +1042,70 @@ export class BlueprintService implements BlueprintContract {
     return withBlueprintSpan('blueprint.export', { stage: 'export', userId: input.userId }, async () => {
       const blueprint = await this.get(input);
 
-      const memberships = await this.sql<Array<{ crew_id: string; user_id: string; role: CrewRole; joined_at: Date }>>`
+      const memberships = z
+        .object({ crew_id: z.string(), user_id: z.string(), role: crewRoleSchema, joined_at: z.date() })
+        .array()
+        .parse(
+          await this.sql`
         SELECT crew_id, user_id, role, joined_at FROM blueprint.crew_members WHERE user_id = ${input.userId}
-      `;
+      `,
+        );
       const membership = memberships[0] ?? null;
 
       const crews = membership
-        ? await this.sql<
-            Array<{
-              id: string;
-              name: string;
-              formed_at: Date;
-              season: number;
-              xp: string;
-              lobby_id: string | null;
-              capacity: number;
-            }>
-          >`
-            SELECT id, name, formed_at, season, xp, lobby_id, capacity
-              FROM blueprint.crews WHERE id = ${membership.crew_id}
-          `
+        ? CrewRow.array().parse(
+            await this.sql`
+              SELECT id, name, formed_at, season, xp, lobby_id, capacity
+                FROM blueprint.crews WHERE id = ${membership.crew_id}
+            `,
+          )
         : [];
       const crew = crews[0] ?? null;
 
       const crewmates = membership
-        ? await this.sql<Array<{ user_id: string; role: CrewRole; joined_at: Date }>>`
+        ? z
+            .object({ user_id: z.string(), role: crewRoleSchema, joined_at: z.date() })
+            .array()
+            .parse(
+              await this.sql`
             SELECT user_id, role, joined_at
               FROM blueprint.crew_members
              WHERE crew_id = ${membership.crew_id} AND user_id <> ${input.userId}
              ORDER BY user_id
-          `
+          `,
+            )
         : [];
 
-      const runs = await this.sql<Array<{ id: string; candidates: unknown; scores: unknown; placed_crew_id: string | null; ts: Date }>>`
+      const runs = z
+        .object({
+          id: z.string(),
+          // jsonb written by recordMatchRun, in the shapes the export record carries.
+          candidates: z.array(z.object({ crewId: z.string(), size: z.number() })),
+          scores: z.record(z.string(), z.number()),
+          placed_crew_id: z.string().nullable(),
+          ts: z.date(),
+        })
+        .array()
+        .parse(
+          await this.sql`
         SELECT id, candidates, scores, placed_crew_id, ts
           FROM blueprint.match_runs WHERE user_id = ${input.userId} ORDER BY ts ASC
-      `;
+      `,
+        );
 
-      const asStudent = await this.sql<Array<{ student_id: string; mentor_id: string; fit_score: number; status: string }>>`
+      const asStudent = MentorMatchRow.array().parse(
+        await this.sql`
         SELECT student_id, mentor_id, fit_score, status
           FROM blueprint.mentor_matches WHERE student_id = ${input.userId} ORDER BY fit_score DESC, mentor_id ASC
-      `;
+      `,
+      );
 
-      const asMentor = await this.sql<Array<{ student_id: string; mentor_id: string; fit_score: number; status: string }>>`
+      const asMentor = MentorMatchRow.array().parse(
+        await this.sql`
         SELECT student_id, mentor_id, fit_score, status
           FROM blueprint.mentor_matches WHERE mentor_id = ${input.userId} ORDER BY fit_score DESC, student_id ASC
-      `;
+      `,
+      );
 
       // §7.2 says "export (JSON + card)". The portrait is the primary artifact,
       // and composing it here costs one pure function call — the raster is
@@ -1062,56 +1195,74 @@ export class BlueprintService implements BlueprintContract {
       const outcome = await transaction(
         this.sql,
         async (tx) => {
-          const found = await tx<Array<{ id: string }>>`
+          const found = IdRow.array().parse(
+            await tx`
             SELECT id FROM blueprint.blueprints WHERE user_id = ${input.userId}
-          `;
+          `,
+          );
           const blueprintId = found[0]?.id ?? null;
 
-          const touchedCrews = await tx<Array<{ crew_id: string }>>`
+          const touchedCrews = CrewIdRow.array().parse(
+            await tx`
             SELECT crew_id FROM blueprint.crew_members WHERE user_id = ${input.userId}
-          `;
+          `,
+          );
           const crewIds = touchedCrews.map((r) => r.crew_id);
 
-          const cardOpens = await tx<Array<{ share_id: string }>>`
+          const cardOpens = ShareIdRow.array().parse(
+            await tx`
             DELETE FROM blueprint.card_opens AS o
              USING blueprint.card_shares AS s
              WHERE o.share_id = s.id
                AND (o.viewer_user_id = ${input.userId} OR s.owner_user_id = ${input.userId})
             RETURNING o.share_id
-          `;
+          `,
+          );
 
-          const shares = await tx<Array<{ id: string }>>`
+          const shares = IdRow.array().parse(
+            await tx`
             DELETE FROM blueprint.card_shares WHERE owner_user_id = ${input.userId} RETURNING id
-          `;
+          `,
+          );
 
-          const mentorMatches = await tx<Array<{ id: string }>>`
+          const mentorMatches = IdRow.array().parse(
+            await tx`
             DELETE FROM blueprint.mentor_matches
              WHERE student_id = ${input.userId} OR mentor_id = ${input.userId}
             RETURNING id
-          `;
+          `,
+          );
 
-          const memberships = await tx<Array<{ crew_id: string }>>`
+          const memberships = CrewIdRow.array().parse(
+            await tx`
             DELETE FROM blueprint.crew_members WHERE user_id = ${input.userId} RETURNING crew_id
-          `;
+          `,
+          );
 
-          const matchRuns = await tx<Array<{ id: string }>>`
+          const matchRuns = IdRow.array().parse(
+            await tx`
             DELETE FROM blueprint.match_runs WHERE user_id = ${input.userId} RETURNING id
-          `;
+          `,
+          );
 
-          const blueprints = await tx<Array<{ id: string }>>`
+          const blueprints = IdRow.array().parse(
+            await tx`
             DELETE FROM blueprint.blueprints WHERE user_id = ${input.userId} RETURNING id
-          `;
+          `,
+          );
 
           let emptiedCrews = 0;
           if (crewIds.length > 0) {
             // Only crews this user was actually in, and only if now empty.
             // Other people's crews are none of this operation's business.
-            const dissolved = await tx<Array<{ id: string }>>`
+            const dissolved = IdRow.array().parse(
+              await tx`
               DELETE FROM blueprint.crews AS c
                WHERE c.id = ANY(${crewIds}::uuid[])
                  AND NOT EXISTS (SELECT 1 FROM blueprint.crew_members m WHERE m.crew_id = c.id)
               RETURNING c.id
-            `;
+            `,
+            );
             emptiedCrews = dissolved.length;
           }
 
@@ -1158,42 +1309,48 @@ export class BlueprintService implements BlueprintContract {
    * UPDATE for the rest of the transaction.
    */
   private async shareCard(
-    tx: Sql,
+    tx: Queryable,
     viewerId: string,
     shareId: string,
     subjectUserId: string | undefined,
     lock: boolean,
   ): Promise<{ share: ShareRow; blueprint: BlueprintRecord }> {
-    const shares = await tx<ShareRow[]>`
+    const shares = ShareRow.array().parse(
+      await tx`
       SELECT id, owner_user_id, size, created_at, revoked_at
         FROM blueprint.card_shares
        WHERE id = ${shareId}
        ${lock ? tx`FOR UPDATE` : tx``}
-    `;
+    `,
+    );
     const share = shares[0];
     if (!share || share.revoked_at !== null) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
     if (subjectUserId !== undefined && subjectUserId !== share.owner_user_id) {
       throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
     }
 
-    const rows = await tx<BlueprintRow[]>`
+    const rows = BlueprintRow.array().parse(
+      await tx`
       SELECT id, user_id, engine_version, profile, card_asset_url, visibility, mentor_available, created_at
         FROM blueprint.blueprints
        WHERE user_id = ${share.owner_user_id}
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
     const blueprint = toBlueprintRecord(row);
 
     let sameCrew = false;
     if (viewerId !== share.owner_user_id && blueprint.visibility === 'crew') {
-      const same = await tx<Array<{ ok: number }>>`
+      const same = OkRow.array().parse(
+        await tx`
         SELECT 1 AS ok
           FROM blueprint.crew_members a
           JOIN blueprint.crew_members b ON a.crew_id = b.crew_id
          WHERE a.user_id = ${viewerId} AND b.user_id = ${share.owner_user_id}
          LIMIT 1
-      `;
+      `,
+      );
       sameCrew = Boolean(same[0]);
     }
     if (
@@ -1227,13 +1384,15 @@ export class BlueprintService implements BlueprintContract {
       const { share, blueprint } = await this.shareCard(tx, viewerId, shareId, subjectUserId, true);
       if (viewerId !== share.owner_user_id) {
         try {
-          const written = await tx<Array<{ share_id: string }>>`
+          const written = ShareIdRow.array().parse(
+            await tx`
             INSERT INTO blueprint.card_opens (share_id, viewer_user_id, first_opened, last_opened, open_count)
             VALUES (${share.id}, ${viewerId}, now(), now(), 1)
             ON CONFLICT (share_id, viewer_user_id)
             DO UPDATE SET last_opened = now(), open_count = blueprint.card_opens.open_count + 1
             RETURNING share_id
-          `;
+          `,
+          );
           if (!written[0]) {
             throw new BlueprintError('The open could not be recorded, so the card was not returned', 'blueprint.open_log_unavailable');
           }
@@ -1243,12 +1402,17 @@ export class BlueprintService implements BlueprintContract {
         }
       }
 
-      const again = await tx<Array<{ revoked_at: Date | null }>>`
+      const again = z
+        .object({ revoked_at: z.date().nullable() })
+        .array()
+        .parse(
+          await tx`
         SELECT revoked_at
           FROM blueprint.card_shares
          WHERE id = ${share.id}
          FOR UPDATE
-      `;
+      `,
+        );
       if (!again[0] || again[0].revoked_at !== null) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
 
       if (viewerId === share.owner_user_id && render.raster.status === 'rendered' && share.size === 'portrait') {
@@ -1262,10 +1426,12 @@ export class BlueprintService implements BlueprintContract {
     });
   }
 
-  private async toCardShare(sql: Sql, row: ShareRow): Promise<CardShare> {
-    const counts = await sql<Array<{ n: number }>>`
+  private async toCardShare(sql: Queryable, row: ShareRow): Promise<CardShare> {
+    const counts = NRow.array().parse(
+      await sql`
       SELECT COALESCE(SUM(open_count), 0)::int AS n FROM blueprint.card_opens WHERE share_id = ${row.id}
-    `;
+    `,
+    );
     return {
       id: row.id,
       size: row.size,
@@ -1278,12 +1444,17 @@ export class BlueprintService implements BlueprintContract {
 
   /** The caller's own opens of other accounts' shares, newest first. */
   private async opensForExport(userId: string): Promise<BlueprintExport['cardsOpened']> {
-    const rows = await this.sql<Array<{ share_id: string; first_opened: Date; last_opened: Date; open_count: number }>>`
+    const rows = z
+      .object({ share_id: z.string(), first_opened: z.date(), last_opened: z.date(), open_count: z.number() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT share_id, first_opened, last_opened, open_count
         FROM blueprint.card_opens
        WHERE viewer_user_id = ${userId}
        ORDER BY last_opened DESC, share_id
-    `;
+    `,
+      );
     return rows.map((row) => ({
       shareId: row.share_id,
       firstOpened: row.first_opened.toISOString(),
@@ -1294,15 +1465,20 @@ export class BlueprintService implements BlueprintContract {
 
   /** Owner export of shares. Opener rows have no account id (MC-blueprint-01). */
   private async sharesForExport(userId: string): Promise<BlueprintExport['shares']> {
-    const shareRows = await this.sql<ShareRow[]>`
+    const shareRows = ShareRow.array().parse(
+      await this.sql`
       SELECT id, owner_user_id, size, created_at, revoked_at
         FROM blueprint.card_shares
        WHERE owner_user_id = ${userId}
        ORDER BY created_at DESC, id DESC
-    `;
+    `,
+    );
     if (shareRows.length === 0) return [];
     const ids = shareRows.map((share) => share.id);
-    const openers = await this.sql<Array<OpenerRow & { share_id: string }>>`
+    const openers = OpenerRow.extend({ share_id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT o.share_id,
              CASE
                WHEN EXISTS (
@@ -1318,7 +1494,8 @@ export class BlueprintService implements BlueprintContract {
         FROM blueprint.card_opens o
        WHERE o.share_id = ANY(${ids}::uuid[])
        ORDER BY o.last_opened DESC, o.first_opened DESC
-    `;
+    `,
+      );
     return Promise.all(
       shareRows.map(async (share) => {
         const rows = openers.filter((opener) => opener.share_id === share.id);
@@ -1346,13 +1523,15 @@ export class BlueprintService implements BlueprintContract {
 
     let sameCrew = false;
     if (blueprint.visibility === 'crew') {
-      const same = await this.sql<Array<{ ok: number }>>`
+      const same = OkRow.array().parse(
+        await this.sql`
         SELECT 1 AS ok
           FROM blueprint.crew_members a
           JOIN blueprint.crew_members b ON a.crew_id = b.crew_id
          WHERE a.user_id = ${viewerId} AND b.user_id = ${subjectUserId}
          LIMIT 1
-      `;
+      `,
+      );
       sameCrew = Boolean(same[0]);
     }
 
@@ -1383,10 +1562,15 @@ export class BlueprintService implements BlueprintContract {
       { idempotencyKey: `blueprint.created:${blueprint.id}` },
     );
 
-    const sized = await this.sql<Array<{ count: number; role: CrewRole }>>`
+    const sized = z
+      .object({ count: z.number(), role: crewRoleSchema.nullable() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT (SELECT COUNT(*)::int FROM blueprint.crew_members WHERE crew_id = ${placement.crewId}) AS count,
              (SELECT role FROM blueprint.crew_members WHERE crew_id = ${placement.crewId} AND user_id = ${userId}) AS role
-    `;
+    `,
+      );
     const row = sized[0];
     if (!row?.role) return;
 
@@ -1411,21 +1595,6 @@ export class BlueprintService implements BlueprintContract {
   }
 }
 
-interface ShareRow {
-  id: string;
-  owner_user_id: string;
-  size: CardSize;
-  created_at: Date;
-  revoked_at: Date | null;
-}
-
-interface OpenerRow {
-  kind: OpenerKind;
-  first_opened: Date;
-  last_opened: Date;
-  open_count: number;
-}
-
 function toOpener(row: OpenerRow): CardOpener {
   return {
     kind: row.kind,
@@ -1447,7 +1616,7 @@ function toBlueprintRecord(row: BlueprintRow): BlueprintRecord {
   };
 }
 
-function toMentorMatch(row: { student_id: string; mentor_id: string; fit_score: number; status: string }): MentorMatch {
+function toMentorMatch(row: MentorMatchRow): MentorMatch {
   return {
     studentId: row.student_id,
     mentorId: row.mentor_id,

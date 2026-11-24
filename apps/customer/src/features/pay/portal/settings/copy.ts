@@ -246,7 +246,8 @@ const en = {
   feedNoMatchTitle: 'Nothing matches',
   feedNoMatchBody: 'No messages match this filter. Clear it to see everything.',
   prefsTitle: 'What you want to hear about',
-  prefsBody: 'Turn a kind off to stop new messages of that kind. Existing messages stay.',
+  prefsBody:
+    'These choices are yours alone: everyone on the team keeps their own. Turn a kind off and its messages leave your feed and your unread count.',
   inAppOnly: 'Messages show here in the portal only. Nothing is sent by email or text.',
   inApp: 'Show in the portal',
   fThreshold: 'Alert when a limit reaches',
@@ -294,9 +295,9 @@ const en = {
     'You can read this preference but not change it: changing it needs the manage notifications permission (notifications.manage), which your role doesn’t have. Ask the account owner or an admin.',
   prefWaitingAccess: 'We are still checking your role on this account, so this can’t be changed right now.',
   prefHistoryBody:
-    'Every change to these preferences: what it was set to, who made it and when. Changes saved before this history was kept are not listed.',
+    'Every change you made to your own preferences: what it was set to and when. Changes saved before this history was kept are not listed.',
   prefHistoryEmptyTitle: 'No changes yet',
-  prefHistoryEmptyBody: 'Every kind is on until someone on the team changes it.',
+  prefHistoryEmptyBody: 'Every kind is on for you until you change it.',
   prefTurnedOn: '{kind} turned on',
   prefTurnedOff: '{kind} turned off',
   prefTurnedOnAt: '{kind} turned on, alert at {threshold}',

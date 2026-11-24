@@ -11,7 +11,7 @@ import {
   type DisputeState,
   type DisputeSummary,
 } from '@/lib/card-disputes/model';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { DisputeActions } from './actions';
 import '../desk.css';
 
@@ -170,6 +170,9 @@ function CaseBody({ d, asOf }: { d: DisputeCase; asOf: string }) {
           <>
             <Fact label="Decision" testId="dispute-outcome">
               {OUTCOME_LABEL[d.decision.outcome]}
+            </Fact>
+            <Fact label="Reason" testId="dispute-decision-reason">
+              {d.decision.reason ?? 'None recorded'}
             </Fact>
             <Fact label="Who bears the fraud loss" testId="dispute-loss">
               {lossWords(d.decision)}

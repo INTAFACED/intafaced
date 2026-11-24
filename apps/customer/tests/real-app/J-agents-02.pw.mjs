@@ -1,6 +1,6 @@
 // World: gates, restart
 import { test, expect } from './journey.mjs';
-import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
+import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, saveDraft, tableIn } from './agents.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,6 +10,7 @@ import { GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-
 import { testChain } from './dex.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
+import { chainBalance } from './venue.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
 // for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account funded with
@@ -69,8 +70,7 @@ async function setAgentCap(page, cap) {
   await pages(page).getByRole('button', { name: 'Build', exact: true }).click();
   const builder = page.getByRole('form', { name: 'Agent builder' });
   await builder.getByRole('textbox', { name: /^Spend cap per session/ }).fill(cap);
-  await builder.getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder.getByRole('status')).toHaveText('Draft saved.');
+  await saveDraft(builder);
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
 }
 
@@ -372,13 +372,7 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   const onChain = await chain.getBlock({ blockNumber: block });
   const asOf = new Date(Number(onChain.timestamp) * 1000).toISOString();
   await expect(refusal).toHaveAttribute('data-as-of', asOf);
-  const held = await chain.readContract({
-    address: TEST_USD,
-    abi: erc20Abi,
-    functionName: 'balanceOf',
-    args: [address],
-    blockNumber: block,
-  });
+  const held = await chainBalance(TEST_USD, address, block);
   expect(held).toBeLessThan(toUnits('0.01024') / 10n ** 12n);
   const figure = fromUnits(held * 10n ** 12n);
   // The figure is named in the token the chain holds, by the chain's own name for it, never relabelled.
@@ -818,7 +812,7 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
     const usage = tableIn(main(page), 'Usage by agent, day and task');
     // The usage view lists every agent the person built, by name, and nothing else.
     const rows = usage.locator('tbody tr');
-    expect(new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
+    await expect.poll(async () => new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
     const mine = rows.filter({ has: page.getByRole('cell', { name, exact: true }) });
     await expect(mine).toHaveCount(1);
     // The day is the UTC day the agent's window opened on (its window id starts with it), not the test's clock.

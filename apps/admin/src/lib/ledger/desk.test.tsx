@@ -4,7 +4,7 @@ import { GET } from '@/app/api/ledger-desk/[read]/route';
 import { LedgerDesk, deskRefusal } from '@/components/ledger-desk';
 import { TransactionView } from '@/components/ledger-lookup';
 import { deskQuery, deskSearch, localToIso, parseDeskAnswer } from './desk';
-import type { LedgerTransaction } from './lookup';
+import type { LedgerTransaction } from '@/lib/ledger-lookup';
 
 const auth = vi.hoisted(() => ({ authorize: vi.fn<() => Promise<unknown>>() }));
 vi.mock('@/lib/founder-session', async (importOriginal) => ({
@@ -240,6 +240,8 @@ describe('the desk on the page', () => {
           balanceAfter: '25',
         },
       ],
+      reversedBy: null,
+      reverses: null,
     };
     const html = renderToStaticMarkup(<TransactionView transaction={transaction} readAt="2026-10-24T12:01:00.000Z" />);
     expect(html).toContain('data-testid="ledger-lookup-seq">51<');

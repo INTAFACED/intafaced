@@ -1,0 +1,1744 @@
+{
+  "answers": {
+    "blank http health": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true,\"service\":\"svc-ws\",\"enabled\":true,\"connections\":0,\"depthConnections\":0,\"l3Connections\":0,\"tradeConnections\":0,\"privateConnections\":0,\"dropCopyConnections\":0,\"tradesBus\":false,\"privateBus\":false,\"privateAuthorityConfigured\":false,\"dropCopyBus\":false,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"pollMs\":250,\"capacity\":{\"depth\":{\"connections\":0,\"maxConnections\":null},\"trades\":{\"connections\":0,\"maxConnections\":null},\"private\":{\"connections\":0,\"maxConnections\":null,\"maxConnectionsPerUser\":null},\"dropCopy\":{\"connections\":0,\"maxConnections\":null,\"maxConnectionsPerUser\":null}}}"
+    },
+    "blank http ready": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ready\":true,\"upstream\":\"http://127.0.0.1:1\",\"depthLimit\":null,\"markets\":[],\"depth\":{\"connections\":0,\"books\":0,\"droppedFrames\":0,\"evictions\":0,\"repairs\":0,\"resumes\":0,\"matchingAvailable\":true,\"code\":null},\"l3\":{\"connections\":0,\"code\":null},\"trades\":{\"connections\":0,\"markets\":0,\"prints\":0,\"droppedFrames\":0,\"evictions\":0},\"privateConnections\":0,\"private\":{\"connections\":0,\"updates\":0,\"droppedFrames\":0,\"evictions\":0,\"matchingAvailable\":true,\"code\":null},\"dropCopyConnections\":0,\"dropCopy\":{\"connections\":0,\"executions\":0,\"droppedFrames\":0,\"evictions\":0,\"bus\":false,\"replayDurable\":false},\"tradesBus\":false,\"privateBus\":false,\"privateAuthorityConfigured\":false,\"dropCopyBus\":false,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"pollMs\":250}"
+    },
+    "blank http policy": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"emptyBookStaysEmpty\":true,\"emptyNotZeroOnWire\":true,\"noFakeDepth\":true,\"noSynthesizeL3FromL2\":true,\"noPretendJsonIsBinary\":true,\"l3FeedPublished\":true,\"binaryFeedPublished\":true,\"l2SbeFeedPublished\":true,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"depthPush\":false,\"l3Push\":false,\"noInventMid\":true,\"noSeedFillsAsLiveTape\":true,\"engineDownNamesUnavailable\":true,\"matchingNotTradableNamed\":true,\"unknownMarketTypedClose\":true,\"holeNotSyntheticEmptyBook\":true,\"depthWorksWithoutNats\":true,\"privateRequiresAuth\":true,\"dropCopyIndependentOfTradingSession\":true,\"dropCopyReadOnly\":true,\"dropCopyReplayDurable\":false,\"cancelOnDisconnectLease\":true,\"codClientClockIgnored\":true,\"codInventedMassSuccess\":false,\"refuseCodes\":[\"NoBook\",\"MarketNotFound\",\"depth.engine_unavailable\",\"depth.l3_unavailable\",\"depth.binary_unavailable\",\"depth.sbe_unavailable\",\"depth.entitlement_unauthorized\",\"depth.push_unavailable\",\"depth.market_halted\",\"depth.venue_halted\",\"depth.market_prelaunch\",\"depth.market_expired\",\"depth.market_delisted\"],\"privateRefuseCodes\":[\"orders.engine_unavailable\",\"orders.market_halted\",\"orders.venue_halted\",\"orders.market_prelaunch\",\"orders.market_expired\",\"orders.market_delisted\"],\"dropCopyRefuseCodes\":[\"drop_copy.recovery_required\",\"drop_copy.common_upstream_failure\",\"drop_copy.gap\"],\"codRefuseCodes\":[\"cod.malformed\",\"cod.lease_range_unconfigured\",\"cod.write_required\",\"cod.excluded_classes_unconfigured\",\"cod.scope_unsupported\",\"cod.ttl_out_of_range\",\"cod.unarmed\"],\"inventsQuietMarket\":false,\"inventsFuturesPositions\":false,\"perIp\":{\"maxConnections\":null,\"stormsBeforeBan\":null,\"banSeconds\":null,\"cap\":\"unset\",\"ban\":\"unset\"}}"
+    },
+    "blank http streams": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"streams\":[{\"door\":\"market\",\"path\":\"/stream\",\"channel\":\"depth\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"market\",\"path\":\"/stream\",\"channel\":\"trades\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"book\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":false,\"refusal\":\"ws.mux_idle_unset\"},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"trades\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":false,\"refusal\":\"ws.mux_idle_unset\"},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"ticker\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":false,\"refusal\":\"ws.mux_idle_unset\"},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"candles\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":false,\"refusal\":\"ws.mux_idle_unset\"},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"futures.mark.\",\"product\":\"derivatives\",\"access\":\"public\",\"mounted\":false,\"refusal\":\"ws.mux_idle_unset\"},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"orders\",\"product\":\"spot\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"fills\",\"product\":\"spot\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"positions\",\"product\":\"derivatives\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"balances\",\"product\":\"accounts\",\"access\":\"private\",\"mounted\":true},{\"door\":\"drop-copy\",\"path\":\"/drop-copy/stream\",\"channel\":\"drop_copy\",\"product\":\"accounts\",\"access\":\"private\",\"mounted\":true}],\"timing\":{\"heartbeatMs\":30000,\"muxIdleMs\":null}}"
+    },
+    "blank http markets": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"markets\":[]}"
+    },
+    "blank http unknown": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"message\":\"Route GET:/nope not found\",\"error\":\"Not Found\",\"statusCode\":404}"
+    },
+    "blank http depth BTC-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth BTC-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth BTC-USD?level=l3": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http depth BTC-USD?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "blank http depth BTC-USD?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "blank http depth BTC-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http depth ETH-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth ETH-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth ETH-USD?level=l3": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http depth ETH-USD?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "blank http depth ETH-USD?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "blank http depth ETH-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http depth SOL-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth SOL-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth SOL-USD?level=l3": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http depth SOL-USD?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "blank http depth SOL-USD?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "blank http depth SOL-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http depth NOPE-1": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth NOPE-1?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"depth unavailable\"}"
+    },
+    "blank http depth NOPE-1?level=l3": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http depth NOPE-1?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "blank http depth NOPE-1?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "blank http depth NOPE-1?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http depth bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http depth bad id!?format=sbe": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http depth bad id!?level=l3": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http depth bad id!?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "blank http depth bad id!?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "blank http depth bad id!?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http l3 BTC-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 BTC-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 BTC-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http l3 ETH-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 ETH-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 ETH-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http l3 SOL-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 SOL-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 SOL-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http l3 NOPE-1": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 NOPE-1?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"l3 unavailable\"}"
+    },
+    "blank http l3 NOPE-1?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http l3 bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http l3 bad id!?format=sbe": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http l3 bad id!?channel=queue_probability": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http trades BTC-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http trades BTC-USD?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "blank http trades BTC-USD?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http trades ETH-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http trades ETH-USD?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "blank http trades ETH-USD?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http trades SOL-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http trades SOL-USD?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "blank http trades SOL-USD?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http trades NOPE-1": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http trades NOPE-1?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "blank http trades NOPE-1?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http trades bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http trades bad id!?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "blank http trades bad id!?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "blank http orders BTC-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http orders ETH-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http orders SOL-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http orders NOPE-1": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http orders bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http positions BTC-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http positions ETH-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http positions SOL-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http positions NOPE-1": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"UpstreamUnavailable\",\"message\":\"every market registry source failed — svc-trade: MarketsListLimitUnsetError: markets list limit is unset — refuse to invent 50; svc-matching: DepthSourceError: svc-matching unreachable: fetch failed\"}"
+    },
+    "blank http positions bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "blank http /ws/tape/label-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "blank http /ws/tape/label-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "blank http /ws/tape/label-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "blank http /ws/tape/label-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "blank http /ws/tape/label-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "blank http /ws/tape/origin-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http /ws/tape/origin-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http /ws/tape/origin-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http /ws/tape/origin-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"instrument_remap\",\"detail\":\"adapter cannot reinterpret an instrument — refusing the remap\"}"
+    },
+    "blank http /ws/tape/origin-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http /ws/tape/connected-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "blank http /ws/tape/connected-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "blank http /ws/tape/connected-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "blank http /ws/tape/connected-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "blank http /ws/tape/connected-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "blank http /ws/tape/instrument-map absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http /ws/tape/instrument-map empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http /ws/tape/instrument-map wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http /ws/tape/instrument-map claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"instrument_remap\",\"detail\":\"adapter cannot reinterpret an instrument — refusing the remap\"}"
+    },
+    "blank http /ws/tape/instrument-map plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "blank http sbe-status unsigned": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"ws_status_unconfigured\",\"message\":\"WS_STATUS_READ_SECRET is blank; svc-ws does not list its consumers to an unsigned caller\"}}"
+    },
+    "blank http sbe-status edge": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"ws_status_unconfigured\",\"message\":\"WS_STATUS_READ_SECRET is blank; svc-ws does not list its consumers to an unsigned caller\"}}"
+    },
+    "blank http sbe-status trade": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"ws_status_unconfigured\",\"message\":\"WS_STATUS_READ_SECRET is blank; svc-ws does not list its consumers to an unsigned caller\"}}"
+    },
+    "blank http sbe-status wrong-key": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"ws_status_unconfigured\",\"message\":\"WS_STATUS_READ_SECRET is blank; svc-ws does not list its consumers to an unsigned caller\"}}"
+    },
+    "blank socket unknown path": {
+      "status": 404,
+      "body": ""
+    },
+    "blank socket stream mux": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream empty market": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream bad market": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream unlisted": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream BTC depth": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream ETH depth": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream BTC trades": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream BTC unknown channel": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream BTC sbe": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream BTC l3": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream BTC push": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket stream BTC queue-probability": {
+      "status": 503,
+      "body": "{\"code\":\"ws.per_ip_cap_unset\",\"message\":\"ws.per_ip_cap_unset\"}"
+    },
+    "blank socket private no token": {
+      "status": 403,
+      "body": ""
+    },
+    "blank socket private foreign origin": {
+      "status": 403,
+      "body": ""
+    },
+    "blank socket private token": {
+      "status": 403,
+      "body": ""
+    },
+    "blank socket private sbe": {
+      "status": 403,
+      "body": ""
+    },
+    "blank socket drop-copy no token": {
+      "status": 403,
+      "body": ""
+    },
+    "blank socket drop-copy token": {
+      "status": 403,
+      "body": ""
+    },
+    "blank socket drop-copy orders": {
+      "status": 403,
+      "body": ""
+    },
+    "set http health": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true,\"service\":\"svc-ws\",\"enabled\":true,\"connections\":0,\"depthConnections\":0,\"l3Connections\":0,\"tradeConnections\":0,\"privateConnections\":0,\"dropCopyConnections\":0,\"tradesBus\":false,\"privateBus\":false,\"privateAuthorityConfigured\":true,\"dropCopyBus\":false,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"pollMs\":250,\"capacity\":{\"depth\":{\"connections\":0,\"maxConnections\":100},\"trades\":{\"connections\":0,\"maxConnections\":100},\"private\":{\"connections\":0,\"maxConnections\":100,\"maxConnectionsPerUser\":5},\"dropCopy\":{\"connections\":0,\"maxConnections\":100,\"maxConnectionsPerUser\":5},\"mux\":{\"connections\":0,\"maxConnections\":100,\"subscriptions\":0,\"seats\":{\"depth\":{\"used\":0,\"max\":50},\"trades\":{\"used\":0,\"max\":50},\"tickers\":{\"used\":0,\"max\":50},\"candles\":{\"used\":0,\"max\":50}},\"tickers\":{\"connections\":0,\"markets\":0,\"frames\":0,\"droppedFrames\":0,\"evictions\":0,\"repairs\":0},\"candles\":{\"connections\":0,\"keys\":0,\"frames\":0,\"droppedFrames\":0,\"evictions\":0,\"repairs\":0}}}}"
+    },
+    "set http ready": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ready\":true,\"upstream\":\"<stub>\",\"depthLimit\":20,\"markets\":[\"BTC-USD\",\"ETH-USD\",\"OLD-1\",\"SOL-USD\"],\"depth\":{\"connections\":0,\"books\":0,\"droppedFrames\":0,\"evictions\":0,\"repairs\":0,\"resumes\":0,\"matchingAvailable\":true,\"code\":null},\"l3\":{\"connections\":0,\"code\":null},\"trades\":{\"connections\":0,\"markets\":0,\"prints\":0,\"droppedFrames\":0,\"evictions\":0},\"privateConnections\":0,\"private\":{\"connections\":0,\"updates\":0,\"droppedFrames\":0,\"evictions\":0,\"matchingAvailable\":true,\"code\":null},\"dropCopyConnections\":0,\"dropCopy\":{\"connections\":0,\"executions\":0,\"droppedFrames\":0,\"evictions\":0,\"bus\":false,\"replayDurable\":false},\"tradesBus\":false,\"privateBus\":false,\"privateAuthorityConfigured\":true,\"dropCopyBus\":false,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"pollMs\":250}"
+    },
+    "set http policy": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"emptyBookStaysEmpty\":true,\"emptyNotZeroOnWire\":true,\"noFakeDepth\":true,\"noSynthesizeL3FromL2\":true,\"noPretendJsonIsBinary\":true,\"l3FeedPublished\":true,\"binaryFeedPublished\":true,\"l2SbeFeedPublished\":true,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"depthPush\":false,\"l3Push\":false,\"noInventMid\":true,\"noSeedFillsAsLiveTape\":true,\"engineDownNamesUnavailable\":true,\"matchingNotTradableNamed\":true,\"unknownMarketTypedClose\":true,\"holeNotSyntheticEmptyBook\":true,\"depthWorksWithoutNats\":true,\"privateRequiresAuth\":true,\"dropCopyIndependentOfTradingSession\":true,\"dropCopyReadOnly\":true,\"dropCopyReplayDurable\":false,\"cancelOnDisconnectLease\":true,\"codClientClockIgnored\":true,\"codInventedMassSuccess\":false,\"refuseCodes\":[\"NoBook\",\"MarketNotFound\",\"depth.engine_unavailable\",\"depth.l3_unavailable\",\"depth.binary_unavailable\",\"depth.sbe_unavailable\",\"depth.entitlement_unauthorized\",\"depth.push_unavailable\",\"depth.market_halted\",\"depth.venue_halted\",\"depth.market_prelaunch\",\"depth.market_expired\",\"depth.market_delisted\"],\"privateRefuseCodes\":[\"orders.engine_unavailable\",\"orders.market_halted\",\"orders.venue_halted\",\"orders.market_prelaunch\",\"orders.market_expired\",\"orders.market_delisted\"],\"dropCopyRefuseCodes\":[\"drop_copy.recovery_required\",\"drop_copy.common_upstream_failure\",\"drop_copy.gap\"],\"codRefuseCodes\":[\"cod.malformed\",\"cod.lease_range_unconfigured\",\"cod.write_required\",\"cod.excluded_classes_unconfigured\",\"cod.scope_unsupported\",\"cod.ttl_out_of_range\",\"cod.unarmed\"],\"inventsQuietMarket\":false,\"inventsFuturesPositions\":false,\"perIp\":{\"maxConnections\":100,\"stormsBeforeBan\":50,\"banSeconds\":60,\"cap\":\"set\",\"ban\":\"set\"}}"
+    },
+    "set http streams": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"streams\":[{\"door\":\"market\",\"path\":\"/stream\",\"channel\":\"depth\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"market\",\"path\":\"/stream\",\"channel\":\"trades\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"book\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"trades\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"ticker\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"candles\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"futures.mark.\",\"product\":\"derivatives\",\"access\":\"public\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"orders\",\"product\":\"spot\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"fills\",\"product\":\"spot\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"positions\",\"product\":\"derivatives\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"balances\",\"product\":\"accounts\",\"access\":\"private\",\"mounted\":true},{\"door\":\"drop-copy\",\"path\":\"/drop-copy/stream\",\"channel\":\"drop_copy\",\"product\":\"accounts\",\"access\":\"private\",\"mounted\":true}],\"timing\":{\"heartbeatMs\":30000,\"muxIdleMs\":60000}}"
+    },
+    "set http markets": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"markets\":[\"BTC-USD\",\"ETH-USD\",\"OLD-1\",\"SOL-USD\"]}"
+    },
+    "set http unknown": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"message\":\"Route GET:/nope not found\",\"error\":\"Not Found\",\"statusCode\":404}"
+    },
+    "set http depth BTC-USD": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"snapshot\",\"marketId\":\"BTC-USD\",\"sequence\":10,\"bids\":[[\"100.5\",\"2\"],[\"100\",\"1\"]],\"asks\":[[\"101\",\"3\"]]}"
+    },
+    "set http depth BTC-USD?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.sbe_unavailable\",\"message\":\"Real Logic SBE 1.39.0 is not linked; JSON L2 is not SBE\"}"
+    },
+    "set http depth BTC-USD?level=l3": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"level\":\"L3\",\"marketId\":\"BTC-USD\",\"bids\":[{\"price\":\"100.5\",\"orders\":[{\"orderId\":\"o-1\",\"remaining\":\"2\",\"sequence\":7}]}],\"asks\":[{\"price\":\"101\",\"orders\":[{\"orderId\":\"o-2\",\"remaining\":\"3\",\"sequence\":8}]}],\"type\":\"snapshot\",\"transport\":\"poll\"}"
+    },
+    "set http depth BTC-USD?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "set http depth BTC-USD?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "set http depth BTC-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http depth ETH-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBook\",\"message\":\"ETH-USD: matching holds no book\"}"
+    },
+    "set http depth ETH-USD?format=sbe": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBook\",\"message\":\"ETH-USD: matching holds no book\"}"
+    },
+    "set http depth ETH-USD?level=l3": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBook\",\"message\":\"ETH-USD: matching holds no book\"}"
+    },
+    "set http depth ETH-USD?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "set http depth ETH-USD?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "set http depth ETH-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http depth SOL-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"svc-matching answered 503 for /markets/SOL-USD/depth?limit=20\"}"
+    },
+    "set http depth SOL-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"svc-matching answered 503 for /markets/SOL-USD/depth?limit=20\"}"
+    },
+    "set http depth SOL-USD?level=l3": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"svc-matching answered 503 for /markets/SOL-USD/depth/l3?limit=20\"}"
+    },
+    "set http depth SOL-USD?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "set http depth SOL-USD?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "set http depth SOL-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http depth NOPE-1": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http depth NOPE-1?format=sbe": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http depth NOPE-1?level=l3": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http depth NOPE-1?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "set http depth NOPE-1?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "set http depth NOPE-1?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http depth bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http depth bad id!?format=sbe": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http depth bad id!?level=l3": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http depth bad id!?level=4&format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.entitlement_unauthorized\",\"message\":\"this L2 SBE tape is not entitled for L4 / public maker identity\"}"
+    },
+    "set http depth bad id!?transport=push": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "set http depth bad id!?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http l3 BTC-USD": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"level\":\"L3\",\"marketId\":\"BTC-USD\",\"bids\":[{\"price\":\"100.5\",\"orders\":[{\"orderId\":\"o-1\",\"remaining\":\"2\",\"sequence\":7}]}],\"asks\":[{\"price\":\"101\",\"orders\":[{\"orderId\":\"o-2\",\"remaining\":\"3\",\"sequence\":8}]}],\"type\":\"snapshot\",\"transport\":\"poll\"}"
+    },
+    "set http l3 BTC-USD?format=sbe": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"level\":\"L3\",\"marketId\":\"BTC-USD\",\"bids\":[{\"price\":\"100.5\",\"orders\":[{\"orderId\":\"o-1\",\"remaining\":\"2\",\"sequence\":7}]}],\"asks\":[{\"price\":\"101\",\"orders\":[{\"orderId\":\"o-2\",\"remaining\":\"3\",\"sequence\":8}]}],\"type\":\"snapshot\",\"transport\":\"poll\"}"
+    },
+    "set http l3 BTC-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http l3 ETH-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBook\",\"message\":\"ETH-USD: matching holds no book\"}"
+    },
+    "set http l3 ETH-USD?format=sbe": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBook\",\"message\":\"ETH-USD: matching holds no book\"}"
+    },
+    "set http l3 ETH-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http l3 SOL-USD": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"svc-matching answered 503 for /markets/SOL-USD/depth/l3?limit=20\"}"
+    },
+    "set http l3 SOL-USD?format=sbe": {
+      "status": 502,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"depth.engine_unavailable\",\"message\":\"svc-matching answered 503 for /markets/SOL-USD/depth/l3?limit=20\"}"
+    },
+    "set http l3 SOL-USD?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http l3 NOPE-1": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http l3 NOPE-1?format=sbe": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http l3 NOPE-1?channel=queue_probability": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http l3 bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http l3 bad id!?format=sbe": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http l3 bad id!?channel=queue_probability": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http trades BTC-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoTape\",\"message\":\"\\\"BTC-USD\\\": matching holds no prints\"}"
+    },
+    "set http trades BTC-USD?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "set http trades BTC-USD?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http trades ETH-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoTape\",\"message\":\"\\\"ETH-USD\\\": matching holds no prints\"}"
+    },
+    "set http trades ETH-USD?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "set http trades ETH-USD?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http trades SOL-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoTape\",\"message\":\"\\\"SOL-USD\\\": matching holds no prints\"}"
+    },
+    "set http trades SOL-USD?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "set http trades SOL-USD?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http trades NOPE-1": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http trades NOPE-1?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "set http trades NOPE-1?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http trades bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http trades bad id!?format=sbe": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "set http trades bad id!?level=l3": {
+      "status": 409,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set http orders BTC-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBlotter\",\"message\":\"\\\"BTC-USD\\\": no public orders blotter\"}"
+    },
+    "set http orders ETH-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBlotter\",\"message\":\"\\\"ETH-USD\\\": no public orders blotter\"}"
+    },
+    "set http orders SOL-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoBlotter\",\"message\":\"\\\"SOL-USD\\\": no public orders blotter\"}"
+    },
+    "set http orders NOPE-1": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http orders bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http positions BTC-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoPositions\",\"message\":\"\\\"BTC-USD\\\": no public positions blotter\"}"
+    },
+    "set http positions ETH-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoPositions\",\"message\":\"\\\"ETH-USD\\\": no public positions blotter\"}"
+    },
+    "set http positions SOL-USD": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"NoPositions\",\"message\":\"\\\"SOL-USD\\\": no public positions blotter\"}"
+    },
+    "set http positions NOPE-1": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"MarketNotFound\",\"message\":\"\\\"NOPE-1\\\" is not a listed market\"}"
+    },
+    "set http positions bad id!": {
+      "status": 400,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"BadRequest\",\"message\":\"market id must be 1-64 chars of [A-Za-z0-9._:-]\"}"
+    },
+    "set http /ws/tape/label-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "set http /ws/tape/label-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "set http /ws/tape/label-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "set http /ws/tape/label-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "set http /ws/tape/label-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "set http /ws/tape/origin-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http /ws/tape/origin-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http /ws/tape/origin-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http /ws/tape/origin-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"instrument_remap\",\"detail\":\"adapter cannot reinterpret an instrument — refusing the remap\"}"
+    },
+    "set http /ws/tape/origin-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http /ws/tape/connected-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "set http /ws/tape/connected-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "set http /ws/tape/connected-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "set http /ws/tape/connected-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "set http /ws/tape/connected-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "set http /ws/tape/instrument-map absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http /ws/tape/instrument-map empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http /ws/tape/instrument-map wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http /ws/tape/instrument-map claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"instrument_remap\",\"detail\":\"adapter cannot reinterpret an instrument — refusing the remap\"}"
+    },
+    "set http /ws/tape/instrument-map plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "set http sbe-status unsigned": {
+      "status": 401,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"unauthenticated\",\"message\":\"service credentials required (null)\"}}"
+    },
+    "set http sbe-status edge": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"service\":\"svc-ws\",\"codecLinked\":false,\"consumers\":[],\"asOf\":\"<time>\"}"
+    },
+    "set http sbe-status trade": {
+      "status": 403,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"forbidden\",\"message\":\"the SBE consumer list is read by svc-edge only\"}}"
+    },
+    "set http sbe-status wrong-key": {
+      "status": 401,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"unauthenticated\",\"message\":\"service credentials required (bad-signature)\"}}"
+    },
+    "set socket unknown path": {
+      "status": 404,
+      "body": ""
+    },
+    "set socket stream mux": {
+      "status": 101,
+      "body": "<no frame within the window>"
+    },
+    "set socket stream empty market": {
+      "status": 400,
+      "body": ""
+    },
+    "set socket stream bad market": {
+      "status": 400,
+      "body": ""
+    },
+    "set socket stream unlisted": {
+      "status": 101,
+      "body": "<close 1008 ws.close.unknown_market>"
+    },
+    "set socket stream BTC depth": {
+      "status": 101,
+      "body": "{\"type\":\"snapshot\",\"marketId\":\"BTC-USD\",\"sequence\":10,\"bids\":[[\"100.5\",\"2\"],[\"100\",\"1\"]],\"asks\":[[\"101\",\"3\"]]}"
+    },
+    "set socket stream ETH depth": {
+      "status": 101,
+      "body": "<no frame within the window>"
+    },
+    "set socket stream BTC trades": {
+      "status": 101,
+      "body": "<no frame within the window>"
+    },
+    "set socket stream BTC unknown channel": {
+      "status": 400,
+      "body": ""
+    },
+    "set socket stream BTC sbe": {
+      "status": 409,
+      "body": "{\"type\":\"status\",\"code\":\"depth.sbe_unavailable\",\"message\":\"Real Logic SBE 1.39.0 is not linked; JSON L2 is not SBE\"}"
+    },
+    "set socket stream BTC l3": {
+      "status": 101,
+      "body": "{\"level\":\"L3\",\"marketId\":\"BTC-USD\",\"bids\":[{\"price\":\"100.5\",\"orders\":[{\"orderId\":\"o-1\",\"remaining\":\"2\",\"sequence\":7}]}],\"asks\":[{\"price\":\"101\",\"orders\":[{\"orderId\":\"o-2\",\"remaining\":\"3\",\"sequence\":8}]}],\"type\":\"snapshot\",\"transport\":\"poll\"}"
+    },
+    "set socket stream BTC push": {
+      "status": 409,
+      "body": "{\"type\":\"status\",\"code\":\"depth.push_unavailable\",\"message\":\"depth and native L3 are polled from matching HTTP; poll is not push\"}"
+    },
+    "set socket stream BTC queue-probability": {
+      "status": 409,
+      "body": "{\"type\":\"status\",\"code\":\"depth.l3_unavailable\",\"message\":\"matching native L3 is unavailable; L2 depth is not L3\"}"
+    },
+    "set socket private no token": {
+      "status": 401,
+      "body": ""
+    },
+    "set socket private foreign origin": {
+      "status": 403,
+      "body": ""
+    },
+    "set socket private token": {
+      "status": 401,
+      "body": ""
+    },
+    "set socket private sbe": {
+      "status": 409,
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "set socket drop-copy no token": {
+      "status": 401,
+      "body": ""
+    },
+    "set socket drop-copy token": {
+      "status": 401,
+      "body": ""
+    },
+    "set socket drop-copy orders": {
+      "status": 401,
+      "body": ""
+    },
+    "off http health": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true,\"service\":\"svc-ws\",\"enabled\":false,\"connections\":0,\"depthConnections\":0,\"l3Connections\":0,\"tradeConnections\":0,\"privateConnections\":0,\"dropCopyConnections\":0,\"tradesBus\":false,\"privateBus\":false,\"privateAuthorityConfigured\":true,\"dropCopyBus\":false,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"pollMs\":250,\"capacity\":{\"depth\":{\"connections\":0,\"maxConnections\":100},\"trades\":{\"connections\":0,\"maxConnections\":100},\"private\":{\"connections\":0,\"maxConnections\":100,\"maxConnectionsPerUser\":5},\"dropCopy\":{\"connections\":0,\"maxConnections\":100,\"maxConnectionsPerUser\":5},\"mux\":{\"connections\":0,\"maxConnections\":100,\"subscriptions\":0,\"seats\":{\"depth\":{\"used\":0,\"max\":50},\"trades\":{\"used\":0,\"max\":50},\"tickers\":{\"used\":0,\"max\":50},\"candles\":{\"used\":0,\"max\":50}},\"tickers\":{\"connections\":0,\"markets\":0,\"frames\":0,\"droppedFrames\":0,\"evictions\":0,\"repairs\":0},\"candles\":{\"connections\":0,\"keys\":0,\"frames\":0,\"droppedFrames\":0,\"evictions\":0,\"repairs\":0}}}}"
+    },
+    "off http ready": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ready\":false,\"reason\":\"ws.gateway flag is off\"}"
+    },
+    "off http policy": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"emptyBookStaysEmpty\":true,\"emptyNotZeroOnWire\":true,\"noFakeDepth\":true,\"noSynthesizeL3FromL2\":true,\"noPretendJsonIsBinary\":true,\"l3FeedPublished\":true,\"binaryFeedPublished\":true,\"l2SbeFeedPublished\":true,\"depthTransport\":\"poll\",\"l3Transport\":\"poll\",\"tradesTransport\":\"push\",\"privateTransport\":\"push\",\"dropCopyTransport\":\"push\",\"depthPush\":false,\"l3Push\":false,\"noInventMid\":true,\"noSeedFillsAsLiveTape\":true,\"engineDownNamesUnavailable\":true,\"matchingNotTradableNamed\":true,\"unknownMarketTypedClose\":true,\"holeNotSyntheticEmptyBook\":true,\"depthWorksWithoutNats\":true,\"privateRequiresAuth\":true,\"dropCopyIndependentOfTradingSession\":true,\"dropCopyReadOnly\":true,\"dropCopyReplayDurable\":false,\"cancelOnDisconnectLease\":true,\"codClientClockIgnored\":true,\"codInventedMassSuccess\":false,\"refuseCodes\":[\"NoBook\",\"MarketNotFound\",\"depth.engine_unavailable\",\"depth.l3_unavailable\",\"depth.binary_unavailable\",\"depth.sbe_unavailable\",\"depth.entitlement_unauthorized\",\"depth.push_unavailable\",\"depth.market_halted\",\"depth.venue_halted\",\"depth.market_prelaunch\",\"depth.market_expired\",\"depth.market_delisted\"],\"privateRefuseCodes\":[\"orders.engine_unavailable\",\"orders.market_halted\",\"orders.venue_halted\",\"orders.market_prelaunch\",\"orders.market_expired\",\"orders.market_delisted\"],\"dropCopyRefuseCodes\":[\"drop_copy.recovery_required\",\"drop_copy.common_upstream_failure\",\"drop_copy.gap\"],\"codRefuseCodes\":[\"cod.malformed\",\"cod.lease_range_unconfigured\",\"cod.write_required\",\"cod.excluded_classes_unconfigured\",\"cod.scope_unsupported\",\"cod.ttl_out_of_range\",\"cod.unarmed\"],\"inventsQuietMarket\":false,\"inventsFuturesPositions\":false,\"perIp\":{\"maxConnections\":100,\"stormsBeforeBan\":50,\"banSeconds\":60,\"cap\":\"set\",\"ban\":\"set\"}}"
+    },
+    "off http streams": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"streams\":[{\"door\":\"market\",\"path\":\"/stream\",\"channel\":\"depth\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"market\",\"path\":\"/stream\",\"channel\":\"trades\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"book\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"trades\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"ticker\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"candles\",\"product\":\"spot\",\"access\":\"public\",\"mounted\":true},{\"door\":\"mux\",\"path\":\"/stream\",\"channel\":\"futures.mark.\",\"product\":\"derivatives\",\"access\":\"public\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"orders\",\"product\":\"spot\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"fills\",\"product\":\"spot\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"positions\",\"product\":\"derivatives\",\"access\":\"private\",\"mounted\":true},{\"door\":\"private\",\"path\":\"/private/stream\",\"channel\":\"balances\",\"product\":\"accounts\",\"access\":\"private\",\"mounted\":true},{\"door\":\"drop-copy\",\"path\":\"/drop-copy/stream\",\"channel\":\"drop_copy\",\"product\":\"accounts\",\"access\":\"private\",\"mounted\":true}],\"timing\":{\"heartbeatMs\":30000,\"muxIdleMs\":60000}}"
+    },
+    "off http markets": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"markets\":[\"BTC-USD\",\"ETH-USD\",\"OLD-1\",\"SOL-USD\"]}"
+    },
+    "off http unknown": {
+      "status": 404,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"message\":\"Route GET:/nope not found\",\"error\":\"Not Found\",\"statusCode\":404}"
+    },
+    "off http depth BTC-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth BTC-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth BTC-USD?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth BTC-USD?level=4&format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth BTC-USD?transport=push": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth BTC-USD?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth ETH-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth ETH-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth ETH-USD?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth ETH-USD?level=4&format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth ETH-USD?transport=push": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth ETH-USD?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth SOL-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth SOL-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth SOL-USD?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth SOL-USD?level=4&format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth SOL-USD?transport=push": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth SOL-USD?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth NOPE-1": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth NOPE-1?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth NOPE-1?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth NOPE-1?level=4&format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth NOPE-1?transport=push": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth NOPE-1?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth bad id!": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth bad id!?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth bad id!?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth bad id!?level=4&format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth bad id!?transport=push": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http depth bad id!?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 BTC-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 BTC-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 BTC-USD?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 ETH-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 ETH-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 ETH-USD?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 SOL-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 SOL-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 SOL-USD?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 NOPE-1": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 NOPE-1?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 NOPE-1?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 bad id!": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 bad id!?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http l3 bad id!?channel=queue_probability": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades BTC-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades BTC-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades BTC-USD?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades ETH-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades ETH-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades ETH-USD?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades SOL-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades SOL-USD?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades SOL-USD?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades NOPE-1": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades NOPE-1?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades NOPE-1?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades bad id!": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades bad id!?format=sbe": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http trades bad id!?level=l3": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http orders BTC-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http orders ETH-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http orders SOL-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http orders NOPE-1": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http orders bad id!": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http positions BTC-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http positions ETH-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http positions SOL-USD": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http positions NOPE-1": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http positions bad id!": {
+      "status": 503,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"code\":\"Unavailable\",\"message\":\"ws.gateway flag is off\"}"
+    },
+    "off http /ws/tape/label-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "off http /ws/tape/label-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "off http /ws/tape/label-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "off http /ws/tape/label-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "off http /ws/tape/label-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"tape_label_unset\",\"detail\":\"labelled tape claim refuses — kind is unknown, not aggressor/auction/liq/block\"}"
+    },
+    "off http /ws/tape/origin-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http /ws/tape/origin-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http /ws/tape/origin-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http /ws/tape/origin-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"instrument_remap\",\"detail\":\"adapter cannot reinterpret an instrument — refusing the remap\"}"
+    },
+    "off http /ws/tape/origin-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http /ws/tape/connected-claim absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "off http /ws/tape/connected-claim empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "off http /ws/tape/connected-claim wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "off http /ws/tape/connected-claim claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "off http /ws/tape/connected-claim plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"connected_lie\",\"detail\":\"global connected refuses — per-source depth/trades/private is required\"}"
+    },
+    "off http /ws/tape/instrument-map absent": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http /ws/tape/instrument-map empty": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http /ws/tape/instrument-map wrong-type": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http /ws/tape/instrument-map claims": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"reason\":\"instrument_remap\",\"detail\":\"adapter cannot reinterpret an instrument — refusing the remap\"}"
+    },
+    "off http /ws/tape/instrument-map plain": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":true}"
+    },
+    "off http sbe-status unsigned": {
+      "status": 401,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"unauthenticated\",\"message\":\"service credentials required (null)\"}}"
+    },
+    "off http sbe-status edge": {
+      "status": 200,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"service\":\"svc-ws\",\"codecLinked\":false,\"consumers\":[],\"asOf\":\"<time>\"}"
+    },
+    "off http sbe-status trade": {
+      "status": 403,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"forbidden\",\"message\":\"the SBE consumer list is read by svc-edge only\"}}"
+    },
+    "off http sbe-status wrong-key": {
+      "status": 401,
+      "type": "application/json; charset=utf-8",
+      "body": "{\"ok\":false,\"error\":{\"code\":\"unauthenticated\",\"message\":\"service credentials required (bad-signature)\"}}"
+    },
+    "off socket unknown path": {
+      "status": 404,
+      "body": ""
+    },
+    "off socket stream mux": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream empty market": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream bad market": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream unlisted": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream BTC depth": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream ETH depth": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream BTC trades": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream BTC unknown channel": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream BTC sbe": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream BTC l3": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream BTC push": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket stream BTC queue-probability": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket private no token": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket private foreign origin": {
+      "status": 403,
+      "body": ""
+    },
+    "off socket private token": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket private sbe": {
+      "status": 409,
+      "body": "{\"type\":\"status\",\"code\":\"depth.binary_unavailable\",\"message\":\"binary/SBE feed does not exist; JSON depth is not binary\"}"
+    },
+    "off socket drop-copy no token": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket drop-copy token": {
+      "status": 503,
+      "body": ""
+    },
+    "off socket drop-copy orders": {
+      "status": 503,
+      "body": ""
+    }
+  }
+}

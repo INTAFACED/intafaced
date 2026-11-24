@@ -1,21 +1,28 @@
 import 'server-only';
 import {
-  academyCourseDetailSchema,
-  academyCourseListSchema,
-  academyCourseSchema,
+  ACADEMY_ADMIN_COURSE,
+  ACADEMY_ADMIN_COURSES,
+  ACADEMY_ADMIN_CREATE_COURSE,
+  ACADEMY_ADMIN_DUPLICATE_COURSE,
+  ACADEMY_ADMIN_SAVE_OUTLINE,
+  ACADEMY_ADMIN_SET_COURSE_STATE,
+  ACADEMY_ADMIN_SET_COURSE_TOPICS,
+  ACADEMY_ADMIN_TOPICS,
+  ACADEMY_ADMIN_UPDATE_COURSE,
+} from '@intafaced/contracts/academy-admin-procedures';
+import {
   academyCreateCourseInputSchema,
   academyDuplicateCourseInputSchema,
   academySaveOutlineInputSchema,
   academySetCourseStateInputSchema,
   academyUpdateCourseInputSchema,
   academySetCourseTopicsInputSchema,
-  academyTopicListSchema,
+  type AcademyCourse,
+  type AcademyCourseDetail,
   type AcademySaveOutlineInput,
   type AcademySetCourseTopicsInput,
 } from '@intafaced/contracts/academy-courses';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { founderRecordCall, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels, explainRefusal } from '@/lib/desk';
 import { COURSE_PAGE, type CourseDeskReply, type CourseDetailView, type CourseDraftInput, type CourseListView } from './courses-model';
 
 /**
@@ -30,19 +37,15 @@ const ACADEMY: PartLabels = {
   refusedMessage: (code) => (code ? explainRefusal(code, 409).body : null),
 };
 
-const readList = parseWith(academyCourseListSchema);
-const readDetail = parseWith(academyCourseDetailSchema);
-const readCourse = parseWith(academyCourseSchema);
-
 export async function loadCourseList(ctx: FounderCallContext): Promise<CourseListView> {
-  const list = await founderCall(ctx, 'academy', 'admin.courses', 'GET', { limit: COURSE_PAGE }, readList);
+  const list = await founderRecordCall(ctx, ACADEMY_ADMIN_COURSES, { limit: COURSE_PAGE });
   return { list: partFrom(list, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
 export async function loadCourseDetail(ctx: FounderCallContext, courseId: string): Promise<CourseDetailView> {
   const [detail, topics] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.course', 'GET', { courseId }, readDetail),
-    founderCall(ctx, 'academy', 'admin.topics', 'GET', undefined, readTopics),
+    founderRecordCall(ctx, ACADEMY_ADMIN_COURSE, { courseId }),
+    founderRecordCall(ctx, ACADEMY_ADMIN_TOPICS, undefined),
   ]);
   return {
     detail: partFrom(detail, (d) => d, ACADEMY),
@@ -51,8 +54,9 @@ export async function loadCourseDetail(ctx: FounderCallContext, courseId: string
   };
 }
 
-const readCourseOfDetail = (raw: unknown) => readDetail(raw)?.course ?? null;
-const readTopics = parseWith(academyTopicListSchema);
+/** A change that answers with the whole course detail, read as the course it changed. */
+const courseOf = (result: FounderCallResult<AcademyCourseDetail>): FounderCallResult<AcademyCourse> =>
+  result.kind === 'ok' ? { ...result, data: result.data.course } : result;
 
 /** AC-articles-01: the topics the course is filed under, as a whole. */
 export function checkTopics(input: unknown): CheckedInput<AcademySetCourseTopicsInput> {
@@ -63,10 +67,10 @@ export function checkTopics(input: unknown): CheckedInput<AcademySetCourseTopics
 }
 
 export async function saveTopics(ctx: FounderCallContext, input: AcademySetCourseTopicsInput) {
-  return reply(await founderCall(ctx, 'academy', 'admin.setCourseTopics', 'POST', input, readCourseOfDetail), 'topics saved');
+  return reply(courseOf(await founderRecordCall(ctx, ACADEMY_ADMIN_SET_COURSE_TOPICS, input)), 'topics saved');
 }
 
-function reply(result: FounderCallResult<ReturnType<typeof readCourse>>, what: string): { status: number; reply: CourseDeskReply } {
+function reply(result: FounderCallResult<AcademyCourse>, what: string): { status: number; reply: CourseDeskReply } {
   const refused = (code: string | null, status: number, uncertain = false) => ({
     status: status >= 400 && status < 600 ? status : 502,
     reply: { ok: false as const, ...explainRefusal(code, status, uncertain) },
@@ -110,7 +114,7 @@ export function checkCreate(draft: CourseDraftInput): CheckedInput<CourseDraftIn
 }
 
 export async function createCourse(ctx: FounderCallContext, draft: CourseDraftInput) {
-  return reply(await founderCall(ctx, 'academy', 'admin.createCourse', 'POST', draft, readCourse), 'created');
+  return reply(await founderRecordCall(ctx, ACADEMY_ADMIN_CREATE_COURSE, draft), 'created');
 }
 
 /** AC-course-structure-03: a draft copy of this course at its own address, with a reason. No learner record is copied. */
@@ -120,7 +124,7 @@ export function checkDuplicate(input: { courseId: string; slug: string; title: s
 }
 
 export async function duplicateCourse(ctx: FounderCallContext, input: { courseId: string; slug: string; title: string; reason: string }) {
-  return reply(await founderCall(ctx, 'academy', 'admin.duplicateCourse', 'POST', input, readCourse), 'duplicated as a new draft');
+  return reply(await founderRecordCall(ctx, ACADEMY_ADMIN_DUPLICATE_COURSE, input), 'duplicated as a new draft');
 }
 
 export function checkUpdate(input: Omit<CourseDraftInput, 'slug'> & { courseId: string; revision: number }) {
@@ -132,7 +136,7 @@ export async function updateCourse(
   ctx: FounderCallContext,
   input: Omit<CourseDraftInput, 'slug'> & { courseId: string; revision: number },
 ) {
-  return reply(await founderCall(ctx, 'academy', 'admin.updateCourse', 'POST', input, readCourse), 'saved');
+  return reply(await founderRecordCall(ctx, ACADEMY_ADMIN_UPDATE_COURSE, input), 'saved');
 }
 
 export function checkMove(input: { courseId: string; to: 'published'; revision: number; reason: string }) {
@@ -141,7 +145,7 @@ export function checkMove(input: { courseId: string; to: 'published'; revision: 
 }
 
 export async function moveCourse(ctx: FounderCallContext, input: { courseId: string; to: 'published'; revision: number; reason: string }) {
-  return reply(await founderCall(ctx, 'academy', 'admin.setCourseState', 'POST', input, readCourse), input.to);
+  return reply(await founderRecordCall(ctx, ACADEMY_ADMIN_SET_COURSE_STATE, input), input.to);
 }
 
 /** An outline save: the outline's own shape is checked here as svc-academy checks it; the owner's limits are the service's. */
@@ -167,5 +171,5 @@ export function checkOutline(input: unknown): CheckedInput<AcademySaveOutlineInp
 }
 
 export async function saveOutline(ctx: FounderCallContext, input: AcademySaveOutlineInput) {
-  return reply(await founderCall(ctx, 'academy', 'admin.saveOutline', 'POST', input, readCourseOfDetail), 'outline saved');
+  return reply(courseOf(await founderRecordCall(ctx, ACADEMY_ADMIN_SAVE_OUTLINE, input)), 'outline saved');
 }

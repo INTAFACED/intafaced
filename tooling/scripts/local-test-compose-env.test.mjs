@@ -8,6 +8,9 @@ import {
   PARSE_ONLY,
   blankKeys,
   blankableVariable,
+  composeMarker,
+  sharedSecrets,
+  testerServiceEnv,
   composeEnvValues,
   envFileValue,
   hostOnly,
@@ -123,4 +126,63 @@ test('a variable a YAML comment mentions is still marked', () => {
     '      EDGE_X: ${EDGE_X:-} # ${EDGE_X} again',
   ].join('\n');
   assert.deepEqual(Object.fromEntries(markedVariables(compose, '')), { EDGE_X: '${EDGE_X:-}' });
+});
+
+test('composeMarker: each LOCAL TEST port is the loopback port compose publishes, with the stack id and custody switch', () => {
+  const loop = (port) => [{ host_ip: '127.0.0.1', target: port, published: String(port) }];
+  const services = {
+    postgres: { ports: [{ host_ip: '127.0.0.1', target: 5432, published: '5433' }] },
+    'svc-edge': { ports: loop(4000) },
+    'svc-ledger': { ports: loop(4001), environment: { LEDGER_CUSTODY_LAYER: 'off' } },
+    'svc-identity': { ports: loop(4002) },
+    'svc-trade': { ports: loop(4004) },
+    'svc-matching': { ports: loop(4005) },
+  };
+  const id = 'a'.repeat(32);
+  const m = composeMarker(services, id, new Date('2026-11-24T00:00:00Z'));
+  assert.equal(m.runtime, 'compose');
+  assert.equal(m.stackId, id);
+  assert.equal(m.custodyLayer, 'off');
+  assert.deepEqual(m.ports, { postgres: 5433, edge: 4000, ledger: 4001, identity: 4002, trade: 4004, matching: 4005 });
+  assert.deepEqual(m.database, { host: '127.0.0.1', port: 5433, name: 'intafaced' });
+  // A service published on every address, or not at all, is no loopback port: refused by name.
+  assert.throws(
+    () => composeMarker({ ...services, 'svc-trade': { ports: [{ host_ip: '0.0.0.0', target: 4004, published: '4004' }] } }, id),
+    /no loopback port for svc-trade/,
+  );
+  assert.throws(
+    () => composeMarker({ ...services, 'svc-ledger': { ports: loop(4001), environment: { LEDGER_CUSTODY_LAYER: 'maybe' } } }, id),
+    /custody/,
+  );
+});
+
+test('testerServiceEnv: only the LOCAL TEST settings no compose service sets, never the host or a shared secret', () => {
+  const stack = {
+    IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+    JWT_ACCESS_SECRET: 'the-stack-own-secret',
+    HOME: '/home/me',
+    PATH: '/usr/bin',
+    EMPTY: '',
+    EDGE_URL: 'http://127.0.0.1:14500',
+    BREACHED: '/repo/tooling/data/breached.txt',
+    OUTBOX: '/state/email-outbox.log',
+  };
+  const composeKeys = new Set(['JWT_ACCESS_SECRET', 'HTTP_PORT']);
+  const opts = { root: '/repo', state: '/state' };
+  assert.deepEqual(testerServiceEnv(stack, composeKeys, { ...opts, mountsState: true }), {
+    IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+    OUTBOX: '/state/email-outbox.log',
+  });
+  assert.deepEqual(testerServiceEnv(stack, composeKeys, { ...opts, mountsState: false }), { IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600' });
+});
+
+test("sharedSecrets: the stack's own internal, edge principal and token secrets, each refused when missing or short", () => {
+  const secrets = { internal: 'i'.repeat(64), edgePrincipal: 'e'.repeat(64), jwt: 'j'.repeat(64) };
+  assert.deepEqual(sharedSecrets(secrets), {
+    INTERNAL_SERVICE_SECRET: 'i'.repeat(64),
+    EDGE_PRINCIPAL_SECRET: 'e'.repeat(64),
+    JWT_ACCESS_SECRET: 'j'.repeat(64),
+  });
+  assert.throws(() => sharedSecrets({ ...secrets, internal: undefined }), /INTERNAL_SERVICE_SECRET/);
+  assert.throws(() => sharedSecrets({ ...secrets, jwt: 'short' }), /JWT_ACCESS_SECRET/);
 });

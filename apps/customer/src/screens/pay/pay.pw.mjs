@@ -23,7 +23,10 @@ const shotBoth = async (page, name) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 };
 
-const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|undefined|NaN|\[object|ledger|space|transferId|toUser/i;
+// Internal words never shown. "space" alone is a customer word since J-pay-01 #3 (the From line names "Your USDT, Main space"),
+// so only the wire's own space fields are refused.
+const forbidden =
+  /unavailable|not connected|restricted|fixture|lifecycle|undefined|NaN|\[object|ledger|spaceId|fromSpace|transferId|toUser/i;
 const open = async (page, path = '/pay/send') => {
   await page.goto(path);
   await page.getByTestId('pay-card').waitFor();
@@ -35,6 +38,25 @@ const review = (page) => page.getByTestId('pay-review');
 const dialog = (page) => page.getByRole('alertdialog');
 const sendButton = (page) => page.getByTestId('pay-send');
 const box = async (locator) => await locator.first().boundingBox();
+/** A Volt kit length token as the room resolves it, in px: a probe in the room sized by it, read back. */
+const tokenPx = (page, name) =>
+  page.evaluate((n) => {
+    const probe = document.createElement('span');
+    probe.style.fontSize = `var(${n})`;
+    probe.style.lineHeight = 'normal';
+    document.querySelector('.lt-room').append(probe);
+    const px = getComputedStyle(probe).fontSize;
+    probe.remove();
+    return px;
+  }, name);
+/** The width of an element's content box, in px. */
+const contentWidth = (locator) =>
+  locator.first().evaluate((n) => {
+    const s = getComputedStyle(n);
+    return Math.round(n.clientWidth - parseFloat(s.paddingInlineStart) - parseFloat(s.paddingInlineEnd));
+  });
+/** The asset picker: the browser's own select (the Volt kit's SelectField). */
+const assetPicker = (page) => page.getByLabel('Asset to send');
 const pendingKey = `pay.unresolved:${ME}:send`;
 
 async function pickMaya(page) {
@@ -60,17 +82,21 @@ test('by handle: look up, review, send, receipt, and the layout of the screen (1
   const api = await mock(page);
   await open(page);
 
-  // Layout (UI-SPEC 5.10): container 1224, two columns, card 520, headline "Pay" at 48/58, tabs Send / Receive.
-  expect(Math.round((await box(page.getByTestId('if-pay'))).width)).toBe(1224);
-  expect(Math.round((await box(page.getByTestId('pay-card'))).width)).toBe(520);
-  await expect(page.getByTestId('pay-hero').locator('h1')).toHaveText('Pay');
-  await expect(page.getByTestId('pay-hero').locator('p')).toHaveText('Send money to anyone on INTAFACED. It arrives instantly.');
-  expect(
-    await page
-      .getByTestId('pay-hero')
-      .locator('h1')
-      .evaluate((n) => getComputedStyle(n).fontSize + '/' + getComputedStyle(n).lineHeight),
-  ).toBe('48px/58px');
+  // Layout (UI-SPEC 5.10, on the Volt kit's overview template): the room fills the page's main column; two columns, the
+  // card the lead of the main one and recent payments beside it; the headline "Pay" in the kit's title role; tabs Send / Receive.
+  expect(Math.round((await box(page.getByTestId('if-pay'))).width)).toBe(await contentWidth(page.locator('#main')));
+  // The room's container at 1440 is its full measure (UI-SPEC's 1224, the kit's room width).
+  const room = page.locator('.lt-room');
+  expect(Math.round((await box(room)).width)).toBe(await room.evaluate((n) => Math.round(parseFloat(getComputedStyle(n).maxInlineSize))));
+  const card = await box(page.getByTestId('pay-card'));
+  const side = await box(page.locator('[data-region="watching"]'));
+  expect(Math.round(card.width)).toBe(await contentWidth(page.locator('[data-region="hero"]')));
+  expect(card.x + card.width).toBeLessThanOrEqual(side.x);
+  expect(card.y).toBeGreaterThan(side.y);
+  const title = page.getByRole('heading', { level: 1 });
+  await expect(title).toHaveText('Pay');
+  await expect(page.locator('.lt-description')).toHaveText('Send money to anyone on INTAFACED. It arrives instantly.');
+  expect(await title.evaluate((n) => getComputedStyle(n).fontSize)).toBe(await tokenPx(page, '--lit-type-title-size'));
   await expect(page.getByRole('tab', { name: 'Send' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Receive' })).toBeVisible();
   // Order inside the card: tabs, To, Amount, the button.
@@ -85,10 +111,9 @@ test('by handle: look up, review, send, receipt, and the layout of the screen (1
   await expect(review(page)).toBeDisabled();
   await expect(review(page)).toHaveText('Choose who to pay');
   await shotBoth(page, 'send-empty');
-  expect(await page.getByLabel('Asset to send').count()).toBe(1);
-  await page.getByLabel('Asset to send').click();
-  await expect(page.getByRole('option')).toHaveText(['USDT', 'ETH']);
-  await page.keyboard.press('Escape');
+  expect(await assetPicker(page).count()).toBe(1);
+  await expect(assetPicker(page).getByRole('option')).toHaveText(['USDT', 'ETH']);
+  await expect(assetPicker(page).locator('option:checked')).toHaveText('USDT');
 
   // To: resolve on blur.
   await to(page).fill('maya_test');
@@ -305,6 +330,8 @@ test('receive: your handle with Copy and the toast "Copied"; the Account ID unti
   await expect(page.getByText('Your handle', { exact: true })).toBeVisible();
   await expect(page.getByTestId('receive-value')).toHaveText('@harness_me');
   await expect(page.getByText('Share this with someone on INTAFACED so they can send you money.')).toBeVisible();
+  // The pay code is drawn; that it scans is J-pay-03-qr's check in the real app.
+  await expect(page.getByTestId('pay-qr')).toBeVisible();
   await shotBoth(page, 'receive');
   await page.getByTestId('receive-copy').click();
   await expect(page.getByText('Copied', { exact: true })).toBeVisible();
@@ -402,7 +429,9 @@ test('a refresh while reviewing sends nothing; the next review has a new id, and
     toUser: ({ body }) => {
       attempt += 1;
       if (attempt === 1) return refusal(400, 'The service said no', 'bank.space_not_found');
-      return { result: { data: { ledgerTxId: 'tx-1', amount: body.amount } } };
+      return {
+        result: { data: { ledgerTxId: 'tx-1', partnerMove: null, amount: body.amount, note: null, reference: null, requestId: null } },
+      };
     },
   });
   await open(page);
@@ -497,6 +526,7 @@ test('no published limits, an amount over a limit, and a failed check each keep 
           perTransferLimit: '10',
           dailyLimit: '12',
           spentToday: '5',
+          remainingToday: '7',
           fee: '0',
           feeBlocker: null,
           withinPerTransfer: amount <= 10,
@@ -528,8 +558,8 @@ test('no published limits, an amount over a limit, and a failed check each keep 
   await page.getByTestId('pay-terms').getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByTestId('pay-terms')).toHaveText('No fee. Up to 10 USDT per payment. 7 USDT left today.');
 
-  await page.getByLabel('Asset to send').click();
-  await page.getByRole('option', { name: /^ETH/ }).click();
+  await expect(assetPicker(page).getByRole('option', { name: /^ETH/ })).toHaveCount(1);
+  await assetPicker(page).selectOption({ label: 'ETH' });
   await amount(page).fill('0.1');
   await expect(page.getByTestId('pay-terms')).toHaveText('Sending ETH is paused: no payment limits are published for it.');
   await expect(review(page)).toHaveText('Sending is paused');
@@ -590,6 +620,40 @@ test('states: loading, no balances, error with retry, signed out', async ({ page
   await expect(page.getByRole('link', { name: 'Log in to see your handle' })).toBeVisible();
 });
 
+test('not verified yet: Send and Request say to verify in plain words, and nothing reads as failed (#10596)', async ({ page }) => {
+  const kyc = () => refusal(403, 'kyc required', 'denied.kyc_required');
+  await mock(page, { spaces: kyc, waiting: kyc, activity: kyc });
+  const plain = async () => {
+    const text = await page.getByTestId('pay-card').locator('xpath=ancestor::main[1]').innerText();
+    expect(text).not.toMatch(/couldn’t load|couldn't load|kyc|denied/i);
+  };
+  for (const [path, name] of [
+    ['/pay/send', 'send'],
+    ['/pay/request', 'request'],
+  ]) {
+    await open(page, path);
+    const box = page.getByTestId(`${name}-panel`).getByTestId('pay-spaces-refused');
+    await expect(box).toContainText('Verify your identity first');
+    await expect(box).toContainText('You need a verified account to do this.');
+    await expect(box.getByText('Verify now')).toBeVisible();
+    // Nothing can be waiting for an unverified person to answer, and the recent list says to verify once, not twice.
+    await expect(page.getByTestId('pay-waiting')).toHaveCount(0);
+    await expect(page.getByTestId('recent-recipients')).toHaveCount(0);
+    await expect(page.getByTestId('recent-payments')).toContainText('Verify your identity first');
+    await plain();
+    await shotBoth(page, `${name}-not-verified`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await shot(page, `${name}-not-verified-390x844`);
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+  await open(page, '/pay/receive');
+  await expect(page.getByTestId('pay-waiting')).toHaveCount(0);
+  await plain();
+  await shotBoth(page, 'receive-not-verified');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shot(page, 'receive-not-verified-390x844');
+});
+
 test('a named space is told apart from the main one', async ({ page }) => {
   await mock(page, {
     spaces: () => ({
@@ -602,6 +666,10 @@ test('a named space is told apart from the main one', async ({ page }) => {
             name: 'Main',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: '10',
             ledgerAccount: { ownerType: 'user', ownerId: ME, assetId: 'USDT', kind: 'available' },
           },
@@ -612,6 +680,10 @@ test('a named space is told apart from the main one', async ({ page }) => {
             name: 'Holiday',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: '55',
             ledgerAccount: { ownerType: 'subaccount', ownerId: SPACE.holiday, assetId: 'USDT', kind: 'available' },
           },
@@ -620,9 +692,9 @@ test('a named space is told apart from the main one', async ({ page }) => {
     }),
   });
   await open(page);
-  await page.getByLabel('Asset to send').click();
-  await expect(page.getByRole('option')).toHaveText(['USDT', 'USDT · Holiday']);
-  await page.getByRole('option', { name: 'USDT · Holiday' }).click();
+  await expect(assetPicker(page).getByRole('option')).toHaveText(['USDT', 'USDT · Holiday']);
+  await assetPicker(page).selectOption({ label: 'USDT · Holiday' });
+  await expect(assetPicker(page).locator('option:checked')).toHaveText('USDT · Holiday');
   await expect(page.getByTestId('pay-available')).toHaveText('Available 55 USDT');
 });
 
@@ -693,6 +765,10 @@ test('if the chosen asset drops out after a refusal, nothing is chosen and the a
           name: 'Main',
           goalTarget: null,
           lockedUntil: null,
+          unlocksAt: null,
+          unlockRequestedAt: null,
+          billsPot: null,
+          heldAt: null,
           balance: '10',
           ledgerAccount: { ownerType: 'user', ownerId: ME, assetId: 'USDT', kind: 'available' },
         },
@@ -703,6 +779,10 @@ test('if the chosen asset drops out after a refusal, nothing is chosen and the a
           name: 'Main',
           goalTarget: null,
           lockedUntil: null,
+          unlocksAt: null,
+          unlockRequestedAt: null,
+          billsPot: null,
+          heldAt: null,
           balance: '5',
           ledgerAccount: { ownerType: 'user', ownerId: ME, assetId: 'ETH', kind: 'available' },
         },

@@ -1,7 +1,15 @@
 // TEST DATA ONLY. Nothing here is a real key, address, secret or event.
+import { createHmac } from 'node:crypto';
 import { NOT_MINE, DAY, iso, ok, page, refuse } from '../../mock/shared.mjs';
 
 const WEBHOOK_ROLES = new Set(['owner', 'admin', 'developer']);
+const EVENT_TYPES = ['payment.authorized', 'payment.captured', 'payment.refunded', 'payment.failed'];
+const VECTOR = {
+  secret: 'whsec_TEST_stand_in_example',
+  timestamp: '1767225600',
+  body: '{"id":"payment.captured:TEST-payment-1","type":"payment.captured"}',
+};
+const sign = (secret, ts, body) => createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex');
 
 /** API keys, request signing, webhook endpoints and their deliveries. Identity procedures have no `merchantOps.` prefix. */
 export function createDevelopersMock(ctx) {
@@ -12,7 +20,7 @@ export function createDevelopersMock(ctx) {
       ? []
       : [
           {
-            id: 'TEST-key-1',
+            id: '7e570000-0000-4000-8000-000000000001',
             name: 'TEST Checkout system',
             prefix: 'test_ab12',
             scopes: ['pay:read', 'pay:write'],
@@ -24,7 +32,7 @@ export function createDevelopersMock(ctx) {
             ipAllowlist: ['203.0.113.10'],
           },
           {
-            id: 'TEST-key-2',
+            id: '7e570000-0000-4000-8000-000000000002',
             name: 'TEST Reporting',
             prefix: 'test_cd34',
             scopes: ['pay:read'],
@@ -36,7 +44,7 @@ export function createDevelopersMock(ctx) {
             ipAllowlist: [],
           },
           {
-            id: 'TEST-key-3',
+            id: '7e570000-0000-4000-8000-000000000003',
             name: 'TEST Old script',
             prefix: 'test_ef56',
             scopes: ['pay:read'],
@@ -59,6 +67,7 @@ export function createDevelopersMock(ctx) {
             status: 'active',
             disabledReason: null,
             consecutiveFailures: 0,
+            eventTypes: ['payment.captured', 'payment.refunded'],
             createdAt: iso(now - 30 * DAY),
             updatedAt: iso(now - 2 * DAY),
           },
@@ -101,6 +110,15 @@ export function createDevelopersMock(ctx) {
   });
   const canManage = () => WEBHOOK_ROLES.has(ctx.role);
   const secret = (n) => `TEST-secret-${n}-${'x'.repeat(24)}`;
+  /** A key's two signing flags as the service answers them beside its allowlist: what was set here, else the key's own. */
+  const signingOf = (keyId) => {
+    const key = dev.keys.find((k) => k.id === keyId);
+    const set = dev.signing.get(keyId);
+    return {
+      requireSignature: Boolean(set?.requireSignature ?? key?.requireSignature),
+      requireNonEmptyIpAllowlist: Boolean(set?.requireNonEmptyIpAllowlist ?? key?.requireNonEmptyIpAllowlist),
+    };
+  };
 
   return {
     async handle(procedure, input, route) {
@@ -111,14 +129,14 @@ export function createDevelopersMock(ctx) {
             dev.keys.map((k) => ({
               requireSignature: false,
               requireNonEmptyIpAllowlist: false,
-              ipAllowlist: [],
               ...k,
-              ...(dev.signing.get(k.id) ?? {}),
+              ...dev.signing.get(k.id),
               ipAllowlist: dev.ips.get(k.id) ?? k.ipAllowlist ?? [],
             })),
           );
         case 'apiKeys.create': {
-          const id = `TEST-key-${dev.keys.length + 1}`;
+          // A key id is a GUID, as the service's own is (its records check it); 7e57 marks the stand-in's.
+          const id = `7e570000-0000-4000-8000-${String(dev.keys.length + 1).padStart(12, '0')}`;
           // The list shows the start of the very key that was handed out, as the real service does.
           const handedOut = ['test', `TEST-NOT-A-REAL-KEY-${id}`].join('_');
           const prefix = handedOut.slice(0, 9);
@@ -134,7 +152,7 @@ export function createDevelopersMock(ctx) {
             requireNonEmptyIpAllowlist: false,
             ipAllowlist: [],
           });
-          return ok(route, { id, key: handedOut, prefix, mode: 'sandbox' });
+          return ok(route, { id, key: handedOut, prefix, mode: 'sandbox', scopes: input.scopes });
         }
         case 'apiKeys.revoke': {
           const key = dev.keys.find((k) => k.id === input.keyId);
@@ -156,11 +174,11 @@ export function createDevelopersMock(ctx) {
           return ok(route, { id: input.keyId, signingSecret: 'ifs_TEST-rotated-secret' });
         case 'bindApiKeyIpAllowlist':
           dev.ips.set(input.keyId, input.ips);
-          return ok(route, { id: input.keyId, ipAllowlist: input.ips });
+          return ok(route, { id: input.keyId, ipAllowlist: input.ips, ...signingOf(input.keyId) });
         case 'unbindApiKeyIpAllowlist': {
           const next = (dev.ips.get(input.keyId) ?? []).filter((ip) => ip !== input.ip);
           dev.ips.set(input.keyId, next);
-          return ok(route, { id: input.keyId, ipAllowlist: next });
+          return ok(route, { id: input.keyId, ipAllowlist: next, ...signingOf(input.keyId) });
         }
         case 'merchantOps.webhooks.list': {
           const rows = dev.endpoints.filter(
@@ -171,13 +189,15 @@ export function createDevelopersMock(ctx) {
         }
         case 'merchantOps.webhooks.create': {
           if (!canManage()) return refuse(route, 403, 'pay.team_role_forbidden');
-          if (!input.url.startsWith('https://')) return refuse(route, 400, 'pay.webhook_url_invalid');
+          if (!input.url.startsWith('https://')) return refuse(route, 400, 'pay.webhook_url_https_required');
+          if (!input.eventTypes?.length) return refuse(route, 400, 'pay.webhook_event_types_required');
           const endpoint = {
             id: `TEST-endpoint-${dev.endpoints.length + 1}`,
             url: input.url,
             status: 'active',
             disabledReason: null,
             consecutiveFailures: 0,
+            eventTypes: input.eventTypes,
             createdAt: iso(Date.now()),
             updatedAt: iso(Date.now()),
           };
@@ -203,6 +223,7 @@ export function createDevelopersMock(ctx) {
           dev.rotations ??= new Set();
           const again = dev.rotations.has(input.requestId);
           dev.rotations.add(input.requestId);
+          if (!again && input.overlapSeconds > 0) e.previousSecretUntil = iso(Date.now() + input.overlapSeconds * 1000);
           return ok(route, { endpoint: e, secret: again ? null : secret(`${e.id}-new`), rotated: !again });
         }
         case 'merchantOps.webhooks.deliveries.list': {
@@ -218,10 +239,63 @@ export function createDevelopersMock(ctx) {
         case 'merchantOps.webhooks.deliveries.retry': {
           const d = dev.deliveries.find((x) => x.id === input.deliveryId);
           if (!d) return refuse(route, 404, 'pay.webhook_delivery_not_found');
-          if (d.status !== 'failed' && d.status !== 'dead') return refuse(route, 409, 'pay.webhook_retry_not_failed');
-          Object.assign(d, { status: 'pending', attempts: 0, lastStatusCode: null });
+          if (d.status === 'pending') return refuse(route, 409, 'pay.webhook_resend_already_queued');
+          Object.assign(d, { status: 'pending', lastStatusCode: null });
           return ok(route, { retried: true, delivery: d });
         }
+        case 'merchantOps.webhooks.deliveries.attempts': {
+          const d = dev.deliveries.find((x) => x.id === input.deliveryId);
+          if (!d) return refuse(route, 404, 'pay.webhook_delivery_not_found');
+          return ok(route, {
+            deliveryId: d.id,
+            attempts: Array.from({ length: d.attempts }, (_, i) => {
+              const last = i === d.attempts - 1;
+              const good = last && d.status === 'delivered';
+              return {
+                attemptNo: i + 1,
+                at: iso(Date.parse(d.createdAt) + i * 60_000),
+                outcome: good ? 'delivered' : 'failed',
+                statusCode: good ? 200 : 500,
+                error: null,
+                durationMs: 100 + i,
+                resend: false,
+              };
+            }),
+          });
+        }
+        case 'merchantOps.webhooks.deliveries.recover': {
+          if (!canManage()) return refuse(route, 403, 'pay.team_role_forbidden');
+          dev.recoveries ??= new Map();
+          if (dev.recoveries.has(input.requestId)) return ok(route, { recovered: false, queued: dev.recoveries.get(input.requestId) });
+          const due = dev.deliveries.filter(
+            (d) => d.endpointId === input.endpointId && (d.status === 'failed' || d.status === 'dead') && d.createdAt >= input.since,
+          );
+          for (const d of due) Object.assign(d, { status: 'pending', lastStatusCode: null });
+          dev.recoveries.set(input.requestId, due.length);
+          return ok(route, { recovered: true, queued: due.length });
+        }
+        case 'merchantOps.webhooks.policy':
+          return ok(route, {
+            endpointCap: 10,
+            overlapMaxSeconds: 600,
+            resendWindowSeconds: 7 * 86_400,
+            retryScheduleSeconds: [5, 10, 20],
+            resendRate: { maxPerWindow: 20, windowMs: 3_600_000 },
+          });
+        case 'merchantOps.webhooks.catalogue':
+          return ok(route, {
+            events: EVENT_TYPES.map((type) => ({ type, summary: `TEST ${type}`, payloadSchema: { type: 'object' } })),
+            ordering: 'TEST: order by createdAt.',
+            duplicates: 'TEST: drop repeats by id.',
+          });
+        case 'merchantOps.webhooks.guide':
+          return ok(route, {
+            headers: { timestamp: 'X-Intafaced-Timestamp', signature: 'X-Intafaced-Signature', eventId: 'X-Intafaced-Event-Id' },
+            algorithm: 'TEST: HMAC-SHA256 over timestamp.body.',
+            toleranceSeconds: 300,
+            senderIps: ['203.0.113.50'],
+            vector: { ...VECTOR, signature: sign(VECTOR.secret, VECTOR.timestamp, VECTOR.body) },
+          });
         case 'merchantOps.webhooks.health': {
           const count = (id, status) => dev.deliveries.filter((d) => d.endpointId === id && d.status === status).length;
           return ok(route, {
@@ -235,6 +309,7 @@ export function createDevelopersMock(ctx) {
                 delivered: count(e.id, 'delivered'),
                 failed: count(e.id, 'failed'),
                 dead: count(e.id, 'dead'),
+                unknown: count(e.id, 'unknown'),
               },
               lastDeliveredAt: dev.deliveries.find((d) => d.endpointId === e.id && d.deliveredAt)?.deliveredAt ?? null,
             })),

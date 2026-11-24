@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_WAITS, downloadShards, primaryLimit, refused, waitFor } from './shard-download.mjs';
+import { MAX_WAITS, downloadShards, primaryLimit, refused, shardArtifacts, waitFor } from './shard-download.mjs';
 
 // Run 4084's own line, shortened (scoreboard job 130899706856, 01:09:40 UTC).
 const LIMIT =
@@ -94,4 +94,24 @@ test('which answers are which', () => {
   assert.equal(waitFor(100, 50_000), 55_000);
   assert.equal(waitFor(100, 200_000), 5_000, 'a reset already past waits only the margin');
   assert.equal(waitFor(10_000, 0), null, 'a reset past the cap is not waited for');
+});
+
+// The downloads go out at once (INTAFACED/project-state#3240: one after another, 64 shard artifacts took 103 s of main's
+// run 44464621638), from one list of the run's artifacts: only shard reports, each once, the newest of a re-run's two.
+test('the shard artifacts of a run are every shard report once, the newest of two, and nothing else', () => {
+  const list = [
+    '901 real-app-journeys-build',
+    '910 real-app-journeys-shard-10',
+    '902 real-app-journeys-shard-2',
+    '903 real-app-journeys-shard-1',
+    '950 real-app-journeys-shard-2',
+    '904 real-app-journeys',
+    '905 real-app-journeys-shard-3-extra',
+    '',
+  ].join('\n');
+  assert.deepEqual(
+    shardArtifacts(list).map((a) => `${a.id} ${a.name}`),
+    ['903 real-app-journeys-shard-1', '950 real-app-journeys-shard-2', '910 real-app-journeys-shard-10'],
+  );
+  assert.deepEqual(shardArtifacts(''), []);
 });

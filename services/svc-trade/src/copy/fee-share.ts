@@ -146,6 +146,28 @@ export function attributeCopyFeeShare(input: FeeShareAttributionInput): FeeShare
   };
 }
 
+/** The sweep's window id for one fill's fee share (`token.fee.sweep:<this>:trade:<asset>`). */
+export function copyFeeShareWindowId(fillId: string): string {
+  return `copy-fee:${canonicalizeCopyFillId(fillId)}`;
+}
+
+/** The payout's reward id for one fill's fee share to its lead (`reward:<this>`). */
+export function copyFeeShareRewardId(fillId: string, leaderId: string): string {
+  return `copy-leader-share:${canonicalizeCopyFillId(fillId)}:${leaderId}`;
+}
+
+/** The two ledger keys one fee share posts under, as `planCopyFeeShareSettle` builds them. Read only: settlement oversight looks them up. */
+export function copyFeeShareLedgerKeys(
+  fillId: string,
+  leaderId: string,
+  assetId: string,
+): { readonly sweep: string; readonly payout: string } {
+  return {
+    sweep: `token.fee.sweep:${copyFeeShareWindowId(fillId)}:trade:${assetId}`,
+    payout: `reward:${copyFeeShareRewardId(fillId, leaderId)}`,
+  };
+}
+
 /**
  * Build ledger posts for a non-zero attribution.
  * Path: houseFees(trade) → rewardsEngine → leader available (existing recipes).
@@ -160,8 +182,8 @@ export function planCopyFeeShareSettle(attribution: FeeShareAttribution): FeeSha
   }
 
   const fillId = canonicalizeCopyFillId(attribution.fillId);
-  const windowId = `copy-fee:${fillId}`;
-  const rewardId = `copy-leader-share:${fillId}:${attribution.leaderId}`;
+  const windowId = copyFeeShareWindowId(fillId);
+  const rewardId = copyFeeShareRewardId(fillId, attribution.leaderId);
 
   return {
     attribution,

@@ -14,8 +14,8 @@ export function Timeline({ items, label }: { items: readonly TimelineEvent[]; la
           <span className="pp-timeline-dot" aria-hidden="true" />
           <div>
             <strong>{item.title}</strong>
-            {item.detail && <p className="muted">{item.detail}</p>}
-            <small className="muted">{item.at ? <DateTime value={item.at} /> : t('timeNotRecorded')}</small>
+            {item.detail && <p className="lt-muted">{item.detail}</p>}
+            <small className="lt-muted">{item.at ? <DateTime value={item.at} /> : t('timeNotRecorded')}</small>
           </div>
         </li>
       ))}

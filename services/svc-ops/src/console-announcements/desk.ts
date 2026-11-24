@@ -1,4 +1,13 @@
 import { createHash } from 'node:crypto';
+import type {
+  Announcement,
+  AnnouncementAction,
+  AnnouncementActive,
+  AnnouncementChangeInput,
+  AnnouncementSaveInput,
+  AnnouncementWriteOutput,
+  AnnouncementsList,
+} from '@intafaced/contracts';
 import {
   ANNOUNCEMENT_LIST_LIMIT,
   ANNOUNCEMENT_NOT_FOUND,
@@ -6,14 +15,7 @@ import {
   ANNOUNCEMENT_WITHDRAWN,
   BANNER_WINDOW_INVALID,
   announcementWindowProblem,
-  type Announcement,
-  type AnnouncementAction,
-  type AnnouncementActive,
-  type AnnouncementChangeInput,
-  type AnnouncementSaveInput,
-  type AnnouncementWriteOutput,
-  type AnnouncementsList,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-console-announcements';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import { announcementConflict, strip, type AnnouncementStore, type StoredAnnouncement } from './store.js';
 

@@ -7,8 +7,9 @@
  * owner value on the status page row: blank means the kinds alone, and svc-notify then refuses any category.
  */
 import { NOTICE_CATEGORIES_MAX, NOTICE_CATEGORY_ID, STATUS_PAGE_REASON_MAX, type NoticeCategory } from '@intafaced/contracts/status-page';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { PublishApproval } from './incidents-model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type { NoticeCategory };
 
@@ -59,7 +60,6 @@ export interface NoticesDeskView {
   readonly asOf: string;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
 
 function readCategory(v: unknown): NoticeCategory | null | undefined {

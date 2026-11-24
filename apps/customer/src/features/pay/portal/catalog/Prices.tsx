@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import { SALE_CHANNELS, type SaleChannel } from '@intafaced/contracts/merchant-stores';
-import { Button } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import type { MerchantPrice, MerchantProduct, PriceCreateInput, PriceReplaceInput } from '@intafaced/contracts/merchant-catalog';
 import { useResource } from '../../../../shared/resource';
-import { Field } from '../../ui-kit';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
-import { MoreFooter, PortalFailure, PortalLoading, SelectField } from '../components';
+import { EntityList, Failure, Loading, MoneyText, MoreFooter, Section, SelectField } from '../volt/parts';
 import { DateTime } from '../ui/DateTime';
-import { EntityList } from '../ui/EntityList';
 import { formatMoney } from '../ui/format';
-import { MoneyText } from '../ui/MoneyText';
 import { useServerList } from '../ui/useServerList';
 import { useBodyRequestId } from '../payments/invoice-model';
 import { refusalText } from '../refusal';
 import { catalogCopy as c } from './copy';
 import { blankPrice, draftOf, priceBody, priceProblem, type PriceDraft } from './model';
 import { useMayAddProducts } from './access';
+
+/** A service's answer: done in the kit's hint, refused in its refusal look. */
+const DONE_LOOK = 'lt-hint';
+const REFUSED_LOOK = 'lt-refusal';
 
 /**
  * A product's prices (J-merchant-03 steps 3 and 4, M-catalogue-02, M-adv-payments-core-20): the list with its default,
@@ -54,11 +54,11 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
   const prices = list.state.status === 'ready' ? list.state.items : [];
   const chosen = prices.filter((p) => p.kind === 'customer_chosen' && p.status === 'active');
   return (
-    <PaySection title={t('pricesTitle')} description={t('pricesPurpose')}>
-      <div className="stack">
+    <Section title={t('pricesTitle')} description={t('pricesPurpose')}>
+      <div className="lt-stack">
         {writable && !adding && !replacing && (
-          <div className="pp-actions">
-            <Button variant="primary" onClick={() => setAdding(true)}>
+          <div className="lt-actions">
+            <Button tone="primary" onClick={() => setAdding(true)}>
               {t('addPrice')}
             </Button>
           </div>
@@ -90,15 +90,19 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
           />
         )}
         {note && (
-          <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
+          <p
+            className={note.ok ? DONE_LOOK : REFUSED_LOOK}
+            data-refusal={note.ok ? undefined : 'refused'}
+            role={note.ok ? 'status' : 'alert'}
+          >
             {note.text}
           </p>
         )}
-        {list.state.status === 'loading' && <PortalLoading />}
-        {list.state.status === 'failed' && <PortalFailure result={list.state.failure} retry={() => list.reload()} />}
+        {list.state.status === 'loading' && <Loading />}
+        {list.state.status === 'failed' && <Failure result={list.state.failure} retry={() => list.reload()} />}
         {list.state.status === 'ready' &&
           (prices.length === 0 && !list.state.hasMore ? (
-            <p className="muted">{t(writable ? 'pricesEmpty' : 'pricesEmptyReadOnly')}</p>
+            <p className="lt-muted">{t(writable ? 'pricesEmpty' : 'pricesEmptyReadOnly')}</p>
           ) : (
             <>
               <EntityList
@@ -114,11 +118,11 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
                       row.isDefault ? (
                         <strong>{t('defaultMark')}</strong>
                       ) : writable && row.status === 'active' ? (
-                        <Button variant="secondary" disabled={moving !== null} onClick={() => void makeDefault(row)}>
+                        <Button tone="secondary" disabled={moving !== null} onClick={() => void makeDefault(row)}>
                           {t('setDefault')}
                         </Button>
                       ) : (
-                        <span className="muted">—</span>
+                        <span className="lt-muted">—</span>
                       ),
                   },
                   { header: t('colStatus'), cell: (row) => t(`status_${row.status}`) },
@@ -128,7 +132,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
                     cell: (row) =>
                       writable && row.status === 'active' ? (
                         <Button
-                          variant="secondary"
+                          tone="secondary"
                           disabled={adding || replacing !== null}
                           onClick={() => {
                             setNote(null);
@@ -138,15 +142,10 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
                           {t('replacePrice')}
                         </Button>
                       ) : (
-                        <span className="muted">—</span>
+                        <span className="lt-muted">—</span>
                       ),
                   },
                 ]}
-                card={(row) => ({
-                  title: <PriceText price={row} />,
-                  time: <DateTime value={row.createdAt} />,
-                  status: row.isDefault ? t('defaultMark') : t(`billing_${row.billing}`),
-                })}
               />
               <MoreFooter state={list.state} onMore={list.loadMore} />
             </>
@@ -154,7 +153,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
         {chosen.length > 0 && <AmountCheck portal={portal} prices={chosen} />}
         <SaleCheck portal={portal} productId={product.id} prices={prices.filter((p) => p.status === 'active')} />
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -163,7 +162,7 @@ function PriceText({ price }: { price: MerchantPrice }) {
   const { t } = c.useCopy();
   if (price.kind === 'fixed' && price.amount) return <MoneyText value={price.amount} asset={price.assetId} />;
   return (
-    <span className="numeric">
+    <span className="lt-num">
       {t('priceChosenRange', {
         min: moneyWords(price.minAmount ?? '', price.assetId),
         max: moneyWords(price.maxAmount ?? '', price.assetId),
@@ -239,18 +238,18 @@ function PriceForm({
   return (
     <div
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       role="group"
       aria-label={replacing ? t('replaceTitle', { price: priceWords(replacing) }) : t('addPrice')}
     >
       {replacing && (
         <>
           <h3>{t('replaceTitle', { price: priceWords(replacing) })}</h3>
-          <p className="muted">{t('replacePurpose')}</p>
-          {usage.resource.status === 'loading' && <PortalLoading />}
-          {usage.resource.status === 'failed' && <PortalFailure result={usage.resource.failure} retry={usage.reload} />}
+          <p className="lt-muted">{t('replacePurpose')}</p>
+          {usage.resource.status === 'loading' && <Loading />}
+          {usage.resource.status === 'failed' && <Failure result={usage.resource.failure} retry={usage.reload} />}
           {usage.resource.status === 'ready' && usage.resource.data && (
-            <p className="pp-callout" role="status">
+            <p className="lt-hint" role="status">
               {usage.resource.data.openSubscriptions === 0
                 ? t('replaceUsageNone')
                 : usage.resource.data.openSubscriptions === 1
@@ -320,20 +319,20 @@ function PriceForm({
         error={error('assetInvalid')}
       />
       {refused && (
-        <p className="pp-callout" role="alert">
+        <p className="lt-refusal" data-refusal="refused" role="alert">
           {refused}
         </p>
       )}
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button
-          variant="primary"
+          tone="primary"
           // A replacement is saved only once it has said what uses the old price.
           disabled={busy || (replacing !== undefined && usage.resource.status !== 'ready')}
           onClick={() => void save()}
         >
           {busy ? t('saving') : t(replacing ? 'saveReplacement' : 'savePrice')}
         </Button>
-        <Button variant="secondary" disabled={busy} onClick={onCancel}>
+        <Button tone="secondary" disabled={busy} onClick={onCancel}>
           {t('cancel')}
         </Button>
       </div>
@@ -364,9 +363,9 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
   }
 
   return (
-    <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('checkTitle')}>
+    <div data-testid="form-stack" className="lt-stack" role="group" aria-label={t('checkTitle')}>
       <h3>{t('checkTitle')}</h3>
-      <p className="muted">{t('checkPurpose')}</p>
+      <p className="lt-muted">{t('checkPurpose')}</p>
       {prices.length > 1 && (
         <SelectField
           label={t('checkPrice')}
@@ -393,18 +392,18 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
           setAnswer(null);
         }}
       />
-      <div className="pp-actions">
-        <Button variant="secondary" disabled={busy || !amount.trim()} onClick={() => void check()}>
+      <div className="lt-actions">
+        <Button tone="secondary" disabled={busy || !amount.trim()} onClick={() => void check()}>
           {t('checkButton')}
         </Button>
       </div>
       {answer &&
         (answer.ok ? (
-          <p className="pp-confirmed" role="status">
+          <p className="lt-hint" role="status">
             {t('checkAccepted', { amount: moneyWords(answer.amount, answer.assetId) })}
           </p>
         ) : (
-          <p className="pp-callout" role="alert">
+          <p className="lt-refusal" data-refusal="refused" role="alert">
             {answer.text}
           </p>
         ))}
@@ -427,8 +426,8 @@ function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId
   const [answer, setAnswer] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (open.resource.status === 'loading') return <PortalLoading />;
-  if (open.resource.status === 'failed') return <PortalFailure result={open.resource.failure} retry={open.reload} />;
+  if (open.resource.status === 'loading') return <Loading />;
+  if (open.resource.status === 'failed') return <Failure result={open.resource.failure} retry={open.reload} />;
   const stores = open.resource.data.stores.filter((s) => s.status === 'active');
   if (prices.length === 0 || stores.length === 0) return null;
   const price = prices.find((p) => p.id === priceId) ?? prices[0]!;
@@ -461,9 +460,9 @@ function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId
       setAnswer(null);
     };
   return (
-    <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('saleCheckTitle')}>
+    <div data-testid="form-stack" className="lt-stack" role="group" aria-label={t('saleCheckTitle')}>
       <h3>{t('saleCheckTitle')}</h3>
-      <p className="muted">{t('saleCheckPurpose')}</p>
+      <p className="lt-muted">{t('saleCheckPurpose')}</p>
       <SelectField
         label={t('saleCheckPrice')}
         value={price.id}
@@ -485,13 +484,17 @@ function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId
       {price.kind === 'customer_chosen' && (
         <Field label={t('checkAmount')} inputMode="decimal" value={amount} onChange={(e) => clear(setAmount)(e.target.value)} />
       )}
-      <div className="pp-actions">
-        <Button variant="secondary" disabled={busy || (price.kind === 'customer_chosen' && !amount.trim())} onClick={() => void check()}>
+      <div className="lt-actions">
+        <Button tone="secondary" disabled={busy || (price.kind === 'customer_chosen' && !amount.trim())} onClick={() => void check()}>
           {t('saleCheckButton')}
         </Button>
       </div>
       {answer && (
-        <p className={answer.ok ? 'pp-confirmed' : 'pp-callout'} role={answer.ok ? 'status' : 'alert'}>
+        <p
+          className={answer.ok ? DONE_LOOK : REFUSED_LOOK}
+          data-refusal={answer.ok ? undefined : 'refused'}
+          role={answer.ok ? 'status' : 'alert'}
+        >
           {answer.text}
         </p>
       )}

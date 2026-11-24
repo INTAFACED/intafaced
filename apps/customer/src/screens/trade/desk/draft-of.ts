@@ -21,8 +21,10 @@ export function draftOf(args: {
   feeCurrency?: string | null;
   checked: Extract<Checked, { ok: true }>;
   clientOrderId: string;
+  /** A listed lead's lead switch; undefined sends none (everyone who is not a lead). */
+  lead?: boolean;
 }): Draft {
-  const { market, side, type, tif, expireAt, tag, feeCurrency, checked, clientOrderId } = args;
+  const { market, side, type, tif, expireAt, tag, feeCurrency, checked, clientOrderId, lead } = args;
   const sent = serviceType(type, checked.price ?? '');
   // A bracket's market entry is already immediate; only fill-or-kill changes how it is sent.
   const sentTif: Tif = type === 'bracket' && sent === 'market' ? (tif === 'FOK' ? 'FOK' : 'GTC') : tif;
@@ -45,6 +47,7 @@ export function draftOf(args: {
     stpMode: 'cancel_maker',
     ...(tag ? { tag } : {}),
     ...(feeCurrency ? { feeCurrency } : {}),
+    ...(lead === undefined ? {} : { lead }),
     clientOrderId,
   };
 }

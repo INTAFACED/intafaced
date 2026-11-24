@@ -1,3 +1,55 @@
+export interface FirstStateProps {
+  /** What is not there yet, in the room's own words ("No launch events yet"). */
+  title: React.ReactNode;
+  /** When it fills, and from what. */
+  body?: React.ReactNode;
+  /** What the room is for: up to three short lines, each one thing a person does or reads here. */
+  points?: readonly React.ReactNode[];
+  /** The one next step, to a room that has it. */
+  action?: { label: string; href: string };
+  /** The one next step when it is a button in this room (in place of `action`). */
+  children?: React.ReactNode;
+  /** A line-icon from the room's own set, drawn at the top. */
+  icon?: React.ReactNode;
+  /** The title's heading level: 3 inside a titled section (the default), 2 when it sits right under the room's title. */
+  level?: 2 | 3;
+  testId?: string;
+}
+
+/**
+ * A room, or a section of one, with nothing in it yet: what will be there, what the room is for and one
+ * action, drawn as a deliberate first state rather than a lone line. Keeps `lt-empty` and its title and body classes,
+ * so a reader of the plain empty note reads it the same way.
+ */
+export function FirstState({ title, body, points, action, icon, level = 3, testId, children }: FirstStateProps) {
+  const Title = level === 2 ? 'h2' : 'h3';
+  return (
+    <div className="lt-empty" data-first="" data-kind="empty" data-testid={testId}>
+      {icon ? (
+        <span className="lt-first-mark" aria-hidden="true">
+          {icon}
+        </span>
+      ) : null}
+      <Title className="lt-empty-title">{title}</Title>
+      {body ? <p className="lt-empty-body">{body}</p> : null}
+      {points && points.length > 0 ? (
+        <ul className="lt-first-points">
+          {points.map((point, i) => (
+            <li key={i}>{point}</li>
+          ))}
+        </ul>
+      ) : null}
+      {action ? (
+        <a className="lt-button lt-button-secondary" href={action.href}>
+          {action.label}
+        </a>
+      ) : (
+        children
+      )}
+    </div>
+  );
+}
+
 /**
  * What every template shares: the room frame (title, legal band when switched on, notices, body, In-flight lane), the state
  * a room is in, and the regions that draw themselves as skeletons while loading and as figure-free ghosts behind
@@ -63,6 +115,11 @@ export interface RegionProps {
   live?: boolean;
   /** How many skeleton items while loading, when the region's real count is known (flow has two buttons). */
   ghostCount?: number;
+  /**
+   * A hero's hint lines (a split, a change, a note) the region keeps room for under its label row and figure, loading
+   * and loaded alike, so nothing below it moves when its data arrives. Unset, the region takes its content's height.
+   */
+  reserve?: number;
   children?: React.ReactNode;
 }
 
@@ -72,7 +129,17 @@ const WHOLE_ROOM = new Set<RoomState['kind']>(['empty', 'refused', 'money-status
 export const WHOLE_ROOM_STATES: ReadonlySet<RoomState['kind']> = WHOLE_ROOM;
 
 /** One region of a template. Rooms never render these directly; templates do. */
-export function Region({ name, data = false, primary = false, ghost = 'rows', ghostCount, label, live = false, children }: RegionProps) {
+export function Region({
+  name,
+  data = false,
+  primary = false,
+  ghost = 'rows',
+  ghostCount,
+  label,
+  live = false,
+  reserve,
+  children,
+}: RegionProps) {
   const { state, gateArea } = React.useContext(RoomContext);
   if (live && state.kind === 'gated' && !gateArea) return null;
   // A live region with nothing in it (a reading index the room didn't pass) draws nothing behind a gate, never an
@@ -98,6 +165,8 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', gh
     );
   }
   if (data && WHOLE_ROOM.has(state.kind)) return null;
+  const reserveStyle: (React.CSSProperties & { '--lt-reserve'?: number }) | undefined =
+    reserve === undefined ? undefined : { '--lt-reserve': reserve };
   let body: React.ReactNode = children;
   let dimmed = false;
   if (held !== undefined) body = <p className="lt-held">{held}</p>;
@@ -113,6 +182,8 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', gh
       data-region={name}
       data-held={held !== undefined || undefined}
       data-dimmed={dimmed || undefined}
+      data-reserve={reserve === undefined ? undefined : ''}
+      style={reserveStyle}
       aria-label={label}
     >
       {body}
@@ -150,9 +221,10 @@ export function RefusalBox({ refusal: copy }: { refusal: Refusal }) {
   );
 }
 
+/** A whole room with nothing in it: drawn as its first state, centred with its one action. */
 function EmptyBox({ state }: { state: Extract<RoomState, { kind: 'empty' }> }) {
   return (
-    <div className="lt-empty">
+    <div className="lt-empty" data-first="">
       <p className="lt-empty-title">{state.title}</p>
       {state.body ? <p className="lt-empty-body">{state.body}</p> : null}
       {state.action ? (
@@ -457,13 +529,17 @@ export function RoomFrame(props: RoomFrameProps) {
             ))}
           </div>
         ) : null}
-        <header className="lt-title-row">
+        {props.bar}
+        <header {...props.headingMarks} className="lt-title-row">
           <div>
-            <h1 className="lt-title">{title}</h1>
+            <h1 className="lt-title" lang={props.titleLang} ref={props.titleRef} tabIndex={props.titleRef ? -1 : undefined}>
+              {title}
+            </h1>
             {description ? <p className="lt-description">{description}</p> : null}
           </div>
           {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
         </header>
+        {props.section ? <div className="lt-room-section">{props.section}</div> : null}
         {state.kind === 'ready' && state.stale ? (
           <div className="lt-stale" data-region="stale" role="status">
             <p>

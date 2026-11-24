@@ -1,5 +1,18 @@
+import type { Queryable } from '@intafaced/db';
 import { createHmac, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type {
+  Context,
+  CustomerDetailDecisionInput,
+  CustomerDetailKey,
+  CustomerDetailReview,
+  CustomerDetails,
+  CustomerDetailsEditInput,
+  CustomerDetailsResult,
+  CustomerDetailsState,
+  HolderNameCheck,
+  HolderNameCheckInput,
+} from '@intafaced/contracts';
 import {
   CUSTOMER_DETAIL_KEYS,
   CUSTOMER_PROTECTED_DETAIL_KEYS,
@@ -11,18 +24,8 @@ import {
   customerDetailsResultSchema,
   customerDetailsSchema,
   customerDetailsStateSchema,
-  holderNameCheckInputSchema,
-  type Context,
-  type CustomerDetailDecisionInput,
-  type CustomerDetailKey,
-  type CustomerDetailReview,
-  type CustomerDetails,
-  type CustomerDetailsEditInput,
-  type CustomerDetailsResult,
-  type CustomerDetailsState,
-  type HolderNameCheck,
-  type HolderNameCheckInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { holderNameCheckInputSchema } from '@intafaced/contracts/identity';
 import { decryptDocument, encryptDocument } from '../kyc/document-crypto.js';
 import { FounderControlError, type FounderControls, type UserRow } from './founder-controls.js';
 
@@ -117,7 +120,7 @@ export class CustomerDetailsDesk {
       throw new FounderControlError('identity.details_unconfigured', 'identity.details_unconfigured');
   }
 
-  private async read(tx: Sql, userId: string): Promise<{ version: string; details: CustomerDetails }> {
+  private async read(tx: Queryable, userId: string): Promise<{ version: string; details: CustomerDetails }> {
     const [row] = await tx<
       Array<Sealed & { version: string }>
     >`SELECT version::text AS version, ciphertext, nonce, key_id FROM customer_details WHERE user_id = ${userId} FOR UPDATE`;
@@ -125,7 +128,7 @@ export class CustomerDetailsDesk {
     return { version: row.version, details: this.unseal(row, customerDetailsSchema) };
   }
 
-  private async write(tx: Sql, userId: string, version: string, details: CustomerDetails, actorId: string): Promise<void> {
+  private async write(tx: Queryable, userId: string, version: string, details: CustomerDetails, actorId: string): Promise<void> {
     const { ciphertext, nonce } = this.seal(customerDetailsSchema.parse(details));
     await tx`INSERT INTO customer_details (user_id, version, ciphertext, nonce, updated_by)
       VALUES (${userId}, ${version}::bigint, ${ciphertext}, ${nonce}, ${actorId})
@@ -156,7 +159,7 @@ export class CustomerDetailsDesk {
     targetId: string,
     request: { requestId: string; input: unknown; fields: readonly CustomerDetailKey[]; reason: string },
     body: (
-      tx: Sql,
+      tx: Queryable,
       kit: {
         actorId: string;
         target: UserRow;

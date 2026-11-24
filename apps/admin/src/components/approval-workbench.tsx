@@ -13,7 +13,7 @@ import {
   type ApprovalPacket,
   type PacketReading,
 } from '@/lib/desk/approval-packet';
-import type { StepName, StepReply } from '@/lib/desk/approval-types';
+import type { StepName, StepReply } from '@/lib/approval-types';
 import { describePacketStatus, roleFor, shortId, stepGate } from '@/lib/desk/desk-model';
 import './desk.css';
 

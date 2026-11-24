@@ -50,10 +50,10 @@ describe('myPurchases limit unset refuse', () => {
 
   it('router does not invent 50 when myPurchases omits limit', () => {
     const src = readFileSync(join(ROOT, 'services/svc-market/src/router.ts'), 'utf8');
-    const start = src.indexOf('myPurchases: scopedProcedure');
+    const start = src.indexOf('myPurchases: mountRecord(');
     const end = src.indexOf('cancelSubscription:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('purchasesOf(ctx.principal!.userId, { limit: input?.limit })');
+    expect(fn).toContain('purchasesOf(ctx.principal.userId, { limit: input?.limit })');
     expect(fn).not.toMatch(/input\?\.limit \?\? 50/);
     expect(fn).not.toMatch(/\?\? 50/);
   });

@@ -105,6 +105,21 @@ export const userCreated = defineEvent(
   'A sovereign account exists.',
 );
 
+/**
+ * A referral attached (CM-referral-01, CM-referral-02): `userId` was brought by `referrerId`, once and for good (a second
+ * attach is refused before this is sent). Published by svc-identity after the edge commits, business key
+ * `identity.referral.created:<userId>`; svc-campaigns keeps the invitee once by `userId` and tracks their progress under
+ * the referral programme live at `attachedAt`. No personal detail rides on the bus.
+ */
+export const referralCreated = defineEvent(
+  'identity',
+  'referral',
+  'created',
+  1,
+  z.object({ userId: userIdSchema, referrerId: userIdSchema, attachedAt: z.string().datetime({ offset: true }) }).strict(),
+  'A referral edge was recorded: the invitee, their referrer and when. Consumers dedupe on userId.',
+);
+
 export const kycApproved = defineEvent(
   'identity',
   'kyc',
@@ -188,6 +203,8 @@ export const SECURITY_FACTOR_CHANGES = [
   'passkey_removed',
   'password_changed',
   'new_device',
+  // An API key revoked by an operator because a leaked copy was reported (DV-keys-05, J-developer-07 #6).
+  'api_key_revoked',
 ] as const;
 
 export const securityFactorChanged = defineEvent(
@@ -230,6 +247,50 @@ export const deathNoticeConfirmed = defineEvent(
   1,
   deathNoticePayload,
   'A second person confirmed a death notice (RC-identity-02): the account is frozen and its sessions and API keys revoked. Its balances move only by the recovery keys the owner set (RC-identity-08).',
+);
+
+/**
+ * The owner's own freeze (W-security-accounts-03, J-wallet-13 #1). Published by svc-identity from the freeze's own row
+ * after the freeze commits, at least once, with the business key `identity.self_freeze.frozen:<freezeId>`. The freeze
+ * itself ended every session and API key in its transaction; each service that keeps a permission for an agent to act
+ * for the person revokes it on this event and stops that person's scheduled agent orders. A revoked permission stays
+ * revoked after the lift: the person signs a new one. Consumers are idempotent by `freezeId`, and every service that acts
+ * for the person still reads the freeze itself (`GET /internal/self-freeze/:userId`) before it acts, so a late or lost
+ * event never lets an action through. Moves no money.
+ */
+export const selfFreezeApplied = defineEvent(
+  'identity',
+  'self_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  'The owner froze their own account: every agent permission kept for them is revoked and their scheduled agent orders stop (J-wallet-13).',
+);
+
+/**
+ * A support agent froze a customer's account from their request (J-support-public-20 #7, RC-support-public-07).
+ * Published by svc-identity from the freeze's own audit row after it commits, at least once, with the business key
+ * `identity.support_account_freeze.frozen:<freezeId>`. The freeze itself set the account's trading restriction in its
+ * transaction, so every fresh svc-trade operation already refuses; each service that keeps a permission for an agent to
+ * act for the customer revokes it on this event and stops their scheduled agent orders, as on the owner's own freeze.
+ * A revoked permission stays revoked after staff lift the restriction: the customer grants it again. Consumers are
+ * idempotent by `freezeId`. Moves no money.
+ */
+export const supportAccountFrozen = defineEvent(
+  'identity',
+  'support_account_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  "Support froze a customer's account from their request: every agent permission kept for them is revoked and their scheduled agent orders stop (J-support-public-20 #7).",
 );
 
 /**
@@ -538,6 +599,40 @@ export const supportTicketResolved = defineEvent(
   'A support request was resolved. The owner can now rate it; svc-notify turns this into the rating request.',
 );
 
+/**
+ * A paper strategy run filled an order that a fill alert watches (AL-live-06, AL-alerts-01). svc-quant derives a paper
+ * run's fills from the exchange's own closed candles; its alert sweep publishes one of these per fill and alert, keyed
+ * `quant.fill:<alertId>:<runId>:<n>`, so a crash between publish and mark publishes the same `eventId` again and
+ * svc-notify, which turns it into one inbox notice, writes it once.
+ *
+ * `mode` is always `paper`: nothing here is a real order, and no notice may read as one. Carries ids, decimal strings and
+ * the message the person's own template rendered from the allow-listed fields; never source code, keys or a balance.
+ * `channels` are the out-of-app channels the person chose for this strategy; the in-app notice is written regardless.
+ */
+export const quantOrderFilled = defineEvent(
+  'quant',
+  'order',
+  'filled',
+  1,
+  z.object({
+    eventId: z.string().min(1).max(300),
+    userId: userIdSchema,
+    strategyId: z.string().min(1).max(128),
+    strategyVersion: z.number().int().positive(),
+    runId: z.string().min(1).max(128),
+    alertId: z.string().min(1).max(128),
+    mode: z.literal('paper'),
+    symbol: z.string().min(1).max(64),
+    side: z.enum(['buy', 'sell']),
+    qty: amountSchema,
+    price: amountSchema,
+    filledAt: z.string().datetime({ offset: true }),
+    message: z.string().min(1).max(600),
+    channels: z.array(z.enum(['email', 'sms', 'push'])).max(3),
+  }),
+  'A paper strategy run filled an order under a fill alert. svc-notify writes one inbox notice per event id.',
+);
+
 // ── blueprint (§7.1) ─────────────────────────────────────────────────────────
 //
 // Doctrine §0.7 governs these payloads as much as any UI string: nothing here
@@ -822,6 +917,40 @@ export const positionUpdated = defineEvent(
   'svc-trade futures position changed — private WS fans this to the owning principal only.',
 );
 
+/**
+ * One change in the balance of one asset on a person's own venue account, as the venue reports it (J-cex-spot-15 #9).
+ * Published by svc-trade's venue balance watch; `/private/stream?channel=balances` fans it to the owner only.
+ *
+ * Not a money path: INTAFACED holds none of it and the ledger posts nothing. The venue is the record of the balance;
+ * `total` is the venue's own new total for the asset. `changeId` is a business key: the venue's own id for the record
+ * that changed the balance (a deposit's reference, a fill's trade id) with the account and the asset, so the same
+ * change always carries the same id and a consumer ignores a repeat. `source` names what changed it; `other` is a
+ * change the venue reported no record for, keyed by the account's own count of changes for that asset.
+ */
+export const venueBalanceChanged = defineEvent(
+  'trade',
+  'venue_balance',
+  'updated',
+  1,
+  z.object({
+    changeId: z.string().min(1).max(400),
+    userId: userIdSchema,
+    venueId: z.string().min(1),
+    owner: z.string().regex(/^0x[0-9a-f]{40}$/),
+    subAccount: z.string().nullable(),
+    asset: z.string().min(1),
+    source: z.enum(['deposit', 'transfer_in', 'trade', 'other']),
+    /** The venue's own id for the record behind the change; null for `other`. */
+    sourceId: z.string().nullable(),
+    /** The change, signed. */
+    change: signedAmountSchema,
+    /** The venue's new total for the asset after this change. */
+    total: amountSchema,
+    ts: z.string().datetime({ offset: true }),
+  }),
+  "A person's own venue balance changed — private WS fans this to the owning principal only.",
+);
+
 // ── protocol (§17.4 · Protocol Plane, non-custodial) ─────────────────────────
 //
 // Every event below is an OBSERVATION of chain state, not a record of something
@@ -983,6 +1112,28 @@ export const agentUsageAlertCrossed = defineEvent(
  * has not run. It carries the tool id and the request, never the call's input: what the agent wants to write is the
  * person's content, read in the Approvals inbox under their own authorisation.
  */
+export const agentAlertFired = defineEvent(
+  'agents',
+  'alert',
+  'triggered',
+  1,
+  z.object({
+    /** The business key, one per rule and window: `agents.alert:<rule id>:<window start>`. */
+    alertKey: z.string().min(1).max(200),
+    alertId: z.string().guid(),
+    /** The operator who stored the rule: the alert goes to their inbox. */
+    userId: userIdSchema,
+    ruleName: z.string().min(1).max(80),
+    measure: z.enum(['refusal_rate', 'failure_rate', 'cost']),
+    /** Decimal strings, never numbers: percent of the window's actions for a rate, the fee asset for cost. */
+    value: z.string().regex(/^\d{1,20}(\.\d{1,18})?$/),
+    threshold: z.string().regex(/^\d{1,20}(\.\d{1,18})?$/),
+    windowStart: z.string().datetime({ offset: true }),
+    windowEnd: z.string().datetime({ offset: true }),
+  }),
+  'An operator’s agent alert rule went above its threshold in one window (AG-analytics-02). Published once per rule and window while alert notifications are on.',
+);
+
 export const agentApprovalRequested = defineEvent(
   'agents',
   'approval',
@@ -1001,6 +1152,29 @@ export const agentApprovalRequested = defineEvent(
     expiresAt: z.string().datetime(),
   }),
   'An own agent’s tool call waits for its owner’s approval. Published once per request, so the owner is told once.',
+);
+
+/**
+ * A background run of a person's agent session took its last step (AG-sessions-04, J-agents-06 #2). svc-notify writes
+ * the inbox row, once per run, linking to the run's page with its result, and tries the out-of-app channel the person
+ * asked for, whose delivery is recorded even when no vendor is set. Carries ids and the channel only, never the reply.
+ */
+export const agentRunCompleted = defineEvent(
+  'agents',
+  'run',
+  'completed',
+  1,
+  z.object({
+    /** The background run, and its business key: one notice per run, however often it is sent. */
+    runId: z.string().guid(),
+    userId: userIdSchema,
+    sessionId: z.string().guid(),
+    agentId: z.string().min(1).max(120),
+    /** The out-of-app channel the person asked to be told on; `inapp` asks for the inbox row alone. */
+    notice: z.enum(['inapp', 'email', 'sms', 'push']),
+    finishedAt: z.string().datetime(),
+  }),
+  'A background run of an agent session finished. Published once per run, so the person is told once.',
 );
 
 // ── p2p (§6.2) ───────────────────────────────────────────────────────────────
@@ -1303,6 +1477,8 @@ export const COPY_SKIP_REASON_IDS = [
   'insufficient_funds',
   'max_copy_total',
   'copy_slippage_exceeded',
+  'per_contract_cap',
+  'daily_cap',
   'position_closed',
   'refused',
 ] as const;
@@ -1372,6 +1548,28 @@ export const copyStopped = defineEvent(
 );
 
 /**
+ * A recurring buy found too little free quote on the person's own venue account for a slot and was suspended
+ * (J-copy-bots-otc-16 #6). No funds move: the slot bought nothing. svc-trade publishes once per rule and slot, after the
+ * status moved, so consumers dedupe on (ruleId, slot). The person is told once; funds arriving resume the rule.
+ */
+export const recurringBuySuspended = defineEvent(
+  'trade',
+  'recurring_buy',
+  'paused',
+  1,
+  z.object({
+    ruleId: copyFollowIdSchema,
+    userId: userIdSchema,
+    slot: z.number().int().min(0),
+    asset: z.string().regex(/^[A-Z0-9]{2,20}$/),
+    amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    free: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    suspendedAt: z.string().datetime({ offset: true }),
+  }),
+  'A recurring buy was suspended for insufficient funds at one slot. No funds move; consumers dedupe on (ruleId, slot). The person is told once.',
+);
+
+/**
  * A delisting INTAFACED scheduled for a market on an outside venue it routes customers' own orders to (J-cex-spot-16 #8).
  * Our listing record only: the venue's own state is the venue's. No funds move and no order is touched.
  */
@@ -1397,6 +1595,39 @@ export const venueDelistingScheduled = defineEvent(
     noticeKey: z.string().min(1).max(256),
   }),
   'Two operators scheduled the date a venue market leaves the routed list. svc-trade writes the listing version and the notice row first and publishes after commit, republishing until it is sent; consumers dedupe on (noticeKey), so customers get one dated notice per market and date.',
+);
+
+/**
+ * A margin or liquidation-risk alert on an isolated position on the person's own venue account (J-derivatives-06 #6):
+ * one crossing of a level, with the venue's figures at it. No funds move and nothing is sent to the venue.
+ */
+export const venueRiskAlerted = defineEvent(
+  'trade',
+  'venue_risk_alert',
+  'crossed',
+  1,
+  z.object({
+    /** The business key the one notice is filed under: `risk:<user>:<venue>:<owner>:<symbol>:<sequence>`. */
+    alertKey: z.string().min(1).max(256),
+    userId: userIdSchema,
+    symbol: z.string().min(1).max(64),
+    kind: z.enum(['margin', 'margin_call', 'liquidation']),
+    asset: z.string().min(1).max(32),
+    /** Decimal strings, never numbers: the margin level, or a ratio in percent for a margin call or the liquidation alert. */
+    level: z.string().regex(/^\d{1,40}(\.\d{1,18})?$/),
+    marginWithResult: z.string().regex(/^-?\d{1,40}(\.\d{1,18})?$/),
+    marginRatio: z
+      .string()
+      .regex(/^\d{1,40}(\.\d{1,18})?$/)
+      .nullable(),
+    /** What a margin call asks: the margin to add for the ratio to come back to its level; null for a margin alert. */
+    asked: z
+      .string()
+      .regex(/^\d{1,40}(\.\d{1,18})?$/)
+      .nullable(),
+    raisedAt: z.string().datetime({ offset: true }),
+  }),
+  'One crossing of a margin or liquidation-risk level on a venue position. svc-trade writes the alert row first and publishes after commit, republishing until it is sent; consumers dedupe on (alertKey), so the person gets one alert per crossing.',
 );
 
 export const projectionUpdated = defineEvent(
@@ -1468,7 +1699,10 @@ export const personalTransferPosted = defineEvent(
     recipientUserId: userIdSchema,
     amount: amountSchema,
     assetId: assetIdSchema,
-    ledgerTxId: z.string().min(1).max(128),
+    /** The ledger transaction of a send on the custodial layer; null when the partner bank moved it. */
+    ledgerTxId: z.string().min(1).max(128).nullable(),
+    /** The partner bank's move of a send it holds the money for (OWNER 226); absent or null on the custodial layer. */
+    partnerMoveId: z.string().min(1).max(128).nullable().optional(),
     postedAt: z.string().datetime({ offset: true }),
   }),
   'A personal send posted. svc-notify writes pay.transfer_sent for the sender and pay.transfer_received for the recipient.',
@@ -1560,6 +1794,38 @@ export const bankScheduledFailed = defineEvent(
     failedAt: z.string().datetime({ offset: true }),
   }),
   'A standing order run was refused and posted nothing. svc-notify writes bank.scheduled_failed for its owner.',
+);
+
+/**
+ * RC-bank-02 (J-bank-13 #7). Cashback earned on one card capture the card partner holds (launch money model, OWNER 226 and
+ * 288). INTAFACED holds none of the card's money, so the cashback is never credited to a balance: svc-bank records it
+ * once per authorisation (`bank.card_cashback`, `paid_by = 'wallet'`) at the rate of the person's rank card tier, and
+ * announces it until the bus takes it. svc-campaigns' earning rules owe it in USDC (`rewardOwe`, our liability) and its
+ * payer pays it to the person's own connected wallet. Keyed by the authorisation, so a redelivery owes nothing twice.
+ */
+export const bankCardCashbackEarned = defineEvent(
+  'bank',
+  'card_cashback',
+  'earned',
+  1,
+  z
+    .object({
+      /** The card authorisation whose capture earned it; one cashback per authorisation. */
+      authorizationId: z.string().guid(),
+      cardId: z.string().guid(),
+      userId: userIdSchema,
+      /** What the partner captured, in the card's asset. */
+      spend: amountSchema,
+      /** The cashback earned on it, in the same asset: spend x rate, rounded down. */
+      cashback: amountSchema,
+      assetId: assetIdSchema,
+      /** The rank card tier and its rate in basis points, as svc-bank read them at the capture. */
+      tier: z.string().min(1).max(32),
+      rateBps: z.number().int().min(1).max(10_000),
+      earnedAt: z.string().datetime({ offset: true }),
+    })
+    .strict(),
+  "Cashback was earned on a partner-held card capture. svc-campaigns owes it in USDC and pays it to the person's own wallet.",
 );
 
 // ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
@@ -2025,12 +2291,36 @@ export const payWithdrawalStatusUpdated = defineEvent(
   'A customer withdrawal moved to a new status (requested, held, broadcast, settled, failed and the rest of ENGINE W-1). One event per move; deduplicated by (withdrawalId, seq).',
 );
 
+// ── academy: a moderator deleted a learner's discussion posts (AC-rooms-02, J-academy-18) ─
+
+/**
+ * A moderator deleted one of a learner's posts in a course discussion, or every post of theirs in one course, with a
+ * reason. svc-academy keeps the event row and sends this once the bus is reachable (its outbox); svc-notify tells the
+ * author in their notification tray. One event per moderation event: consumers dedupe on eventId. Who reported the post
+ * never rides here. No money moves.
+ */
+export const academyDiscussionPostDeleted = defineEvent(
+  'academy',
+  'discussion_post',
+  'deleted',
+  1,
+  z.object({
+    eventId: z.string().guid(),
+    authorId: userIdSchema,
+    courseTitle: z.string().min(1).max(200),
+    posts: z.number().int().positive(),
+    reason: z.string().min(1).max(500),
+  }),
+  "A moderator deleted a learner's discussion post, or every post of theirs in one course, with a reason. One event per moderation event; deduplicated by eventId.",
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
   xpEarned,
   rankUpdated,
   userCreated,
+  referralCreated,
   kycApproved,
   kycSubmitted,
   kycRejected,
@@ -2038,6 +2328,8 @@ export const EVENT_CATALOG = {
   securityFactorChanged,
   deathNoticeCreated,
   deathNoticeConfirmed,
+  selfFreezeApplied,
+  supportAccountFrozen,
   staffCreated,
   staffUpdated,
   staffDeleted,
@@ -2068,6 +2360,7 @@ export const EVENT_CATALOG = {
   buybackExecuted,
   bankMarginCalled,
   supportTicketResolved,
+  quantOrderFilled,
   personalRequestCreated,
   personalRequestSettled,
   personalTransferPosted,
@@ -2075,6 +2368,7 @@ export const EVENT_CATALOG = {
   personalDisputeUpdated,
   bankScheduledReminder,
   bankScheduledFailed,
+  bankCardCashbackEarned,
   blueprintCreated,
   blueprintDeleted,
   crewMemberCreated,
@@ -2086,6 +2380,7 @@ export const EVENT_CATALOG = {
   orderUpdated,
   fillSettled,
   positionUpdated,
+  venueBalanceChanged,
   protocolAccountCreated,
   protocolSessionKeyCreated,
   protocolSessionKeyCancelled,
@@ -2093,7 +2388,9 @@ export const EVENT_CATALOG = {
   agentActionRejected,
   agentUsageSettled,
   agentUsageAlertCrossed,
+  agentAlertFired,
   agentApprovalRequested,
+  agentRunCompleted,
   p2pOfferCreated,
   p2pEscrowLocked,
   p2pEscrowReleased,
@@ -2105,6 +2402,7 @@ export const EVENT_CATALOG = {
   p2pTradeReminderSent,
   p2pOfferPaused,
   p2pTraderPosted,
+  academyDiscussionPostDeleted,
   p2pRemarkCaseOpened,
   p2pChatMessageSent,
   p2pDisputeEscalated,
@@ -2112,7 +2410,9 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  recurringBuySuspended,
   venueDelistingScheduled,
+  venueRiskAlerted,
   projectionUpdated,
 } as const;
 
@@ -2151,9 +2451,10 @@ export function eventBySubject(s: string): EventDef | undefined {
  * All three are kept here after the fact, because the SHAPE is what this list
  * exists for and every one of them was found by accident rather than on purpose.
  *
- * `tooling/ci/event-wiring.mjs` now reads the code and this list together, and
- * fails when they disagree. So the only two states an unwired event can be in
- * are: RECORDED HERE, with a reason a human wrote and a CLASS — or RED.
+ * An unwired event is RECORDED HERE, with a reason a human wrote and a CLASS.
+ * No CI check reads the code against this list since the event-wiring gate was
+ * removed: svc-notify logs an undeclared consumer at ERROR and counts it on
+ * /ready at boot, and a journey that needs the event fails.
  *
  * THE RULES, because a socket list rots into a suppression list otherwise:
  *
@@ -2315,7 +2616,7 @@ export const WIRING_SOCKETS = [
   // `bankMarginCalled` was here, and was the reason this section existed: a
   // complete event with a complete svc-notify consumer that parked on a stream
   // no service had ever created. svc-bank now owns `INTAFACED_BANK` and publishes
-  // the call — see services/svc-bank/src/loans/margin-call-publisher.ts. That
+  // the call — see crates/svc-bank/src/loans/ports.rs. That
   // entry left by being wired, not by being reworded.
   //
   // `buybackExecuted` is the current occupant. The catalog event stays; emitting
@@ -2473,34 +2774,6 @@ export const WIRING_SOCKETS = [
       'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
   },
   {
-    event: 'coreOpsReconciliationAlertOpened',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertUpdated',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertResolved',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertAccepted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
     event: 'coreOpsComplianceCaseCreated',
     missing: 'publisher',
     class: 'A',
@@ -2613,7 +2886,7 @@ export const WIRING_SOCKETS = [
      * invisible to the check built to see it, which is strictly worse than the
      * honest entry it replaced.
      *
-     * `docs/TRACKER.md` never stopped saying this event "has no consumer yet". The
+     * The generated status board (since removed) never stopped saying this event "has no consumer yet". The
      * docs and the runtime agreed the whole time; only the catalog and the gate
      * disagreed.
      *

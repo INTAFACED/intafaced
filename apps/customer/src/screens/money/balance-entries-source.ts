@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../../features/session/session';
 import { classifyFailure } from '../../data/poll';
-import { BALANCE_ENTRIES_PAGE, balanceEntriesSchema, type BalanceEntriesPage, type BalanceEntryRow } from './balance-entries-model';
+import { BALANCE_ENTRIES_PAGE, type BalanceEntriesPage, type BalanceEntryRow } from './balance-entries-model';
+import { BANK_PORTFOLIO_BALANCE_ENTRIES } from '@intafaced/contracts/bank-portfolio-procedures';
 
 const MISMATCH = 'portfolio.entries_do_not_sum';
 
@@ -41,12 +42,12 @@ export function useBalanceEntries(assetId: string, accountId: string | null): Ba
 
   const load = useCallback(
     async (next: string | null, token: number) => {
-      const result = await api.query(
-        'bank',
-        'portfolio.balanceEntries',
-        { assetId, limit: BALANCE_ENTRIES_PAGE, ...(accountId ? { accountId } : {}), ...(next ? { cursor: next } : {}) },
-        balanceEntriesSchema,
-      );
+      const result = await api.call(BANK_PORTFOLIO_BALANCE_ENTRIES, {
+        assetId,
+        limit: BALANCE_ENTRIES_PAGE,
+        ...(accountId ? { accountId } : {}),
+        ...(next ? { cursor: next } : {}),
+      });
       if (token !== alive.current) return;
       busy.current = false;
       if (result.ok) {
@@ -79,7 +80,6 @@ export function useBalanceEntries(assetId: string, accountId: string | null): Ba
           : { status: 'error', retry: () => startRef.current() },
       );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [api, assetId, accountId],
   );
 

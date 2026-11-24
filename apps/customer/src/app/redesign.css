@@ -10,6 +10,7 @@
 @import '@intafaced/ui/theme/base.css';
 @import '@intafaced/ui/brand.css';
 @import 'tailwindcss/utilities.css' layer(utilities);
+@import '@intafaced/ui/theme/table-phone.css';
 
 /* Tailwind classes used by screens (the kit's own components are scanned by theme.css). */
 @source '..';

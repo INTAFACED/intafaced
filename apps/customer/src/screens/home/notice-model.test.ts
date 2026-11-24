@@ -13,6 +13,11 @@ const notice = (over: Partial<Notice>): Notice => ({
   endsAt: null,
   version: 1,
   changelog: null,
+  asset: null,
+  network: null,
+  phase: null,
+  category: null,
+  audience: 'everyone',
   ...over,
 });
 

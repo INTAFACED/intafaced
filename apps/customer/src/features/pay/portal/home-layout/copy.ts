@@ -63,6 +63,7 @@ const en = {
   activity: 'Activity',
   destinations: 'Destinations',
   security: 'Security',
+  openBusiness: 'Open a business account',
 } as const;
 export const layoutCopy = defineCopy('pay.portal.layouts', en);
 /** The wording as written, for the copy lint. */

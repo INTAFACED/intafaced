@@ -1,6 +1,6 @@
 import { Page } from '../../shared/ui';
 import { businessCopy } from './business-verification-copy';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 
 const STEPS = [
   { path: '/pay/onboarding/business', title: 'step1', body: 'step1Body' },
@@ -15,13 +15,13 @@ export function BusinessVerification() {
     <Page title={copy.t('title')} description={copy.t('intro')}>
       <div className="pub-card pub-card--flat">
         <h2>{copy.t('whereTitle')}</h2>
-        <p className="muted">{copy.t('whereBody')}</p>
+        <p className="lt-muted">{copy.t('whereBody')}</p>
         <ol className="pub-list">
           {STEPS.map((step) => (
             <li key={step.path}>
               <span>
                 <strong>{copy.t(step.title)}</strong>
-                <span className="muted">{copy.t(step.body)}</span>
+                <span className="lt-muted">{copy.t(step.body)}</span>
               </span>
               <a className="text-link" href={step.path}>
                 {copy.t('open')} →
@@ -34,7 +34,7 @@ export function BusinessVerification() {
         <section className="pub-card">
           <h2>{copy.t('startTitle')}</h2>
           <p>{copy.t('startBody')}</p>
-          <a className="button button--primary" href="/pay/merchant">
+          <a className="lt-button lt-button-primary" href="/pay/merchant">
             {copy.t('startAction')}
           </a>
         </section>
@@ -46,7 +46,7 @@ export function BusinessVerification() {
           </a>
         </section>
       </div>
-      <p className="muted">{copy.t('boundary')}</p>
+      <p className="lt-muted">{copy.t('boundary')}</p>
     </Page>
   );
 }

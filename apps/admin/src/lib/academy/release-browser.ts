@@ -1,8 +1,7 @@
 /** Browser hop for the release and pacing section. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { ReleaseDeskReply, ReleaseView } from './release-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchRelease(courseId: string): Promise<ReleaseView | null> {
   try {

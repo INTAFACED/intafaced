@@ -81,7 +81,13 @@ export type Problem =
   | { kind: 'amountMin'; min: string }
   | { kind: 'priceTick'; tick: string }
   | { kind: 'valueMin'; min: string }
-  | { kind: 'noPrice' };
+  | { kind: 'noPrice' }
+  /** A new listing in its opening window takes limit orders only (J-cex-spot-14 #7). */
+  | { kind: 'openingWindow' }
+  /** A higher-risk zone market (J-cex-spot-14 #7): limit orders only; none at all while its cap is unset; none over it. */
+  | { kind: 'zone' }
+  | { kind: 'zoneUnset' }
+  | { kind: 'zoneCap'; cap: string };
 
 /** `stopLossLimit` is the buy OCO's stop-loss limit price (the stop-loss is the trigger); a sell OCO and a bracket have none. */
 export type Exit = { takeProfit: string; stopLoss: string; stopLossLimit?: string };
@@ -154,11 +160,21 @@ export function orderValue(input: FormInput, ref: Reference | null): { value: st
  */
 export function checkOrder(
   input: FormInput,
-  market: Pick<DeskMarket, 'tickSize' | 'lotSize' | 'minAmount' | 'minCost'>,
+  market: Pick<DeskMarket, 'tickSize' | 'lotSize' | 'minAmount' | 'minCost' | 'openingWindowEndsAt' | 'zone' | 'zoneOrderCap'>,
   ref: Reference | null,
+  now: number = Date.now(),
 ): Checked {
   const amount = positive(input.amount);
   if (amount === null) return { ok: false, problem: { kind: 'amountEmpty' } };
+  // Inside a new listing's opening window only a limit order is taken: any other type is refused here, in words, before
+  // anything is sent, as the door refuses it (`trade.opening_window`).
+  if (market.openingWindowEndsAt != null && now < market.openingWindowEndsAt && input.type !== 'limit')
+    return { ok: false, problem: { kind: 'openingWindow' } };
+  // A higher-risk zone market takes limit orders only, and none while its owner cap is unset, as the door refuses them
+  // (`trade.zone_setting_unset`, `trade.higher_risk_zone`).
+  const zoneCap = market.zone === 'higher_risk' ? positive(market.zoneOrderCap ?? null) : null;
+  if (market.zone === 'higher_risk' && zoneCap === null) return { ok: false, problem: { kind: 'zoneUnset' } };
+  if (market.zone === 'higher_risk' && input.type !== 'limit') return { ok: false, problem: { kind: 'zone' } };
   const lot = positive(market.lotSize);
   if (lot !== null && amount % lot !== 0n) return { ok: false, problem: { kind: 'amountLot', lot: market.lotSize } };
   const minAmount = positive(market.minAmount);
@@ -236,6 +252,9 @@ export function checkOrder(
   if (judged === null) return { ok: false, problem: { kind: 'noPrice' } };
   const minCost = positive(market.minCost);
   if (minCost !== null && mul(judged, amount, 'floor') < minCost) return { ok: false, problem: { kind: 'valueMin', min: market.minCost! } };
+  // Over the zone's cap on one order's value (`trade.zone_cap_exceeded`).
+  if (zoneCap !== null && mul(judged, amount, 'ceil') > zoneCap)
+    return { ok: false, problem: { kind: 'zoneCap', cap: market.zoneOrderCap! } };
 
   return {
     ok: true,

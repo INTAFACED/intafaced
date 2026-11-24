@@ -95,7 +95,7 @@ describe('control-room procedures', () => {
   it('G7: every procedure under founderAdmin.* (including founderAdmin.control.*) sits behind founder authority', () => {
     const router = createPayNamespaces({ founderAuthority, control: new ControlService(sql, ownerAccessPorts(sql)) });
     expect(findUnguardedFounderProcedures(router, FOUNDER_ONLY_PREFIXES)).toEqual([]);
-    const paths = Object.keys((router as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
+    const paths = Object.keys((router as { _def: { procedures: Record<string, unknown> } })._def.procedures);
     expect(paths.filter((p) => p.startsWith('founderAdmin.control.')).length).toBe(10);
   });
 
@@ -158,7 +158,7 @@ describe('control-room procedures', () => {
 
     it('a team checker decides on pay:onboard: an active member of a verified business reaches the role check, an owner needs a live pay:write', async () => {
       // The owner grant law gives pay:write to the owner alone; admin and finance carry pay:onboard and hold
-      // payout.approve in the role table, so deciding is a team member's write (teamMemberWrite).
+      // payout.approve in the role table, so deciding is a team member's write (teamMemberCheck).
       const owner = randomUUID();
       const finance = randomUUID();
       const stranger = randomUUID();

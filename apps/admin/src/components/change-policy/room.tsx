@@ -1,6 +1,6 @@
 import type { ActionApprovalPolicyEntry } from '@intafaced/contracts';
 import { formatAsOf } from '@/lib/as-of';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import '../desk.css';
 
 /**

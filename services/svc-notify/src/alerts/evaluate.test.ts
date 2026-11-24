@@ -44,6 +44,8 @@ const base: PriceAlert = {
   burstCount: 0,
   lastFiredAt: null,
   source: 'mark',
+  channels: null,
+  webhookUrl: null,
 };
 
 describe('decimal string compare — no JS number', () => {

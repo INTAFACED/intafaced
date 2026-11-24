@@ -1,25 +1,9 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyRefusalText } from './academy-flows';
-import type { AcademyPath, CertificateState, LessonStatus } from './academy-lms';
 import './academy-lms.css';
-
-const pathKeys = {
-  foundations: 'pathFoundations',
-  markets: 'pathMarkets',
-  builder: 'pathBuilder',
-  sovereign: 'pathSovereign',
-} as const;
-const kindKeys = { playbook: 'kindPlaybook', workbook: 'kindWorkbook', lesson: 'kindLesson' } as const;
-/** A lesson's kind as a person reads it. A kind this app does not know is shown as sent. */
-export const kindLabel = (t: (typeof copy)['t'], kind: string): string =>
-  kind in kindKeys ? t(kindKeys[kind as keyof typeof kindKeys]) : kind;
-const typeKeys = { lesson: 'outlineLesson', quiz: 'outlineQuiz', assignment: 'outlineAssignment' } as const;
-/** What an item of a course is to the learner (lesson, quiz or assignment), as a person reads it. */
-export const itemTypeLabel = (t: (typeof copy)['t'], type: keyof typeof typeKeys): string => t(typeKeys[type]);
-export const pathLabel = (t: (typeof copy)['t'], path: AcademyPath) => t(pathKeys[path]);
 
 /**
  * A bar is only drawn from a real ratio. Callers pass null when nothing is tracked and get text instead.
@@ -43,33 +27,6 @@ export function ProgressBar({ percent, label }: { percent: number; label: string
   );
 }
 
-const statusKeys = { recorded: 'statusRecorded', pending: 'statusPending', open: 'statusOpen' } as const;
-export function StatusChip({ status }: { status: LessonStatus }) {
-  const { Copy } = copy.useCopy();
-  return (
-    <span className="academy-lms-chip" data-status={status}>
-      <Copy k={statusKeys[status]} />
-    </span>
-  );
-}
-
-const stateKeys = {
-  earned: 'stateEarned',
-  ready: 'stateReady',
-  issuing: 'stateIssuing',
-  revoked: 'stateRevoked',
-  'in-progress': 'stateInProgress',
-  'not-started': 'stateNotStarted',
-} as const;
-export function CertificateChip({ state }: { state: CertificateState }) {
-  const { Copy } = copy.useCopy();
-  return (
-    <span className="academy-lms-chip" data-status={state}>
-      <Copy k={stateKeys[state]} />
-    </span>
-  );
-}
-
 /**
  * A failed Academy request. The service's typed refusals are worded here in plain language; anything else (a dropped
  * connection, a sign-in problem) goes to the shared failure panel, which words those.
@@ -79,36 +36,8 @@ export function AcademyRefusal({ failure, retry }: { failure: Extract<ApiResult<
   const words = academyRefusalText(failure, t);
   if (words === null) return <Failure result={failure} retry={retry} />;
   return (
-    <div data-testid="failure" className="failure" role="status">
+    <div data-testid="failure" className="lt-refusal" role="status">
       <p>{words}</p>
-    </div>
-  );
-}
-
-/**
- * A button that states why it is off. The reason sits next to the button, not in a tooltip, and the button points at it,
- * so a screen reader hears it with the button. When the button is on, no reason is shown.
- */
-export function GuardedButton({
-  reason,
-  reasonId,
-  children,
-  ...props
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'disabled'> & {
-  reason: ReactNode | null;
-  reasonId: string;
-  variant?: 'primary' | 'secondary';
-}) {
-  return (
-    <div className="academy-lms-disabled">
-      <Button {...props} disabled={reason !== null} aria-describedby={reason !== null ? reasonId : undefined}>
-        {children}
-      </Button>
-      {reason !== null && (
-        <small id={reasonId} className="muted">
-          {reason}
-        </small>
-      )}
     </div>
   );
 }
@@ -120,7 +49,7 @@ export function DisabledWithReason({ label, reason, id }: { label: ReactNode; re
       <Button variant="secondary" disabled aria-describedby={id}>
         {label}
       </Button>
-      <small id={id} className="muted">
+      <small id={id} className="lt-muted">
         {reason}
       </small>
     </div>

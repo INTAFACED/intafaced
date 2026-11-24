@@ -1,3 +1,4 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 
@@ -16,7 +17,7 @@ export interface Notification {
   kind: string;
   titleKey: string;
   bodyKey: string;
-  params: Record<string, unknown>;
+  params: Record<string, JsonValue>;
   href: string | null;
   severity: Severity;
   readAt: Date | null;
@@ -30,7 +31,7 @@ export interface InsertNotificationInput {
   kind: string;
   titleKey: string;
   bodyKey: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, JsonValue>;
   href?: string | null;
   severity?: Severity;
   sourceSubject: string;
@@ -247,7 +248,7 @@ type PgRow = {
   kind: string;
   title_key: string;
   body_key: string;
-  params: Record<string, unknown> | string | null;
+  params: Record<string, JsonValue> | string | null;
   href: string | null;
   severity: Severity;
   read_at: Date | null;
@@ -257,11 +258,11 @@ type PgRow = {
 };
 
 /** Rows written before the `::text::jsonb` fix hold the object as a JSON string; read both shapes. */
-function paramsFromPg(value: Record<string, unknown> | string | null): Record<string, unknown> {
+function paramsFromPg(value: Record<string, JsonValue> | string | null): Record<string, JsonValue> {
   if (typeof value === 'string') {
     try {
       const parsed: unknown = JSON.parse(value);
-      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, JsonValue>) : {};
     } catch {
       return {};
     }

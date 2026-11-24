@@ -1,6 +1,7 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
+import { type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { isStorageUnconfigured, readConsoleMode, type ConsoleModeView } from './model';
+import { OPS_CONSOLE_MODE_GET } from '@intafaced/contracts/ops-console-mode-procedures';
 
 export interface ConsoleModeRead {
   readonly asOf: string;
@@ -18,7 +19,7 @@ export const CONSOLE_MODE_READ_TIMEOUT_MS = 2_000;
  * desk and the write hold, so they cannot disagree about the same moment. Never throws; a failure is `unknown`, never "off".
  */
 export async function loadConsoleMode(ctx: FounderCallContext): Promise<ConsoleModeRead> {
-  const result = await founderCall(ctx, 'ops', 'consoleMode.get', 'GET', undefined, readConsoleMode, {
+  const result = await founderRecordRead(ctx, OPS_CONSOLE_MODE_GET, undefined, readConsoleMode, {
     timeoutMs: CONSOLE_MODE_READ_TIMEOUT_MS,
   });
   const asOf = new Date().toISOString();

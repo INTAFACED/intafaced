@@ -91,7 +91,7 @@ async function expectRequirements(page, requirements) {
     const item = requirement(page, r.id);
     await expect(item).toHaveCount(1);
     await expect(item).toHaveAttribute('data-met', String(r.met));
-    await expect(item.locator('.launch-catalogue-badge')).toHaveText(r.met ? 'Met' : 'Not met');
+    await expect(item.getByTestId('launch-requirement-badge')).toHaveText(r.met ? 'Met' : 'Not met');
   }
 }
 
@@ -99,7 +99,7 @@ async function expectRequirements(page, requirements) {
 async function expectCards(page, events, stateWord) {
   const label = (e) => `${e.projectName} (${e.symbol})`;
   await expect(cards(page)).toHaveCount(events.length);
-  expect((await cards(page).getByRole('link').allTextContents()).sort()).toEqual(events.map(label).sort());
+  await expect.poll(async () => (await cards(page).getByRole('link').allTextContents()).sort()).toEqual(events.map(label).sort());
   for (const e of events) {
     const c = card(page, label(e));
     await expect(c).toHaveCount(1);

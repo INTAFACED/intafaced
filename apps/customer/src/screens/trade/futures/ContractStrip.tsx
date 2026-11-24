@@ -19,7 +19,7 @@ import { deskCopy } from './desk-copy';
 function Cell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-xs text-fg-2">{label}</span>
+      <span className="lt-hint">{label}</span>
       <span className="if-num truncate text-sm text-fg">{children}</span>
     </div>
   );

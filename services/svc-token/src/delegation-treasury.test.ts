@@ -249,7 +249,7 @@ describe('delegation and treasury routes', () => {
   });
 
   it('two refused delegates still leave the read null', async () => {
-    const token = {} as unknown as TokenService;
+    const token = {} as TokenService;
     const caller = createTokenRouter(token).createCaller(signed());
     const results = await Promise.allSettled([caller.delegate({ delegateeUserId: OTHER }), caller.delegate({ delegateeUserId: OTHER })]);
     expect(results.map((r) => (r.status === 'rejected' ? (r.reason as { cause?: { code?: string } }).cause?.code : 'ok'))).toEqual([

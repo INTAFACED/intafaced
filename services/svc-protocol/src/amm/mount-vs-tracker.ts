@@ -1,7 +1,7 @@
 /**
  * D26-P1-A2 — protocol.amm mount vs tracker honest gaps.
  *
- * Constant-product pools: math + on-chain mint/swap calldata mounted.
+ * Constant-product pools: math + on-chain swap calldata mounted.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 export const AMM_TRACKER_ID = 'protocol.amm' as const;
 
-export const AMM_MOUNTED_DOORS = ['quoteExactIn', 'quoteFromPool', 'buildCreatePool', 'buildSwapExactIn'] as const;
+export const AMM_MOUNTED_DOORS = ['quoteFromPool', 'buildSwapExactIn'] as const;
 
 export const AMM_DONE_BAR_TEST_FILES = [
   'invariants.test.ts',
@@ -34,7 +34,7 @@ export function ammDoorsInRouterSource(): readonly (typeof AMM_MOUNTED_DOORS)[nu
 export function ammBuildHonestInSource(): boolean {
   const here = dirname(fileURLToPath(import.meta.url));
   const src = readFileSync(join(here, 'build.ts'), 'utf8');
-  return /buildSwapExactIn/.test(src) && /buildCreatePool/.test(src) && /quoteExactIn/.test(src);
+  return /buildSwapExactIn/.test(src) && /quoteExactIn/.test(src);
 }
 
 export function ammDoneBarTestsPresent(): boolean {

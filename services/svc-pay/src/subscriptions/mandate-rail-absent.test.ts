@@ -106,9 +106,9 @@ describe('PAY_REGISTER_CARD_SANDBOX stays off in ship postures', () => {
 describe('bounded dunning stays parked — no invented magnitudes', () => {
   it('dunning bound is attempt count then named stall, not fees or retry money', () => {
     const bound = mandateDunningBound();
-    expect(Object.keys(bound).sort()).toEqual(['maxAttemptsPerCycle', 'stallReason', 'then']);
+    expect(Object.keys(bound).sort()).toEqual(['afterLimit', 'maxAttemptsPerCycle', 'stallReason']);
     expect(bound.maxAttemptsPerCycle).toBe(MAX_ATTEMPTS_PER_CYCLE);
-    expect(bound.then).toBe('stall_named');
+    expect(bound.afterLimit).toBe('stall_named');
     expect(bound).not.toHaveProperty('lateFee');
     expect(bound).not.toHaveProperty('retryAmount');
     expect(bound).not.toHaveProperty('feeBps');

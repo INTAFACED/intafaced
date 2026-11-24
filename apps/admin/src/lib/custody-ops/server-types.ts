@@ -1,4 +1,4 @@
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { CustodyApprover, CustodyTask } from './model';
 import type { OpenItems } from './open-items';
 

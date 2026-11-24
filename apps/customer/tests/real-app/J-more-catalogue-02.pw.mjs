@@ -1,16 +1,18 @@
 // World: book, restart
+// Stack: fresh
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, fund, journeyState, ORIGIN, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
-import { approvedSeller, testStrategyListing } from './market-listing.mjs';
+import { approvedSeller, publishStrategyListing } from './market-listing.mjs';
 
 // J-more-catalogue-02, in the running app (docs/roadmap/journeys.json): find a strategy in the Market and buy it. One test
 // per step, titled "J-more-catalogue-02 #<n>". The buyer is a TEST account on the local stack, verified and funded with
 // TEST USDT through the real ledger. The listing is a TEST strategy listing this run publishes through the product's own
 // doors (market-listing.mjs: a TEST seller stakes, applies, is approved by the stack's TEST operators, and lists). The
-// purchase is held, then released or refunded once; the steps read the buyer's ledger
+// file runs on a fresh stack (`// Stack: fresh`, world-line.mjs), so #1 first sees svc-market's catalogue empty, and the
+// seller lists only then. The purchase is held, then released or refunded once; the steps read the buyer's ledger
 // balance to check each moves once.
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -58,32 +60,68 @@ async function listingRead(who) {
   return res.body.result.data;
 }
 
+/** svc-market's rows newest first by the time it registered each (the Market's default sort, Newest). */
+const byNewest = (rows) => [...rows].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+/** Two rows by price as exact decimals, low first. */
+const byPrice = (a, b) => (toUnits(a.price) < toUnits(b.price) ? -1 : toUnits(a.price) > toUnits(b.price) ? 1 : 0);
+
 /** The typed code of a refused tRPC call, as svc-market sends it. */
 const codeOf = (reply) => reply.body?.error?.message ?? reply.body?.error?.json?.message;
 
-test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST seller's TEST strategy listing`, async ({ page }) => {
+test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST seller who lists a TEST strategy in #1`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const title = `TEST strategy with a refund window ${Date.now().toString(36)}`;
-  const { seller, listing } = await testStrategyListing(page, { title });
-  expect(listing).toMatchObject({ title, offerType: 'subscription', status: 'active' });
+  const { seller } = await approvedSeller(page);
+  // The seller's track record (#2's performance): one market buy of their own, filled against the TEST book's maker.
+  expect(fund(seller.email, 'USDT', '200').tx).toBeTruthy();
+  const record = await (
+    await api(seller)
+  ).post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'market',
+    side: 'buy',
+    amount: '0.0002',
+    clientOrderId: `${J}-record-${Date.now()}`,
+  });
+  expect(record.status, JSON.stringify(record.body).slice(0, 300)).toBeLessThan(300);
   const who = await signUp(page, 'mk');
   await verify(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who, seller, title, listingId: listing.id });
+  run.reset({ who, seller, title, recordOrderId: record.body.id });
 });
 
 test(`${J} #1 opens /market: listings with terms, a listing-type switch and four entry points to their own rooms, ordered by registration, price or title, never by returns`, async ({
   page,
 }) => {
-  const { title, listingId } = run.read();
-  await openMarket(page);
-  const catalogue = (await marketRead(null, 'listings', { limit: 50 })).body.result.data;
-  const mine = catalogue.find((row) => row.id === listingId);
-  expect(mine, 'the run listing is in the public catalogue').toBeDefined();
+  test.setTimeout(120_000);
+  const { title, seller } = run.read();
   const cards = page
     .getByRole('main')
     .getByRole('article')
     .filter({ has: page.getByRole('button', { name: /^View / }) });
+
+  // An empty state when none: on this fresh stack svc-market's public catalogue holds no listing yet, and the Market says
+  // so rather than drawing a blank. Soft, so the listing below is still published for the later steps if this fails.
+  const none = await marketRead(null, 'listings', { limit: 50 });
+  expect.soft(none.status, JSON.stringify(none.body).slice(0, 300)).toBe(200);
+  expect.soft(none.body?.result?.data, 'svc-market lists nothing on a fresh stack').toEqual([]);
+  await openMarket(page);
+  await expect.soft(page.getByRole('main').getByText('No listings are available', { exact: true })).toBeVisible();
+  await expect.soft(cards).toHaveCount(0);
+
+  // The approved TEST seller lists the run's TEST strategy with a refund window; the catalogue now holds it.
+  const listing = await publishStrategyListing(await api(seller), { title });
+  expect(listing).toMatchObject({ title, offerType: 'subscription', status: 'active' });
+  run.write({ listingId: listing.id });
+  const listingId = listing.id;
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Market', level: 1, exact: true })).toBeVisible();
+  const catalogue = (await marketRead(null, 'listings', { limit: 50 })).body.result.data;
+  const mine = catalogue.find((row) => row.id === listingId);
+  expect(mine, 'the run listing is in the public catalogue').toBeDefined();
 
   // Listings with their terms: the run's card shows its price and asset as the service stores them.
   const card = cards.filter({ hasText: title });
@@ -102,7 +140,7 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
     await types.getByRole('radio', { name }).check();
     const expected = catalogue.filter((row) => row.offerType === offerType).map((row) => row.title);
     await expect(cards).toHaveCount(expected.length);
-    expect((await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual([...expected].sort());
+    await expect.poll(async () => (await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual([...expected].sort());
     await expect(card).toHaveCount(offerType === mine.offerType ? 1 : 0);
   }
   await types.getByRole('radio', { name: 'All listings' }).check();
@@ -110,7 +148,9 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
 
   // Ordered by registration, price or title, and never by returns.
   const sort = page.getByRole('combobox', { name: 'Sort by' });
-  expect(await sort.getByRole('option').allInnerTexts()).toEqual(['Newest', 'Price, low to high', 'Price, high to low', 'Title']);
+  await expect
+    .poll(async () => await sort.getByRole('option').allInnerTexts())
+    .toEqual(['Newest', 'Price, low to high', 'Price, high to low', 'Title']);
   expect((await sort.getByRole('option').allInnerTexts()).join(' ')).not.toMatch(/return|profit|performance|rank/i);
   const shownTitles = () => cards.getByRole('heading', { level: 3 }).allInnerTexts();
   // By registration: the Market opens on Newest, each listing in the order svc-market registered it, latest first
@@ -133,34 +173,49 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
   await sort.selectOption({ label: 'Newest' });
   expect(await shownTitles()).toEqual(byRegistration.map((row) => row.title));
 
-  // An empty state when nothing matches.
+  // And when the filters match none of the loaded listings.
   await page.getByRole('textbox', { name: 'Search listings' }).fill(`no listing is called this ${Date.now()}`);
   await expect(cards).toHaveCount(0);
   await expect(page.getByRole('main').getByText('No loaded listing matches these filters.')).toBeVisible();
 
-  // Four entry points, each opening its own section of the copy room that runs it.
-  const doors = page.getByRole('navigation', { name: 'More in the Market' });
+  // Four entry points, each linking to its owning room. All four rooms are built (the copy room's sections), so each door
+  // names no blocker, and following it opens that room's own section with its own heading.
+  const doors = page.getByRole('navigation', { name: 'More in the Market', exact: true });
   await expect(doors.getByRole('link')).toHaveCount(4);
-  for (const [name, tab, href] of [
-    ['Spot copy trading', 'Spot', '/trade/copy?tab=spot'],
-    ['Futures copy trading', 'Futures', '/trade/copy?tab=futures'],
-    ['Bot marketplace', 'Bots', '/trade/copy?tab=bots'],
-    ['Signal marketplace', 'Signal', '/trade/copy?tab=signal'],
+  await expect(doors).not.toContainText(/blocked|not built|coming soon|unavailable/i);
+  for (const [name, note, tab, heading, href] of [
+    ['Spot copy trading', 'Follow a spot leader.', 'Spot', 'Spot leaders', '/trade/copy?tab=spot'],
+    ['Futures copy trading', 'Follow a futures leader.', 'Futures', 'Futures leaders', '/trade/copy?tab=futures'],
+    ['Bot marketplace', 'Copy a listed trading bot.', 'Bots', 'Bot leaders', '/trade/copy?tab=bots'],
+    ['Signal marketplace', 'Follow a listed signal.', 'Signal', 'Signal leaders', '/trade/copy?tab=signal'],
   ]) {
     await page.goto('/market');
-    const door = page.getByRole('navigation', { name: 'More in the Market' }).getByRole('link', { name });
+    const entry = page.getByRole('navigation', { name: 'More in the Market', exact: true }).getByRole('listitem').filter({ hasText: name });
+    await expect(entry).toHaveText(`${name}${note}`);
+    const door = entry.getByRole('link', { name, exact: true });
     await expect(door).toHaveAttribute('href', href);
     await door.click();
     await expect(page).toHaveURL((url) => url.pathname + url.search === href);
     await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('#main')).not.toContainText('No customer route');
+    const section = page.getByRole('tabpanel');
+    await expect(section.getByRole('heading', { level: 2, name: heading, exact: true })).toBeVisible();
   }
 });
 
-test(`${J} #2 opens a listing by id: the seller profile, review summary and performance with its stated basis; an unknown id is a typed not-found`, async ({
+test(`${J} #2 opens a listing by id: the seller profile, review summary and performance figures with their stated basis; an unknown id is a typed not-found`, async ({
   page,
+  stepPicture,
 }) => {
-  const { title, listingId, seller } = run.read();
+  test.setTimeout(120_000);
+  const { title, listingId, seller, recordOrderId } = run.read();
+  // The seller's record is the market buy from Starts: wait until svc-trade has settled it, then read its fills.
+  const sellerApi = await api(seller);
+  await expect.poll(async () => (await sellerApi.get(`/api/v1/orders/${recordOrderId}`)).body?.status, { timeout: 60_000 }).toBe('closed');
+  const trades = await sellerApi.get(`/api/v1/orders/${recordOrderId}/trades?limit=100`);
+  expect(trades.status, JSON.stringify(trades.body).slice(0, 300)).toBe(200);
+  expect(trades.body.length).toBeGreaterThan(0);
+  const firstFill = Math.min(...trades.body.map((fill) => fill.timestamp));
+
   // The public read names the seller by their vendor profile, never by their user id.
   const signedOut = await marketRead(null, 'listing', { listingId });
   expect(signedOut.status, JSON.stringify(signedOut.body).slice(0, 300)).toBe(200);
@@ -168,36 +223,72 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   const vendor = (await marketRead(seller, 'mine', {})).body.result.data;
   expect(vendor.id).toBe(read.vendor.id);
   expect(JSON.stringify(read)).not.toContain(vendor.userId);
+  // Performance is the seller's track record from stored fills: every fill of their own orders (this run's seller has
+  // only the one order), and the first one's time. A count, never a return.
+  expect(read.performance).toEqual({
+    reported: true,
+    basis: 'seller_own_fills',
+    fills: trades.body.length,
+    firstFillAt: expect.any(String),
+  });
+  expect(Date.parse(read.performance.firstFillAt)).toBe(firstFill);
+  // No one has reviewed this run's new listing yet: the summary is svc-market's zero, with no mean.
+  expect(read.reviews).toEqual({ count: '0', mean: null, meanRounding: 'half-up-scale-18' });
+
+  // The review list loads apart from the listing, with its own loading status in the same Reviews region. Hold it
+  // open until the summary is read, so the summary is checked beside that second status on every run, not by luck.
+  let release = () => {};
+  const held = new Promise((resolve) => (release = resolve));
+  const reviewsList = '**/api/market/trpc/reviews.list?**';
+  await page.route(reviewsList, async (route) => {
+    await held;
+    await route.continue().catch(() => {});
+  });
 
   // From the catalogue: the listing's dialog links to its own page.
   const dialog = await openListing(page);
-  await dialog.getByRole('link', { name: 'Open the listing page' }).click();
+  await dialog.getByRole('link', { name: 'Open the listing page', exact: true }).click();
   await expect(page).toHaveURL((url) => url.pathname === `/market/${listingId}`);
   const main = page.getByRole('main');
   await expect(main.getByText(title, { exact: true }).first()).toBeVisible();
 
-  const terms = main.getByRole('region', { name: 'Terms' });
+  const terms = main.getByRole('region', { name: 'Terms', exact: true });
   await expect(terms).toContainText('Strategy subscription');
   await expect(terms).toContainText(`${read.terms.price} ${read.terms.assetId}`);
   // The TEST listing's period is whole days (market-listing.mjs), worded as the catalogue card words it.
   expect(read.terms.periodSeconds % 86_400).toBe(0);
   await expect(terms).toContainText(`${read.terms.periodSeconds / 86_400} days`);
 
-  const sellerPart = main.getByRole('region', { name: 'Seller' });
+  const sellerPart = main.getByRole('region', { name: 'Seller', exact: true });
   await expect(sellerPart).toContainText(read.vendor.displayName);
   await expect(sellerPart).toContainText(read.vendor.description);
   await expect(sellerPart).toContainText(`Active listings: ${read.activeListingCount}`);
 
-  const reviews = main.getByRole('region', { name: 'Reviews' });
-  if (read.reviews.count === '0') await expect(reviews.getByRole('status')).toHaveText('No reviews yet.');
-  else await expect(reviews.getByTestId('market-review-summary')).toContainText(`Reviews: ${read.reviews.count} `);
+  const reviews = main.getByRole('region', { name: 'Reviews', exact: true });
+  await expect(reviews.getByRole('status')).toHaveCount(2);
+  const summary = reviews.getByTestId('market-review-summary');
+  await expect(summary).toHaveAttribute('role', 'status');
+  await expect(summary).toHaveText('No reviews yet.');
+  release();
+  await page.unroute(reviewsList);
+  // The list answers and its loading status goes; the summary is the region's one status left.
+  await expect(reviews.getByRole('status')).toHaveCount(1);
+  await expect(reviews.getByRole('status')).toHaveAttribute('data-testid', 'market-review-summary');
 
-  // Performance with its stated basis: the service reports none, so no figure is drawn.
-  expect(read.performance).toEqual({ reported: false });
-  const performance = main.getByRole('region', { name: 'Performance' });
-  await expect(performance).toContainText('No performance reported.');
-  await expect(performance).toContainText(/Basis:/);
-  await expect(performance).not.toContainText(/%|\d+\.\d+/);
+  // The figures, each from the read, and the basis they are counted on, word for word.
+  const performance = main.getByRole('region', { name: 'Performance', exact: true });
+  await expect(performance.getByRole('heading', { level: 3 })).toHaveText('Performance');
+  await expect(performance.locator('dt')).toHaveText(['Fills of the seller’s own orders', 'First fill']);
+  await expect(performance.locator('dd')).toHaveText([
+    String(read.performance.fills),
+    new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(read.performance.firstFillAt)),
+  ]);
+  await expect(performance.locator('p')).toHaveText([
+    'Basis: the seller’s own trading, counted from the fills INTAFACED stored. A count of fills, not a return or a profit. Nothing in the Market is ranked by returns.',
+  ]);
+  await expect(performance).not.toContainText('%');
+  // The step's picture: the listing page with its figures and basis, before the not-found branch leaves it.
+  await stepPicture();
 
   // An unknown id: the service's typed not-found, and the page says so, never a blank page.
   const unknown = '00000000-0000-4000-8000-000000000000';
@@ -208,14 +299,14 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   await page.goto(`/market/${unknown}`);
   await expect(main).toContainText('No listing has this id.');
   await expect(main.locator('code', { hasText: 'market.listing_not_found' })).toBeVisible();
-  await expect(main.getByRole('link', { name: 'Back to the Market' })).toHaveAttribute('href', '/market');
+  await expect(main.getByRole('link', { name: 'Back to the Market', exact: true })).toHaveAttribute('href', '/market');
 });
 
 test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's, and each category shows exactly the listings filed under it, and no listing is ranked or placed above another (RC-more-catalogue-18)`, async ({
   page,
   browser,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   const taxonomy = (await marketRead(null, 'listingCategories', {})).body.result.data.categories;
   expect(taxonomy).toEqual([
     'bots',
@@ -228,31 +319,37 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
     'partner_integrations',
   ]);
 
-  // A TEST seller files a one-time listing under Data through the seller form's category picker.
-  const title = `TEST data listing ${Date.now().toString(36)}`;
-  const sellerContext = await browser.newContext({ baseURL: ORIGIN });
-  try {
-    const sellerPage = await sellerContext.newPage();
-    const { seller, client } = await approvedSeller(sellerPage);
-    await signIn(sellerPage, seller);
-    await sellerPage.goto('/market/mine');
-    const form = sellerPage.locator('form').filter({ has: sellerPage.getByRole('textbox', { name: 'Listing title' }) });
-    await form.getByRole('textbox', { name: 'Listing title' }).fill(title);
-    await form.getByRole('textbox', { name: 'Listing description' }).fill('TEST data listing on the local test stack. Not real data.');
-    await form.getByRole('combobox', { name: 'Offer type' }).selectOption('one_time');
-    await form.getByRole('combobox', { name: 'Category' }).selectOption({ label: 'Data' });
-    await form.getByRole('textbox', { name: 'Price asset ID' }).fill('USDT');
-    await form.getByRole('textbox', { name: 'Price', exact: true }).fill('5');
-    await form.getByRole('button', { name: 'Review listing' }).click();
-    await sellerPage.getByRole('dialog').getByRole('button', { name: 'Publish listing' }).click();
-    await expect(sellerPage.getByRole('main').getByRole('status').filter({ hasText: 'Listing published' })).toBeVisible();
-    const filed = (await client.get(`/api/market/trpc/myListings?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`)).body.result
-      .data;
-    expect(filed.filter((row) => row.title === title)).toEqual([
-      expect.objectContaining({ offerType: 'one_time', price: '5', status: 'active' }),
-    ]);
-  } finally {
-    await sellerContext.close();
+  // Two TEST sellers (one listing slot each) file a one-time listing under Data through the seller form's category picker,
+  // one after the other. Their titles and prices are chosen so each sort puts a different one first: the first filed is
+  // the cheaper and the later in title order, so Newest and Title put the second above it and Price, low to high, the first.
+  const tag = Date.now().toString(36);
+  const first = { title: `TEST data listing b ${tag}`, price: '5' };
+  const second = { title: `TEST data listing a ${tag}`, price: '7' };
+  for (const listing of [first, second]) {
+    const sellerContext = await browser.newContext({ baseURL: ORIGIN });
+    try {
+      const sellerPage = await sellerContext.newPage();
+      const { seller, client } = await approvedSeller(sellerPage);
+      await signIn(sellerPage, seller);
+      await sellerPage.goto('/market/mine');
+      const form = sellerPage.locator('form').filter({ has: sellerPage.getByRole('textbox', { name: 'Listing title' }) });
+      await form.getByRole('textbox', { name: 'Listing title' }).fill(listing.title);
+      await form.getByRole('textbox', { name: 'Listing description' }).fill('TEST data listing on the local test stack. Not real data.');
+      await form.getByRole('combobox', { name: 'Offer type' }).selectOption('one_time');
+      await form.getByRole('combobox', { name: 'Category' }).selectOption({ label: 'Data' });
+      await form.getByRole('textbox', { name: 'Price asset ID' }).fill('USDT');
+      await form.getByRole('textbox', { name: 'Price', exact: true }).fill(listing.price);
+      await form.getByRole('button', { name: 'Review listing' }).click();
+      await sellerPage.getByRole('dialog').getByRole('button', { name: 'Publish listing' }).click();
+      await expect(sellerPage.getByRole('main').getByRole('status').filter({ hasText: 'Listing published' })).toBeVisible();
+      const filed = (await client.get(`/api/market/trpc/myListings?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`)).body.result
+        .data;
+      expect(filed.filter((row) => row.title === listing.title)).toEqual([
+        expect.objectContaining({ offerType: 'one_time', price: listing.price, status: 'active' }),
+      ]);
+    } finally {
+      await sellerContext.close();
+    }
   }
 
   // The buyer browses by category: the choices are the service's taxonomy, in its words, and each category shows exactly
@@ -269,7 +366,9 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
     advisory: 'Advisory',
     partner_integrations: 'Partner integrations',
   };
-  expect(await select.getByRole('option').allInnerTexts()).toEqual(['Every category', ...taxonomy.map((slug) => words[slug])]);
+  await expect
+    .poll(async () => await select.getByRole('option').allInnerTexts())
+    .toEqual(['Every category', ...taxonomy.map((slug) => words[slug])]);
   const cards = page
     .getByRole('main')
     .getByRole('article')
@@ -280,15 +379,40 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
     const filedUnder = (await marketRead(null, 'listingsByCategory', { category: slug, limit: 50 })).body.result.data;
     expect(filedUnder.every((row) => row.category === slug && row.offerType === 'one_time')).toBe(true);
     await expect(cards).toHaveCount(filedUnder.length);
-    expect((await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual(filedUnder.map((row) => row.title).sort());
+    // In the Market's own order, Newest by default: newest first by the time svc-market registered each, nothing else.
+    await expect(cards.getByRole('heading', { level: 3 })).toHaveText(byNewest(filedUnder).map((row) => row.title));
     if (filedUnder.length === 0) {
       empty += 1;
       await expect(page.getByRole('main').getByText('No listing is filed under this category yet.')).toBeVisible();
     }
-    if (slug === 'data') expect(filedUnder.map((row) => row.title)).toContain(title);
+    if (slug === 'data') expect(filedUnder.map((row) => row.title)).toEqual(expect.arrayContaining([first.title, second.title]));
   }
   // On a stack where only this journey files listings, most categories are empty: both branches above ran.
   expect(empty).toBeGreaterThan(0);
+
+  // No listing is ranked or placed above another: in Data the cards' order is exactly the chosen sort over svc-market's
+  // rows, and the two TEST listings swap places as the sort changes, so neither holds a place of its own.
+  await select.selectOption({ label: 'Data' });
+  const data = (await marketRead(null, 'listingsByCategory', { category: 'data', limit: 50 })).body.result.data;
+  const sortBy = page.getByRole('combobox', { name: 'Sort by', exact: true });
+  const shown = async () => (await cards.getByRole('heading', { level: 3 }).allInnerTexts()).filter((t) => t.endsWith(tag));
+  const exact = async (rows) => {
+    await expect(cards).toHaveCount(data.length);
+    await expect(cards.getByRole('heading', { level: 3 })).toHaveText(rows.map((row) => row.title));
+  };
+  await sortBy.selectOption({ label: 'Newest' });
+  await exact(byNewest(data));
+  expect(await shown()).toEqual([second.title, first.title]);
+  await sortBy.selectOption({ label: 'Price, low to high' });
+  await exact([...data].sort((a, b) => byPrice(a, b) || a.title.localeCompare(b.title)));
+  expect(await shown()).toEqual([first.title, second.title]);
+  await sortBy.selectOption({ label: 'Price, high to low' });
+  await exact([...data].sort((a, b) => byPrice(b, a) || a.title.localeCompare(b.title)));
+  expect(await shown()).toEqual([second.title, first.title]);
+  await sortBy.selectOption({ label: 'Title' });
+  await exact([...data].sort((a, b) => a.title.localeCompare(b.title)));
+  expect(await shown()).toEqual([second.title, first.title]);
+  await sortBy.selectOption({ label: 'Newest' });
   await select.selectOption({ label: 'Every category' });
   await expect(cards.filter({ hasText: run.read().title })).toHaveCount(1);
 

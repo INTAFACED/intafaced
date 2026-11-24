@@ -1,5 +1,5 @@
 import type { AcademyCourseItemRules } from '@intafaced/contracts/academy-course-item-rules';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * A course's prerequisites and learners' own due dates on the founder console (AC-release-access-02). Pure, so the

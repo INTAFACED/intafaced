@@ -5,6 +5,8 @@ export const subaccountCopy = defineCopy(
   {
     title: 'Account',
     description: 'Your handle, account ID and rank.',
+    explain:
+      'Your account ID and handle are how support and other people find this account. Your perks come with your rank. A strategy subaccount belongs to your personal account and is separate from a business account.',
     handle: 'Handle',
     copyHandle: 'Copy handle',
     owner: 'Account ID',

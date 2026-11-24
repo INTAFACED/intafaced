@@ -1,15 +1,16 @@
 import { useMemo, type ReactNode } from 'react';
-import { Button, DataTable, EmptyState, Failure, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Failure, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi, useSession } from '../../session/session';
-import { useVenueMode } from '../../trade/use-venue-mode';
-import { venueApi } from '../../trade/venue-api';
-import { AsOfLine, TestMark } from '../../trade/venue/VenueKit';
+import { useApi, useSession } from '../../session';
+import { useAsOfText, useVenueMode, venueApi, venueCopy } from '../../trade';
 import { createProtocolApi } from '../api';
 import { safetyCopy } from './safety-copy';
 import { walletCopy } from './copy';
 import { useWallet } from './WalletProvider';
+import { AccountModePanel } from './AccountModePanel';
+import { isFactoryUnset } from './wallet-text';
 
 /**
  * /wallet/accounts (D-portfolio-wallet-02): the accounts the connected wallet controls on this network, read from the
@@ -29,8 +30,9 @@ export function AccountsPanel() {
   const headers = [t('hdr_account'), t('hdr_address'), t('hdr_status')];
   return (
     <>
+      <AccountModePanel />
       <Panel title={t('subAccountsTitle')}>
-        <p className="muted">{t('subAccountsNote')}</p>
+        <p className="lt-hint">{t('subAccountsNote')}</p>
         {owner ? (
           <OwnedAccounts owner={owner} headers={headers} />
         ) : (
@@ -43,14 +45,14 @@ export function AccountsPanel() {
           </DataTable>
         )}
         <VenueSubAccounts owner={owner} />
-        <p className="muted">{t('custodialNote')}</p>
+        <p className="lt-hint">{t('custodialNote')}</p>
       </Panel>
       <Panel title={t('multisigTitle')}>
-        <p className="muted">{t('multisigNote')}</p>
-        <Button variant="secondary" disabled aria-disabled="true" aria-describedby="wallet-multisig-blocker">
+        <p className="lt-hint">{t('multisigNote')}</p>
+        <Button tone="secondary" disabled aria-disabled="true" aria-describedby="wallet-multisig-blocker">
           {t('multisigCreate')}
         </Button>
-        <p id="wallet-multisig-blocker" className="protocol-actions__reason" role="note" data-blocker="multisig_contract">
+        <p id="wallet-multisig-blocker" className="lt-hint" role="note" data-blocker="multisig_contract">
           {t('multisigBlocked')}
         </p>
       </Panel>
@@ -68,12 +70,12 @@ function OwnedAccounts({ owner, headers }: { owner: string; headers: string[] })
     <DataTable label={t('subAccountsTitle')} headers={headers}>
       <tr>
         <td>{t('accountWallet')}</td>
-        <td className="numeric">{owner}</td>
+        <td className="lt-mono">{owner}</td>
         <td>{t('accountWalletStatus')}</td>
       </tr>
       <tr data-account="smart">
         <td>{t('accountSmart')}</td>
-        <td className="numeric">{resource.status === 'ready' ? resource.data.address : '—'}</td>
+        <td className="lt-mono">{resource.status === 'ready' ? resource.data.address : '—'}</td>
         <td>
           {resource.status === 'loading' ? (
             <span role="status">{t('accountReading')}</span>
@@ -105,9 +107,9 @@ function VenueSubAccounts({ owner }: { owner: string | null }) {
   const { userId } = useSession();
   const mode = useVenueMode();
   let body: ReactNode;
-  if (!userId) body = <p className="muted">{t('venueSubsSignIn')}</p>;
+  if (!userId) body = <p className="lt-hint">{t('venueSubsSignIn')}</p>;
   else if (mode.mode === 'checking') body = <p role="status">{t('venueSubsChecking')}</p>;
-  else if (mode.mode === 'off') body = <p className="muted">{t('venueSubsOff')}</p>;
+  else if (mode.mode === 'off') body = <p className="lt-hint">{t('venueSubsOff')}</p>;
   else if (!mode.status.available)
     body = (
       <p role="alert" data-code={mode.status.refusal.code}>
@@ -131,10 +133,17 @@ function VenueSubAccountList({ owner, venueName, test }: { owner: string; venueN
   const venue = useMemo(() => venueApi(api), [api]);
   const { resource, reload } = useResource((signal) => venue.subAccounts(owner, signal), `wallet:venue-subs:${owner.toLowerCase()}`);
   const headers = [t('hdr_name'), t('hdr_address')];
+  const venueWords = venueCopy.useCopy().t;
+  const asOfText = useAsOfText();
   return (
     <>
       <p data-testid="venue-subs-venue">
-        {t('venueSubsOn', { venue: venueName })} <TestMark test={test} />
+        {t('venueSubsOn', { venue: venueName })}{' '}
+        {test ? (
+          <span className="lt-test" data-testid="venue-test" title={venueWords('Venue TEST note')}>
+            {venueWords('TEST')}
+          </span>
+        ) : null}
       </p>
       {resource.status === 'loading' ? (
         <p role="status">{t('accountReading')}</p>
@@ -153,23 +162,14 @@ function VenueSubAccountList({ owner, venueName, test }: { owner: string; venueN
               resource.data.value.map((sub) => (
                 <tr key={sub.subAccount} data-sub-account={sub.subAccount}>
                   <td>{sub.name}</td>
-                  <td className="numeric">{sub.subAccount}</td>
+                  <td className="lt-mono">{sub.subAccount}</td>
                 </tr>
               ))
             )}
           </DataTable>
-          <AsOfLine asOf={resource.data.asOf} />
+          {resource.data.asOf ? <p data-testid="venue-as-of">{asOfText(resource.data.asOf)}</p> : null}
         </>
       )}
     </>
   );
-}
-
-/**
- * svc-protocol's `requireAccountFactoryConfigured` refusal (PRECONDITION_FAILED, no typed code on the wire): named as the
- * factory not being deployed. Every other failure, a region refusal or a network that did not answer included, is shown
- * by the shared Failure, which reads its code.
- */
-export function isFactoryUnset(message: string): boolean {
-  return /factory\/implementation is not configured/i.test(message);
 }

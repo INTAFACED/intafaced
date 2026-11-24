@@ -2,22 +2,17 @@
  * `accountClosure.request`, `.cancel`, `.check`, `.status`. Own account, session only.
  * No operator cancel lives here.
  */
-import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { AccountClosureService, ClosureError, type ClosureView } from './closure-service.js';
-
-const blocker = z.object({ code: z.string(), count: z.number().int() });
-const balance = z.object({ assetId: z.string(), amount: z.string() });
-const view = z.object({
-  id: z.string().guid(),
-  status: z.enum(['requested', 'cancelled', 'blocked', 'closed']),
-  requestedAt: z.string(),
-  effectiveAt: z.string(),
-  finalizedAt: z.string().nullable(),
-  clientRequestId: z.string(),
-  blockers: z.array(blocker),
-});
+import {
+  IDENTITY_ACCOUNT_CLOSURE_STATUS,
+  IDENTITY_ACCOUNT_CLOSURE_CHECK,
+  IDENTITY_ACCOUNT_CLOSURE_REQUEST,
+  IDENTITY_ACCOUNT_CLOSURE_CANCEL,
+} from '@intafaced/contracts/identity-account-closure-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 function toTrpc(err: unknown): never {
   if (err instanceof TRPCError) throw err;
@@ -60,41 +55,51 @@ export function createAccountClosureRouter(closure: AccountClosureService | unde
     return closure;
   };
   return router({
-    request: protectedProcedure
-      .input(z.object({ stepUpApprovalId: z.string().guid(), clientRequestId: z.string().guid() }).strict())
-      .output(view)
-      .mutation(async ({ ctx, input }) => {
+    request: mountRecord(
+      IDENTITY_ACCOUNT_CLOSURE_REQUEST,
+      async ({ ctx, input }) => {
         try {
           return await service().request({ ...actor(ctx.principal), ...input });
         } catch (err) {
           toTrpc(err);
         }
-      }),
-    cancel: protectedProcedure
-      .input(z.object({ stepUpApprovalId: z.string().guid() }).strict())
-      .output(view)
-      .mutation(async ({ ctx, input }) => {
+      },
+      codedRefusal,
+    ),
+    cancel: mountRecord(
+      IDENTITY_ACCOUNT_CLOSURE_CANCEL,
+      async ({ ctx, input }) => {
         try {
           return await service().cancel({ ...actor(ctx.principal), stepUpApprovalId: input.stepUpApprovalId });
         } catch (err) {
           toTrpc(err);
         }
-      }),
-    check: protectedProcedure.output(z.object({ blockers: z.array(blocker), balances: z.array(balance) })).query(async ({ ctx }) => {
-      try {
-        return await service().check(actor(ctx.principal));
-      } catch (err) {
-        toTrpc(err);
-      }
-    }),
-    status: protectedProcedure.output(z.object({ closure: view.nullable() })).query(async ({ ctx }) => {
-      try {
-        if (ctx.principal.kid || ctx.principal.sub_account) throw new ClosureError('identity.close_delegated');
-        const closureRow: ClosureView | null = await service().status(ctx.principal.userId);
-        return { closure: closureRow };
-      } catch (err) {
-        toTrpc(err);
-      }
-    }),
+      },
+      codedRefusal,
+    ),
+    check: mountRecord(
+      IDENTITY_ACCOUNT_CLOSURE_CHECK,
+      async ({ ctx }) => {
+        try {
+          return await service().check(actor(ctx.principal));
+        } catch (err) {
+          toTrpc(err);
+        }
+      },
+      codedRefusal,
+    ),
+    status: mountRecord(
+      IDENTITY_ACCOUNT_CLOSURE_STATUS,
+      async ({ ctx }) => {
+        try {
+          if (ctx.principal.kid || ctx.principal.sub_account) throw new ClosureError('identity.close_delegated');
+          const closureRow: ClosureView | null = await service().status(ctx.principal.userId);
+          return { closure: closureRow };
+        } catch (err) {
+          toTrpc(err);
+        }
+      },
+      codedRefusal,
+    ),
   });
 }

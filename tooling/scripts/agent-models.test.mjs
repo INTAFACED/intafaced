@@ -14,7 +14,7 @@ const DIR = join(ROOT, '.claude/agents');
 export function frontMatterModel(text) {
   const m = /^---\n([\s\S]*?)\n---/.exec(text);
   if (!m) return null;
-  const line = m[1].split('\n').find((l) => /^model:/.test(l));
+  const line = m[1].split('\n').find((l) => l.startsWith('model:'));
   return line ? line.slice('model:'.length).trim() : null;
 }
 

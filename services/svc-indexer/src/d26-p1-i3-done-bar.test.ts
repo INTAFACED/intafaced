@@ -145,18 +145,17 @@ describe('D26-P1-I3 Fastify door — halt refuses fake live books', () => {
     expect(JSON.stringify(trpcResultJson(status.body))).toMatch(/re-index|retained history/);
   });
 
-  it('GET /trpc fills, markets, positions refuse — not empty arrays that look live', async () => {
+  it('GET /trpc positions and the explorer reads refuse — not empty arrays that look live', async () => {
     const { indexer, store } = await haltWithStaleBook();
     const app = await mountPublicDoor(indexer, store, 'memory');
     const account = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
     for (const [path, input] of [
-      ['fills', { market: 'IFC-USD', limit: 100 }],
-      ['markets', {}],
       ['positions', { account }],
-      ['accountFills', { account, limit: 100 }],
-      ['position', { market: 'IFC-USD', account }],
-      ['stream', { depth: 50 }],
+      ['positions', { account, limit: 2 }],
+      ['book', { market: 'IFC-USD' }],
+      ['explorer.blocks.list', { chainId: CHAIN_ID }],
+      ['explorer.address.txs', { chainId: CHAIN_ID, address: account }],
     ] as const) {
       const res = await getTrpc(app, path, input);
       expect(res.statusCode, path).toBe(503);

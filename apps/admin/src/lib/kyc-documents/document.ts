@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * A KYC document identity opened for one founder (`kyc.getDocument`, J-ops-console-02 #5), and how the console shows it.
  *
@@ -26,10 +27,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 /** What identity stores: 1 to 128 characters with no line break (`document-store.ts`). Only allowlisted images are drawn. */
 const CONTENT_TYPE = /^[^\r\n]{1,128}$/;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 /** How many bytes a canonical base64 string decodes to. */
 export function decodedLength(base64: string): number {

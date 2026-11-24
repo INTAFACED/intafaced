@@ -36,7 +36,7 @@ test(
 test(`${J} #1 Opens /predict with no markets: the full layout, the honest empty state and the named blocker`, async ({ page }) => {
   await signUp(page, 'jp1');
   await page.goto('/predict');
-  const catalogue = page.locator('.prediction-catalogue');
+  const catalogue = page.getByTestId('prediction-catalogue');
   await expect(catalogue.getByRole('heading', { name: 'Listed questions', level: 2 })).toBeVisible();
   // The honest empty state: no sample market, no invented row.
   await expect(catalogue.getByRole('heading', { name: 'No questions are listed', level: 3 })).toBeVisible();
@@ -49,8 +49,8 @@ test(`${J} #1 Opens /predict with no markets: the full layout, the honest empty 
   );
   await expect(page.getByTestId('prediction-blocker')).toContainText('an owner decision that has not been made');
   // The full layout: the ticket column is drawn beside the list, with its own blocker.
-  await expect(page.locator('.prediction-room-review').getByRole('heading', { level: 2 })).toBeVisible();
-  await expect(page.locator('.prediction-ticket__blocker')).toBeVisible();
+  await expect(page.getByTestId('prediction-room-review').getByRole('heading', { level: 2 })).toBeVisible();
+  await expect(page.getByTestId('prediction-ticket-blocker')).toBeVisible();
 });
 
 test(

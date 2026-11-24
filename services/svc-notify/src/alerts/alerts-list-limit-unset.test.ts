@@ -55,8 +55,8 @@ describe('MemoryAlertStore.list pages when limit is set', () => {
 describe('notify.alerts limit unset refuse — source pin', () => {
   it('router does not dump every watch when notify.alerts omits limit', () => {
     const src = readFileSync(join(ROOT, 'services/svc-notify/src/router.ts'), 'utf8');
-    const start = src.indexOf('alerts: scopedProcedure');
-    const end = src.indexOf('createAlert: scopedProcedure', start);
+    const start = src.indexOf('alerts: mountRecord(');
+    const end = src.indexOf('createAlert: mountRecord(', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
     expect(fn).toContain('assertNotifyAlertsListLimit(input?.limit)');
     expect(fn).toContain('alerts.list(ctx.principal.userId, limit)');

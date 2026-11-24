@@ -33,6 +33,9 @@ const market = (symbol: string, cap: string | null, kind: 'spot' | 'perpetual' =
   status: null,
   maxOrderQty: null,
   maxOrderNotional: null,
+  minOrderNotional: null,
+  priceBandBps: null,
+  maxOpenOrders: null,
   builderFeeCapBps: cap === null ? { known: false } : { known: true, value: a(cap) },
   listedBy: { known: false },
   oracleRule: { known: false },
@@ -63,11 +66,14 @@ describe('builder-fee versions by venue and market group', () => {
   it('a version without builder fees has none; one with them reads each market by its group, exactly', () => {
     expect(parseBuilderFees(undefined)).toBeNull();
     const b = book({ 'all-markets': '1.5', perpetuals: '0.0005' }, { 'BTC-PERP': 'perpetuals' });
-    expect(builderFeeOf(b, VENUE, 'BTC-USDC')).toEqual({ group: 'all-markets', feeBps: a('1.5') });
-    expect(builderFeeOf(b, VENUE, 'BTC-PERP')).toEqual({ group: 'perpetuals', feeBps: a('0.0005') });
+    expect(builderFeeOf(b, { venueId: VENUE, symbol: 'BTC-USDC', kind: 'spot' })).toEqual({ group: 'all-markets', feeBps: a('1.5') });
+    expect(builderFeeOf(b, { venueId: VENUE, symbol: 'BTC-PERP', kind: 'perpetual' })).toEqual({
+      group: 'perpetuals',
+      feeBps: a('0.0005'),
+    });
     // A market the version does not name takes the default group; another venue has no fee in this version.
-    expect(builderFeeOf(b, VENUE, 'ETH-USDC')?.group).toBe('all-markets');
-    expect(builderFeeOf(b, 'another-venue', 'BTC-USDC')).toBeNull();
+    expect(builderFeeOf(b, { venueId: VENUE, symbol: 'ETH-USDC', kind: 'spot' })?.group).toBe('all-markets');
+    expect(builderFeeOf(b, { venueId: 'another-venue', symbol: 'BTC-USDC', kind: 'spot' })).toBeNull();
   });
 
   it('a blank or malformed rate, a number, or a group that does not exist refuses trade.builder_fee_blank', () => {
@@ -95,12 +101,51 @@ describe('builder-fee versions by venue and market group', () => {
     ).toBe('trade.builder_fee_above_venue_cap');
   });
 
+  it('#10657: a version holds a perp rate and a spot rate by kind, each checked against its own cap', () => {
+    const kinds = (perps: string, spot: string, marketGroups?: Record<string, string>) => {
+      const parsed = parseBuilderFees({
+        [VENUE]: {
+          defaultGroup: 'spot',
+          kindGroups: { perpetual: 'perps' },
+          groups: { spot, perps, ...(marketGroups ? { one: '1' } : {}) },
+          ...(marketGroups ? { marketGroups } : {}),
+        },
+      });
+      if (!parsed) throw new Error('a non-empty builder fee book parsed to null');
+      return parsed;
+    };
+    // Each market takes its kind's rate: a perp order and a spot sell carry their own fee.
+    expect(builderFeeOf(kinds('10', '100'), { venueId: VENUE, symbol: 'BTC-PERP', kind: 'perpetual' })).toEqual({
+      group: 'perps',
+      feeBps: a('10'),
+    });
+    expect(builderFeeOf(kinds('10', '100'), { venueId: VENUE, symbol: 'BTC-USDC', kind: 'spot' })).toEqual({
+      group: 'spot',
+      feeBps: a('100'),
+    });
+    // A market named by symbol wins over its kind.
+    expect(builderFeeOf(kinds('10', '100', { 'BTC-PERP': 'one' }), { venueId: VENUE, symbol: 'BTC-PERP', kind: 'perpetual' })?.group).toBe(
+      'one',
+    );
+    // At both caps is allowed; either rate above its own cap refuses.
+    expect(() => assertWithinVenueCaps(kinds('10', '100'), venue)).not.toThrow();
+    expect(codeOf(() => assertWithinVenueCaps(kinds('10.0001', '100'), venue))).toBe('trade.builder_fee_above_venue_cap');
+    expect(codeOf(() => assertWithinVenueCaps(kinds('10', '100.0001'), venue))).toBe('trade.builder_fee_above_venue_cap');
+    // A kind that is not spot or perpetual, or a kind group that does not exist, refuses.
+    expect(codeOf(() => parseBuilderFees({ [VENUE]: { defaultGroup: 'g', kindGroups: { option: 'g' }, groups: { g: '1' } } }))).toBe(
+      'trade.builder_fee_blank',
+    );
+    expect(codeOf(() => parseBuilderFees({ [VENUE]: { defaultGroup: 'g', kindGroups: { spot: 'nope' }, groups: { g: '1' } } }))).toBe(
+      'trade.builder_fee_blank',
+    );
+  });
+
   it('a cap the venue does not publish, a venue the door does not reach, the door off, or an unlisted market refuse', () => {
     const uncapped = { venueId: VENUE, markets: [market('BTC-USDC', null)] };
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '0' }), uncapped))).toBe('trade.builder_fee_cap_unknown');
     // A venue that sends no cap field at all publishes none.
     const { builderFeeCapBps: _gone, ...bare } = market('BTC-USDC', '100');
-    const silent = { venueId: VENUE, markets: [bare as unknown as UserVenueMarket] };
+    const silent = { venueId: VENUE, markets: [bare as UserVenueMarket] };
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '0' }), silent))).toBe('trade.builder_fee_cap_unknown');
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '1' }), { ...venue, venueId: 'other' }))).toBe(
       'trade.builder_fee_venue_unknown',

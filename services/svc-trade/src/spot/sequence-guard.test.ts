@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
@@ -120,7 +120,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -452,7 +452,7 @@ describe('svc-trade sequence-guard (H8a PG-hard)', () => {
       }, 'm'),
     ).rejects.toBe(outage);
     for (const sequence of [null, undefined, '7', -1, 1.5]) {
-      await expect(probeEngineSequence(async () => ({ sequence }) as unknown as EngineDepth, 'm')).rejects.toMatchObject({
+      await expect(probeEngineSequence(async () => ({ sequence }) as EngineDepth, 'm')).rejects.toMatchObject({
         code: 'trade.matching_unavailable',
       });
     }

@@ -1,53 +1,42 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Badge } from '@intafaced/ui';
-import { Button, DataTable } from '../../../shared/ui';
-import { usePreferences } from '../../../shared/preferences';
+import { useCallback, useRef, type ReactNode } from 'react';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
-import { useSession } from '../../session/session';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
-import { WalletProvider, useWallet } from '../../protocol/wallet/WalletProvider';
-import { usePolled } from '../../protocol/wallet/use-polled';
+import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
+import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
-  canonicalDecimal,
-  draftId,
   keys,
-  venueApi,
   walletTypedData,
   type AsOf,
   type MaybeKnown,
   preparedStep,
   type KeptSignature,
   type PreparedAnswer,
-  type VenueApi,
   type VenueBalance,
   type VenueFill,
   type VenueIntent,
   type VenueOrder,
   type VenueOutcome,
   type VenueUp,
-  type VenueWithdrawal,
 } from '../venue-api';
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
+import { feeShown } from './fee-rates';
+import { VENUE_POLL_MS } from './poll';
+import { useAsOfText, useVenueApi, word } from './venue-words';
 
-type T = ReturnType<typeof venueCopy.useCopy>['t'];
-
-/** How often the venue's record is read while a desk shows it. */
-export const VENUE_POLL_MS = 2_000;
-
-export function useVenueApi(): VenueApi {
-  const { api } = useSession();
-  return useMemo(() => venueApi(api), [api]);
-}
+export { VENUE_POLL_MS };
+export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
+export { OutcomeLine, ReadBack } from './volt/VoltVenue';
 
 /** The TEST label every venue figure carries while the venue is a TEST one. */
 export function TestMark({ test }: { test: boolean }) {
   const { t } = venueCopy.useCopy();
   if (!test) return null;
   return (
-    <Badge tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
+    <Tag tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
       {t('TEST')}
-    </Badge>
+    </Tag>
   );
 }
 
@@ -57,42 +46,14 @@ export function Known({ value, render = (v) => displayAmount(v) }: { value: Mayb
   return <>{value.known ? render(value.value) : t('Not known')}</>;
 }
 
-export function useAsOfText(): (iso: string) => string {
-  const { timeZone } = usePreferences();
-  const { t } = venueCopy.useCopy();
-  return useCallback(
-    (iso: string) => {
-      let text: string;
-      try {
-        text = new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
-      } catch {
-        text = iso;
-      }
-      return t('As of', { time: text });
-    },
-    [timeZone, t],
-  );
-}
-
 export function AsOfLine({ asOf }: { asOf: string | null }) {
   const text = useAsOfText();
   if (!asOf) return null;
   return (
-    <p className="muted" data-testid="venue-as-of">
+    <p className="lt-quiet" data-testid="venue-as-of">
       {text(asOf)}
     </p>
   );
-}
-
-/** A word from the copy for a venue enum value, or the value itself when the copy has none. */
-export function word(t: T, prefix: string, value: string): string {
-  const key = `${prefix}_${value}`;
-  try {
-    const out = (t as (k: string) => string)(key);
-    return out && out !== key ? out : value;
-  } catch {
-    return value;
-  }
 }
 
 /**
@@ -112,8 +73,8 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
   const { t } = venueCopy.useCopy();
   return (
-    <header className="dk-panel" data-testid="venue-header" aria-label={t('Venue')}>
-      <h1 className="dk-tab-title">
+    <header className="lt-panel" data-testid="venue-header" aria-label={t('Venue')}>
+      <h1 className="lt-panel-title">
         {title} <TestMark test={status.test} />
       </h1>
       <p data-testid="venue-name">
@@ -127,54 +88,8 @@ export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title
   );
 }
 
-/** Connect, the connected address and network, and the switch when the wallet is on another network. */
-export function WalletBar() {
-  const { t } = venueCopy.useCopy();
-  const wallet = useWallet();
-  return (
-    <section className="dk-panel form-stack" aria-label={t('Your wallet')} data-testid="venue-wallet">
-      <h2 className="dk-tab-title">{t('Your wallet')}</h2>
-      {wallet.status === 'connected' && wallet.address ? (
-        <>
-          <dl className="protocol-facts">
-            <div>
-              <dt>{t('Connected address')}</dt>
-              <dd className="numeric" data-testid="venue-wallet-address">
-                {wallet.address.toLowerCase()}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Network')}</dt>
-              <dd className="numeric">{wallet.chainId ?? ''}</dd>
-            </div>
-          </dl>
-          {wallet.guard && !wallet.guard.ok ? (
-            <p role="alert">
-              {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button onClick={() => void wallet.switchNetwork()}>{t('Switch network')}</Button>
-            </p>
-          ) : null}
-          <Button variant="secondary" onClick={wallet.disconnect}>
-            {t('Disconnect')}
-          </Button>
-        </>
-      ) : wallet.wallets.length === 0 ? (
-        <p className="muted">{t('No wallet')}</p>
-      ) : (
-        wallet.wallets.map((entry) => (
-          <Button key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
-            {t('Connect wallet', { name: entry.info.name })}
-          </Button>
-        ))
-      )}
-      {wallet.problem ? (
-        <p className="failure" role="alert">
-          {wallet.problem}
-        </p>
-      ) : null}
-    </section>
-  );
-}
+// The wallet panel is drawn from the Volt kit in its own file, so a room that shows it draws only from the kit.
+export { WalletBar } from './WalletBar';
 
 /** The connected wallet's address, lowercase, which is the venue account's owner; null until connected on the right network. */
 export function useOwner(): string | null {
@@ -201,10 +116,41 @@ export function heldKeys(owner: string) {
   };
   return {
     get: (clientOrderId: string): string | undefined => read()[clientOrderId] ?? memory.get(clientOrderId),
+    /** The client ids this page placed, oldest first. */
+    ids: (): string[] => [...new Set([...Object.keys(read()), ...memory.keys()])],
     set(clientOrderId: string, key: string) {
       memory.set(clientOrderId, key);
       try {
         sessionStorage.setItem(name, JSON.stringify({ ...read(), [clientOrderId]: key }));
+      } catch {
+        /* blocked storage: the page keeps it */
+      }
+    },
+  };
+}
+
+/**
+ * The person's own tags on the orders this page placed, by the venue's client id (J-cex-spot-03 #9). The venue stores no
+ * tag, so the tag is kept beside the order key in this browser session and shown on the order and its fills.
+ */
+export function heldTags(owner: string) {
+  const name = `if.venue.tags.${owner}`;
+  const memory = new Map<string, string>();
+  const read = (): Record<string, string> => {
+    try {
+      const raw = sessionStorage.getItem(name);
+      const parsed: unknown = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+    } catch {
+      return Object.fromEntries(memory);
+    }
+  };
+  return {
+    get: (clientOrderId: string): string | undefined => read()[clientOrderId] ?? memory.get(clientOrderId),
+    set(clientOrderId: string, tag: string) {
+      memory.set(clientOrderId, tag);
+      try {
+        sessionStorage.setItem(name, JSON.stringify({ ...read(), [clientOrderId]: tag }));
       } catch {
         /* blocked storage: the page keeps it */
       }
@@ -261,9 +207,20 @@ export type RunAction = (
 /** The business key the door stores an intent under (user-venue-door.ts `businessKey`). */
 function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'place_order') return intent.clientOrderKey;
+  if (intent.kind === 'place_orders') return intent.actionKey;
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;
+  if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode' || intent.kind === 'set_position_mode')
+    return intent.changeKey;
+  if (
+    intent.kind === 'move_position' ||
+    intent.kind === 'spot_perps_transfer' ||
+    intent.kind === 'vault_transfer' ||
+    intent.kind === 'staking_transfer' ||
+    intent.kind === 'staking_delegate'
+  )
+    return intent.moveKey;
   return actionKey ?? '';
 }
 
@@ -358,9 +315,10 @@ export function useVenueActions(owner: string | null) {
    * signature: with no signature kept on this page, it is `run` again, which reads the stored answer.
    */
   const resend = useCallback(
-    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string } = {}): Promise<ActionResult> => {
+    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string; signature?: KeptSignature } = {}): Promise<ActionResult> => {
       const key = keyOf(intent, opts.actionKey);
-      const kept = signatures.current.get(key);
+      // The signature this page made, or one the page kept for the key across a reload (J-cex-spot-02 #4): the same bytes.
+      const kept = signatures.current.get(key) ?? opts.signature;
       if (!kept) return run(intent, opts);
       const prepared = await venue.prepare({
         owner: owner ?? '',
@@ -373,41 +331,9 @@ export function useVenueActions(owner: string | null) {
     },
     [owner, venue, run, submitSigned],
   );
-  return { run, resend };
-}
-
-/** The words for one action's result. An order's outcome names its status on the venue. */
-export function outcomeText(t: T, result: ActionResult): string {
-  switch (result.kind) {
-    case 'rejected':
-      return t('Outcome rejected wallet');
-    case 'waiting':
-      return t('Outcome waiting');
-    case 'wallet_failed':
-      return t('Outcome wallet failed', { message: result.message });
-    case 'unknown':
-      return t('Outcome unknown');
-    case 'refused':
-      return result.beforeWallet && /step_up/.test(result.code ?? '')
-        ? t('Outcome step up', { detail: result.message })
-        : t('Outcome refused', { detail: result.message });
-    case 'outcome': {
-      const o = result.outcome;
-      if (!o.accepted) return t('Outcome refused', { detail: o.refusal.detail });
-      const status = o.order?.status;
-      const main =
-        status === 'open'
-          ? t('Outcome open')
-          : status === 'filled'
-            ? t('Outcome filled')
-            : status === 'partially_filled'
-              ? t('Outcome partly')
-              : status === 'canceled'
-                ? t('Outcome cancelled')
-                : t('Outcome done');
-      return result.reused ? `${main} ${t('Outcome reused')}` : main;
-    }
-  }
+  /** The signed bytes this page holds for a key, if any: what a resend after a reload sends again. */
+  const keptSignature = useCallback((key: string): KeptSignature | undefined => signatures.current.get(key), []);
+  return { run, resend, keptSignature };
 }
 
 /**
@@ -418,102 +344,71 @@ export function keepsDraft(result: ActionResult): boolean {
   return result.kind !== 'outcome';
 }
 
-/** The order statuses after which the venue does nothing more with an order. */
-export const SETTLED_STATUSES: readonly string[] = ['filled', 'canceled', 'rejected', 'expired'];
-
-/**
- * Reads an order back by its client id until the venue names it, for an answer that was not definite. An order not found
- * yet is only that: it keeps being read, and nothing is sent again. `onSettled` hears the venue's own settled record.
- */
-export function ReadBack({
-  owner,
-  clientOrderId,
-  onSettled,
-  venueId,
-}: {
-  owner: string;
-  clientOrderId: string;
-  onSettled?: (order: VenueOrder) => void;
-  /** The venue the order was sent to (J-derivatives-28 routing); none is the primary venue. */
-  venueId?: string;
-}) {
-  const { t } = venueCopy.useCopy();
-  const venue = useVenueApi();
-  const read = usePolled(
-    (signal) =>
-      venueId ? venue.ordersByClientIdOn(venueId, owner, clientOrderId, signal) : venue.orderByClientId(owner, clientOrderId, signal),
-    `rb:${venueId ?? ''}:${owner}:${clientOrderId}`,
-    VENUE_POLL_MS,
-  );
-  const order = read.data?.value ?? null;
-  const settled = order && SETTLED_STATUSES.includes(order.status) ? order : null;
-  useEffect(() => {
-    if (settled) onSettled?.(settled);
-  }, [settled, onSettled]);
-  if (!read.data) return <p className="muted">{t('Checking venue')}</p>;
-  return (
-    <p data-testid="venue-read-back">{order ? t('Read back', { status: word(t, 'status', order.status) }) : t('Read back missing')}</p>
-  );
-}
-
-export function OutcomeLine({ result, owner, venueId }: { result: ActionResult | null; owner: string | null; venueId?: string }) {
-  const { t } = venueCopy.useCopy();
-  if (!result) return null;
-  return (
-    <div role="status" data-testid="venue-outcome">
-      <p>{outcomeText(t, result)}</p>
-      {result.kind === 'unknown' && result.clientOrderId && owner ? (
-        <ReadBack owner={owner} clientOrderId={result.clientOrderId} {...(venueId ? { venueId } : {})} />
-      ) : null}
-    </div>
-  );
-}
-
 /** A venue read that failed, in the venue's words: down, refused or unreachable. */
 export function ReadProblem({ failure, venueName }: { failure: { message: string; code?: string } | null; venueName: string }) {
   const { t } = venueCopy.useCopy();
   if (!failure) return null;
   const down = failure.code === 'trade.venue.venue_down';
   return (
-    <p className="failure" role="alert" data-testid="venue-read-problem">
+    <p className="lt-note lt-note-bad" role="alert" data-testid="venue-read-problem">
       {down ? t('Venue down', { venue: venueName, detail: failure.message }) : t('Read failed', { detail: failure.message })}
     </p>
+  );
+}
+
+/** Free, used and total per asset, as the venue reads them; each row and figure marked for the room's tests. */
+export function BalanceTable({ label, rows }: { label: string; rows: readonly VenueBalance[] }) {
+  const { t } = venueCopy.useCopy();
+  return (
+    <Table
+      caption={label}
+      dense
+      scroll
+      columns={[
+        { key: 'asset', label: t('Asset'), cell: (b) => b.asset },
+        { key: 'free', label: t('Free'), align: 'end', cell: (b) => displayAmount(b.free), cellMarks: () => ({ 'data-cell': 'free' }) },
+        { key: 'used', label: t('Used'), align: 'end', cell: (b) => displayAmount(b.locked), cellMarks: () => ({ 'data-cell': 'used' }) },
+        { key: 'total', label: t('Total'), align: 'end', cell: (b) => displayAmount(b.total), cellMarks: () => ({ 'data-cell': 'total' }) },
+      ]}
+      rows={rows}
+      rowKey={(b) => b.asset}
+      rowMarks={(b) => ({ 'data-asset': b.asset })}
+    />
   );
 }
 
 export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[]> | null; test: boolean }) {
   const { t } = venueCopy.useCopy();
   return (
-    <section className="dk-panel" aria-label={t('Balances')} data-testid="venue-balances">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Balances')} data-testid="venue-balances">
+      <h2 className="lt-panel-title">
         {t('Balances')} <TestMark test={test} />
       </h2>
       {balances && balances.value.length > 0 ? (
-        <DataTable label={t('Balances')} headers={[t('Asset'), t('Free'), t('Used'), t('Total')]}>
-          {balances.value.map((b) => (
-            <tr key={b.asset} data-asset={b.asset}>
-              <td>{b.asset}</td>
-              <td className="numeric" data-cell="free">
-                {displayAmount(b.free)}
-              </td>
-              <td className="numeric" data-cell="used">
-                {displayAmount(b.locked)}
-              </td>
-              <td className="numeric" data-cell="total">
-                {displayAmount(b.total)}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <BalanceTable label={t('Balances')} rows={balances.value} />
       ) : balances ? (
-        <p className="muted">{t('No balances')}</p>
+        <p className="lt-quiet">{t('No balances')}</p>
       ) : null}
       <AsOfLine asOf={balances?.asOf ?? null} />
     </section>
   );
 }
 
-export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> | null; test: boolean; symbol?: string }) {
+export function FillsTable({
+  fills,
+  test,
+  symbol,
+  tagOf,
+  withTotal = false,
+}: {
+  fills: AsOf<VenueFill[]> | null;
+  test: boolean;
+  symbol?: string;
+  /** Given, each row also has its total, price times size in the quote asset (Activity, Trades: J-cex-spot-06 #8). */
+  withTotal?: boolean;
+  /** The person's own tag on an order, by client id; given, the table has a Tag column. */
+  tagOf?: (clientOrderId: string) => string | undefined;
+}) {
   const { t } = venueCopy.useCopy();
   const asOfText = useAsOfText();
   const rows = (fills?.value ?? []).filter((f) => !symbol || f.symbol === symbol);
@@ -521,48 +416,79 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
     <div data-testid="venue-fills">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="muted">{t('No fills')}</p>
+        <p className="lt-quiet">{t('No fills')}</p>
       ) : (
-        <DataTable
-          label={t('Trade history')}
-          headers={[
-            t('Time'),
-            t('Market'),
-            t('Side'),
-            t('Price'),
-            t('Amount'),
-            t('Role'),
-            t('Venue fee'),
-            t('Our builder fee'),
-            t('Fee asset'),
-            t('Realised result'),
+        <Table
+          caption={t('Trade history')}
+          dense
+          scroll
+          columns={[
+            { key: 'time', label: t('Time'), cell: (f: VenueFill) => asOfText(f.filledAt) },
+            { key: 'market', label: t('Market'), cell: (f) => f.symbol },
+            { key: 'side', label: t('Side'), cell: (f) => word(t, 'side', f.side) },
+            {
+              key: 'price',
+              label: t('Price'),
+              align: 'end',
+              cell: (f) => displayAmount(f.price),
+              cellMarks: () => ({ 'data-cell': 'price' }),
+            },
+            {
+              key: 'amount',
+              label: t('Amount'),
+              align: 'end',
+              cell: (f) => displayAmount(f.amount),
+              cellMarks: () => ({ 'data-cell': 'amount' }),
+            },
+            ...(withTotal
+              ? [
+                  {
+                    key: 'total',
+                    label: t('Total'),
+                    align: 'end',
+                    cell: (f) => `${displayAmount(fillTotal(f))} ${f.symbol.split('-')[1] ?? ''}`,
+                    cellMarks: () => ({ 'data-cell': 'total' }),
+                  } satisfies Column<VenueFill>,
+                ]
+              : []),
+            { key: 'role', label: t('Role'), cell: (f) => word(t, 'role', f.role), cellMarks: () => ({ 'data-cell': 'role' }) },
+            {
+              key: 'venue-fee',
+              label: t('Venue fee'),
+              align: 'end',
+              cell: (f) => <VenueFeeCell amount={f.venueFee} />,
+              cellMarks: () => ({ 'data-cell': 'venue-fee' }),
+            },
+            {
+              key: 'builder-fee',
+              label: t('Our builder fee'),
+              align: 'end',
+              cell: (f) => f.builderFee,
+              cellMarks: () => ({ 'data-cell': 'builder-fee' }),
+            },
+            { key: 'fee-asset', label: t('Fee asset'), cell: (f) => f.feeAsset },
+            {
+              key: 'realised',
+              label: t('Realised result'),
+              align: 'end',
+              cell: (f) => (f.realisedPnl === null ? t('Not known') : f.realisedPnl),
+              cellMarks: () => ({ 'data-cell': 'realised' }),
+            },
+            ...(tagOf
+              ? [
+                  {
+                    key: 'tag',
+                    label: t('Tag'),
+                    cell: (f) => (f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''),
+                    cellMarks: () => ({ 'data-cell': 'tag' }),
+                  } satisfies Column<VenueFill>,
+                ]
+              : []),
           ]}
-        >
-          {rows.map((f) => (
-            <tr key={f.fillId} data-fill={f.fillId} data-client-order-id={f.venueClientOrderId ?? ''}>
-              <td>{asOfText(f.filledAt)}</td>
-              <td>{f.symbol}</td>
-              <td>{word(t, 'side', f.side)}</td>
-              <td className="numeric" data-cell="price">
-                {displayAmount(f.price)}
-              </td>
-              <td className="numeric" data-cell="amount">
-                {displayAmount(f.amount)}
-              </td>
-              <td data-cell="role">{word(t, 'role', f.role)}</td>
-              <td className="numeric" data-cell="venue-fee">
-                {f.venueFee}
-              </td>
-              <td className="numeric" data-cell="builder-fee">
-                {f.builderFee}
-              </td>
-              <td>{f.feeAsset}</td>
-              <td className="numeric" data-cell="realised">
-                {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+          rows={rows}
+          rowKey={(f) => f.fillId}
+          rowMarks={(f) => ({ 'data-fill': f.fillId, 'data-client-order-id': f.venueClientOrderId ?? '' })}
+        />
       )}
       <AsOfLine asOf={fills?.asOf ?? null} />
     </div>
@@ -570,199 +496,173 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
 }
 
 /**
+ * The venue's fee on one fill as it charged it (J-cex-spot-10 #4): "Zero fee" where it charged none, and a fee below zero
+ * as the venue's rebate paid to the person, never a negative fee.
+ */
+function VenueFeeCell({ amount }: { amount: string }) {
+  const { t } = venueCopy.useCopy();
+  const shown = feeShown(amount);
+  if (shown.kind === 'zero') return <span data-fee="zero">{t('Fill zero fee')}</span>;
+  if (shown.kind === 'rebate')
+    return (
+      <span data-fee="rebate" data-rebate={shown.value}>
+        {t('Fill venue rebate', { amount: shown.value })}
+      </span>
+    );
+  return <>{amount}</>;
+}
+
+/** A fill's total: its price times its size, exact (both are the venue's decimals). */
+export function fillTotal(f: VenueFill): string {
+  return formatAmount(mul(parseAmount(f.price), parseAmount(f.amount), 'half-up'));
+}
+
+/**
  * The open orders the venue lists, and the orders this page cancelled (read back by client id), each with Cancel. A
- * repeated cancel uses the same key, so it is the same action and reports the venue's first answer.
+ * repeated cancel uses the same key, so it is the same action and reports the venue's first answer. An order this page
+ * placed that has since filled stays listed as the venue reads it, Filled, with nothing left to cancel.
  */
 export function OrdersTable({
   orders,
   test,
   onCancel,
   cancelled,
+  filled = [],
+  tagOf,
+  onEdit,
+  select,
 }: {
   orders: AsOf<VenueOrder[]> | null;
   test: boolean;
   onCancel: (order: VenueOrder) => void;
   cancelled: VenueOrder[];
+  filled?: VenueOrder[];
+  /** The person's own tag on an order, by client id; given, the table has a Tag column. */
+  tagOf?: (clientOrderId: string) => string | undefined;
+  /** Given, each resting order has an Edit button (J-cex-spot-05 #2, #4). */
+  onEdit?: (order: VenueOrder) => void;
+  /** Given, the table has a Select column for a batch cancel (J-cex-spot-05 #6), by client id. */
+  select?: { selected: ReadonlySet<string>; onToggle: (clientOrderId: string) => void; label: (id: string) => string; header: string };
 }) {
   const { t } = venueCopy.useCopy();
   const open = orders?.value ?? [];
-  const rows = [...open, ...cancelled.filter((c) => !open.some((o) => o.venueClientOrderId === c.venueClientOrderId))];
+  const listed = (o: VenueOrder, rows: VenueOrder[]) => rows.some((r) => r.venueClientOrderId === o.venueClientOrderId);
+  const rows = [...open, ...cancelled.filter((c) => !listed(c, open))];
+  rows.push(...filled.filter((f) => f.status === 'filled' && !listed(f, rows)));
   return (
     <div data-testid="venue-open-orders">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="muted">{t('No open orders')}</p>
+        <p className="lt-quiet">{t('No open orders')}</p>
       ) : (
-        <DataTable
-          label={t('Open orders')}
-          headers={[t('Market'), t('Side'), t('Type'), t('Price'), t('Amount'), t('Filled'), t('Locked'), t('Status'), '']}
-        >
-          {rows.map((o) => (
-            <tr key={o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`} data-client-order-id={o.venueClientOrderId ?? ''}>
-              <td>{o.symbol}</td>
-              <td>{word(t, 'side', o.side)}</td>
-              <td>{word(t, 'type', o.type)}</td>
-              <td className="numeric" data-cell="price">
-                {displayAmount(o.price)}
-              </td>
-              <td className="numeric" data-cell="amount">
-                {displayAmount(o.amount)}
-              </td>
-              <td className="numeric" data-cell="filled">
-                {displayAmount(o.filled)}
-              </td>
-              <td className="numeric" data-cell="locked">
-                {displayAmount(o.locked)} {o.lockedAsset}
-              </td>
-              <td data-cell="status">{word(t, 'status', o.status)}</td>
-              <td>
-                {o.venueClientOrderId ? (
-                  <Button variant="secondary" onClick={() => onCancel(o)}>
-                    {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
-                  </Button>
-                ) : null}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <Table
+          caption={t('Open orders')}
+          dense
+          scroll
+          columns={[
+            ...(select
+              ? [
+                  {
+                    key: 'select',
+                    label: select.header,
+                    cell: (o) =>
+                      o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                        <Checkbox
+                          label={<span className="lt-sr">{select.label(o.venueClientOrderId)}</span>}
+                          checked={select.selected.has(o.venueClientOrderId)}
+                          onChange={() => select.onToggle(o.venueClientOrderId!)}
+                        />
+                      ) : null,
+                    cellMarks: () => ({ 'data-cell': 'select' }),
+                  } satisfies Column<VenueOrder>,
+                ]
+              : []),
+            {
+              key: 'market',
+              label: t('Market'),
+              cell: (o: VenueOrder) =>
+                o.venueClientOrderId ? (
+                  <a className="lt-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
+                    {o.symbol}
+                  </a>
+                ) : (
+                  o.symbol
+                ),
+            },
+            { key: 'side', label: t('Side'), cell: (o) => word(t, 'side', o.side) },
+            { key: 'type', label: t('Type'), cell: (o) => word(t, 'type', o.type) },
+            {
+              key: 'tif',
+              label: t('Time in force'),
+              cell: (o) => word(t, 'tif', o.timeInForce),
+              cellMarks: () => ({ 'data-cell': 'tif' }),
+            },
+            {
+              key: 'price',
+              label: t('Price'),
+              align: 'end',
+              cell: (o) => displayAmount(o.price),
+              cellMarks: () => ({ 'data-cell': 'price' }),
+            },
+            {
+              key: 'amount',
+              label: t('Amount'),
+              align: 'end',
+              cell: (o) => displayAmount(o.amount),
+              cellMarks: () => ({ 'data-cell': 'amount' }),
+            },
+            {
+              key: 'filled',
+              label: t('Filled'),
+              align: 'end',
+              cell: (o) => displayAmount(o.filled),
+              cellMarks: () => ({ 'data-cell': 'filled' }),
+            },
+            {
+              key: 'locked',
+              label: t('Locked'),
+              align: 'end',
+              cell: (o) => `${displayAmount(o.locked)} ${o.lockedAsset}`,
+              cellMarks: () => ({ 'data-cell': 'locked' }),
+            },
+            { key: 'status', label: t('Status'), cell: (o) => word(t, 'status', o.status), cellMarks: () => ({ 'data-cell': 'status' }) },
+            ...(tagOf
+              ? [
+                  {
+                    key: 'tag',
+                    label: t('Tag'),
+                    cell: (o) => (o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''),
+                    cellMarks: () => ({ 'data-cell': 'tag' }),
+                  } satisfies Column<VenueOrder>,
+                ]
+              : []),
+            {
+              key: 'actions',
+              label: '',
+              cell: (o) => (
+                <>
+                  {onEdit && o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                    <>
+                      <Button tone="secondary" onClick={() => onEdit(o)} aria-label={t('Edit order', { id: o.venueClientOrderId })}>
+                        {t('Edit')}
+                      </Button>{' '}
+                    </>
+                  ) : null}
+                  {o.venueClientOrderId && o.status !== 'filled' ? (
+                    <Button tone="secondary" onClick={() => onCancel(o)}>
+                      {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
+                    </Button>
+                  ) : null}
+                </>
+              ),
+            },
+          ]}
+          rows={rows}
+          rowKey={(o) => o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`}
+          rowMarks={(o) => ({ 'data-client-order-id': o.venueClientOrderId ?? '' })}
+        />
       )}
       <AsOfLine asOf={orders?.asOf ?? null} />
     </div>
-  );
-}
-
-/**
- * Withdraw from the venue account to the connected wallet: a fresh step-up first (identity's `trade.step_up.venue.withdraw`,
- * bound to the key, account, asset, amount and destination), then the door prepares it and the wallet signs. A refused
- * step-up stops it before the wallet is asked. The venue's withdrawal is then read by its nonce: pending, then done, with
- * its fee or "not known".
- */
-export function WithdrawPanel({ owner, balances, test }: { owner: string; balances: AsOf<VenueBalance[]> | null; test: boolean }) {
-  const { t } = venueCopy.useCopy();
-  const venue = useVenueApi();
-  const { run } = useVenueActions(owner);
-  const assets = balances?.value.map((b) => b.asset) ?? [];
-  const [asset, setAsset] = useState<string>('');
-  const [amount, setAmount] = useState('');
-  const [draft, setDraft] = useState<string | null>(null);
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const chosen = asset || assets[0] || '';
-  let canonical: string | null = null;
-  try {
-    canonical = amount.trim() ? canonicalDecimal(amount) : null;
-  } catch {
-    canonical = null;
-  }
-  const withdrawalKey = draft ? keys.withdraw(owner, draft) : null;
-  const nonce = result?.kind === 'outcome' && result.outcome.accepted ? result.nonce : result?.kind === 'unknown' ? result.nonce : null;
-  const tracked = usePolled(
-    (signal) => (nonce ? venue.withdrawal(owner, nonce, signal) : Promise.resolve(null)),
-    `w:${owner}:${nonce}`,
-    VENUE_POLL_MS,
-  );
-
-  async function send(stepUpApprovalId: string | null) {
-    if (!withdrawalKey || !canonical || busy) return;
-    setBusy(true);
-    const answer = await run(
-      { kind: 'withdraw', asset: chosen, amount: canonical, destination: owner, withdrawalKey },
-      { stepUpApprovalId },
-    );
-    setBusy(false);
-    setResult(answer);
-  }
-
-  return (
-    <section className="dk-panel form-stack" aria-label={t('Withdraw')} data-testid="venue-withdraw">
-      <h2 className="dk-tab-title">
-        {t('Withdraw')} <TestMark test={test} />
-      </h2>
-      <label className="field">
-        <span>{t('Withdraw asset')}</span>
-        <select
-          value={chosen}
-          onChange={(e) => {
-            setAsset(e.target.value);
-            setDraft(null);
-            setResult(null);
-          }}
-        >
-          {assets.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>{t('Withdraw amount')}</span>
-        <input
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => {
-            setAmount(e.target.value);
-            setDraft(null);
-            setResult(null);
-          }}
-        />
-      </label>
-      <p>
-        {t('Destination')}: <span className="numeric">{owner}</span>
-      </p>
-      {draft === null ? (
-        <Button disabled={!canonical || !chosen} onClick={() => setDraft(draftId())}>
-          {t('Review withdrawal')}
-        </Button>
-      ) : result === null && withdrawalKey && canonical ? (
-        <StepUpConfirm
-          request={() => ({
-            scope: 'trade.step_up.venue.withdraw',
-            purpose: 'venue.withdraw',
-            target: withdrawalKey,
-            amount: canonical!,
-            fields: { withdrawalKey, owner, subAccount: '', asset: chosen, amount: canonical!, destination: owner },
-          })}
-          words={{
-            why: t('Withdraw step up why'),
-            code: t('Authenticator code'),
-            codeHint: t('Authenticator hint'),
-            codeShort: t('Enter six'),
-            noFactor: t('No factor'),
-            sendWithout: t('Send without'),
-          }}
-          disabled={busy}
-          onApproved={(id) => void send(id)}
-        />
-      ) : null}
-      {busy ? <p className="muted">{t('Waiting wallet')}</p> : null}
-      <OutcomeLine result={result} owner={owner} />
-      {tracked.data?.value ? <WithdrawalLine withdrawal={tracked.data.value} asOf={tracked.data.asOf} /> : null}
-    </section>
-  );
-}
-
-function WithdrawalLine({ withdrawal, asOf }: { withdrawal: VenueWithdrawal; asOf: string }) {
-  const { t } = venueCopy.useCopy();
-  return (
-    <dl className="protocol-facts" data-testid="venue-withdrawal" data-status={withdrawal.status}>
-      <div>
-        <dt>{t('Withdrawal status')}</dt>
-        <dd>{word(t, 'withdrawal', withdrawal.status)}</dd>
-      </div>
-      <div>
-        <dt>{t('Amount')}</dt>
-        <dd className="numeric">
-          {displayAmount(withdrawal.amount)} {withdrawal.asset}
-        </dd>
-      </div>
-      <div>
-        <dt>{t('Withdrawal fee')}</dt>
-        <dd className="numeric" data-cell="fee">
-          <Known value={withdrawal.fee} />
-        </dd>
-      </div>
-      <AsOfLine asOf={asOf} />
-    </dl>
   );
 }

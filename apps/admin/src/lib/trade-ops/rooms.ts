@@ -28,6 +28,24 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'The trading rulebook customers read: versions, history, and a new version with a second founder.',
   },
   {
+    id: 'feeds',
+    href: '/trade-ops/feeds',
+    label: 'Market feeds',
+    job: "Each market's candle stream: age, last tick, delayed or stale past the owner's ages; candle gaps and the feed event journal.",
+  },
+  {
+    id: 'charts-metrics',
+    href: '/trade-ops/charts/metrics',
+    label: 'Charts metrics',
+    job: 'Chart opens, alerts, saved layouts and indicator use: real counts, or what is missing to count them.',
+  },
+  {
+    id: 'alert-engine',
+    href: '/trade-ops/alerts',
+    label: 'Alert engine',
+    job: 'Evaluation lag, firings today, and alert deliveries and failures per channel.',
+  },
+  {
     id: 'charts-settings',
     href: '/trade-ops/charts/settings',
     label: 'Charts settings',
@@ -64,6 +82,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Vet who may lead copy trading with a second founder; set the lead criteria; suspend a lead.',
   },
   {
+    id: 'copy-settlements',
+    href: '/trade-ops/copy/settlements',
+    label: 'Copy settlements',
+    job: 'Each lead fee share against its ledger post and the builder fee the venue reports; held rows with their key; reconcile a window.',
+  },
+  {
     id: 'seeding',
     href: '/trade-ops/seeding',
     label: 'Seeding',
@@ -88,6 +112,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Our users’ orders routed to each venue: volume and our builder fees as each venue reports them; house exposure none.',
   },
   {
+    id: 'builder-account',
+    href: '/trade-ops/builder-account',
+    label: 'Builder account',
+    job: 'Our builder address’s account mode at each venue beside the mode required for builder fees; its alerts.',
+  },
+  {
     id: 'adapters',
     href: '/trade-ops/adapters',
     label: 'FIX and SBE',
@@ -95,6 +125,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
   },
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
+  {
+    id: 'accounts',
+    href: '/trade-ops/accounts',
+    label: 'Accounts',
+    job: 'One person’s venue account and ratio history beside their partner balance, read-only, each from its source.',
+  },
   {
     id: 'liquidations',
     href: '/trade-ops/liquidations',

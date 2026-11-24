@@ -1,13 +1,18 @@
+import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
 import { POST_DEADLINE_SECONDS } from './ledger-client.js';
 import {
+  InvalidEntryError,
   LedgerError,
+  REWARD_ASSET,
+  REWARD_CEILING_UNSET,
   classifyPostOutcome,
   parseAmount,
   provesPostNotCommitted,
   recipes,
   type LedgerClient,
+  type RewardCeiling,
 } from '@intafaced/ledger-client';
 
 /**
@@ -22,6 +27,14 @@ import {
  *   customer) or `campaignRewardForfeit` (back to the reward pot), each under its own key (`settle`).
  * - `sweepFeesToRewards` funds that pot from fee revenue the platform earned, once two operators agree, under
  *   `token.fee.sweep:campaigns:<reference>:<module>:<asset>`.
+ *
+ * - A USDC reward paid in full is the launch path (docs/adr/2026-11-10-launch-money-model.md, OWNER 288): it is never
+ *   credited to a customer balance. Our money is set aside for it from the rewards engine into its campaign's budget
+ *   (`campaignBudgetFund`, keyed by this reward's claim, our decision), and then it is owed from that budget
+ *   (`rewardOwe`, `campaigns:owe:<reward id>`), and the intent is `owed`. Owe is refused while the owner's reward ceiling
+ *   is unset (`ledger.reward_ceiling_unset`) or would be passed (`ledger.reward_ceiling_exceeded`): both leave it
+ *   `pending_retry` and nothing booked. Paying an owed reward to the customer's own wallet is the payer's
+ *   (`reward-payer.ts`): until it pays, an owed reward stays owed (`campaigns.reward_payout_unavailable`).
  *
  * Order, every time: the intent row (and its terms) is written and committed first; then the row is moved to `posting`
  * by one conditional UPDATE, so of two attempts at once only one posts; then the post, with no transaction open; then the
@@ -42,6 +55,43 @@ export const REWARD_REASON = 'campaigns.task.reward';
 const RETRYABLE = ['qualified', 'pending_funding', 'pending_retry', 'unknown'] as const;
 const OPEN = [...RETRYABLE, 'posting'] as const;
 
+/** Why an owed reward is not in the customer's wallet yet: it has not been paid to their own wallet (`reward-payer.ts`). */
+export const PAYOUT_UNAVAILABLE = 'campaigns.reward_payout_unavailable';
+
+/** True for a reward on the launch path: paid in full, in USDC. Every other reward keeps the custodial recipes. */
+export const owesReward = (row: { form: string; asset: string }) => row.form === 'paid' && row.asset === REWARD_ASSET;
+
+/** The reward key as one reference: its segments joined by `-`, any character the ledger refuses in one written `_`. */
+const referenceOf = (rewardKey: string) => rewardKey.replace(/[^A-Za-z0-9_:-]/g, '_').replaceAll(':', '-');
+
+/**
+ * The reward's id as the ledger's decision record: `campaign:<campaign id>:<the whole reward key>`, so it names its own
+ * campaign as `rewardOwe` requires (a voucher's key names the voucher, not the campaign) and keeps every segment of the
+ * reward key, so two rewards never share one.
+ */
+export const ledgerRewardId = (campaignId: string, rewardKey: string) => {
+  const head = `campaign:${campaignId}:`;
+  return `${head}${boundedReference(rewardKey, OWE_KEY_MAX - OWE_KEY_PREFIX.length - head.length)}`;
+};
+
+/** The claim decision a budget funding is keyed by: the whole reward key, as one reference. */
+export const fundingDecisionOf = (rewardKey: string) => `claim-${boundedReference(rewardKey, DECISION_MAX - 'claim-'.length)}`;
+
+/** The ledger's limits: a decision reference is at most 128 characters, a post key at most 200 (`reward-owed.ts`). */
+const DECISION_MAX = 128;
+const OWE_KEY_MAX = 200;
+const OWE_KEY_PREFIX = 'campaigns:owe:';
+
+/**
+ * The reward key as one reference that fits `room` characters. A key that fits is written whole, as before, so every
+ * reward already owed keeps its keys. A longer one (an earning rule's long name, a UUID event id such as a card
+ * authorisation's) is written as `h-` and the SHA-256 of the whole key: still one per reward, and the same on every retry.
+ */
+function boundedReference(rewardKey: string, room: number): string {
+  const whole = referenceOf(rewardKey);
+  return whole.length <= room ? whole : `h-${createHash('sha256').update(rewardKey).digest('hex')}`;
+}
+
 /** A `posting` row is taken again only once its attempt can no longer be waiting on the ledger. */
 const inFlightAfter = (reconcileAfterSeconds: number | null) => Math.max(reconcileAfterSeconds ?? 0, POST_DEADLINE_SECONDS);
 
@@ -50,11 +100,13 @@ export type PostAnswer =
 
 type IntentRow = {
   reward_key: string;
+  campaign_id: string;
   account_id: string;
   asset: string;
   amount: string;
   attempts: number;
   form: 'paid' | 'locked' | 'bonus';
+  reason: string | null;
 };
 
 type SettleRow = { reward_key: string; account_id: string; asset: string; amount: string; settle: 'unlock' | 'forfeit'; form: string };
@@ -82,17 +134,44 @@ export interface PayoutSagaOptions {
   ledger: LedgerClient;
   /** Owner value: seconds after an attempt before the reconciler posts the same key again. Null: no reconciler. */
   reconcileAfterSeconds: number | null;
+  /** Owner value: the most INTAFACED may owe in rewards, per campaign and in total. Unset refuses every Owe. */
+  rewardCeiling?: RewardCeiling;
+  /**
+   * The account checks every reward passes before anything is owed or posted (J-campaigns-18, `risk.ts`): a frozen account's
+   * reward is withheld, one whose own risk signals reached the owner's threshold is held for review, and one with signals
+   * while the threshold is blank waits. Absent: no check (unit tests of the saga alone).
+   */
+  gate?: RewardGate;
 }
+
+/** What the account check says of one reward before it is owed or posted. */
+export type GateVerdict =
+  { kind: 'pass' } | { kind: 'hold'; reason: string } | { kind: 'withhold'; reason: string } | { kind: 'wait'; reason: string };
+
+export interface RewardGate {
+  judge(accountId: string): Promise<GateVerdict>;
+}
+
+/** Where each verdict leaves the reward, and its redemption log line. */
+const STOPPED: Record<Exclude<GateVerdict['kind'], 'pass'>, { state: string; outcome: string }> = {
+  hold: { state: 'review', outcome: 'held' },
+  withhold: { state: 'withheld', outcome: 'withheld' },
+  wait: { state: 'pending_retry', outcome: 'refused' },
+};
 
 export class PayoutSaga {
   readonly reconcileAfterSeconds: number | null;
   private readonly sql: Sql;
   private readonly ledger: LedgerClient;
+  private readonly rewardCeiling: RewardCeiling;
+  private readonly gate: RewardGate | null;
 
   constructor(options: PayoutSagaOptions) {
     this.sql = options.sql;
     this.ledger = options.ledger;
     this.reconcileAfterSeconds = options.reconcileAfterSeconds;
+    this.rewardCeiling = options.rewardCeiling ?? REWARD_CEILING_UNSET;
+    this.gate = options.gate ?? null;
   }
 
   /**
@@ -109,8 +188,22 @@ export class PayoutSaga {
         OR (${retry} AND state IN ${this.sql(RETRYABLE)})
         OR (${retry} AND state = 'posting' AND last_attempt_at < now() - make_interval(secs => ${stale}))
       )
-      RETURNING reward_key, account_id, asset, amount::text AS amount, attempts, form`;
+      RETURNING reward_key, campaign_id, account_id, asset, amount::text AS amount, attempts, form, reason`;
     if (!row) return false;
+    if (this.gate) {
+      // Judged before anything is owed or posted; a check that could not be made waits, and the reconciler tries again.
+      const verdict: GateVerdict = await this.gate
+        .judge(row.account_id)
+        .catch(() => ({ kind: 'wait' as const, reason: 'campaigns.risk_unread' }));
+      if (verdict.kind !== 'pass') {
+        await this.stop(row, verdict);
+        return true;
+      }
+    }
+    if (owesReward(row)) {
+      await this.recordOwe(row.reward_key, await this.owe(row));
+      return true;
+    }
     let answer: PostAnswer;
     try {
       const terms = { userId: row.account_id, assetId: row.asset, amount: parseAmount(row.amount) };
@@ -126,6 +219,91 @@ export class PayoutSaga {
     }
     await this.recordIntent(row.reward_key, answer);
     return true;
+  }
+
+  /** Leaves a reward the account check stopped where its verdict says, with no ledger call; one log line per new reason. */
+  private async stop(row: IntentRow, verdict: Exclude<GateVerdict, { kind: 'pass' }>): Promise<void> {
+    const to = STOPPED[verdict.kind];
+    await transaction(this.sql, async (tx) => {
+      const moved = await tx`
+        UPDATE campaigns.reward_intents SET state = ${to.state}, reason = ${verdict.reason}, updated_at = now()
+        WHERE reward_key = ${row.reward_key} AND state = 'posting'`;
+      if (moved.count === 0 || (verdict.kind === 'wait' && row.reason === verdict.reason)) return;
+      await tx`
+        INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+        VALUES (${row.reward_key}, ${to.outcome}, ${verdict.reason})`;
+    });
+  }
+
+  /**
+   * The launch path's one attempt: set our money aside for this reward, then owe it. The ceiling is checked against
+   * what is owed so far: every reward owed and not yet paid, and every other one being posted now (counted as if it
+   * booked, so two at once can never both fit the last room; one waits for the next pass instead).
+   */
+  private async owe(row: IntentRow): Promise<PostAnswer> {
+    const amount = parseAmount(row.amount);
+    const rewardId = ledgerRewardId(row.campaign_id, row.reward_key);
+    try {
+      const [sums] = await this.sql<{ campaign: string; total: string }[]>`
+        SELECT coalesce(sum(amount) FILTER (WHERE campaign_id = ${row.campaign_id}), 0)::text AS campaign,
+               coalesce(sum(amount), 0)::text AS total
+        FROM campaigns.reward_intents
+        WHERE form = 'paid' AND asset = ${REWARD_ASSET} AND reward_key <> ${row.reward_key}
+          AND (state = 'owed' OR (state IN ('posting', 'unknown') AND owe_tx_id IS NULL))`;
+      // Built before anything posts, so a refused Owe books no budget either.
+      const owe = recipes.rewardOwe({
+        campaignId: row.campaign_id,
+        rewardId,
+        userId: row.account_id,
+        kind: 'reward',
+        assetId: row.asset,
+        amount,
+        ceiling: this.rewardCeiling,
+        owedSoFar: { campaign: parseAmount(sums!.campaign), total: parseAmount(sums!.total) },
+      });
+      await this.ledger.post(
+        recipes.campaignBudgetFund({
+          campaignId: row.campaign_id,
+          decisionId: fundingDecisionOf(row.reward_key),
+          assetId: row.asset,
+          amount,
+        }),
+      );
+      const tx = await this.ledger.post(owe);
+      return { state: 'posted', txId: tx.id };
+    } catch (err) {
+      // Refused before any post: nothing was booked. The ceiling may be set or have room later; a malformed reward never.
+      if (err instanceof InvalidEntryError) return { state: 'failed', reason: 'campaigns.reward_unowable' };
+      const code = codeOf(err);
+      if (code === 'ledger.reward_ceiling_unset' || code === 'ledger.reward_ceiling_exceeded') {
+        return { state: 'pending_retry', reason: code };
+      }
+      // The budget funding may have booked before Owe was refused: it stays set aside under its own key, and the next
+      // attempt's funding returns that same transaction, so nothing is set aside twice.
+      return answerOf(err, false);
+    }
+  }
+
+  private async recordOwe(rewardKey: string, answer: PostAnswer): Promise<void> {
+    await transaction(this.sql, async (tx) => {
+      if (answer.state === 'posted') {
+        const owed = await tx`
+          UPDATE campaigns.reward_intents SET state = 'owed', owe_tx_id = ${answer.txId}, owed_at = now(),
+            reason = ${PAYOUT_UNAVAILABLE}, updated_at = now()
+          WHERE reward_key = ${rewardKey} AND state IN ${tx(OPEN)}`;
+        if (owed.count > 0) {
+          await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome) VALUES (${rewardKey}, 'owed')`;
+        }
+        return;
+      }
+      const moved = await tx`
+        UPDATE campaigns.reward_intents SET state = ${answer.state}, reason = ${answer.reason}, updated_at = now()
+        WHERE reward_key = ${rewardKey} AND state = 'posting'`;
+      if (moved.count === 0) return;
+      const outcome = answer.state === 'unknown' ? 'unknown' : 'refused';
+      await tx`
+        INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${rewardKey}, ${outcome}, ${answer.reason})`;
+    });
   }
 
   private async recordIntent(rewardKey: string, answer: PostAnswer): Promise<void> {

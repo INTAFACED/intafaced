@@ -59,7 +59,7 @@ function yieldSql(active: StakeRow[]): { sql: Sql; payouts: Payout[] } {
     return result;
   };
 
-  return { sql: Object.assign(fn, { begin, json: (v: unknown) => v }) as unknown as Sql, payouts };
+  return { sql: Object.assign(fn, { begin, json: (v: unknown) => v }) as Sql, payouts };
 }
 
 async function funded(ledger: MemoryLedger, userId: string, stakeId: string, amount: string): Promise<void> {

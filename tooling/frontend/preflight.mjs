@@ -11,7 +11,7 @@
  * Exit 0 = ready to ship at AOS level (or waiver files present).
  * Exit 1 = blocked — do not open product PR.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';

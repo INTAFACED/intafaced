@@ -1,9 +1,7 @@
 import 'server-only';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { type ExecuteFn, explainRefusal, failureRefusal, type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { readOpenedDocument } from './document';
+import { IDENTITY_KYC_GET_DOCUMENT } from '@intafaced/contracts/identity-kyc-procedures';
 
 /**
  * Open one approved KYC document (J-ops-console-02 #5) at identity, as the signed-in founder.
@@ -19,11 +17,9 @@ const OPEN_TIMEOUT_MS = 30_000;
 export function kycDocumentOpenExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'identity.kyc_document.open') return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
+    const result = await founderRecordRead(
       ctx,
-      'identity',
-      'kyc.getDocument',
-      'POST',
+      IDENTITY_KYC_GET_DOCUMENT,
       { documentId: request.documentId, approvalId: ids.approvalId, operationId: ids.operationId },
       readOpenedDocument,
       { timeoutMs: OPEN_TIMEOUT_MS },

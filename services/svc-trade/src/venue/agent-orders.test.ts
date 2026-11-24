@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -11,7 +12,7 @@ import { AgentAccountError, AgentAccounts, parseAgentAccountValues, type AgentAc
 import { InMemoryAgentAccountStore } from './agent-account-store.js';
 import { InMemoryAgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
-import { AgentOrders, AgentVenueRefusal, agentLeverageKey, agentOrderKey } from './agent-orders.js';
+import { AgentOrders, AgentVenueRefusal, agentLeverageKey, agentOrderKey, agentRevokeKey, dailyLossOf } from './agent-orders.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
@@ -83,8 +84,8 @@ function keyTable() {
   };
   return {
     reader,
-    add(keyId: string, userId: string, kind: 'agent' | 'personal', scopes: string[], revoked = false) {
-      keys.set(keyId, { userId, read: { state: 'found', keyId, kind, scopes, revoked } });
+    add(keyId: string, userId: string, kind: 'agent' | 'personal', scopes: string[], revoked = false, expiresAt: string | null = null) {
+      keys.set(keyId, { userId, read: { state: 'found', keyId, kind, scopes, revoked, expiresAt } });
     },
     setDown(v: boolean) {
       down = v;
@@ -121,6 +122,7 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
   let connections: InMemoryAgentConnectionStore;
   let keys: ReturnType<typeof keyTable>;
   let stepUps: StepUpCheckRequest[];
+  let freeze: MemoryFreezeRead;
   /** What the next submit to the venue does: send normally, send then lose the answer, or lose it before sending. */
   let submitFault: 'none' | 'lost_after_send' | 'lost_before_send' = 'none';
 
@@ -161,14 +163,26 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       store: actions,
       stepUp,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      // Blank: its orders are limits, which the protection never bounds.
+      slippageCapBps: null,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });
     accountStore = new InMemoryAgentAccountStore();
     connections = new InMemoryAgentConnectionStore();
     keys = keyTable();
-    accounts = new AgentAccounts({ door, store: accountStore, stepUp, values, now: () => new Date() });
-    orders = new AgentOrders({ door, accounts: accountStore, connections, keys: keys.reader, stepUp, values, now: () => new Date() });
+    freeze = new MemoryFreezeRead();
+    accounts = new AgentAccounts({ door, store: accountStore, stepUp, values, freeze, now: () => new Date() });
+    orders = new AgentOrders({
+      door,
+      accounts: accountStore,
+      connections,
+      keys: keys.reader,
+      stepUp,
+      values,
+      freeze,
+      now: () => new Date(),
+    });
   }
 
   let topUps = 0;
@@ -292,6 +306,64 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       expect((await refusedAs(orders.connect(person, second.accountId, { keyId, stepUpApprovalId: 'ok' }))).code).toBe(
         'agents.key_already_connected',
       );
+    });
+
+    // ── #19: the key's end date against the venue's longest agent permission ──
+    const DAY = 86_400_000;
+    it("#19: a key ending later than the venue's longest agent permission is refused naming it, before step-up; a valid one shows its end date", async () => {
+      const v = await openAccount();
+      const maxMs = sim.venue.agentValidityMaxMs!;
+      expect(maxMs).toBe(180 * DAY);
+      const tooLong = uuid('beef');
+      const longEnd = new Date(Date.now() + maxMs + DAY).toISOString();
+      keys.add(tooLong, USER, 'agent', ['trade:read', 'trade:write'], false, longEnd);
+      const before = stepUps.length;
+      const refused = await refusedAs(orders.connect(person, v.accountId, { keyId: tooLong, stepUpApprovalId: 'ok' }));
+      expect([refused.code, refused.status]).toEqual(['agents.key_expiry_above_venue_max', 422]);
+      expect(refused.message).toContain('at most 180 days');
+      expect(refused.message).toContain(sim.venue.displayName);
+      expect(stepUps.length).toBe(before);
+      expect(await orders.connections(person)).toEqual([]);
+
+      const valid = uuid('beef');
+      const end = new Date(Date.now() + 30 * DAY).toISOString();
+      keys.add(valid, USER, 'agent', ['trade:read', 'trade:write'], false, end);
+      const c = await orders.connect(person, v.accountId, { keyId: valid, stepUpApprovalId: 'ok' });
+      expect(c.expiry).toEqual({ known: true, expiresAt: new Date(end) });
+      expect((await orders.connections(person)).map((x) => [x.keyId, x.expiry])).toEqual([
+        [valid, { known: true, expiresAt: new Date(end) }],
+      ]);
+    });
+
+    it('#19: a key with no end date connects with none; an identity that could not be asked leaves the end date unknown, never blank', async () => {
+      const v = await openAccount();
+      const keyId = uuid('beef');
+      keys.add(keyId, USER, 'agent', ['trade:write']);
+      expect((await orders.connect(person, v.accountId, { keyId, stepUpApprovalId: 'ok' })).expiry).toEqual({
+        known: true,
+        expiresAt: null,
+      });
+      keys.setDown(true);
+      expect((await orders.connections(person)).map((x) => x.expiry)).toEqual([{ known: false }]);
+    });
+
+    it('#19: on a venue that declares no longest agent permission, a dated key is refused agents.venue_agent_expiry_max_unknown', async () => {
+      const v = await openAccount();
+      const real = await door.venue();
+      const venueOf = door.venue.bind(door);
+      door.venue = async () => {
+        const u = await venueOf();
+        return new Proxy(u, {
+          get: (t, p, r) => (p === 'venue' ? { ...real.venue, agentValidityMaxMs: undefined } : Reflect.get(t, p, r)),
+        });
+      };
+      const keyId = uuid('beef');
+      keys.add(keyId, USER, 'agent', ['trade:write'], false, new Date(Date.now() + DAY).toISOString());
+      const before = stepUps.length;
+      expect((await refusedAs(orders.connect(person, v.accountId, { keyId, stepUpApprovalId: 'ok' }))).code).toBe(
+        'agents.venue_agent_expiry_max_unknown',
+      );
+      expect(stepUps.length).toBe(before);
     });
   });
 
@@ -547,6 +619,85 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
     expect((await orders.place(assistant(keyId), perp('lev-2', '0.0005', { leverage: '2' }))).state).toBe('accepted');
   });
 
+  it("#18: once the day's loss reaches the person's daily-loss cap, the assistant's next order is refused naming the cap; open positions are untouched", async () => {
+    const values = parseAgentAccountValues({ ...rawValues(), TRADE_AGENT_MAX_LEVERAGE: '5', TRADE_AGENT_MAX_DAILY_LOSS: '100' });
+    const { keyId, sub, account } = await connected(values);
+    await builderApproved(sub);
+    await accounts.setLimits(person, account.accountId, { maxLeverage: '2', maxDailyLoss: '0.03' });
+    // Opens 0.0008 long at 2x: its taker fee (~0.02 USDC) is under the cap, so the close goes on.
+    expect((await orders.place(assistant(keyId), perp('dl-open', '0.0008', { leverage: '2' }))).state).toBe('accepted');
+    // Closes half across the spread: a realised loss and a second fee take the day's loss past 0.03.
+    expect(
+      (
+        await orders.place(assistant(keyId), {
+          ...perp('dl-close', '0.0004', { side: 'sell', price: '59900', reduceOnly: true }),
+          leverage: undefined,
+        })
+      ).state,
+    ).toBe('accepted');
+    const since = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    const fills = (await sim.fills(sub, since)).value;
+    expect(fills).toHaveLength(2);
+    const loss = dailyLossOf(fills, 'USDC');
+    expect(loss).toBeGreaterThanOrEqual(a('0.03'));
+    const before = {
+      sub: (await sim.balances(sub)).value,
+      orders: (await sim.openOrders(sub)).value,
+      positions: (await sim.positions(sub)).value,
+    };
+    expect(before.positions).toEqual([expect.objectContaining({ symbol: 'BTC-PERP', side: 'long', size: a('0.0004') })]);
+
+    // The next order, any order: refused naming the cap and the day's loss, before anything is stored or signed.
+    for (const [id, order] of [
+      ['dl-next', perp('dl-next', '0.0001', { leverage: '2' })],
+      ['dl-spot', buy('dl-spot', '0.0001')],
+    ] as const) {
+      const refused = await refusedAs(orders.place(assistant(keyId), order));
+      expect([refused.code, refused.status]).toEqual(['agents.daily_loss_cap_reached', 422]);
+      expect(refused.detail).toEqual({ cap: '0.03', loss: formatAmount(loss), since: since.toISOString() });
+      expect(refused.message).toContain('daily-loss cap');
+      expect(refused.message).toContain('0.03 USDC');
+      expect(await door.stored(person, agentOrderKey(keyId, id))).toBeNull();
+      expect(await door.stored(person, agentLeverageKey(keyId, id))).toBeNull();
+    }
+    // Open positions untouched: nothing closed, cancelled or moved on the venue.
+    expect({
+      sub: (await sim.balances(sub)).value,
+      orders: (await sim.openOrders(sub)).value,
+      positions: (await sim.positions(sub)).value,
+    }).toEqual(before);
+
+    // A new UTC day starts from no loss: the same account's assistant may order again.
+    const tomorrow = new Date(since.getTime() + 86_400_000 + 60_000);
+    const nextDay = new AgentOrders({
+      door,
+      accounts: accountStore,
+      connections,
+      keys: keys.reader,
+      stepUp: { require: async () => ({ stepUpEventId: 'step-up-test', consumedAt: null, replayed: false }) },
+      values,
+      freeze: new MemoryFreezeRead(),
+      now: () => tomorrow,
+    });
+    expect((await nextDay.place(assistant(keyId), buy('dl-tomorrow', '0.0001'))).state).toBe('accepted');
+  });
+
+  it("#18: the day's loss is realised results less every fee, a base-asset fee valued at its fill price; a gain is no loss", () => {
+    const fill = (realisedPnl: string | null, fee: string, feeAsset = 'USDC', price = '60000') => ({
+      price: a(price),
+      venueFee: a(fee),
+      builderFee: a('0'),
+      feeAsset,
+      realisedPnl: realisedPnl === null ? null : a(realisedPnl),
+    });
+    expect(dailyLossOf([], 'USDC')).toBe(a('0'));
+    expect(dailyLossOf([fill(null, '0.02'), fill('-0.01', '0.01')], 'USDC')).toBe(a('0.04'));
+    expect(dailyLossOf([fill('5', '0.02')], 'USDC')).toBe(a('0'));
+    // 0.000001 BTC of fee at 60000 is 0.06 USDC.
+    expect(dailyLossOf([fill(null, '0.000001', 'BTC')], 'USDC')).toBe(a('0.06'));
+    expect(dailyLossOf([{ ...fill('-1', '0'), builderFee: a('0.5') }], 'USDC')).toBe(a('1.5'));
+  });
+
   it("#10: a perp needing more margin than the account holds is the venue's refusal, named; nothing locked; main never drawn", async () => {
     const { keyId, sub } = await connected();
     await builderApproved(sub);
@@ -568,7 +719,259 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
     expect(await total(main(), 'USDC')).toBe(before.main);
   });
 
+  // ── #12: the person revokes the assistant ───────────────────────────────────────────────────────────────────
+
+  describe('#12 revoke', () => {
+    /** A connected assistant with one filled buy (a holding) and one buy resting below the book. */
+    async function withResting() {
+      const c = await connected();
+      await orders.place(assistant(c.keyId), buy('held-1', '0.0005'));
+      const resting = await orders.place(assistant(c.keyId), { ...buy('rest-1', '0.0002', '50000'), timeInForce: 'GTC' });
+      expect((await sim.openOrders(c.sub)).value.map((o) => o.venueClientOrderId)).toEqual([resting.order?.venueClientOrderId]);
+      return { ...c, resting };
+    }
+
+    it("ends the connection, cancels the assistant's resting order once, drops our agent key and asks the wallet to sign the venue's revoke", async () => {
+      const { keyId, sub, account, resting } = await withResting();
+      const btc = await total(sub, 'BTC');
+      const view = await orders.revoke(person, keyId);
+      expect(view).toMatchObject({ keyId, accountId: account.accountId, subAccount: sub.subAccount, agentKeyDropped: true, test: true });
+      expect(view.cancels).toEqual([
+        {
+          orderKey: agentOrderKey(keyId, 'rest-1'),
+          venueClientOrderId: resting.order?.venueClientOrderId,
+          symbol: 'BTC-USDC',
+          state: 'cancelled',
+        },
+      ]);
+      // Cancelled on the venue; the holding stays, and the venue still lists the agent until the wallet signs.
+      expect((await sim.openOrders(sub)).value).toEqual([]);
+      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId!)).value?.status).toBe('canceled');
+      expect(await total(sub, 'BTC')).toBe(btc);
+      expect(view.agent).toEqual({ address: account.agentAddress, onVenue: true });
+      expect(view.next).toMatchObject({ actionKey: `agent:account:${account.accountId}:revoke`, step: 'revoke_agent', signed: false });
+      expect(view.next!.prepared.intent).toEqual({ kind: 'revoke_agent', agentAddress: account.agentAddress });
+      expect(view.next!.prepared.signer).toEqual({ role: 'owner', address: owner });
+      expect(view.next!.prepared.account.subAccount).toBe(sub.subAccount);
+      // From here the key places nothing, and the person's list of connections is empty.
+      expect((await refusedAs(orders.place(assistant(keyId), buy('after-1', '0.0001')))).code).toBe('agents.key_not_connected');
+      expect(await orders.connections(person)).toEqual([]);
+
+      // The wallet signs the venue's revoke: the venue no longer lists the agent, and nothing is left to sign.
+      const done = await orders.revoke(person, keyId, { actionKey: view.next!.actionKey, signature: await sign(view.next!.prepared) });
+      expect(done.agent.onVenue).toBe(false);
+      expect(done.next).toBeNull();
+      expect((await sim.agents(sub)).value.map((x) => x.address.toLowerCase())).not.toContain(account.agentAddress);
+      expect(await total(sub, 'BTC')).toBe(btc);
+    });
+
+    it('a repeat sends nothing new: the same cancel, the same stored revoke, never a second signature', async () => {
+      const { keyId } = await withResting();
+      const first = await orders.revoke(person, keyId);
+      const cancelKey = `agent:revoke:${keyId}:cancel:${agentOrderKey(keyId, 'rest-1')}`;
+      const signed = await door.stored(person, cancelKey);
+      const again = await orders.revoke(person, keyId);
+      expect(again.cancels).toEqual(first.cancels);
+      expect(again.endedAt).toEqual(first.endedAt);
+      expect(again.next?.prepared.digest).toBe(first.next?.prepared.digest);
+      expect(await door.stored(person, cancelKey)).toEqual(signed);
+      expect(await actions.listByPrefix(USER, `agent:revoke:${keyId}:`)).toHaveLength(1);
+    });
+
+    it("leaves the person's own order on the agent account as it is", async () => {
+      const { keyId, sub, account } = await withResting();
+      const own = await door.prepare(
+        person,
+        {
+          owner,
+          subAccount: sub.subAccount,
+          signer: { role: 'owner', address: owner },
+          intent: {
+            kind: 'place_order',
+            symbol: 'BTC-USDC',
+            side: 'buy',
+            type: 'limit',
+            amount: a('0.0002'),
+            price: a('49000'),
+            timeInForce: 'GTC',
+            reduceOnly: false,
+            clientOrderKey: `order:${account.accountId}:own`,
+            builderFee: null,
+          },
+        },
+        { agentAccount: true },
+      );
+      await door.submit(person, own.actionKey, await sign(own.prepared), { agentAccount: true });
+      const view = await orders.revoke(person, keyId);
+      expect(view.cancels.map((c) => c.orderKey)).toEqual([agentOrderKey(keyId, 'rest-1')]);
+      expect((await sim.openOrders(sub)).value.map((o) => o.venueClientOrderId)).toEqual([own.prepared.venueClientOrderId]);
+    });
+
+    it('once revoked, another key on the same account places nothing and no key can be connected to it', async () => {
+      const { keyId, account } = await withResting();
+      const second = uuid('beef');
+      keys.add(second, USER, 'agent', ['trade:read', 'trade:write']);
+      await orders.connect(person, account.accountId, { keyId: second, stepUpApprovalId: 'ok' });
+      await orders.revoke(person, keyId);
+      const e = await refusedAs(orders.place(assistant(second), buy('second-1', '0.0001')));
+      expect([e.code, e.status]).toEqual(['agents.agent_revoked', 409]);
+      const third = uuid('beef');
+      keys.add(third, USER, 'agent', ['trade:read', 'trade:write']);
+      expect((await refusedAs(orders.connect(person, account.accountId, { keyId: third, stepUpApprovalId: 'ok' }))).code).toBe(
+        'agents.agent_revoked',
+      );
+    });
+
+    it("is the person's own: refused from an API key, and for a key that trades no account of theirs", async () => {
+      const { keyId } = await connected();
+      await expect(orders.revoke(assistant(keyId), keyId)).rejects.toBeInstanceOf(AuthError);
+      const stranger = { ...person, userId: OTHER_USER, sub: OTHER_USER } as Principal;
+      expect((await refusedAs(orders.revoke(stranger, keyId))).code).toBe('agents.key_not_connected');
+      expect((await refusedAs(orders.revoke(person, uuid('beef')))).code).toBe('agents.key_not_connected');
+      // Nothing ended: the assistant still trades.
+      expect(await orders.connections(person)).toHaveLength(1);
+      // A signature for anything but this revoke's own action is refused before anything is sent.
+      expect((await refusedAs(orders.revoke(person, keyId, { actionKey: 'agent:account:x:create', signature: {} as never }))).code).toBe(
+        'agents.account_action_unknown',
+      );
+    });
+
+    it('a crash after the cancel reached the venue, before its answer, is finished by the same call: cancelled once', async () => {
+      const { keyId, sub, resting } = await withResting();
+      submitFault = 'lost_after_send';
+      await expect(orders.revoke(person, keyId)).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+      // The connection ended first, so the key placed nothing in between; our key is not yet dropped.
+      expect(await orders.connections(person)).toEqual([]);
+      expect(await door.stored(person, `agent:account:${(await connections.latest(keyId))!.accountId}:revoke`)).toBeNull();
+      const view = await orders.revoke(person, keyId);
+      expect(view.agentKeyDropped).toBe(true);
+      expect((await sim.openOrders(sub)).value).toEqual([]);
+      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId!)).value?.status).toBe('canceled');
+      expect(view.cancels).toHaveLength(1);
+    });
+  });
+
   // ── #9: the connected key reaches nothing but its own order route ────────────────────────────────────────────
+
+  // ── J-wallet-13: the owner's own freeze ─────────────────────────────────────────────────────────────────────────
+
+  describe("J-wallet-13 the owner's own freeze", () => {
+    const other = { ...person, userId: OTHER_USER, sub: OTHER_USER } as Principal;
+
+    async function openFor(p: Principal) {
+      let v = await accounts.create(p, { accountId: uuid('acc'), owner, asset: 'USDC', cap: '200', fund: '50', stepUpApprovalId: 'ok' });
+      for (let i = 0; v.next && i < 5; i += 1) v = await accounts.submit(p, v.accountId, v.next.actionKey, await sign(v.next.prepared));
+      expect(v.status).toBe('open');
+      return v;
+    }
+
+    it('#1 the event revokes every connection and agent key of that person at once, none of another, and twice is one revoke', async () => {
+      const c = await connected();
+      await orders.place(assistant(c.keyId), { ...buy('rest-f', '0.0002', '50000'), timeInForce: 'GTC' });
+      expect((await sim.openOrders(c.sub)).value).toHaveLength(1);
+      // A second open account of the person with no assistant connected: its agent key is ours too.
+      const idle = await openFor(person);
+      // Another person, connected, untouched by this person's freeze.
+      const theirs = await openFor(other);
+      const theirKey = uuid('beef');
+      keys.add(theirKey, OTHER_USER, 'agent', ['trade:read', 'trade:write']);
+      await orders.connect(other, theirs.accountId, { keyId: theirKey, stepUpApprovalId: 'ok' });
+
+      freeze.frozenUsers.add(USER);
+      expect(await orders.applySelfFreeze(USER)).toEqual({ connections: 1, accounts: 2 });
+      expect(await orders.connections(person)).toEqual([]);
+      expect((await sim.openOrders(c.sub)).value).toEqual([]);
+      const dropped = await door.stored(person, agentRevokeKey(c.account.accountId));
+      expect(dropped?.prepared.intent).toEqual({ kind: 'revoke_agent', agentAddress: c.account.agentAddress });
+      expect((await door.stored(person, agentRevokeKey(idle.accountId)))?.prepared.intent).toEqual({
+        kind: 'revoke_agent',
+        agentAddress: idle.agentAddress,
+      });
+      // None of another person's.
+      expect(await orders.connections(other)).toHaveLength(1);
+      expect(await door.stored(other, agentRevokeKey(theirs.accountId))).toBeNull();
+
+      // Delivered twice: one revoke. The same stored revoke, the same single cancel, nothing new prepared.
+      const cancels = await actions.listByPrefix(USER, `agent:revoke:${c.keyId}:`);
+      expect(cancels).toHaveLength(1);
+      expect(await orders.applySelfFreeze(USER)).toEqual({ connections: 0, accounts: 2 });
+      expect((await door.stored(person, agentRevokeKey(c.account.accountId)))?.prepared.digest).toBe(dropped?.prepared.digest);
+      expect(await actions.listByPrefix(USER, `agent:revoke:${c.keyId}:`)).toEqual(cancels);
+
+      // #4: after the lift nothing comes back. The dropped key signs nothing, for the assistant or a copy, and no key
+      // connects to that account: a new permission is signed on a new account.
+      freeze.frozenUsers.delete(USER);
+      const k2 = uuid('beef');
+      keys.add(k2, USER, 'agent', ['trade:read', 'trade:write']);
+      expect((await refusedAs(orders.connect(person, c.account.accountId, { keyId: k2, stepUpApprovalId: 'ok' }))).code).toBe(
+        'agents.agent_revoked',
+      );
+      const copy = await refusedAs(
+        orders.placeOnAccount(person, idle.accountId, `copy:${uuid('c0')}`, {
+          symbol: 'BTC-USDC',
+          side: 'buy',
+          amount: a('0.0001'),
+          price: a('60100'),
+          timeInForce: 'IOC',
+        }),
+      );
+      expect(copy.code).toBe('agents.agent_revoked');
+      expect(await orders.connections(person)).toEqual([]);
+    });
+
+    it('#2 while frozen, every agent permission change is refused with the freeze reason; funds stay put', async () => {
+      const c = await connected();
+      const second = await openFor(person);
+      freeze.frozenUsers.add(USER);
+      const k2 = uuid('beef');
+      keys.add(k2, USER, 'agent', ['trade:read', 'trade:write']);
+      const refusals = {
+        create: await refusedAs(
+          accounts.create(person, { accountId: uuid('acc'), owner, asset: 'USDC', cap: '100', fund: '10', stepUpApprovalId: 'ok' }),
+        ),
+        fund: await refusedAs(accounts.fund(person, second.accountId, { moveId: uuid('a0'), amount: '5' })),
+        cap: await refusedAs(accounts.setCap(person, second.accountId, { cap: '150' })),
+        limits: await refusedAs(accounts.setLimits(person, second.accountId, { maxOrderNotional: '10' })),
+        connect: await refusedAs(orders.connect(person, second.accountId, { keyId: k2, stepUpApprovalId: 'ok' })),
+        order: await refusedAs(orders.place(assistant(c.keyId), buy('frozen-1', '0.0001'))),
+      };
+      for (const [door_, e] of Object.entries(refusals)) {
+        expect([e.code, e.status], door_).toEqual(['trade.account_frozen_self', 423]);
+        expect(e.message, door_).toMatch(/you froze this account/);
+        expect(e.message, door_).toMatch(/Your funds stay in your own wallet and venue account/);
+      }
+      // A move back out is the person's own and still passes the freeze (it is the venue's to answer).
+      const out = await accounts.withdraw(person, second.accountId, { moveId: uuid('b0'), amount: '1' });
+      expect(out.moves.some((m) => m.direction === 'out_of_sub_account')).toBe(true);
+      // Nothing was made, connected or changed.
+      expect(await accounts.list(person)).toHaveLength(2);
+      expect(await orders.connections(person)).toHaveLength(1);
+    });
+
+    it('#2 a freeze that cannot be read refuses each door (fail closed), and so does a deployment with no freeze read', async () => {
+      const v = await openFor(person);
+      freeze.down = true;
+      const k = uuid('beef');
+      keys.add(k, USER, 'agent', ['trade:read', 'trade:write']);
+      for (const e of [
+        await refusedAs(accounts.setCap(person, v.accountId, { cap: '150' })),
+        await refusedAs(accounts.fund(person, v.accountId, { moveId: uuid('d0'), amount: '5' })),
+        await refusedAs(orders.connect(person, v.accountId, { keyId: k, stepUpApprovalId: 'ok' })),
+      ])
+        expect([e.code, e.status]).toEqual(['trade.freeze_unavailable', 503]);
+      const unwired = new AgentAccounts({
+        door,
+        store: accountStore,
+        stepUp: { require: async () => ({}) as never },
+        values: VALUES,
+        freeze: null,
+        now: () => new Date(),
+      });
+      const e = await refusedAs(unwired.setCap(person, v.accountId, { cap: '150' }));
+      expect([e.code, e.status]).toEqual(['trade.freeze_unavailable', 503]);
+      expect((await accountStore.find(USER, v.accountId))?.cap).toEqual(a('200'));
+    });
+  });
 
   it('#9: confined() is true only for an API key connected to an agent account of its own person', async () => {
     const { keyId } = await connected();

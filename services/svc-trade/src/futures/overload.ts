@@ -5,9 +5,7 @@
  * invent a request-rate ceiling. While the switch is on, new risk is refused
  * and a reduce-only or close-position order is not.
  */
-import type { Principal } from '@intafaced/auth';
 import { TradeError, type TradeErrorCode } from '../spot/types.js';
-import { TradeService, type PlaceOrderInput } from '../spot/trade-service.js';
 
 export const SYSTEM_OVERLOAD = 'trade.system_overload' as const;
 
@@ -29,30 +27,18 @@ export function admitUnderOverload(input: {
   };
 }
 
-type PlaceWithReduce = PlaceOrderInput & { readonly reduceOnly?: boolean; readonly closePosition?: boolean };
-
-const PLACE_FLAG = Symbol.for('intafaced.trade.overloadPlace');
-
-export function installOverloadPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<unknown>;
-    [PLACE_FLAG]?: true;
-  };
-  if (proto[PLACE_FLAG]) return;
-  proto[PLACE_FLAG] = true;
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const tagged = input as PlaceWithReduce;
-    const decision = admitUnderOverload({
-      overloaded: orderDoorOverloaded(),
-      reduceOnly: tagged.reduceOnly,
-      closePosition: tagged.closePosition,
-    });
-    if (!decision.ok) throw new TradeError(decision.reason, decision.code as TradeErrorCode);
-    return origPlace.call(this, principal, input);
-  };
-}
-
-export function installOverload(): void {
-  installOverloadPlace(TradeService);
+/**
+ * Throws `trade.system_overload` for new risk while the switch is on. Called at the start of `placeOrderInner`,
+ * which every order kind reaches (a direct place, a TWAP child, a copy mirror, a grid level), so none skips it.
+ */
+export function assertAdmittedUnderOverload(
+  input: { readonly reduceOnly?: boolean; readonly closePosition?: boolean },
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const decision = admitUnderOverload({
+    overloaded: orderDoorOverloaded(env),
+    reduceOnly: input.reduceOnly,
+    closePosition: input.closePosition,
+  });
+  if (!decision.ok) throw new TradeError(decision.reason, decision.code as TradeErrorCode);
 }

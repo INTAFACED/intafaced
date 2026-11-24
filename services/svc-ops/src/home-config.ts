@@ -5,16 +5,21 @@
  *
  * Each value is an owner decision with no value yet, so each is blank (`null`) until the owner sets it in this service's
  * environment: `OPS_HOME_WORK_LIST_CAP`, `OPS_HOME_WORK_LIST_ORDER` (kinds, comma separated, each once) and
- * `OPS_HOME_SEARCH_RESULT_CAP` and `OPS_HOME_NOTICE_STRIP_LIMIT`. Blank is answered as blank, never as a default: the
+ * `OPS_HOME_SEARCH_RESULT_CAP`, `OPS_HOME_NOTICE_STRIP_LIMIT` and `OPS_HOME_RECENT_ACTIVITY_LIMIT`. Blank is answered as blank, never as a default: the
  * customer app refuses the work list (`home.work_list_cap_unset`), keeps the owners' order and says so, shows the
- * search's Help group as not set, or has the announcement strip say its count is not set (`home.notice_strip_limit_unset`).
+ * search's Help group as not set, has the announcement strip say its count is not set (`home.notice_strip_limit_unset`), or
+ * has Recent activity say how many movements it lists is not set (`home.recent_activity_limit_unset`).
  *
  * The values are display settings, not secrets, so the read is public (the signed-out header search reads the help cap
  * too). They come from the environment, so `revision` is 0: a value changes only with a restart. A founder settings desk
  * with compare-and-set revisions is a later slice.
  */
 import { z } from 'zod';
-import { homeConfigOutputSchema, publicProcedure, router, type HomeConfig } from '@intafaced/contracts';
+import type { HomeConfig } from '@intafaced/contracts';
+import { homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
+import { router } from '@intafaced/contracts/trpc';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 const blank = (value: string | undefined): boolean => value === undefined || value.trim() === '';
 
@@ -40,6 +45,7 @@ export interface HomeConfigEnv {
   OPS_HOME_WORK_LIST_ORDER?: string;
   OPS_HOME_SEARCH_RESULT_CAP?: string;
   OPS_HOME_NOTICE_STRIP_LIMIT?: string;
+  OPS_HOME_RECENT_ACTIVITY_LIMIT?: string;
 }
 
 /**
@@ -59,13 +65,18 @@ export function homeConfigFromEnv(env: HomeConfigEnv): HomeConfig {
     workListOrder: parse('OPS_HOME_WORK_LIST_ORDER', orderSchema),
     searchResultCap: parse('OPS_HOME_SEARCH_RESULT_CAP', count(field.searchResultCap.unwrap())),
     noticeStripLimit: parse('OPS_HOME_NOTICE_STRIP_LIMIT', count(field.noticeStripLimit.removeDefault().unwrap())),
+    recentActivityLimit: parse('OPS_HOME_RECENT_ACTIVITY_LIMIT', count(field.recentActivityLimit.removeDefault().unwrap())),
     revision: 0,
   });
 }
 
-/** `home.config` (the contract's `HOME_CONFIG_PROCEDURE`): public, read only, blank stays blank. */
+/** `home.config`, mounted from its record (`OPS_HOME_CONFIG`): public, read only, blank stays blank. It refuses nothing. */
 export function createHomeConfigRouter(config: HomeConfig) {
   return router({
-    config: publicProcedure.output(homeConfigOutputSchema).query(() => config),
+    config: mountRecord(
+      OPS_HOME_CONFIG,
+      () => config,
+      () => undefined,
+    ),
   });
 }

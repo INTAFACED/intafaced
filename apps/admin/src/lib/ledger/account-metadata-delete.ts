@@ -1,6 +1,6 @@
-import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
+import { codeInText, explainRefusal, isKnownCode } from '@/lib/refusal-copy';
 import { upstreamCodeOf } from '@/lib/founder-session';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
+import type { ExecuteReply } from '@/lib/approval-types';
 import type { RunAnswer } from './reconciliation-run';
 import { parseMetadataWrite } from './account-metadata';
 

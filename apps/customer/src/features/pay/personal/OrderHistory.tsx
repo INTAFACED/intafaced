@@ -32,7 +32,7 @@ export function OrderHistory({ pay, userId }: { pay: PersonalPayApi; userId: str
   const tab = filter === 'all' ? undefined : TAB[filter];
   const first = useResource((signal) => pay.orderPage({ limit: PAGE, tab }, signal), `pay:order-page:${userId}:${filter}`);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <MerchantTodos pay={pay} userId={userId} />
       <PaySection
         title={payCopy.t('yourOrders')}
@@ -94,7 +94,7 @@ function OrderPages({
     setPages((current) => [...current, result.data.trades.filter((row) => !seen.has(row.id))]);
     setCursor(result.data.nextCursor);
   };
-  if (counts.all === 0) return <p className="muted">{payCopy.t('noP2pOrdersReturned')}</p>;
+  if (counts.all === 0) return <p className="lt-muted">{payCopy.t('noP2pOrdersReturned')}</p>;
   return (
     <>
       <OrderFilterTabs value={filter} counts={counts} onChange={onFilter} note={t('countsNote')} />
@@ -102,8 +102,12 @@ function OrderPages({
       {pages.map((page, index) => (
         <PageUnread key={index} pay={pay} rows={page} onCounts={setUnread} />
       ))}
-      {rows.length === 0 ? <p className="muted">{p2pDepth.t('ordersNone')}</p> : <OrderRows userId={userId} rows={rows} unread={unread} />}
-      <p className="muted" role="status">
+      {rows.length === 0 ? (
+        <p className="lt-muted">{p2pDepth.t('ordersNone')}</p>
+      ) : (
+        <OrderRows userId={userId} rows={rows} unread={unread} />
+      )}
+      <p className="lt-muted" role="status">
         {t('shownOfTotal', { shown: String(rows.length), total: String(counts[filter]) })}
       </p>
       {failure ? <PayFailure result={failure} retry={older} /> : null}
@@ -112,7 +116,7 @@ function OrderPages({
           {loading ? t('loadingOlder') : t('loadOlder')}
         </Button>
       ) : rows.length > 0 ? (
-        <p className="muted">{t('reachedOldest')}</p>
+        <p className="lt-muted">{t('reachedOldest')}</p>
       ) : null}
     </>
   );
@@ -148,25 +152,23 @@ function OrderRows({ userId, rows, unread }: { userId: string | null; rows: Row[
         <tr key={trade.id} data-order={trade.id}>
           <td>
             {trade.id.slice(0, 8)}
-            <small className="pay-cell-note">
+            <small className="lt-hint">
               <PayTime value={trade.createdAt} />
             </small>
           </td>
           <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
-          <td className="numeric">
+          <td className="lt-num">
             {displayAmount(trade.amount)} {trade.asset}
           </td>
-          <td className="numeric">
+          <td className="lt-num">
             {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
           </td>
           <td>
             <StatusTag status={TONE[trade.tab]} label={t(trade.displayStatus)} />
-            <small className="pay-cell-note">
-              {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
-            </small>
+            <small className="lt-hint">{trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}</small>
           </td>
           <td>
-            <a className="text-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
+            <a className="lt-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
               <PayCopy k="open2" />
             </a>{' '}
             <UnreadBadge count={unread[trade.id]} />
@@ -225,7 +227,7 @@ function ExportOrders({ pay }: { pay: PersonalPayApi }) {
   return (
     <PaySection title={t('exportTitle')} description={t('exportBody')}>
       <form
-        className="actions"
+        className="lt-actions"
         onSubmit={(event) => {
           event.preventDefault();
           void run();
@@ -241,7 +243,7 @@ function ExportOrders({ pay }: { pay: PersonalPayApi }) {
         <div role="status" data-testid="order-export">
           <p>{t('exportReady', { file: result.file, rows: String(result.data.rows) })}</p>
           {result.data.totals.length === 0 ? (
-            <p className="muted">{t('exportNone')}</p>
+            <p className="lt-muted">{t('exportNone')}</p>
           ) : (
             <>
               <h3>{t('exportTotals')}</h3>
@@ -272,7 +274,7 @@ function ExportRefusal({ result, retry }: { result: Extract<ApiResult<unknown>, 
   const words = historyRefusal(result, t, (iso) => iso);
   if (!words) return <PayFailure result={result} retry={retry} />;
   return (
-    <p data-testid="failure" className="failure" role="alert">
+    <p data-testid="failure" className="lt-refusal" role="alert">
       {words}
     </p>
   );

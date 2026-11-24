@@ -1,4 +1,4 @@
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { formatAmount, parseAmount } from '../../shared/money';
 import { t as copyText } from './copy';

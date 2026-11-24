@@ -47,10 +47,10 @@ describe('listedVendors limit unset refuse', () => {
 
   it('router does not invent 20 when listed omits limit', () => {
     const src = readFileSync(join(ROOT, 'services/svc-market/src/router.ts'), 'utf8');
-    const start = src.indexOf('listed: publicProcedure');
+    const start = src.indexOf('listed: mountRecord(');
     const end = src.indexOf('history:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('listedVendors({ limit: input?.limit })');
+    expect(fn).toContain('listedVendors({ limit: input?.limit, signal })');
     expect(fn).not.toMatch(/input\?\.limit \?\? 20/);
     expect(fn).not.toMatch(/\?\? 20/);
   });

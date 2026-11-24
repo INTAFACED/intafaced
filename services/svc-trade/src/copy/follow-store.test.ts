@@ -8,6 +8,7 @@ import {
   isCopyFeeSharePrePostUnclaim,
   isPendingFeeShareClaim,
   rethrowCopyFollowUnique,
+  COPY_FOLLOW_LIVE_INDEX,
   rethrowCopyFeeShareUnique,
   resolveExistingFeeShareClaim,
   shouldUnclaimCopyFeeShareClaim,
@@ -61,6 +62,12 @@ describe('CopyFollowStore unique (follower, leader)', () => {
   it('rethrowCopyFollowUnique maps 23505 and passes other failures through', () => {
     expect(() => rethrowCopyFollowUnique(Object.assign(new Error('dup'), { code: '23505' }))).toThrow(CopyError);
     expect(() => rethrowCopyFollowUnique(Object.assign(new Error('fk'), { code: '23503' }))).toThrow(/fk/);
+    expect(() =>
+      rethrowCopyFollowUnique(Object.assign(new Error('dup'), { code: '23505', constraint_name: COPY_FOLLOW_LIVE_INDEX })),
+    ).toThrow(CopyError);
+    expect(() =>
+      rethrowCopyFollowUnique(Object.assign(new Error('other key'), { code: '23505', constraint_name: 'copy_follows_pkey' })),
+    ).toThrow(/other key/);
     try {
       rethrowCopyFollowUnique(Object.assign(new Error('dup'), { code: '23505' }));
     } catch (err) {
@@ -674,7 +681,7 @@ function mockSettleSql(opts?: {
     events.push(`unknown:${text.slice(0, 80)}`);
     return Promise.resolve([]);
   };
-  return { sql: sql as unknown as Sql, events, byFill };
+  return { sql: sql as Sql, events, byFill };
 }
 
 describe('SqlCopyFollowStore runFeeShareSettleOnce (order, no Postgres)', () => {

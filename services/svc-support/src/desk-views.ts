@@ -7,17 +7,15 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
-import {
-  SUPPORT_VIEW_PERSONAL_CAP_KEY,
-  SUPPORT_VIEW_SHARED_CAP_KEY,
-  supportTicketCategorySchema,
-  type SupportTicket,
-  type SupportTicketPriority,
-  type SupportTicketType,
-  type SupportView,
-  type SupportViewSort,
-  type SupportWaitingOn,
+import type {
+  SupportTicket,
+  SupportTicketPriority,
+  SupportTicketType,
+  SupportView,
+  SupportViewSort,
+  SupportWaitingOn,
 } from '@intafaced/contracts';
+import { SUPPORT_VIEW_PERSONAL_CAP_KEY, SUPPORT_VIEW_SHARED_CAP_KEY, supportTicketCategorySchema } from '@intafaced/contracts/support';
 import { ticketQueueScore } from './operator-queue.js';
 
 export const VIEW_CAP_UNSET = 'support.view_cap_unset' as const;
@@ -69,9 +67,10 @@ export interface DeskFact {
   readonly waitingOn: SupportWaitingOn | null;
 }
 
+// The arrays are plain (not `readonly`) so a filter is a JSON value (`JsonValue`) as the record's schema reads it.
 export type DeskFilter =
-  | { readonly all: readonly DeskFilter[] }
-  | { readonly any: readonly DeskFilter[] }
+  | { readonly all: DeskFilter[] }
+  | { readonly any: DeskFilter[] }
   | { readonly field: string; readonly op: string; readonly value: string | null };
 
 export interface ViewSave {

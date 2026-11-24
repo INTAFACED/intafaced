@@ -13,9 +13,13 @@ export const hex = (prefix, n) => {
 };
 /** The people on the team, named once: the Team page, the notifications and the activity feed all read these. */
 export const TEAM = {
-  finance: { userId: 'TEST-user-finance', memberId: 'a1111111-1111-4111-8111-111111111111', label: 'TEST Accounts' },
-  developer: { userId: 'TEST-user-dev', memberId: 'a2222222-2222-4222-8222-222222222222', label: 'TEST Dev' },
-  invited: { userId: 'TEST-user-pending', memberId: 'a3333333-3333-4333-8333-333333333333', label: 'TEST Viewer invite' },
+  finance: { userId: 'b1111111-1111-4111-8111-111111111111', memberId: 'a1111111-1111-4111-8111-111111111111', label: 'TEST Accounts' },
+  developer: { userId: 'b2222222-2222-4222-8222-222222222222', memberId: 'a2222222-2222-4222-8222-222222222222', label: 'TEST Dev' },
+  invited: {
+    userId: 'b3333333-3333-4333-8333-333333333333',
+    memberId: 'a3333333-3333-4333-8333-333333333333',
+    label: 'TEST Viewer invite',
+  },
 };
 /** Midnight UTC of the day `ms` falls in. "Days are UTC days" on the pages, so every day window starts here. */
 export const startOfDay = (ms) => Math.floor(ms / DAY) * DAY;
