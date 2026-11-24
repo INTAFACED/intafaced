@@ -5,14 +5,15 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useWallet } from '../protocol';
 import { useSession } from '../session';
 import { addMoneyCopy } from './add-money-copy';
-import { date, funds, useBankRead, useBankRecord } from './components';
+import { date, funds, useBankRecord } from './components';
 import { addMoneyRequestSchema, type AddMoneyMethod, type AddMoneyOption, type AddMoneyRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import { IncomingPayments } from './IncomingPayments';
 import './bank-depth.css';
-import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from '@intafaced/contracts/bank-add-money-procedures';
+import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS, BANK_ADD_MONEY_METHODS } from '@intafaced/contracts/bank-add-money-procedures';
 import { leaveTo } from '../../app/location';
 import { shownCode, withCode } from '../../shared/reference';
+import { BANK_CURRENCIES_LIST } from '@intafaced/contracts/bank-currencies-procedures';
 
 /**
  * Add money (J-bank-02): the amount, every way to pay with the fee and arrival the bank quoted (a blank reads "not set"),
@@ -27,6 +28,8 @@ import { shownCode, withCode } from '../../shared/reference';
  */
 
 type Ask = { assetId: string; amount: string; country: string };
+/** The methods read's input while nothing is asked: the read is off then, so this is never sent. */
+const NO_ASK: Ask = { assetId: '', amount: '', country: '' };
 type Deliver = 'balance' | 'wallet';
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -378,7 +381,7 @@ export function AddMoney() {
   const [unsigned, setUnsigned] = useState(false);
   // The connected wallet's address, only while connected: buying to it names it on the request.
   const walletAddress = wallet.status === 'connected' ? wallet.address : null;
-  const currencies = useBankRead('currencies.list', { profile: profiles.active });
+  const currencies = useBankRecord(BANK_CURRENCIES_LIST, { profile: profiles.active });
   const assets = currencies.resource.status === 'ready' ? currencies.resource.data.currencies.map((c) => c.assetId) : [];
   const [assetId, setAssetId] = useState('');
   const [amount, setAmount] = useState('');
@@ -405,7 +408,7 @@ export function AddMoney() {
     window.addEventListener('pageshow', shown);
     return () => window.removeEventListener('pageshow', shown);
   }, []);
-  const ways = useBankRead('addMoney.methods', ask, ask !== null);
+  const ways = useBankRecord(BANK_ADD_MONEY_METHODS, ask ?? NO_ASK, ask !== null);
 
   const asset = assetId || assets[0] || '';
   const amountBad = touched && !amountOk(amount);
