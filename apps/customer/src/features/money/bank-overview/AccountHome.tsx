@@ -7,9 +7,11 @@ import { useSession } from '../../session';
 import { AccountDetailsPanel } from '../account-details/AccountDetails';
 import { Panel as DepthPanel } from '../account-details/parts';
 import { accountHomeCopy } from '../account-home-copy';
-import { funds, useBankRead } from '../components';
+import { funds, useBankRecord } from '../components';
 import { currencyWrites, type AccountCurrency, type AccountTerms } from '../contracts';
 import { RefusalCode } from '../../../shared/RefusalCode';
+import { BANK_CURRENCIES_LIST } from '@intafaced/contracts/bank-currencies-procedures';
+import { BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE } from '@intafaced/contracts/bank-accounts-procedures';
 
 function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
@@ -79,7 +81,7 @@ function PanelFailure({ failure, retry }: { failure: Refusal; retry: () => void 
 
 function ProfilePanel() {
   const { t } = accountHomeCopy.useCopy();
-  const read = useBankRead('accounts.profile', { profile: useProfile() });
+  const read = useBankRecord(BANK_ACCOUNTS_PROFILE, { profile: useProfile() });
   const { resource } = read;
   const roleLabel = (role: string) =>
     Object.hasOwn(BUSINESS_ROLE_KEYS, role) ? t(BUSINESS_ROLE_KEYS[role as keyof typeof BUSINESS_ROLE_KEYS]) : role;
@@ -145,7 +147,7 @@ function TermsFacts({ terms }: { terms: AccountTerms }) {
 
 function TermsPanel() {
   const { t } = accountHomeCopy.useCopy();
-  const read = useBankRead('accounts.features', { profile: useProfile() });
+  const read = useBankRecord(BANK_ACCOUNTS_FEATURES, { profile: useProfile() });
   const { resource } = read;
   return (
     <DepthPanel title={t('termsTitle')} lead={t('termsLead')}>
@@ -183,7 +185,7 @@ function CurrenciesPanel() {
   const { t } = accountHomeCopy.useCopy();
   const { api } = useSession();
   const profile = useProfile();
-  const read = useBankRead('currencies.list', { profile });
+  const read = useBankRecord(BANK_CURRENCIES_LIST, { profile });
   const [picked, setPicked] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<

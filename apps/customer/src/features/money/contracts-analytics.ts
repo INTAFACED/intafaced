@@ -2,14 +2,6 @@
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 
-/** BK-acct-08 (J-bank-16 #5): months side by side by category; a month with no movement is "0". */
-const monthCompareSchema = z.object({
-  assetId: z.string(),
-  months: z.array(z.string()),
-  categories: z.array(z.object({ category: z.string(), byMonth: z.array(money), change: z.string() })),
-  totalOutflow: z.array(money),
-  totalInflow: z.array(money),
-});
 /**
  * J-wallet-01 #3: svc-bank `partnerHolds`. What a partner-held person can withdraw from their main balance at the partner,
  * and what the partner still holds back of their purchases, each with its release time, and each release once. `reported:
@@ -46,7 +38,6 @@ export type PartnerHolds = z.infer<typeof partnerHoldsSchema>;
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const analyticsReads = {
-  'analytics.compare': monthCompareSchema,
   partnerHolds: partnerHoldsSchema,
 } as const;
 
