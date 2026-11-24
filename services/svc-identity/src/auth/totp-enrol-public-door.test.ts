@@ -44,10 +44,10 @@ function blankSql(): Sql {
 function userSql(user: { email: string; totp_secret: string | null }): Sql {
   const fn = async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
-    if (q.includes('SELECT email, totp_secret')) return [user];
+    if (q.includes('SELECT email, totp_secret')) return [{ ...user, webauthn_creds: [] }]; // webauthn_creds is NOT NULL jsonb
     throw new Error(`unexpected sql: ${q}`);
   };
-  return Object.assign(fn, { json: (v: unknown) => v }) as unknown as Sql;
+  return Object.assign(fn, { json: (v: unknown) => v }) as Sql;
 }
 
 function makeAuth(key: string | undefined, sql: Sql = blankSql()) {

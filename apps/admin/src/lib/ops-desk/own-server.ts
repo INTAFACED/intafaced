@@ -1,4 +1,5 @@
 import type { ReadOutcome } from './types';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * What the browser gets back from the console's OWN server for an on-request read (a transfer record, the next page of a list).
@@ -8,10 +9,6 @@ import type { ReadOutcome } from './types';
 export type OwnFetch =
   | { readonly ok: true; readonly outcome: ReadOutcome }
   | { readonly ok: false; readonly status: number | null; readonly code: string | null };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 export function isReadOutcome(body: unknown): body is ReadOutcome {
   return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.part) && (body.part.kind === 'ok' || body.part.kind === 'failed');

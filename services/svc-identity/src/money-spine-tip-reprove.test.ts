@@ -112,7 +112,7 @@ describe('D26-P2-12 tip re-prove — identity money doors', () => {
     // Every beneficiary's account is active: this test is about the payout's keys, not the account check (#4689).
     const auth = {
       accountState: async (userId: string) => ({ userId, status: 'active', kycTier: 'basic', archived: false }),
-    } as unknown as AuthService;
+    } as AuthService;
     const rank = {} as RankService;
     const router = createIdentityRouter(auth, rank, {
       actionApprovals: stubActionApprovals(),

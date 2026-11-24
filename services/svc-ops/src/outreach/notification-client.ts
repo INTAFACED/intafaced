@@ -1,16 +1,13 @@
+import type { GuestNotificationSendInput, GuestNotificationReceipt, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
 import {
-  serviceCallSigner,
   guestNotificationSendInputSchema,
   guestNotificationReceiptSchema,
   guestNotificationGetInputSchema,
   guestNotificationEraseInputSchema,
   guestNotificationEraseReceiptSchema,
   guestNotificationCodeSchema,
-  type GuestNotificationSendInput,
-  type GuestNotificationReceipt,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-notifications';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export class OutreachNotificationError extends Error {
   constructor(readonly code: string) {
@@ -35,7 +32,10 @@ export function createOutreachNotificationClient(options: {
   /** Per-service key (S2S v3); without one the call is signed with `secret` as before. */
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
   fetcher?: typeof fetch;
+  /** How long one call may take before it answers null. 3 s in production; a test on a starved runner passes more. */
+  timeoutMs?: number;
 }): OutreachNotificationPort {
+  const timeoutMs = options.timeoutMs ?? 3000;
   let base: string | null = null;
   try {
     const url = new URL(options.notifyUrl ?? '');
@@ -56,7 +56,7 @@ export function createOutreachNotificationClient(options: {
       timer = setTimeout(() => {
         controller.abort();
         resolve(null);
-      }, 3000);
+      }, timeoutMs);
     });
     const invoke = async () => {
       try {

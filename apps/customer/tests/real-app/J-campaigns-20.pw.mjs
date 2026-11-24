@@ -3,10 +3,10 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn } from './desk.mjs';
-import { EDGE, api, journeyState, signUpInBrowser } from './stack.mjs';
+import { api, EDGE, journeyState, signUpInBrowser, stackUrl } from './stack.mjs';
 
 /** The public invitation site on the stack (apps/invitation), where the waitlist lives at /waitlist. */
-const JOIN = process.env.JOURNEY_JOIN_URL ?? 'http://127.0.0.1:3220';
+const JOIN = process.env.JOURNEY_JOIN_URL ?? stackUrl('invitation');
 
 // J-campaigns-20, in the running app (docs/roadmap/journeys.json): join the waitlist, climb by inviting, and claim a drop.
 // One test per step, titled "J-campaigns-20 #<n>", run in order. Every visitor is signed out on a browser of their own.

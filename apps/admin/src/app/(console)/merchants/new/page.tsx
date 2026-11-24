@@ -1,4 +1,4 @@
-import FounderOpsPage from '../../[...founderPath]/page';
+import { FounderOpsPage } from '../../[...founderPath]';
 export const dynamic = 'force-dynamic';
 export default async function Page() {
   return FounderOpsPage({ params: Promise.resolve({ founderPath: ['merchants', 'new'] }), searchParams: Promise.resolve({}) });

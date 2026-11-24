@@ -1,9 +1,18 @@
 import { isExplicitDevOrTest } from '@intafaced/config';
 import type { ScreeningGuardDeps } from './guard.js';
+import {
+  OPENSANCTIONS_API_KEY_ENV,
+  OPENSANCTIONS_SCREENER,
+  createOpenSanctionsScreener,
+  type ScreeningPartyResolver,
+} from './opensanctions-screener.js';
 
 /**
- * The screener a custodial send is asked about (W9). No supplier is connected in this build, so a blank setting installs
- * none and every send is refused `pay.guard_screening_unavailable` until the owner names one.
+ * The screener a custodial send is asked about (W9). A blank setting installs none and every send is refused
+ * `pay.guard_screening_unavailable` until the owner names one.
+ *
+ * `opensanctions` asks OpenSanctions about the four official lists (`opensanctions-screener.ts`). It needs
+ * `OPENSANCTIONS_API_KEY`; blank, the boot is refused naming that setting, never the key.
  *
  * `local-test` exists so a journey on the test stack can walk a send end to end (J-wallet-07 #3-#5): it answers `clear`
  * for every party, its cases are recorded with the provider `local-test`, and it is treated as a named list only for
@@ -16,9 +25,30 @@ export const LOCAL_TEST_SCREENER = 'local-test';
 export function openScreeningScreener(input: {
   appEnv: string | undefined;
   setting: string | undefined;
+  /** `OPENSANCTIONS_API_KEY`, read only when the setting names `opensanctions`. */
+  openSanctionsApiKey?: string | undefined;
+  /** Who a send goes to; required with `opensanctions`. */
+  resolveParty?: ScreeningPartyResolver;
+  fetchImpl?: typeof fetch;
 }): Pick<ScreeningGuardDeps, 'screener' | 'listPosture' | 'providerLabel'> | null {
   const setting = input.setting?.trim() ?? '';
   if (setting === '') return null;
+  if (setting === OPENSANCTIONS_SCREENER) {
+    if (!input.resolveParty) throw new Error(`pay.screening_screener_refused: ${OPENSANCTIONS_SCREENER} needs a party resolver`);
+    if ((input.openSanctionsApiKey?.trim() ?? '') === '') {
+      throw new Error(`pay.screening_screener_refused: ${OPENSANCTIONS_API_KEY_ENV} is blank`);
+    }
+    return {
+      screener: createOpenSanctionsScreener({
+        apiKey: input.openSanctionsApiKey ?? '',
+        resolveParty: input.resolveParty,
+        fetchImpl: input.fetchImpl,
+      }),
+      // No list posture of its own: whether a send may clear still follows the counsel-grade list this process screens
+      // with (guard.ts `listPostureOf`), so naming a vendor never stands in for that list.
+      providerLabel: OPENSANCTIONS_SCREENER,
+    };
+  }
   if (setting !== LOCAL_TEST_SCREENER) throw new Error(`pay.screening_screener_refused: ${SCREENING_SCREENER_ENV} is not available`);
   if (!isExplicitDevOrTest(input.appEnv)) {
     throw new Error(`pay.screening_screener_refused: ${LOCAL_TEST_SCREENER} is allowed only when APP_ENV is exactly dev or test`);

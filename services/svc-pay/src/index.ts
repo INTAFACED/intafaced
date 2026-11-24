@@ -59,6 +59,7 @@ import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
 import { recordOwned, registerSupportRecordOwnershipRoute } from './support-record-ownership.js';
+import { registerSupportWithdrawalDestinationsRoute, withdrawalDestinations } from './support-withdrawal-destinations.js';
 import { CustodyDepositBook } from './custody/deposits/book.js';
 import { CustodyDepositService } from './custody/deposits/service.js';
 import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
@@ -124,6 +125,7 @@ import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-docum
 import { KybInformationRequestService } from './kyb-information-requests.js';
 import { KYB_MALWARE_SCANNER_ENV, openKybMalwareScanner } from './kyb-malware-scan.js';
 import { SCREENING_SCREENER_ENV, openScreeningScreener } from './screening/local-test-screener.js';
+import { OPENSANCTIONS_API_KEY_ENV, createPayPartyResolver } from './screening/opensanctions-screener.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -134,16 +136,14 @@ import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics
 import { readPayWatermark, registerRestoreWatermarkRoute } from './restore-watermark.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import {
-  createEdgeContext,
-  mergeRouters,
-  retainRawBody,
-  createIdentityOperationDecisionClient,
-  createBankApproverEligibilityClient,
-  createBankInternalWithdrawalClient,
-  createBankSendDestinationClient,
-  s2sFromEnv,
-} from '@intafaced/contracts';
+import { createBankApproverEligibilityClient } from '@intafaced/contracts/bank-approver-eligibility-client';
+import { createBankInternalWithdrawalClient } from '@intafaced/contracts/bank-internal-withdrawal-client';
+import { createBankSendDestinationClient } from '@intafaced/contracts/bank-send-destination-client';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { createIdentityOperationDecisionClient } from '@intafaced/contracts/operation-identity-client';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
 import { onCapturedOverCap } from './control/over-cap-signal.js';
@@ -151,7 +151,8 @@ import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
 import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
-import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
+import { loadWebhookRetryLimit, loadWebhookSettings, testDnsResolver } from './merchant-ops/webhooks.js';
+import { systemResolver } from './webhook-url-guard.js';
 import { readProductImageRule } from './catalog/image-rules.js';
 import { readCheckoutLogoRule } from './checkout-branding/logo-rules.js';
 import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
@@ -328,10 +329,19 @@ const checkoutRoutingProfiles = withSuccessRates(REFERENCE_RAIL_ROUTING_PROFILES
  * Durable journal — Memory alone is not multi-replica safe.
  * Does not move value; enqueue runs after money commits.
  */
+/** The owner's webhook values (J-developer-10): each blank refuses by name, none is defaulted. */
+const webhookSettings = loadWebhookSettings(process.env);
+// LOCAL TEST DNS answers for TEST names, so a journey can show a name that resolves to a private address being refused.
+if (process.env.PAY_WEBHOOK_TEST_DNS?.trim() && !isExplicitDevOrTestEnv(process.env)) {
+  throw new Error('PAY_WEBHOOK_TEST_DNS is a LOCAL TEST setting; svc-pay refuses it outside APP_ENV dev or test');
+}
+const webhookTestDns = testDnsResolver(process.env.PAY_WEBHOOK_TEST_DNS, systemResolver);
 const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql), {
   // SSRF guard: http and loopback receivers only under an EXPLICIT dev/test APP_ENV.
   // Read the raw process env, not `env.APP_ENV`, which defaults an unset value to `dev`.
   allowLocalHttp: isExplicitDevOrTestEnv(process.env),
+  // Blank: nothing is sent; deliveries wait and the dashboard says why.
+  retryScheduleSeconds: webhookSettings.retryScheduleSeconds ?? null,
 });
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
@@ -376,8 +386,14 @@ const payGuards = buildPayGuards({
   limitOverrideOf: limitOverrideSource,
   limitSource,
   custodyPolicyMode: loadCustodyPolicyMode(process.env),
-  // No screener is connected: blank refuses every custodial send. `local-test` is the test stack's stand-in (dev/test only).
-  screening: openScreeningScreener({ appEnv: process.env.APP_ENV, setting: process.env[SCREENING_SCREENER_ENV] }) ?? undefined,
+  // Blank refuses every custodial send. `opensanctions` needs its key; `local-test` is the test stack's stand-in (dev/test only).
+  screening:
+    openScreeningScreener({
+      appEnv: process.env.APP_ENV,
+      setting: process.env[SCREENING_SCREENER_ENV],
+      openSanctionsApiKey: process.env[OPENSANCTIONS_API_KEY_ENV],
+      resolveParty: createPayPartyResolver(sql),
+    }) ?? undefined,
 });
 const conversion = new ConversionService({
   sql,
@@ -453,6 +469,8 @@ const pay = new PayService(sql, ledger, rails, {
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
   defaultFeeBps: env.PAY_DEFAULT_FEE_BPS,
+  partnerFeeBps: env.PAY_PARTNER_FEE_BPS,
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   valueMovement: railPosture.policy,
   // NOT `railPosture.policy`. `PAY_ALLOW_SANDBOX_RAILS` relaxes the payout gate
   // for a pilot or a demo — a statement about people inside this deployment. A
@@ -776,6 +794,7 @@ export const appRouter = mergeRouters(
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
     checkoutMethods: { sql, rails: () => pay.checkoutMethodRails() },
+    receivingWallet: { sql },
     limits: { sql, approvals: actionApprovals, reader: withdrawalLimitReader },
     custody: {
       sql,
@@ -795,6 +814,8 @@ export const appRouter = mergeRouters(
     disputeFundsLedger: ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
+    webhookSettings,
+    webhookResolver: webhookTestDns,
     teamEmailInvite,
     disputes: disputeCases,
     pay,
@@ -997,6 +1018,14 @@ registerSupportRecordOwnershipRoute(app, {
   owned: (input) => recordOwned(sql, input),
 });
 
+// Where a customer's linked withdrawals go, for svc-support under the customer's own grant (J-support-public-20 #2).
+registerSupportWithdrawalDestinationsRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  destinations: (input) => withdrawalDestinations(sql, input),
+});
+
 const custodyDeposits = new CustodyDepositService({ sql, chain, registries: createRegistryReader(sql) });
 registerCustodyDepositRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -1074,10 +1103,19 @@ await registerPublicPayRest(app, {
 });
 
 /** Drain outbound merchant webhook deliveries (ADR §2.4 retry). */
+let webhookDrainPausedLogged = false;
 const webhookDrain = setInterval(() => {
-  void merchantWebhooks.processDue(25).catch((err) => {
-    app.log.warn({ err }, 'merchant webhook drain failed');
-  });
+  void merchantWebhooks
+    .processDue(25)
+    .then((pass) => {
+      // Said once, not every 15 seconds: the owner has not set a retry policy, so nothing is sent.
+      if (pass.paused && !webhookDrainPausedLogged)
+        app.log.warn({ code: pass.paused }, 'merchant webhooks: no retry policy set, nothing is sent');
+      webhookDrainPausedLogged = Boolean(pass.paused);
+    })
+    .catch((err) => {
+      app.log.warn({ err }, 'merchant webhook drain failed');
+    });
 }, 15_000);
 webhookDrain.unref?.();
 
@@ -1308,11 +1346,12 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     chain,
     async () => [
       ...(
-        await sql<Array<{ id: string; currency: string }>>`
-          SELECT id, currency FROM pay.payments
-           WHERE rail_adapter = 'crypto-native' AND rail_ref IS NOT NULL AND status IN ('created', 'authorized')
+        await sql<Array<{ id: string; currency: string; address: string | null }>>`
+          SELECT p.id, p.currency, a.address FROM pay.payments p
+            LEFT JOIN pay.merchant_receive_addresses a ON a.payment_id = p.id
+           WHERE p.rail_adapter = 'crypto-native' AND p.rail_ref IS NOT NULL AND p.status IN ('created', 'authorized')
         `
-      ).map((row) => ({ paymentId: row.id, assetId: row.currency })),
+      ).map((row) => ({ paymentId: row.id, assetId: row.currency, ...(row.address ? { address: row.address } : {}) })),
       ...(await listIssuedDepositWatches(sql)),
     ],
     (msg, extra) => app.log.warn(extra ?? {}, msg),

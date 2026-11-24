@@ -47,10 +47,13 @@ describe('presenters', () => {
         makerBps: 10,
         takerBps: 20,
       }),
+      Date.now(),
+      { feeRates: { makerBps: 8, takerBps: 10 } },
     );
     expect(marketSchema.safeParse(wire).success).toBe(true);
-    expect(wire.maker).toBe('0.001');
-    expect(wire.taker).toBe('0.002');
+    // The schedule's rates, the ones fills charge, never the listing row's own 10/20 bps (#4679).
+    expect(wire.maker).toBe('0.0008');
+    expect(wire.taker).toBe('0.001');
     // Precision is the tick and the lot themselves, not a count of places.
     expect(wire.precisionMode).toBe('TICK_SIZE');
     expect(wire.precision.price).toBe('0.01');
@@ -362,6 +365,45 @@ describe('public REST routes', () => {
     expect((body[0] as { symbol: string }).symbol).toBe('BTC/USDT');
     expect((body[0] as { orderable: boolean }).orderable).toBe(true);
     await app.close();
+  });
+
+  it('GET /api/v1/markets shows the published schedule rates fills charge, not the listing row (#4679)', async () => {
+    const asked: string[][] = [];
+    const app = await build(
+      deps({
+        markets: async () => [fakeMarket({ symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 })],
+        publishedFeeRates: async (markets) => {
+          asked.push(markets.map((m) => m.symbol));
+          return new Map([['BTC/USDT', { makerBps: 8, takerBps: 10 }]]);
+        },
+      }),
+    );
+    const row = (await app.inject({ method: 'GET', url: '/api/v1/markets?limit=50' })).json()[0] as { maker: string; taker: string };
+    expect(asked).toEqual([['BTC/USDT']]);
+    expect(row.maker).toBe('0.0008');
+    expect(row.taker).toBe('0.001');
+    await app.close();
+  });
+
+  it('GET /api/v1/markets says null rates when no schedule is published, a row refuses or the read fails, never the listing row', async () => {
+    const listed = [fakeMarket({ symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 })];
+    for (const publishedFeeRates of [
+      async () => null,
+      async () => new Map<string, { makerBps: number; takerBps: number }>(),
+      async () => {
+        throw new Error('schedule store down');
+      },
+      undefined,
+    ]) {
+      const app = await build(deps({ markets: async () => listed, ...(publishedFeeRates ? { publishedFeeRates } : {}) }));
+      const res = await app.inject({ method: 'GET', url: '/api/v1/markets?limit=50' });
+      expect(res.statusCode).toBe(200);
+      const row = res.json()[0] as { maker: string | null; taker: string | null };
+      expect(marketSchema.safeParse(row).success).toBe(true);
+      expect(row.maker).toBeNull();
+      expect(row.taker).toBeNull();
+      await app.close();
+    }
   });
 
   it('GET /api/v1/markets lists futures as active but not orderable unless the host enables them', async () => {
@@ -829,6 +871,22 @@ describe('public REST routes', () => {
       await app.close();
     });
 
+    it('/tickers and /ticker read the stats after the last print and name its time, so the rollups include it (J-cex-spot-14 #8)', async () => {
+      const seen: Array<ReadonlyMap<string, number> | undefined> = [];
+      const app = await build(
+        deps({
+          tickerStats: async (_ids, _now, newestPrintMs) => {
+            seen.push(newestPrintMs);
+            return new Map([['m-btc', stats()]]);
+          },
+        }),
+      );
+      expect((await app.inject({ method: 'GET', url: '/api/v1/tickers?limit=500' })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/api/v1/ticker/BTC%2FUSDT' })).statusCode).toBe(200);
+      expect(seen.map((m) => (m ? Object.fromEntries(m) : m))).toEqual([{ 'm-btc': print.ts.getTime() }, { 'm-btc': print.ts.getTime() }]);
+      await app.close();
+    });
+
     it('GET /api/v1/ticker/:symbol carries the rollups and windowStart but no sparkline', async () => {
       const app = await build(deps({ tickerStats: async () => new Map([['m-btc', stats()]]) }));
       const res = await app.inject({ method: 'GET', url: '/api/v1/ticker/BTC%2FUSDT' });
@@ -972,6 +1030,40 @@ describe('public REST routes', () => {
     // Every price is a decimal string. A float here would lose the ledger's 18
     // places on the way to a chart that people trade from.
     for (const field of (body[0] as unknown[]).slice(1)) expect(typeof field).toBe('string');
+    await app.close();
+  });
+
+  it('GET /api/v1/ohlcv/:symbol refuses by name while the chart feed is disabled or on an unconnected fallback (J-charts-desk-19)', async () => {
+    for (const code of ['trade.chart_feed.disabled', 'trade.chart_feed.source_not_connected'] as const) {
+      let read = false;
+      const app = await build(
+        deps({
+          candles: async () => {
+            read = true;
+            return [candle];
+          },
+          chartFeedGate: async () => ({ kind: 'refuse', code, message: `TEST ${code}` }),
+        }),
+      );
+      const res = await app.inject({ method: 'GET', url: '/api/v1/ohlcv/BTC%2FUSDT?timeframe=1m&limit=500' });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ intafacedCode: code });
+      expect(read).toBe(false);
+      await app.close();
+    }
+  });
+
+  it('GET /api/v1/ohlcv/:symbol serves a chart delisted with history only up to its delisting (J-charts-desk-19)', async () => {
+    const later = { ...candle, openTimeMs: candle.openTimeMs + 60_000 };
+    const app = await build(
+      deps({
+        candles: async () => [candle, later],
+        chartFeedGate: async () => ({ kind: 'serve', until: new Date(later.openTimeMs) }),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/ohlcv/BTC%2FUSDT?timeframe=1m&limit=500' });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as unknown[][]).map((c) => c[0])).toEqual([candle.openTimeMs]);
     await app.close();
   });
 

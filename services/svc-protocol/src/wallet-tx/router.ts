@@ -6,17 +6,16 @@ import {
   CLAIM_ESCROW_UNSET,
   TX_NOT_FOUND,
   TX_NOT_YOURS,
-  protocolClaimLinkConfigOutputSchema,
-  protocolClaimLinkGetInputSchema,
-  protocolClaimLinkGetOutputSchema,
-  protocolClaimLinkListInputSchema,
-  protocolClaimLinkListOutputSchema,
-  protocolReplacementInputSchema,
-  protocolReplacementOutputSchema,
-  publicJurisdictionProcedure,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-wallet-tx';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import {
+  PROTOCOL_CLAIM_LINK_CONFIG,
+  PROTOCOL_CLAIM_LINK_GET,
+  PROTOCOL_CLAIM_LINK_LIST,
+  PROTOCOL_TX_BUILD_REPLACEMENT,
+} from '@intafaced/contracts/protocol-chain-procedures';
+import { protocolRefusal } from '../refusal.js';
 import { claimLinkConfig, getClaimLink, listClaimLinks, requireEscrow, WalletTxRefusal, type ClaimChain } from './claim-link.js';
 import { buildReplacement, type ReplacementChain, type ReplacementSetting } from './replacement.js';
 
@@ -53,26 +52,30 @@ export function createWalletTxRouters(deps: WalletTxDeps) {
       throw deps.toTrpcError(err);
     }
   };
-  const procedure = publicJurisdictionProcedure('protocol', 'protocol');
   return {
     claimLink: router({
-      config: procedure
-        .output(protocolClaimLinkConfigOutputSchema)
-        .query(() => guard(async () => claimLinkConfig(deps.chain(), requireEscrow(deps.claimEscrow())))),
-      get: procedure
-        .input(protocolClaimLinkGetInputSchema)
-        .output(protocolClaimLinkGetOutputSchema)
-        .query(({ input }) => guard(async () => getClaimLink(deps.chain(), requireEscrow(deps.claimEscrow()), input.id as Address))),
-      list: procedure
-        .input(protocolClaimLinkListInputSchema)
-        .output(protocolClaimLinkListOutputSchema)
-        .query(({ input }) => guard(async () => listClaimLinks(deps.chain(), requireEscrow(deps.claimEscrow()), input.sender as Address))),
+      config: mountRecord(
+        PROTOCOL_CLAIM_LINK_CONFIG,
+        () => guard(async () => claimLinkConfig(deps.chain(), requireEscrow(deps.claimEscrow()))),
+        protocolRefusal,
+      ),
+      get: mountRecord(
+        PROTOCOL_CLAIM_LINK_GET,
+        ({ input }) => guard(async () => getClaimLink(deps.chain(), requireEscrow(deps.claimEscrow()), input.id as Address)),
+        protocolRefusal,
+      ),
+      list: mountRecord(
+        PROTOCOL_CLAIM_LINK_LIST,
+        ({ input }) => guard(async () => listClaimLinks(deps.chain(), requireEscrow(deps.claimEscrow()), input.sender as Address)),
+        protocolRefusal,
+      ),
     }),
     tx: router({
-      buildReplacement: procedure
-        .input(protocolReplacementInputSchema)
-        .output(protocolReplacementOutputSchema)
-        .query(({ input }) => guard(async () => buildReplacement(deps.chain(), deps.replacement(), input))),
+      buildReplacement: mountRecord(
+        PROTOCOL_TX_BUILD_REPLACEMENT,
+        ({ input }) => guard(async () => buildReplacement(deps.chain(), deps.replacement(), input)),
+        protocolRefusal,
+      ),
     }),
   };
 }

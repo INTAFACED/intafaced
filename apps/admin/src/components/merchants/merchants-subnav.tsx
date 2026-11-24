@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { PageFinder } from '@/components/founder-ops/navigation';
+import { PageFinder } from '@/components/page-finder';
 import { usePathname } from 'next/navigation';
 
 export const MERCHANT_SECTIONS = [

@@ -1,0 +1,216 @@
+{
+  "verdicts": [
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "ok =",
+    "ok {\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"version\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"version\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"version\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":200,\"inclusive\":true,\"path\":[\"version\"],\"message\":\"Too big: expected string to have <=200 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"version\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"version\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"effectiveAt\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"effectiveAt\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"effectiveAt\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":64,\"inclusive\":true,\"path\":[\"effectiveAt\"],\"message\":\"Too big: expected string to have <=64 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"effectiveAt\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"effectiveAt\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"sections\"],\"message\":\"Invalid input: expected record, received null\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"sections\"],\"message\":\"Invalid input: expected record, received number\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"sections\"],\"message\":\"Invalid input: expected record, received boolean\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"sections\"],\"message\":\"Invalid input: expected record, received string\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"sections\"],\"message\":\"Invalid input: expected record, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"approvalId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"operationId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received object\"}]"
+  ],
+  "cases": [
+    [null, 0],
+    ["null", 1],
+    ["7", 2],
+    ["\"x\"", 3],
+    ["[]", 4],
+    ["{}", 5],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      6
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\",\"extra\":1}",
+      7
+    ],
+    [
+      "{\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      6
+    ],
+    [
+      "{\"version\":null,\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      8
+    ],
+    [
+      "{\"version\":7,\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      9
+    ],
+    [
+      "{\"version\":true,\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      10
+    ],
+    [
+      "{\"version\":\"\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      6
+    ],
+    [
+      "{\"version\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      11
+    ],
+    [
+      "{\"version\":[],\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      12
+    ],
+    [
+      "{\"version\":{},\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      13
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      6
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":null,\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      14
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":7,\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      15
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":true,\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      16
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      6
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      17
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":[],\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      18
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":{},\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      19
+    ],
+    ["{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}", 6],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":null,\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      20
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":7,\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      21
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":true,\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      22
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":\"\",\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      23
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      23
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":[],\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      24
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}",
+      6
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"operationId\":\"op-r1\"}",
+      25
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":null,\"operationId\":\"op-r1\"}",
+      26
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":7,\"operationId\":\"op-r1\"}",
+      27
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":true,\"operationId\":\"op-r1\"}",
+      28
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"\",\"operationId\":\"op-r1\"}",
+      6
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"operationId\":\"op-r1\"}",
+      29
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":[],\"operationId\":\"op-r1\"}",
+      30
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":{},\"operationId\":\"op-r1\"}",
+      31
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\"}",
+      32
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":null}",
+      33
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":7}",
+      34
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":true}",
+      35
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"\"}",
+      6
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      36
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":[]}",
+      37
+    ],
+    [
+      "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":{}}",
+      38
+    ]
+  ]
+}

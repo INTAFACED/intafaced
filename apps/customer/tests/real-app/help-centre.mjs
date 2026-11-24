@@ -221,3 +221,28 @@ export async function deskPeople() {
   const { pair } = await founders();
   return { lead: pair.a.op.userId, agent: pair.b.op.userId };
 }
+
+/**
+ * Waits, if needed, until the guest request limit's current window has `headroomMs` left. svc-support counts a guest
+ * address's requests in fixed windows (floor(now / SUPPORT_GUEST_RATE_WINDOW_SECONDS)), so sends that straddle a window
+ * edge start a fresh count and the send that should be refused is taken.
+ * Waits at most `headroomMs` and a few seconds, which a step adds to its own timeout before it calls this.
+ */
+export async function clearOfGuestWindowEdge(headroomMs = 120_000) {
+  const { readFileSync } = await import('node:fs');
+  const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/support.json', import.meta.url), 'utf8'));
+  const windowMs = Number(raw.values.SUPPORT_GUEST_RATE_WINDOW_SECONDS.value) * 1000;
+  if (!(windowMs > headroomMs)) throw new Error(`the TEST guest window (${windowMs} ms) leaves no ${headroomMs} ms of headroom`);
+  const left = () => windowMs - (Date.now() % windowMs);
+  if (left() >= headroomMs) return;
+  // The event waited on is the window's edge: polled, so the wait ends the moment a fresh window has begun.
+  const { expect } = await import('./journey.mjs');
+  await expect.poll(left, { timeout: headroomMs + 5_000, intervals: [1_000] }).toBeGreaterThanOrEqual(headroomMs);
+}
+
+/** A desk call that must succeed: its data, or an error naming the procedure and the refusal. */
+export async function deskData(who, kind, procedure, input) {
+  const res = await asDesk(who, kind, procedure, input);
+  if (res.json?.result?.data === undefined) throw new Error(`${procedure} refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}

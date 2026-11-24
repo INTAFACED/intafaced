@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { proposeInputFor } from '@/lib/desk/approval-hash';
 import { confirmPhrase, decodePacket, type DeskRequest } from '@/lib/desk/approval-packet';
-import { ALERT, FOUNDER, alertDetail, founderCtx, treasuryToken } from '@/lib/recon-alerts/fixtures.test-util';
+import { ALERT, FOUNDER, alertDetail, founderCtx, treasuryToken } from '@/testing/recon-alert-fixtures.test-util';
 import { evidenceHash } from '@/lib/recon-alerts/treasury';
 import { POST } from './route';
 

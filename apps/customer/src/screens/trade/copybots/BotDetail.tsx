@@ -19,7 +19,9 @@ import {
   type BadgeTone,
 } from '@intafaced/ui';
 import type { z } from 'zod';
-import type { algoProgressSchema, algoSchema } from '../../../features/trade/tool-api';
+import type { algoProgressSchema } from '../../../features/trade/tool-api';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { TRADE_ALGO_GET } from '@intafaced/contracts/trade-algo-procedures';
 import { dec } from '../../../data/decimal';
 import { displayAmount } from '../../../shared/money';
 import type { RoomApi } from './api';
@@ -28,7 +30,7 @@ import type { Failure, WriteGuard } from './guard';
 import { InfoNote, RefusalNote } from './parts';
 import { roomRefusal } from './refusals';
 
-export type Algo = z.infer<typeof algoSchema>;
+export type Algo = ProcedureOutput<typeof TRADE_ALGO_GET>;
 export type Progress = z.infer<typeof algoProgressSchema>;
 export type BotAction = 'pause' | 'resume' | 'cancel';
 
@@ -182,7 +184,7 @@ export function BotDetail({
               reason={t('The service does not link a bot to its slice orders. Open the spot desk to see them in Order history.')}
               action={{ label: t('Open order history'), href: '/money/activity?tab=orders', variant: 'secondary' }}
             />
-            <div className="cb-action-row">
+            <div className="lt-actions">
               {order.map((action) => (
                 <Button
                   key={action}

@@ -4,7 +4,6 @@ import { createVenueTradeAdapter } from '@intafaced/venue-adapter';
 import {
   assertTradeOnly,
   VenueCredentialScopeError,
-  VenueCredentialsMissingError,
   type TradeAdapter,
   type VenueCredentials,
   type VenueOrder,
@@ -13,12 +12,9 @@ import {
   buildExecutionVenueTradeMaps,
   buildExecutionVenueTradeMapsWithOperatorSupplement,
   describeExecutionVenueCredentialSources,
-  ExecutionVenueCredentialsUnsetError,
-  ExecutionVenueUnknownError,
   executionVenueCredentialEnvPrefix,
   loadExecutionVenueCredentials,
   parseExecutionVenueIds,
-  wireExecutionVenueTradeAdapter,
 } from './venue-adapters.js';
 
 const now = new Date('2026-08-17T12:00:00.000Z');

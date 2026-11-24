@@ -468,6 +468,34 @@ export const crmAssignmentInputSchema = z
   .strict();
 export type CrmAssignmentInput = z.infer<typeof crmAssignmentInputSchema>;
 
+/** One outbox row for a submission, as svc-ops `outreach.getOpportunity` lists it (its column names, times as ISO strings). */
+export const crmDeliverySchema = z.object({
+  id: z.string(),
+  business_key: z.string(),
+  kind: z.string(),
+  status: z.enum(['pending', 'unconfigured', 'accepted', 'delivered', 'failed', 'unresolved']),
+  attempts: z.number().int(),
+  acceptance_ref: z.string().nullable(),
+  error_code: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type CrmDelivery = z.infer<typeof crmDeliverySchema>;
+
+/** svc-ops `outreach.getOpportunity`: one opportunity with everything recorded around it, or null when there is none. */
+export const crmOpportunityDetailSchema = z
+  .object({
+    opportunity: crmOpportunitySchema,
+    deliveries: z.array(crmDeliverySchema),
+    contact: crmContactSchema,
+    submission: crmSubmissionSchema,
+    organisation: crmOrganisationSchema.nullable(),
+    activities: z.array(crmActivitySchema),
+    tasks: z.array(crmTaskSchema),
+  })
+  .nullable();
+export type CrmOpportunityDetail = z.infer<typeof crmOpportunityDetailSchema>;
+
 /** Capture must not expose staff records; staff methods require real authenticated authority. */
 export interface OutreachCrmContract {
   capture(input: OutreachCaptureInput): Promise<OutreachCaptureReceipt>;

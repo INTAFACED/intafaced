@@ -1,3 +1,4 @@
+import { TOKEN_BALLOT_BPS, TOKEN_MAX_CHOICES, TOKEN_VOTING_TYPES, type TokenVotingType } from '@intafaced/contracts/token-governance';
 import { SCALE, type Amount } from '@intafaced/ledger-client';
 
 /**
@@ -9,14 +10,13 @@ import { SCALE, type Amount } from '@intafaced/ledger-client';
  * decides what a multi-choice result means.
  */
 
-export const VOTING_TYPES = ['basic', 'single_choice', 'approval', 'weighted', 'quadratic', 'ranked_choice'] as const;
-export type VotingType = (typeof VOTING_TYPES)[number];
+export type VotingType = TokenVotingType;
 
 /** Whole-ballot basis points for `weighted` and `quadratic` splits. */
-export const BALLOT_BPS = 10_000;
+export const BALLOT_BPS = TOKEN_BALLOT_BPS;
 /** Fewest and most choices a non-basic proposal carries. */
 export const MIN_CHOICES = 2;
-export const MAX_CHOICES = 20;
+export const MAX_CHOICES = TOKEN_MAX_CHOICES;
 export const MAX_CHOICE_LENGTH = 200;
 
 /**
@@ -43,7 +43,7 @@ function invalid(message: string): BallotError {
 }
 
 export function assertVotingType(value: unknown): VotingType {
-  if (typeof value === 'string' && (VOTING_TYPES as readonly string[]).includes(value)) return value as VotingType;
+  if (typeof value === 'string' && (TOKEN_VOTING_TYPES as readonly string[]).includes(value)) return value as VotingType;
   throw new BallotError('That voting type is not one this service tallies', 'token.voting_type_unsupported');
 }
 

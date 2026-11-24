@@ -9,7 +9,9 @@ import { BlockerPanel, ReadProblem } from '@/components/trade-ops/blocker-panel'
 import { OrderDetailPanels } from '@/components/trade-ops/orders-detail-panels';
 import { OrderReadView } from '@/components/trade-ops/order-read-view';
 import { OrderBust } from '@/components/trade-ops/order-bust';
-import { readOrder } from '@/lib/trade-ops/desk-reads';
+import { readOrder, readVenueOrder } from '@/lib/trade-ops/desk-reads';
+import { VENUE_ORDER_ID } from '@/lib/trade-ops/order-read';
+import { VenueOrderReadView } from '@/components/trade-ops/venue-order-read-view';
 
 /**
  * One order, in any state, from svc-trade's operator read (admin.orders.get, J-cex-spot-18 #1): status, fills and the
@@ -18,10 +20,20 @@ import { readOrder } from '@/lib/trade-ops/desk-reads';
  */
 export const dynamic = 'force-dynamic';
 
-export default async function OrderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function OrderPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ account?: string | string[] }>;
+}) {
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
   const id = decodeURIComponent((await params).id);
+  if (VENUE_ORDER_ID.test(id)) {
+    const account = (await searchParams).account;
+    return <RoutedOrder ctx={ctx} id={id.toLowerCase()} accountId={typeof account === 'string' ? account.trim() : ''} />;
+  }
   const read = await readOrder(ctx, id);
   if (read.kind === 'ok')
     return (
@@ -134,5 +146,48 @@ function Detail({ order }: { order: NonNullable<ReturnType<typeof findOrder>> })
       </section>
       <OrderDetailPanels orderId={order.id} cancellable={order.status === 'open' && !order.held} />
     </div>
+  );
+}
+
+/**
+ * A customer's routed order (J-cex-spot-18 #1 #2): read from the venue by the customer's own address through svc-trade's
+ * operator read, which writes the audit row the customer sees. The support desk's link names the customer
+ * (`?account=`); without it the page says so rather than guessing whose order it is. While the read is unwired the
+ * service's own blocker is shown.
+ */
+async function RoutedOrder({ ctx, id, accountId }: { ctx: Parameters<typeof readVenueOrder>[0]; id: string; accountId: string }) {
+  const back = (
+    <a className="text-sm underline" href="/trade-ops/orders">
+      All orders
+    </a>
+  );
+  if (!accountId)
+    return (
+      <DeskPage title="Routed order" description={id} asOf={null} state="refused" stateReason="no customer named" actions={back}>
+        <EmptyState
+          variant="refused"
+          size="panel"
+          title="Name the customer whose routed order this is"
+          reason="A routed order is read from the venue by its customer's own address, so the read needs the customer. Open it from the customer's support ticket, which names them."
+          code="trade_ops.venue_order_account_required"
+        />
+      </DeskPage>
+    );
+  const read = await readVenueOrder(ctx, accountId, id);
+  return (
+    <DeskPage
+      title="Routed order"
+      description={id}
+      asOf={read.asOf}
+      state={read.kind === 'ok' ? 'live' : read.kind === 'unknown' ? 'unknown' : 'refused'}
+      stateReason={read.kind === 'ok' ? undefined : read.kind === 'unknown' ? read.message : read.code}
+      actions={back}
+    >
+      {read.kind === 'ok' ? (
+        <VenueOrderReadView read={read.data} />
+      ) : (
+        <ReadProblem outcome={read} title="The routed order could not be read from the venue" />
+      )}
+    </DeskPage>
   );
 }

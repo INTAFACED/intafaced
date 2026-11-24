@@ -1,4 +1,5 @@
-import { AmountInput, Button } from './deps';
+import { AmountField, Button, EmptyState, Field } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
 import { personalCopy } from './personal-copy';
 import { payCopy } from './copy';
 import { Reason, sourceLabel, Steps, useSources } from './journey';
@@ -11,54 +12,39 @@ export function BillsCard() {
   const { t } = personalCopy.useCopy();
   const { sources, state } = useSources();
   return (
-    <div className="pay-body" data-testid="bills-card">
+    <div className="lt-stack" data-testid="bills-card">
       <Reason title={t('billsReasonTitle')}>{t('billsReasonBody')}</Reason>
       <Steps items={[t('stepBiller'), t('stepReference'), t('stepAmount'), t('stepReview'), t('stepStatus')]} />
-      <form className="pay-body" noValidate onSubmit={(event) => event.preventDefault()}>
-        <fieldset className="pay-fieldset" disabled>
-          <div className="pay-field">
-            <label className="pay-field__label" htmlFor="bill-biller">
-              {t('billerLabel')}
-            </label>
-            <input id="bill-biller" className="pay-text" type="search" placeholder={t('billerPlaceholder')} />
-          </div>
-          <div className="pay-field">
-            <label className="pay-field__label" htmlFor="bill-reference">
-              {t('billReferenceLabel')}
-            </label>
-            <input id="bill-reference" className="pay-text" type="text" placeholder={t('billReferencePlaceholder')} />
-          </div>
-          <div className="pay-field">
-            <span className="pay-field__label">{payCopy.t('Amount')}</span>
-            <AmountInput aria-label={payCopy.t('Amount')} value="" onValueChange={() => {}} precision={18} placeholder="0" disabled />
-          </div>
-          <div className="pay-field">
-            <label className="pay-field__label" htmlFor="bill-from">
-              {t('payFrom')}
-            </label>
-            <select id="bill-from" className="pay-text" defaultValue="">
-              {sources.length === 0 ? <option value="">{state === 'loading' ? '…' : t('payFromNone')}</option> : null}
-              {sources.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {sourceLabel(row)}
-                </option>
-              ))}
-            </select>
-          </div>
+      <form className="lt-stack" noValidate onSubmit={(event) => event.preventDefault()}>
+        <fieldset className="lt-stack" disabled>
+          <Field id="bill-biller" label={t('billerLabel')} type="search" placeholder={t('billerPlaceholder')} />
+          <Field id="bill-reference" label={t('billReferenceLabel')} type="text" placeholder={t('billReferencePlaceholder')} />
+          <AmountField label={payCopy.t('Amount')} value="" onChange={() => {}} precision={18} placeholder="0" disabled />
+          <SelectField
+            id="bill-from"
+            label={t('payFrom')}
+            value=""
+            onChange={() => {}}
+            options={
+              sources.length === 0
+                ? [{ value: '', label: state === 'loading' ? '…' : t('payFromNone') }]
+                : sources.map((row) => ({ value: row.id, label: sourceLabel(row) }))
+            }
+          />
         </fieldset>
-        <Button type="submit" variant="primary" size={56} fullWidth disabled data-testid="bills-review">
+        <Button type="submit" tone="primary" size="lg" block disabled data-testid="bills-review">
           {t('billsReviewOff')}
         </Button>
       </form>
-      <div className="pay-block">
-        <h3 className="pay-section-title">{t('billsStatus')}</h3>
+      <div className="lt-stack">
+        <h3>{t('billsStatus')}</h3>
         <Steps items={[t('statusSubmitted'), t('statusAccepted'), t('statusPaid')]} />
       </div>
-      <div className="pay-block">
-        <h3 className="pay-section-title">{t('billsHistory')}</h3>
-        <p className="pay-empty">{t('billsHistoryEmpty')}</p>
-        <h3 className="pay-section-title">{t('billsRecurring')}</h3>
-        <p className="pay-empty">{t('billsRecurringEmpty')}</p>
+      <div className="lt-stack">
+        <h3>{t('billsHistory')}</h3>
+        <EmptyState title={t('billsHistoryEmpty')} />
+        <h3>{t('billsRecurring')}</h3>
+        <EmptyState title={t('billsRecurringEmpty')} />
       </div>
     </div>
   );

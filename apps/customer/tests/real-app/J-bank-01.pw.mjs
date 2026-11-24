@@ -1,14 +1,21 @@
 // World: restart
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { withPartner } from './partner.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-01, in the running app (docs/roadmap/journeys.json): I open my bank, see my accounts and spaces, and create one.
-// One test per step, titled "J-bank-01 #<n>", run in order on one TEST account funded with TEST 100 USDT. The stack
+// One test per step, titled "J-bank-01 #<n>", run in order on one TEST account whose bank money the stack's TEST partner
+// bank holds (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded there with TEST 100 USDT
+// (`testPartner.fund`, the partner's figure, no ledger post). The ledger holds and posts nothing of it. The stack
 // publishes labelled TEST account terms, a TEST currency list, a TEST space limit of 5 and TEST currencies for account
-// details (tooling/scripts/local-test-stack.mjs, svc-bank). Balances are read through the person's own bank API. Step 7 opens
+// details (tooling/scripts/local-test-stack.mjs, svc-bank). What the app shows is compared with the partner's own book, read
+// on loopback straight from the TEST partner (svc-bank src/partner/test-partner-record.ts) and the TEST card partner
+// (src/cards/test-card-partner-record.ts) through the outside record read (venue.mjs venueRecord and venueBalance), never
+// through the person's bank API (#3 #5 #6). Step 7 opens
 // a TEST business through that API, so the person has a business profile to switch to.
 const J = 'J-bank-01';
 const LIMIT = 5;
@@ -32,6 +39,8 @@ async function bank(who) {
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  const userId = login.result.data.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} named no user id`);
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();
@@ -45,6 +54,7 @@ async function bank(who) {
     return { ok: true, data: body.result.data };
   };
   return {
+    userId,
     query: (procedure, input) =>
       fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
         headers,
@@ -65,11 +75,49 @@ async function spaces(who) {
 }
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
 
+const PARTNER_BANK = 'TEST partner bank';
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts). */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+/** The TEST card partner's own record, on loopback (svc-bank src/cards/test-card-partner-record.ts). */
+const CARD_PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-card-partner`;
+
+/** One page of the partner's own book for the person (`/accounts`, `/moves`, `/open-orders`, `/account-details`). */
+async function partnerBook(userId, path, extra = {}) {
+  return (await venueRecord(userId, path, extra, PARTNER_RECORD, null)).value;
+}
+/** The person's main balance in one currency as the partner's own book holds it. */
+async function partnerMain(userId, asset) {
+  return (await venueBalance(userId, asset, PARTNER_RECORD)).total;
+}
+/** What the TEST card partner's own book holds open for the cardholder in one asset. */
+async function cardPartnerHeld(userId, asset) {
+  const rows = (await venueRecord(userId, '/holds', {}, CARD_PARTNER_RECORD, null)).value;
+  return rows.find((r) => r.asset === asset)?.held ?? null;
+}
+/** One account in the partner's book: the main balance (`spaceId` null) or a space; its amount, '0' when it holds none. */
+const bookAmount = (book, asset, spaceId) => book.find((a) => a.asset === asset && a.spaceId === spaceId)?.amount ?? '0';
+
+/**
+ * The journey's start at the TEST partner bank: the person's bank money held there (`custody: 'off'`) and TEST 100 USDT
+ * paid in there under one fund id, the partner's figure and no ledger post. The TEST partner keeps its book in memory, so
+ * a svc-bank restart empties it (svc-bank `partner/test-partner.ts`); #2 and #4 restart svc-bank before anything has
+ * moved, and put this same start back after each restart. Within one svc-bank process the same fund id pays in once.
+ */
+async function atPartner(who) {
+  const own = await bank(who);
+  const held = await own.mutate('testPartner.set', { custody: 'off' });
+  expect(held, JSON.stringify(held.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  const funded = await own.mutate('testPartner.fund', { fundId: `jb01-${who.email}`.slice(0, 64), assetId: 'USDT', amount: '100' });
+  expect(funded, JSON.stringify(funded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { balance: '100' } });
+  expect(main(await spaces(who))).toMatchObject({ balance: '100', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+}
+
 /**
  * Runs `fn` with svc-bank restarted on one owner value blank (`LOCAL_STACK_BANK_<NAME>=off`,
- * tooling/scripts/local-stack-services/bank.mjs), and restarts it on the TEST value after, even when `fn` fails.
+ * tooling/scripts/local-stack-services/bank.mjs), and restarts it on the TEST value after, even when `fn` fails. After
+ * each restart `who`'s start at the TEST partner is put back (`atPartner`).
  */
-async function withBankValueBlank(key, fn) {
+async function withBankValueBlank(key, who, fn) {
   const restart = (value) => {
     const before = process.env[key];
     if (value === undefined) delete process.env[key];
@@ -83,18 +131,53 @@ async function withBankValueBlank(key, fn) {
   };
   restart('off');
   try {
+    await atPartner(who);
     return await fn();
   } finally {
     restart(undefined);
+    await atPartner(who);
   }
 }
+let gatesCtx;
+/** One card-issuer event through the bank's ops door, approved by the stack's two TEST founders, as card-sim requires. */
+async function cardEvent(actionType, procedure, fields, hashed = fields) {
+  gatesCtx ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  const { gates, ctx, sessions } = await gatesCtx;
+  const approval = await gates.twoPerson(ctx, sessions, {
+    actionType,
+    targetService: 'svc-bank',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash: gates.bankPayloadHash(actionType, hashed),
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  return res.json.result.data;
+}
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
+/** The spaces as facts: the partner's `asOf` says when it was asked, which every read changes, so it is left out. */
+const withoutReadTime = (rows) =>
+  rows.map(({ heldAt, ...space }) => ({
+    ...space,
+    heldAt: heldAt && { ...heldAt, asOf: undefined, figure: heldAt.figure && { ...heldAt.figure, asOf: undefined } },
+  }));
+/** The ledger's USDT figures for `who`, in units: their bank money is the partner's, so these never change. */
+async function ledgerUsdt(who) {
+  const row = (await (await api(who)).balances()).USDT;
+  return row ? { free: toUnits(row.free), used: toUnits(row.used), total: toUnits(row.total) } : null;
+}
 
 test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async ({ page }) => {
   const who = await signUp(page, 'jbk');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who });
+  // The person's bank money is held at the TEST partner bank and paid in there: nothing is posted to the ledger.
+  await atPartner(who);
+  run.reset({ who, ledger: await ledgerUsdt(who) });
 
   await signIn(page, who);
   await page.goto('/bank');
@@ -129,7 +212,7 @@ test(`${J} #2 reads the account panel: the published TEST terms, and with the ow
 
   // With the owner's terms table blank: the bank refuses by its code, and the panel says the terms are not published,
   // shows that code, and claims no fee or fee-free account.
-  await withBankValueBlank('LOCAL_STACK_BANK_ACCOUNT_TERMS', async () => {
+  await withBankValueBlank('LOCAL_STACK_BANK_ACCOUNT_TERMS', who, async () => {
     expect(await (await bank(who)).query('accounts.features', {})).toMatchObject({ ok: false, code: 'bank.account_terms_unset' });
     await page.goto('/bank');
     const unset = page.getByTestId('failure').filter({ hasText: 'Terms not published' });
@@ -140,7 +223,9 @@ test(`${J} #2 reads the account panel: the published TEST terms, and with the ow
   });
 });
 
-test(`${J} #3 adds a currency once, and removing one that holds money is refused with Send and Convert`, async ({ page }) => {
+test(`${J} #3 adds a currency once, and removing one the partner reports with a balance, hold or open order is refused with Send and Convert`, async ({
+  page,
+}) => {
   const who = person();
   await signIn(page, who);
   await page.goto('/bank');
@@ -152,22 +237,72 @@ test(`${J} #3 adds a currency once, and removing one that holds money is refused
   // Asking again is the same currency, one space.
   expect((await (await bank(who)).mutate('currencies.add', { assetId: 'USDC' })).ok).toBe(true);
   expect((await spaces(who)).filter((s) => s.kind === 'primary' && s.assetId === 'USDC')).toHaveLength(1);
+  // The partner's own book: it opened the person's USDC currency account, once, holding 0.
+  const { userId } = await bank(who);
+  const usdcAtPartner = (book) => book.filter((a) => a.asset === 'USDC' && a.spaceId === null);
+  expect(usdcAtPartner(await partnerBook(userId, '/accounts'))).toEqual([{ asset: 'USDC', spaceId: null, amount: '0' }]);
 
-  await page.getByTestId('currency-USDT').getByRole('button', { name: 'Remove USDT' }).click();
+  await page.getByTestId('currency-USDT').getByRole('button', { name: 'Remove USDT', exact: true }).click();
   const refused = page.getByTestId('currency-in-use');
   await expect(refused).toContainText('USDT is still in use');
   await expect(refused).toContainText('bank.currency_in_use');
   await expect(refused.getByRole('link', { name: 'Send' })).toHaveAttribute('href', /\/bank\/transfers\?from=/);
   await expect(refused.getByRole('link', { name: 'Convert' })).toHaveAttribute('href', '/trade/convert');
   expect(main(await spaces(who)).balance).toBe('100');
+  // The balance it was refused for is the partner's own: its book holds the 100 USDT.
+  expect(await partnerMain(userId, 'USDT')).toBe('100');
 
-  // An empty currency comes off.
-  await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
+  // USDC reads 0 at the partner bank, and still cannot come off while the partner reports a hold or an open order in it.
+  expect((await spaces(who)).find((s) => s.kind === 'primary' && s.assetId === 'USDC')).toMatchObject({ balance: '0' });
+  expect(await partnerMain(userId, 'USDC')).toBe('0');
+  const own = await bank(who);
+  const refusedInUse = async () => {
+    expect(await own.mutate('currencies.remove', { assetId: 'USDC' })).toMatchObject({ ok: false, code: 'bank.currency_in_use' });
+    await page.reload();
+    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
+    await expect(page.getByTestId('currency-in-use')).toContainText('bank.currency_in_use');
+    await expect(page.getByTestId('currency-USDC')).toBeVisible();
+  };
+  // A hold: a TEST card purchase of TEST 5 USDC, which the TEST card holds from the person's USDC account at the partner:
+  // TEST 5 USDC paid in there first (a fresh fund id each attempt), so the hold leaves the account at 0 again.
+  const paid = await own.mutate('testPartner.fund', { fundId: `jb01-usdc-${randomUUID()}`, assetId: 'USDC', amount: '5' });
+  expect(paid, JSON.stringify(paid.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  expect(await partnerMain(userId, 'USDC')).toBe('5');
+  const issued = await own.mutate('cards.issue', { cardId: randomUUID(), assetId: 'USDC', perAuthorizationLimit: '50' });
+  expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
+  const bought = { cardId: issued.data.id, authorizationRef: `jb01-${randomUUID()}`, amount: '5' };
+  expect(await cardEvent('bank.card_authorize', 'ops.cardAuthorize', { ...bought, merchant: 'TEST Shop' }, bought)).toMatchObject({
+    decision: 'approved',
+  });
+  // The hold is the card partner's own: its book holds the 5 USDC open, taken from the USDC account, which reads 0.
+  expect(await cardPartnerHeld(userId, 'USDC')).toBe('5');
+  expect(await partnerMain(userId, 'USDC')).toBe('0');
+  await refusedInUse();
+  // The purchase settles: the partner captures the 5, so nothing is held and the account still reads 0.
+  expect(await cardEvent('bank.card_capture', 'ops.cardCapture', bought, bought)).toMatchObject({ heldBy: 'partner' });
+  expect(await cardPartnerHeld(userId, 'USDC')).toBe('0');
+  expect(await partnerMain(userId, 'USDC')).toBe('0');
+
+  // An open order: the TEST partner reports one open TEST order reserving USDC.
+  expect(await own.mutate('testPartner.set', { openOrder: 'USDC' })).toMatchObject({ ok: true, data: { openOrder: 'USDC' } });
+  // The open order is the partner's own: its book lists one open order reserving USDC.
+  expect(await partnerBook(userId, '/open-orders')).toEqual([{ id: expect.any(String), asset: 'USDC' }]);
+  try {
+    await refusedInUse();
+  } finally {
+    expect(await own.mutate('testPartner.set', { openOrder: null })).toMatchObject({ ok: true, data: { openOrder: null } });
+  }
+  expect(await partnerBook(userId, '/open-orders')).toEqual([]);
+
+  // An empty currency, with no hold and no order in it, comes off.
+  await page.reload();
+  await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
   await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
   await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
 
   // Where the partner has no currency accounts (the TEST partner switched to offer none): "not offered by the partner",
   // and no currency account is opened.
+  const bookBefore = await partnerBook(userId, '/accounts');
   await withPartner(who, { notOffered: ['currencies'] }, async () => {
     await page.reload();
     await page.getByLabel('Currency to add').selectOption('USDC');
@@ -179,6 +314,8 @@ test(`${J} #3 adds a currency once, and removing one that holds money is refused
       code: 'bank.not_offered_by_partner',
     });
     expect((await spaces(who)).filter((s) => s.kind === 'primary' && s.assetId === 'USDC')).toHaveLength(0);
+    // The partner's own book is as it was: no currency account was opened there.
+    expect(await partnerBook(userId, '/accounts')).toEqual(bookBefore);
   });
 });
 
@@ -223,7 +360,7 @@ test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is r
   await expect(paused).toHaveCount(0);
 
   // With the owner's space limit blank: the create is refused, saying the limit is not set, and no space is made.
-  await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', async () => {
+  await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', who, async () => {
     const before = (await spaces(who)).length;
     expect(await (await bank(who)).mutate('spaces.create', { assetId: 'USDT', name: 'No limit TEST' })).toMatchObject({
       ok: false,
@@ -249,6 +386,13 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   const who = person();
   const before = await spaces(who);
   const trip = named(before, SPACE);
+  const ledgerBefore = await ledgerUsdt(who);
+  expect(ledgerBefore, 'the ledger is where #1 left it').toEqual(run.read().ledger);
+  const { userId } = await bank(who);
+  const bookBefore = await partnerBook(userId, '/accounts');
+  // Before the move the app shows the partner's own figures.
+  expect(main(before).balance).toBe(bookAmount(bookBefore, 'USDT', null));
+  expect(trip.balance).toBe(bookAmount(bookBefore, 'USDT', trip.id));
   await signIn(page, who);
   await page.goto('/bank/transfers');
   await page.getByLabel('From your space').selectOption(main(before).id);
@@ -257,14 +401,62 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   await dialog.getByLabel('To which of your accounts').selectOption(trip.id);
   await dialog.getByLabel(/Amount/).fill('20');
   await dialog.getByRole('button', { name: 'Review' }).click();
+  const answered = page.waitForResponse(
+    (res) => res.request().method() === 'POST' && res.url().includes('/api/bank/trpc/transfers.create'),
+  );
   await dialog.getByRole('button', { name: 'Confirm' }).click();
-  await expect(dialog.getByText(/ledger/i).first()).toBeVisible();
+  const reply = await answered;
+  const asked = reply.request().postDataJSON();
+  const made = (await reply.json()).result.data;
+  // One partner move, keyed by the transfer id the app sent, and no ledger transaction.
+  expect(made).toMatchObject({ ledgerTxId: null, amount: '20', partnerMove: { label: PARTNER_BANK } });
+  await expect(dialog).toContainText('Partner bank move');
+  await expect(dialog).toContainText(made.partnerMove.id);
+  await expect(dialog).toContainText('None: the partner bank holds this money');
 
   const after = await spaces(who);
   expect(toUnits(main(before).balance) - toUnits(main(after).balance)).toBe(toUnits('20'));
   expect(toUnits(named(after, SPACE).balance) - toUnits(trip.balance)).toBe(toUnits('20'));
-  // The sum of the spaces is still the ledger total.
-  expect(toUnits(main(after).balance) + toUnits(named(after, SPACE).balance)).toBe(toUnits('100'));
+  for (const space of [main(after), named(after, SPACE)])
+    expect(space).toMatchObject({ ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+  // The spaces plus the main balance shown are the partner's total: the 100 it was paid in.
+  const usdt = after.filter((s) => s.assetId === 'USDT' && !s.archivedAt);
+  expect(usdt.reduce((sum, s) => sum + toUnits(s.balance), 0n)).toBe(toUnits('100'));
+
+  // The partner's own book: both its accounts changed by exactly 20, the app shows exactly its figures, and its USDT
+  // accounts add up to the 100 it was paid in.
+  const book = await partnerBook(userId, '/accounts');
+  expect(toUnits(bookAmount(bookBefore, 'USDT', null)) - toUnits(bookAmount(book, 'USDT', null))).toBe(toUnits('20'));
+  expect(toUnits(bookAmount(book, 'USDT', trip.id)) - toUnits(bookAmount(bookBefore, 'USDT', trip.id))).toBe(toUnits('20'));
+  expect(main(after).balance).toBe(bookAmount(book, 'USDT', null));
+  expect(named(after, SPACE).balance).toBe(bookAmount(book, 'USDT', trip.id));
+  expect(book.filter((a) => a.asset === 'USDT').reduce((sum, a) => sum + toUnits(a.amount), 0n)).toBe(toUnits('100'));
+  // It made the move once: the move the app names is on its record, from the main balance into the space, and it is the
+  // only move under its key.
+  const moves = await partnerBook(userId, '/moves');
+  const moveKey = moves.find((m) => m.id === made.partnerMove.id)?.key;
+  const keyed = (list) => list.filter((m) => m.key === moveKey);
+  const moved = keyed(moves);
+  // Keyed by the transfer id the app sent.
+  expect(moveKey).toMatch(new RegExp(`^bank\\.transfer\\.[a-z]+:${asked.transferId}:0$`));
+  expect(moved).toEqual([
+    expect.objectContaining({
+      id: made.partnerMove.id,
+      amount: '20',
+      from: { owner: userId, assetId: 'USDT', spaceId: null },
+      to: { owner: userId, assetId: 'USDT', spaceId: trip.id },
+    }),
+  ]);
+  // The same transfer id again is the same move, made once: the partner answers with it and nothing moves twice.
+  const again = await (await bank(who)).mutate('transfers.create', asked);
+  expect(again).toMatchObject({ ok: true, data: { ledgerTxId: null, partnerMove: { id: made.partnerMove.id } } });
+  const twice = await spaces(who);
+  expect(main(twice).balance).toBe(main(after).balance);
+  expect(named(twice, SPACE).balance).toBe(named(after, SPACE).balance);
+  expect(keyed(await partnerBook(userId, '/moves'))).toEqual(moved);
+  expect(await partnerBook(userId, '/accounts')).toEqual(book);
+  // The ledger posted nothing.
+  expect(await ledgerUsdt(who)).toEqual(ledgerBefore);
 
   // The move is in the history, on the space it went to.
   await page.goto('/money/activity');
@@ -307,6 +499,8 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
     const held = await spaces(who);
     expect(main(held).balance).toBe(main(after).balance);
     expect(named(held, SPACE).balance).toBe(named(after, SPACE).balance);
+    // Nothing moved at the partner either.
+    expect(await partnerBook(userId, '/accounts')).toEqual(book);
   });
 });
 
@@ -314,10 +508,13 @@ test(`${J} #6 opens account details: the TEST partner's details labelled TEST, a
   page,
 }) => {
   const who = person();
+  const { userId } = await bank(who);
   await signIn(page, who);
   // With no banking partner for account details (the TEST partner's default): the notice, rail.bank, no number.
   await page.goto('/bank');
   for (const currency of ['EUR', 'GBP', 'USD']) {
+    // The partner's own book has issued this person nothing in this currency.
+    expect(await partnerBook(userId, '/account-details', { currency })).toMatchObject({ issued: false, sets: [] });
     const block = page.getByTestId(`account-details-${currency}`);
     await expect(block).toContainText('Needs a banking partner. It is switched off in this build.');
     await expect(block).toContainText('rail.bank');
@@ -334,6 +531,10 @@ test(`${J} #6 opens account details: the TEST partner's details labelled TEST, a
     for (const currency of ['EUR', 'GBP', 'USD']) {
       const row = answer.data.currencies.find((c) => c.currency === currency);
       expect(row, `${currency} in the partner's answer`).toMatchObject({ state: 'done', blocker: null });
+      // The partner's own book: the sets it issued this person in this currency are exactly the ones the app gives.
+      const issued = await partnerBook(userId, '/account-details', { currency });
+      expect(issued.issued).toBe(true);
+      expect(row.sets.map((s) => [s.accountNumber, s.partnerBank])).toEqual(issued.sets.map((s) => [s.accountNumber, s.partnerBank]));
       expect(row.sets.length, `${currency}: the partner issued a set`).toBeGreaterThan(0);
       const block = page.getByTestId(`account-details-${currency}`);
       await expect(block).not.toContainText('rail.bank');
@@ -388,8 +589,12 @@ test(`${J} #7 switches to a business profile: every bank read carries it, and a 
   // A business has no account of its own: no company terms, currencies or details, and no personal money shown as its own.
   const home = page.getByTestId('account-home');
   await expect(home.getByText('No company account')).toHaveCount(2);
-  await expect(home).toContainText('bank.company_account_unwired');
-  await expect(page.getByTestId('account-details-company')).toContainText('bank.company_account_unwired');
+  // A Bank refusal no step names ends in plain words; its code stays on data-code.
+  await expect(home.locator('[data-code="bank.company_account_unwired"]').first()).toBeAttached();
+  await expect(home).not.toContainText('bank.company_account_unwired');
+  const details = page.getByTestId('account-details-company');
+  await expect(details.locator('[data-code="bank.company_account_unwired"]').first()).toBeAttached();
+  await expect(details).not.toContainText('bank.company_account_unwired');
   await expect(page.getByTestId('currency-USDT')).toHaveCount(0);
   await expect(page.getByTestId('account-terms')).toHaveCount(0);
 
@@ -412,7 +617,8 @@ test(`${J} #7 switches to a business profile: every bank read carries it, and a 
     const res = await api[kind](procedure, input);
     expect(res, procedure).toMatchObject({ ok: false, status: 403, code: 'bank.profile_not_held' });
   }
-  expect(await spaces(who)).toEqual(before);
+  // Nothing on the account changed: every space and figure is the same, read apart from when the partner was asked.
+  expect(withoutReadTime(await spaces(who))).toEqual(withoutReadTime(before));
 
   // Back to Personal: the account's own terms and money are there again.
   await page.getByRole('button', { name: 'Account menu' }).click();

@@ -61,6 +61,9 @@ import { buildPayGuards } from '../../src/seams/registry.js';
 import { UserMoneyService } from '../../src/user-money-service.js';
 import { seedControl, type ControlSeed } from './control-seed.js';
 
+/** A TEST retry policy (the owner's value is PAY_WEBHOOK_RETRY_SCHEDULE_SECONDS): seven retries, eight attempts. */
+const TEST_RETRY_SCHEDULE = [60, 300, 1_800, 7_200, 43_200, 86_400, 86_400] as const;
+
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
 
@@ -115,7 +118,7 @@ export interface Entity {
   readonly approvalId: string;
   /** Portal refund list: the `refund.posted` event id. No ledger movement. */
   readonly refundEventId: string;
-  /** Draft standalone invoice for `paymentId`'s amount and asset. */
+  /** Draft standalone invoice for what `paymentId` still holds (its amount less the refund in flight) and its asset. */
   readonly invoiceId: string;
   /** Evidence bytes stored for `disputeId`. */
   readonly evidenceId: string;
@@ -286,6 +289,7 @@ function composeRouter(parts: {
       partnerTerms: (merchantId) => readPartnerTerms(parts.rails.list(), merchantId),
       webhooksAllowLocalHttp: true,
       webhookRetry: { maxPerWindow: 100, windowMs: 60_000 },
+      webhookSettings: { endpointCap: 50, overlapMaxSeconds: 3600, resendWindowSeconds: 86_400, retryScheduleSeconds: [60] },
       invoiceLinks: parts.pay,
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
       // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
@@ -331,6 +335,7 @@ export async function createWorld(): Promise<World> {
 
   const outbound: Outbound[] = [];
   const webhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql), {
+    retryScheduleSeconds: TEST_RETRY_SCHEDULE,
     allowLocalHttp: true,
     transport: async (req) => {
       outbound.push({ url: String(req.url), body: req.body, headers: { ...req.headers } });
@@ -428,13 +433,15 @@ export async function createWorld(): Promise<World> {
     await sql`
       INSERT INTO pay.merchant_dispute_evidence_content (evidence_id, merchant_id, content)
       VALUES (${evidenceId}, ${merchantId}, ${evidenceBytes})`;
+    // 99, not 100: the refund in flight below holds 1 of the payment's 100, and only what it still holds covers an invoice.
     const invoiceRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
-      VALUES (${merchantId}, 'draft', 'USDT', 100, ${customerRef}, 'isolation invoice', ${userId})
+      VALUES (${merchantId}, 'draft', 'USDT', 99, ${customerRef}, 'isolation invoice', ${userId})
       RETURNING id`;
+    // A ready job as the runner leaves it (exports.ts `process`): its file, size, row count and the file's sha256.
     const exportRows = await sql<Array<{ id: string }>>`
-      INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, as_of)
-      VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, now())
+      INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, sha256, as_of)
+      VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, '984a644ec3b56d32b0404777e1eb73390c4b0742a6a0e183f07861056b6746de', now())
       RETURNING id`;
     const notificationId = await recordMerchantNotification(sql, { merchantId, kind: 'export_ready', title: `isolation ${tag}` });
     const memberRows = await sql<Array<{ id: string }>>`

@@ -57,7 +57,6 @@ export const UNJOURNALLED = [
   'services/svc-protocol/src/amm/mint-swap-onchain.test.ts',
   'services/svc-protocol/src/amm/pool-factory-onchain.test.ts',
   'services/svc-protocol/src/chain/refusal-without-chain.test.ts',
-  'services/svc-protocol/src/launch/router-launch-live.test.ts',
   'services/svc-protocol/src/launch/token-factory-onchain.test.ts',
   'services/svc-protocol/src/router.live-chain.test.ts',
 ].map((file) => ({

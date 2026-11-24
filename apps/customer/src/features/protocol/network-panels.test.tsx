@@ -9,8 +9,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const answers: Record<string, unknown> = {};
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   return { ...real, useApi: () => ({ query: () => new Promise(() => undefined) }) as never };
 });
 vi.mock('../../shared/resource', () => ({

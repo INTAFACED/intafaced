@@ -1,15 +1,12 @@
 /** Browser hop for the identity keys desk. Same-origin BFF only; no credential is held here. */
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { KeysView } from './keys-server';
 import type { KeyState } from './keys-model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type { KeyState };
 export type { Part };
 export type KeysDeskView = Pick<KeysView, 'asOf' | 'state'>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 export async function fetchKeys(signal?: AbortSignal): Promise<KeysDeskView | null> {
   try {

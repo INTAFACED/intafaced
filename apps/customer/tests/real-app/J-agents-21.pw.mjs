@@ -1,36 +1,61 @@
 // World: restart, stack
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { signUp, verify } from './desk.mjs';
-import { EDGE, ORIGIN, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
-import { signedHeaders } from './developer.mjs';
-import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
-import { testWalletKey } from './test-wallet.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
+import { openFounderDesk } from './agents.mjs';
+import { api, EDGE, fromUnits, journeyState, ORIGIN, stackUrl, tool, toUnits } from './stack.mjs';
+import { VERSION_PIN, signedHeaders } from './developer.mjs';
+import { browserHoldsPasskey, confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { TEST_VENUE as FIXTURE_VENUE, venueRecord } from './venue.mjs';
+import { DAY, MINUTE, dayStart, minuteStart, utcDay, utcMinuteOf } from './clock.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #12 #13 #14 #16 #17 #18), one test per step,
+// can revoke. This file holds every step (#1 #2 #3 #4 #5 #6 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19 #7 #15), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
 //
 // Every call goes through Edge to svc-trade's user-venue door (`/api/v1/venue/...`, on with TRADE_USER_VENUE_URL, which
-// the stack sets with LOCAL_STACK_USER_VENUE=on), the way the /agents/connect screen will call it; the person's wallet
-// is the TEST key signing the venue's own EIP-712 payloads, as the browser wallet does. The screen is a later piece, a
-// design change shown to the owner first. The TEST venue's own record is read directly on loopback for what the venue
-// reports.
+// the stack sets with LOCAL_STACK_USER_VENUE=on), the way the /agents/connect screen calls it; the person's wallet
+// is the TEST key signing the venue's own EIP-712 payloads, as the browser wallet does. The TEST venue's own record is
+// read directly on loopback for what the venue reports.
+//
+// Each step from #4 on also ends in the app on /agents/connect, where the person does or sees it: the agent account's
+// own controls (#4 #5 #13 #14 #16), the connection's Activity (#8 #9 #10 #11 #17 #18), Revoke with the TEST wallet in
+// the browser (#12) and the connection's end date (#19).
 //
 // The assistant (#8 #9 #10) is played by this test, calling Edge with the agent API key as an outside assistant would,
 // signing each request with the key's signing secret. Its key is made and connected to the agent account through the
-// API (identity's developerKeys.create with the TEST passkey, then the connection with step-up): a labelled TEST
-// stand-in for #6's Connect screen, which is a later piece. #13 closes against the perp the assistant opened in #8.
+// app: #6 makes it on /agents/connect (Connect your assistant) with the person's TEST passkey held by the browser's
+// virtual authenticator, and the test keeps the key and secret the page showed once. #13 closes against the perp the
+// assistant opened in #8.
 //
-// Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen), #7 (the MCP server's order
-// tool), #11 (the connection's log), #15 (the founder's desk) and #19 (the key's expiry) are later pieces.
+// #7 runs last, on the second agent account: the assistant runs the MCP server (packages/assistant-mcp) as its own
+// process over stdio with the agent key, and buys TEST spot through its order tool. Not on the first account, because
+// the venue takes a spot buy's fee in BTC, and BTC left under one lot would keep #14's close refused. #18 left the
+// second account at its daily-loss cap, so the person first sets that cap back to TEST 25.
 //
-// #12's Revoke is the person's own two calls, as the connection's screen (a later piece, a design change) will send
-// them: identity switches the API key off (developerKeys.revoke), and svc-trade revokes the assistant on the agent
-// account (POST /api/v1/venue/agent-accounts/connections/:keyId/revoke), then the wallet signs the venue's revoke.
+// #11 reads the connection's Activity through the API and on the connection's screen: every call the assistant made
+// with the first key in #8 #9 #10, kept by the request id Edge answered each with.
+//
+// #2 opens /agents/connect in the browser after #1 put the TEST ceiling back.
+//
+// #15 runs after #7, on the console (/more-ops/agents) as the stack's LOCAL TEST founder: the second TEST connection is
+// #7's key on the second agent account. Quarantine revokes the key at identity and ends the connection at svc-trade.
+//
+// #19 acts on the second agent account (#16): the person makes and connects two more agent keys with end dates through
+// the Connect form on /agents/connect; the venue's longest agent permission is the TEST venue's own declaration (GET /venue).
+//
+// #12's Revoke is pressed on the connection's row, with the person's TEST wallet in the browser. The page sends the
+// person's own two calls: identity switches the API key off (developerKeys.revoke), and svc-trade revokes the assistant
+// on the agent account (POST /api/v1/venue/agent-accounts/connections/:keyId/revoke); then the wallet signs the venue's
+// revoke.
 //
 // #14 closes the first agent account, so #16, #17 and #18 act on a second one the person opens the same way (cap TEST 200,
 // funded 100), with a second assistant key connected to it by the same TEST stand-in.
@@ -42,7 +67,7 @@ import { testWalletKey } from './test-wallet.mjs';
 const J = 'J-agents-21';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
-const TEST_VENUE = 'http://127.0.0.1:14560';
+const TEST_VENUE = stackUrl('test-venue');
 const BASE = '/api/v1/venue/agent-accounts';
 const STEP_UP = { scope: 'trade.step_up.venue.agentAccount', purpose: 'venue.agentAccount' };
 
@@ -64,6 +89,12 @@ function restartTrade(settings) {
     }
   }
 }
+
+/**
+ * After a restart: the restart runs synchronously, so a keep-alive socket the TEST venue closed meanwhile is still in
+ * this process's pool until the event loop sees the close. Let it, so the next call opens a fresh one.
+ */
+const settleSockets = () => new Promise((resolve) => setTimeout(resolve, 250));
 
 let doorOn = false;
 const doorOffOnExit = () => {
@@ -99,11 +130,13 @@ async function venue(path, body) {
   expect(res.status, JSON.stringify(json)).toBe(200);
   return json;
 }
+/** A read of the TEST venue's own record for one account, through the venue fixture (`venueRecord`): what the app must equal. */
+const record = (path, { account, ...extra }) => venueRecord(account.owner, path, extra, FIXTURE_VENUE, account.subAccount);
 const venueId = async () => (await venue('/venue')).venue.id;
 const acct = async (owner, subAccount = null) => ({ venueId: await venueId(), owner, subAccount });
 /** The venue's own USDC total for the account, as it reports it. */
 async function venueUsdc(owner, subAccount = null) {
-  const body = await venue('/balances', { account: await acct(owner, subAccount) });
+  const body = await record('/balances', { account: await acct(owner, subAccount) });
   return body.value.find((b) => b.asset === 'USDC')?.total ?? '0';
 }
 const same = (a, b) => toUnits(String(a)) === toUnits(String(b));
@@ -164,7 +197,7 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
   expect(credited.credited).toBe(true);
   expect(same(await venueUsdc(owner()), '1000')).toBe(true);
 
-  const subsBefore = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
+  const subsBefore = (await record('/sub-accounts', { account: await acct(owner()) })).value;
   restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_ACCOUNT_CEILING: 'off' });
   try {
     const { session } = await person();
@@ -176,7 +209,7 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
     // No account made: none listed, nothing asked of the venue, nothing moved.
     expect(body200(await session.get(BASE)).accounts).toEqual([]);
     refused(await session.get(`${BASE}/${accountId}`), 404, 'agents.account_unknown');
-    expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+    expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
     expect(same(await venueUsdc(owner()), '1000')).toBe(true);
   } finally {
     restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_ACCOUNT_CEILING: null });
@@ -185,43 +218,144 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
   expect(body200(await session.get(`${BASE}/terms`)).ceiling).not.toBeNull();
 });
 
-test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: a venue sub-account under the wallet; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a rejected signature moves nothing and makes no account`, async () => {
-  test.setTimeout(300_000);
+test(`${J} #2 With the TEST ceiling back, opens Connect your assistant: what the assistant can do (trade spot and perps in its own account) and what it cannot (move money, withdraw, bank, pay, cards), and a Create agent account control`, async ({
+  page,
+}) => {
   const { session } = await person();
-  const passkey = await testPasskey(session);
+  const terms = body200(await session.get(`${BASE}/terms`));
+  expect(terms.ceiling).not.toBeNull();
+  await signIn(page, state().account);
+  await page.goto('/agents/connect');
+  await expect(page.getByRole('heading', { name: 'Connect your assistant', level: 1 })).toBeVisible();
+  // What it can do: trade spot and perps, in its own account.
+  const can = page.getByTestId('agent-connect__can');
+  await expect(can.getByRole('heading', { name: 'What your assistant can do' })).toBeVisible();
+  await expect(can).toContainText('Trade spot and perps in its own agent account');
+  // What it cannot: move money, withdraw, bank, pay, cards.
+  const cannot = page.getByTestId('agent-connect__cannot');
+  await expect(cannot.getByRole('heading', { name: 'What it cannot do' })).toBeVisible();
+  await expect(cannot.getByRole('listitem')).toHaveText(['Move money between your accounts', 'Withdraw', 'Bank', 'Pay', 'Use cards']);
+  // The TEST ceiling is back: the page names it, and Create agent account is a live control.
+  await expect(page.getByTestId('agent-connect__ceiling')).toContainText(`${terms.ceiling} ${terms.asset}`);
+  const create = page.getByTestId('agent-connect__create').getByRole('button', { name: 'Create agent account', exact: true });
+  await expect(create).toBeEnabled();
+  await create.click();
+  await expect(page.getByLabel(`Cap (${terms.asset})`)).toBeVisible();
+  await expect(page.getByLabel(`First move in (${terms.asset})`)).toBeVisible();
+  // Opening the page and the form made nothing.
+  expect(body200(await session.get(BASE)).accounts).toEqual([]);
+});
+
+test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: the agent's venue account (a venue sub-account, which the TEST venue offers); where the venue's agent permission would reach the person's other accounts, the app says so before the wallet is asked to sign (shown on the TEST venue switched to declare that reach), and where it reaches only the agent account the app says that; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a signature the wallet rejects moves nothing and makes no account`, async ({
+  browser,
+}) => {
+  test.setTimeout(600_000);
+  const s = state();
+  const { session } = await person();
+  let passkey = await testPasskey(session);
   run.write({ passkey: passkey.saved() });
   const ledgerBefore = await session.balances();
   const mainBefore = await venueUsdc(owner());
-  const subsBefore = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
-  const terms = body200(await session.get(`${BASE}/terms`));
-  expect(terms.asset).toBe('USDC');
+  const subsBefore = (await record('/sub-accounts', { account: await acct(owner()) })).value;
+  const venueInfo = await venue('/venue');
+  const venueName = venueInfo.venue.displayName;
+  const OWN = `On ${venueName}, the permission your wallet signs lets the assistant trade this agent account and nothing else, so ${venueName} itself holds it to your cap.`;
+  const OTHERS = `On ${venueName}, the permission your wallet signs also lets the assistant act for your other accounts there. Our policy check is then the only limit on its orders.`;
+
+  // The person in the app on the passkey origin, their own TEST wallet in the browser and the TEST passkey in its
+  // authenticator. Every signature the page asks for goes to that wallet, which can reject it as a person would.
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await context.newPage();
+    const testWallet = await installTestWallet(page, { chainId: venueInfo.chainId, privateKey: s.walletKey });
+    await browserHoldsPasskey(page, passkey.saved());
+    passkey = await restorePasskey({ ...passkey.saved(), signCount: passkey.saved().signCount + 1000 });
+    run.write({ passkey: passkey.saved() });
+    await signIn(page, s.account);
+    const createRoom = page.getByTestId('agent-connect__create');
+    const reach = createRoom.getByTestId('agent-connect__reach');
+    const openCreate = async () => {
+      await page.goto('/agents/connect');
+      await createRoom.getByRole('button', { name: 'Create agent account', exact: true }).click();
+      await expect(page.getByLabel('Cap (USDC)')).toBeVisible();
+    };
+
+    // Where the venue's agent permission would reach the person's other accounts: the TEST venue switched to declare
+    // that, and svc-trade restarted so it reads the venue afresh. The app says so with the create form, before anything
+    // is sent or signed, and that our policy check is then the only limit.
+    await venue('/test/switches', { declaredAgentPermissionReach: 'owner_accounts' });
+    restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
+    try {
+      await settleSockets();
+      expect(body200(await session.get(`${BASE}/terms`)).agentPermission).toEqual({ venue: venueName, reach: 'owner_accounts' });
+      expect((await venue('/venue')).venue.agentPermissionReach).toBe('owner_accounts');
+      await openCreate();
+      await expect(reach).toHaveAttribute('data-reach', 'owner_accounts');
+      await expect(reach).toHaveText(OTHERS);
+      expect(testWallet.requests).toEqual([]);
+      expect(body200(await session.get(BASE)).accounts).toEqual([]);
+    } finally {
+      await venue('/test/switches', { declaredAgentPermissionReach: 'own_account_only' });
+      restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
+      await settleSockets();
+    }
+
+    // The TEST venue as it is: it keeps an agent permission approved on a sub-account to that sub-account
+    // (packages/venue-sim `agentLive`), and declares so. The app reads that and says it, before the wallet is asked.
+    expect(venueInfo.venue.agentPermissionReach).toBe('own_account_only');
+    const terms = body200(await session.get(`${BASE}/terms`));
+    expect(terms.asset).toBe('USDC');
+    expect(terms.agentPermission).toEqual({ venue: venueName, reach: 'own_account_only' });
+    await openCreate();
+    await expect(reach).toHaveAttribute('data-reach', 'own_account_only');
+    await expect(reach).toHaveText(OWN);
+
+    // A signature the wallet rejects. The person connects their wallet in the room, asks for cap 200 and a first move of
+    // 150, answers step-up with the passkey (the reach is still said there), and rejects the first signature the wallet
+    // is asked for. Nothing moved and no account was made.
+    await createRoom.getByRole('button', { name: 'Connect TEST Wallet' }).click();
+    await expect(createRoom.getByTestId('venue-wallet-address')).toHaveText(owner());
+    await page.getByLabel('Cap (USDC)').fill('200');
+    await page.getByLabel('First move in (USDC)').fill('150');
+    await createRoom.locator('form').getByRole('button', { name: 'Create agent account', exact: true }).click();
+    await expect(reach).toHaveText(OWN);
+    expect(testWallet.requests).toEqual([]);
+    testWallet.rejectNext();
+    const createSent = page.waitForResponse((res) => res.url().endsWith('/venue/agent-accounts') && res.request().method() === 'POST');
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    const created = await (await createSent).json();
+    // The account the create answers, before its first signature, says the same reach.
+    expect(created.agentPermission).toEqual({ venue: venueName, reach: 'own_account_only' });
+    expect(created.next).toMatchObject({ step: 'open_sub_account', signed: false });
+    const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
+    await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+    await expect(createRoom.getByRole('alert').filter({ hasText: 'You rejected' })).toHaveText(
+      'You rejected the signature. Nothing moved and no account was made.',
+    );
+    expect(testWallet.requests.map((r) => r.method)).toEqual(['eth_signTypedData_v4']);
+    expect(testWallet.requests[0].signature).toBeUndefined();
+    // No account: none is listed, the venue holds no new sub-account and the main venue account is unchanged.
+    expect(body200(await session.get(BASE)).accounts).toEqual([]);
+    expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+    expect(same(await venueUsdc(owner()), mainBefore)).toBe(true);
+    // Its prepared action is never sent afterwards, even signed.
+    refused(
+      await session.post(`${BASE}/${created.accountId}/submit`, {
+        actionKey: created.next.actionKey,
+        signature: await sign(created.next.prepared),
+      }),
+      409,
+      'agents.account_not_open',
+    );
+    expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+  } finally {
+    await context.close();
+  }
 
   // Without step-up: refused, nothing made.
-  const bare = await session.post(BASE, { accountId: randomUUID(), owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
-  refused(bare, 403, 'identity.step_up_required');
-  expect(body200(await session.get(BASE)).accounts).toEqual([]);
-
-  // A rejected signature: the wallet is asked to open the sub-account and the person rejects it. Nothing is sent, the
-  // person ends it, and nothing moved and no account was made.
-  const rejectedId = randomUUID();
   const fields = (accountId) => ({ accountId, owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
-  const asked = body200(
-    await session.post(BASE, { ...fields(rejectedId), stepUpApprovalId: await stepUpFor(session, passkey, fields(rejectedId)) }),
-  );
-  expect(asked.status).toBe('opening');
-  expect(asked.next.step).toBe('open_sub_account');
-  const ended = body200(await session.post(`${BASE}/${rejectedId}/abandon`, {}));
-  expect(ended.status).toBe('abandoned');
-  expect(ended.subAccount).toBeNull();
-  expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
-  expect(same(await venueUsdc(owner()), mainBefore)).toBe(true);
-  // Its prepared action is never sent afterwards.
-  refused(
-    await session.post(`${BASE}/${rejectedId}/submit`, { actionKey: asked.next.actionKey, signature: await sign(asked.next.prepared) }),
-    409,
-    'agents.account_not_open',
-  );
-  expect(body200(await session.get(BASE)).accounts.filter((a) => a.status === 'open')).toEqual([]);
+  refused(await session.post(BASE, fields(randomUUID())), 403, 'identity.step_up_required');
+  expect(body200(await session.get(BASE)).accounts).toEqual([]);
 
   // The account: cap 200, first funding 150, with step-up.
   const accountId = randomUUID();
@@ -257,12 +391,14 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
 
   // A venue sub-account under the person's wallet, with the agent permission on it and not on the main account.
   expect(view.status).toBe('open');
-  const subs = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
+  const subs = (await record('/sub-accounts', { account: await acct(owner()) })).value;
   expect(subs.map((s) => s.subAccount)).toContain(view.subAccount);
-  expect((await venue('/agents', { account: await acct(owner(), view.subAccount) })).value.map((a) => a.address)).toEqual([
+  expect((await record('/agents', { account: await acct(owner(), view.subAccount) })).value.map((a) => a.address)).toEqual([
     approve.intent.agentAddress,
   ]);
-  expect((await venue('/agents', { account: await acct(owner()) })).value.map((a) => a.address)).not.toContain(approve.intent.agentAddress);
+  expect((await record('/agents', { account: await acct(owner()) })).value.map((a) => a.address)).not.toContain(
+    approve.intent.agentAddress,
+  );
   // The agent account reads balance 150.00, as the venue reports it, and cap 200.00.
   const venueSub = await venueUsdc(owner(), view.subAccount);
   expect(same(venueSub, '150.00')).toBe(true);
@@ -272,7 +408,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
   expect(toUnits(mainBefore) - toUnits(await venueUsdc(owner()))).toBe(toUnits('150'));
   // The move was sent once: its venue transfer record is one move of 150 under the signed nonce; sending the same signed
   // bytes again moves nothing more.
-  const transfer = (await venue('/transfer', { account: await acct(owner()), nonce: move.nonce })).value;
+  const transfer = (await record('/transfer', { account: await acct(owner()), nonce: move.nonce })).value;
   expect(transfer).toMatchObject({ subAccount: view.subAccount, direction: 'into_sub_account', asset: 'USDC', status: 'done' });
   expect(same(transfer.amount, '150')).toBe(true);
   refused(
@@ -286,7 +422,87 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
   run.write({ accountId, subAccount: view.subAccount });
 });
 
-test(`${J} #4 Funds 100 more: refused agents.account_cap_exceeded naming 50.00 of room, before the wallet is asked to sign; nothing moves`, async () => {
+// ── The person in the app, on Connect your assistant (#4 #5 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19) ─────────────
+
+/** Connect your assistant, with the person's agent accounts read. */
+async function showConnect(page) {
+  await page.goto('/agents/connect');
+  await expect(page.getByTestId('agent-connect__accounts').getByRole('table')).toBeVisible();
+}
+/** The person signs in and opens Connect your assistant. */
+async function openConnect(page) {
+  await signIn(page, state().account);
+  await showConnect(page);
+}
+/** An agent account's row in the room's list, and its own controls (there while it is open). */
+const accountRow = (page, accountId) => page.locator(`tr[data-account="${accountId}"]`);
+const accountControls = (page, accountId) => page.locator(`[data-testid="agent-connect__manage"][data-account="${accountId}"]`);
+/** One answer of svc-trade to the page's own POST on an agent account (`fund`, `cap`, `limits`, `close`). */
+const answerTo = (page, accountId, action) =>
+  page.waitForResponse((res) => res.url().endsWith(`${BASE}/${accountId}/${action}`) && res.request().method() === 'POST');
+
+/**
+ * The account's row shows what our API answers for it from the venue: its status, its balance (checked here against
+ * the TEST venue's own USDC total for the sub-account) and its funding cap. Returns the account as our API answers it.
+ */
+async function rowShows(page, session, { accountId, subAccount }, status) {
+  const view = body200(await session.get(`${BASE}/${accountId}`));
+  const total = view.balances.value.find((b) => b.asset === 'USDC').total;
+  expect(same(total, await venueUsdc(owner(), subAccount))).toBe(true);
+  const row = accountRow(page, accountId);
+  await expect(row.getByTestId('agent-connect__status')).toHaveText(status);
+  await expect(row.getByTestId('agent-connect__balance')).toHaveText(`${total} USDC`);
+  await expect(row.getByTestId('agent-connect__cap')).toHaveText(`${view.cap} USDC`);
+  return view;
+}
+
+/** The last `count` calls the assistant made with this key, as Edge answered each (asAssistant keeps them). */
+const lastCalls = (keyId, count) => (run.read().calls?.[keyId] ?? []).slice(-count);
+
+/**
+ * The connection's Activity on its screen: once the edge's call log holds these calls (it is written after each
+ * answer), the person opens Connect your assistant and presses Activity on the key's row. Returns the panel and the
+ * rows our API answers, which the panel lists one for one.
+ */
+async function openActivity(page, session, keyId, requestIds) {
+  let rows = [];
+  await expect
+    .poll(
+      async () => {
+        rows = body200(await session.get(`${BASE}/connections/${keyId}/activity`)).rows;
+        return requestIds.filter((id) => !rows.some((r) => r.requestId === id));
+      },
+      { timeout: 30_000 },
+    )
+    .toEqual([]);
+  await openConnect(page);
+  await page.locator(`tr[data-key="${keyId}"]`).getByRole('button', { name: 'Activity', exact: true }).click();
+  const activity = page.getByTestId('agent-connect__activity');
+  await expect(activity).toHaveAttribute('data-key', keyId);
+  await expect(activity.locator('tbody tr')).toHaveCount(rows.length);
+  return { activity, rows };
+}
+
+const OUTCOME_WORD = { accepted: 'Accepted', refused: 'Refused', failed: 'Failed' };
+/** The Activity panel's row for one call shows what our API answers for it: time, tool, outcome, status, code, order ids. */
+async function shownAs(activity, row) {
+  const shown = activity.locator(`tr[data-request="${row.requestId}"]`);
+  await expect(shown.locator('time')).toHaveAttribute('datetime', row.at);
+  await expect(shown.locator('td')).toHaveText([
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/,
+    row.tool,
+    OUTCOME_WORD[row.outcome],
+    String(row.status),
+    row.code ?? 'None',
+    row.order?.clientOrderId ?? 'None',
+    row.order?.venueOrderId ?? 'None',
+  ]);
+}
+
+test(`${J} #4 Funds 100 more: refused agents.account_cap_exceeded naming 50.00 of room, before the wallet is asked to sign; nothing moves`, async ({
+  page,
+  stepPicture,
+}) => {
   const { session } = await person();
   const { accountId, subAccount } = state();
   const before = { main: await venueUsdc(owner()), sub: await venueUsdc(owner(), subAccount) };
@@ -294,24 +510,163 @@ test(`${J} #4 Funds 100 more: refused agents.account_cap_exceeded naming 50.00 o
   const res = refused(await session.post(`${BASE}/${accountId}/fund`, { moveId, amount: '100' }), 422, 'agents.account_cap_exceeded');
   expect(same(res.room, '50.00')).toBe(true);
   expect(res.message).toContain('50 USDC of room');
-  // Before the wallet is asked: nothing to sign, and no move kept under its key.
+
+  // In the app, their own TEST wallet connected in the room: the person asks to move 100 more in on the account's own
+  // controls. The page shows svc-trade's refusal of that ask, its code and the room it names.
+  const testWallet = await installTestWallet(page, { chainId: (await venue('/venue')).chainId, privateKey: state().walletKey });
+  await openConnect(page);
+  const createRoom = page.getByTestId('agent-connect__create');
+  await createRoom.getByRole('button', { name: 'Connect TEST Wallet', exact: true }).click();
+  await expect(createRoom.getByTestId('venue-wallet-address')).toHaveText(owner());
+  const controls = accountControls(page, accountId);
+  const fundAnswer = answerTo(page, accountId, 'fund');
+  await controls.getByLabel('Move in (USDC)', { exact: true }).fill('100');
+  await controls.getByRole('button', { name: 'Move in', exact: true }).click();
+  const answered = await fundAnswer;
+  expect(answered.status()).toBe(422);
+  const shown = await answered.json();
+  expect(shown.intafacedCode).toBe('agents.account_cap_exceeded');
+  expect(same(shown.room, '50.00')).toBe(true);
+  expect(shown.message).toContain('50 USDC of room');
+  await expect(controls.getByRole('alert')).toHaveText(`Refused: agents.account_cap_exceeded: ${shown.message}`);
+
+  // Before the wallet is asked: after both asks there is nothing to sign, and no move kept under either's key.
   const view = body200(await session.get(`${BASE}/${accountId}`));
   expect(view.next).toBeNull();
   expect(view.moves.map((m) => m.actionKey)).toEqual([`agent:move:${accountId}`]);
   expect(same(view.room, '50')).toBe(true);
-  // Nothing moves.
+  // The wallet in the browser was never asked to sign anything.
+  expect(testWallet.requests).toEqual([]);
+  // Nothing moves: both venue accounts as the venue reports them, and the row still reads the venue's 150 under cap 200,
+  // with 50.00 of room left under it.
   expect({ main: await venueUsdc(owner()), sub: await venueUsdc(owner(), subAccount) }).toEqual(before);
+  const shownView = await rowShows(page, session, { accountId, subAccount }, 'Open');
+  expect(same(shownView.balances.value.find((b) => b.asset === 'USDC').total, '150.00')).toBe(true);
+  expect(same(shownView.cap, '200.00')).toBe(true);
+  await expect(controls.getByTestId('agent-connect__room')).toHaveText(
+    `Room left under the cap of ${shownView.cap} USDC: ${shownView.room} USDC.`,
+  );
+  await stepPicture();
 });
 
-test(`${J} #5 Raises the cap above the owner's TEST ceiling: refused agents.account_cap_above_ceiling naming the ceiling; the cap stays 200.00`, async () => {
+test(`${J} #5 Raises the cap above the owner's TEST ceiling: refused agents.account_cap_above_ceiling naming the ceiling; the cap stays 200.00`, async ({
+  page,
+  stepPicture,
+}) => {
   const { session } = await person();
-  const { accountId } = state();
+  const { accountId, subAccount } = state();
   const terms = body200(await session.get(`${BASE}/terms`));
   const above = String(toUnits(terms.ceiling) / 10n ** 18n + 1n);
   const res = refused(await session.post(`${BASE}/${accountId}/cap`, { cap: above }), 422, 'agents.account_cap_above_ceiling');
   expect(same(res.ceiling, terms.ceiling)).toBe(true);
   expect(res.message).toContain(`ceiling of ${terms.ceiling}`);
-  expect(same(body200(await session.get(`${BASE}/${accountId}`)).cap, '200.00')).toBe(true);
+
+  // In the app: the person asks for that cap on the account's own controls. The page shows svc-trade's refusal of that
+  // ask, its code and the ceiling it names.
+  await openConnect(page);
+  const controls = accountControls(page, accountId);
+  const capAnswer = answerTo(page, accountId, 'cap');
+  await controls.getByLabel('Change the funding cap to (USDC)', { exact: true }).fill(above);
+  await controls.getByRole('button', { name: 'Change cap', exact: true }).click();
+  const answered = await capAnswer;
+  expect(answered.status()).toBe(422);
+  const shown = await answered.json();
+  expect(shown.intafacedCode).toBe('agents.account_cap_above_ceiling');
+  expect(same(shown.ceiling, terms.ceiling)).toBe(true);
+  expect(shown.message).toContain(`ceiling of ${terms.ceiling}`);
+  await expect(controls.getByRole('alert')).toHaveText(`Refused: agents.account_cap_above_ceiling: ${shown.message}`);
+
+  // The cap stays 200.00, as our API answers it and as the account's row shows it.
+  const view = await rowShows(page, session, { accountId, subAccount }, 'Open');
+  expect(same(view.cap, '200.00')).toBe(true);
+  await stepPicture();
+});
+
+test(`${J} #6 Connects the assistant, first asking for a withdraw scope, then with the trade scopes: the withdraw scope is refused at create auth.agent_scope_forbidden; then a key tagged Agent, bound to the agent account, with trade scopes only, its secret and the MCP setup shown once`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const s = state();
+  const { session } = await person();
+  const listKeys = async () =>
+    body200(await session.get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`)).result
+      .data.keys;
+  const keysBefore = await listKeys();
+  // The person in the app on the passkey origin, the browser's authenticator holding the account's TEST passkey.
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await context.newPage();
+    await browserHoldsPasskey(page, s.passkey);
+    run.write({ passkey: { ...s.passkey, signCount: s.passkey.signCount + 1000 } });
+    await signIn(page, s.account);
+    await page.goto('/agents/connect');
+    const form = page.getByTestId('agent-connect__connect');
+    await expect(form.getByLabel('Agent account')).toHaveValue(s.accountId);
+
+    // First asking for a withdraw scope: refused at create, auth.agent_scope_forbidden; no key made, nothing connected.
+    await form.getByLabel('Key name').fill('TEST assistant');
+    await form.getByLabel('Withdraw (trade:withdraw)').check();
+    await expect(form.getByLabel('Place and cancel orders (trade:write)')).toBeChecked();
+    // Identity's own answer to the create the page sent (asked tagged Agent, with the withdraw scope): refused.
+    const refusedCreate = page.waitForResponse(
+      (res) => res.url().includes('/api/identity/trpc/developerKeys.create') && res.request().method() === 'POST',
+    );
+    await form.getByRole('button', { name: 'Connect with a passkey' }).click();
+    const refusedRes = await refusedCreate;
+    expect(refusedRes.request().postDataJSON()).toMatchObject({ kind: 'agent', scopes: expect.arrayContaining(['trade:withdraw']) });
+    expect(refusedRes.status()).toBe(403);
+    const refusedBody = await refusedRes.json();
+    expect(refusedBody.error?.data?.intafacedCode ?? refusedBody.error?.data?.cause?.code).toBe('auth.agent_scope_forbidden');
+    await expect(page.getByTestId('agent-connect__refusal')).toContainText('auth.agent_scope_forbidden');
+    expect(await listKeys()).toEqual(keysBefore);
+    expect(body200(await session.get(`${BASE}/connections`)).connections).toEqual([]);
+
+    // Then with the trade scopes: the key is made, and bound to the agent account after step-up with the passkey.
+    await form.getByLabel('Withdraw (trade:withdraw)').uncheck();
+    await form.getByRole('button', { name: 'Connect with a passkey' }).click();
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    const shown = page.getByTestId('agent-connect__secret');
+    await expect(shown).toBeVisible();
+    await expect(shown.getByRole('alert')).toHaveText('Shown once. Copy it now: it can’t be shown again.');
+    await expect(shown.getByText('Agent', { exact: true })).toBeVisible();
+    const accountName = body200(await session.get(`${BASE}/${s.accountId}`)).name;
+    await expect(page.getByTestId('agent-connect__bound')).toHaveText(`Bound to agent account ${accountName}`);
+    await expect(page.getByTestId('agent-connect__scopes')).toHaveText('Permissions: trade:read, trade:write');
+    const agentKey = (await page.getByTestId('agent-connect__key').textContent()).trim();
+    const agentSecret = (await page.getByTestId('agent-connect__signing-secret').textContent()).trim();
+    expect(agentKey).toBeTruthy();
+    expect(agentSecret).toBeTruthy();
+    // The MCP setup: the server the assistant runs, with this key and secret.
+    const setup = JSON.parse(await page.getByTestId('agent-connect__mcp').textContent());
+    expect(setup.mcpServers.intafaced).toMatchObject({
+      command: 'node',
+      args: ['packages/assistant-mcp/src/server.ts'],
+      env: { INTAFACED_API_URL: PASSKEY_ORIGIN, INTAFACED_AGENT_KEY: agentKey, INTAFACED_AGENT_SIGNING_SECRET: agentSecret },
+    });
+
+    // As identity and svc-trade record it: one new key, tagged Agent, trade scopes only, bound to this agent account.
+    const made = (await listKeys()).filter((k) => !keysBefore.some((b) => b.id === k.id));
+    expect(made).toHaveLength(1);
+    expect(made[0]).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'], revoked: false });
+    expect(agentKey.startsWith(made[0].prefix)).toBe(true);
+    expect(body200(await session.get(`${BASE}/connections`)).connections).toEqual([
+      expect.objectContaining({ keyId: made[0].id, accountId: s.accountId, subAccount: s.subAccount }),
+    ]);
+    run.write({ agentKey, agentKeyId: made[0].id, agentSecret });
+
+    // Shown once: after Done, and after a fresh load, the page holds neither the key nor its secret.
+    await shown.getByRole('checkbox', { name: 'I have saved the key and the setup' }).check();
+    await shown.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByTestId('agent-connect__secret')).toHaveCount(0);
+    await expect(page.getByTestId('agent-connect__connections')).toContainText(accountName);
+    await page.reload();
+    await expect(page.getByTestId('agent-connect__connections')).toContainText('TEST assistant');
+    const html = await page.content();
+    expect(html).not.toContain(agentKey);
+    expect(html).not.toContain(agentSecret);
+  } finally {
+    await context.close();
+  }
 });
 
 /** The person's own wallet signs one action on the agent sub-account through the plain door. */
@@ -336,9 +691,9 @@ const PERP = { kind: 'place_order', symbol: 'BTC-PERP', type: 'market', amount: 
 // ── The assistant (#8 #9 #10): the test plays the person's own outside assistant, holding the agent API key ──────────
 
 /**
- * TEST stand-in for #6 (its Connect screen is a later piece): the person makes an agent key with trade scopes through
- * identity's API, answering the fresh-factor check with their TEST passkey, and connects it to the agent account with
- * step-up. Kept in this run's state; made once.
+ * The assistant's key: the first account's is the one #6 made on /agents/connect. For the second account, a TEST stand-in
+ * for the same form: the person makes an agent key with trade scopes through identity's API, answering the fresh-factor
+ * check with their TEST passkey, and connects it to the agent account with step-up. Kept in this run's state; made once.
  */
 async function assistantKey(which = 'first') {
   const s = state();
@@ -346,6 +701,7 @@ async function assistantKey(which = 'first') {
     if (!s.second) throw new Error(`${J} #16 opened no second agent account, so this step has no account to trade`);
     if (s.second.agentKey) return { ...s, ...s.second };
   } else if (s.agentKey) return s;
+  else throw new Error(`${J} #6 connected no assistant on /agents/connect, so this step has no assistant to act as`);
   const target = which === 'first' ? { accountId: s.accountId, subAccount: s.subAccount } : s.second;
   const { session, passkey } = await person();
   const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
@@ -381,20 +737,28 @@ async function assistantKey(which = 'first') {
   return assistantKey(which);
 }
 
-/** One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. */
+/**
+ * One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. Every call is
+ * kept in this run's state by the request id Edge answered it with, under its key, so #11 knows every call made so far.
+ */
 async function asAssistant(method, route, body, which = 'first') {
-  const { agentKey, agentSecret } = await assistantKey(which);
+  const { agentKey, agentKeyId, agentSecret } = await assistantKey(which);
   const raw = body === undefined ? undefined : JSON.stringify(body);
   const res = await fetch(`${EDGE}${route}`, {
     method,
     headers: {
       origin: ORIGIN,
       authorization: `Bearer ${agentKey}`,
+      ...VERSION_PIN,
       ...(raw ? { 'content-type': 'application/json' } : {}),
       ...(agentSecret ? signedHeaders(agentSecret, { method, path: route, body: raw ?? '' }) : {}),
     },
     body: raw,
   });
+  const requestId = res.headers.get('x-request-id');
+  expect(requestId, `${method} ${route}: Edge answered with no x-request-id`).toBeTruthy();
+  const made = run.read().calls ?? {};
+  run.write({ calls: { ...made, [agentKeyId]: [...(made[agentKeyId] ?? []), { requestId, method, route }] } });
   const text = await res.text();
   let parsed;
   try {
@@ -408,17 +772,20 @@ async function asAssistant(method, route, body, which = 'first') {
 /** Everything a step must leave as it was: both venue accounts as the venue reports them, and our ledger. */
 async function everything(session, subAccount = state().subAccount) {
   return {
-    main: (await venue('/balances', { account: await acct(owner()) })).value,
-    mainPositions: (await venue('/positions', { account: await acct(owner()) })).value,
-    sub: (await venue('/balances', { account: await acct(owner(), subAccount) })).value,
-    subPositions: (await venue('/positions', { account: await acct(owner(), subAccount) })).value,
-    subOrders: (await venue('/open-orders', { account: await acct(owner(), subAccount) })).value,
+    main: (await record('/balances', { account: await acct(owner()) })).value,
+    mainPositions: (await record('/positions', { account: await acct(owner()) })).value,
+    sub: (await record('/balances', { account: await acct(owner(), subAccount) })).value,
+    subPositions: (await record('/positions', { account: await acct(owner(), subAccount) })).value,
+    subOrders: (await record('/open-orders', { account: await acct(owner(), subAccount) })).value,
     ledger: await session.balances(),
   };
 }
 const usdcOf = (balances) => balances.find((b) => b.asset === 'USDC') ?? { total: '0', free: '0', locked: '0' };
 
-test(`${J} #8 The assistant opens a TEST perp position: opened isolated on the agent's venue account, its margin taken there by the venue and from nowhere else`, async () => {
+test(`${J} #8 The assistant opens a TEST perp position: opened isolated on the agent's venue account, its margin taken there by the venue and from nowhere else`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
   const { session } = await person();
   const { accountId, subAccount } = state();
@@ -449,36 +816,55 @@ test(`${J} #8 The assistant opens a TEST perp position: opened isolated on the a
   expect(res.body).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}`, account: { owner: owner(), subAccount } });
 
   // Isolated, on the agent's venue account, as the venue reports it: its setting on the market and its one position.
-  const setting = (await venue('/leverage', { account: await acct(owner(), subAccount), symbol: 'BTC-PERP' })).value;
+  const setting = (await record('/leverage', { account: await acct(owner(), subAccount), symbol: 'BTC-PERP' })).value;
   expect(setting).toMatchObject({ symbol: 'BTC-PERP', leverageBps: 10000, marginMode: 'isolated' });
-  const positions = (await venue('/positions', { account: await acct(owner(), subAccount) })).value;
+  const positions = (await record('/positions', { account: await acct(owner(), subAccount) })).value;
   expect(positions).toHaveLength(1);
   expect(positions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long', leverageBps: 10000, marginMode: 'isolated' });
   expect(same(positions[0].size, '0.001')).toBe(true);
   expect(toUnits(positions[0].margin) > 0n).toBe(true);
   // Its margin taken there by the venue: the sub-account's USDC used as margin is exactly the position's margin, and its
   // free USDC fell by exactly that margin and the fees on the venue's own fill, no more.
-  const sub = usdcOf((await venue('/balances', { account: await acct(owner(), subAccount) })).value);
+  const sub = usdcOf((await record('/balances', { account: await acct(owner(), subAccount) })).value);
   expect(toUnits(sub.locked) - toUnits(usdcOf(before.sub).locked)).toBe(toUnits(positions[0].margin));
   // Every fill the agent sub-account has ever had: this one.
-  const fills = (await venue('/fills', { account: await acct(owner(), subAccount), since: '2020-01-01T00:00:00.000Z' })).value;
+  const fills = (await record('/fills', { account: await acct(owner(), subAccount), since: '2020-01-01T00:00:00.000Z' })).value;
   expect(fills.map((f) => [f.symbol, f.side])).toEqual([['BTC-PERP', 'buy']]);
   expect(fills[0].feeAsset).toBe('USDC');
   const fees = toUnits(fills[0].venueFee) + toUnits(fills[0].builderFee);
   expect(toUnits(usdcOf(before.sub).free) - toUnits(sub.free)).toBe(toUnits(positions[0].margin) + fees);
   // And from nowhere else: the main venue account and our ledger are exactly as they were.
-  expect((await venue('/balances', { account: await acct(owner()) })).value).toEqual(before.main);
-  expect((await venue('/positions', { account: await acct(owner()) })).value).toEqual(before.mainPositions);
+  expect((await record('/balances', { account: await acct(owner()) })).value).toEqual(before.main);
+  expect((await record('/positions', { account: await acct(owner()) })).value).toEqual(before.mainPositions);
   expect(await session.balances()).toEqual(before.ledger);
   // The person's own record of it names the assistant's key as its origin.
   const read = body200(
     await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:perp-open`)}`),
   );
   expect(read).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}` });
+
+  // In the app: the connection's Activity shows the assistant's call, accepted, with its order's id and the venue's, and
+  // the agent account's row shows the balance the venue reports for it.
+  const [call] = lastCalls(agentKeyId, 1);
+  const { activity, rows } = await openActivity(page, session, agentKeyId, [call.requestId]);
+  const row = rows.find((r) => r.requestId === call.requestId);
+  expect(row).toMatchObject({
+    tool: 'place_order',
+    outcome: 'accepted',
+    status: 200,
+    code: null,
+    order: { clientOrderId: 'perp-open', venueOrderId: read.order?.venueOrderId ?? null },
+  });
+  await shownAs(activity, row);
+  await rowShows(page, session, { accountId, subAccount }, 'Open');
+  await stepPicture();
 });
 
-test(`${J} #9 The assistant tries to move money, withdraw, read the main account and pay by card: each of the four calls refused auth.scope_denied; no balance changes`, async () => {
-  test.setTimeout(180_000);
+test(`${J} #9 The assistant tries to move money, withdraw, read the main account and pay by card: each of the four calls refused auth.scope_denied; no balance changes`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   const { session } = await person();
   const { accountId, subAccount } = state();
   const { agentKeyId } = await assistantKey();
@@ -514,12 +900,33 @@ test(`${J} #9 The assistant tries to move money, withdraw, read the main account
   const view = body200(await session.get(`${BASE}/${accountId}`));
   expect(view.next).toBeNull();
   expect(view.moves.map((m) => m.actionKey)).toEqual([`agent:move:${accountId}`]);
+
+  // In the app: the connection's Activity shows each of the four calls refused, with the status the door answered it,
+  // and the agent account's row still shows the balance the venue reports.
+  const four = lastCalls(agentKeyId, 4);
+  expect(four.map((c) => c.route.split('?')[0])).toEqual(Object.values(calls).map(([, route]) => route.split('?')[0]));
+  const { activity, rows } = await openActivity(
+    page,
+    session,
+    agentKeyId,
+    four.map((c) => c.requestId),
+  );
+  for (const call of four) {
+    const row = rows.find((r) => r.requestId === call.requestId);
+    expect(row).toMatchObject({ tool: `${call.method} ${call.route.split('?')[0]}`, outcome: 'refused', status: 403, order: null });
+    await shownAs(activity, row);
+  }
+  await rowShows(page, session, { accountId, subAccount }, 'Open');
+  await stepPicture();
 });
 
-test(`${J} #10 The assistant places an order costing more than the agent account holds: the venue's insufficient-margin refusal, shown in words with the venue named; nothing locked; the main venue account never drawn`, async () => {
-  test.setTimeout(180_000);
+test(`${J} #10 The assistant places an order costing more than the agent account holds: the venue's insufficient-margin refusal, shown in words with the venue named; nothing locked; the main venue account never drawn`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   const { session } = await person();
-  await assistantKey();
+  const { agentKeyId } = await assistantKey();
   const before = await everything(session);
   const venueName = (await venue('/venue')).venue.displayName;
   // TEST 0.0016 BTC-PERP at 1x: about 96 USDC of margin, inside the cap of 200 with the open position and inside the
@@ -544,17 +951,134 @@ test(`${J} #10 The assistant places an order costing more than the agent account
   expect(res.body.refusal.detail).toContain('margin');
   // Nothing locked, and the main venue account never drawn: both accounts, the position and our ledger as they were.
   expect(await everything(session)).toEqual(before);
+
+  // In the app: the connection's Activity shows the call refused with the venue's code, naming its order and no venue
+  // order, and the agent account's row still shows the balance the venue reports.
+  const [call] = lastCalls(agentKeyId, 1);
+  const { activity, rows } = await openActivity(page, session, agentKeyId, [call.requestId]);
+  const row = rows.find((r) => r.requestId === call.requestId);
+  expect(row).toMatchObject({
+    tool: 'place_order',
+    outcome: 'refused',
+    status: 422,
+    code: 'trade.venue.insufficient_balance',
+    order: { clientOrderId: 'perp-too-big', venueOrderId: null },
+  });
+  await shownAs(activity, row);
+  await rowShows(page, session, state(), 'Open');
+  await stepPicture();
 });
 
-test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next call with the key refuses auth.api_key_revoked; the resting order is cancelled once on the venue; our copy of the venue agent key is dropped and the wallet is asked to sign the venue's revoke; the perp position stays in the agent account`, async () => {
+test(`${J} #11 Opens the connection's Activity: one row per call so far, refused ones included, each with time, tool, outcome and order id; the export holds the same rows`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
+  const { session } = await person();
+  const { agentKeyId } = await assistantKey();
+  // Every call the assistant made with this key so far (#8 #9 #10), as Edge answered each: oldest first.
+  const made = run.read().calls?.[agentKeyId] ?? [];
+  expect(made.length, 'the assistant made no calls before #11').toBeGreaterThanOrEqual(6);
+
+  const view = body200(await session.get(`${BASE}/connections/${agentKeyId}/activity`));
+  expect(view).toMatchObject({ keyId: agentKeyId, accountId: state().accountId });
+  // One row per call so far, refused ones included, newest first, and no other.
+  expect(view.rows.map((r) => r.requestId)).toEqual([...made].reverse().map((c) => c.requestId));
+  const started = new Date(Date.now() - 60 * 60_000).getTime();
+  for (const row of view.rows) {
+    // Time: when the call was answered, in this run.
+    expect(Number.isNaN(Date.parse(row.at)), JSON.stringify(row)).toBe(false);
+    expect(Date.parse(row.at) > started && Date.parse(row.at) <= Date.now(), JSON.stringify(row)).toBe(true);
+    // Tool, and outcome.
+    const call = made.find((c) => c.requestId === row.requestId);
+    expect(row.tool).toBe(call.route === '/api/v1/venue/agent/orders' ? 'place_order' : `${call.method} ${call.route.split('?')[0]}`);
+    expect(['accepted', 'refused', 'failed']).toContain(row.outcome);
+  }
+  const byOrder = (id) => view.rows.filter((r) => r.order?.clientOrderId === id);
+
+  // #8's perp: accepted, with its order id, the venue's own id as the venue reports it.
+  const [opened] = byOrder('perp-open');
+  expect(opened).toMatchObject({ tool: 'place_order', outcome: 'accepted', status: 200, code: null });
+  const record = body200(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:perp-open`)}`),
+  );
+  expect(opened.order.venueOrderId).toBe(record.order?.venueOrderId ?? null);
+  // #9's four calls: each refused, 403, no order.
+  const refusedRoutes = made.slice(-5, -1).map((c) => c.requestId);
+  const nine = view.rows.filter((r) => refusedRoutes.includes(r.requestId));
+  expect(nine).toHaveLength(4);
+  for (const row of nine) expect(row).toMatchObject({ outcome: 'refused', status: 403, order: null });
+  // #10's order past what the account holds: refused with the venue's code, naming its order.
+  const [tooBig] = byOrder('perp-too-big');
+  expect(tooBig).toMatchObject({
+    tool: 'place_order',
+    outcome: 'refused',
+    status: 422,
+    code: 'trade.venue.insufficient_balance',
+    order: { clientOrderId: 'perp-too-big', venueOrderId: null },
+  });
+
+  // The export holds the same rows, in the same order.
+  const file = await session.get(`${BASE}/connections/${agentKeyId}/activity?format=csv`);
+  expect(file.status).toBe(200);
+  expect(typeof file.body).toBe('string');
+  const lines = file.body.trimEnd().split('\n');
+  expect(lines[0]).toBe('Time,Tool,Outcome,Status,Code,Order id,Venue order id,Request id');
+  expect(lines.slice(1)).toEqual(
+    view.rows.map((r) =>
+      [
+        r.at,
+        r.tool,
+        { accepted: 'Accepted', refused: 'Refused', failed: 'Failed' }[r.outcome],
+        String(r.status),
+        r.code ?? '',
+        r.order?.clientOrderId ?? '',
+        r.order?.venueOrderId ?? '',
+        r.requestId,
+      ].join(','),
+    ),
+  );
+
+  // On the connection's screen: the person opens Connect your assistant and presses Activity on the key's row. One row
+  // per call so far, refused ones included, in the same order, each with its time, tool, outcome and order id.
+  const { activity, rows } = await openActivity(
+    page,
+    session,
+    agentKeyId,
+    made.map((c) => c.requestId),
+  );
+  expect(rows).toEqual(view.rows);
+  const listed = activity.locator('tbody tr');
+  for (const [i, row] of rows.entries()) {
+    await expect(listed.nth(i)).toHaveAttribute('data-request', row.requestId);
+    await shownAs(activity, row);
+  }
+  // The screen's export holds the same rows: the file it saves is the API's export, line for line.
+  const saving = page.waitForEvent('download');
+  await activity.getByRole('button', { name: 'Export CSV', exact: true }).click();
+  const saved = await saving;
+  expect(saved.suggestedFilename()).toBe(`assistant-activity-${agentKeyId}.csv`);
+  expect(
+    readFileSync(await saved.path(), 'utf8')
+      .trimEnd()
+      .split('\r\n'),
+  ).toEqual(lines);
+  // A whole-page picture of the page scrolled to the Activity would draw the sticky bar over its heading; stepPicture takes it from the top.
+  await stepPicture(page);
+});
+
+test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next call with the key refuses auth.api_key_revoked; the resting order is cancelled once on the venue; our copy of the venue agent key is dropped and the wallet is asked to sign the venue's revoke; the perp position stays in the agent account`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
   const { session } = await person();
   const { accountId, subAccount } = state();
   const { agentKeyId } = await assistantKey();
   const sub = await acct(owner(), subAccount);
   const agentAddress = body200(await session.get(`${BASE}/${accountId}`)).agentAddress;
   // The perp the assistant opened in #8 is open on the agent account.
-  const positions = (await venue('/positions', { account: sub })).value;
+  const positions = (await record('/positions', { account: sub })).value;
   expect(positions).toHaveLength(1);
   expect(positions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long' });
 
@@ -572,17 +1096,36 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   );
   expect(rest).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}`, account: { owner: owner(), subAccount } });
   const cloid = rest.order.venueClientOrderId;
-  expect((await venue('/open-orders', { account: sub })).value.map((o) => [o.venueClientOrderId, o.status])).toEqual([[cloid, 'open']]);
-  const lockedBefore = toUnits(usdcOf((await venue('/balances', { account: sub })).value).locked);
+  expect((await record('/open-orders', { account: sub })).value.map((o) => [o.venueClientOrderId, o.status])).toEqual([[cloid, 'open']]);
+  const lockedBefore = toUnits(usdcOf((await record('/balances', { account: sub })).value).locked);
   // The venue lists the agent permission behind the assistant's key on the agent account.
-  expect((await venue('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).toContain(agentAddress);
+  expect((await record('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).toContain(agentAddress);
 
-  // The person revokes the assistant: identity switches its API key off, and the assistant is revoked on the agent account.
-  const off = await session.post('/api/identity/trpc/developerKeys.revoke', { keyId: agentKeyId });
-  expect(off.status, JSON.stringify(off.body).slice(0, 300)).toBe(200);
-  expect(off.body.result.data.record).toMatchObject({ id: agentKeyId, revoked: true });
-  const revoked = body200(await session.post(`${BASE}/connections/${agentKeyId}/revoke`, {}));
+  // The person revokes the assistant in the app, their own TEST wallet connected in the room: they press Revoke on the
+  // assistant's row. The page sends their two calls: identity switches the API key off, and the assistant is revoked on
+  // the agent account. Then it shows the wallet's sheet, and the wallet has not been asked yet.
+  const testWallet = await installTestWallet(page, { chainId: (await venue('/venue')).chainId, privateKey: state().walletKey });
+  await openConnect(page);
+  const createRoom = page.getByTestId('agent-connect__create');
+  await createRoom.getByRole('button', { name: 'Connect TEST Wallet', exact: true }).click();
+  await expect(createRoom.getByTestId('venue-wallet-address')).toHaveText(owner());
+  const connections = page.getByTestId('agent-connect__connections');
+  const isRevoke = (res) => res.url().endsWith(`${BASE}/connections/${agentKeyId}/revoke`) && res.request().method() === 'POST';
+  const keyOff = page.waitForResponse(
+    (res) => res.url().includes('/api/identity/trpc/developerKeys.revoke') && res.request().method() === 'POST',
+  );
+  const ended = page.waitForResponse(isRevoke);
+  await connections.locator(`tr[data-key="${agentKeyId}"]`).getByRole('button', { name: 'Revoke', exact: true }).click();
+  const off = await keyOff;
+  expect(off.status()).toBe(200);
+  expect((await off.json()).result.data.record).toMatchObject({ id: agentKeyId, revoked: true });
+  const endedAnswer = await ended;
+  expect(endedAnswer.status()).toBe(200);
+  const revoked = await endedAnswer.json();
   expect(revoked).toMatchObject({ keyId: agentKeyId, accountId, subAccount });
+  const sheet = page.getByRole('dialog', { name: 'Check before you sign', exact: true });
+  await expect(sheet).toBeVisible();
+  expect(testWallet.requests).toEqual([]);
 
   // The next call with the key refuses auth.api_key_revoked, at the door, before anything is placed.
   const next = await asAssistant('POST', '/api/v1/venue/agent/orders', {
@@ -607,9 +1150,9 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   expect(revoked.cancels).toEqual([
     { orderKey: `agent:order:${agentKeyId}:revoke-rest`, venueClientOrderId: cloid, symbol: 'BTC-USDC', state: 'cancelled' },
   ]);
-  expect((await venue('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value).toMatchObject({ status: 'canceled' });
-  expect((await venue('/open-orders', { account: sub })).value).toEqual([]);
-  expect(toUnits(usdcOf((await venue('/balances', { account: sub })).value).locked) < lockedBefore).toBe(true);
+  expect((await record('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value).toMatchObject({ status: 'canceled' });
+  expect((await record('/open-orders', { account: sub })).value).toEqual([]);
+  expect(toUnits(usdcOf((await record('/balances', { account: sub })).value).locked) < lockedBefore).toBe(true);
 
   // Our copy of the venue agent key is dropped, and the wallet is asked to sign the venue's revoke of that agent: the
   // person's own wallet, on the agent account.
@@ -619,72 +1162,149 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   expect(revoked.next.prepared.intent).toEqual({ kind: 'revoke_agent', agentAddress });
   expect(revoked.next.prepared.signer).toEqual({ role: 'owner', address: owner() });
   expect(revoked.next.prepared.account).toMatchObject({ owner: owner(), subAccount });
-  const signed = body200(
-    await session.post(`${BASE}/connections/${agentKeyId}/revoke`, {
-      actionKey: revoked.next.actionKey,
-      signature: await sign(revoked.next.prepared),
-    }),
-  );
+  // The person continues in their wallet: it is asked for one signature, of that revoke's own payload, and the page
+  // sends it to the venue.
+  const signedAnswer = page.waitForResponse(isRevoke);
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
+  const sent = await signedAnswer;
+  expect(sent.request().postDataJSON()).toMatchObject({ actionKey: revoked.next.actionKey, signature: { signedBy: owner() } });
+  expect(sent.status()).toBe(200);
+  const signed = await sent.json();
+  expect(testWallet.requests.map((r) => r.method)).toEqual(['eth_signTypedData_v4']);
+  expect(testWallet.requests[0].signature).toBe(sent.request().postDataJSON().signature.signature);
+  const asked = JSON.parse(testWallet.requests[0].params[1]);
+  expect(asked.primaryType).toBe(revoked.next.prepared.typedData.primaryType);
+  expect(asked.message).toEqual(revoked.next.prepared.typedData.message);
   expect(signed.agent).toEqual({ address: agentAddress, onVenue: false });
   expect(signed.next).toBeNull();
-  expect((await venue('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).not.toContain(agentAddress);
+  expect((await record('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).not.toContain(agentAddress);
+  // The page says it is revoked, with the one cancel, and no longer lists the assistant as connected.
+  const said = connections.getByTestId('agent-connect__said');
+  await expect(said).toHaveAttribute('role', 'status');
+  await expect(said).toContainText('Assistant revoked');
+  await expect(said).toContainText('Its resting orders cancelled on the venue: 1.');
+  await expect(connections.locator(`tr[data-key="${agentKeyId}"]`)).toHaveCount(0);
 
   // Once: the revoke again sends nothing more, and still names the one cancel.
   const again = body200(await session.post(`${BASE}/connections/${agentKeyId}/revoke`, {}));
   expect(again.cancels).toEqual(revoked.cancels);
   expect(again.next).toBeNull();
 
-  // The perp position stays in the agent account, as the venue reports it.
-  expect((await venue('/positions', { account: sub })).value).toEqual(positions);
+  // The perp position stays in the agent account, as the venue reports it, and the account's row still reads Open.
+  expect((await record('/positions', { account: sub })).value).toEqual(positions);
+  await rowShows(page, session, { accountId, subAccount }, 'Open');
+  await stepPicture();
 });
 
-test(`${J} #13 Presses Close agent account while the perp is still open: refused, naming the open position; nothing changes`, async () => {
+test(`${J} #13 Presses Close agent account while the perp is still open: refused, naming the open position; nothing changes`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(180_000);
   const { session } = await person();
   const { accountId, subAccount } = state();
   // The perp the assistant opened in #8 is still open on the agent sub-account.
-  const positions = (await venue('/positions', { account: await acct(owner(), subAccount) })).value;
+  const positions = (await record('/positions', { account: await acct(owner(), subAccount) })).value;
   expect(positions).toHaveLength(1);
-  const before = { positions, sub: await venue('/balances', { account: await acct(owner(), subAccount) }), main: await venueUsdc(owner()) };
+  const before = {
+    positions,
+    sub: await record('/balances', { account: await acct(owner(), subAccount) }),
+    main: await venueUsdc(owner()),
+  };
 
-  const res = refused(await session.post(`${BASE}/${accountId}/close`, {}), 409, 'agents.account_close_open_position');
+  // In the app: the person presses Close agent account on the account's own controls. The page shows svc-trade's
+  // refusal, its code and the open position it names.
+  await openConnect(page);
+  const controls = accountControls(page, accountId);
+  const closeAnswer = answerTo(page, accountId, 'close');
+  await controls.getByRole('button', { name: 'Close agent account', exact: true }).click();
+  const answered = await closeAnswer;
+  expect(answered.status()).toBe(409);
+  const res = await answered.json();
+  expect(res.intafacedCode).toBe('agents.account_close_open_position');
   expect(res).toMatchObject({ symbol: 'BTC-PERP', side: 'long' });
   expect(same(res.size, '0.001')).toBe(true);
   expect(res.message).toContain('BTC-PERP');
+  await expect(controls.getByRole('alert')).toHaveText(`Refused: agents.account_close_open_position: ${res.message}`);
   // Nothing changes: the account stays open, the position and both balances are as they were.
   expect(body200(await session.get(`${BASE}/${accountId}`)).status).toBe('open');
-  expect((await venue('/positions', { account: await acct(owner(), subAccount) })).value).toEqual(before.positions);
-  expect((await venue('/balances', { account: await acct(owner(), subAccount) })).value).toEqual(before.sub.value);
+  expect((await record('/positions', { account: await acct(owner(), subAccount) })).value).toEqual(before.positions);
+  expect((await record('/balances', { account: await acct(owner(), subAccount) })).value).toEqual(before.sub.value);
   expect(await venueUsdc(owner())).toBe(before.main);
+  await rowShows(page, session, { accountId, subAccount }, 'Open');
+  await stepPicture();
 });
 
-test(`${J} #14 Closes the perp, moves the agent account's balance back and closes the account: the wallet signs the move back; the main venue account rises by exactly what the venue reports moved; the agent account reads Closed`, async () => {
-  test.setTimeout(180_000);
+test(`${J} #14 Closes the perp, moves the agent account's balance back and closes the account: the wallet signs the move back; the main venue account rises by exactly what the venue reports moved; the agent account reads Closed`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   const { session } = await person();
   const { accountId, subAccount } = state();
   const ledgerBefore = await session.balances();
   await onSubAccount(session, { ...PERP, side: 'sell', price: '59900', reduceOnly: true, clientOrderKey: `order:${accountId}:perp:close` });
-  expect((await venue('/positions', { account: await acct(owner(), subAccount) })).value).toEqual([]);
+  expect((await record('/positions', { account: await acct(owner(), subAccount) })).value).toEqual([]);
 
-  // Move back what the venue reports free in the sub-account.
-  const left = (await venue('/balances', { account: await acct(owner(), subAccount) })).value.find((b) => b.asset === 'USDC');
+  // In the app, their own TEST wallet connected in the room: the person moves back what the venue reports free in the
+  // sub-account, on the account's own Move back control, and their wallet signs the move.
+  const left = (await record('/balances', { account: await acct(owner(), subAccount) })).value.find((b) => b.asset === 'USDC');
   expect(toUnits(left.locked)).toBe(0n);
   const mainBefore = await venueUsdc(owner());
-  const moveId = randomUUID();
-  let view = body200(await session.post(`${BASE}/${accountId}/withdraw`, { moveId, amount: left.free }));
+  const testWallet = await installTestWallet(page, { chainId: (await venue('/venue')).chainId, privateKey: state().walletKey });
+  await openConnect(page);
+  const createRoom = page.getByTestId('agent-connect__create');
+  await createRoom.getByRole('button', { name: 'Connect TEST Wallet', exact: true }).click();
+  await expect(createRoom.getByTestId('venue-wallet-address')).toHaveText(owner());
+  const controls = accountControls(page, accountId);
+  const withdrawAnswer = answerTo(page, accountId, 'withdraw');
+  await controls.getByLabel('Move back (USDC)', { exact: true }).fill(left.free);
+  await controls.getByRole('button', { name: 'Move back', exact: true }).click();
+  const asked = await withdrawAnswer;
+  expect(asked.status()).toBe(200);
+  const { moveId, amount } = asked.request().postDataJSON();
+  expect(same(amount, left.free)).toBe(true);
+  let view = await asked.json();
   expect(view.next).toMatchObject({ step: 'move_out', actionKey: `agent:move:${moveId}` });
   const moveBack = view.next.prepared;
   expect(moveBack.intent).toMatchObject({ kind: 'sub_account_transfer', direction: 'out_of_sub_account', asset: 'USDC', subAccount });
   expect(moveBack.signer).toEqual({ role: 'owner', address: owner() });
-  view = body200(await session.post(`${BASE}/${accountId}/submit`, { actionKey: `agent:move:${moveId}`, signature: await sign(moveBack) }));
+  expect(testWallet.requests).toEqual([]);
+  // The wallet signs the move back: asked once, for that move's own payload, and the page sends it under its key.
+  const submitAnswer = answerTo(page, accountId, 'submit');
+  await page
+    .getByRole('dialog', { name: 'Check before you sign', exact: true })
+    .getByRole('button', { name: 'Continue in wallet', exact: true })
+    .click();
+  const sent = await submitAnswer;
+  expect(sent.status()).toBe(200);
+  expect(sent.request().postDataJSON()).toMatchObject({ actionKey: `agent:move:${moveId}`, signature: { signedBy: owner() } });
+  expect(testWallet.requests.map((r) => r.method)).toEqual(['eth_signTypedData_v4']);
+  expect(testWallet.requests[0].signature).toBe(sent.request().postDataJSON().signature.signature);
+  expect(JSON.parse(testWallet.requests[0].params[1]).message).toEqual(moveBack.typedData.message);
+  view = await sent.json();
   expect(view.moves.find((m) => m.moveId === moveId).state).toBe('done');
-  const moved = (await venue('/transfer', { account: await acct(owner()), nonce: moveBack.nonce })).value;
+  const moved = (await record('/transfer', { account: await acct(owner()), nonce: moveBack.nonce })).value;
   expect(moved).toMatchObject({ direction: 'out_of_sub_account', status: 'done' });
   expect(toUnits(await venueUsdc(owner())) - toUnits(mainBefore)).toBe(toUnits(moved.amount));
   expect(toUnits(await venueUsdc(owner(), subAccount))).toBe(0n);
+  // The page says it moved, and the row reads the venue's balance of the agent account: nothing left.
+  await expect(controls.getByTestId('agent-connect__said')).toHaveText(
+    `Moved. The agent account now holds ${view.balances.value.find((b) => b.asset === 'USDC').total} USDC, as the venue reports it.`,
+  );
+  await rowShows(page, session, { accountId, subAccount }, 'Open');
 
-  const closed = body200(await session.post(`${BASE}/${accountId}/close`, {}));
+  // The person presses Close agent account on the account's own controls, and the account's row reads Closed, with
+  // nothing left to manage on it.
+  const closeAnswer = answerTo(page, accountId, 'close');
+  await controls.getByRole('button', { name: 'Close agent account', exact: true }).click();
+  const answered = await closeAnswer;
+  expect(answered.status()).toBe(200);
+  const closed = await answered.json();
   expect(closed.status).toBe('closed');
+  await expect(accountRow(page, accountId).getByTestId('agent-connect__status')).toHaveText('Closed');
+  await expect(accountControls(page, accountId)).toHaveCount(0);
+  await stepPicture();
   const listed = body200(await session.get(BASE)).accounts.find((a) => a.accountId === accountId);
   expect(listed.status).toBe('closed');
   refused(await session.post(`${BASE}/${accountId}/fund`, { moveId: randomUUID(), amount: '1' }), 409, 'agents.account_not_open');
@@ -692,7 +1312,10 @@ test(`${J} #14 Closes the perp, moves the agent account's balance back and close
   expect(await session.balances()).toEqual(ledgerBefore);
 });
 
-test(`${J} #16 Sets a per-order size cap, a daily-loss cap and a leverage cap on the agent account, each under the owner's TEST ceiling: the three caps are saved and shown with the funding cap`, async () => {
+test(`${J} #16 Sets a per-order size cap, a daily-loss cap and a leverage cap on the agent account, each under the owner's TEST ceiling: the three caps are saved and shown with the funding cap`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(300_000);
   const { session, passkey } = await person();
   // #14 closed the first agent account: the person opens a second the same way, cap TEST 200 funded with 100.
@@ -716,7 +1339,19 @@ test(`${J} #16 Sets a per-order size cap, a daily-loss cap and a leverage cap on
     expect(toUnits(value) < toUnits(limitCeilings[name]), `${name} ${value} under ${limitCeilings[name]}`).toBe(true);
   }
   const before = await everything(session, view.subAccount);
-  const set = body200(await session.post(`${BASE}/${accountId}/limits`, caps));
+  // In the app: the person types the three caps on the account's own controls and saves them.
+  await openConnect(page);
+  const controls = accountControls(page, accountId);
+  await controls.getByLabel('Per-order size cap (USDC)', { exact: true }).fill(caps.maxOrderNotional);
+  await controls.getByLabel('Leverage cap (times)', { exact: true }).fill(caps.maxLeverage);
+  await controls.getByLabel('Daily-loss cap (USDC)', { exact: true }).fill(caps.maxDailyLoss);
+  const limitsAnswer = answerTo(page, accountId, 'limits');
+  await controls.getByRole('button', { name: 'Save caps', exact: true }).click();
+  const answered = await limitsAnswer;
+  expect(answered.request().postDataJSON()).toEqual(caps);
+  expect(answered.status()).toBe(200);
+  const set = await answered.json();
+  await expect(controls.getByTestId('agent-connect__said')).toHaveText('Caps saved.');
   // The three caps are saved and shown with the funding cap: read back on the account and in the list.
   for (const shown of [
     set,
@@ -728,18 +1363,30 @@ test(`${J} #16 Sets a per-order size cap, a daily-loss cap and a leverage cap on
     expect(same(shown.limits.maxDailyLoss, '25.00')).toBe(true);
     expect(same(shown.cap, '200.00')).toBe(true);
   }
+  // And on the page: the account's row shows the three caps beside its funding cap, as our API answers them.
+  const row = accountRow(page, accountId);
+  await expect(row.getByTestId('agent-connect__limits').getByRole('listitem')).toHaveText([
+    `Per-order size cap: ${set.limits.maxOrderNotional} USDC`,
+    `Leverage cap: ${set.limits.maxLeverage}x`,
+    `Daily-loss cap: ${set.limits.maxDailyLoss} USDC`,
+  ]);
+  await expect(row.getByTestId('agent-connect__cap')).toHaveText(`${set.cap} USDC`);
   // Setting caps moves nothing and asks the wallet for nothing.
   expect(set.next).toBeNull();
   expect(await everything(session, view.subAccount)).toEqual(before);
+  await stepPicture();
 });
 
-test(`${J} #17 The assistant sends an order above the per-order cap, then one above the leverage cap: each refused naming the cap, before anything is signed`, async () => {
-  test.setTimeout(240_000);
+test(`${J} #17 The assistant sends an order above the per-order cap, then one above the leverage cap: each refused naming the cap, before anything is signed`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
   const { session } = await person();
   const { second } = state();
   const { agentKeyId } = await assistantKey('second');
   const before = await everything(session, second.subAccount);
-  const leverageBefore = (await venue('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value;
+  const leverageBefore = (await record('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value;
 
   // Above the per-order cap: TEST 0.001 BTC at 60100 is 60.10 USDC, over the person's cap of 50 (inside the funding cap
   // and the owner's largest assistant order).
@@ -780,12 +1427,39 @@ test(`${J} #17 The assistant sends an order above the per-order cap, then one ab
   for (const key of [`agent:order:${agentKeyId}:over-size`, `agent:order:${agentKeyId}:over-leverage`]) {
     refused(await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(key)}`), 404, 'trade.venue_action_unknown');
   }
-  expect((await venue('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value).toEqual(leverageBefore);
+  expect((await record('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value).toEqual(
+    leverageBefore,
+  );
   expect(await everything(session, second.subAccount)).toEqual(before);
+
+  // In the app: the connection's Activity shows both calls refused, each with the code of the cap it broke and no venue
+  // order, and the agent account's row shows those caps.
+  const [overSize, overLeverage] = lastCalls(agentKeyId, 2);
+  const { activity, rows } = await openActivity(page, session, agentKeyId, [overSize.requestId, overLeverage.requestId]);
+  for (const [call, code, clientOrderId] of [
+    [overSize, 'agents.order_size_cap_exceeded', 'over-size'],
+    [overLeverage, 'agents.leverage_cap_exceeded', 'over-leverage'],
+  ]) {
+    const row = rows.find((r) => r.requestId === call.requestId);
+    expect(row).toMatchObject({ tool: 'place_order', outcome: 'refused', status: 422, code, order: { clientOrderId, venueOrderId: null } });
+    await shownAs(activity, row);
+  }
+  const account = await rowShows(page, session, second, 'Open');
+  await expect(accountRow(page, second.accountId).getByTestId('agent-connect__limits').getByRole('listitem')).toHaveText([
+    `Per-order size cap: ${account.limits.maxOrderNotional} USDC`,
+    `Leverage cap: ${account.limits.maxLeverage}x`,
+    `Daily-loss cap: ${account.limits.maxDailyLoss} USDC`,
+  ]);
+  expect(same(account.limits.maxOrderNotional, size.body.cap)).toBe(true);
+  expect(account.limits.maxLeverage).toBe(lev.body.cap);
+  await stepPicture();
 });
 
-test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: the assistant's next order is refused naming the cap; open positions are untouched`, async () => {
-  test.setTimeout(300_000);
+test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: the assistant's next order is refused naming the cap; open positions are untouched`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(360_000);
   const { session } = await person();
   const { second } = state();
   const subAcct = await acct(owner(), second.subAccount);
@@ -799,7 +1473,7 @@ test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: 
   );
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
-  const todays = async () => (await venue('/fills', { account: subAcct, since: since.toISOString() })).value;
+  const todays = async () => (await record('/fills', { account: subAcct, since: since.toISOString() })).value;
   /** The day's loss from the venue's own fills: realised results less every fee (each in USDC on this perp). */
   const lossOf = (fills) => {
     let result = 0n;
@@ -897,5 +1571,413 @@ test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: 
     'trade.venue_action_unknown',
   );
   // Open positions untouched: the perp stays as it was, nothing is cancelled, and nothing moved anywhere.
+  expect(await everything(session, second.subAccount)).toEqual(before);
+
+  // In the app: the connection's Activity shows the two orders that made the day's loss, accepted, then the next one
+  // refused with the daily-loss cap's code and no venue order; the agent account's row shows that cap.
+  const [opening, closing, refusedNext] = lastCalls(agentKeyId, 3);
+  const { activity, rows } = await openActivity(page, session, agentKeyId, [opening.requestId, closing.requestId, refusedNext.requestId]);
+  for (const [call, clientOrderId] of [
+    [opening, 'loss-open'],
+    [closing, 'loss-close'],
+  ]) {
+    const row = rows.find((r) => r.requestId === call.requestId);
+    expect(row).toMatchObject({ tool: 'place_order', outcome: 'accepted', status: 200, code: null, order: { clientOrderId } });
+    await shownAs(activity, row);
+  }
+  const last = rows.find((r) => r.requestId === refusedNext.requestId);
+  expect(last).toMatchObject({
+    tool: 'place_order',
+    outcome: 'refused',
+    status: 422,
+    code: 'agents.daily_loss_cap_reached',
+    order: { clientOrderId: 'loss-next', venueOrderId: null },
+  });
+  await shownAs(activity, last);
+  const account = await rowShows(page, session, second, 'Open');
+  expect(same(account.limits.maxDailyLoss, cap)).toBe(true);
+  await expect(accountRow(page, second.accountId).getByTestId('agent-connect__limits').getByRole('listitem').nth(2)).toHaveText(
+    `Daily-loss cap: ${account.limits.maxDailyLoss} USDC`,
+  );
+  await stepPicture();
+});
+
+test(`${J} #19 Connects the assistant with an expiry longer than the venue allows, then with a valid one: the first is refused naming the venue's maximum; the second shows its expiry date; after that date the key's calls are refused`, async ({
+  browser,
+  stepPicture,
+}) => {
+  test.setTimeout(600_000);
+  const s = state();
+  const { session } = await person();
+  const { second } = s;
+  const venueInfo = (await venue('/venue')).venue;
+  const maxMs = venueInfo.agentValidityMaxMs;
+  expect(Number.isSafeInteger(maxMs) && maxMs > 0, 'the TEST venue declares its longest agent permission').toBe(true);
+  const maxDays = maxMs / 86_400_000;
+  const listKeys = async () =>
+    body200(await session.get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`)).result
+      .data.keys;
+
+  // The person on Connect your assistant (/agents/connect), on the passkey origin, the browser's authenticator holding
+  // the account's TEST passkey, as in #6. Both connects go through its Connect form, on the second agent account (#16).
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await context.newPage();
+    await browserHoldsPasskey(page, s.passkey);
+    run.write({ passkey: { ...s.passkey, signCount: s.passkey.signCount + 1000 } });
+    await signIn(page, s.account);
+    await page.goto('/agents/connect');
+    const form = page.getByTestId('agent-connect__connect');
+
+    /**
+     * The form, filled and sent: the key is made with its end (the answer identity gave the page's create), then the
+     * step-up is answered with the passkey and the page asks svc-trade to connect it. Returns the key identity made, the
+     * end the page sent, and svc-trade's answer to the connect.
+     */
+    const connectWithEnd = async (name, day, time) => {
+      const keysBefore = await listKeys();
+      await form.getByLabel('Agent account', { exact: true }).selectOption(second.accountId);
+      await form.getByLabel('Key name', { exact: true }).fill(name);
+      await form.getByLabel('Ends on (optional)', { exact: true }).fill(day);
+      if (time) await form.getByLabel('At (UTC, optional)', { exact: true }).fill(time);
+      const create = page.waitForResponse(
+        (res) => res.url().includes('/api/identity/trpc/developerKeys.create') && res.request().method() === 'POST',
+      );
+      await form.getByRole('button', { name: 'Connect with a passkey', exact: true }).click();
+      const created = await create;
+      expect(created.status()).toBe(200);
+      const asked = created.request().postDataJSON();
+      expect(asked).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'], name });
+      const made = (await listKeys()).filter((k) => !keysBefore.some((b) => b.id === k.id));
+      expect(made).toHaveLength(1);
+      expect(made[0]).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'], revoked: false });
+      const connect = page.waitForResponse(
+        (res) => res.url().endsWith(`/agent-accounts/${second.accountId}/connections`) && res.request().method() === 'POST',
+      );
+      await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey', exact: true }).click();
+      const answer = await connect;
+      expect(answer.request().postDataJSON()).toMatchObject({ keyId: made[0].id });
+      return { keyId: made[0].id, expiresAt: asked.expiresAt, status: answer.status(), body: await answer.json() };
+    };
+
+    // An expiry a day longer than the venue allows: the day after the venue's maximum, so the key ends at least a day
+    // past it. Refused naming the venue's maximum, on the page, and nothing connected.
+    const tooLongAt = Date.now() + maxMs + DAY;
+    const tooLongDay = utcDay(tooLongAt);
+    const tooLong = await connectWithEnd('TEST assistant (too long)', tooLongDay, null);
+    expect(tooLong.expiresAt).toBe(new Date(dayStart(tooLongAt) + DAY).toISOString());
+    expect(tooLong.status, JSON.stringify(tooLong.body).slice(0, 600)).toBe(422);
+    expect(tooLong.body.intafacedCode).toBe('agents.key_expiry_above_venue_max');
+    expect(tooLong.body.maxDays).toBe(maxDays);
+    expect(tooLong.body.message).toContain(`at most ${maxDays} days`);
+    expect(tooLong.body.message).toContain(venueInfo.displayName);
+    await expect(page.getByTestId('agent-connect__refusal')).toHaveText(
+      `Refused: agents.key_expiry_above_venue_max: ${tooLong.body.message}`,
+    );
+    // Refused before any step-up is spent: the same connect without one is refused the same way.
+    const longRes = refused(
+      await session.post(`${BASE}/${second.accountId}/connections`, { keyId: tooLong.keyId }),
+      422,
+      'agents.key_expiry_above_venue_max',
+    );
+    expect(longRes.maxDays).toBe(maxDays);
+    expect(longRes.message).toContain(`at most ${maxDays} days`);
+    expect(longRes.message).toContain(venueInfo.displayName);
+    expect(body200(await session.get(`${BASE}/connections`)).connections.map((c) => c.keyId)).not.toContain(tooLong.keyId);
+
+    // A valid one, ending at a minute a few minutes from now (UTC): the person sets that day and time on a fresh form.
+    // Connected, its key and secret shown once, and its expiry date shown on the connection's row.
+    const end = minuteStart(Date.now() + 4 * MINUTE);
+    const endsAt = new Date(end).toISOString();
+    const [endDay, endTime] = [utcDay(end), utcMinuteOf(end).slice(11)];
+    await page.reload();
+    const valid = await connectWithEnd('TEST assistant (dated)', endDay, endTime);
+    expect(valid.expiresAt).toBe(endsAt);
+    expect(valid.status, JSON.stringify(valid.body).slice(0, 600)).toBe(200);
+    expect(valid.body).toMatchObject({ keyId: valid.keyId, accountId: second.accountId, expiry: { known: true } });
+    expect(new Date(valid.body.expiry.expiresAt).toISOString()).toBe(endsAt);
+    const shown = page.getByTestId('agent-connect__secret');
+    await expect(shown).toBeVisible();
+    const key = (await page.getByTestId('agent-connect__key').textContent()).trim();
+    const signingSecret = (await page.getByTestId('agent-connect__signing-secret').textContent()).trim();
+    expect(key).toBeTruthy();
+    expect(signingSecret).toBeTruthy();
+    await shown.getByRole('checkbox', { name: 'I have saved the key and the setup', exact: true }).check();
+    await shown.getByRole('button', { name: 'Done', exact: true }).click();
+    const row = body200(await session.get(`${BASE}/connections`)).connections.find((c) => c.keyId === valid.keyId);
+    expect(row?.expiry?.known).toBe(true);
+    expect(new Date(row.expiry.expiresAt).toISOString()).toBe(endsAt);
+    // On the page: the connection's row shows that end, to the minute, in UTC; the refused key is not listed.
+    const connections = page.getByTestId('agent-connect__connections');
+    const ends = connections.locator(`tr[data-key="${valid.keyId}"]`).getByTestId('agent-connect__ends');
+    await expect(ends).toHaveText(`${endDay} ${endTime} UTC`);
+    await expect(ends.locator('time')).toHaveAttribute('datetime', row.expiry.expiresAt);
+    await expect(connections.locator(`tr[data-key="${tooLong.keyId}"]`)).toHaveCount(0);
+    await stepPicture(page);
+
+    // Before that date the key reaches the assistant's order route: refused there by the account's own daily-loss cap
+    // (#18), which is the trade service answering, not the door.
+    const order = {
+      clientOrderId: 'dated-next',
+      symbol: 'BTC-PERP',
+      side: 'buy',
+      type: 'market',
+      amount: '0.0001',
+      price: '60100',
+      timeInForce: 'IOC',
+      leverage: '2',
+    };
+    const call = async () => {
+      const raw = JSON.stringify(order);
+      const route = '/api/v1/venue/agent/orders';
+      const res = await fetch(`${EDGE}${route}`, {
+        method: 'POST',
+        headers: {
+          origin: ORIGIN,
+          authorization: `Bearer ${key}`,
+          'content-type': 'application/json',
+          ...VERSION_PIN,
+          ...signedHeaders(signingSecret, { method: 'POST', path: route, body: raw }),
+        },
+        body: raw,
+      });
+      const text = await res.text();
+      let body;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+      return { status: res.status, body };
+    };
+    const before = await call();
+    expect(Date.now() < Date.parse(endsAt), 'the call before the end date was made before it').toBe(true);
+    refused(before, 422, 'agents.daily_loss_cap_reached');
+
+    // After that date the key's calls are refused.
+    const wait = Date.parse(endsAt) + 2_000 - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    refused(await call(), 401, 'auth.api_key_expired');
+  } finally {
+    await context.close();
+  }
+});
+
+// ── #7: the assistant's order through the MCP server (packages/assistant-mcp) ─────────────────────────────────────────
+
+/** The MCP server's source, run by Node as it is (type stripping), as the assistant runs it on its own machine. */
+const MCP_SERVER = fileURLToPath(new URL('../../../../packages/assistant-mcp/src/server.ts', import.meta.url));
+
+/**
+ * The assistant's own MCP client: the server as its own process over stdio, with the agent key in its environment and
+ * nothing else of ours, one JSON-RPC message per line each way.
+ */
+function mcpClient({ agentKey, agentSecret }) {
+  const child = spawn(process.execPath, [MCP_SERVER], {
+    env: {
+      PATH: process.env.PATH ?? '',
+      INTAFACED_API_URL: EDGE,
+      INTAFACED_AGENT_KEY: agentKey,
+      INTAFACED_AGENT_SIGNING_SECRET: agentSecret ?? '',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const waiting = new Map();
+  let buffer = '';
+  let stderr = '';
+  child.stderr.on('data', (c) => (stderr += c.toString()));
+  child.stdout.on('data', (c) => {
+    buffer += c.toString();
+    for (let at = buffer.indexOf('\n'); at >= 0; at = buffer.indexOf('\n')) {
+      const message = JSON.parse(buffer.slice(0, at));
+      buffer = buffer.slice(at + 1);
+      waiting.get(message.id)?.(message);
+      waiting.delete(message.id);
+    }
+  });
+  let next = 0;
+  return {
+    request(method, params) {
+      const id = (next += 1);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`no answer to ${method} from the MCP server; stderr: ${stderr}`)), 60_000);
+        waiting.set(id, (message) => {
+          clearTimeout(timer);
+          resolve(message);
+        });
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      });
+    },
+    notify(method, params) {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, ...(params ? { params } : {}) })}\n`);
+    },
+    close() {
+      child.kill();
+    },
+  };
+}
+
+test(`${J} #7 The assistant buys TEST spot through the MCP server's order tool: the fill is on the agent's venue account, as the venue reports it; /trade/orders shows the order tagged "by your assistant"; the main venue account is unchanged`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { session } = await person();
+  const { second, account } = state();
+  const { agentKeyId, agentKey, agentSecret } = await assistantKey('second');
+  const sub = await acct(owner(), second.subAccount);
+  // #18 left this account at its daily-loss cap for today; the person sets the cap back to TEST 25 (under the owner's
+  // ceiling, as in #16), so the assistant may order again. Nothing moves.
+  expect(same(body200(await session.post(`${BASE}/${second.accountId}/limits`, { maxDailyLoss: '25' })).limits.maxDailyLoss, '25')).toBe(
+    true,
+  );
+  const before = await everything(session, second.subAccount);
+  const since = new Date(Date.now() - 1_000).toISOString();
+  const btcOf = (balances) => balances.find((b) => b.asset === 'BTC') ?? { total: '0', free: '0', locked: '0' };
+
+  // The assistant's MCP client: the server over stdio, its one order tool, and a TEST market buy of 0.0005 BTC-USDC
+  // (30.05 USDC at its worst price, under the per-order cap of 50).
+  const mcp = mcpClient({ agentKey, agentSecret });
+  let placed;
+  try {
+    const init = await mcp.request('initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'TEST assistant', version: '0' },
+    });
+    expect(init.result?.capabilities?.tools, JSON.stringify(init)).toBeTruthy();
+    mcp.notify('notifications/initialized');
+    const listed = await mcp.request('tools/list', {});
+    expect(listed.result.tools.map((t) => t.name)).toEqual(['place_order']);
+    placed = await mcp.request('tools/call', {
+      name: 'place_order',
+      arguments: {
+        clientOrderId: 'mcp-spot-buy',
+        symbol: 'BTC-USDC',
+        side: 'buy',
+        type: 'market',
+        amount: '0.0005',
+        price: '60100',
+        timeInForce: 'IOC',
+      },
+    });
+  } finally {
+    mcp.close();
+  }
+  expect(placed.result?.isError, JSON.stringify(placed).slice(0, 600)).toBe(false);
+  const answer = placed.result.structuredContent;
+  expect(answer).toMatchObject({
+    state: 'accepted',
+    origin: `agent:${agentKeyId}`,
+    account: { owner: owner(), subAccount: second.subAccount },
+  });
+  const cloid = answer.order.venueClientOrderId;
+  expect(cloid).toBeTruthy();
+
+  // The fill is on the agent's venue account, as the venue reports it: its order filled there, its fills there, and the
+  // sub-account's BTC rose by exactly what filled less the venue's fee in BTC, its USDC fell by exactly what was paid.
+  const venueOrder = (await record('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value;
+  expect(venueOrder).toMatchObject({ symbol: 'BTC-USDC', side: 'buy', status: 'filled' });
+  expect(same(venueOrder.filled, '0.0005')).toBe(true);
+  const fills = (await record('/fills', { account: sub, since })).value.filter((f) => f.venueClientOrderId === cloid);
+  expect(fills.length > 0).toBe(true);
+  let gotBtc = 0n;
+  let paidUsdc = 0n;
+  for (const f of fills) {
+    expect([f.symbol, f.side, f.feeAsset]).toEqual(['BTC-USDC', 'buy', 'BTC']);
+    gotBtc += toUnits(f.amount) - toUnits(f.venueFee) - toUnits(f.builderFee);
+    paidUsdc += (toUnits(f.amount) * toUnits(f.price)) / 10n ** 18n;
+  }
+  const after = await everything(session, second.subAccount);
+  expect(toUnits(btcOf(after.sub).total) - toUnits(btcOf(before.sub).total)).toBe(gotBtc);
+  expect(toUnits(usdcOf(before.sub).total) - toUnits(usdcOf(after.sub).total)).toBe(paidUsdc);
+  // The main venue account is unchanged, as the venue reports it, and so is the person's balance with us.
+  expect(after.main).toEqual(before.main);
+  expect(after.mainPositions).toEqual(before.mainPositions);
+  expect(after.ledger).toEqual(before.ledger);
+
+  // /trade/orders shows the order tagged "by your assistant", with the venue's market, side and amount.
+  await signIn(page, account);
+  await page.goto('/trade/orders');
+  const list = page.getByTestId('assistant-orders');
+  await expect(list.getByRole('heading', { name: 'Orders by your assistant' })).toBeVisible();
+  const row = list.locator(`tr[data-venue-client-order-id="${cloid}"]`);
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('td').nth(0)).toHaveText('BTC-USDC');
+  await expect(row.locator('td').nth(1)).toHaveText('Buy');
+  await expect(row.locator('td').nth(5)).toHaveText('Filled');
+  await expect(row.locator('[data-placed-by="assistant"]')).toHaveText('by your assistant');
+});
+
+test(`${J} #15 A founder opens the agents desk and quarantines a second TEST connection: each outside connection with its person, cap, balance, key state and last action; after Quarantine that connection's next call refuses, and an audit row names the founder and the reason`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { session } = await person();
+  const { second, account } = state();
+  // The second TEST connection: the assistant's key on the second agent account, which made #7's call last.
+  const { agentKeyId } = await assistantKey('second');
+  const before = await everything(session, second.subAccount);
+  const balance = usdcOf(before.sub).total;
+  // The edge's call log holds #7's call before the desk is read (the connection's own Activity, #11, reads the same log).
+  await expect
+    .poll(async () => body200(await session.get(`${BASE}/connections/${agentKeyId}/activity`)).rows.length, { timeout: 30_000 })
+    .toBeGreaterThan(0);
+
+  // The agents desk, as the stack's LOCAL TEST founder: the outside connections, each with its person, cap, balance as
+  // the venue reports it, key state and last action.
+  const founder = await openFounderDesk(page, '/more-ops/agents', 'Agent fleet');
+  const desk = page.getByRole('region', { name: 'Outside assistant connections', exact: true });
+  const row = desk.locator(`tr[data-key-id="${agentKeyId}"]`);
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId('outside-person')).toHaveText(account.handle);
+  await expect(row.getByTestId('outside-cap')).toHaveText('200 USDC');
+  await expect(row.getByTestId('outside-balance')).toHaveText(`${fromUnits(toUnits(String(balance)))} USDC`);
+  await expect(row.getByTestId('outside-key')).toContainText('Live');
+  await expect(row.getByTestId('outside-key')).toContainText(agentKeyId);
+  // The last action is the key's newest call, as the edge logged it: #7's order through the MCP server.
+  await expect(row.getByTestId('outside-last-action')).toContainText('POST /api/v1/venue/agent/orders · 200');
+  await expect(row.getByTestId('outside-status')).toHaveText('Connected');
+
+  // Quarantine, with a reason.
+  const reason = `TEST quarantine ${agentKeyId.slice(0, 8)}`;
+  await row.getByRole('button', { name: 'Quarantine' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Quarantine connection' });
+  await sheet.getByLabel('Reason (written to the audit log)').fill(reason);
+  await sheet.getByRole('button', { name: 'Quarantine' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Connection quarantined' })).toBeVisible();
+  await expect(row.getByTestId('outside-status')).toHaveText(`Quarantined by ${founder.handle} · ${reason}`);
+  await expect(row.getByTestId('outside-key')).toContainText('Revoked');
+
+  // An audit row names the founder and the reason.
+  const audit = desk.getByRole('region', { name: 'Outside connections audit log', exact: true });
+  const logged = audit.locator(`tr[data-key-id="${agentKeyId}"]`);
+  await expect(logged).toHaveCount(1);
+  await expect(logged.getByTestId('outside-audit-operator')).toHaveText(founder.handle);
+  await expect(logged.getByTestId('outside-audit-reason')).toHaveText(reason);
+
+  // The connection's next call refuses, at the door, before anything is placed; and it trades no agent account now.
+  const next = await asAssistant(
+    'POST',
+    '/api/v1/venue/agent/orders',
+    {
+      clientOrderId: 'after-quarantine',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.0002',
+      price: '50000',
+      timeInForce: 'GTC',
+    },
+    'second',
+  );
+  expect(next.status, JSON.stringify(next.body).slice(0, 300)).toBe(401);
+  expect(next.body.intafacedCode).toBe('auth.api_key_revoked');
+  refused(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:after-quarantine`)}`),
+    404,
+    'trade.venue_action_unknown',
+  );
+  expect(body200(await session.get(`${BASE}/connections`)).connections.map((c) => c.keyId)).not.toContain(agentKeyId);
+  // Nothing moved: both venue accounts, as the venue reports them, and our ledger are as they were.
   expect(await everything(session, second.subAccount)).toEqual(before);
 });

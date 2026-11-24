@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { conversionInventory, houseFees, merchantClearing, merchantClearingHold, userAvailable, venueBoundary } from '../accounts.js';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionReverse } from './conversion.js';
+import { fxConversion, fxConversionHold, fxConversionLateFill } from './conversion.js';
 
 const MERCHANT = '22222222-2222-4222-8222-222222222222';
 const USER = '11111111-1111-4111-8111-111111111111';

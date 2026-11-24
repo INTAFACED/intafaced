@@ -33,7 +33,7 @@ async function emptySearch(page) {
   const main = page.locator('main');
   await main.getByRole('textbox', { name: 'Search answers' }).fill(WORDS);
   await main.getByRole('button', { name: 'Search', exact: true }).click();
-  const empty = main.locator('.help__empty');
+  const empty = main.getByTestId('help-empty');
   await expect(empty.getByText('No matches')).toBeVisible();
   return empty;
 }
@@ -262,7 +262,7 @@ test(`${J} #5 the review step sends one request with an audit event and "Open"; 
   expect(mine).toHaveLength(1);
   shared.ticket = mine[0];
   await expect(main.getByRole('heading', { name: subject })).toBeVisible();
-  await expect(main.locator('.support-status').first()).toHaveText('Open');
+  await expect(main.getByTestId('support-status').first()).toHaveText('Open');
   await expect(main.getByText('Request opened')).toBeVisible();
 });
 
@@ -310,7 +310,7 @@ test(`${J} #7 "My requests" at /support/tickets shows Awaiting your reply, Open 
   const freshMain = fresh.locator('main');
   await expect(freshMain.getByRole('heading', { name: 'My requests' })).toBeVisible();
   await expect(freshMain.getByText('You have not sent us a request yet')).toBeVisible();
-  await expect(freshMain.locator('.support-row')).toHaveCount(0);
+  await expect(freshMain.getByTestId('support-row')).toHaveCount(0);
   await fresh.context().close();
 });
 
@@ -322,7 +322,7 @@ test(`${J} #6 the request shows its type and priority where the owner allows it`
   const main = page.locator('main');
   await expect(main.getByRole('heading', { name: ticket.subject })).toBeVisible();
   // The owner lets customers read both (priority,type on this stack); the desk has set neither, so each says so.
-  const details = main.locator('.support-detail__head');
+  const details = main.getByTestId('support-detail-head');
   await expect(details).toContainText('Priority');
   await expect(details).toContainText('None set');
   // Once the desk sets them, the customer reads them on a fresh load.

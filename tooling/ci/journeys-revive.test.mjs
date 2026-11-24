@@ -11,11 +11,13 @@ import {
   WAIT_MINUTES,
   candidates,
   decide,
+  githubIo,
   heldOnly,
   heldTick,
   isRefusal,
   issueTitle,
   mainInputOnly,
+  nameRefusal,
   prCandidates,
   prTick,
   rowStep,
@@ -487,8 +489,8 @@ const heldPull = (over = {}) => ({
 });
 
 /** main: [{ run, rows }] (newest last is fine; heldTick sorts); prs: [{ pr, run, rows, jobs? }]. */
-function heldIo({ main, prs, update = 202 }) {
-  const calls = { updated: [], logs: [] };
+function heldIo({ main, prs, update = 202, message, changed = new Set(), mergeable = true }) {
+  const calls = { updated: [], logs: [], changedReads: [] };
   const logs = new Map();
   const jobsOf = new Map();
   for (const m of main) {
@@ -513,7 +515,13 @@ function heldIo({ main, prs, update = 202 }) {
       headRuns: async (sha) => prs.filter((p) => p.run.head_sha === sha).map((p) => p.run),
       jobs: async (r) => jobsOf.get(r.id),
       jobLog: async (j) => (calls.logs.push(j.id), logs.get(j.id) ?? ''),
-      updateBranch: async (pr) => (calls.updated.push(pr.number), { ok: update >= 200 && update < 300, status: update }),
+      updateBranch: async (pr) => (calls.updated.push(pr.number), { ok: update >= 200 && update < 300, status: update, message }),
+      pull: async (n) => ({ number: n, mergeable }),
+      testsChangedSince: async (head, mainSha, ids) => {
+        calls.changedReads.push([head, mainSha, ids]);
+        if (changed instanceof Error) throw changed;
+        return new Set(ids.filter((j) => changed.has(j)));
+      },
     },
   };
 }
@@ -626,4 +634,218 @@ test('heldOnly is false for a pull request whose head moved past its run', () =>
     main,
   });
   assert.equal(r.held, undefined);
+});
+
+// project-state#2065 d32 (a), Main trust run 43388036218 (07:45 UTC 13 Nov): twelve pull requests stayed held on
+// J-copy-bots-otc-15 #1 #2, which main never had red: the test raced on pull requests and #8226 fixed it on main at
+// 06:50 UTC, after their heads left main. Main changed that journey's test since, so they are main's to clear.
+const OTC_ROWS = [
+  "J-copy-bots-otc-15#1 (money): called unbuilt, but passed on main in run 4724, after the baseline's run 1719",
+  "J-copy-bots-otc-15#2 (money): called unbuilt, but passed on main in run 4724, after the baseline's run 1719",
+];
+
+test("a red main never had, on a journey whose test main changed since the head left it: main's, so the branch is updated", async () => {
+  const { io, calls } = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull(), run: heldPrRun(), rows: OTC_ROWS }],
+    changed: new Set(['J-copy-bots-otc-15']),
+  });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, [8165]);
+  assert.deepEqual(calls.changedReads, [[PR_SHA, GREEN_MAIN.run.head_sha, ['J-copy-bots-otc-15']]]);
+  assert.match(lines[0], /main changed the test of J-copy-bots-otc-15 since this head\); branch updated from main/);
+});
+
+test("planted: a red main never had, whose test main didn't change, or whose read fails, stays the pull request's own", async () => {
+  for (const changed of [new Set(), new Set(['J-other-01']), new Error('GitHub 500 on GET')]) {
+    const { io, calls } = heldIo({ main: [RED_MAIN, GREEN_MAIN], prs: [{ pr: heldPull(), run: heldPrRun(), rows: OTC_ROWS }], changed });
+    const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+    assert.deepEqual(calls.updated, []);
+    assert.match(lines[0], /its own red \(J-copy-bots-otc-15#1/);
+  }
+  // Mixed with a step of its own that main never had red and never changed: still its own.
+  const rows = [...OTC_ROWS, 'J-academy-16#5 (money): failing, not in the baseline'];
+  const { io, calls } = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull(), run: heldPrRun(), rows }],
+    changed: new Set(['J-copy-bots-otc-15']),
+  });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, []);
+  assert.match(lines[0], /its own red \(J-academy-16#5/);
+  // A step still red on main's newest run never moves, whatever main changed.
+  const red = { run: heldMainRun(43400000000, 4600, '2026-11-13T02:00:00Z', 'failure'), rows: [OTC_ROWS[0]] };
+  const still = heldIo({
+    main: [RED_MAIN, red],
+    prs: [{ pr: heldPull(), run: heldPrRun(), rows: OTC_ROWS }],
+    changed: new Set(['J-copy-bots-otc-15']),
+  });
+  assert.match((await heldTick({ repo: REPO, now: H_NOW, io: still.io }))[0], /still red on main's newest run 4600/);
+  assert.deepEqual(still.calls.updated, []);
+});
+
+test('a pull request the pull holds (blocked, parked, factory-fix) is left as it is, as #8157 (parked) should have been', async () => {
+  for (const name of ['blocked', 'parked', 'factory-fix']) {
+    const { io, calls } = heldIo({
+      main: [RED_MAIN, GREEN_MAIN],
+      prs: [{ pr: heldPull({ labels: [{ name }] }), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
+    });
+    const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+    assert.deepEqual(calls.updated, []);
+    assert.equal(lines[0], `#8165: labelled ${name}, left as it is`);
+  }
+});
+
+test('a design pull request held only by main is brought onto main like any other (decision project-state#3428)', async () => {
+  const { io, calls } = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull({ labels: [{ name: 'design' }] }), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
+  });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.equal(calls.updated.length, 1);
+  assert.match(lines[0], /branch updated from main, a fresh head/);
+});
+
+test('a pull request that conflicts with main is not sent to GitHub, and a 422 says why', async () => {
+  const conflict = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
+    mergeable: false,
+  });
+  assert.match(
+    (await heldTick({ repo: REPO, now: H_NOW, io: conflict.io }))[0],
+    /it conflicts with main, so GitHub can't update it: its builder merges main/,
+  );
+  assert.deepEqual(conflict.calls.updated, []);
+  const said = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
+    update: 422,
+    message: 'merge conflict between base and head',
+  });
+  assert.match((await heldTick({ repo: REPO, now: H_NOW, io: said.io }))[0], /it conflicts with main, so GitHub did not update it \(422\)/);
+  const moved = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
+    update: 422,
+    message: 'expected head sha didn’t match current head ref.',
+  });
+  assert.match((await heldTick({ repo: REPO, now: H_NOW, io: moved.io }))[0], /its head moved since it was read \(422\)/);
+});
+
+test("18 Nov replayed: a run's jobs come in pages of 30, so the attempt GitHub answers 502 at per_page=100 is read whole", async () => {
+  // Run 44350969050 attempt 2: 71 jobs; GitHub gave 502 on every try at per_page=100 and the jobs at 50, and that one
+  // 502 stopped Main trust's revive for every pull request and main (factory red project-state#2548).
+  const all = Array.from({ length: 71 }, (_, i) => ({ id: i + 1, name: `shard ${i + 1}` }));
+  const asked = [];
+  const realFetch = globalThis.fetch;
+  const realToken = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'test-token'; // a token: githubFetch is plain fetch, which this test stands in for
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    asked.push(u.pathname + u.search);
+    const per = Number(u.searchParams.get('per_page'));
+    if (per > 30) return new Response('{"message":"Server Error"}', { status: 502 });
+    const page = Number(u.searchParams.get('page') ?? 1);
+    const jobs = all.slice((page - 1) * per, page * per);
+    return new Response(JSON.stringify({ total_count: all.length, jobs }), { status: 200 });
+  };
+  try {
+    const jobs = await githubIo(REPO).jobs({ id: 44350969050, run_attempt: 2 });
+    assert.deepEqual(
+      jobs.map((j) => j.id),
+      all.map((j) => j.id),
+    );
+    assert.deepEqual(asked, [
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=30&page=1',
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=30&page=2',
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=30&page=3',
+    ]);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = realToken;
+  }
+});
+
+test('19 Nov replayed (#9093): a spent hourly budget stops the tick and opens no issue; any other refusal opens one', async () => {
+  // Main trust run 44583025342: GET …/real-app-journeys.yml/runs got 403 "API rate limit exceeded for installation" with
+  // x-ratelimit-remaining 0, resets 18:06:22Z, and the tick opened #9093, the third such issue (#8197, #8202).
+  const realFetch = globalThis.fetch;
+  const realToken = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'test-token'; // a token: githubFetch is plain fetch, which this test stands in for
+  const answer = { headers: {}, message: '' };
+  globalThis.fetch = async () => new Response(JSON.stringify({ message: answer.message }), { status: 403, headers: answer.headers });
+  const spent = { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Date.parse('2026-11-19T18:06:22Z') / 1000) };
+  const stopOf = async () => {
+    try {
+      await githubIo(REPO).openIssue('x');
+    } catch (e) {
+      return e;
+    }
+    throw new Error('the 403 did not stop the call');
+  };
+  const named = async (e) => {
+    const created = [];
+    await nameRefusal({ openIssue: async () => null, createIssue: async (t, b) => created.push({ t, b }) }, e);
+    return created;
+  };
+  try {
+    answer.headers = spent;
+    answer.message = 'API rate limit exceeded for installation.';
+    const e = await stopOf();
+    assert.equal(isRefusal(e), true, 'a spent budget still stops the tick, never retried');
+    assert.equal(e.budgetSpentUntil, '2026-11-19T18:06:22.000Z');
+    assert.deepEqual(await named(e), [], 'no issue: the next tick after the reset starts again');
+
+    answer.headers = { 'x-ratelimit-remaining': '4321', 'retry-after': '60' };
+    answer.message = 'You have exceeded a secondary rate limit.';
+    const secondary = await stopOf();
+    assert.equal(secondary.budgetSpentUntil, null);
+    assert.equal((await named(secondary)).length, 1, 'a secondary limit is a refusal to read');
+
+    answer.headers = { 'x-ratelimit-remaining': '4321' };
+    answer.message = 'Resource not accessible by integration';
+    assert.equal((await named(await stopOf())).length, 1, 'a missing permission is a refusal to read');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = realToken;
+  }
+});
+
+test('22 Nov replayed (project-state #3718): the held pass reads on the job token and mints the App token only to update a branch', async () => {
+  // Main trust's held pass at 10:47 UTC on 22 Nov stopped on "API rate limit exceeded for installation" of the App every
+  // agent reads through: it had put the App's token in GH_TOKEN, so each of its reads spent the App's hourly budget.
+  const realFetch = globalThis.fetch;
+  const realToken = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'job-token';
+  const asked = [];
+  globalThis.fetch = async (url, init) => {
+    asked.push(`${init.method} ${new URL(url).pathname} ${init.headers.authorization}`);
+    if (init.method === 'PUT') return new Response('{"message":"Updating pull request branch."}', { status: 202 });
+    if (new URL(url).pathname.endsWith('/logs')) return new Response('log', { status: 200 });
+    return new Response(JSON.stringify(new URL(url).pathname.endsWith('/pulls') ? [] : { workflow_runs: [] }), { status: 200 });
+  };
+  let mints = 0;
+  const io = githubIo(REPO, { writeToken: async () => (mints++, 'app-token') });
+  try {
+    await io.openPulls();
+    await io.headRuns('f20569a2d0000000000000000000000000000000');
+    await io.jobLog({ id: 7 });
+    assert.equal(mints, 0, 'a read minted the App token');
+    const r = await io.updateBranch({ number: 9700, head: { sha: 'a'.repeat(40) } });
+    assert.equal(r.ok, true);
+    assert.equal(mints, 1);
+    assert.deepEqual(asked, [
+      'GET /repos/INTAFACED/intafaced/pulls Bearer job-token',
+      'GET /repos/INTAFACED/intafaced/actions/workflows/real-app-journeys.yml/runs Bearer job-token',
+      'GET /repos/INTAFACED/intafaced/actions/jobs/7/logs Bearer job-token',
+      'PUT /repos/INTAFACED/intafaced/pulls/9700/update-branch Bearer app-token',
+    ]);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = realToken;
+  }
 });

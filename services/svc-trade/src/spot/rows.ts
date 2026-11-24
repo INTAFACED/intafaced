@@ -31,6 +31,12 @@ export interface MarketRow {
   listed_at: Date | null;
   /** Absent on reads that do not select it. */
   delists_at?: Date | null;
+  /** Absent on reads that do not select it. */
+  opening_window_ends_at?: Date | null;
+  /** Absent on reads that do not select it. */
+  zone?: string | null;
+  /** Absent on reads that do not select it. */
+  zone_order_cap?: string | null;
   asset_class: Market['assetClass'];
   schedule: Market['schedule'];
   paper: boolean;
@@ -92,6 +98,9 @@ export function toMarket(row: MarketRow): Market {
     takerBps: Number(row.taker_bps),
     listedAt: row.listed_at,
     delistsAt: row.delists_at ?? null,
+    openingWindowEndsAt: row.opening_window_ends_at ?? null,
+    zone: row.zone === 'higher_risk' ? 'higher_risk' : null,
+    zoneOrderCap: row.zone_order_cap == null ? null : parseAmount(row.zone_order_cap),
     assetClass: row.asset_class,
     schedule: row.schedule,
     paper: row.paper === true,

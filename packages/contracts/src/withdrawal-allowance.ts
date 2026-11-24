@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * One customer's withdrawal allowance for one asset, as svc-pay's withdrawal limit guard applies it now (D-148,
@@ -10,13 +11,13 @@ import { z } from 'zod';
 const amount = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
 const figures = z.object({ perTx: amount, rolling24h: amount }).strict();
 
-export const withdrawalAllowanceInputSchema = z.object({ userId: z.string().guid(), assetId: z.string().min(1).max(16) }).strict();
+export const withdrawalAllowanceInputSchema = z.object({ userId: z.string().guid(), assetId: assetIdSchema.min(1).max(16) }).strict();
 export type WithdrawalAllowanceInput = z.infer<typeof withdrawalAllowanceInputSchema>;
 
 export const withdrawalAllowanceSchema = z
   .object({
     tier: z.string(),
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     base: figures,
     override: z
       .object({ perTx: amount.nullable(), rolling24h: amount.nullable(), expiresAt: z.string().datetime({ offset: true }) })

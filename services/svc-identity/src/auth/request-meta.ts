@@ -5,7 +5,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isIPv4, isIPv6 } from 'node:net';
 
-export type RequestMeta = { readonly ip?: string | undefined; readonly userAgent?: string | undefined };
+export type RequestMeta = {
+  readonly ip?: string | undefined;
+  readonly userAgent?: string | undefined;
+  /** The region the edge resolved for this request (`x-intafaced-region`); kept only under the location consent. */
+  readonly region?: string | undefined;
+};
 
 export const requestMetaAls = new AsyncLocalStorage<RequestMeta>();
 
@@ -19,6 +24,11 @@ export function currentUserAgent(): string | null {
 
 export function currentRequestIp(): string | null {
   return requestMetaAls.getStore()?.ip?.trim() || null;
+}
+
+/** The edge's region for this request, or null. */
+export function currentRequestRegion(): string | null {
+  return requestMetaAls.getStore()?.region?.trim() || null;
 }
 
 /** The first three of eight groups of an IPv6 address, with `::` expanded; null when it is not an address. */

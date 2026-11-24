@@ -23,7 +23,7 @@ const untouchable = new Proxy(
       throw new Error('the registries touched the database for an unauthorised caller');
     },
   },
-) as unknown as Sql;
+) as Sql;
 
 const venueChange = {
   venueId: 'binance-spot',

@@ -40,6 +40,17 @@ const indexer: IndexerStatus = {
   chain: null,
   clob: { live: true, kind: 'sovereign-venue' },
 };
+/** svc-dex's health answer as it ships (internal book off, no external venue), with the AMM venue wired or not. */
+const dexHealth = (ammVenueWired: boolean) =>
+  ({
+    ok: true,
+    service: 'svc-dex',
+    serviceHoldsBalances: false,
+    internalBook: { enabled: false, amm: false },
+    ammVenueWired,
+    externalVenueWired: false,
+    bestEx: { ok: true, claimed: false },
+  }) as const;
 const healthy: ProtocolSnapshot = {
   chain: { status: 'ok', data: chain },
   audit: {
@@ -47,7 +58,7 @@ const healthy: ProtocolSnapshot = {
     data: { id: 'x', kind: 'internal', packagePath: 'p', artifactHash: '0x0', signedBy: null, signedAt: null, audited: false },
   },
   indexer: { status: 'ok', data: indexer },
-  dex: { status: 'ok', data: { ammVenueWired: true, externalVenueWired: false, internalBook: { enabled: true } } },
+  dex: { status: 'ok', data: dexHealth(true) },
   health: { status: 'ok', data: { relayEnabled: true, factoryConfigured: true } },
 };
 const down = { status: 'down', reason: 'unreachable', message: 'The service could not be reached.' } as const;
@@ -115,7 +126,7 @@ describe('protocol blocker engine', () => {
   it('blocks pool actions without an AMM venue, launch without a factory, and smart accounts without relay or suite', () => {
     const noAmm: ProtocolSnapshot = {
       ...healthy,
-      dex: { status: 'ok', data: { ammVenueWired: false, externalVenueWired: false, internalBook: { enabled: true } } },
+      dex: { status: 'ok', data: dexHealth(false) },
     };
     for (const action of ['addLiquidity', 'removeLiquidity', 'createPool'] as const) expect(codes(noAmm, action)).toContain('amm_unwired');
     expect(codes({ ...healthy, chain: { status: 'ok', data: { ...chain, tokenFactoryDeployed: false } } }, 'launchToken')[0]).toBe(
@@ -153,7 +164,7 @@ describe('standing blockers', () => {
   });
 
   it('is part of every answer the engine gives, healthy or with every source down', () => {
-    const allDown = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
+    const allDown = { chain: down, audit: down, indexer: down, dex: down, health: down } as ProtocolSnapshot;
     for (const action of PROTOCOL_ACTIONS) {
       const standing = standingBlockers(action).map((b) => b.code);
       expect(standing.length, action).toBeGreaterThan(0);

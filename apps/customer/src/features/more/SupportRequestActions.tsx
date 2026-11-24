@@ -1,8 +1,10 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
+import { Button } from '@intafaced/ui/lit';
+import { FileField, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
 import { useResource, type Resource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
-import { Details, Read, Select, type useAction } from './common';
+import { useApi, useSession } from '../session';
+import { KitDetails, type KitAction } from './volt-action';
+import { KitRead } from './volt-parts';
 import { deskCopy } from './support-desk-copy';
 import { RATING_NOTE_MAX, RATING_SCORES, requestActionStates, showRatePrompt, ticketReference, type ActionReason } from './support-desk';
 import { fileSizeLabel, readAttachment } from './support-attach';
@@ -17,8 +19,7 @@ import {
   saveBase64,
 } from './support-attachments';
 import type { Ticket } from './support-schemas';
-import type { ratingSchema } from './support-calls';
-import type { z } from 'zod';
+import type { SupportRating } from '@intafaced/contracts/support-customer-procedures';
 
 const SCORE_KEY = {
   5: 'rateScoreOption5',
@@ -45,15 +46,7 @@ function line(state: State, help: 'closeHelp' | 'rateHelp' | 'attachHelp'): stri
  * be sent twice) and carries its own request id, so a repeat of the same send is answered with the first result instead of
  * doing it again. A control that does not apply to this status stays on the page, switched off, with the reason beside it.
  */
-export function SupportRequestActions({
-  ticket,
-  action,
-  onChanged,
-}: {
-  ticket: Ticket;
-  action: ReturnType<typeof useAction>;
-  onChanged: () => void;
-}) {
+export function SupportRequestActions({ ticket, action, onChanged }: { ticket: Ticket; action: KitAction; onChanged: () => void }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
     { userId } = useSession();
@@ -63,19 +56,19 @@ export function SupportRequestActions({
   const states = requestActionStates(ticket.status, rated);
   const base = useId();
   return (
-    <div className="support-actions">
+    <div className="lt-stack">
       <h3>{copy.t('actionsHeading')}</h3>
       {showRatePrompt(ticket.status, rating.resource.status === 'ready', rated) ? (
         <>
-          <p className="support-solved-thanks">{copy.t('solvedThanks')}</p>
-          <p className="support-rate-ask">{copy.t('rateAsk')}</p>
+          <p data-testid="support-solved-thanks">{copy.t('solvedThanks')}</p>
+          <p data-testid="support-rate-ask">{copy.t('rateAsk')}</p>
         </>
       ) : null}
-      <ul>
-        <li>
+      <ul className="lt-stack">
+        <li className="lt-stack">
           <CloseControl ticket={ticket} action={action} state={states.close} describedBy={`${base}-close`} onChanged={onChanged} />
         </li>
-        <li>
+        <li className="lt-stack">
           <RateControl
             ticket={ticket}
             action={action}
@@ -88,7 +81,7 @@ export function SupportRequestActions({
             }}
           />
         </li>
-        <li>
+        <li className="lt-stack">
           <AttachControl ticket={ticket} action={action} state={states.attach} describedBy={`${base}-attach`} />
         </li>
       </ul>
@@ -98,14 +91,14 @@ export function SupportRequestActions({
 
 type ControlProps = {
   ticket: Ticket;
-  action: ReturnType<typeof useAction>;
+  action: KitAction;
   state: State;
   describedBy: string;
 };
 
 function Reason({ id, children }: { id: string; children: string }) {
   return (
-    <small id={id} className="muted">
+    <small id={id} className="lt-hint">
       {children}
     </small>
   );
@@ -119,7 +112,7 @@ function CloseControl({ ticket, action, state, describedBy, onChanged }: Control
   return (
     <>
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={!state.available || action.disabled}
         aria-describedby={describedBy}
         onClick={() => {
@@ -131,7 +124,7 @@ function CloseControl({ ticket, action, state, describedBy, onChanged }: Control
             confirm: () => deskCopy.t('closeConfirm'),
             success: () => deskCopy.t('closeDone'),
             content: () => (
-              <Details
+              <KitDetails
                 items={[
                   [deskCopy.t('reference'), <span lang="zxx">{ticketReference(id)}</span>],
                   [deskCopy.t('subjectField'), <span lang="und">{ticket.subject}</span>],
@@ -157,7 +150,7 @@ function RateControl({
   describedBy,
   rating,
   onChanged,
-}: ControlProps & { rating: { resource: Resource<z.infer<typeof ratingSchema> | null>; reload: () => void }; onChanged: () => void }) {
+}: ControlProps & { rating: { resource: Resource<SupportRating | null>; reload: () => void }; onChanged: () => void }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
     { userId } = useSession();
@@ -172,32 +165,30 @@ function RateControl({
         <p role="status" id={describedBy}>
           {copy.t('rateDone', { score: existing.score })}
         </p>
-        <p className="muted">{copy.t('rateDoneNext')}</p>
+        <p className="lt-hint">{copy.t('rateDoneNext')}</p>
       </>
     );
   return (
-    <div className="support-rate">
+    <div className="lt-stack">
       <>
-        <Select
+        <SelectField
           label={copy.t('rateScoreLabel')}
           value={score}
           onChange={setScore}
           options={RATING_SCORES.map((value) => ({ value: String(value), label: copy.t(SCORE_KEY[value]) }))}
         />
-        <label className="field" htmlFor={noteId}>
-          <span>{copy.t('rateNoteLabel')}</span>
-          <textarea
-            id={noteId}
-            lang="und"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            maxLength={RATING_NOTE_MAX}
-            rows={3}
-          />
-          <small>{copy.t('rateNoteHint')}</small>
-        </label>
+        <TextAreaField
+          id={noteId}
+          label={copy.t('rateNoteLabel')}
+          lang="und"
+          value={note}
+          onChange={setNote}
+          maxLength={RATING_NOTE_MAX}
+          rows={3}
+          hint={copy.t('rateNoteHint')}
+        />
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={!state.available || action.disabled}
           aria-describedby={describedBy}
           onClick={() => {
@@ -209,7 +200,7 @@ function RateControl({
               confirm: () => deskCopy.t('rateConfirm'),
               success: () => deskCopy.t('rateSent'),
               content: () => (
-                <Details
+                <KitDetails
                   items={[
                     [deskCopy.t('reference'), <span lang="zxx">{ticketReference(id)}</span>],
                     [deskCopy.t('rateScoreRow'), <span lang="zxx">{sent.score} / 5</span>],
@@ -243,7 +234,6 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
     { userId } = useSession();
   const id = ticket.id;
   const input = useRef<HTMLInputElement>(null);
-  const fileId = useId();
   const [problem, setProblem] = useState<
       'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | 'refuseAttachLarge' | 'refuseAttachType' | 'attachDownloadFailed' | null
     >(null),
@@ -257,18 +247,14 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
   const off = view?.kind === 'off';
   return (
     <>
-      <label className="field" htmlFor={fileId}>
-        <span>{copy.t('attachFileLabel')}</span>
-        <input
-          id={fileId}
-          ref={input}
-          type="file"
-          disabled={!state.available || action.disabled || off}
-          onChange={() => setProblem(null)}
-        />
-      </label>
+      <FileField
+        label={copy.t('attachFileLabel')}
+        ref={input}
+        disabled={!state.available || action.disabled || off}
+        onChange={() => setProblem(null)}
+      />
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={!state.available || action.disabled || off}
         aria-describedby={describedBy}
         onClick={async () => {
@@ -290,7 +276,7 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
             confirm: () => deskCopy.t('attachConfirm'),
             success: () => deskCopy.t('attachDone'),
             content: () => (
-              <Details
+              <KitDetails
                 items={[
                   [deskCopy.t('reference'), <span lang="zxx">{ticketReference(id)}</span>],
                   [deskCopy.t('attachRowType'), <span lang="zxx">{read.contentType}</span>],
@@ -324,25 +310,25 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
       </Button>
       <Reason id={describedBy}>{line(state, 'attachHelp')}</Reason>
       {limits.resource.status === 'ready' && view ? (
-        <p className="muted" data-testid="attach-limits">
+        <p className="lt-hint" data-testid="attach-limits">
           {view.kind === 'ready' ? copy.t('attachLimitsLine', limitsValues(view)) : copy.t('attachLimitsOff')}
         </p>
       ) : limits.resource.status === 'failed' ? (
-        <p className="muted" data-testid="attach-limits">
+        <p className="lt-hint" data-testid="attach-limits">
           {copy.t('attachLimitsUnread')}
         </p>
       ) : null}
       {problem && (
-        <p className="support-warning" role="alert">
+        <p className="lt-refusal" role="alert">
           {copy.t(problem)}
         </p>
       )}
-      <div>
+      <div className="lt-stack">
         <small>{copy.t('attachFilesHeading')}</small>
-        <Read resource={live ?? files.resource} retry={files.reload}>
+        <KitRead resource={live ?? files.resource} retry={files.reload}>
           {(rows) =>
             rows.length === 0 ? (
-              <p className="muted">{copy.t('attachNoFiles')}</p>
+              <p className="lt-hint">{copy.t('attachNoFiles')}</p>
             ) : (
               <ul data-testid="attach-files">
                 {rows.map((row) => (
@@ -359,7 +345,7 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
                       <>
                         {' '}
                         <Button
-                          variant="ghost"
+                          tone="quiet"
                           disabled={busyFile !== null}
                           onClick={async () => {
                             setBusyFile(row.id);
@@ -378,8 +364,8 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
               </ul>
             )
           }
-        </Read>
-        <Button variant="ghost" onClick={files.reload}>
+        </KitRead>
+        <Button tone="quiet" onClick={files.reload}>
           {copy.t('refresh')}
         </Button>
       </div>

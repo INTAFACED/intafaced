@@ -8,7 +8,7 @@
  *
  * This file stores and reads the numbers. Nothing here posts to the ledger, accrues funding or clamps a mark.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { TradeError, type Market } from '../spot/types.js';
 
@@ -34,7 +34,7 @@ interface ParamsRow {
 }
 
 /** Latest owner pre-market params for a market, or null when none was ever set. */
-export async function readPremarketParams(sql: Sql, marketId: string): Promise<PremarketParams | null> {
+export async function readPremarketParams(sql: Queryable, marketId: string): Promise<PremarketParams | null> {
   const [row] = await sql<ParamsRow[]>`
     SELECT version::text AS version, flat_funding_rate::text AS flat_funding_rate, mark_clamp_bps
       FROM trade.operator_premarket_params

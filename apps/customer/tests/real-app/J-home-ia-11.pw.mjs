@@ -1,7 +1,6 @@
-// World: stack
-import { spawnSync } from 'node:child_process';
+// World: restart, stack
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
@@ -10,10 +9,23 @@ import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-de
 import { FOUNDER_VAULT_NAME, foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
-import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
+import {
+  HOME_NOTICE_TITLE,
+  HOME_PARTNER_AMOUNT,
+  HOME_PARTNER_ASSET,
+  HOME_TRANSFER_AMOUNT,
+  HOME_VENUE_AMOUNT,
+  HOME_VENUE_ASSET,
+} from '../../../../tooling/scripts/local-test-home.mjs';
+import { readHomeWallet } from '../../../../tooling/scripts/local-test-seed.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
+import { COMPOSE, composeSteps, run, seedService } from './tester-compose.mjs';
 import { NOTICE_DRAIN_MINUTES } from './notices.mjs';
-import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';
+import { EDGE, ORIGIN as CUSTOMER, ROOT, fromUnits, restartService, stackUrl, toUnits } from './stack.mjs';
+import { CHAIN_ID, connectWhenAsked, testChain } from './dex.mjs';
+import { installTestWallet } from './test-wallet.mjs';
+import { partnerMainBalance } from './partner.mjs';
+import { sameDecimal, venueBalance, venueForThisFile, venueInfo } from './venue.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
 // entry). Tests titled "J-home-ia-11 #<n>" prove a whole step. The journey starts from a compose up with the `tester`
@@ -27,46 +39,12 @@ import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';
 const J = 'J-home-ia-11';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
-const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
 const OUTBOX = path.join(STATE, OUTBOX_NAME);
 // The stack's TEST apex stand-in (not the real apex build), its invitation site (the join host) and the Customer server (the app host): localTestHosts.
-const APEX = 'http://127.0.0.1:3260';
-const INVITATION = 'http://127.0.0.1:3220';
+const APEX = stackUrl('apex');
+const INVITATION = stackUrl('invitation');
 
 test.describe.configure({ mode: 'default' });
-
-/** The `seed` service's block in the compose files, as text (no YAML parser in the tree), or null when there is none. */
-function seedService() {
-  for (const name of COMPOSE) {
-    const file = path.join(ROOT, name);
-    if (!existsSync(file)) continue;
-    const match = /^ {2}seed:\n((?: {4}.*\n|\s*\n)+)/m.exec(readFileSync(file, 'utf8'));
-    if (match) return { file: name, block: match[1] };
-  }
-  return null;
-}
-
-/**
- * A seed script run as the seed service runs it: { status, out }, with out holding both streams, instead of throwing on a
- * refusal. `timeout` caps the run (2 minutes by default); a killed run has no status and counts as failed.
- */
-function run(script, args, env, { timeout = 120_000 } = {}) {
-  const base = { ...process.env };
-  delete base.APP_ENV;
-  delete base.NODE_ENV;
-  const res = spawnSync(process.execPath, [path.join(ROOT, script), ...args], {
-    cwd: ROOT,
-    env: { ...base, ...env },
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout,
-  });
-  const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
-  return { status: res.status ?? 1, out };
-}
-
-/** The steps the seed service's command names (its compose `command` list), in order. */
-const composeSteps = (block) => [...block.matchAll(/'(local-[a-z-]+\.mjs [a-z]+)'/g)].map((m) => m[1]);
 
 /** The documented tester step (tooling/scripts/local-test-entry.mjs) for founder a: the one value it prints after `label`. */
 const ENTRY_SCRIPT = 'tooling/scripts/local-test-entry.mjs';
@@ -108,11 +86,27 @@ function vault() {
 // alone, which makes no Home content, so every other journey starts from an empty notice board (J-home-ia-06). Here the
 // notice is open for NOTICE_MINUTES rather than the tester's 30 days, inside the NOTICE_DRAIN_MINUTES that J-home-ia-06
 // waits for leftover notices, so in either order in a shard it waits this one out. The seed publishes it last, after the
-// deposit and its inbox row. The run may take as long as `home`'s own waits (150 s each for the credit and the row).
+// TEST money and its inbox row. The run may take as long as `home`'s own wait (150 s for the row).
+/** svc-bank's TEST partner bank's own name (`partner/test-partner.ts`). */
+const PARTNER_BANK = 'TEST partner bank';
+/** The TEST chain's network (CHAIN_ID 84532), as the app names it (packages/contracts protocol-blockers KNOWN_NETWORKS). */
+const NETWORK = 'Base Sepolia test network';
 const NOTICE_MINUTES = String(NOTICE_DRAIN_MINUTES - 2);
 const SEED_ENTRY = 'tooling/scripts/local-tester-seed.mjs';
 let contentSteps;
 let seedRun;
+// The tester's TEST adapters, on for this file and put back after it (the journeys stack starts with them off): svc-trade's
+// user-venue door and its TEST venue, where founder a's TEST wallet has its venue funds, and svc-ops' TEST price list
+// (USDC and USDT at 1), which Home's total values them at. Both before the seed runs, so `home` reaches the venue.
+venueForThisFile(test);
+test.beforeAll(async () => {
+  test.setTimeout(240_000);
+  await restartService('ops', { LOCAL_STACK_VALUATION_PRICES: 'test' });
+});
+test.afterAll(async () => {
+  test.setTimeout(240_000);
+  await restartService('ops', { LOCAL_STACK_VALUATION_PRICES: null });
+});
 test.beforeAll(() => {
   test.setTimeout(8 * 60_000);
   const seed = seedService();
@@ -134,13 +128,17 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // Each service the stack started, one row each in its own health table, answers its health check.
   const table = run('tooling/scripts/local-test-stack.mjs', ['status'], { LOCAL_STACK_STATE: STATE });
   expect(table.status, table.out).toBe(0);
-  // A row's name may carry a TEST mark (`chain (TEST)`, `team-tls (TEST)`), which is not its port.
-  const rows = [...table.out.matchAll(/^ {2}(\S+)(?: \(TEST\))? +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
+  // A row's name may carry a TEST mark (`chain (TEST)`, `team-tls (TEST)`), which is not its port. A row with no process
+  // reads `-` for its PID (a TEST venue the stack left off), and is still read, so its health is checked below.
+  const rows = [...table.out.matchAll(/^ {2}(\S+)(?: \(TEST\))? +\S+ +(\d+|owned|-) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
   const names = rows.map(([name]) => name);
   expect(new Set(names).size, 'one row per service').toBe(names.length);
   // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
   const marker = JSON.parse(readFileSync(path.join(STATE, 'LOCAL-TEST-STACK.json'), 'utf8'));
-  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  // The TEST adapters behind a service's outside door have rows of their own; the stack starts the venues only with the
+  // user-venue switch on, so one it left off reads "off". The wallet provider starts with every full stack.
+  const ADAPTERS = ['test-venue', 'test-venue-b', 'test-wallet-provider'];
+  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls', ...ADAPTERS];
   const started = Object.keys(marker.ports)
     .filter((name) => name !== 'natsMonitor')
     .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
@@ -148,14 +146,15 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // is still checked below.
   const NOT_PORTS = ['chain', 'market-maker'];
   expect(names.filter((name) => !NOT_PORTS.includes(name)).sort()).toEqual([...started].sort());
-  for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
+  for (const [name, health] of rows)
+    expect(health, `${name} health`).toMatch(ADAPTERS.includes(name) && name !== 'test-wallet-provider' ? /^(ok|off)\b/ : /^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
   // seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
-  // Configured to run once: never restarted after it exits (the compose_seed test below counts its one container).
+  // Configured to run once: never restarted after it exits (J-home-ia-11-compose.pw.mjs counts its one container).
   expect(seed.block).toMatch(/^ {4}restart: 'no'$/m);
   expect(seed.block).toContain(`'node',\n        '${SEED_ENTRY}',`);
   expect(composeSteps(seed.block)).toEqual([
@@ -174,30 +173,50 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   const ran = [...seedRun.out.matchAll(/^seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
   expect(ran).toEqual(['local-test-seed.mjs apply', 'local-test-seed.mjs home', 'local-test-seed.mjs status']);
   expect(seedRun.out).toMatch(/^seed: done \(3 steps\)$/m);
-  const founder = vault().founders[0].handle;
-  expect(seedRun.out).toContain(`home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST `);
+  // What `home` made for founder a, with nothing on our ledger: a TEST wallet funded on the TEST chain, its TEST venue
+  // funds, a TEST balance at the TEST partner bank and founder b's TEST payment there, which files the one inbox row.
+  const [{ handle: founder }, { handle: sender }] = vault().founders;
+  const wallet = readHomeWallet(STATE);
+  expect(wallet?.address, 'the seed kept no TEST home wallet in the state folder').toMatch(/^0x[0-9a-f]{40}$/);
+  const venue = await venueInfo();
+  expect(seedRun.out).toMatch(
+    new RegExp(`^home wallet: ${wallet.address} on the TEST chain, (funded with TEST ETH and TEST USD|already funded)$`, 'm'),
+  );
+  expect(seedRun.out).toMatch(
+    new RegExp(
+      `^home venue: ${HOME_VENUE_AMOUNT} ${HOME_VENUE_ASSET} at ${venue.displayName} for ${wallet.address}, (credited|already there)$`,
+      'm',
+    ),
+  );
+  expect(seedRun.out).toContain(
+    `home partner: ${HOME_PARTNER_AMOUNT} ${HOME_PARTNER_ASSET} at ${PARTNER_BANK} for ${founder}, and ${HOME_TRANSFER_AMOUNT} ${HOME_PARTNER_ASSET} from ${sender}`,
+  );
   // The notice ran on this run: published by it, not skipped as already open.
   expect(seedRun.out).toContain(`home notice: ${HOME_NOTICE_TITLE} published`);
-  expect(seedRun.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
-  // Its closing `status` step reports the same three things.
-  expect(seedRun.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
-  expect(seedRun.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
+  expect(seedRun.out).toContain(`home inbox: 1 transfer-received row for ${founder}`);
 
-  // What it made: Home's TEST deposit, TEST notice and inbox row, beside the Earn, Loans, Convert and P2P content.
+  // What it made, read back from each source by the closing `status` step and again here: the wallet, the venue's own
+  // figure, the partner's own figure (what it paid in and founder b's payment), the published TEST notice and exactly one
+  // transfer-received inbox row, beside the Earn, Loans, Convert and P2P content.
   const report = seedStatus();
   expect(report.status).toBe(0);
-  // Read back from the services for founder a: exactly one credited TEST deposit (status refuses on a second record for
-  // the seeded transfer), the published TEST notice, and exactly one deposit-credited inbox row.
-  expect(report.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
-  expect(report.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
-  expect(report.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
+  const partnerHeld = fromUnits(toUnits(HOME_PARTNER_AMOUNT) + toUnits(HOME_TRANSFER_AMOUNT));
+  for (const out of [seedRun.out, report.out]) {
+    expect(out).toContain(`  wallet  ${wallet.address}`);
+    expect(out).toContain(`  venue  ${HOME_VENUE_AMOUNT} ${HOME_VENUE_ASSET}  ${venue.displayName}`);
+    const held = new RegExp(`^ {2}partner {2}(\\S+) ${HOME_PARTNER_ASSET} {2}${PARTNER_BANK} {2}${founder}$`, 'm').exec(out)?.[1];
+    expect(held && sameDecimal(held, partnerHeld), `partner line ${held} is not ${partnerHeld}:\n${out}`).toBe(true);
+    expect(out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
+    expect(out).toContain(`  inbox  1 transfer-received row  ${founder}`);
+  }
   // The rooms the seed fills, each once: Earn's pools, Loans' products, the house inventory, the P2P method and Home.
   expect(sections(report.out)).toEqual(SEEDED_ROOMS);
   const before = withoutClock(report.out);
 
   // A second run of the same entrypoint makes nothing new in any seeded room: apply creates no pool or product, the house
-  // postings and the deposit are keyed on their business keys, and the notice is still open, so `home` skips it. status
-  // then reads every room exactly as before (it refuses on a second deposit record for the seeded transfer).
+  // postings, the venue deposit, the partner pay-ins and founder b's payment are keyed on their business keys, the wallet
+  // is funded only while it holds no TEST ETH, and the notice is still open, so `home` skips it. status then reads every
+  // room exactly as before.
   const again = run(
     SEED_ENTRY,
     [...contentSteps, '--notice-minutes', NOTICE_MINUTES],
@@ -208,7 +227,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(again.out).toMatch(/^earn pools: created 0, skipped \d+$/m);
   expect(again.out).toMatch(/^loan products: created 0, skipped \d+$/m);
   expect(again.out).toContain(`home notice: ${HOME_NOTICE_TITLE} skipped`);
-  expect(again.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
+  expect(again.out).toContain(`home wallet: ${wallet.address} on the TEST chain, already funded`);
+  expect(again.out).toContain(`home inbox: 1 transfer-received row for ${founder}`);
   const after = seedStatus();
   expect(after.status, after.out).toBe(0);
   expect(sections(after.out)).toEqual(SEEDED_ROOMS);
@@ -291,50 +311,97 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
   expect(claims.scopes).toEqual(expect.arrayContaining(await stackFounderScopes(ctx.paths.stateDir)));
 });
 
-test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notice and one inbox row, each labelled TEST`, async ({
+/** svc-ops' published prices, as anyone reads them (the read is public). */
+async function publishedPrices() {
+  const res = await fetch(`${EDGE}/api/ops/trpc/valuation.prices`, { headers: { origin: CUSTOMER } });
+  const body = await res.json();
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
+/** A USD amount in units (18 places), rounded half up once to cents and written as Home writes it: "$1,234.50". */
+function cents(units) {
+  const rounded = (units + 5n * 10n ** 15n) / 10n ** 16n;
+  const text = rounded.toString().padStart(3, '0');
+  return `$${text.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${text.slice(-2)}`;
+}
+
+test(`${J} #3 the founder's Home shows a TEST wallet with TEST venue funds and a TEST partner balance in the total, each labelled TEST and naming its TEST adapter as source, a TEST notice and one inbox row, each labelled TEST`, async ({
   page,
+  stepPicture,
 }) => {
-  const ctx = await makeContext({ log: () => {} });
+  test.setTimeout(240_000);
+  expect(seedRun.status, seedRun.out).toBe(0);
   const founder = vault().founders[0];
+  // The tester's own browser wallet holds the TEST wallet the seed made (its key is in the stack's state folder, as the
+  // founder's password is), on the stack's TEST chain; the founder signs in with the documented steps' handle, password and
+  // one-time code, and Home asks for the wallet to be connected.
+  const wallet = readHomeWallet(STATE);
+  await installTestWallet(page, { chainId: CHAIN_ID, privateKey: wallet.privateKey, rpcUrl: testChain().gateUrl });
+  const ctx = await makeContext({ log: () => {} });
   await page.goto('/login?redirect=%2Fhome');
   await page.fill('input[name=identifier]', founder.handle ?? founder.email);
   await page.fill('input[name=password]', founder.password);
   await page.fill('input[name=totp]', await founderTotp(ctx, 'a', founder.totpSecret));
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(/\/home$/);
+  const standing = page.getByTestId('home-standing');
+  await connectWhenAsked(page, standing);
+  await expect(standing.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
+  const show = page.getByRole('button', { name: 'Show balances', exact: true }).first();
+  if (await show.isVisible()) await show.click();
+  await expect(page.getByRole('button', { name: 'Hide balances', exact: true }).first()).toBeVisible();
 
-  // What the seed made for founder a, read back from the services (status writes nothing).
-  expect(seedRun.status, seedRun.out).toBe(0);
-  const status = seedStatus();
-  expect(status.status, status.out).toBe(0);
-  const made = /^ {2}deposit {2}(\S+) (\S+) credited {2}(\S+)$/m.exec(status.out);
-  expect(made, `the seed reports no credited Home deposit:\n${status.out}`).not.toBeNull();
-  const [, amount, asset, holder] = made;
-  expect(holder).toBe(founder.handle);
-  const notice = /^ {2}notice {2}(.+) {2}published$/m.exec(status.out)?.[1];
-  expect(notice, `the seed reports no published Home notice:\n${status.out}`).toBeTruthy();
-  // The deposit is founder a's only holding, a stablecoin Home counts as cash at its dollar amount, so the total is exactly
-  // that figure, not zero, and says it is TEST money.
-  const [whole, fraction = ''] = amount.split('.');
-  const dollars = `$${whole}.${`${fraction}00`.slice(0, 2)}`;
-  const total = page.getByTestId('home-total').first();
-  await expect(total.getByRole('img', { name: dollars, exact: true })).toBeVisible();
-  await expect(total.getByTestId('home-total-test')).toHaveText('TEST');
-  // The deposit itself is on Home, once.
-  await expect(page.getByTestId('home-activity__row').filter({ hasText: `+${amount} ${asset}` })).toHaveCount(1);
+  // Each part of the total is labelled TEST and names the TEST adapter it is read from, with that source's own figures.
+  const part = (id) => standing.locator(`[data-testid="standing-part"][data-part="${id}"]`);
+  const venue = await venueInfo();
+  const named = [
+    ['wallet', `Your wallet on ${NETWORK}`, NETWORK],
+    ['venue', `Your venue account on ${venue.displayName}`, venue.displayName],
+    ['partner', `Your account at ${PARTNER_BANK}`, PARTNER_BANK],
+  ];
+  for (const [id, label, adapter] of named) {
+    await expect(part(id)).toHaveAttribute('data-state', 'read');
+    await expect(part(id).getByTestId('standing-part-label')).toHaveText(label);
+    await expect(part(id).getByTestId('standing-part-test')).toHaveText('TEST');
+    await expect(part(id).getByTestId('standing-part-adapter')).toHaveText(`from the TEST adapter ${adapter}`);
+  }
+  // The wallet holds the TEST chain's TEST ETH and TEST USD; neither has a published price, so it is named, never $0.
+  await expect(part('wallet')).toHaveAttribute('data-value-usd', '');
+  await expect(part('wallet').getByTestId('standing-part-amounts')).toContainText('ETH');
+  await expect(part('wallet').getByTestId('standing-part-amounts')).toContainText('TESTUSD');
+  // The venue's own figure and the partner's own book, at the published TEST prices, to the cent; the total is their sum.
+  const prices = await publishedPrices();
+  expect(prices).toMatchObject({ published: true, test: true });
+  const price = new Map(prices.prices.map((row) => [row.asset, toUnits(row.usd)]));
+  const venueHeld = (await venueBalance(wallet.address, HOME_VENUE_ASSET)).total;
+  expect(sameDecimal(venueHeld, HOME_VENUE_AMOUNT), `the TEST venue holds ${venueHeld} ${HOME_VENUE_ASSET}`).toBe(true);
+  const partnerHeld = await partnerMainBalance(founder.userId, HOME_PARTNER_ASSET);
+  expect(sameDecimal(partnerHeld, fromUnits(toUnits(HOME_PARTNER_AMOUNT) + toUnits(HOME_TRANSFER_AMOUNT)))).toBe(true);
+  const venueUsd = (toUnits(venueHeld) * price.get(HOME_VENUE_ASSET)) / 10n ** 18n;
+  const partnerUsd = (toUnits(partnerHeld) * price.get(HOME_PARTNER_ASSET)) / 10n ** 18n;
+  await expect(part('venue').getByTestId('standing-part-value')).toHaveText(cents(venueUsd));
+  await expect(part('partner').getByTestId('standing-part-value')).toHaveText(cents(partnerUsd));
+  const total = standing.getByTestId('standing-figure').locator('[data-slot="hero-number"] [role=img]');
+  await expect(total).toHaveAttribute('aria-label', cents(venueUsd + partnerUsd));
+  await expect(standing.getByTestId('standing-test')).toHaveText('TEST');
+
   // One TEST notice, the one the seed published (drafted by one founder and published by the other).
-  const shown = page.getByTestId('home-notice').filter({ hasText: notice });
+  const shown = page.getByTestId('home-notice').filter({ hasText: HOME_NOTICE_TITLE });
   await expect(shown).toHaveCount(1);
-  expect(notice).toContain('TEST');
-  await expect(shown.locator('.home-notice__title')).toContainText('TEST');
-  // One inbox row on Home, the one the real deposit-credit consumer filed for that deposit, and it says TEST beside the amount.
+  expect(HOME_NOTICE_TITLE).toContain('TEST');
+  await expect(shown.getByTestId('home-notice__title')).toContainText('TEST');
+  // One inbox row on Home, the one svc-notify filed for founder b's TEST payment, and it says TEST beside the amount.
   const inbox = page.getByTestId('home-inbox');
   await expect(inbox.getByTestId('nf-row')).toHaveCount(1);
-  const row = inbox.getByTestId('nf-row').filter({ hasText: `${amount} ${asset}` });
+  const row = inbox.getByTestId('nf-row').filter({ hasText: `${HOME_TRANSFER_AMOUNT} ${HOME_PARTNER_ASSET}` });
   await expect(row).toHaveCount(1);
   await expect(row.getByTestId('nf-test')).toHaveText('TEST');
-  // Home shows only the newest row, so the inbox's own count is read from the services: exactly one row for that deposit.
-  expect(status.out).toContain(`  inbox  1 deposit-credited row  ${founder.handle}`);
+  // Home shows only the newest row, so the inbox's own count is read from the services: exactly one row for that payment.
+  const status = seedStatus();
+  expect(status.status, status.out).toBe(0);
+  expect(status.out).toContain(`  inbox  1 transfer-received row  ${founder.handle}`);
+  await stepPicture();
 });
 
 test(`${J} #4 the same image started as staging or production: the seed service exits with an error and creates nothing`, async () => {
@@ -549,110 +616,4 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
     ['app', 'served'],
     ['join', 'served'],
   ]);
-});
-
-/**
- * `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }.
- * The env file compose-env wrote into the step's own state folder (`testerEnvFile`) layers what `pnpm local:stack` runs
- * with, and this stack's generated keys, over the documented example env, which keeps them blank for a real deployment.
- * It is never the repo's `.env.tester.local`, which a person may hold for their own state folder.
- */
-const testerEnvFile = (env) => path.join(env.LOCAL_STACK_STATE, 'tester.env.local');
-function compose(args, env, { timeout = 120_000 } = {}) {
-  const files = COMPOSE.flatMap((name) => ['-f', name]);
-  const res = spawnSync(
-    'docker',
-    [
-      'compose',
-      '-p',
-      'intafaced-tester-journey',
-      '--env-file',
-      '.env.example',
-      '--env-file',
-      testerEnvFile(env),
-      ...files,
-      '--profile',
-      'tester',
-      ...args,
-    ],
-    { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout },
-  );
-  const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
-  return { status: res.status ?? 1, out };
-}
-
-/**
- * The last log lines of every compose service that failed on its own: neither running healthy, nor exited 0, nor stopped
- * by compose's abort (137 or 143, the signals `--abort-on-container-exit` sends), so the red names the culprit.
- */
-function notHealthyLogs(env) {
-  const ps = compose(['ps', '-a', '--format', '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}'], env);
-  const bad = ps.out
-    .trim()
-    .split('\n')
-    .map((line) => line.split('|'))
-    .filter(
-      ([svc, state, health, code]) =>
-        svc && !(state === 'running' && health !== 'unhealthy') && !(state === 'exited' && ['0', '137', '143'].includes(code)),
-    )
-    .map(([svc, state, health]) => ({ svc, state: health ? `${state}, ${health}` : state }));
-  return bad
-    .map(
-      ({ svc, state }) =>
-        `\n\n--- ${svc} (${state}), last 60 lines ---\n${compose(['logs', '--no-color', '--tail', '60', svc], env).out.trim()}`,
-    )
-    .join('');
-}
-
-// The step's own start: a fresh compose up with the tester profile, from the documented example env and the values
-// `compose-env` writes for this state directory (LOCAL TEST settings and generated keys), on a state directory nothing
-// else has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
-// stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
-test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
-  test.setTimeout(30 * 60_000);
-  const state = mkdtempSync(path.join(tmpdir(), 'compose-tester-'));
-  const env = { APP_ENV: 'test', LOCAL_STACK_STATE: state };
-  const seed = seedService();
-  expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
-  try {
-    const generated = run('tooling/scripts/local-test-compose-env.mjs', ['--out', testerEnvFile(env)], env);
-    expect(generated.status, `BLOCKED compose_seed: compose-env could not write the tester profile's values:\n${generated.out}`).toBe(0);
-    const config = compose(['config', '--quiet'], env);
-    // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
-    if (config.status !== 0) expect(config.out).toMatch(/required variable [A-Z_]+ is missing a value/);
-    expect(config.status, `BLOCKED compose_seed: a fresh compose up with the tester profile refuses to start:\n${config.out}`).toBe(0);
-    const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
-      timeout: 25 * 60_000,
-    });
-    // Compose names only the service that stopped the run; that service's own last lines say why, so the red carries them.
-    const why = up.status === 0 ? '' : notHealthyLogs(env);
-    const tail = up.out.trim().split('\n').slice(-40).join('\n');
-    expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${tail}${why}`).toBe(0);
-    const ran = [...up.out.matchAll(/seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
-    expect(ran).toEqual(composeSteps(seed.block));
-    expect(up.out).toMatch(new RegExp(`seed: done \\(${ran.length} steps\\)$`, 'm'));
-    // What it made, as its run reports it and its closing status reads it back from the compose stack's services.
-    expect(up.out).toContain(`home notice: ${HOME_NOTICE_TITLE} published`);
-    expect(up.out).toMatch(new RegExp(`home inbox: 1 deposit-credited row for \\S+$`, 'm'));
-    expect(up.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  `);
-    expect(up.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
-    expect(up.out).toContain(`  inbox  1 deposit-credited row  `);
-    // Once: the seed service has exactly one container, exited 0.
-    const runs = compose(['ps', '-a', '--format', '{{.Service}} {{.State}} {{.ExitCode}}', 'seed'], env);
-    expect(runs.out.trim().split('\n')).toEqual(['seed exited 0']);
-    // The same image, started as staging or production, exits 2 with the typed refusal and seeds nothing.
-    for (const appEnv of ['staging', 'production']) {
-      const refused = compose(['run', '--rm', '-e', `APP_ENV=${appEnv}`, 'seed'], env);
-      expect(refused.status, refused.out).toBe(2);
-      expect(refused.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
-    }
-  } finally {
-    compose(['down', '--volumes', '--remove-orphans'], env);
-    // The seed container writes into the folder as its own user; a folder left behind must not hide the step's result.
-    try {
-      rmSync(state, { recursive: true, force: true });
-    } catch (error) {
-      console.warn(`compose state ${state} not removed: ${error.message}`);
-    }
-  }
 });

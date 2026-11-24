@@ -41,7 +41,7 @@ export function createReportsMock(ctx) {
             ctx.world.payments.filter((p) => Date.parse(p.createdAt) >= now - 30 * DAY).map((p) => p.createdAt.slice(0, 10)),
           ).size,
           sha256: 'cd'.repeat(32),
-          requestedBy: 'TEST-user-finance',
+          requestedBy: 'b1111111-1111-4111-8111-111111111111',
           asOf: iso(now - DAY),
           generatedAt: iso(now - DAY),
           expiresAt: iso(now + 6 * DAY),

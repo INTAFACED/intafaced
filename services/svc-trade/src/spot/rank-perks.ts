@@ -1,11 +1,6 @@
-import {
-  BASE_PERKS,
-  rankPerksSchema,
-  serviceCallSigner,
-  type RankPerks,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { RankPerks, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { BASE_PERKS, rankPerksSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { TradeError } from './types.js';
 
 /**

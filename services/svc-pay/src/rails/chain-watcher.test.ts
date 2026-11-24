@@ -62,7 +62,7 @@ describe('CryptoChainWatcher — delivery mark-after-success', () => {
       chain,
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
 
     expect(await watcher.tick()).toBe(1);
@@ -84,7 +84,7 @@ describe('CryptoChainWatcher — delivery mark-after-success', () => {
       chain,
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
-      fetchImpl: (async () => new Response('', { status: 202 })) as unknown as typeof fetch,
+      fetchImpl: (async () => new Response('', { status: 202 })) as typeof fetch,
     });
     await watcher.tick();
     expect(chain.markFinalizedEmitted).toHaveBeenCalledOnce();
@@ -103,7 +103,7 @@ describe('CryptoChainWatcher — delivery mark-after-success', () => {
       chain,
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
     await watcher.tick();
     expect(fetchImpl).toHaveBeenCalledOnce();
@@ -115,7 +115,7 @@ describe('CryptoChainWatcher — delivery mark-after-success', () => {
       chain: chainDouble([], () => []),
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
     expect(await watcher.tick()).toBe(0);
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -149,7 +149,7 @@ describe('CryptoChainWatcher — durable cursor; crash replay does not double-cr
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: (async () => new Response('ok', { status: 200 })) as unknown as typeof fetch,
+      fetchImpl: (async () => new Response('ok', { status: 200 })) as typeof fetch,
     });
     await watcher.tick();
     expect(await store.load(CRYPTO_NATIVE_WATCHER_ID)).toEqual({
@@ -171,7 +171,7 @@ describe('CryptoChainWatcher — durable cursor; crash replay does not double-cr
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch,
+      fetchImpl: (async () => new Response('nope', { status: 500 })) as typeof fetch,
     });
     await watcher.tick();
     expect(await store.load(CRYPTO_NATIVE_WATCHER_ID)).toBeNull();
@@ -201,7 +201,7 @@ describe('CryptoChainWatcher — durable cursor; crash replay does not double-cr
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     }).tick();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
@@ -212,7 +212,7 @@ describe('CryptoChainWatcher — durable cursor; crash replay does not double-cr
       secret,
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     }).tick();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(replay.marked).toContain(address.toLowerCase());

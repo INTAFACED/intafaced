@@ -11,25 +11,24 @@
  * server cannot do handles yet", and the caller falls back to the older Account ID input (`kind: 'unavailable'`).
  * Any other failure is `failed`, never a guess.
  */
-import { z } from 'zod';
+import {
+  HANDLE_LOOKUP_RATE_LIMITED,
+  IDENTITY_ME,
+  IDENTITY_QR_MINE,
+  IDENTITY_QR_RESOLVE,
+  IDENTITY_USERS_PAYEE_CARD,
+  IDENTITY_USERS_RESOLVE_HANDLE,
+} from '@intafaced/contracts/identity-handles';
+import { IDENTITY_RECIPIENTS_LIST } from '@intafaced/contracts/identity-recipients-procedures';
 import type { ApiClient, ApiResult } from '../shared/api';
 
-export const HANDLE_LOOKUP_RATE_LIMITED = 'identity.handle_lookup_rate_limited';
+export { HANDLE_LOOKUP_RATE_LIMITED };
+
+/** A screen shows a handle only when there is one: an empty one reads as an unverified answer, never as a blank name. */
+export const handleNamed = (reply: object): boolean => !('handle' in reply) || reply.handle !== '';
 
 /** Same rule as sign-up: 3 to 32 letters, numbers or underscores. */
 export const HANDLE_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
-
-export const meSchema = z.object({
-  userId: z.string().guid(),
-  handle: z.string().min(1),
-  /** Absent on a server that does not yet report confirmation. */
-  emailVerified: z.boolean().optional(),
-});
-
-export const resolveHandleSchema = z.discriminatedUnion('found', [
-  z.object({ found: z.literal(false) }),
-  z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string().min(1), self: z.boolean() }),
-]);
 
 export type MeOutcome =
   | { kind: 'ok'; userId: string; handle: string; emailVerified?: boolean }
@@ -57,7 +56,7 @@ export function procedureMissing(result: Extract<ApiResult<unknown>, { ok: false
 }
 
 export async function fetchMe(api: ApiClient, signal?: AbortSignal): Promise<MeOutcome> {
-  const result = await api.query('identity', 'me', undefined, meSchema, { signal });
+  const result = await api.call(IDENTITY_ME, undefined, { signal, accept: handleNamed });
   if (result.ok) {
     return {
       kind: 'ok',
@@ -73,7 +72,7 @@ export async function resolveHandle(api: ApiClient, handle: string, signal?: Abo
   const clean = cleanHandle(handle);
   // Never spend a lookup (they are rationed) on something that cannot be a handle.
   if (clean === null) return { kind: 'notFound' };
-  const result = await api.query('identity', 'users.resolveHandle', { handle: clean }, resolveHandleSchema, { signal });
+  const result = await api.call(IDENTITY_USERS_RESOLVE_HANDLE, { handle: clean }, { signal, accept: handleNamed });
   if (!result.ok) {
     if (result.status === 429 || result.code === HANDLE_LOOKUP_RATE_LIMITED) return { kind: 'rateLimited' };
     return procedureMissing(result) ? { kind: 'unavailable' } : { kind: 'failed' };
@@ -88,20 +87,11 @@ export async function resolveHandle(api: ApiClient, handle: string, signal?: Abo
 // Once a handle or pay code has named an account, Send asks who it is: the name on their profile (null when none) and
 // the month they joined (`YYYY-MM`, the member badge). Keyed by the user id that answer carried.
 
-const payeeCardSchema = z.discriminatedUnion('found', [
-  z.object({ found: z.literal(false) }),
-  z.object({
-    found: z.literal(true),
-    name: z.string().nullable(),
-    memberSince: z.string().regex(/^\d{4}-\d{2}$/),
-  }),
-]);
-
 /** `ok` with the name (null when they have none, trimmed) and month; `none` when it can't be said, which shows no name line. */
 export type PayeeCardOutcome = { kind: 'ok'; name: string | null; memberSince: string } | { kind: 'none' };
 
 export async function fetchPayeeCard(api: ApiClient, userId: string, signal?: AbortSignal): Promise<PayeeCardOutcome> {
-  const result = await api.query('identity', 'users.payeeCard', { userId }, payeeCardSchema, { signal });
+  const result = await api.call(IDENTITY_USERS_PAYEE_CARD, { userId }, { signal });
   if (!result.ok || !result.data.found) return { kind: 'none' };
   const name = result.data.name?.trim() ? result.data.name.trim() : null;
   return { kind: 'ok', name, memberSince: result.data.memberSince };
@@ -111,13 +101,15 @@ export async function fetchPayeeCard(api: ApiClient, userId: string, signal?: Ab
 // The people the customer saved to pay again, by handle. Send checks a looked-up handle against them, so a look-alike of
 // someone saved is flagged before anything is sent (J-pay-01 #2).
 
-const savedRecipientsSchema = z.array(z.object({ handle: z.string().min(1), label: z.string(), addedAt: z.string() }));
-
 export type SavedRecipientsOutcome = { kind: 'ok'; handles: string[] } | { kind: 'failed' };
 
 /** The most recently saved recipients' handles, one page of 100. Any failure is `failed`: the screen says it could not check, never "none". */
 export async function fetchSavedRecipients(api: ApiClient, signal?: AbortSignal): Promise<SavedRecipientsOutcome> {
-  const result = await api.query('identity', 'recipients.list', { limit: 100 }, savedRecipientsSchema, { signal });
+  const result = await api.call(
+    IDENTITY_RECIPIENTS_LIST,
+    { limit: 100 },
+    { signal, accept: (rows) => rows.every((row) => row.handle !== '') },
+  );
   return result.ok ? { kind: 'ok', handles: result.data.map((row) => row.handle) } : { kind: 'failed' };
 }
 
@@ -126,12 +118,11 @@ export async function fetchSavedRecipients(api: ApiClient, signal?: AbortSignal)
 // by account id, whatever their "find me by handle" switch says. A blank signing key is the owner's setting not yet
 // made: both refuse `identity.qr_key_unset`. A code that does not verify is `identity.qr_invalid`.
 
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const PAY_QR_KEY_UNSET = 'identity.qr_key_unset';
 export const PAY_QR_INVALID = 'identity.qr_invalid';
 export const PAY_QR_PAYEE_UNAVAILABLE = 'identity.qr_payee_unavailable';
-
-const payQrSchema = z.object({ payload: z.string().min(1) });
-const payQrPreviewSchema = z.object({ userId: z.string().guid(), handle: z.string().min(1), self: z.boolean() });
 
 export type PayQrOutcome = { kind: 'ok'; payload: string } | { kind: 'unset' } | { kind: 'failed' };
 
@@ -143,13 +134,18 @@ export type PayQrResolveOutcome =
   | { kind: 'failed' };
 
 export async function fetchMyPayQr(api: ApiClient, signal?: AbortSignal): Promise<PayQrOutcome> {
-  const result = await api.query('identity', 'qr.mine', undefined, payQrSchema, { signal });
+  const result = await api.call(IDENTITY_QR_MINE, undefined, { signal, accept: (reply) => reply.payload !== '' });
   if (result.ok) return { kind: 'ok', payload: result.data.payload };
   return result.code === PAY_QR_KEY_UNSET ? { kind: 'unset' } : { kind: 'failed' };
 }
 
 export async function resolvePayQr(api: ApiClient, payload: string, signal?: AbortSignal): Promise<PayQrResolveOutcome> {
-  const result = await api.query('identity', 'qr.resolve', { payload }, payQrPreviewSchema, { signal });
+  // The payee a transfer goes to must be an account id, and a named one.
+  const result = await api.call(
+    IDENTITY_QR_RESOLVE,
+    { payload },
+    { signal, accept: (reply) => GUID.test(reply.userId) && handleNamed(reply) },
+  );
   if (result.ok) return { kind: 'found', ...result.data };
   if (result.code === PAY_QR_INVALID) return { kind: 'invalid' };
   if (result.code === PAY_QR_PAYEE_UNAVAILABLE) return { kind: 'payeeUnavailable' };

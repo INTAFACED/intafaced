@@ -1,0 +1,712 @@
+{
+  "items": [
+    {
+      "slug": "foundations-risk-first",
+      "title": "Risk first",
+      "kind": "playbook",
+      "path": "foundations",
+      "order": 10,
+      "summary": "Position size, drawdown, and why capital preservation is the first skill.",
+      "body": "# Risk first\n\nEvery path in the Academy starts here. Before charts, before setups, before an\nagent is allowed near a live order — know what you can lose.\n\nRisk is the only part of a trade that is yours to decide. The market decides\nwhether you were right; you decide what being wrong costs. Everything below\nfollows from that split, and most of the ways people lose an account come from\nignoring it while believing they were doing analysis.\n\n## Position size\n\nSize from risk, not conviction. Pick the amount of capital you are willing to\nlose on the idea, then work the size backward from the level that proves the idea\nwrong. Conviction is not an input — it runs highest exactly when you are least\nable to assess it.\n\nThe mechanism is one division: the amount you accept losing, divided by the loss\nper unit over the distance to your invalidation level.\n\n### Worked example — illustrative arithmetic only\n\nThe numbers are invented to show the arithmetic. They are not a quote, an\nobservation, or anyone's result.\n\n- Account: 10,000 units of the quote currency.\n- Risk accepted on this idea, chosen in advance: 1 percent — so 100 units.\n- The idea is disproved 5 units of price away from your intended entry.\n- Size = 100 / 5 = 20 units of the instrument.\n\nMove the invalidation to 10 units away and the size halves to 10. The amount at\nrisk did not change. That is the property worth having: your loss when wrong is a\nnumber you chose in advance rather than one the market handed you afterwards.\n\n## Drawdown\n\nDrawdown is the decline from a previous high in account value. It matters because\nrecovery is not symmetrical with loss — the deeper the hole, the larger the gain\nneeded to climb out of it, and that arithmetic is indifferent to how the hole was\ndug.\n\nA daily loss prompt is a brake, not a challenge. Identity Blueprint guardrails\nseed a default; you may raise it, never ignore it quietly. A limit gets all of\nits value from being set before the day it binds, so that the version of you\nwho is losing does not get to renegotiate with the version who was thinking\nclearly.\n\n## Common mistakes\n\n- Sizing from what the account can afford rather than from where the idea fails.\n- Adding size after a run of winners, which raises the cost of the next loss\n  precisely when the internal case for restraint is weakest.\n- Treating a leverage setting as a risk setting. Leverage changes the margin\n  required to hold a position; it does not change the loss over the invalidation\n  distance.\n- Holding several positions that share one driver and counting them as several\n  independent risks.\n\n## What this is not\n\nThis playbook does not move money. Paper practice lands with the workbook flag on\nthe trade service. Live size is your call, on your rails.\n\n## Before you move on\n\nWrite down two numbers: the fraction of the account you will risk on a single\nidea, and the daily loss at which you stop for the day. In writing, before your\nnext order — not during it.",
+      "objectives": [
+        "State the maximum you are willing to lose on an idea before you look at the entry.",
+        "Derive position size from an invalidation level rather than from conviction.",
+        "Explain why a daily loss limit is a brake rather than a target to reach."
+      ],
+      "keyTerms": [
+        {
+          "term": "Capital preservation",
+          "definition": "Treating the survival of the account as the constraint every other decision fits inside."
+        },
+        { "term": "Drawdown", "definition": "The decline from a previous high in account value, measured over a stated period." },
+        {
+          "term": "Guardrail",
+          "definition": "A pre-set limit that constrains an action, applied by default rather than recalled under pressure."
+        }
+      ],
+      "selfCheck": [
+        "What fraction of the account are you willing to lose on a single idea, and when did you decide it?",
+        "If your invalidation level moves twice as far away, what happens to your position size?",
+        "Which of your limits is enforced by something other than your own memory?"
+      ]
+    },
+    {
+      "slug": "foundations-order-types",
+      "title": "Order types you will actually use",
+      "kind": "lesson",
+      "path": "foundations",
+      "order": 40,
+      "summary": "Market, limit, and stop — plain language, no vendor names.",
+      "body": "# Order types you will actually use\n\nThree order types cover nearly everything a trader needs. The differences between\nthem are not features to compare; they are choices about what you are willing to\nbe uncertain about.\n\nEvery order answers two questions: at what price, and how soon. You may fix one\nof them. Fixing both is what a market exists to arbitrate, and it does not sell\nthat certainty to anybody.\n\n## Market\n\nFill now at whatever the book offers. You fix time and accept price uncertainty.\n\nUse when waiting costs more than the spread — an exit already decided, a stop\nthat must not be renegotiated, a position that has to be flat before something\nscheduled. What you pay is the spread plus whatever the book charges beyond the\nfirst level for your size, which is why depth matters more here than anywhere\nelse.\n\nConfirm before send if your guardrails say so. This is the one type where a slip\nof the finger is expensive immediately rather than eventually.\n\n## Limit\n\nFill only at your price or better. You fix price and accept time uncertainty,\nincluding the real possibility of never trading at all.\n\nUse when the level matters more than the speed. The cost is not zero merely\nbecause no spread was crossed: an order that sits unfilled while the idea works\nis a genuine loss, just an invisible one. Beginners systematically under-count\nit, because unfilled orders leave no mark on a balance and losses that leave no\nmark are easy to stop counting.\n\nA limit that never trades is not a broken screen. It is the book declining your\nprice, which is itself information about what the price is.\n\n## Stop\n\nExit (or enter) when price crosses a level you already chose. A stop is not a\nguarantee of price — it is an instruction to send an order once a level trades.\nWhat arrives next depends on what the book holds at that moment, and where depth\nis thin that can be some distance from the trigger.\n\nWrite the level before you enter; rewriting it mid-trade is how small losses\nbecome large ones. Know which type of order your stop sends, because that decides\nwhether you accept a worse price or risk not exiting at all.\n\n## Choosing, in one line\n\nAsk what you cannot tolerate. Cannot tolerate not trading → immediacy. Cannot\ntolerate a bad price → a named price. Cannot tolerate an open-ended loss → a\nlevel written in advance, and then honoured.\n\n## Common mistakes\n\n- Demanding immediacy out of impatience and calling it decisiveness.\n- Placing a resting order and then chasing it a few units at a time, until you\n  have paid for immediacy in instalments and at a worse average.\n- Assuming a stop guarantees the trigger price.\n- Cancelling a stop because price is \"about to come back\", which converts a\n  decision made calmly into one made under pressure.\n\n## Before you move on\n\nFor your next planned trade, write which type you will use to enter, which to\nexit, and one sentence each on what you accepted being uncertain about.",
+      "objectives": [
+        "Choose between an order demanding immediacy and one naming a price, and say what you gave up.",
+        "Describe what a stop order actually sends when it triggers.",
+        "Write an exit level before entry rather than during the trade."
+      ],
+      "keyTerms": [
+        {
+          "term": "Immediacy",
+          "definition": "Trading now at whatever the book offers, accepting price uncertainty in exchange for certainty of execution."
+        },
+        { "term": "Resting order", "definition": "An order waiting at a named price, which may never trade." },
+        { "term": "Trigger level", "definition": "A price at which an order is sent — not a price at which a fill is guaranteed." }
+      ],
+      "selfCheck": [
+        "When is waiting more expensive than crossing the spread?",
+        "What does your stop send when it triggers, and where did you confirm that?",
+        "Why is rewriting an exit level mid-trade a process failure even when it works out?"
+      ]
+    },
+    {
+      "slug": "markets-reading-the-book",
+      "title": "Reading the book",
+      "kind": "playbook",
+      "path": "markets",
+      "order": 10,
+      "summary": "Depth, spreads, and when a quote is not a promise.",
+      "body": "# Reading the book\n\nA quote is a moment, not a guarantee. Thin books gap; wide spreads are a tax you\npay whether or not you notice.\n\nThe book is the set of resting orders at each price on both sides. It shows what\nparticipants are currently willing to do — and only until they change their\nminds, which they may do faster than you can act on what you saw.\n\n## Depth\n\nLook past the top of book. The best price applies only to the size resting at it.\nA size that looks comfortable against the top line can consume the next three\nlevels the moment you demand immediacy.\n\n### Worked example — illustrative arithmetic only\n\nInvented numbers, to show how an average fill is assembled. Not a quote and not\nan observation of any market.\n\nSuppose the resting offers are 100 units at a price of 50, then 100 units at 51,\nthen 300 units at 53. An immediate buy of 150 units takes 100 at 50 and 50 at 51,\naveraging about 50.33. The same order for 500 units reaches the third level, and\nthe average lands materially above the number displayed at the top.\n\nNothing malfunctioned there. The book did exactly what it advertised. The trader\nwho sized against the top line simply read one row of a document that had\nseveral.\n\n## Spread\n\nThe spread is the distance between the best resting buy and the best resting\nsell. Crossing it is a cost paid on entry and usually again on exit, on every\ntrade, including the losing ones.\n\nA wide spread is not automatically bad — it usually prices genuine uncertainty or\nthin participation. It does mean a strategy that trades often pays it often, and\nany edge has to clear that hurdle before anything is left over for you.\n\n## When the book is empty\n\nAn empty book is a true state, not a rendering failure. The honest response is to\nshow nothing and refuse to trade, rather than interpolate a plausible number. A\nplatform that invents a level to keep a screen looking alive is teaching you to\ntrust a number that nobody was willing to trade at.\n\n## Venue choice\n\nRoute on evidence — fees, depth, and settlement posture — not brand loyalty. When\na venue cannot answer, the platform refuses rather than inventing a fill.\n\n## Common mistakes\n\n- Sizing from the top of book without reading the levels behind it.\n- Treating each snapshot of a fast-moving book as though it were durable.\n- Reading a quiet book as a broken feed, and a broken feed as a quiet book.\n- Comparing venues on headline fees while ignoring what their depth costs you at\n  your actual size.\n\n## Before you move on\n\nFor one instrument you trade, write down how many levels your usual size would\nreach if you demanded immediacy right now, and what that implies for the exit you\nhave planned.",
+      "objectives": [
+        "Read past the top of the book before sizing an order.",
+        "Explain why a quote is a moment rather than a promise.",
+        "Choose a venue on evidence rather than familiarity."
+      ],
+      "keyTerms": [
+        { "term": "Depth", "definition": "The size resting at each price level, which determines what a larger order actually costs." },
+        { "term": "Top of book", "definition": "The best available price on each side, and only the size resting there." },
+        { "term": "Gapping", "definition": "Price moving between levels without trading in between, common where depth is thin." }
+      ],
+      "selfCheck": [
+        "For your usual size, how many levels deep would an immediate order reach?",
+        "What does an empty book tell you, and what would an invented number tell you instead?",
+        "Which evidence — not habit — decides where you route?"
+      ]
+    },
+    {
+      "slug": "builder-first-automation",
+      "title": "First automation, no live capital",
+      "kind": "playbook",
+      "path": "builder",
+      "order": 10,
+      "summary": "Agent guardrails and paper runs before any live rail.",
+      "body": "# First automation, no live capital\n\nAn agent without a kill-switch is not an agent you run. Start paper-only.\n\nAutomation changes the size of a mistake, not its nature. A rule you would apply\nbadly by hand will be applied badly a thousand times, faster, and without the\npause in which you might have noticed.\n\n## Guardrails\n\nIdentity Blueprint writes default limits (leverage ceiling, daily loss prompt,\nconfirm-before-market). Treat them as the starting posture, not a ceiling to race\npast on day one.\n\nA guardrail is real only when something other than your attention enforces it.\nWrite each one as a number the code reads: largest position, most orders per\ninterval, loss at which the run halts itself. If you cannot point at the line\nthat reads the number, you have written an intention rather than a limit.\n\n## Kill-switch\n\nYou must be able to stop the strategy from a surface you control. If you cannot\nname that surface, do not start the run.\n\nName three layers before the first run: the halt inside the application, the stop\nof the process itself, and revocation of whatever credential lets it act. Then\nexercise each against something actually running. A stop that has never been\ntested is decoration, and you learn which kind you own at the worst available\nmoment.\n\n## Start on paper\n\nRun against the platform's paper market path where it is switched on. A paper run\ncosts time and nothing else, and it answers questions no amount of reading will:\nwhat the automation does when data stops arriving, when an action is refused, and\nwhen it restarts holding a position it does not remember opening.\n\nWhere the paper path is off, the honest state is that those paths are untested —\nnot that they work.\n\n## What to watch on the first runs\n\n- **Refusals.** Every one should carry a cause you can read afterwards.\n- **Restarts.** What does it believe about open positions on the way back up?\n- **Duplicates.** Does a retried instruction act twice?\n- **Silence.** Does a stalled data source look identical to a calm market? If so,\n  the automation cannot tell them apart either.\n\n## Common mistakes\n\n- Arming a run because the code compiles and the logic reads correctly.\n- Skipping the paper stage because paper \"is not real\" — which is exactly why it\n  is the right place to be wrong.\n- Letting credentials that can touch real balances travel with a paper run.\n- Reading an absence of errors as evidence, when nothing exercised the failure\n  paths.\n\n## Before you move on\n\nWrite your three stop layers and the numeric limits your code actually enforces.\nThen stop a running instance three ways and record how long each took and what\nwas still outstanding afterwards.",
+      "objectives": [
+        "Refuse to start an automation that has no named stop.",
+        "Treat default guardrails as a starting posture rather than a ceiling to race past.",
+        "Run on a paper path before any live capital is involved."
+      ],
+      "keyTerms": [
+        { "term": "Kill-switch", "definition": "A control that stops an automation, operated from a surface you can reach." },
+        { "term": "Paper run", "definition": "A run against a simulated market, with no live capital and no real balances involved." },
+        {
+          "term": "Default limit",
+          "definition": "A constraint applied before you configure anything, so an unconfigured run is still bounded."
+        }
+      ],
+      "selfCheck": [
+        "Name the exact surface from which you would stop your automation right now.",
+        "Which of your guardrails did you change from the default, and what justified it?",
+        "What has to be true before this automation sees live capital?"
+      ]
+    },
+    {
+      "slug": "sovereign-self-custody-posture",
+      "title": "Self-custody posture",
+      "kind": "lesson",
+      "path": "sovereign",
+      "order": 10,
+      "summary": "What you hold, what the platform holds, and how to check which is which.",
+      "body": "# Self-custody posture\n\nThe platform is multi-rail. Some balances sit in house custody under the ledger;\nsome never leave a wallet you control. Confusing the two is how people mis-size\nrisk.\n\nCustody is not a preference you select from a menu. It is a factual answer to one\nquestion: who can move this, without asking anyone?\n\n## The two postures\n\n**Custodial.** Someone else holds the asset and shows you a balance. What you own\nis a claim. Claims are usually easier to live with — they can be reversed,\nsupported and reconciled — and they depend on the holder remaining both able and\nwilling to honour them.\n\n**Self-custody.** You hold the key. Nobody can move the asset without you, and\nnobody can restore it for you either. Convenience and recourse are what you gave\nup to get that.\n\nNeither posture is superior. They fail in different directions, and the whole\nskill is knowing which failure you signed up for on each balance you hold.\n\n## Ask one question\n\nIf this process dies right now, whose money is stranded and how does it come back?\nIf you cannot answer, do not move the size.\n\nAsk it of a transfer that is half complete, of a settlement in progress, and of a\nlost device. Each has a different answer, and each answer should exist before the\nday you need it.\n\n## Obligations follow custody\n\nWhere a platform holds the asset, verification and limits attach to it, because\nholding someone else's value carries duties that do not evaporate because a\nscreen is convenient. Where the platform never holds it, those obligations have\nnothing to attach to.\n\nThat is why requirements differ between surfaces — not preference, and not a\nsetting anyone can flip for you on request. Treat any offer to bypass one as a\ndescription of who you are dealing with.\n\n## No partner names\n\nYour rails, your labels. Third-party brand names do not appear in Academy copy.\n\n## Common mistakes\n\n- Reading a displayed balance as proof of possession.\n- Keeping one backup of a key, in one place, and calling it a backup.\n- Assuming a transfer on a self-custody rail can be reversed by contacting\n  somebody.\n- Practising a recovery for the first time during an actual emergency.\n\n## Before you move on\n\nList every balance you hold. Beside each, write who can move it without asking\nyou, and what you would still have if that party became unreachable tomorrow.",
+      "objectives": [
+        "Classify each balance you hold as custodial or self-custody.",
+        "Answer the stranded-funds question for any transfer you are about to make.",
+        "Recognise that obligations follow custody rather than preference."
+      ],
+      "keyTerms": [
+        { "term": "Custody", "definition": "Who actually holds an asset and can move it, as distinct from who is shown a balance." },
+        { "term": "Stranded funds", "definition": "Value left in an indeterminate state because a process failed part-way through." },
+        {
+          "term": "Multi-rail",
+          "definition": "Holding value across several settlement systems, each with its own rules and failure modes."
+        }
+      ],
+      "selfCheck": [
+        "For your largest balance: who holds it, and what would you have if they became unavailable?",
+        "If a transfer you are planning died half-way, whose funds are stranded?",
+        "Which of your balances have you never actually classified?"
+      ]
+    },
+    {
+      "slug": "foundations-paper-workbook",
+      "title": "Paper practice drills",
+      "kind": "workbook",
+      "path": "foundations",
+      "order": 70,
+      "summary": "Drills for sizing, cancelling and honouring an exit — paper only, nothing moves value.",
+      "body": "# Paper practice drills\n\nDrills for the mechanics of placing, cancelling and honouring an order. Each one\nstates a task, a rule you must not break, and something checkable afterwards.\n\nNothing here moves value. Drills that need execution require the platform's paper\nmarket path to be switched on — that flag is owned by the trade service and is\nnot set from here. Where it is off, the drill stops at the written artifact\nrather than pretending to have run.\n\n## Drill 1 — size from an invalidation level\n\nChoose an instrument and write, in this order: the level at which the idea is\ndisproved, the distance from your intended entry to that level, the amount you\naccept losing, and only then the size that arithmetic gives you.\n\n**The rule you must not break:** the size line is written fourth. If you knew the\nsize before writing the distance, start the sheet again.\n\n**Check yourself:** repeat with the invalidation twice as far away. The size\nshould fall to roughly half. If it did not, one of the first three lines was\nchosen to protect the fourth.\n\n## Drill 2 — place a resting order that does not trade, then cancel it\n\nPlace an order at a price the market is not currently offering, leave it alone,\nthen cancel it and confirm it is gone from your working orders.\n\n**The rule you must not break:** confirm the cancel; never assume it. A request\nis not a state.\n\n**Check yourself:** you can say where you saw the confirmation, and your\nworking-order list is empty.\n\n## Drill 3 — honour an exit you wrote first\n\nWrite an exit level before entry. Take the position on the paper path, and when\nthe level is reached, act on it without renegotiating.\n\n**The rule you must not break:** the level does not move once the position\nexists. If you moved it, the drill failed — including when the outcome was\npleasant, because a process that only fails when you are punished is not a\nprocess.\n\n**Check yourself:** the level in your notes before entry matches the level you\nacted on.\n\n## Drill 4 — cost the round trip\n\nFor one completed paper trade, write down every cost between entry and exit: the\ndistance you crossed on each side, and any fee the platform states. Subtract the\ntotal from the raw result.\n\n**The rule you must not break:** an unknown cost is recorded as unknown, never as\nzero.\n\n**Check yourself:** your net figure is worse than your raw figure, and you can\nname each item that made it so.\n\n## Drill 5 — the trade you did not take\n\nFind one setup you decided against and write the sheet anyway: invalidation,\ndistance, size, exit. Then note what happened afterwards.\n\n**The rule you must not break:** write the sheet before you look at the outcome.\n\n**Check yourself:** you have at least one entry per week where the answer was no.\nA journal containing only trades you took is a record of your enthusiasm, not of\nyour judgement.\n\n## What this workbook deliberately does not do\n\nIt produces no fills of its own, holds no balance, and awards no progress.\nSimulated execution belongs to the paper market path; certification and any\nreward for completing work belong to the certification path. Both are owned\nelsewhere and neither is invented here.",
+      "objectives": [
+        "Size an entry from an invalidation level rather than from an available balance.",
+        "Place and cleanly cancel an order that does not trade.",
+        "Respect an exit level that was written before entry."
+      ],
+      "keyTerms": [
+        { "term": "Paper market", "definition": "A simulated market flagged as such by the trade service, where no value moves." },
+        { "term": "Clean cancel", "definition": "An order confirmed as gone from working orders, not merely requested for cancellation." },
+        { "term": "Drill", "definition": "A rehearsed exercise with a rule that must not be broken and a checkable outcome." }
+      ],
+      "selfCheck": [
+        "Did you write the invalidation before the order existed?",
+        "Did you confirm the cancel, or only request it?",
+        "When the exit level was reached, did you take it without renegotiating?"
+      ]
+    },
+    {
+      "slug": "foundations-position-sizing",
+      "title": "Position sizing without inventing numbers",
+      "kind": "playbook",
+      "path": "foundations",
+      "order": 30,
+      "summary": "Size from invalidation distance and account risk — never from a green candle.",
+      "body": "# Position sizing without inventing numbers\n\nSize is not a feeling. It is arithmetic you can do before you have an opinion\nabout direction, and it is the only part of a trade you fully control.\n\n## The three inputs\n\n1. **Account risk** — the fraction of the account you accept losing if this idea\n   is wrong. Choose it once, in advance, for a whole class of trades, so that it\n   is not being chosen by your mood on the day.\n2. **Invalidation distance** — how far price must travel against you before the\n   idea is disproved. This comes from structure, not from what you can afford.\n3. **Instrument mechanics** — what one unit of the instrument gains or loses per\n   unit of price movement, plus the fees and financing that attach to holding it.\n\nSize is the output, not an input: account risk divided by the loss per unit over\nthe invalidation distance.\n\n## Worked example — illustrative arithmetic only\n\nThe numbers below are invented to show the arithmetic. They are not a quote, an\nobservation, or a result anyone achieved.\n\n- Account: 10,000 units of the quote currency.\n- Account risk chosen in advance: 1 percent, so 100 units.\n- The idea is disproved 4 units of price away from entry.\n- Position size = 100 / 4 = 25 units of the instrument.\n\nNotice what never appeared: a target, a conviction score, or how the last trade\nwent. Double the invalidation distance and the size halves. That is the whole\nmechanism, and it is the same mechanism at every account size.\n\n## Why \"invent\" is in the title\n\nThe failure mode is deciding size first — because it feels right, because it\nworked last time, because the balance looks healthy today — and then hunting for\nan invalidation level that justifies it. That reverses the arithmetic and\nquietly converts a risk budget into a wish.\n\n## Leverage is not size\n\nLeverage changes the margin required to hold a position. It does not change what\nyou lose if the idea is wrong, which is still the invalidation distance times the\nsize. Treating a leverage setting as a risk setting is one of the more expensive\ncategory errors available, because it feels like a decision about risk while\nleaving actual risk untouched.\n\n## Common mistakes\n\n- Sizing from the account balance rather than from the distance to invalidation.\n- Widening the invalidation after entry so the position survives. The risk\n  budget was spent the moment you did that.\n- Ignoring fees and financing, which are part of the cost of being wrong.\n- Using one account-risk fraction for ideas of very different quality without\n  ever writing down what distinguishes them.\n\n## Before you move on\n\nWrite down the account-risk fraction you will use and one instrument's\nmechanics. Compute the size for two different invalidation distances and confirm\nthe two sizes differ. Where the platform's paper market path is switched on,\npractise there. Nothing in this item moves value.",
+      "objectives": [
+        "Compute a position size from account risk and invalidation distance.",
+        "Explain why leverage is a margin setting rather than a risk setting.",
+        "Detect the reversed arithmetic of picking a size and then justifying a stop."
+      ],
+      "keyTerms": [
+        { "term": "Account risk", "definition": "The fraction of the account you accept losing on one idea, chosen in advance." },
+        { "term": "Invalidation distance", "definition": "How far price must move against you before the idea is disproved." },
+        {
+          "term": "Leverage",
+          "definition": "A change to the margin required to hold a position; it does not change the loss if the idea fails."
+        }
+      ],
+      "selfCheck": [
+        "Your account risk is a fixed amount and the invalidation distance doubles. What happens to size?",
+        "Why is sizing from the account balance rather than the invalidation distance a mistake?",
+        "Which costs belong in the cost of being wrong, besides the price move itself?"
+      ]
+    },
+    {
+      "slug": "foundations-journal-discipline",
+      "title": "Trade journal discipline",
+      "kind": "playbook",
+      "path": "foundations",
+      "order": 60,
+      "summary": "What you write before and after a trade so the next one is not amnesia.",
+      "body": "# Trade journal discipline\n\nA journal is not a diary. It is the instrument that turns a sequence of trades\ninto evidence about your process, and it only works if entries are written at\nthe times that make them falsifiable.\n\n## Write before, not only after\n\nThe pre-trade entry carries almost all of the value, because it is the only one\nwritten while the outcome is still unknown. Before the order, record:\n\n- **Thesis** — one sentence naming what you think is happening and why.\n- **Invalidation** — the level or condition that proves the thesis wrong.\n- **Size and account risk** — the number, and the fraction of the account it is.\n- **Exit plan** — how you leave if right, and how you leave if wrong.\n- **Why now** — what changed that makes this the moment rather than last week.\n\nIf a line is hard to write, that difficulty is itself information. A thesis you\ncannot state in one sentence is usually several theses wearing one coat, or none.\n\n## Write after, honestly\n\nThe post-trade entry records what the market did, not how you felt about it:\nwhat filled, at what cost relative to plan, whether the invalidation was\nrespected, and whether you followed your own exit plan.\n\nSeparate outcome from process. A trade can be well executed and lose. A trade\ncan be badly executed and win. Grading by outcome alone teaches you the wrong\nlesson from both, and it teaches the wrong lesson most confidently after a win.\n\n## The forbidden edit\n\nNever rewrite a thesis after the fact so that it matches the result. This is the\nsingle most common way a journal becomes useless: it stops being a record and\nbecomes a highlight reel that invents skill you did not demonstrate. If your\ntooling allows editing past entries, append a correction rather than overwrite,\nso the original claim survives next to what actually happened.\n\n## What to review, and when\n\nReview on a schedule, not in the emotional aftermath of a painful trade. You are\nlooking for repeats: the same invalidation ignored, the same instrument, the same\nhour of day, the same \"why now\" that keeps not mattering.\n\nOne repeated mistake found is worth more than a hundred rows of well-formatted\ndata. If your review never changes anything you do, it is a filing exercise.\n\n## Fields that earn their place\n\nKeep the journal small enough that you actually fill it in. Every field should be\none you have used to change a decision. A schema nobody completes produces\nnothing; five fields completed every time produce evidence.\n\n## Before you move on\n\nWrite a complete pre-trade entry for an idea you are deliberately not going to\ntake. It costs nothing and immediately shows which of the five lines you cannot\nyet fill in.",
+      "objectives": [
+        "Write a pre-trade entry containing thesis, invalidation, size, exit plan and why now.",
+        "Grade a trade on process separately from outcome.",
+        "Append corrections rather than overwrite an original thesis."
+      ],
+      "keyTerms": [
+        { "term": "Pre-trade entry", "definition": "The record written before the order, while the outcome is still unknown." },
+        { "term": "Process grade", "definition": "An assessment of whether the plan was followed, independent of whether it profited." },
+        {
+          "term": "Retroactive edit",
+          "definition": "Changing a past record so that it matches the result — the failure this item exists to prevent."
+        }
+      ],
+      "selfCheck": [
+        "Which of the five pre-trade lines do you consistently leave blank?",
+        "Name a trade that was well executed and lost. What did you learn from it?",
+        "Has your last review changed anything you actually do?"
+      ]
+    },
+    {
+      "slug": "markets-spread-and-slippage",
+      "title": "Spread and slippage honesty",
+      "kind": "playbook",
+      "path": "markets",
+      "order": 30,
+      "summary": "When the book is thin, the fill is not the mid you stared at.",
+      "body": "# Spread and slippage honesty\n\nTwo different execution costs routinely get blamed on each other. Separating\nthem is the first step to knowing what your execution actually costs you.\n\n## Spread\n\nThe spread is the gap between the best price at which someone will buy and the\nbest price at which someone will sell. Crossing it is the price of immediacy:\nyou pay it the moment you demand a fill instead of waiting for one. It is a real\ncost even though no statement line names it.\n\n## Slippage\n\nSlippage is the difference between the price you expected and the price you\nreceived. It has two ordinary causes, and they are not the same problem:\n\n1. **Depth** — your order is larger than the size resting at the best level, so\n   it consumes the next levels too. This is arithmetic, and it is predictable if\n   you look at the book before sending.\n2. **Movement** — the market moved between your decision and your fill. This is\n   latency and volatility, and no order type removes it entirely.\n\nConflating them leads to the wrong fix. Depth slippage is solved by sizing and\nsplitting; movement slippage is not.\n\n## Worked example — illustrative arithmetic only\n\nInvented numbers, to show the mechanism rather than any real book.\n\nSuppose you want 100 units, and the resting sizes available as you go up through\nthe book are 40 units at one level, 30 at the next, and 30 at the next, each a\nlittle worse than the one before. An order demanding immediate execution takes\nall three, and your average cost sits above the best level you were looking at\nwhen you decided.\n\nNothing malfunctioned. You bought more than the top of the book was offering, and\nthe arithmetic did what arithmetic does.\n\n## A midpoint is not a tradeable price\n\nA midpoint is a computed average of two sides. It is useful as a reference and it\nis not an offer from anyone. Building a plan off the midpoint and then being\nsurprised by the fill is a category error rather than bad luck, and it is one\nthat scales badly: the wider the spread, the more the midpoint lies to you.\n\n## Reduce what you can, accept what you cannot\n\n- Use a resting order when the level matters more than the speed, and accept it\n  may never trade.\n- Split a large order when depth, not urgency, is the binding constraint.\n- Treat a wide spread as information about conditions, not as an obstacle to\n  push through harder.\n- When the book is empty, that is a true state. An interface showing nothing is\n  being honest. A number invented to fill the space would not be, and you would\n  size off it.\n\n## Before you move on\n\nFor one instrument, write down what you would expect to pay in spread for\nimmediate execution, and separately what depth you would need for an order twice\nyour usual size. Then look at the book and check whether it is there.",
+      "objectives": [
+        "Distinguish spread cost from slippage, and depth slippage from movement slippage.",
+        "Explain why a midpoint is a reference rather than a tradeable price.",
+        "Choose between splitting an order and accepting immediacy, on the correct grounds."
+      ],
+      "keyTerms": [
+        { "term": "Spread", "definition": "The gap between the best buying and best selling price; the cost of demanding immediacy." },
+        { "term": "Slippage", "definition": "The difference between the price you expected and the price you received." },
+        { "term": "Midpoint", "definition": "A computed average of two sides — a reference, not an offer from anyone." }
+      ],
+      "selfCheck": [
+        "Your fill was worse than expected. Which of the two causes was it, and how do you know?",
+        "Which cause does splitting an order address, and which does it not?",
+        "What is the honest display when the book is empty?"
+      ]
+    },
+    {
+      "slug": "markets-session-structure",
+      "title": "Session structure",
+      "kind": "playbook",
+      "path": "markets",
+      "order": 40,
+      "summary": "Open, mid, and close behaviours without inventing a regime label.",
+      "body": "# Session structure\n\nLiquidity is not constant through a day, and neither is the meaning of a given\nmove. Session structure is the habit of asking *when* before asking *what*.\n\n## Why time of day changes the read\n\nParticipation changes as different groups of participants become active or go\nquiet. When fewer participants are quoting, the same order moves price further,\nspreads tend to widen, and a move can look decisive while resting on very\nlittle. When more are quoting, a larger order may move price less.\n\nThe practical consequence: identical price behaviour can mean different things\ndepending on how much was behind it. A chart that shows only price hides the\nvariable that changes the interpretation.\n\n## Opens, middles and closes\n\n- **Around an open**, activity and volatility are commonly elevated as\n  information accumulated while the market was quiet gets absorbed. Ranges set\n  here are frequently revisited later.\n- **In the middle of a session**, activity often settles. A breakout here needs\n  more evidence, because there is less participation available to sustain it.\n- **Toward a close**, flow can be driven by position management rather than fresh\n  opinion — a move that says more about who needs to be flat than about what\n  anything is worth.\n\nTreat these as tendencies to verify on the instruments you actually trade, not\nas laws. Markets differ, and an instrument that trades continuously has a\ndifferent structure again, with its own quiet hours rather than a formal close.\n\n## Observe before you name\n\nThe discipline is: watch your instrument across sessions, record what you see,\nand only then attach a label. A regime name adopted from someone else's market\nis a borrowed conclusion. If you cannot point at your own observations behind a\nlabel, you are pattern-matching a story rather than reading a market.\n\n## A calendar is not law\n\nScheduled events change participation, and knowing one is coming is useful.\nImporting someone else's event calendar and treating it as platform truth is\nnot — it is an unverified input arriving with authority it has not earned. Note\nwhat you have confirmed matters for your instruments, and hold the rest lightly.\n\n## Common mistakes\n\n- Comparing volatility across sessions without adjusting for participation.\n- Sizing identically at every hour of the day.\n- Assuming a quiet book is a safe book. For exits it is usually the opposite.\n- Concluding from a handful of sessions. Tendencies need a record, not an anecdote.\n\n## Before you move on\n\nPick one instrument and record, across five sessions, when spreads were widest\nand when the largest moves happened. Do not conclude anything yet — build the\nrecord you will later reason from.",
+      "objectives": [
+        "Ask when a move happened before interpreting what it means.",
+        "Adjust expectations for spread and impact according to participation.",
+        "Build your own record before adopting a regime label."
+      ],
+      "keyTerms": [
+        { "term": "Participation", "definition": "How many participants are actively quoting and trading at a given time." },
+        { "term": "Session", "definition": "A period of a market day with its own characteristic participation and behaviour." },
+        {
+          "term": "Borrowed conclusion",
+          "definition": "A label adopted from someone else’s market without observations of your own behind it."
+        }
+      ],
+      "selfCheck": [
+        "Why can the same price move mean different things at different hours?",
+        "What did your own five-session record show about when spreads were widest?",
+        "Which of your current beliefs about \"the open\" came from your own observations?"
+      ]
+    },
+    {
+      "slug": "builder-kill-switch-drill",
+      "title": "Kill-switch drill",
+      "kind": "playbook",
+      "path": "builder",
+      "order": 30,
+      "summary": "Prove you can stop a run from a surface you control.",
+      "body": "# Kill-switch drill\n\nA stop you have never tested is decoration. This item is about converting \"I\ncould stop it\" into a rehearsed, timed action.\n\n## Name the surface first\n\nBefore an automation starts, write down exactly how you will stop it: which\ncontrol, which command, which credential you would revoke. If the answer is \"I\nwould figure it out\", the run does not start. Under stress you will not figure it\nout — you will do whatever you have already practised.\n\n## The three layers\n\nA single stop is a single point of failure. Real automations have layers, each of\nwhich works when the one above it is unavailable:\n\n1. **Application stop** — the automation's own halt path. Fastest, and the first\n   to be useless if the process is wedged.\n2. **Process stop** — ending the runtime that hosts it. Works when the\n   application itself is unresponsive.\n3. **Credential stop** — revoking the keys or permissions it acts with. Works\n   even when the process is beyond your control entirely, including on a machine\n   you cannot reach.\n\nThe third layer is the one people skip and the one that matters on the day a\nhost is unreachable. It is also the only layer that still works if the\nautomation is running somewhere you did not expect.\n\n## Decide what \"stopped\" means\n\nStopping the decision loop is not the same as being flat. Decide in advance, and\nwrite down, which of these your kill-switch performs:\n\n- Stop opening new positions and leave existing ones alone.\n- Stop opening new positions and cancel resting orders.\n- Do both, and close open positions as well.\n\nEach is a legitimate choice with different consequences. Not having chosen is not\na choice, it is a surprise waiting for a bad moment.\n\n## The drill\n\nRun this against the platform's paper market path where it is switched on, and\nrepeat it whenever the automation changes:\n\n1. Start the automation and let it reach a normal working state.\n2. Trigger the application stop. Time it. Record what remained outstanding.\n3. Restart, then trigger the process stop. Confirm nothing restarts it for you.\n4. Restart, then revoke the credential. Confirm the automation cannot act.\n5. Write down each elapsed time and everything still outstanding at the end.\n\n## Common mistakes\n\n- A stop that requires the automation to be healthy in order to work at all.\n- A supervisor that helpfully restarts the process you just stopped.\n- Credentials cached somewhere the revocation does not reach.\n- Never repeating the drill after changing the code, so the measured times\n  describe a version that no longer exists.\n\n## Before you move on\n\nWrite the three layers for one automation you actually run, with the elapsed time\nyou measured for each. Any blank line is a layer that does not exist yet.",
+      "objectives": [
+        "Name three independent stop layers for an automation you run.",
+        "Decide in advance what \"stopped\" means for your automation.",
+        "Measure and record how long each stop actually takes."
+      ],
+      "keyTerms": [
+        { "term": "Application stop", "definition": "The automation’s own halt path — fastest, and useless if the process is wedged." },
+        {
+          "term": "Credential stop",
+          "definition": "Revoking the keys an automation acts with; works even when the process is beyond reach."
+        },
+        { "term": "Flat", "definition": "Holding no open position — distinct from having merely stopped making decisions." }
+      ],
+      "selfCheck": [
+        "Which of your three layers still works if the host is unreachable?",
+        "Does your kill-switch leave open positions alone, cancel resting orders, or close everything?",
+        "When did you last measure the elapsed time for each layer?"
+      ]
+    },
+    {
+      "slug": "builder-logs-not-vibes",
+      "title": "Logs not vibes",
+      "kind": "playbook",
+      "path": "builder",
+      "order": 50,
+      "summary": "What an automation must record so a human can audit it later.",
+      "body": "# Logs not vibes\n\n\"It seemed to be working\" is not a claim anyone can check, including you next\nmonth. An automation that cannot be audited is one you cannot improve, because\nyou have no way to tell which change helped.\n\n## What a decision record contains\n\nEvery action should be reconstructable afterwards from what the system wrote at\nthe time:\n\n- **When** — a timestamp with a timezone, from a clock you trust.\n- **Inputs** — the data the decision was based on, as received.\n- **The rule that fired** — which condition matched, and its version.\n- **The intended action** — what it decided to do.\n- **The result** — what actually happened, including refusals and errors.\n- **A correlation id** — one identifier tying these together across services.\n\nThe gap between intended action and result is where most real defects live. A log\nthat records only one of the two hides exactly the thing you need, and it hides\nit in a way that looks complete.\n\n## Log refusals as loudly as actions\n\nA system that logs successes and stays silent on refusals produces a record in\nwhich nothing ever went wrong. Silence becomes indistinguishable from \"never\nran\", and a guard that is quietly failing open looks identical to a guard that is\nworking perfectly.\n\nWhen a control blocks an action, that is an event with a cause, and it belongs in\nthe record with the cause attached.\n\n## Retries belong in the record\n\nRetries are normal, because at-least-once delivery is the ordinary case. If a\nretried action is not recorded under the same business key as the original, the\nlog will show two actions where one occurred, and every count derived from it\nwill be wrong in a direction that looks like success.\n\n## What not to log\n\nAuditability is not a licence to store everything. Secrets, credentials and\npersonal data do not belong in logs. Record a reference to the thing rather than\nthe thing itself. \"Missing logs are not privacy\" and \"logs are a fine place for\nsecrets\" are both wrong, and the second is the more expensive of the two.\n\n## Sampling\n\nUnder load, sampling keeps logging affordable. Decide deliberately what is never\nsampled away: refusals, errors, and anything on a path that moves value. A\nfailure that was sampled out is a failure you will not find, and you will not\nknow it is missing.\n\n## Before you move on\n\nTake one action your automation performed recently and reconstruct it end to end\nfrom logs alone — not from memory, and not by re-reading the source. Every\nquestion you cannot answer names a field that is missing.",
+      "objectives": [
+        "Record the six fields that make an action reconstructable afterwards.",
+        "Log refusals with causes, not only successful actions.",
+        "Decide deliberately what is never sampled away."
+      ],
+      "keyTerms": [
+        { "term": "Correlation id", "definition": "One identifier tying the parts of a single operation together across services." },
+        {
+          "term": "Business key",
+          "definition": "An identifier a retry reproduces, so a duplicate finds the original rather than creating a second record."
+        },
+        {
+          "term": "Sampling",
+          "definition": "Recording a fraction of events to control volume — safe only where the exclusions are chosen deliberately."
+        }
+      ],
+      "selfCheck": [
+        "Which two of the six fields would you most likely find missing in your own logs?",
+        "Why does a log without refusals look identical to a system that never ran?",
+        "What does your sampling policy never drop, and who decided that?"
+      ]
+    },
+    {
+      "slug": "sovereign-rail-map",
+      "title": "Rail map",
+      "kind": "playbook",
+      "path": "sovereign",
+      "order": 30,
+      "summary": "Custodial ledger vs self-custody rails — ask who holds the keys.",
+      "body": "# Rail map\n\nBefore you can reason about risk you have to know who is holding what. A rail map\nis a written inventory that answers that question for every balance you have.\n\n## The question, asked precisely\n\nFor each balance, answer three things:\n\n1. **Who holds it?** A platform holding it on your behalf, or a wallet whose keys\n   only you control.\n2. **What does it take to move it?** Your signature alone, a platform approval,\n   or both together.\n3. **If the holder disappeared right now, what would you have?** A claim you would\n   have to make, or an asset you could still move yourself.\n\nThe third question separates a balance you own from a balance you are owed. Both\nare legitimate positions to hold. Confusing them is not, and the confusion only\never surfaces at the worst possible time.\n\n## Custodial rails\n\nWhen a platform holds the asset, your balance is a record in that platform's\nbook. The upside is operational: recovery paths, netting, and somebody to\ninvestigate when an operation goes wrong.\n\nObligations follow custody. A platform that holds assets on your behalf, or that\ntouches regulated payment rails for you, carries verification and jurisdiction\nrules as a consequence. That is where limits and tiers come from — they are\ndownstream of custody, not a policy preference someone chose.\n\n## Self-custody rails\n\nWhen you hold the keys, no operator can freeze, reverse or lose your position for\nyou. That is the entire point, and it is also the entire liability: an\nirreversible transfer to a wrong destination stays wrong, and there is no support\nqueue that can undo it. Key management stops being a chore and becomes the asset\nitself.\n\n## Draw the map\n\nWrite one row per balance: the holder, what it takes to move it, and the recovery\npath if something fails mid-move. Include the boring rows. The ones you did not\nthink were worth writing down are reliably where a surprise is living.\n\n## The failure question\n\nFor any transfer that crosses between rails, ask: if this process dies exactly\nhere, whose funds are stranded and how do they come back? If you cannot answer,\nyou do not yet understand the rail well enough to use it at size. \"Someone will\nsort it out\" is not an answer; it is the absence of one.\n\n## Before you move on\n\nComplete the map for every balance you currently hold and mark each row custodial\nor self-custody. Any row you cannot classify is the next thing to go and learn.",
+      "objectives": [
+        "Classify every balance you hold by holder, by what moves it, and by what survives holder failure.",
+        "Answer the stranded-funds question before any cross-rail transfer.",
+        "Explain why verification requirements follow custody."
+      ],
+      "keyTerms": [
+        { "term": "Rail", "definition": "A settlement system through which value moves, each with its own rules and failure modes." },
+        { "term": "Custodial balance", "definition": "A record in an operator’s book representing value they hold on your behalf." },
+        {
+          "term": "Claim",
+          "definition": "What you hold when an operator holds the asset — a right to receive rather than the asset itself."
+        }
+      ],
+      "selfCheck": [
+        "For each balance you hold: claim, or asset you could still move yourself?",
+        "Which rows of your map did you have to guess at?",
+        "For your next cross-rail transfer, where exactly could it strand?"
+      ]
+    },
+    {
+      "slug": "sovereign-withdrawal-hygiene",
+      "title": "Withdrawal hygiene",
+      "kind": "playbook",
+      "path": "sovereign",
+      "order": 50,
+      "summary": "Address check, small test send, no urgency theatre.",
+      "body": "# Withdrawal hygiene\n\nMost withdrawal losses are not sophisticated attacks. They are ordinary mistakes\nmade quickly, on transfers that cannot be reversed.\n\n## Verify the destination independently\n\nDestination substitution is a well-known class of attack: something between you\nand the screen replaces the destination after you copy it. The defence is\nindependence — confirm the destination through a channel that would not be\ncompromised by whatever compromised the first one, and check the whole string\nrather than the first and last few characters, because matching only the ends is\nexactly what the attack is built to defeat.\n\n## Match the network, not just the destination\n\nA destination that looks valid may belong to a different network than the one you\nare sending on. Value sent on the wrong network is frequently unrecoverable even\nwhen everything else about the transfer was correct. Confirm the network on both\nsides before you confirm the amount.\n\n## Test small, then send\n\nFor any destination you have not used before: send a small amount, confirm it\narrives and is credited as expected, and only then send the rest. The test costs\na fee. The alternative costs the balance.\n\n## Urgency is the attack\n\nNearly every social-engineering script needs you to act before you check: a\nclosing window, a threat, an account about to be suspended, a helpful stranger\nwalking you through it step by step. Real operational problems survive a\nten-minute pause.\n\nTreat imposed urgency as the warning sign in itself, independent of how plausible\nthe story attached to it is. The story is the part they practised.\n\n## Nobody legitimate needs your keys\n\nNo support process requires your private keys or recovery phrase. There is no\nexception, no verification step and no emergency that changes this. Anyone asking\nhas ended the conversation for you.\n\n## Build a routine\n\nSame order, every time: destination verified independently, network matched, test\nsend, confirmation, then the remainder. A routine you always follow is what\nprotects you on the day you are tired, distracted, or being deliberately rushed —\nwhich is the day it will matter.\n\n## Common mistakes\n\n- Matching only the first and last characters of a destination instead of the whole string.\n- Treating imposed urgency as a reason to skip the independent check.\n\n## Before you move on\n\nWrite your withdrawal checklist and put it where you will actually see it at the\nmoment of sending, rather than in a document you would have to remember to open.",
+      "objectives": [
+        "Verify a destination through an independent channel before sending.",
+        "Match the network as deliberately as the destination.",
+        "Treat imposed urgency as the warning sign, independent of the story."
+      ],
+      "keyTerms": [
+        {
+          "term": "Destination substitution",
+          "definition": "An attack that replaces a copied destination between the source and your screen."
+        },
+        { "term": "Test send", "definition": "A small first transfer to a new destination, confirmed before the remainder follows." },
+        {
+          "term": "Recovery phrase",
+          "definition": "The secret that reconstructs your keys — never required by any legitimate support process."
+        }
+      ],
+      "selfCheck": [
+        "Why is checking the first and last few characters insufficient?",
+        "Which pauses in your routine would a rushed request try to remove?",
+        "What is the correct response to any request for your recovery phrase?"
+      ]
+    },
+    {
+      "slug": "markets-tape-reading-workbook",
+      "title": "Tape reading workbook",
+      "kind": "workbook",
+      "path": "markets",
+      "order": 60,
+      "summary": "Drills for reading public prints without inventing volume or an aggressor side.",
+      "body": "# Tape reading workbook\n\nA workbook is drills, not reading. Each drill below states a task, a rule you\nmust not break, and something you can check afterwards to know whether you did\nit honestly.\n\nEvery drill here is observation or a paper exercise. Nothing moves value.\nSimulated execution requires the platform's paper market path to be switched on;\nwhere it is off, the drill stops at observation. That is the honest state, not a\ndegraded one.\n\n## What the tape is\n\nThe tape is the sequence of completed transactions: what traded, how much, and\nwhen. It is a record of what has already happened, and it is distinct from the\nresting orders that show what participants are currently willing to do. Reading\none and describing the other is the most common beginner error, so keep the two\ncolumns separate on your sheet.\n\n## Drill 1 — record what is actually there\n\nWatch one instrument for fifteen minutes and record only completed transactions:\ntime, size, and whether the record carried an aggressor side.\n\n**The rule you must not break:** where the feed does not tell you which side was\nthe aggressor, write \"unknown\". Do not infer it from the direction of price.\n\n**Check yourself:** your sheet contains the word \"unknown\" at least once, or you\ncan state exactly how this feed marks the aggressor.\n\n## Drill 2 — silence is a reading\n\nContinue with the same instrument through a period in which nothing trades.\nRecord the gap: when it began and how long it lasted.\n\n**The rule you must not break:** a quiet period is data. Do not fill it with an\ninterpolated value, and do not treat a still interface as a broken one.\n\n**Check yourself:** you can state the length of the longest gap you recorded.\n\n## Drill 3 — size in context\n\nReturn to your Drill 1 sheet and mark the largest transactions. Then answer in\nwriting: were they large compared with the rest of this session, or only large\ncompared with your own usual order?\n\n**The rule you must not break:** \"large\" is relative to the record you collected,\nnot to a number you remember from somewhere else.\n\n**Check yourself:** your written answer cites rows from your own sheet.\n\n## Drill 4 — a claim and its evidence\n\nWrite one sentence describing what participants appeared to be doing, and beneath\nit list the specific rows that support it. Then write the strongest case against\nyour own sentence.\n\n**The rule you must not break:** every claim cites rows. A sentence with no rows\nbeneath it gets deleted rather than defended.\n\n**Check yourself:** you were able to write the counter-case. If you could not,\nthe original sentence was probably a story rather than a reading.\n\n## Drill 5 — paper only, where the path is on\n\nWhere the platform's paper market path is enabled, repeat Drill 4 and then place\na paper order consistent with your written claim, including the invalidation you\nwrote before sending it.\n\n**The rule you must not break:** no live capital, and no order without an\ninvalidation written first. Where the paper path is off, this drill is skipped\nrather than simulated by hand.\n\n**Check yourself:** the invalidation existed in writing before the order did.\n\n## What this workbook deliberately does not do\n\nIt does not score you, award progress, or produce fills of its own. Simulated\nexecution belongs to the platform's paper market path, and certification and any\nreward for completing work belong to the certification path. Both are owned\nelsewhere and neither is invented here.",
+      "objectives": [
+        "Record completed transactions without inferring an aggressor side that the feed did not carry.",
+        "Treat a period of silence as data rather than as a broken interface.",
+        "Support every claim about participant behaviour with rows from your own record."
+      ],
+      "keyTerms": [
+        { "term": "Tape", "definition": "The sequence of completed transactions — what traded, how much, and when." },
+        {
+          "term": "Aggressor side",
+          "definition": "Which side initiated a transaction, where the feed records it and unknown where it does not."
+        },
+        { "term": "Counter-case", "definition": "The strongest argument against your own reading, written before you rely on the reading." }
+      ],
+      "selfCheck": [
+        "How does this feed mark the aggressor side, and what do you write when it does not?",
+        "What was the longest quiet period you recorded, and what did you do with it?",
+        "Could you write the counter-case to your own Drill 4 claim?"
+      ]
+    },
+    {
+      "slug": "builder-automation-workbook",
+      "title": "Automation checklist workbook",
+      "kind": "workbook",
+      "path": "builder",
+      "order": 60,
+      "summary": "Drills that must each produce a written artifact before an automation is armed.",
+      "body": "# Automation checklist workbook\n\nDrills for the hour before an automation is armed. Each produces a written\nartifact; where the artifact does not exist, the item is not done.\n\nNothing here moves value. Where a drill needs simulated execution it requires the\nplatform's paper market path to be switched on; where that path is off, the drill\nstops at the written artifact rather than pretending to have run.\n\n## Drill 1 — write the mandate\n\nIn one paragraph, state what the automation is allowed to do: which instruments,\nwhich actions, which hours, and the largest position it may hold.\n\n**The rule you must not break:** anything not written here is not permitted. A\nmandate that says \"trade sensibly\" permits everything.\n\n**Check yourself:** someone else could read your paragraph and decide whether a\ngiven action was inside it, without asking you.\n\n## Drill 2 — write the limits as numbers\n\nConvert the mandate into hard numbers the code enforces, rather than intentions\nyou hold: maximum position, maximum orders per interval, maximum loss before it\nhalts itself.\n\n**The rule you must not break:** each limit names the code path that enforces it.\nA limit nothing reads is a hope with a number attached.\n\n**Check yourself:** for every number you can point at the line that reads it.\n\n## Drill 3 — name and test the stop\n\nWrite the three stop layers — application halt, process stop, credential\nrevocation — then execute each against a running instance, recording how long it\ntook and what remained outstanding.\n\n**The rule you must not break:** an untested stop counts as absent.\n\n**Check yourself:** you hold three measured times, not three intentions.\n\n## Drill 4 — starve it\n\nRun the automation with its data source unavailable, then with the source\nreturning nonsense, then with an action refused by the platform.\n\n**The rule you must not break:** it must refuse and record the refusal with a\ncause. Any path that continues on invented data is a defect to fix before arming,\nnot a quirk to work around.\n\n**Check yourself:** each refusal appears in the log, and each names why.\n\n## Drill 5 — prove the audit trail\n\nTake one action the automation performed during these drills and reconstruct it\nend to end from logs alone: inputs, rule fired, intended action, outcome.\n\n**The rule you must not break:** reconstruct from the log, not from memory and\nnot by re-reading the source.\n\n**Check yourself:** every question you could not answer names a missing field.\n\n## Drill 6 — paper run, where the path is on\n\nWhere the platform's paper market path is enabled, run the automation end to end\nagainst it for a full session with every limit active.\n\n**The rule you must not break:** paper credentials only. Keys able to act on real\nbalances do not travel with a paper run.\n\n**Check yourself:** you can show which credential the run used, and demonstrate\nthat it has no permissions against real balances.\n\n## The arming gate\n\nArm nothing until Drills 1 through 5 have produced their artifacts. A missing\nartifact is itself the answer, and the answer is \"not yet\".",
+      "objectives": [
+        "Produce a written mandate specific enough for someone else to adjudicate.",
+        "Demonstrate each limit by pointing at the code path that reads it.",
+        "Prove the audit trail by reconstructing a real action from logs alone."
+      ],
+      "keyTerms": [
+        { "term": "Mandate", "definition": "The written statement of permitted actions; anything absent from it is forbidden." },
+        { "term": "Arming gate", "definition": "The rule that no automation starts until every preflight artifact exists." },
+        {
+          "term": "Scoped credential",
+          "definition": "A credential whose permissions match the run — a paper run carries no authority over real balances."
+        }
+      ],
+      "selfCheck": [
+        "Could someone else use your mandate to decide whether an action was permitted?",
+        "For each limit, which line of code reads it?",
+        "Which fields were missing when you tried to reconstruct an action from logs?"
+      ]
+    },
+    {
+      "slug": "foundations-invalidation-first",
+      "title": "Invalidation before entry",
+      "kind": "playbook",
+      "path": "foundations",
+      "order": 20,
+      "summary": "Name the level that proves you wrong before you name the target.",
+      "body": "# Invalidation before entry\n\nInvalidation is the condition that proves your idea wrong. Writing it first is\nwhat makes every later decision mechanical instead of emotional.\n\n## Why the order matters\n\nChoose invalidation before entry and the trade defines itself: size follows from\nthe distance, the exit is already decided, and being wrong is an outcome you\nplanned for rather than an event that happens to you.\n\nChoose entry first and invalidation becomes negotiable. You will place it where\nthe loss feels tolerable, which is a statement about your feelings and not about\nthe market. The level will then be wherever your comfort happened to sit, which\nis not a level anything else in the market cares about.\n\n## What a good invalidation looks like\n\n- **Specific.** A level or a condition, not a mood. \"Below the low that started\n  the move\" can be checked by someone else. \"If it looks weak\" cannot.\n- **Structural.** Derived from where your reasoning breaks. If the structural\n  level sits further away than your risk budget allows, the answer is a smaller\n  size or no trade — never a closer invalidation.\n- **Reachable.** If price would have to do something implausible to reach it, you\n  have not written an invalidation. You have written a comfort.\n- **Time-bounded where relevant.** \"This should have happened by now\" is a\n  legitimate invalidation and the one people most often forget to write, which\n  is why dead ideas keep their capital for weeks.\n\n## Worked example — illustrative arithmetic only\n\nInvented numbers, to show the order of operations rather than any market.\n\nYou reason that a level has held repeatedly and expect it to hold again. Your\nthesis is wrong if price trades decisively below it. That structural level sits\n6 units of price below your entry. Your account risk is 100 units. Size is\ntherefore 100 / 6, or about 16 units.\n\nNow reverse the order. Had you decided on 50 units of size first, you would have\nneeded the invalidation about 2 units away — well inside ordinary noise, where\nyou get stopped out by nothing in particular and then watch the idea work\nwithout you. Same idea, same market, different order of operations, opposite\nexperience.\n\n## The mid-trade rewrite\n\nMoving an invalidation further away while a position is open converts a planned\nloss into an unplanned one. It always feels justified at the time, because the\njustifying reasons arrive exactly when they are needed. Decide in advance that\nthe level moves in your favour or not at all, and treat any exception as a\nprocess failure to be written down even when the trade recovers.\n\n## Common mistakes\n\n- Placing invalidation at an obvious round number where everyone else's sits.\n- Reusing one invalidation across several instruments that share a driver.\n- Writing no time component, so an idea that stopped being true never exits.\n- Confusing invalidation with a target. One is where you are wrong; the other is\n  where you would take profit. They are not symmetrical and rarely equidistant.\n\n## Before you move on\n\nWrite invalidations for three ideas you are currently watching. For each, state\nwhat would have to be true for you to admit the idea failed — before you hold any\nposition in it.",
+      "objectives": [
+        "Write a specific, structural invalidation before choosing an entry.",
+        "Recognise a time-based invalidation as a legitimate exit condition.",
+        "Explain what widening an invalidation mid-trade actually does to the plan."
+      ],
+      "keyTerms": [
+        { "term": "Invalidation", "definition": "The level or condition that proves an idea wrong, written before entry." },
+        {
+          "term": "Structural level",
+          "definition": "A level derived from where your reasoning breaks, not from what you can afford to lose."
+        },
+        { "term": "Noise", "definition": "Ordinary movement that carries no information about your thesis." }
+      ],
+      "selfCheck": [
+        "Is your invalidation checkable by someone who cannot read your mind?",
+        "What is the time component of your current idea, and what happens when it expires?",
+        "The structural level is further than your budget allows. What are the two acceptable responses?"
+      ]
+    },
+    {
+      "slug": "foundations-fees-are-real",
+      "title": "Fees are real cost",
+      "kind": "playbook",
+      "path": "foundations",
+      "order": 50,
+      "summary": "Fee drag is not optional flavour — it is part of the edge math.",
+      "body": "# Fees are real cost\n\nFees are not administrative noise. They are a fixed adversary that takes the\nsame amount whether you were right or wrong, and they scale with how often you\nact rather than with how well you act.\n\n## Name every cost\n\nThe visible fee is rarely the whole cost. A full accounting includes:\n\n- **Explicit fees** on entry and on exit — the round trip, never one side of it.\n- **The spread** you crossed in order to get filled.\n- **Slippage** beyond the level you were looking at when you decided.\n- **Financing or carry** for positions held across the relevant period.\n- **Transfer costs** to move value onto or off a rail in the first place.\n\nAn estimate that counts only the first line understates the real number, and it\nunderstates it most for exactly the short-horizon approaches that pay it most\noften.\n\n## The break-even shift\n\nCosts move the point at which you stop losing money. Whatever your edge is, the\nmarket has to return the costs before it returns anything to you. The shorter the\nholding period, the more times you pay, and the larger the share of your result\nthat costs decide rather than judgement.\n\n## Worked example — illustrative arithmetic only\n\nInvented numbers, to show the multiplication rather than any real schedule.\n\nSuppose a full round trip costs 0.2 percent of position value once everything is\ncounted, and suppose you take 200 round trips over a period. That is 40 percent\nof one position's value paid out over the period, regardless of direction and\nregardless of whether the ideas were good.\n\nSubstitute your own figures; the multiplication is the point. An approach\nevaluated without this line is not being evaluated, it is being flattered.\n\n## Unknown is not free\n\nAn empty fee field means you have not looked it up. It does not mean zero. A\njournal that silently records blanks as zero will eventually teach you that an\nexpensive approach was profitable, and you will scale it.\n\nFind the real number, or record it explicitly as unknown so that every conclusion\ndrawn from it stays provisional until you do.\n\n## What to do about it\n\n- Count the round trip in every plan, before the trade rather than after.\n- Compare approaches after costs, never before.\n- Treat activity itself as a cost, because it is one.\n- Recheck assumed rates periodically. A stale rate is a wrong rate, and it is\n  wrong in a direction you will not notice.\n\n## Before you move on\n\nFor one instrument and your typical size, write down the full round-trip cost\nincluding the spread you expect to cross. Then work out what fraction of a\ntypical move in that instrument the number represents.",
+      "objectives": [
+        "List the five cost components of a round trip.",
+        "Explain why cost matters more as holding period shortens.",
+        "Record an unknown fee as unknown rather than as zero."
+      ],
+      "keyTerms": [
+        { "term": "Round trip", "definition": "The full cost of entering and exiting once, counting both sides." },
+        { "term": "Break-even shift", "definition": "How far the market must move in your favour before costs are recovered." },
+        { "term": "Carry", "definition": "The cost or benefit of holding a position across a period, separate from price movement." }
+      ],
+      "selfCheck": [
+        "Which of the five cost components do you currently not measure at all?",
+        "Why does a blank fee field mislead more than an obviously wrong one?",
+        "How would doubling your number of round trips change your cost total?"
+      ]
+    },
+    {
+      "slug": "markets-order-types-honest",
+      "title": "Order types without magic",
+      "kind": "playbook",
+      "path": "markets",
+      "order": 20,
+      "summary": "Limit, market, and cancel behaviour without inventing fills.",
+      "body": "# Order types without magic\n\nOrder types do not change what the market will do. They change what you are\nasking for and what you are willing to give up to get it. Every one of them\ntrades certainty of execution against certainty of price.\n\n## The two you must understand first\n\n- **An order demanding immediacy** asks to trade now. You are certain to trade,\n  while there is anything to trade against, and uncertain about the price.\n- **An order naming a price** asks for a level. You are certain about the worst\n  price you will accept and uncertain about whether you trade at all.\n\nYou cannot have both certainties at once. Every other order type is a\ncombination, a condition, or an automation layered on these two, and none of\nthem escapes the trade-off.\n\n## A resting order that never fills has not failed\n\nIt reported something true: nobody was willing to trade at your price while it\nwas there. The temptation is to conclude the interface is broken and to cross\nthe spread in irritation. Sometimes crossing is correct — but make it a decision\nabout urgency, taken deliberately, and not a reflex against an inconvenient\ntruth.\n\n## A stop is a trigger, not a guarantee\n\nA stop is a level at which an order is sent. What happens next depends entirely\non which order it sends and on the market at that moment.\n\nIf it sends an order demanding immediacy, you are exposed to whatever depth\nexists then — and in exactly the fast conditions that trigger stops, depth is\noften thin. If it sends an order naming a price, you may not trade at all, and\nmay keep the position you meant to exit.\n\nNeither behaviour is a defect. Knowing which one yours does is your job, and the\nanswer changes what the stop actually protects you from.\n\n## Cancel is a first-class action\n\nCancelling is part of the plan, not an admission of error. Practise it: place a\nresting order you do not intend to trade, cancel it, and confirm it has left\nyour working orders.\n\nBetween requesting a cancel and its confirmation, the order can still trade.\n\"Cancel requested\" and \"cancelled\" are different states and should be displayed\nas different states. An order you believe is cancelled but which is still working\nis one of the more expensive misunderstandings available.\n\n## Never paint a working order as filled\n\nA working order is not a position. Any process — a spreadsheet, a journal, an\ninterface, an automation — that displays an unfilled order as though it had\ntraded will produce decisions based on a position you do not hold. Where a status\nis unknown, the honest display is unknown.\n\n## Before you move on\n\nFor one instrument, write down what your stop actually sends when it triggers.\nIf you cannot answer from documentation rather than assumption, finding that out\nis the next thing to do.",
+      "objectives": [
+        "State the trade-off every order type makes between certainty of execution and certainty of price.",
+        "Distinguish \"cancel requested\" from \"cancelled\" and act accordingly.",
+        "Refuse to display a working order as a position."
+      ],
+      "keyTerms": [
+        { "term": "Working order", "definition": "An order that is live in the market and has not traded — not a position." },
+        { "term": "Cancel confirmation", "definition": "Acknowledgement that an order has left the book; until then it can still trade." },
+        { "term": "Trigger", "definition": "A level at which an order is sent, whose consequences depend on which order it sends." }
+      ],
+      "selfCheck": [
+        "Which certainty does each of the two basic order types give you, and which does it withhold?",
+        "What can happen between requesting a cancel and its confirmation?",
+        "Why is showing an unfilled order as filled worse than showing nothing?"
+      ]
+    },
+    {
+      "slug": "markets-correlation-caution",
+      "title": "Correlation caution",
+      "kind": "playbook",
+      "path": "markets",
+      "order": 50,
+      "summary": "Two books can move together without becoming one idea.",
+      "body": "# Correlation caution\n\nTwo positions in two instruments can be one bet. When they are, your risk is not\nwhat your position list says it is.\n\n## Diversification that is not\n\nSplitting capital across several instruments reduces risk only when the things\ndriving them differ. If they share a driver, you have not spread risk — you have\nmultiplied one exposure and given it several names. The position list looks\nbalanced. The outcome will not be.\n\n## Ask what the shared driver is\n\nFor any two positions, answer in one sentence: what would have to happen for both\nto lose at the same time? If the answer is a single event, they are one position\nfor risk purposes and should be sized as one.\n\nShared drivers commonly include the same underlying asset in a different wrapper,\nthe same funding conditions, the same sector or supply chain, the same settlement\nrail, and the same venue. The last two are easy to miss because they are not\nabout the asset at all.\n\n## The stacking arithmetic\n\nIf you size each of three positions at 1 percent of account risk and all three\nshare a driver, the honest figure is up to 3 percent on one event, not 1 percent\nthree times over.\n\nTreat the correlated group's total as the number that has to fit your budget, and\nsize the members down so that it does. This is the entire adjustment, and it is\nroutinely skipped because each individual position looks reasonable in isolation.\n\n## Correlation is not constant\n\nRelationships measured in calm conditions frequently change under stress, and\nthey change in the least convenient direction: things that normally move\nindependently move together when participants are reducing risk everywhere at\nonce. A hedge justified purely by a historical relationship can stop hedging at\nprecisely the moment it was supposed to matter.\n\nTreat any measured relationship as a description of a stated period, not as a\nproperty of the instruments. Write the period down next to the number.\n\n## Hedges must be proved, not assumed\n\nA position is a hedge only if you can state the mechanism by which it offsets the\nother one, and the conditions under which that mechanism fails. \"These usually\nmove opposite each other\" is an observation about the past. Without a mechanism\nyou do not have a hedge; you have two positions and a hope, and you are paying\ncosts on both.\n\n## Common mistakes\n\n- Counting each instrument as independent risk when they share one driver.\n- Treating a historical co-move as a hedge without a stated failure mechanism.\n\n## Before you move on\n\nList your open positions and group them by shared driver. Sum the account risk\ninside each group. If any group exceeds what you intended to risk on a single\nevent, you have found the thing to fix before you add anything new.",
+      "objectives": [
+        "Group open positions by shared driver and size the group as one.",
+        "Treat a measured relationship as a description of a stated period.",
+        "Require a mechanism before calling a position a hedge."
+      ],
+      "keyTerms": [
+        { "term": "Shared driver", "definition": "The single event or condition that would cause several positions to lose at once." },
+        {
+          "term": "Stacking",
+          "definition": "Holding one exposure several times under different names, so the total exceeds the intended budget."
+        },
+        {
+          "term": "Hedge mechanism",
+          "definition": "The stated reason one position offsets another, plus the conditions under which it stops working."
+        }
+      ],
+      "selfCheck": [
+        "What single event would cause your two largest positions to lose together?",
+        "Three positions at 1 percent each share a driver. What is the honest risk figure?",
+        "For your current hedge: what is the mechanism, and when does it fail?"
+      ]
+    },
+    {
+      "slug": "builder-preflight-checklist",
+      "title": "Automation preflight",
+      "kind": "playbook",
+      "path": "builder",
+      "order": 20,
+      "summary": "What must be true before a paper automation is armed.",
+      "body": "# Automation preflight\n\nPreflight is the short, boring list you complete immediately before arming. Its\nvalue comes from being identical every time and from being written down, because\nthe run you skip it on is the run that needed it.\n\n## The gate\n\nEvery line must be true. A line that is \"mostly\" true is false.\n\n1. **Mandate written** — instruments, actions, hours and maximum position, in one\n   paragraph you could hand to someone else.\n2. **Limits enforced in code** — maximum position, maximum orders per interval,\n   maximum loss before self-halt. Each names the code path that reads it.\n3. **Stops tested today** — application halt, process stop and credential\n   revocation, each executed against a running instance with elapsed time\n   recorded.\n4. **Failure paths refuse** — data source unavailable, data source returning\n   nonsense, and action refused by the platform each produce a logged refusal\n   rather than a guess.\n5. **Audit trail complete** — one action reconstructable end to end from logs\n   alone.\n6. **Credentials scoped to the run** — a paper run carries credentials that\n   cannot act on real balances.\n7. **Observability live** — you can watch it working now, not read about it\n   afterwards.\n8. **Rollback named** — the exact steps back to the last known-good state,\n   written before you need them.\n\n## Why each line is enforcement, not intention\n\nA limit nobody enforces is a hope with a number attached. The reason line 2 asks\nfor the code path is that intentions survive refactors and enforcement does not:\nthe most common way a limit disappears is not deletion but a configuration edit\nthat stops it being read.\n\n## Paper before live, without exception\n\nA run against the platform's paper market path, with every limit active, comes\nbefore any live run. Paper is where you find out that limit four was never wired\nup. Finding that out live costs money to learn something the checklist would have\ntold you for nothing.\n\n## Re-run it after every change\n\nPreflight expires. Any change to code, configuration, credentials or venue\ninvalidates it — including changes you are certain are trivial. \"It was only\nconfig\" is the sentence that precedes most of these stories.\n\n## Keep the record\n\nWrite the completed checklist down with a timestamp and a note of what was\nrunning. When something later goes wrong, the first useful question is \"what was\ntrue when we armed it\", and memory answers that question badly and confidently.\n\n## Before you move on\n\nComplete this checklist for one automation. Every line you cannot honestly tick\nis the work remaining before it is armed.",
+      "objectives": [
+        "Complete an eight-line preflight before arming an automation.",
+        "Name the code path enforcing each limit rather than the intention behind it.",
+        "Re-run preflight after any change, including configuration."
+      ],
+      "keyTerms": [
+        {
+          "term": "Mandate",
+          "definition": "A written statement of what an automation is permitted to do; anything unwritten is not permitted."
+        },
+        { "term": "Self-halt", "definition": "An automation stopping itself on reaching a pre-set loss, without anyone intervening." },
+        { "term": "Rollback", "definition": "The written steps back to the last known-good state, prepared before they are needed." }
+      ],
+      "selfCheck": [
+        "Which preflight line can you not honestly tick for your current automation?",
+        "Why does a configuration edit invalidate preflight as much as a code change?",
+        "Where is your completed checklist recorded, with a timestamp?"
+      ]
+    },
+    {
+      "slug": "builder-failure-modes",
+      "title": "Failure modes of agents",
+      "kind": "playbook",
+      "path": "builder",
+      "order": 40,
+      "summary": "How an agent fails closed when tools or data are dark.",
+      "body": "# Failure modes of agents\n\nAn automation's behaviour when everything works is the easy part. Its behaviour\nwhen something is missing, stale or wrong is what determines whether it is safe\nto run at all.\n\n## Fail closed\n\nWhen a system cannot establish that an action is correct, the default is to not\ntake it. Failing closed means an outage costs you opportunity. Failing open means\nan outage costs you money, and it does so at the moment you have the least\ninformation about what is happening. Choose which mistake you would rather make,\nin advance, in code rather than in a comment.\n\n## The modes worth designing for\n\n**Dark data.** The source is unreachable or stale. The correct response is to\nrefuse and say so. The dangerous response is to continue with the last value it\nsaw, because stale data looks exactly like fresh data to the code consuming it.\nAttach a timestamp to every input and treat \"too old\" as unavailable.\n\n**Nonsense data.** The source responds, but with something impossible: a missing\nfield, an absurd magnitude, a value that contradicts the previous one beyond any\nplausible change. Validate at the boundary. A value that passes into your logic\nunvalidated will be acted on with total confidence.\n\n**Undeclared capability.** The automation attempts an action it was never\ngranted. Refuse before dispatch, not after. A capability list checked only at the\nend is a report, not a control.\n\n**Partial completion.** A multi-step operation succeeded halfway and then failed.\nThis is the mode that strands things. For every step, know what state the world\nis in if the process dies exactly there, and how that state gets reconciled.\n\n**Duplicate delivery.** The same instruction arrives twice, because retries are\nnormal. Use a business key that a retry reproduces, so the second arrival finds\nthe first. A fresh random identifier guarantees it will not.\n\n**Clock disagreement.** Two components disagree about the time. Anything driven\nby ordering or expiry is affected. Do not assume clocks agree — make the ordering\nexplicit where it matters.\n\n## Silence is not success\n\nEvery refusal is an event with a cause and belongs in the record. A system that\nlogs only what it did produces a history in which nothing was ever prevented,\nmaking a well-guarded run indistinguishable from a run that never started.\n\n## Degrade honestly\n\nWhen the automation cannot do its job, the surfaces around it should say so.\nShowing an old value without saying it is old, or an invented value in place of a\nmissing one, converts a visible outage into an invisible wrong answer. The first\nis an inconvenience. The second is the one that costs money, because people act\non it.\n\n## Before you move on\n\nFor one automation, write what happens in each of the six modes above. Any mode\nwhere the honest answer is \"I am not sure\" is a live risk rather than a\ndocumentation gap.",
+      "objectives": [
+        "Design a default that refuses when correctness cannot be established.",
+        "Name the six failure modes and your automation’s behaviour in each.",
+        "Degrade visibly rather than substituting an invented value."
+      ],
+      "keyTerms": [
+        { "term": "Fail closed", "definition": "Declining to act when the system cannot establish that an action is correct." },
+        {
+          "term": "Stale data",
+          "definition": "A value that arrived earlier and still looks fresh to code that does not check its timestamp."
+        },
+        {
+          "term": "Partial completion",
+          "definition": "A multi-step operation that succeeded part-way and then failed — the mode that strands things."
+        }
+      ],
+      "selfCheck": [
+        "Which failure mode does your automation currently handle worst?",
+        "What does your code do with an input whose timestamp is older than expected?",
+        "Where would a user see that your system is degraded rather than simply wrong?"
+      ]
+    },
+    {
+      "slug": "sovereign-custody-posture",
+      "title": "Custody posture in one page",
+      "kind": "playbook",
+      "path": "sovereign",
+      "order": 20,
+      "summary": "What the platform holds vs what never leaves your control surface.",
+      "body": "# Custody posture in one page\n\nCustody posture is a single page you could hand to someone that says, for every\nasset you hold, who is holding it and what follows from that. If it takes more\nthan a page, it is not yet understood.\n\n## Custody is the fact everything else follows from\n\nAlmost every rule you meet is downstream of one question: does the platform hold\nthe asset?\n\n- **It does not.** There is nothing held on your behalf and nothing to freeze.\n  Access tends to be permissionless, and responsibility for keys, destinations\n  and irreversibility is entirely yours.\n- **It does**, or it touches regulated payment rails on your behalf. Now there is\n  an obligation to know who the account holder is, and verification tiers, limits\n  and jurisdiction rules follow from that obligation rather than from anyone's\n  preference.\n\nNeither is superior. They are different trades with different failure modes, and\nmixing up which one you are currently in is what produces surprise.\n\n## Write the page\n\nOne row per asset, with four columns: what you hold, who holds it, what it takes\nto move it, and what you would have if the holder became unavailable.\n\nFill in every row, including the small balances. Then read the last column on its\nown. That column is your actual exposure to operator failure, and it is routinely\nlarger than people expect once it is written down in one place instead of\ndistributed across memory.\n\n## What a support process can and cannot do\n\nAn operator can correct its own records, investigate an operation on its own\nrails, and explain a refusal. It cannot create value that does not exist, and it\ncannot reverse a settled transfer on a rail it does not control.\n\nThat boundary is also the shape of the most common fraud: someone claiming an\nauthority no legitimate operator has, in order to get you to act. If a request\ndepends on an operator doing something operators cannot do, the request is not\ncoming from one.\n\n## Withdrawal paths are product law\n\nHow value leaves is defined by the product and its rails: which routes exist,\nwhat checks they carry, what timing they have. It is not negotiable in a\nconversation, and a promise made in a chat window does not create a path the\nrails do not have. Read the documented route before you need it, not during.\n\n## Before you move on\n\nWrite your one page. Then, for the row that would hurt most to lose, write what\nyou would actually do in the first hour if its holder became unavailable.",
+      "objectives": [
+        "Write a one-page custody posture covering every asset you hold.",
+        "State what an operator can and cannot do, and use that to recognise a fraudulent request.",
+        "Read a documented withdrawal route before you need it."
+      ],
+      "keyTerms": [
+        { "term": "Custody posture", "definition": "A single-page statement of who holds each asset and what follows from that." },
+        { "term": "Permissionless", "definition": "Access that requires no account gate because nothing is being held on your behalf." },
+        {
+          "term": "Operator authority",
+          "definition": "The set of things an operator can actually do — correcting its own records, not creating value."
+        }
+      ],
+      "selfCheck": [
+        "Reading only the last column of your page, what is your total exposure to operator failure?",
+        "A request requires an operator to reverse a settled transfer on a rail it does not control. What is it?",
+        "Where is the documented withdrawal route for your largest balance?"
+      ]
+    },
+    {
+      "slug": "sovereign-limits-and-tiers",
+      "title": "Limits and verification tiers",
+      "kind": "playbook",
+      "path": "sovereign",
+      "order": 40,
+      "summary": "Why a limit refuses — and why inventing a bypass is forbidden.",
+      "body": "# Limits and verification tiers\n\nA limit that refuses you is doing its job. Understanding where it comes from\nmakes it predictable rather than arbitrary, and makes obvious why every offer to\nbypass one is a bad offer.\n\n## Where limits come from\n\nLimits generally originate in one of three places, and it is worth knowing which\none you have hit:\n\n1. **Obligation** — where an asset is held on your behalf, or a regulated rail is\n   touched for you, the operator must establish who the account holder is.\n   Verification tiers express how much has been established; limits express what\n   each tier permits.\n2. **Risk** — the operator carries exposure while a transfer settles or a\n   reversal window is open, so that exposure is capped.\n3. **Safety** — velocity and threshold caps that limit the damage a compromised\n   account can do, including yours.\n\nThe first is why \"just turn it off for me\" is not on the menu. It is not a\nsetting; it is a condition under which the service may be provided at all.\n\n## Fail closed, by design\n\nWhen the system cannot establish that an operation is permitted, it refuses. This\nis deliberate. The alternative — allow now and correct later — assumes correction\nis always possible, and on irreversible rails it is not.\n\nA good refusal tells you which condition was not met and what would change it. A\nrefusal that only says no is a product defect worth reporting, and the answer is\nstill no until the condition is met.\n\n## Raising a limit\n\nThe only route is the verification path the product owns: supply what the tier\nrequires through the documented flow, and the tier changes. No conversation mints\na higher limit, because the limit is not the operator's opinion — it is a\nconsequence of what has been established.\n\nIf someone offers to raise your limit outside that flow, they are either unable\nto do it or intending something else. Both mean stop.\n\n## Plan around them\n\nLimits are predictable, which makes them constraints to plan with rather than\nobstacles to discover in the middle of an operation:\n\n- Know your current tier and what it permits before you need the headroom.\n- Complete verification ahead of time rather than during an urgent transfer.\n- Remember limits may apply per operation, per period, or both at once.\n- Expect a new destination or a new rail to carry extra checks the first time.\n\n## Before you move on\n\nFind your current tier and the limits attached to it, then write down the single\noperation you are most likely to attempt that would exceed them. Decide now\nwhether to complete the next verification step or to plan within the limit.",
+      "objectives": [
+        "Identify which of the three sources a limit you have hit comes from.",
+        "Explain why fail-closed is the correct default on irreversible rails.",
+        "Use the documented verification path rather than seeking a bypass."
+      ],
+      "keyTerms": [
+        {
+          "term": "Verification tier",
+          "definition": "A level expressing how much has been established about an account holder, which limits follow from."
+        },
+        {
+          "term": "Fail closed",
+          "definition": "Refusing an operation the system cannot establish as permitted, rather than allowing and correcting later."
+        },
+        {
+          "term": "Velocity cap",
+          "definition": "A limit on how much can move within a period, bounding the damage a compromised account can do."
+        }
+      ],
+      "selfCheck": [
+        "The last limit that refused you: obligation, risk, or safety?",
+        "Why can correction-after-the-fact not substitute for refusal on an irreversible rail?",
+        "What does an offer to raise your limit outside the documented flow tell you?"
+      ]
+    },
+    {
+      "slug": "sovereign-incident-hygiene",
+      "title": "Incident hygiene for operators",
+      "kind": "playbook",
+      "path": "sovereign",
+      "order": 60,
+      "summary": "What to freeze, what to write, and what never to invent under load.",
+      "body": "# Incident hygiene for operators\n\nAn incident is a period of low information and high pressure. Hygiene is the set\nof habits that stop the response from causing more damage than the incident did.\n\n## Freeze before you fix\n\nWhen it is not yet clear whether value is affected, stop the flow before you\ninvestigate. A paused operation is recoverable and annoying. An operation that\nkept running on a wrong assumption while you investigated has to be unwound\nafterwards, and some of it may not be unwindable.\n\nThe instinct to keep the service up is right in general and wrong here. Decide\nthat priority in advance, so that you are not deciding it for the first time at\nthe worst possible moment.\n\n## Do not guess in writing\n\nUnder pressure, an early guess repeated twice becomes established fact and gets\nacted on by people who never heard the caveat. Separate three things explicitly\nin every message:\n\n- **What is observed** — measurements and log lines.\n- **What is inferred** — reasoning from those observations, marked as inference.\n- **What is unknown** — the questions still open.\n\nLosing the third category is what turns one incident into two.\n\n## Write both sides of a reconcile finding\n\nWhen a count does not match, record what was expected, what was found, and the\ndifference — before doing anything about it. A note that says only \"fixed\"\ndestroys the evidence needed to tell whether the cause is still present, and the\nsame discrepancy will come back with nothing to compare it against.\n\n## Never invent to fill a gap\n\nIf a value is unknown, it is unknown. Under time pressure the temptation is to\nput in a plausible number so that a process can continue. An hour later that\nnumber is indistinguishable from a measured one, and every conclusion downstream\nof it has inherited it. Leave the gap and label it.\n\n## Keep the timeline as you go\n\nWrite events with timestamps while they are happening: what was observed, what\nwas changed, and by whom. Reconstruction afterwards is unreliable, and the\nchanges made during the response are simultaneously the hardest part to remember\nand the most important part to know.\n\n## Communication stays honest and brand-clean\n\nSay what is affected, what is not yet known, and when you will next update. Do\nnot promise a resolution time you cannot support. Under pressure, copy drifts\ntoward whatever is reassuring — the standard for user-facing language does not\nrelax because the situation is stressful.\n\n## Afterwards\n\nWrite the sequence, the cause, and the specific change that prevents recurrence.\n\"Be more careful\" is not a change. If the response itself made things worse at\nany point, that belongs in the record too; it is usually the most valuable line\nin it.\n\n## Before you move on\n\nFor one system you operate, write down what you would freeze first and who has\nthe authority to do it. If the answer requires finding someone, that is the gap.",
+      "objectives": [
+        "Freeze an unclear money path before investigating it.",
+        "Separate observed, inferred and unknown in every incident message.",
+        "Record both sides of a reconcile finding before acting on it."
+      ],
+      "keyTerms": [
+        { "term": "Freeze", "definition": "Stopping a flow while its correctness is unknown, accepting downtime over unwindable damage." },
+        { "term": "Reconcile finding", "definition": "A recorded mismatch between expected and found, kept with the difference intact." },
+        {
+          "term": "Incident timeline",
+          "definition": "Timestamped events written during the response, including the changes made by responders."
+        }
+      ],
+      "selfCheck": [
+        "Which system would you freeze first, and who has authority to do it?",
+        "In your last incident write-up, was inference marked as inference?",
+        "What is the cost of writing only \"fixed\" against a discrepancy?"
+      ]
+    }
+  ],
+  "nameOrder": [
+    "builder-automation-workbook",
+    "builder-preflight-checklist",
+    "markets-correlation-caution",
+    "sovereign-custody-posture",
+    "builder-failure-modes",
+    "foundations-fees-are-real",
+    "builder-first-automation",
+    "sovereign-incident-hygiene",
+    "foundations-invalidation-first",
+    "builder-kill-switch-drill",
+    "sovereign-limits-and-tiers",
+    "builder-logs-not-vibes",
+    "markets-order-types-honest",
+    "foundations-order-types",
+    "foundations-paper-workbook",
+    "foundations-position-sizing",
+    "sovereign-rail-map",
+    "markets-reading-the-book",
+    "foundations-risk-first",
+    "sovereign-self-custody-posture",
+    "markets-session-structure",
+    "markets-spread-and-slippage",
+    "markets-tape-reading-workbook",
+    "foundations-journal-discipline",
+    "sovereign-withdrawal-hygiene"
+  ]
+}

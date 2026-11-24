@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogTitle } from '@intafaced/ui';
 import { fmtAmount, fmtPct, fmtPrice, refusalCopy, useMarkets, useTickers, type MarketRow, type TickerRow } from '../../data';
 import { compareDecimal } from '../../data/decimal';
 import { navigate } from '../../app/location';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { watchlistsCopy } from './copy';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from './links';
 import {
@@ -503,7 +503,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
         </div>
       </header>
 
-      {signedOut && <p className="wl-note">{t('Signed out')}</p>}
+      {signedOut && <p className="lt-hint">{t('Signed out')}</p>}
       {newName !== null && (
         <form
           className="wl-inline"
@@ -520,7 +520,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       )}
 
       {store.status === 'error' && (
-        <p role="alert" className="wl-note">
+        <p role="alert" className="lt-hint">
           {t('Could not read your lists')}{' '}
           <button type="button" className="wl-btn" onClick={store.reload}>
             {t('Try again')}
@@ -568,7 +568,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
                 </li>
               ))}
               {matches.length === 0 && (
-                <li className="wl-note">
+                <li className="lt-hint">
                   {markets.status === 'loading'
                     ? t('Markets loading')
                     : markets.status === 'ready' || markets.status === 'empty'
@@ -625,7 +625,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
                   );
                 })}
                 <th scope="col">
-                  <span className="wl-sr">{t('Remove')}</span>
+                  <span className="lt-sr">{t('Remove')}</span>
                 </th>
               </tr>
             </thead>
@@ -725,9 +725,9 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
         </div>
       )}
 
-      {!list && store.status === 'ready' && <p className="wl-note">{t('No lists')}</p>}
+      {!list && store.status === 'ready' && <p className="lt-hint">{t('No lists')}</p>}
       {store.status === 'loading' && (
-        <p className="wl-note" role="status">
+        <p className="lt-hint" role="status">
           {t('Prices have not arrived')}
         </p>
       )}

@@ -1,0 +1,114 @@
+{
+  "callers": [
+    {
+      "path": "health",
+      "type": "query",
+      "caller": "public"
+    }
+  ],
+  "inputs": {
+    "health": null
+  },
+  "answers": {
+    "health valid anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health absent anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health absent read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health absent execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health absent admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health absent key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health wrong-type anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health wrong-type read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health wrong-type execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health wrong-type admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health wrong-type key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health empty anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health extra-key anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    },
+    "health extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-agents\"}}}"
+    }
+  }
+}

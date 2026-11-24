@@ -4,7 +4,7 @@ import { test, expect } from './journey.mjs';
 import { api, journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { testDeposit, testVenue, venueAccount, venueForThisFile, venueRecord } from './venue.mjs';
+import { TEST_VENUE, testDeposit, testVenue, venueAccount, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-algo-dev-07, in the running app (docs/roadmap/journeys.json): stop, liquidate or recover a live strategy. One test
 // per step, titled "J-algo-dev-07 #<n>", run in order. A TEST pro-trader's own TEST wallet holds TEST USDC on the stack's
@@ -93,12 +93,8 @@ async function subAccount(t, session, name) {
   return sub;
 }
 
-/** The TEST venue's own record of a sub-account. */
-async function subRecord(t, sub, path, extra = {}) {
-  const { status, body } = await testVenue(path, { account: { ...(await venueAccount(t.owner)), subAccount: sub }, ...extra });
-  expect(status, JSON.stringify(body)).toBe(200);
-  return body.value;
-}
+/** The TEST venue's own record of a sub-account, read through the venue fixture. */
+const subRecord = async (t, sub, path, extra = {}) => (await venueRecord(t.owner, path, extra, TEST_VENUE, sub)).value;
 const openPositions = async (t, sub) => (await subRecord(t, sub, '/positions')).filter((p) => toUnits(p.size) > 0n);
 const fillsOf = (t, sub) => subRecord(t, sub, '/fills', { since: '2020-01-01T00:00:00.000Z' });
 
@@ -158,6 +154,35 @@ async function restingLimit(session, runId) {
 
 const room = (page) => page.getByTestId('live-run');
 
+/**
+ * The journey's Money line on the run's page: the sub-account's cash and position, read from the venue with an as-of
+ * time, equal the venue's own record of that sub-account, and the position is the net of the venue's own fills to the
+ * last decimal. The ledger posts nothing: every figure here is the venue's.
+ */
+async function venueMatches(page, t, sub, runId, session) {
+  const [cash, positions, fills] = [await subRecord(t, sub, '/balances'), await openPositions(t, sub), await fillsOf(t, sub)];
+  const shown = body200(await session.get(`${LIVE}/${runId}`)).venue;
+  expect(shown, 'the run shows no venue record').toBeTruthy();
+  expect(Number.isNaN(Date.parse(shown.asOf)), `as-of ${shown.asOf}`).toBe(false);
+  await expect(room(page).getByTestId('live-run-as-of')).toContainText(String(shown.asOf).slice(0, 10));
+  const units = (b) => b && [toUnits(b.free), toUnits(b.locked), toUnits(b.total)];
+  for (const b of cash) {
+    expect(units(shown.balances.find((x) => x.asset === b.asset)), b.asset).toEqual(units(b));
+    const total = room(page).locator(`[data-testid="live-run-cash"][data-asset="${b.asset}"]`).getByTestId('live-run-cash-total');
+    await expect.poll(async () => toUnits((await total.textContent()).trim()), { timeout: 10_000 }).toBe(toUnits(b.total));
+  }
+  expect(shown.balances).toHaveLength(cash.length);
+  const net = fills
+    .filter((f) => f.symbol === SYMBOL)
+    .reduce((s, f) => s + (f.side === 'buy' ? toUnits(f.amount) : -toUnits(f.amount)), 0n);
+  const held = positions.filter((p) => p.symbol === SYMBOL);
+  expect(held.reduce((s, p) => s + toUnits(p.size), 0n)).toBe(net < 0n ? -net : net);
+  expect(shown.positions.filter((p) => toUnits(p.size) > 0n).map((p) => [p.symbol, p.size])).toEqual(held.map((p) => [p.symbol, p.size]));
+  await expect(room(page).getByTestId('live-run-position')).toHaveCount(held.length);
+  for (const p of held)
+    await expect(room(page).locator(`[data-testid="live-run-position"][data-symbol="${p.symbol}"]`)).toHaveAttribute('data-size', p.size);
+}
+
 function state() {
   const s = run.read();
   if (!s.trader) throw new Error(`${J} #1 made no trader, so this step has no one to act as`);
@@ -205,6 +230,8 @@ test(`${J} #1 opens the live run and presses Stop: the open order is cancelled, 
   expect(await fillsOf(t, subs.stop)).toHaveLength(fills);
   expect(await subRecord(t, subs.stop, '/open-orders')).toEqual([]);
   expect(body200(await session.get(`${LIVE}/${runId}`)).orders).toHaveLength(before.orders.length);
+  await page.reload();
+  await venueMatches(page, t, subs.stop, runId, session);
 });
 
 test(`${J} #2 presses Liquidate on another run: a reduce-only order closes the position once and the run ends flat`, async ({ page }) => {
@@ -236,6 +263,8 @@ test(`${J} #2 presses Liquidate on another run: a reduce-only order closes the p
   expect(out.run.state).toBe('flat');
   expect((await fillsOf(t, subs.liquidate)).filter((f) => f.side === 'sell')).toHaveLength(sells.length);
   expect(body200(await session.get(`${LIVE}/${runId}`)).orders.filter((o) => o.kind === 'liquidate')).toHaveLength(1);
+  await page.reload();
+  await venueMatches(page, t, subs.liquidate, runId, session);
 });
 
 test(`${J} #3 sends a manual order to a running strategy twice with the same sequence: one order; without the live-control grant the typed permission refusal`, async ({
@@ -468,6 +497,8 @@ test(`${J} #6 reads the run's health and log: restart count, state kept or dropp
   await expect(log.locator('li[data-kind="restarted"]')).toContainText('strategy state kept');
   await expect(log.locator('li[data-kind="ended"]')).toContainText('Restart attempts exhausted');
   await expect(log.locator('li[data-kind="deployed"]')).toContainText('restart attempts 1');
+  // What the recovered run kept is the venue's: its cash and position, as of the venue's read, match its fills.
+  await venueMatches(page, t, subs.recover, recoverRun, session);
 
   // The deploy with the restart-attempt setting left blank was refused by name, and no run was written.
   const runId = crypto.randomUUID();

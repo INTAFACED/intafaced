@@ -11,7 +11,7 @@ import {
   type FundingMemberSnapshot,
   type FundingPeriodStore,
 } from './funding-tick.js';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { LiquidationAttemptStore, PositionCloser, PositionReducer } from './liquidation-tick.js';
 import {
   decodeRungPlan,
@@ -403,7 +403,7 @@ function rungFromRow(row: RungRow): RungRecord {
  * (a second live rung for one position cannot exist whatever the code does).
  */
 export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
-  async function liveIn(tx: Sql, positionId: string): Promise<RungRecord | null> {
+  async function liveIn(tx: Queryable, positionId: string): Promise<RungRecord | null> {
     const rows = await tx<RungRow[]>`
       SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
         FROM trade.liquidation_rungs

@@ -1,8 +1,7 @@
 /** Browser hop for the grading queue (AC-assignments-02). Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { GradingDeskReply, GradingView } from './grading-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchGradingQueue(itemId: string): Promise<GradingView | null> {
   try {

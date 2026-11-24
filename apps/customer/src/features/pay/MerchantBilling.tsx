@@ -16,6 +16,15 @@ import { DateTime } from './portal/ui/DateTime';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation } from './BusinessPay';
 import * as s from './schemas';
+import {
+  PAY_SUBSCRIPTION_LIST,
+  PAY_SUBSCRIPTION_PRODUCT_READY,
+  PAY_SUBSCRIPTION_GET,
+  PAY_SUBSCRIPTION_LIST_EXECUTIONS,
+  PAY_SUBSCRIPTION_PAUSE,
+  PAY_SUBSCRIPTION_RESUME,
+  PAY_SUBSCRIPTION_CANCEL,
+} from '@intafaced/contracts/pay-subscription-procedures';
 
 export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoices: boolean }) {
   const merchantId = pay.authority!.merchantId;
@@ -37,19 +46,11 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
     `pay:mandates:${merchantId}:${limit}`,
   );
   const subscriptions = useResource(
-    (signal) =>
-      pay
-        .query(
-          'subscription.list',
-          { merchantId, limit },
-          z.object({ items: z.array(s.subscriptionSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_LIST, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:subscriptions:${merchantId}:${limit}`,
   );
   const posture = useResource(
-    (signal) => pay.query('subscription.productReady', undefined, s.subscriptionPostureSchema, signal),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_PRODUCT_READY, undefined, signal),
     `pay:subscription-posture:${merchantId}`,
   );
   function refresh() {
@@ -57,7 +58,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
     subscriptions.reload();
   }
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={payCopy.t('billingAvailability')}>
         <PayState resource={posture.resource} retry={posture.reload}>
           {(data) => (
@@ -82,7 +83,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
           <CreateMandate pay={pay} refresh={refresh} />
           <PaySection title={payCopy.t('startASubscription')} description={payCopy.t('useAnExistingMandateAndAPath')}>
             <div className="form-stack pay-form">
-              <label className="field">
+              <label className="lt-field">
                 <PayCopy k="activeMandate" />
                 <select value={mandateId} onChange={(event) => setMandateId(event.target.value)}>
                   <option value="">{payCopy.t('chooseAMandate')}</option>
@@ -96,7 +97,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                       ))}
                 </select>
               </label>
-              <label className="field">
+              <label className="lt-field">
                 <PayCopy k="subscriptionChargePath" />
                 <select value={path} onChange={(event) => setPath(event.target.value)}>
                   <option value="">{payCopy.t('chooseASupportedPath')}</option>
@@ -151,13 +152,13 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                   <tr key={subscription.id}>
                     <td>
                       {subscription.customerId}
-                      <small className="pay-cell-note">{subscription.id}</small>
+                      <small className="lt-hint">{subscription.id}</small>
                     </td>
                     <td>{subscription.path}</td>
                     <td>{subscription.nextRunAt}</td>
                     <td>
                       <Status value={subscription.status} />
-                      <small className="pay-cell-note">{subscription.stallReason ?? payCopy.t('noStallReasonReturned')}</small>
+                      <small className="lt-hint">{subscription.stallReason ?? payCopy.t('noStallReasonReturned')}</small>
                     </td>
                     <td>
                       <Button
@@ -207,10 +208,10 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                   {rows.map((mandate) => (
                     <tr key={mandate.id}>
                       <td>{mandate.customerId}</td>
-                      <td className="numeric">
+                      <td className="lt-num">
                         {displayAmount(mandate.amount)} {mandate.assetId}
                       </td>
-                      <td className="numeric">
+                      <td className="lt-num">
                         {mandate.ceiling === null ? payCopy.t('noCeilingSupplied') : `${displayAmount(mandate.ceiling)} ${mandate.assetId}`}
                       </td>
                       <td>
@@ -334,7 +335,7 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
             value={ceiling}
             onChange={(event) => setCeiling(event.target.value)}
           />
-          <label className="field">
+          <label className="lt-field">
             <PayCopy k="cadence" />
             <select value={cadence} onChange={(event) => setCadence(event.target.value)}>
               <option value="daily">{payCopy.t('daily')}</option>
@@ -459,11 +460,11 @@ function SubscriptionDetail({
 }) {
   const [limit, setLimit] = useState(50);
   const record = useResource(
-    (signal) => pay.query('subscription.get', { subscriptionId }, s.subscriptionSchema, signal),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_GET, { subscriptionId }, signal),
     `pay:subscription:${pay.authority!.merchantId}:${subscriptionId}`,
   );
   const executions = useResource(
-    (signal) => pay.query('subscription.listExecutions', { subscriptionId, limit }, z.array(s.executionSchema), signal),
+    (signal) => pay.queryRecord(PAY_SUBSCRIPTION_LIST_EXECUTIONS, { subscriptionId, limit }, signal),
     `pay:subscription-executions:${pay.authority!.merchantId}:${subscriptionId}:${limit}`,
   );
   function reload() {
@@ -483,7 +484,7 @@ function SubscriptionDetail({
     >
       <PayState resource={record.resource} retry={record.reload}>
         {(subscription) => (
-          <div className="form-stack">
+          <div className="lt-stack">
             <PayDetails
               values={[
                 [payCopy.t('subscription'), subscription.id],
@@ -505,19 +506,13 @@ function SubscriptionDetail({
                 <PayCopy k="refreshTheScheduleAndStatusNoNew" />
               </PayNotice>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               {subscription.status === 'active' && (
                 <ReviewedAction
                   title={payCopy.t('pauseSubscription')}
                   description={payCopy.t('pauseTheSubscriptionWithoutReversingSettledInvoices')}
                   perform={() =>
-                    pay.mutate(
-                      'subscription.pause',
-                      { subscriptionId },
-                      s.subscriptionSchema,
-                      'pay:write',
-                      `subscription:${subscriptionId}`,
-                    )
+                    pay.mutateRecord(PAY_SUBSCRIPTION_PAUSE, { subscriptionId }, 'pay:write', `subscription:${subscriptionId}`)
                   }
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={reload}
@@ -528,13 +523,7 @@ function SubscriptionDetail({
                   title={payCopy.t('resumeSubscription')}
                   description={payCopy.t('theServiceReSpacesTheScheduleAnd')}
                   perform={() =>
-                    pay.mutate(
-                      'subscription.resume',
-                      { subscriptionId },
-                      z.object({ subscription: s.subscriptionSchema, projectedEnd: z.string().nullable() }),
-                      'pay:write',
-                      `subscription:${subscriptionId}`,
-                    )
+                    pay.mutateRecord(PAY_SUBSCRIPTION_RESUME, { subscriptionId }, 'pay:write', `subscription:${subscriptionId}`)
                   }
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={(data) => {
@@ -548,13 +537,7 @@ function SubscriptionDetail({
                   title={payCopy.t('cancelSubscription')}
                   description={payCopy.t('cancelThisSubscriptionImmediatelySettledInvoiceExecutions')}
                   perform={() =>
-                    pay.mutate(
-                      'subscription.cancel',
-                      { subscriptionId },
-                      s.subscriptionSchema,
-                      'pay:write',
-                      `subscription:${subscriptionId}`,
-                    )
+                    pay.mutateRecord(PAY_SUBSCRIPTION_CANCEL, { subscriptionId }, 'pay:write', `subscription:${subscriptionId}`)
                   }
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={reload}
@@ -578,22 +561,22 @@ function SubscriptionDetail({
                       <tr key={execution.id}>
                         <td>
                           {execution.occurrence}
-                          <small className="pay-cell-note">{execution.attemptedAt}</small>
+                          <small className="lt-hint">{execution.attemptedAt}</small>
                         </td>
-                        <td className="numeric">
+                        <td className="lt-num">
                           {displayAmount(execution.amount)}
-                          <small className="pay-cell-note">
+                          <small className="lt-hint">
                             <PayCopy k="assetDefinedByTheMandate" />
                           </small>
                         </td>
                         <td>
                           <Status value={execution.status} />
-                          <small className="pay-cell-note">{execution.rejectionCode ?? ''}</small>
+                          <small className="lt-hint">{execution.rejectionCode ?? ''}</small>
                         </td>
                         <td>{execution.paymentId ?? payCopy.t('noPaymentCreated')}</td>
                         <td>
                           {execution.notifyStatus ?? payCopy.t('notSupplied')}
-                          <small className="pay-cell-note">{execution.notifyCode ?? ''}</small>
+                          <small className="lt-hint">{execution.notifyCode ?? ''}</small>
                         </td>
                       </tr>
                     ))}

@@ -19,10 +19,12 @@ import { DepositAddressActions } from '@/components/deposit-address-actions';
 import { DepositTravelRuleActions } from '@/components/deposit-travel-rule-actions';
 import { KycDocumentOpen } from '@/components/kyc-document-open';
 import { KycSelfieDecide } from '@/components/kyc-selfie-decide';
+import { KycApprove } from '@/components/kyc-approve';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import { ProtocolTrust } from '@/components/protocol-trust';
-import type { Part } from '@/lib/desk/part';
+import { AgentsRoutesDesk } from '@/components/agents-routes-desk';
+import type { Part } from '@/lib/part';
 import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
 import { DESKS } from '@/lib/ops-desk/catalog';
 import { ownServerFailureText } from '@/lib/ops-desk/own-server';
@@ -115,6 +117,7 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       {spec.rowAction === 'identity.kyc_selfie.decide' && (
         <KycSelfieDecide key={row.id} row={row} userId={ctx.userId} onChanged={ctx.onChanged} />
       )}
+      {spec.rowAction === 'identity.kyc.approve' && <KycApprove key={row.id} row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'pay.deposit_address' && <DepositAddressActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'pay.deposit_travel_rule' && <DepositTravelRuleActions row={row} onChanged={ctx.onChanged} />}
     </div>
@@ -310,6 +313,11 @@ export function ReadBlock({ spec, outcome: raw, ctx, openKey, onOpen, names }: R
       <div>
         <h3>{spec.title}</h3>
         <p className="dk-muted">{spec.note}</p>
+        {spec.narrowed && (
+          <p className="dk-muted" data-testid="read-narrowed">
+            {spec.narrowed.label} {spec.narrowed.value} only, as the page address names it.
+          </p>
+        )}
         <p className="dk-asof">{outcome ? `As of ${formatAsOf(outcome.asOf)} (when this console read ${spec.module})` : 'Not read yet'}</p>
       </div>
       {!outcome && <p className="dk-why">This part was not read. Nothing is shown rather than a guess.</p>}
@@ -365,6 +373,7 @@ export function SectionView({
       ))}
       {section.panel === 'protocol.blockers' && <ProtocolBlockers view={view} />}
       {section.panel === 'protocol.trust' && <ProtocolTrust />}
+      {section.panel === 'agents.routes' && <AgentsRoutesDesk />}
       {section.unavailable.length > 0 && (
         <div className="dk-stack" data-testid="unavailable">
           {section.unavailable.map((u) => (
@@ -492,7 +501,7 @@ export function OpsDesk({ spec, initial, userId }: { spec: DeskSpec; initial: De
     const mine = ++sequence.current;
     setLoading(true);
     // A desk page that shows part of a desk (mining) refreshes only that part.
-    const next = await fetchDesk(spec.id, undefined, spec === DESKS[spec.id] ? undefined : spec.sections.map((s) => s.id));
+    const next = await fetchDesk(spec.id, undefined, spec === DESKS[spec.id] ? undefined : spec.sections.map((s) => s.id), spec.filter);
     if (mine === sequence.current) {
       // A failed refresh keeps the last good read on screen with its own time, rather than blanking the page.
       if (next) setView(next);

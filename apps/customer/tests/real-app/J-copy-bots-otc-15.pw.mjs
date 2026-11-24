@@ -10,7 +10,7 @@ import { listLeader } from './copy.mjs';
 // the person's own grid door (svc-trade's grid, services/svc-trade/src/grid). Every bot, level and order is read back
 // from that service, and what the account holds from the ledger.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3: no price or RSI exit; #4: no settling stop (a stop keeps what the bot bought); #5: no idle-fund yield switch;
+// - #4: no settling stop (a stop keeps what the bot bought);
 //   #6: no bonus-margin voucher; #7: no copying of a lead's grid; #8: no lead futures liquidation feeding a follow.
 const J = 'J-copy-bots-otc-15';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -29,6 +29,14 @@ function state(key) {
 const GRID = '/api/trade/trpc/bots.grid';
 const codeOf = (body) => body?.error?.data?.cause?.code;
 const read = (route, input) => `${route}?input=${encodeURIComponent(JSON.stringify(input ?? {}))}`;
+/**
+ * The answer to one tRPC call of `procedure` (its path ends with it). `bots.grid.topUp` is not `bots.grid.topUpFree`,
+ * the sheet's read of the free figure, which it sends on opening and after every answer and which answers 200: a free
+ * read that answers late can be taken for the BTC top-up's answer, and #1 then sees 200 where the service refuses
+ * (13 Nov, on #8178 and #8222).
+ */
+const answerOf = (page, procedure) =>
+  page.waitForResponse((res) => new URL(res.url()).pathname.endsWith(`/${procedure}`) && res.request().method() === 'POST');
 async function getBot(who, botId) {
   const { status, body } = await (await api(who)).get(read(`${GRID}.get`, { botId }));
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
@@ -91,7 +99,7 @@ test(`${J} #1 tops up the quote by TEST 50: the investment rises by 50 and the g
   const send = async (asset, amount) => {
     await sheet.getByLabel('Asset').selectOption(asset);
     await sheet.getByLabel('Amount').fill(amount);
-    const answer = page.waitForResponse((res) => res.url().includes('bots.grid.topUp'));
+    const answer = answerOf(page, 'bots.grid.topUp');
     await sheet.getByRole('button', { name: 'Top up' }).click();
     const res = await answer;
     return { status: res.status(), body: await res.json() };
@@ -180,19 +188,57 @@ test(`${J} #2 turns on trailing with the shift limit blank: refused naming it; a
 
 test(`${J} #3 sets a price exit and an RSI exit with no RSI source: the price exit stops once; RSI reads "Not set" and can't be saved`, async ({
   page,
+  stepPicture,
 }) => {
+  test.setTimeout(120_000);
   const trader = state('trader');
+  const botId = state('botId');
   await signIn(page, trader);
-  const detail = await openBot(page, state('botId'));
-  await detail.getByRole('button', { name: 'Exits' }).click();
-  await expect(detail.getByLabel('RSI exit')).toBeDisabled();
-  await expect(detail.getByText(/RSI\s*Not set/)).toBeVisible();
-  // A price exit right at the book: it fires on the next tick.
-  const { bid } = await bestPrices();
-  await detail.getByLabel('Stop when the price falls to').fill(bid);
-  await detail.getByRole('button', { name: 'Save exits' }).click();
-  await expect.poll(async () => (await getBot(trader, state('botId'))).stopReason, { timeout: 60_000 }).toBe('price_exit');
-  await expect(detail).toContainText('Price exit');
+  const detail = await openBot(page, botId);
+  await detail.getByRole('button', { name: 'Exits', exact: true }).click();
+  const exits = detail.getByRole('region', { name: 'Exits', exact: true });
+  // The RSI exit: no RSI source is connected, so the field reads "Not set" and can't be filled in.
+  const rsi = exits.getByLabel('RSI exit', { exact: true });
+  await expect(rsi).toBeDisabled();
+  await expect(rsi).toHaveValue('Not set');
+  // Nor can it be saved by any other route: the service refuses an RSI value by name and saves nothing.
+  const sent = await (await api(trader)).post(`${GRID}.setExits`, { botId, stopBelow: '1', rsiBelow: '30' });
+  expect(sent.status).toBe(400);
+  expect(codeOf(sent.body)).toBe('trade.bots_grid_rsi_source_not_set');
+  expect((await getBot(trader, botId)).exits).toEqual({ stopBelow: null, stopAbove: null, rsi: { source: null } });
+
+  // A price exit at the ask: the best bid is already at or under it, so the next tick reaches it.
+  const { ask } = await bestPrices();
+  await exits.getByLabel('Stop when the price falls to', { exact: true }).fill(ask);
+  const saved = page.waitForResponse(
+    (res) => new URL(res.url()).pathname.endsWith('/bots.grid.setExits') && res.request().method() === 'POST',
+  );
+  await exits.getByRole('button', { name: 'Save exits', exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(exits.getByRole('status')).toContainText('Exits saved.');
+  // The price exit stops the bot, with the reason "Price exit", and the stop cancels every level it rested.
+  await expect.poll(async () => (await getBot(trader, botId)).statusReason, { timeout: 60_000 }).toBe('price_exit');
+  await expect(detail.getByTestId('grid-status')).toHaveText('Stopped', { timeout: 20_000 });
+  await expect(detail).toContainText(/Stopped by\s*Price exit/);
+  // The stopped bot still states its exits: the falls-to price it stopped on, and the RSI exit Not set.
+  await expect(detail).toContainText(/RSI exit\s*Not set/);
+  await expect(detail).toContainText(/Stop when the price falls to\s*[\d,.]+ USDT/);
+  // The step's picture: the bot's whole detail from the top, nothing focused, so no bar sits over it.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
+  await expect
+    .poll(async () => (await getBot(trader, botId)).orders.filter((o) => o.status === 'open').length, { timeout: 30_000 })
+    .toBe(0);
+  // Once: read for the next few ticks at the same book, the one stop and its reason stand and no level is placed again.
+  const stopped = await getBot(trader, botId);
+  for (const until = Date.now() + 5_000; Date.now() < until;) {
+    const later = await getBot(trader, botId);
+    expect(later).toMatchObject({ status: 'stopped', statusReason: 'price_exit' });
+    expect(later.orders).toEqual(stopped.orders);
+  }
 });
 
 test(`${J} #4 stops with settlement of base and quote: one sell job per level; a stop during a partial cancel refused`, async ({
@@ -215,10 +261,26 @@ test(`${J} #4 stops with settlement of base and quote: one sell job per level; a
 });
 
 test(`${J} #5 turns on idle-fund yield: through the bank earn door; while it isn't wired, refused with the reason`, async ({ page }) => {
-  await signIn(page, state('trader'));
-  const detail = await openBot(page, state('botId'));
-  await detail.getByRole('switch', { name: 'Earn on idle funds' }).check();
-  await expect(detail.getByText(/Earn on idle funds|isn’t connected/)).toBeVisible();
+  test.setTimeout(120_000);
+  const trader = state('trader');
+  // #3 stopped the journey's first grid, so this step runs on a grid of its own.
+  const bot = await makeGrid(trader, `${J}-5-${state('tag')}`, '300');
+  run.write({ botIds: [...state('botIds'), bot.botId] });
+  await signIn(page, trader);
+  const detail = await openBot(page, bot.botId);
+  const idle = detail.getByRole('region', { name: 'Idle funds', exact: true });
+  const answer = page.waitForResponse(
+    (res) => new URL(res.url()).pathname.endsWith('/bots.grid.setIdleYield') && res.request().method() === 'POST',
+  );
+  await idle.getByRole('switch', { name: 'Earn on idle funds', exact: true }).click();
+  const res = await answer;
+  // The bank earn door isn't wired: refused with that reason, and the switch stays off.
+  expect(res.status()).toBe(400);
+  expect(codeOf(await res.json())).toBe('trade.bots_grid_idle_yield_unwired');
+  await expect(idle.getByRole('alert')).toContainText('Earning on idle funds isn’t connected');
+  await expect(idle.getByRole('switch', { name: 'Earn on idle funds', exact: true })).not.toBeChecked();
+  // Nothing moved: the bot is as it was made.
+  expect(await getBot(trader, bot.botId)).toMatchObject({ status: 'running', investment: '300', reinitCount: 0 });
 });
 
 test(`${J} #6 uses a bonus-margin voucher in a different coin: refused naming the mismatch`, async ({ page }) => {

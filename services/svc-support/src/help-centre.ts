@@ -9,6 +9,19 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type {
+  SupportHelpCentre,
+  SupportHelpCentreChange,
+  SupportHelpCentreField,
+  SupportHelpCentreLanguage,
+  SupportHelpCentreSetInput,
+  SupportHelpCentreTranslation,
+  SupportHelpCentreTranslationList,
+  SupportHelpCentreTranslationState,
+  SupportKbAudience,
+  SupportKbViewer,
+} from '@intafaced/contracts';
+import { kbAudienceVisibleTo } from '@intafaced/contracts/support';
 import {
   SUPPORT_HELP_CENTRE_LIST_LIMIT_MAX,
   SUPPORT_HELP_CENTRE_SETTING_INVALID,
@@ -17,22 +30,11 @@ import {
   SUPPORT_HELP_CENTRE_REVISION_STALE,
   SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT,
   SUPPORT_HELP_CENTRE_FIELDS,
-  kbAudienceVisibleTo,
   supportHelpCentreAddressProblem,
   supportHelpCentreSchema,
   supportHelpCentreSetKey,
   supportHelpCentreTranslationKey,
-  type SupportHelpCentre,
-  type SupportHelpCentreChange,
-  type SupportHelpCentreField,
-  type SupportHelpCentreLanguage,
-  type SupportHelpCentreSetInput,
-  type SupportHelpCentreTranslation,
-  type SupportHelpCentreTranslationList,
-  type SupportHelpCentreTranslationState,
-  type SupportKbAudience,
-  type SupportKbViewer,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-help-centre';
 import { PLATFORM_KB_SPINE } from './kb-catalog.js';
 
 export class HelpCentreStaleError extends Error {

@@ -1,3 +1,4 @@
+// volt-room: /rulebook
 import { useMemo } from 'react';
 import { ReadingTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { useDataEnv, useSource } from '../../../data/hooks';
@@ -87,7 +88,7 @@ export function RulebookView({ load }: { load: Loadable<Rulebook> }) {
               {current.sections.map((s) => (
                 <section key={s.id} id={`rulebook-${s.id}`} data-section={s.title} aria-labelledby={`rulebook-h-${s.id}`}>
                   <h2 id={`rulebook-h-${s.id}`}>{s.title}</h2>
-                  <p style={{ whiteSpace: 'pre-wrap' }}>{s.body}</p>
+                  <p className="lt-pre-wrap">{s.body}</p>
                 </section>
               ))}
             </div>

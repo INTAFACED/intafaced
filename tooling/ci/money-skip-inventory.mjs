@@ -26,14 +26,16 @@
  * journals; it is not gone. Do not invent pending rows to look busy.
  */
 
-/** Money roots from D26-P2-01 promise-falsify surface (plus ledger-client). */
+/**
+ * Money roots from D26-P2-01 promise-falsify surface (plus ledger-client). The ledger, the bank and the matching engine
+ * are the Rust crates `crates/svc-ledger`, `crates/svc-bank` and `crates/svc-matching`, which this scan of TypeScript tests cannot read (the
+ * engine's tests need no database, so they never skip): CI's Rust job runs its database tests with
+ * REQUIRE_POSTGRES=1, so a missing database fails them rather than skipping.
+ */
 export const MONEY_PATH_ROOTS = [
-  'services/svc-ledger',
   'services/svc-trade',
   'services/svc-pay',
-  'services/svc-bank',
   'services/svc-p2p',
-  'services/svc-matching',
   'services/svc-token',
   'services/svc-market',
   'services/svc-ws',
@@ -44,50 +46,6 @@ export const MONEY_PATH_ROOTS = [
  * @type {{file: string, kind: 'infra-journalled' | 'private-probe' | 'pending' | 'opaque', why: string}[]}
  */
 export const MONEY_SKIP_REGISTER = [
-  // ── svc-bank ───────────────────────────
-  {
-    file: 'services/svc-bank/src/earn/position-default-pending.test.ts',
-    kind: 'infra-journalled',
-    why:
-      'Earn positions must default to pending, not active, so a claim cannot accrue before its ledger post; this also proves the 0019 up and down migrations (rolled back in a transaction). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
-      'svc-bank runs in Tests (full), which sets both with a live Postgres, so this runs on every PR that changes it and skips only on a laptop without the DB. ' +
-      'LIFTS WHEN: converted to the PG-hard pattern (TEST_DATABASE_URL, no skipIf on postgresAvailable), as the svc-ledger H8a suites are.',
-  },
-  {
-    file: 'services/svc-bank/src/transfers/rejected-omits-ledger-tx.db.test.ts',
-    kind: 'infra-journalled',
-    why:
-      'A rejected transfer execution must carry a rejection code and must not point at a ledger posting (check constraint transfer_executions_rejected_omits_ledger_tx_ck), proven with raw SQL. Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
-      'svc-bank runs in Tests (full), which sets both with a live Postgres, so this runs on every PR that changes it and skips only on a laptop without the DB. ' +
-      'LIFTS WHEN: converted to the PG-hard pattern (TEST_DATABASE_URL, no skipIf on postgresAvailable), as the svc-ledger H8a suites are.',
-  },
-
-  // ── svc-ledger ───────────────────────
-  {
-    file: 'services/svc-ledger/src/db/durable-freeze-down.test.ts',
-    kind: 'infra-journalled',
-    why:
-      '0002 down migration must lock posting_freeze so a concurrent freeze cannot be dropped (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
-      'Tests (full) sets both with a live Postgres, so this runs on every PR that changes it and skips only on a laptop without the DB. ' +
-      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
-  },
-  {
-    file: 'services/svc-ledger/src/db/outbox-down.test.ts',
-    kind: 'infra-journalled',
-    why:
-      '0013 down migration must lock ledger_tx_outbox so an unpublished posting intent cannot be dropped (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
-      'Tests (full) sets both with a live Postgres, so this runs on every PR that changes it and skips only on a laptop without the DB. ' +
-      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
-  },
-  {
-    file: 'services/svc-ledger/src/db/purpose-keyed-holds-down.test.ts',
-    kind: 'infra-journalled',
-    why:
-      '0001 down migration must refuse (P0001) while zero-balance duplicate holds remain (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
-      'Tests (full) sets both with a live Postgres, so this runs on every PR that changes it and skips only on a laptop without the DB. ' +
-      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
-  },
-
   // ── svc-market ───────────────────────
 
   // ── svc-pay ────────────────────────

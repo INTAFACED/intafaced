@@ -12,6 +12,7 @@
  * The signing secret is stored as enc:v1 ciphertext. A catch-all allowlist
  * (0.0.0.0/0 or ::/0) does not satisfy "require non-empty IP allowlist".
  */
+import type { Queryable } from '@intafaced/db';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
@@ -262,13 +263,13 @@ export function assertEdgeSignedRequest(service: string | null, request: unknown
  * Run `fn` in a transaction. When `sql` is already a transaction (a guarded API-key action hands one in)
  * it has no `begin`, so `fn` runs on it directly and commits or rolls back with the caller.
  */
-export async function inTransaction<T>(sql: Sql, fn: (tx: Sql) => Promise<T>): Promise<T> {
-  if (typeof (sql as { begin?: unknown }).begin === 'function') return (await sql.begin((tx) => fn(tx as unknown as Sql))) as T;
+export async function inTransaction<T>(sql: Queryable, fn: (tx: Queryable) => Promise<T>): Promise<T> {
+  if ('begin' in sql) return (await sql.begin(fn)) as T;
   return fn(sql);
 }
 
 export async function setApiKeyRequestSigning(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   input: { requireSignature?: boolean; requireNonEmptyIpAllowlist?: boolean },
@@ -343,7 +344,7 @@ export async function setApiKeyRequestSigning(
  * The new secret is returned once. The caller must own the key.
  */
 export async function rotateSigningSecret(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   encKey: Buffer | null,

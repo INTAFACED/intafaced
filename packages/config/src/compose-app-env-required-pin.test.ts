@@ -60,6 +60,12 @@ describe('compose APP_ENV has no default in real-deploy files (#4610)', () => {
     );
   });
 
+  it('the beta posture switch reaches every service, and is off when the host leaves it unset', () => {
+    // The staging deploy sets it from the shell; empty is off (betaPostureIssues returns nothing for blank).
+    expect(apps).toMatch(/^  INTAFACED_BETA_POSTURE: \$\{INTAFACED_BETA_POSTURE:-\}$/m);
+    expect(apps.match(/^\s*INTAFACED_BETA_POSTURE:/gm)).toHaveLength(1);
+  });
+
   it('.env.example keeps the local-dev convenience (APP_ENV=dev) for platform:up', () => {
     expect(read('.env.example')).toMatch(/^APP_ENV=dev$/m);
   });

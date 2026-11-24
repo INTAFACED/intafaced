@@ -59,32 +59,3 @@ export function MoneyText({
     </span>
   );
 }
-
-/** One line per asset. Two assets are never added together; an empty list is "nothing yet" (a dash), not zero. */
-export function MoneyList({
-  items,
-  emptyLabel,
-  test = false,
-  sign,
-}: {
-  items: readonly { assetCode: string; amount: string }[];
-  emptyLabel?: string;
-  test?: boolean;
-  sign?: 'minus' | 'plus';
-}) {
-  if (items.length === 0)
-    return (
-      <span className="pp-none" title={emptyLabel}>
-        —
-      </span>
-    );
-  return (
-    <span className="pp-lines">
-      {items.map((item) => (
-        <span key={item.assetCode} className="pp-line">
-          <MoneyText value={item.amount} asset={item.assetCode} test={test} sign={sign} />
-        </span>
-      ))}
-    </span>
-  );
-}

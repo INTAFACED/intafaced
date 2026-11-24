@@ -1,4 +1,4 @@
-import { unwrapTrpcData } from '@intafaced/contracts';
+import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
 import {
   marketTargetId,
   poolTargetId,

@@ -1,10 +1,30 @@
 import { api } from './stack.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
+
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts). */
+const PARTNER_BOOK = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+
+/** What the TEST partner's own book says `userId` holds of `assetId` on their main balance there. */
+export async function partnerMainBalance(userId, assetId = 'USDT') {
+  return (await venueBalance(userId, assetId, PARTNER_BOOK)).total;
+}
+
+/** Every move on `userId`'s record at the TEST partner, oldest first, as the partner's own book lists it. */
+export async function partnerBookMoves(userId) {
+  return (await venueRecord(userId, '/moves', {}, PARTNER_BOOK, null)).value;
+}
+
+/** Every account the TEST partner holds for `userId`, main balances and spaces, with the amount in each, as its own book lists them. */
+export async function partnerBookAccounts(userId) {
+  return (await venueRecord(userId, '/accounts', {}, PARTNER_BOOK, null)).value;
+}
 
 /**
  * The TEST partner bank and ramp's switches for one person (CUSTODY-DELTA §4; svc-bank `partner/test-partner.ts`). The
  * stack runs the TEST partner (`BANK_TEST_PARTNER=test`); each switch is that person's only and starts off.
  */
-export const PARTNER_OFF = Object.freeze({
+const PARTNER_OFF = Object.freeze({
   notOffered: [],
   fee: 'known',
   reserve: 'none',

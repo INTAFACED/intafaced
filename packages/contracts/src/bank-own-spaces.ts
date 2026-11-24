@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import type { ServiceName } from './service-keys.js';
 
 /**
@@ -35,7 +36,7 @@ export const bankOwnSpaceSchema = z
     /** The space id, which is also the `subaccount` owner id of its ledger account. */
     spaceId: z.string().guid(),
     /** Text columns with no length rule in the table: a long stored name must not make the whole answer unreadable. */
-    assetId: z.string().min(1),
+    assetId: assetIdSchema.min(1),
     name: z.string().min(1),
     archived: z.boolean(),
   })

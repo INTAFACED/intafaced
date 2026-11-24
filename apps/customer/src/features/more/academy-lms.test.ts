@@ -370,7 +370,7 @@ describe('certificate issue and verify links (AC-certificates-01/02)', () => {
     grantIdempotencyKey: null,
   };
   it('a complete certificate waiting out its delay is issuing; with no wait it is ready to request', () => {
-    const issuesAt = new Date('2026-10-24T14:00:00.000Z');
+    const issuesAt = '2026-10-24T14:00:00.000Z';
     expect(certificateState({ ...row, issue: { mode: 'delayed', delayMinutes: 60, issuesAt } }, undefined)).toBe('issuing');
     expect(certificateState({ ...row, issue: { mode: 'manual', delayMinutes: null, issuesAt: null } }, undefined)).toBe('ready');
     expect(certificateState(row, undefined)).toBe('ready');

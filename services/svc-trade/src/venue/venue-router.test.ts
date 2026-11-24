@@ -17,7 +17,7 @@ import { HOUSE_EXPOSURE_ROUTED, routingReport, routingReportWire } from './routi
 // J-derivatives-28 #1 to #5 against two TEST venue simulators over loopback HTTP: A with a thin TEST ladder (1 BTC a
 // level, as the stack's first venue) and B with a deep one (5 BTC a level). Every figure is TEST.
 
-const USER = { userId: '11111111-1111-4111-8111-1111111128a1', sid: 's-28', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const USER = { userId: '11111111-1111-4111-8111-1111111128a1', sid: 's-28', scopes: ['trade:read', 'trade:write'] } as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue router')));
 const owner = key.address.toLowerCase();
 const BUILDER = { address: '0x00000000000000000000000000000000000b0028', feeBps: parseAmount('2') };
@@ -60,7 +60,7 @@ function gate(): VenueRoutingGate {
   };
 }
 
-function router() {
+function router(published: { builder?: typeof BUILDER | null; builderAddress?: string | null } = {}) {
   const store = new InMemoryPreparedActionStore();
   const listings = gate();
   const doors = servers.map(
@@ -70,9 +70,12 @@ function router() {
         appEnv: 'test',
         store,
         stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
-        builder: BUILDER,
+        builder: published.builder === undefined ? BUILDER : published.builder,
+        ...(published.builderAddress !== undefined ? { builderAddress: published.builderAddress } : {}),
         // A labelled TEST bound, the widest; the bound is proven in user-venue-protection.test.ts.
         slippageCapBps: TEST_SLIPPAGE_CAP_BPS,
+        // A labelled TEST spread limit, wide of the TEST books here.
+        spreadLimitBps: 5000,
         now: () => new Date(),
         listings,
       }),
@@ -227,6 +230,134 @@ describe('UserVenueRouter', () => {
     }
     const back = await r.marketVenues(owner, 'BTC-USDC');
     expect(back.venues.map((v) => v.health.state)).toEqual(['up', 'up']);
+  });
+
+  it("J-derivatives-30 #2 #3: a revoke is the owner wallet's signed approval of zero, never an agent's, and it holds while the fee is blank", async () => {
+    const { router: r } = router();
+    const d = await r.door(A);
+    const signer = { role: 'owner' as const, address: owner };
+    const account = { venueId: A, owner, subAccount: null };
+    const approve = { kind: 'approve_builder_fee' as const, builder: BUILDER.address, maxFeeBps: BUILDER.feeBps };
+    const ap = await d.prepare(USER, { owner, signer, intent: approve, actionKey: `builder-approval:${owner}:${A}:j30` });
+    await r.submit(USER, ap.actionKey, await sign(ap.prepared));
+    expect((await sim(A).builderFeeApproval(account, BUILDER.address)).value).toBe(BUILDER.feeBps);
+
+    const revoke = { ...approve, maxFeeBps: 0n };
+    // An agent key signs no revoke: refused before anything is prepared, and the approval stands.
+    const agent = { role: 'agent' as const, address: '0x00000000000000000000000000000000000a6e70' };
+    await expect(
+      d.prepare(USER, { owner, signer: agent, intent: revoke, actionKey: `builder-revoke:${owner}:${A}:j30-agent` }),
+    ).rejects.toMatchObject({
+      refusal: { code: 'agent_not_permitted' },
+    });
+    expect((await sim(A).builderFeeApproval(account, BUILDER.address)).value).toBe(BUILDER.feeBps);
+
+    // The fee blank, the address still published: the status names the address, and the revoke prepares and lands.
+    const blank = router({ builder: null, builderAddress: BUILDER.address });
+    const bd = await blank.router.door(A);
+    const status = await bd.status();
+    expect(status).toMatchObject({ builder: null, builderAddress: BUILDER.address });
+    // An approval needs the fee published; a revoke needs only the address.
+    await expect(
+      bd.prepare(USER, { owner, signer, intent: approve, actionKey: `builder-approval:${owner}:${A}:j30-blank` }),
+    ).rejects.toMatchObject({
+      refusal: { code: 'builder_fee_not_published' },
+    });
+    const rv = await bd.prepare(USER, { owner, signer, intent: revoke, actionKey: `builder-revoke:${owner}:${A}:j30` });
+    expect(rv.prepared.signer).toEqual(signer);
+    expect((await blank.router.submit(USER, rv.actionKey, await sign(rv.prepared))).outcome).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+    expect((await sim(A).builderFeeApproval(account, BUILDER.address)).value).toBe(0n);
+    // Sent once: the same key again is the stored answer, never a second signed action.
+    const again = await bd.prepare(USER, { owner, signer, intent: revoke, actionKey: `builder-revoke:${owner}:${A}:j30` });
+    expect(again).toMatchObject({ actionKey: rv.actionKey, reused: true, signed: true, lastOutcome: { definite: true, accepted: true } });
+  });
+
+  it("J-derivatives-31 #2 #4 #5: a vault move is the owner wallet's, sent once under its key; an early withdrawal is refused before signing", async () => {
+    const { router: r } = router();
+    const d = await r.door(A);
+    const signer = { role: 'owner' as const, address: owner };
+    const account = { venueId: A, owner, subAccount: null };
+    fund(A, owner, 'USDC', '300', 'chain:svc-trade:j31');
+    const vault = (await sim(A).vaults()).value[0]!.address;
+    const deposit = {
+      kind: 'vault_transfer' as const,
+      vault,
+      direction: 'deposit' as const,
+      asset: 'USDC',
+      amount: parseAmount('100'),
+      moveKey: `vault-move:${owner}:${vault}:deposit:j31`,
+    };
+    // An agent key moves nothing into a vault: refused before anything is prepared.
+    const agent = { role: 'agent' as const, address: '0x00000000000000000000000000000000000a6e71' };
+    await expect(
+      d.prepare(USER, { owner, signer: agent, intent: { ...deposit, moveKey: `${deposit.moveKey}-agent` } }),
+    ).rejects.toMatchObject({
+      refusal: { code: 'agent_not_permitted' },
+    });
+    const dp = await d.prepare(USER, { owner, signer, intent: deposit });
+    expect(dp.actionKey).toBe(deposit.moveKey);
+    expect((await r.submit(USER, dp.actionKey, await sign(dp.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    // Sent once: the same key again is the stored answer, and the venue holds one deposit.
+    const again = await d.prepare(USER, { owner, signer, intent: deposit });
+    expect(again).toMatchObject({ actionKey: dp.actionKey, reused: true, signed: true, lastOutcome: { definite: true, accepted: true } });
+    const held = (await sim(A).vaultHoldings(account)).value;
+    expect(held.positions.map((p) => formatAmount(p.equity))).toEqual(['100']);
+    expect(held.transfers).toHaveLength(1);
+    // Before the lock-up ends the withdrawal is refused at prepare, naming the time it ends: nothing to sign.
+    const withdraw = { ...deposit, direction: 'withdraw' as const, moveKey: `vault-move:${owner}:${vault}:withdraw:j31` };
+    await expect(d.prepare(USER, { owner, signer, intent: withdraw })).rejects.toMatchObject({
+      refusal: { code: 'venue_rejected', detail: expect.stringContaining(held.positions[0]!.lockUpEndsAt.toISOString()) },
+    });
+    // After it, one signed withdrawal brings the amount back to free USDC.
+    sim(A).testVaultLockUpPassed(account, vault);
+    const wd = await d.prepare(USER, { owner, signer, intent: { ...withdraw, moveKey: `${withdraw.moveKey}-after` } });
+    expect((await r.submit(USER, wd.actionKey, await sign(wd.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await sim(A).vaultHoldings(account)).value.positions).toEqual([]);
+  });
+
+  it("J-cex-spot-21 #2 #3 #5: staking and delegating are the owner wallet's, each sent once under its key; an early undelegation is refused before signing", async () => {
+    const { router: r } = router();
+    const d = await r.door(A);
+    const signer = { role: 'owner' as const, address: owner };
+    const account = { venueId: A, owner, subAccount: null };
+    fund(A, owner, 'HYPE', '300', 'chain:svc-trade:js21');
+    const stake = {
+      kind: 'staking_transfer' as const,
+      direction: 'to_staking' as const,
+      asset: 'HYPE',
+      amount: parseAmount('200'),
+      moveKey: `stake-move:${owner}:to-staking:js21`,
+    };
+    const agent = { role: 'agent' as const, address: '0x00000000000000000000000000000000000a6e71' };
+    await expect(d.prepare(USER, { owner, signer: agent, intent: { ...stake, moveKey: `${stake.moveKey}-agent` } })).rejects.toMatchObject({
+      refusal: { code: 'agent_not_permitted' },
+    });
+    const sp = await d.prepare(USER, { owner, signer, intent: stake });
+    expect(sp.actionKey).toBe(stake.moveKey);
+    expect((await r.submit(USER, sp.actionKey, await sign(sp.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    const again = await d.prepare(USER, { owner, signer, intent: stake });
+    expect(again).toMatchObject({ actionKey: sp.actionKey, reused: true, signed: true, lastOutcome: { definite: true, accepted: true } });
+    const validator = (await sim(A).staking()).value.validators[0]!.address;
+    const delegate = {
+      kind: 'staking_delegate' as const,
+      validator,
+      direction: 'delegate' as const,
+      asset: 'HYPE',
+      amount: parseAmount('150'),
+      moveKey: `delegation:${owner}:${validator}:delegate:js21`,
+    };
+    const dp = await d.prepare(USER, { owner, signer, intent: delegate });
+    expect((await r.submit(USER, dp.actionKey, await sign(dp.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    const held = (await sim(A).stakingAccount(account)).value;
+    expect(held.staked).toBe(parseAmount('50'));
+    expect(held.delegations.map((x) => formatAmount(x.amount))).toEqual(['150']);
+    const undelegate = { ...delegate, direction: 'undelegate' as const, moveKey: `delegation:${owner}:${validator}:undelegate:js21` };
+    await expect(d.prepare(USER, { owner, signer, intent: undelegate })).rejects.toMatchObject({
+      refusal: { code: 'venue_rejected', detail: expect.stringContaining(held.delegations[0]!.lockUpEndsAt.toISOString()) },
+    });
   });
 
   it('#8 and #6: the approval names B and our published fee, the order then fills there; the report shows it by venue', async () => {

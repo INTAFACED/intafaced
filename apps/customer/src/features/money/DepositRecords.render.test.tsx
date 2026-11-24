@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -31,7 +32,7 @@ async function mount(node: React.ReactNode) {
 // TEST figures, not published settings.
 const record = (over: Partial<DepositRecordView> = {}): DepositRecordView => ({
   id: 'd1',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   networkId: 'ethereum',
   address: '0xTEST1',
   txHash: '0xTESTTX1',
@@ -57,8 +58,8 @@ describe('pending deposits', () => {
           status: 'ready',
           data: {
             items: [
-              { id: 'a', assetId: 'USDT', networkId: 'ethereum', amount: '25', confirmations: 3, confirmationsRequired: 12 },
-              { id: 'b', assetId: 'BTC', networkId: 'bitcoin', amount: '0.5', confirmations: 1, confirmationsRequired: null },
+              { id: 'a', assetId: asAssetId('USDT'), networkId: 'ethereum', amount: '25', confirmations: 3, confirmationsRequired: 12 },
+              { id: 'b', assetId: asAssetId('BTC'), networkId: 'bitcoin', amount: '0.5', confirmations: 1, confirmationsRequired: null },
             ],
           },
         }}

@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Field, Loading, Panel } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { KitRead, Section, Waiting } from './volt-parts';
+import { KitDetails } from './volt-action';
 import { usePreferences } from '../../shared/preferences';
-import { useApi, useSession } from '../session/session';
-import { Details, Read } from './common';
+import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
-import { z } from 'zod';
 import {
   academyVerifyHref,
-  certPathRow,
-  certXpPlaneRow,
   certificateXp,
   certificateCards,
   certificateDocument,
@@ -29,7 +27,11 @@ import {
 import { academyCodeOf, verifyCertificate, type VerifiedCertificate } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
 import { ProgrammeCertificates } from './AcademyCourseProgrammes';
-import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
+import { CertificateChip, GuardedButton, LessonStatusChip, ProgressMeter } from './academy-kit-parts';
+import { AcademyRefusal } from './academy-refusal';
+import { pathLabel } from './academy-labels';
+import { ACADEMY_CERT_XP_PLANE } from '@intafaced/contracts/academy-cert-xp-plane-procedures';
+import { ACADEMY_CERT_PATHS } from '@intafaced/contracts/academy-cert-paths-procedures';
 
 const param = (name: string) => (typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? ''));
 
@@ -39,8 +41,8 @@ export function CertificateShelf() {
   const [reference, setReference] = useState(param('verify'));
   // The verify box needs only the code, so a failed or empty tracking read never hides it.
   return (
-    <div className="academy-lms-stack">
-      <Read resource={overview.resource} retry={overview.reload}>
+    <div className="lt-stack">
+      <KitRead resource={overview.resource} retry={overview.reload}>
         {(data) => (
           <Shelf
             lessons={data.lessons}
@@ -51,7 +53,7 @@ export function CertificateShelf() {
             }}
           />
         )}
-      </Read>
+      </KitRead>
       <VerifyPanel reference={reference} onReference={setReference} />
     </div>
   );
@@ -72,9 +74,9 @@ function Shelf({
   const [viewId, setViewId] = useState(param('view') || earned[0]?.definition.id || '');
   const view = cards.find((c) => c.definition.id === viewId);
   return (
-    <div className="academy-lms-stack">
-      <Panel title={t('shelfTitle')}>
-        <section className="academy-lms-stack" data-certificates="courses" aria-labelledby="academy-course-certificates">
+    <div className="lt-stack">
+      <Section title={t('shelfTitle')}>
+        <section className="lt-stack" data-certificates="courses" aria-labelledby="academy-course-certificates">
           <h3 id="academy-course-certificates">{t('coursesTitle')}</h3>
           <p role="status">
             {cards.length === 0 ? (
@@ -83,18 +85,18 @@ function Shelf({
               <Copy k="shelfSummary" params={{ earned: earned.length, total: cards.length }} />
             )}
           </p>
-          <div className="academy-lms-grid">
+          <div className="lt-stack">
             {cards.map((card) => (
               <CertificateCardView key={card.definition.id} card={card} lessons={lessons} onView={() => setViewId(card.definition.id)} />
             ))}
             <UnpublishedPaths />
           </div>
         </section>
-        <section className="academy-lms-stack" data-certificates="programmes" aria-labelledby="academy-programme-certificates">
+        <section className="lt-stack" data-certificates="programmes" aria-labelledby="academy-programme-certificates">
           <h3 id="academy-programme-certificates">{t('programmeCertsTitle')}</h3>
           <ProgrammeCertificates />
         </section>
-      </Panel>
+      </Section>
       {view && <CertificateSheet card={view} lessons={lessons} onCheckCode={onCheckCode} />}
     </div>
   );
@@ -106,8 +108,8 @@ function Shelf({
  */
 function UnpublishedPaths() {
   const api = useApi();
-  const answer = useResource((signal) => api.query('academy', 'certPaths', undefined, z.array(certPathRow), { signal }), 'cert-paths');
-  if (answer.resource.status === 'loading') return <Loading />;
+  const answer = useResource((signal) => api.call(ACADEMY_CERT_PATHS, undefined, { signal }), 'cert-paths');
+  if (answer.resource.status === 'loading') return <Waiting />;
   if (answer.resource.status === 'failed') return <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />;
   return (
     <>
@@ -123,10 +125,11 @@ function UnpublishedPaths() {
 function UnpublishedPathCard({ row }: { row: CertPathRow }) {
   const { t } = copy.useCopy();
   return (
-    <article className="academy-lms-card" data-certificate-path={row.path} data-state="unpublished">
+    <article className="lt-stack" data-certificate-path={row.path} data-state="unpublished">
       <h4>{pathLabel(t, row.path)}</h4>
-      <div data-testid="academy-lms-meta" className="academy-lms-meta">
-        <span className="academy-lms-chip" data-status="unpublished">
+      <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
+        <span className="lt-chip" data-status="unpublished">
+          <span className="lt-chip-mark" aria-hidden="true" />
           {t('stateUnpublished')}
         </span>
       </div>
@@ -142,35 +145,35 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
   const missing = card.progress?.missingItemSlugs[0];
   const missingLesson = lessons.find((l) => l.slug === missing);
   return (
-    <article className="academy-lms-card" data-certificate={card.definition.id} data-state={card.state}>
+    <article className="lt-stack" data-certificate={card.definition.id} data-state={card.state}>
       <h4 lang="und">{card.definition.title}</h4>
-      <div data-testid="academy-lms-meta" className="academy-lms-meta">
+      <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
         <CertificateChip state={card.state} />
       </div>
-      <ProgressBar percent={card.percent} label={t('certProgressLabel', { title: card.definition.title })} />
+      <ProgressMeter percent={card.percent} label={t('certProgressLabel', { title: card.definition.title })} />
       <p>
         <Copy k="requiredRecorded" params={{ completed: card.progress?.completedCount ?? 0, required }} />
       </p>
       {card.grant && (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="issuedOn" params={{ date: formatDay(card.grant.grantedAt, language) }} />
         </p>
       )}
       {!card.grant && <IssueLine progress={card.progress} />}
       {card.state === 'revoked' && <p data-testid="certificate-revoked">{t('revokedNote')}</p>}
-      <div className="academy-learning-actions">
+      <div className="lt-actions">
         {card.state === 'earned' && (
-          <Button variant="secondary" onClick={onView}>
+          <Button tone="secondary" onClick={onView}>
             <Copy k="viewCertificate" />
           </Button>
         )}
         {card.state !== 'earned' && missing && (
-          <a className="academy-learning-link" href={lessonHrefFor(missing, card.definition.id, missingLesson?.path)}>
+          <a className="lt-link lt-link-alone" href={lessonHrefFor(missing, card.definition.id, missingLesson?.path)}>
             <Copy k="continueLearning" />
           </a>
         )}
         {card.state === 'ready' && (
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="readyHint" />
           </p>
         )}
@@ -191,14 +194,14 @@ function IssueLine({ progress }: { progress: CertificateCard['progress'] }) {
     return (
       <p data-testid="certificate-issue">
         {issue.issuesAt
-          ? t('issueDelayed', { date: formatMoment(issue.issuesAt.toISOString(), language), wait: words })
+          ? t('issueDelayed', { date: formatMoment(issue.issuesAt, language), wait: words })
           : t('issueAfterWait', { wait: words })}
       </p>
     );
   }
   if (issue.mode === 'automatic') {
     return (
-      <p className="muted" data-testid="certificate-issue">
+      <p className="lt-muted" data-testid="certificate-issue">
         {t('issueAutomatic')}
       </p>
     );
@@ -221,32 +224,32 @@ function CertificateSheet({
   const doc = userId ? certificateDocument(card, userId) : null;
   if (!doc)
     return (
-      <Panel title={card.definition.title}>
-        <div className="academy-lms-stack">
+      <Section title={card.definition.title}>
+        <div className="lt-stack">
           <p>
             <Copy k="sheetNotIssued" />
           </p>
-          <ul className="academy-lms-rows" aria-label={t('requirementsLabel')}>
+          <ol className="lt-stack" aria-label={t('requirementsLabel')}>
             {certificateLessons(card, lessons).map((row, index) => (
-              <li key={row.slug}>
+              <li key={row.slug} className="lt-actions">
                 <span>{index + 1}</span>
                 <strong lang={row.lesson ? 'und' : 'zxx'}>{row.lesson?.title ?? row.slug}</strong>
-                <StatusChip status={row.recorded ? 'recorded' : 'pending'} />
+                <LessonStatusChip status={row.recorded ? 'recorded' : 'pending'} />
               </li>
             ))}
-          </ul>
+          </ol>
         </div>
-      </Panel>
+      </Section>
     );
   return (
-    <Panel title={t('sheetPanel')}>
-      <div className="academy-lms-stack" data-certificate-sheet={doc.certId}>
+    <Section title={t('sheetPanel')}>
+      <div className="lt-stack" data-certificate-sheet={doc.certId}>
         <article
-          className="academy-cert-sheet"
+          className="lt-print-sheet"
           aria-label={t('sheetLabel', { title: doc.design?.title ?? doc.title })}
           data-design-revision={doc.design?.revision ?? ''}
         >
-          <small className="muted">
+          <small className="lt-muted">
             <Copy k="sheetIssuer" />
           </small>
           {doc.design ? (
@@ -268,7 +271,7 @@ function CertificateSheet({
               <p data-testid="certificate-serial">
                 {t('sheetSerial')} <code lang="zxx">{doc.code}</code>
               </p>
-              <small className="muted">
+              <small className="lt-muted">
                 <Copy k="sheetVerifyHint" />
               </small>
             </>
@@ -277,18 +280,18 @@ function CertificateSheet({
         <CertificateXp certId={doc.certId} />
         <ShareCertificate key={doc.code ?? doc.certId} code={doc.code} />
         {doc.code && (
-          <div className="academy-learning-actions">
-            <Button variant="secondary" onClick={() => onCheckCode(doc.code!)}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => onCheckCode(doc.code!)}>
               <Copy k="useCode" />
             </Button>
           </div>
         )}
         {/* Outside the printed sheet on purpose: the account id and the grant reference are private record keys. */}
-        <details className="muted">
+        <details className="lt-muted">
           <summary>
             <Copy k="sheetPrivate" />
           </summary>
-          <Details
+          <KitDetails
             items={[
               [t('sheetAccount'), <code lang="zxx">{doc.holder}</code>],
               [t('sheetReference'), <code lang="zxx">{doc.reference}</code>],
@@ -296,7 +299,7 @@ function CertificateSheet({
           />
         </details>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -304,18 +307,18 @@ function CertificateSheet({
 function SheetDesign({ design }: { design: NonNullable<CertGrant['design']> }) {
   const { t } = copy.useCopy();
   return (
-    <div className="academy-lms-stack" data-testid="certificate-design">
+    <div className="lt-stack" data-testid="certificate-design">
       <h2 lang={design.language}>{design.title}</h2>
       <p lang={design.language}>{design.body}</p>
       {design.effortHours && <p>{t('sheetEffort', { hours: design.effortHours })}</p>}
       {design.signatories.length > 0 && (
         <div data-testid="certificate-signatories">
-          <small className="muted">{t('sheetSignedBy')}</small>
-          <ul className="academy-lms-rows">
+          <small className="lt-muted">{t('sheetSignedBy')}</small>
+          <ul className="lt-list">
             {design.signatories.map((s, i) => (
               <li key={i}>
                 <strong lang="und">{s.name}</strong>{' '}
-                <span className="muted" lang={design.language}>
+                <span className="lt-muted" lang={design.language}>
                   {s.role}
                 </span>
               </li>
@@ -324,11 +327,11 @@ function SheetDesign({ design }: { design: NonNullable<CertGrant['design']> }) {
         </div>
       )}
       {design.disclaimer && (
-        <small className="muted" lang={design.language} data-testid="certificate-disclaimer">
+        <small className="lt-muted" lang={design.language} data-testid="certificate-disclaimer">
           {design.disclaimer}
         </small>
       )}
-      <small className="muted" data-testid="certificate-design-revision">
+      <small className="lt-muted" data-testid="certificate-design-revision">
         {t('sheetRevision', { revision: design.revision })}
       </small>
     </div>
@@ -342,8 +345,8 @@ function SheetDesign({ design }: { design: NonNullable<CertGrant['design']> }) {
 function CertificateXp({ certId }: { certId: string }) {
   const api = useApi();
   const { t } = copy.useCopy();
-  const plane = useResource((signal) => api.query('academy', 'certXpPlane', undefined, certXpPlaneRow, { signal }), 'cert-xp-plane');
-  if (plane.resource.status === 'loading') return <Loading />;
+  const plane = useResource((signal) => api.call(ACADEMY_CERT_XP_PLANE, undefined, { signal }), 'cert-xp-plane');
+  if (plane.resource.status === 'loading') return <Waiting />;
   if (plane.resource.status === 'failed') return <AcademyRefusal failure={plane.resource.failure} retry={plane.reload} />;
   const xp = certificateXp(plane.resource.data, certId);
   return (
@@ -351,7 +354,7 @@ function CertificateXp({ certId }: { certId: string }) {
       <span data-testid="certificate-xp-text">
         {xp.kind === 'none' ? t('certXpNone') : t(xp.kind === 'worth' ? 'certXpWorth' : 'certXpOff', { xp: xp.xp })}
       </span>{' '}
-      <a className="academy-learning-link" href="/uc/account">
+      <a className="lt-link lt-link-alone" href="/uc/account">
         {t('seeRank')}
       </a>
     </p>
@@ -367,12 +370,12 @@ function ShareCertificate({ code }: { code: string | null }) {
   const [copied, setCopied] = useState<'idle' | 'copied' | 'refused'>('idle');
   const link = code ? `${window.location.origin}${academyVerifyHref(code)}` : null;
   return (
-    <div className="academy-lms-stack" data-testid="certificate-share">
-      <p className="muted">{t('shareTargetsNone')}</p>
-      <div className="academy-learning-actions">
+    <div className="lt-stack" data-testid="certificate-share">
+      <p className="lt-muted">{t('shareTargetsNone')}</p>
+      <div className="lt-actions">
         {link && (
           <Button
-            variant="secondary"
+            tone="secondary"
             onClick={() => {
               if (!navigator.clipboard) return setCopied('refused');
               void navigator.clipboard.writeText(link).then(
@@ -384,7 +387,9 @@ function ShareCertificate({ code }: { code: string | null }) {
             {t('copyLink')}
           </Button>
         )}
-        <Button onClick={() => window.print()}>{t('printShort')}</Button>
+        <Button tone="primary" onClick={() => window.print()}>
+          {t('printShort')}
+        </Button>
       </div>
       {copied !== 'idle' && link && <p role="status">{copied === 'copied' ? t('linkCopied') : t('copyRefused', { link })}</p>}
     </div>
@@ -399,16 +404,16 @@ export function CertificateVerifyPage({ code }: { code: string | undefined }) {
   const { t } = copy.useCopy();
   const parsed = parseVerifyCode(code ?? '');
   return (
-    <Panel title={t('verifyPageTitle')}>
-      <div className="academy-lms-stack" data-certificate-verify={parsed.kind === 'code' ? parsed.code : ''}>
-        <p className="muted">{t('verifyPageIntro')}</p>
+    <Section title={t('verifyPageTitle')}>
+      <div className="lt-stack" data-certificate-verify={parsed.kind === 'code' ? parsed.code : ''}>
+        <p className="lt-muted">{t('verifyPageIntro')}</p>
         {parsed.kind === 'code' ? (
           <VerifyAnswer code={parsed.code} />
         ) : (
           <p role="status">{(code ?? '').trim() ? t('verifyFormat') : t('verifyPageNoCode')}</p>
         )}
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -416,7 +421,7 @@ function VerifyAnswer({ code }: { code: string }) {
   const api = useApi();
   const { t } = copy.useCopy();
   const answer = useResource((signal) => verifyCertificate(api, code, signal), `certificate-verify:${code}`);
-  if (answer.resource.status === 'loading') return <Loading label={t('verifyChecking')} />;
+  if (answer.resource.status === 'loading') return <Waiting label={t('verifyChecking')} />;
   if (answer.resource.status === 'failed')
     return (
       <div data-code={academyCodeOf(answer.resource.failure) ?? undefined}>
@@ -435,7 +440,7 @@ export function SheetHolder({ code }: { code: string }) {
   const name = holder.resource.data.holderName;
   return (
     <p>
-      <small className="muted">{t('verifyHolder')}</small>
+      <small className="lt-muted">{t('verifyHolder')}</small>
       <br />
       {name ? <span lang="und">{name}</span> : t('holderNotShared')}
     </p>
@@ -453,24 +458,31 @@ export function VerifyResult({ code, certificate }: { code: string; certificate:
   const { language } = usePreferences();
   const revoked = certificate.status === 'revoked';
   return (
-    <section className="academy-lms-result" role="status" aria-label={t('verifyResultLabel')}>
-      <Details
+    <section className="lt-stack" role="status" aria-label={t('verifyResultLabel')}>
+      <KitDetails
         items={[
           [t('verifyCertificate'), <span lang="und">{certificate.title}</span>],
           [t('verifyHolder'), certificate.holderName ? <span lang="und">{certificate.holderName}</span> : t('holderNotShared')],
           [t('verifyIssued'), <span data-testid="verify-issued">{formatDay(certificate.grantedAt, language)}</span>],
           [
             t('verifyStatus'),
-            <span className="academy-lms-chip" data-status={revoked ? 'revoked' : 'recorded'} data-testid="verify-status">
+            <span className="lt-chip" data-status={revoked ? 'revoked' : 'recorded'} data-testid="verify-status">
+              <span className="lt-chip-mark" aria-hidden="true" />
               {revoked ? t('verifyRevoked') : t('verifyValid')}
             </span>,
           ],
           [t('sheetCode'), <code lang="zxx">{code}</code>],
         ]}
       />
-      <p className={revoked ? undefined : 'muted'}>
-        <Copy k={revoked ? 'verifyRevokedNote' : 'verifyValidNote'} />
-      </p>
+      {revoked ? (
+        <p>
+          <Copy k="verifyRevokedNote" />
+        </p>
+      ) : (
+        <p className="lt-muted">
+          <Copy k="verifyValidNote" />
+        </p>
+      )}
     </section>
   );
 }
@@ -505,15 +517,15 @@ export function VerifyPanel({ reference, onReference }: { reference: string; onR
 
   const reason = lookup.status === 'checking' ? t('verifyChecking') : parsed.kind === 'code' ? null : t('verifyNeedCode');
   return (
-    <Panel title={t('verifyTitle')}>
+    <Section title={t('verifyTitle')}>
       <form
-        className="academy-lms-stack"
+        className="lt-stack"
         onSubmit={(event) => {
           event.preventDefault();
           if (parsed.kind === 'code' && lookup.status !== 'checking') void check(parsed.code);
         }}
       >
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="verifyIntro" />
         </p>
         <Field
@@ -536,10 +548,10 @@ export function VerifyPanel({ reference, onReference }: { reference: string; onR
         <GuardedButton type="submit" reasonId="academy-verify-reason" reason={reason}>
           {t('verifyAction')}
         </GuardedButton>
-        {lookup.status === 'checking' && <Loading label={t('verifyChecking')} />}
+        {lookup.status === 'checking' && <Waiting label={t('verifyChecking')} />}
         {lookup.status === 'done' && !lookup.result.ok && <AcademyRefusal failure={lookup.result} retry={() => void check(lookup.code)} />}
         {lookup.status === 'done' && lookup.result.ok && <VerifyResult code={lookup.code} certificate={lookup.result.data} />}
       </form>
-    </Panel>
+    </Section>
   );
 }

@@ -1,8 +1,9 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
   title: 'View a shared card',
-  intro: 'Open an account’s card. Its sharing settings decide whether you can view it.',
-  account: 'Account ID',
+  intro:
+    'Open a crew member’s or mentor’s card from their row, or paste the account code they gave you. Their sharing settings decide whether you can view it.',
+  account: 'Account code they gave you',
   size: 'Card size',
   portrait: 'Portrait',
   landscape: 'Landscape',
@@ -12,7 +13,7 @@ const en = {
   full: 'Open full size',
   download: 'Download SVG',
   original: 'The card keeps its original language.',
-  invalid: 'Enter a complete account ID and choose a card size.',
+  invalid: 'Paste the whole account code and choose a card size.',
   loading: 'Opening the selected card…',
   unavailable: 'Card unavailable',
   unavailableDetail: 'This card is not available to your account. Check the reference or ask its owner about sharing.',
@@ -39,8 +40,9 @@ const en = {
 };
 const es: Record<keyof typeof en, string> = {
   title: 'Ver una tarjeta compartida',
-  intro: 'Abre la tarjeta de una cuenta. Sus ajustes de uso compartido determinan si puedes verla.',
-  account: 'ID de cuenta',
+  intro:
+    'Abre la tarjeta de un miembro de tu equipo o de un mentor desde su fila, o pega el código de cuenta que te dio. Sus ajustes de uso compartido determinan si puedes verla.',
+  account: 'Código de cuenta que te dio',
   size: 'Tamaño de tarjeta',
   portrait: 'Vertical',
   landscape: 'Horizontal',
@@ -50,7 +52,7 @@ const es: Record<keyof typeof en, string> = {
   full: 'Abrir a tamaño completo',
   download: 'Descargar SVG',
   original: 'La tarjeta conserva su idioma original.',
-  invalid: 'Introduce un ID de cuenta completo y elige un tamaño de tarjeta.',
+  invalid: 'Pega el código de cuenta completo y elige un tamaño de tarjeta.',
   loading: 'Abriendo la tarjeta seleccionada…',
   unavailable: 'Tarjeta no disponible',
   unavailableDetail:
@@ -78,8 +80,9 @@ const es: Record<keyof typeof en, string> = {
 };
 const fr: Record<keyof typeof en, string> = {
   title: 'Voir une carte partagée',
-  intro: 'Ouvrez la carte d’un compte. Ses réglages de partage déterminent si vous pouvez la consulter.',
-  account: 'Identifiant du compte',
+  intro:
+    'Ouvre la carte d’un membre de ton équipe ou d’un mentor depuis sa ligne, ou colle le code de compte qu’il t’a donné. Ses réglages de partage déterminent si tu peux la consulter.',
+  account: 'Code de compte qu’on t’a donné',
   size: 'Format de la carte',
   portrait: 'Portrait',
   landscape: 'Paysage',
@@ -89,7 +92,7 @@ const fr: Record<keyof typeof en, string> = {
   full: 'Ouvrir en taille réelle',
   download: 'Télécharger le SVG',
   original: 'La carte conserve sa langue d’origine.',
-  invalid: 'Saisis un ID de compte complet et choisis une taille de carte.',
+  invalid: 'Colle le code de compte complet et choisis une taille de carte.',
   loading: 'Ouverture de la carte sélectionnée…',
   unavailable: 'Carte indisponible',
   unavailableDetail:

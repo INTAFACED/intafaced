@@ -17,14 +17,21 @@
  */
 import { createCipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type {
+  SupportComment,
+  SupportGuestCreateResult,
+  SupportGuestThread,
+  SupportGuestVerifyResult,
+  SupportTicket,
+  SupportTicketCategory,
+} from '@intafaced/contracts';
+import { guestVerificationKey } from '@intafaced/contracts/guest-verification';
+import { supportTicketCategorySchema, SUPPORT_CATEGORY_UNKNOWN } from '@intafaced/contracts/support';
 import {
-  guestVerificationKey,
   supportGuestCreateInputSchema,
   supportGuestReplyInputSchema,
   supportGuestThreadInputSchema,
   supportGuestVerifyInputSchema,
-  supportTicketCategorySchema,
-  SUPPORT_CATEGORY_UNKNOWN,
   SUPPORT_GUEST_ADDRESS_KEY_UNSET,
   SUPPORT_GUEST_DELIVERY_UNKNOWN,
   SUPPORT_GUEST_LINK_EXPIRED,
@@ -34,13 +41,7 @@ import {
   SUPPORT_GUEST_RATE_LIMIT_UNSET,
   SUPPORT_GUEST_RETENTION_UNSET,
   SUPPORT_GUEST_VERIFY_PATH,
-  type SupportComment,
-  type SupportGuestCreateResult,
-  type SupportGuestThread,
-  type SupportGuestVerifyResult,
-  type SupportTicket,
-  type SupportTicketCategory,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-guest';
 import { GuestVerificationRefusal, type GuestVerificationDoor } from './guest-verification-client.js';
 import { SupportError } from './support-service.js';
 

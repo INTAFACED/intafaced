@@ -46,8 +46,7 @@ function unpublishedUrl() {
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // `export` and `erase` act on `ctx.principal.userId` and nothing else, which is
-// only a privacy guarantee if that userId cannot be asserted by the caller
-// (docs/decisions/mount-boundary.md).
+// only a privacy guarantee if that userId cannot be asserted by the caller.
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(

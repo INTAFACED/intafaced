@@ -129,18 +129,12 @@ describe('SealedHouseTenantRegistry', () => {
 describe('matching package unimported', () => {
   it('does not import svc-matching or a matching workspace package', () => {
     const dir = dirname(fileURLToPath(import.meta.url));
-    const pkg = JSON.parse(readFileSync(join(dir, '..', 'package.json'), 'utf8')) as {
-      dependencies?: Record<string, string>;
-    };
-    const deps = Object.keys(pkg.dependencies ?? {});
+    const pkg = JSON.parse(readFileSync(join(dir, '..', 'package.json'), 'utf8')) as Partial<
+      Record<'dependencies' | 'devDependencies' | 'peerDependencies', Record<string, string>>
+    >;
+    const deps = [pkg.dependencies, pkg.devDependencies, pkg.peerDependencies].flatMap((d) => Object.keys(d ?? {}));
+    // A workspace package resolves only when it is declared here, and a path into services/svc-matching is a B-hops
+    // finding of tooling/ci/boundary-scan.mjs, so no matching import can land without failing one of the two.
     expect(deps.some((d) => /matching/i.test(d))).toBe(false);
-
-    const src =
-      readFileSync(join(dir, 'house-tenant.ts'), 'utf8') +
-      readFileSync(join(dir, 'house-tenant-policy.ts'), 'utf8') +
-      readFileSync(join(dir, 'house-vs-tenant.ts'), 'utf8') +
-      readFileSync(join(dir, 'index.ts'), 'utf8');
-    const imports = [...src.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]).filter((s): s is string => typeof s === 'string');
-    expect(imports.some((s) => /matching/i.test(s))).toBe(false);
   });
 });

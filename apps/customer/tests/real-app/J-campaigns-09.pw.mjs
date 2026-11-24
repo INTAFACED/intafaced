@@ -1,11 +1,14 @@
-// World: book, restart
+// World: book, restart, stack
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { ROOT, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
-import { reviewSheet, signUp, verify } from './desk.mjs';
-import { testWalletKey } from './test-wallet.mjs';
+import { ROOT, api, fromUnits, journeyState, restartService, tool, toUnits } from './stack.mjs';
+import { reviewSheet, signIn, signUp, verify } from './desk.mjs';
+import { TEST_WALLET, installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { CHAIN_ID, TOKEN_USD, connectWhenAsked } from './dex.mjs';
+import { chainReceipt, payFault, rewardFunds, usdTransfers } from './reward-funds.mjs';
+import { ageRecord } from './test-age.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -17,6 +20,7 @@ import {
   venueAccount,
   venueForThisFile,
   venueInfo,
+  venueBalance,
   venueRecord,
 } from './venue.mjs';
 
@@ -27,7 +31,11 @@ import {
 // builder fee off), and a fee-saver coupon campaign made by the stack's two LOCAL TEST founders (A creates and asks, B
 // approves, A activates) whose code takes half of our builder fee off two venue orders. Our builder fee on the stack is
 // the labelled TEST 0.5 bp (tooling/profiles/test-owner-values/trade.json). Each order here is a spot sell, which carries
-// our builder fee (a spot buy carries none). #4 is "Later (OWNER 226)"; #5 and #6 (the rebate coupon) are not built yet.
+// our builder fee (a spot buy carries none). #4 waits for later (its fee voucher pools are not built). The setup also makes a fee rebate coupon campaign
+// (the same two founders) whose code pays half of our builder fee back on each venue fill, up to TEST 0.002 USDC in all,
+// to the connected wallet two hours after the fill, and funds INTAFACED's TEST reward pot and TEST rewards wallet from
+// builder fees a TEST house account's own sells earned us (reward-funds.mjs). The two hours are aged through the TEST age
+// door in #6; one payment's answer is lost after it was broadcast through the TEST pay-fault door.
 const J = 'J-campaigns-09';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
@@ -43,6 +51,9 @@ const RATE = { full: '0.5', coupon: '0.2', rank: '0.4' };
  */
 const SELL = { amount: '0.001' };
 const REST = { amount: '0.001', price: '60005' };
+/** The TEST rebate coupon: half of our builder fee back per fill, at most TEST 0.002 USDC in all, two hours after the fill. */
+const REBATE = { rebateBps: 5000, delaySeconds: 7200, face: '0.002' };
+const funds = rewardFunds({ J, RUN: process.env.JOURNEY_RUN_ID ?? tag, operators: () => operators() });
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
@@ -86,6 +97,38 @@ async function liveFeeSaverCampaign() {
       claimBy: new Date(Date.now() + 7 * DAY).toISOString(),
       useBy: new Date(Date.now() + 7 * DAY).toISOString(),
       feeSaver: { discountBps: 5000, orders: 2 },
+    },
+  };
+  const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');
+  data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
+  data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'approve', revision: 1 }, b), 'approve');
+  const live = data(
+    await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'activate', revision: 1 }, a),
+    'activate',
+  );
+  expect(live.state).toBe('active');
+  return live;
+}
+
+/** A TEST fee rebate campaign live now, paid from its own TEST budget: the coupon's face is the campaign's reward. */
+async function liveFeeRebateCampaign() {
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  const b = await pair.b.campaignsOpsToken();
+  const definition = {
+    name: `TEST fee rebate ${tag}`,
+    type: 'voucher',
+    rules: 'TEST rules: claim the coupon by its code; half of our builder fee on each venue fill is paid back to your wallet.',
+    startsAt: new Date(Date.now() - 60_000).toISOString(),
+    endsAt: new Date(Date.now() + 14 * DAY).toISOString(),
+    participation: { exclusions: [], regionScope: 'platform' },
+    budget: { asset: 'USDC', limit: '1' },
+    limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
+    reward: { asset: 'USDC', amount: REBATE.face },
+    vouchers: {
+      claimBy: new Date(Date.now() + 7 * DAY).toISOString(),
+      useBy: new Date(Date.now() + 7 * DAY).toISOString(),
+      feeRebate: { rebateBps: REBATE.rebateBps, delaySeconds: REBATE.delaySeconds },
     },
   };
   const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');
@@ -149,9 +192,7 @@ const desk = async (page) => {
     await page.goto(DESK);
     await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
     const address = page.getByTestId('venue-wallet-address');
-    const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-    await expect(connect.or(address)).toBeVisible();
-    if (await connect.isVisible()) await connect.click();
+    await connectWhenAsked(page, address);
     await expect(address).toHaveText(wallet.address);
   }
   return { ...s, wallet, owner: wallet.address };
@@ -162,13 +203,16 @@ const line = (sheet, name) => sheet.locator(`[data-line="${name}"]`);
  * The desk's sell form filled and Sell pressed, once the venue's own preview of it has answered; returns the review dialog
  * and the price the order carries (a market order's worst price is the desk's, from the stack's TEST price protection).
  */
-async function reviewSell(page, { type, price, amount }) {
+async function reviewSell(page, order) {
+  return reviewOrder(page, 'sell', order);
+}
+async function reviewOrder(page, side, { type, price, amount }) {
   await page
     .getByTestId('dk-order')
     .locator('[role=tab]', { hasText: type === 'limit' ? /^Limit$/ : /^Market$/ })
     .click();
-  const form = page.locator('[data-testid="dk-form"][data-side="sell"]');
-  if (type === 'limit') await form.getByRole('textbox', { name: 'Price' }).fill(price);
+  const form = page.locator(`[data-testid="dk-form"][data-side="${side}"]`);
+  if (type === 'limit') await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
   await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
   expect((await answer).status()).toBe(200);
@@ -193,18 +237,19 @@ async function venuePreviewAt(owner, { type, price, amount }, clientOrderKey, fe
         timeInForce: type === 'limit' ? 'GTC' : 'IOC',
         reduceOnly: false,
         clientOrderKey,
-        builderFee: { builder: '0x7e57000000000000000000000000000000000b1d', feeBps },
+        builderFee: { builder: '0x116d8f7751e72306d499dd61ae826e46a726c632', feeBps },
       },
     })
   ).value;
 }
 
 /** Confirm the review (it closes) and sign in the wallet; returns the order's outcome line under the form. */
-async function confirmAndSign(page, sheet) {
-  await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
-  await sheet.getByRole('button', { name: 'Confirm sell' }).click();
+async function confirmAndSign(page, sheet, side = 'sell') {
+  const confirm = sheet.getByRole('button', { name: `Confirm ${side}`, exact: true });
+  await expect(confirm).toBeEnabled({ timeout: 20_000 });
+  await confirm.click();
   await continueInWallet(page);
-  const outcome = page.locator('[data-testid="dk-form"][data-side="sell"]').getByTestId('venue-outcome');
+  const outcome = page.locator(`[data-testid="dk-form"][data-side="${side}"]`).getByTestId('venue-outcome');
   await expect(outcome).not.toHaveText('', { timeout: 15_000 });
   return outcome;
 }
@@ -305,7 +350,24 @@ test.beforeAll(async ({ browser }) => {
       ),
       'vouchers.issue',
     );
-    run.reset({ account, walletKey, owner, code });
+    const rebate = await liveFeeRebateCampaign();
+    const rebateCode = `JC09R-${tag}`;
+    data(
+      await ctx.edge.mutate(
+        'campaigns',
+        'ops.campaigns.vouchers.issue',
+        { campaignId: rebate.id, code: rebateCode },
+        await pair.a.campaignsOpsToken(),
+      ),
+      'vouchers.issue',
+    );
+    // INTAFACED's TEST reward pot and TEST rewards wallet, from builder fees a TEST house account's own sells earned us.
+    const house = await signUp(page, 'jc09h');
+    await verify(page, house);
+    const fees = await funds.earnBuilderFees(house, 2);
+    await funds.fundPotFromFees(`TEST-${J}-${tag}`, fees);
+    await funds.claimOurBuilderFees();
+    run.reset({ account, walletKey, owner, code, rebateCode });
   } finally {
     await page.close();
   }
@@ -313,7 +375,9 @@ test.beforeAll(async ({ browser }) => {
 
 test(`${J} #1 opens /campaigns/mine: the coupon, its kind and what it will do`, async ({ page }) => {
   test.setTimeout(180_000);
-  const { account, code } = state();
+  const { account, owner, code } = state();
+  // Claiming the coupon touches nothing at the venue: the venue account is as the venue itself records it before the claim.
+  const held = await venueBalance(owner, 'USDC');
   const { signIn } = await import('./desk.mjs');
   await signIn(page, account);
   await openVouchers(page);
@@ -341,6 +405,17 @@ test(`${J} #1 opens /campaigns/mine: the coupon, its kind and what it will do`, 
   await expect(row.getByTestId('voucher-state')).toHaveText('Claimed');
   // A fee-saver is never redeemed for cash: no amount or Redeem control on its row.
   await expect(row.getByRole('button', { name: 'Redeem' })).toHaveCount(0);
+  // What it will do, as the venue itself prices it: the venue's own preview of a sell at the coupon's rate charges less of
+  // our builder fee than at the rate in force, and exactly the same venue fee; the claim moved nothing in the venue account.
+  const order = { type: 'limit', price: REST.price, amount: SELL.amount };
+  const key = `order:${J}:${tag}:coupon-preview`;
+  const atCoupon = await venuePreviewAt(owner, order, key, RATE.coupon);
+  const atFull = await venuePreviewAt(owner, order, key, RATE.full);
+  expect(toUnits(atCoupon.builderFee.value.amount)).toBeGreaterThan(0n);
+  expect(toUnits(atCoupon.builderFee.value.amount)).toBeLessThan(toUnits(atFull.builderFee.value.amount));
+  expect(atCoupon.venueFee.value).toEqual(atFull.venueFee.value);
+  expect(toUnits(atFull.venueFee.value.amount)).toBeGreaterThan(0n);
+  expect(await venueBalance(owner, 'USDC')).toEqual(held);
   run.write({ ...run.read(), couponId: coupon.id });
 });
 
@@ -462,4 +537,233 @@ test(`${J} #3 the coupon runs out during an order: that order keeps the builder 
   // Nothing more was taken from the coupon by the fill, and the total discount stayed within its two orders.
   expect((await couponOf(account, code)).feeSaver.uses).toHaveLength(2);
   expect(fromUnits(fills.reduce((t, f) => t + toUnits(f.amount), 0n))).toBe(REST.amount);
+});
+
+/** The rebate of one fill's builder fee: half of it, rounded down to TEST USD's 6 places, as svc-campaigns rounds it. */
+function rebateOf(builderFee) {
+  const unit = 10n ** 12n;
+  return ((toUnits(builderFee) * BigInt(REBATE.rebateBps)) / 10_000n / unit) * unit;
+}
+
+/** The rebate coupon as svc-campaigns answers it, and what each of its accruals says, in fill order. */
+async function rebateCoupon(account, code) {
+  const v = await couponOf(account, code);
+  expect(v, `${code} is in the wallet`).toBeTruthy();
+  return v;
+}
+
+/**
+ * Connects the person's TEST wallet to their account (svc-protocol's record, as J-campaigns-03 does it): the wallet a
+ * reward is paid to. The desk's own connection is the browser's alone. A wallet already connected is left as it is.
+ */
+async function connectToAccount(browser, account, walletKey) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey });
+    await signIn(page, account);
+    await page.goto('/wallet');
+    await page.getByRole('button', { name: 'Venue account', exact: true }).click();
+    const connected = page.getByRole('heading', { name: 'Connected', exact: true });
+    const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true });
+    await expect(connected.or(connect).first()).toBeVisible({ timeout: 30_000 });
+    if (await connected.isVisible()) return;
+    await connect.click();
+    await page.getByRole('button', { name: 'Connect to my account', exact: true }).click();
+    await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet', exact: true }).click();
+    await expect(connected).toBeVisible({ timeout: 30_000 });
+  } finally {
+    await context.close();
+  }
+}
+
+/** A market order of `side` placed and filled on the desk; returns its client id and the venue's fills of it. */
+async function filledMarket(page, owner, side) {
+  await desk(page);
+  const { sheet } = await reviewOrder(page, side, { type: 'market', amount: SELL.amount });
+  const clientId = (await line(sheet, 'client-id').innerText()).trim();
+  await expect(await confirmAndSign(page, sheet, side)).toContainText('Filled on the venue.');
+  let fills = [];
+  await expect
+    .poll(async () => (fills = await fillsOf(owner, clientId)).length, { timeout: 30_000, message: `the venue filled ${clientId}` })
+    .toBeGreaterThan(0);
+  return { clientId, fills };
+}
+
+const accrualsOf = (v) => v.feeRebate.accruals.map((a) => ({ fillId: a.fillId, builderFee: a.builderFee, amount: a.amount }));
+
+test(`${J} #5 trades with a rebate coupon: each eligible fill accrues; redelivered fills do not double it; a zero-fee fill accrues nothing; the total never passes the face value`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(600_000);
+  const { account, walletKey, rebateCode } = state('rebateCode');
+  await connectToAccount(browser, account, walletKey);
+  const { owner } = await desk(page);
+
+  // The coupon, claimed on /campaigns/mine: its kind, what it pays back, after how long and up to what.
+  await openVouchers(page);
+  const form = page.getByRole('form', { name: 'Voucher code', exact: true });
+  await form.getByRole('textbox', { name: 'Code', exact: true }).fill(rebateCode);
+  await form.getByRole('button', { name: 'Check this code', exact: true }).click();
+  await expect(page.getByTestId('voucher-validation')).toContainText(
+    `a fee rebate coupon from TEST fee rebate ${tag}: 50% of our builder fee back on each venue fill, paid 2 hours after it, up to ${REBATE.face} USDC`,
+  );
+  await form.getByRole('button', { name: 'Claim this voucher', exact: true }).click();
+  await expect.poll(async () => (await couponOf(account, rebateCode))?.state, { timeout: 15_000 }).toBe('claimed');
+  const claimed = await rebateCoupon(account, rebateCode);
+  expect(claimed).toMatchObject({
+    kind: 'fee_rebate',
+    face: { asset: 'USDC', amount: REBATE.face },
+    remaining: REBATE.face,
+    feeRebate: { rebateBps: REBATE.rebateBps, delaySeconds: REBATE.delaySeconds, accruals: [] },
+  });
+  const row = () => page.locator(`[data-testid="my-voucher"][data-voucher-id="${claimed.id}"]`);
+  await expect(row().getByTestId('voucher-kind')).toHaveText('Fee rebate coupon:');
+  await expect(row().getByTestId('voucher-does')).toHaveText(
+    `pays 50% of our builder fee back on each of your venue fills, to your connected wallet 2 hours after the fill, up to ${REBATE.face} USDC in all; never the venue’s own fee.`,
+  );
+  // Its orders before the claim (#2, #3) accrued nothing; it is never redeemed for cash.
+  await expect(row().getByRole('button', { name: 'Redeem', exact: true })).toHaveCount(0);
+
+  // A zero-fee fill: a spot buy carries no builder fee of ours, as the venue reports on its fills. It accrues nothing.
+  const buy = await filledMarket(page, owner, 'buy');
+  for (const f of buy.fills) expect(toUnits(f.builderFee), `${f.fillId} carries no builder fee`).toBe(0n);
+
+  // An eligible fill: a spot sell, with our builder fee as the venue charged it. It accrues half of that fee, once.
+  const first = await filledMarket(page, owner, 'sell');
+  const firstFees = first.fills.reduce((t, f) => t + rebateOf(f.builderFee), 0n);
+  expect(firstFees, 'the first sell earns less than the face, so the coupon has room left after it').toBeLessThan(toUnits(REBATE.face));
+  await expect
+    .poll(async () => (await rebateCoupon(account, rebateCode)).feeRebate.accruals.length, { timeout: 60_000 })
+    .toBe(first.fills.length);
+  const once = await rebateCoupon(account, rebateCode);
+  for (const f of first.fills) {
+    const a = once.feeRebate.accruals.find((x) => x.fillId === f.fillId);
+    expect(a, `${f.fillId} accrued`).toBeTruthy();
+    expect(sameDecimal(a.builderFee, f.builderFee), `${f.fillId} accrued on the venue's own builder fee`).toBe(true);
+    expect(toUnits(a.amount)).toBe(rebateOf(f.builderFee));
+  }
+  expect(once.feeRebate.accruals.some((a) => buy.fills.some((f) => f.fillId === a.fillId))).toBe(false);
+  expect(toUnits(once.remaining)).toBe(toUnits(REBATE.face) - firstFees);
+
+  // Redelivered: every pass reads all the fills since the claim again, and so does svc-campaigns after a restart. The
+  // pass that accrues the next sell's fills has read this sell's fills again too: they must still have one accrual each.
+  const before = accrualsOf(once);
+  await restartService('campaigns');
+
+  // The next sell accrues only what is left: the total stops at the face value exactly.
+  const second = await filledMarket(page, owner, 'sell');
+  await expect.poll(async () => (await rebateCoupon(account, rebateCode)).remaining, { timeout: 60_000 }).toBe('0');
+  const full = await rebateCoupon(account, rebateCode);
+  expect(full).toMatchObject({ state: 'used', used: REBATE.face, remaining: '0' });
+  let left = toUnits(REBATE.face);
+  for (const a of full.feeRebate.accruals) {
+    const fill = [...first.fills, ...second.fills].find((f) => f.fillId === a.fillId);
+    expect(fill, `${a.fillId} is one of the sells' fills`).toBeTruthy();
+    const want = rebateOf(fill.builderFee) < left ? rebateOf(fill.builderFee) : left;
+    expect(toUnits(a.amount), `${a.fillId} accrued half its fee, cut to what was left`).toBe(want);
+    left -= want;
+  }
+  expect(left).toBe(0n);
+  // The first sell's fills, read again by every pass since and after the restart: still one accrual each, unchanged.
+  for (const b of before) expect(accrualsOf(full).filter((a) => a.fillId === b.fillId)).toEqual([b]);
+  expect(new Set(full.feeRebate.accruals.map((a) => a.fillId)).size).toBe(full.feeRebate.accruals.length);
+  expect(full.feeRebate.accruals.reduce((t, a) => t + toUnits(a.amount), 0n)).toBe(toUnits(REBATE.face));
+  // Each accrual is one redemption of the coupon, owed by INTAFACED from the campaign's budget and not yet paid: its delay
+  // has not passed.
+  expect(full.redemptions.map((r) => r.sequence)).toEqual(full.feeRebate.accruals.map((a) => a.sequence));
+  for (const r of full.redemptions) {
+    expect(r.reward.state, r.reward.rewardKey).toBe('owed');
+    expect(r.reward.owed?.txId, r.reward.rewardKey).toBeTruthy();
+    expect(r.reward.payout).toBeNull();
+  }
+  for (const a of full.feeRebate.accruals) expect(Date.parse(a.payableAt)).toBeGreaterThan(Date.now() + 3_600_000);
+
+  // The wallet shows each accrual and the coupon used up.
+  await openVouchers(page);
+  for (const a of full.feeRebate.accruals) {
+    const shown = row().locator(`[data-testid="voucher-accrual"][data-fill="${a.fillId}"]`);
+    await expect(shown).toHaveCount(1);
+    await expect(shown).toHaveAttribute('data-amount', a.amount);
+    await expect(shown).toContainText(`${a.amount} USDC back of a ${a.builderFee} USDC builder fee`);
+  }
+  await expect(row().getByTestId('voucher-accrual')).toHaveCount(full.feeRebate.accruals.length);
+  await expect(row().getByTestId('voucher-remaining')).toHaveText(`0 USDC left of ${REBATE.face} USDC`);
+  await expect(row().getByTestId('voucher-state')).toHaveText('Used');
+  run.write({ ...run.read(), rebateId: claimed.id });
+});
+
+test(`${J} #6 the delay passes: each accrual is paid once to the connected wallet with its chain reference, and a lost reply is reconciled`, async ({
+  page,
+}) => {
+  test.setTimeout(420_000);
+  const { account, owner, rebateCode } = state('rebateCode', 'rebateId');
+  // The payments go to the connected wallet on the chain, never into its venue account: the venue's own record of that
+  // account is the same after every payment as before the delay passed.
+  const venueBefore = await venueBalance(owner, 'USDC');
+  const coupon = await rebateCoupon(account, rebateCode);
+  const keys = coupon.redemptions.map((r) => r.reward.rewardKey);
+  expect(keys.length, 'the rebate accrued in #5').toBeGreaterThan(0);
+  // Before the delay passes nothing is paid: the payment passes since #5 left every accrual owed.
+  for (const r of (await rebateCoupon(account, rebateCode)).redemptions) expect(r.reward.state).toBe('owed');
+
+  // The first accrual's payment is broadcast and its answer lost; then the two hours pass for every accrual.
+  await payFault(keys[0], 'lost_after_broadcast');
+  for (const key of keys) await ageRecord('campaigns', 'reward', key, REBATE.delaySeconds * 1000 + 1_000);
+  await expect
+    .poll(async () => (await rebateCoupon(account, rebateCode)).redemptions.map((r) => r.reward.state), { timeout: 180_000 })
+    .toEqual(keys.map(() => 'paid'));
+
+  const paid = await rebateCoupon(account, rebateCode);
+  const accrued = new Map(paid.feeRebate.accruals.map((a) => [a.sequence, a.amount]));
+  // What was paid is what the venue's own fills earned: each accrual is half of the builder fee the venue itself charged
+  // on its fill, cut to what the face value left, and together they are the face value exactly.
+  const venueFills = (await venueRecord(owner, '/fills', { since: new Date(Date.now() - DAY).toISOString() })).value;
+  let left = toUnits(REBATE.face);
+  for (const a of paid.feeRebate.accruals) {
+    const fill = venueFills.find((f) => f.fillId === a.fillId);
+    expect(fill, `${a.fillId} is a fill on the venue's own record`).toBeTruthy();
+    const want = rebateOf(fill.builderFee) < left ? rebateOf(fill.builderFee) : left;
+    expect(toUnits(a.amount), `${a.fillId} paid half the venue's builder fee, cut to what was left`).toBe(want);
+    left -= want;
+  }
+  expect(left).toBe(0n);
+  const payers = new Set();
+  for (const r of paid.redemptions) {
+    const { chainTx, toWallet } = r.reward.payout ?? {};
+    expect(chainTx, r.reward.rewardKey).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(toWallet).toBe(owner);
+    // Paid exactly the accrual, to the connected wallet, as the TEST chain itself records it.
+    expect(r.amount).toBe(accrued.get(r.sequence));
+    const receipt = await chainReceipt(chainTx);
+    payers.add(receipt.from);
+    const sent = receipt.transfers.filter((t) => t.token === TOKEN_USD.address && t.to === owner);
+    expect(sent.map((t) => t.value)).toEqual([toUnits(r.amount) / 10n ** 12n]);
+    // Booked once by the ledger, under the chain transaction's own key, at the exact amount.
+    const businessKey = `campaigns:reward-paid:${chainTx}`;
+    const tx = await ledgerRead(`/operator/trace?businessKey=${encodeURIComponent(businessKey)}`);
+    expect(tx.found, businessKey).toBe(true);
+    for (const p of tx.postings) expect(sameDecimal(p.amount, r.amount), businessKey).toBe(true);
+  }
+  // Once each: the chain holds exactly one transfer from our rewards wallet to this wallet per accrual, the lost reply's
+  // included (it was found on the chain, never sent again), and they reconcile to the face value exactly.
+  expect(payers.size).toBe(1);
+  const onChain = await usdTransfers([...payers][0], owner);
+  const ours = onChain.filter((t) => paid.redemptions.some((r) => r.reward.payout.chainTx.toLowerCase() === t.tx));
+  expect(ours).toHaveLength(paid.redemptions.length);
+  expect(onChain).toHaveLength(paid.redemptions.length);
+  expect(ours.reduce((t, x) => t + x.value, 0n) * 10n ** 12n).toBe(toUnits(REBATE.face));
+  expect(await venueBalance(owner, 'USDC')).toEqual(venueBefore);
+
+  // The wallet shows each payment's chain transaction and the wallet it went to.
+  await signIn(page, account);
+  await openVouchers(page);
+  const row = page.locator(`[data-testid="my-voucher"][data-voucher-id="${paid.id}"]`);
+  for (const r of paid.redemptions) {
+    const item = row.locator(`[data-testid="voucher-redemptions"] li[data-reward-key="${r.reward.rewardKey}"]`);
+    await expect(item).toHaveAttribute('data-state', 'paid');
+    await expect(item.getByTestId('voucher-chain-tx')).toHaveAttribute('data-tx', r.reward.payout.chainTx);
+    await expect(item.getByTestId('voucher-paid-to')).toHaveAttribute('data-wallet', owner);
+  }
 });

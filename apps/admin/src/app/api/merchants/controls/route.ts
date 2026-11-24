@@ -2,7 +2,6 @@ import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
   founderChangeConfirmInputSchema,
   founderChangeSubmitInputSchema,
-  founderChangeSubmitResultSchema,
   payoutApprovalSchema,
   payReasonSchema,
 } from '@intafaced/contracts';
@@ -11,8 +10,13 @@ import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } f
 import { fromFailure, json } from '@/lib/merchants/bff';
 import { asList } from '@/lib/merchants/registry-model';
 import { asTier } from '@/lib/merchants/control-model';
-import { parseWith, payCall, type PayCallContext } from '@/lib/merchants/pay-call';
+import { parseWith, payCall, type PayCallContext, payRecordRead, payRecordCall } from '@/lib/merchants/pay-call';
 import { moduleDisabledResponse } from '@/lib/modules';
+import {
+  PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
+  PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
+  PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Merchants panel BFF: merchant control changes (two founders) and payout approvals (two founders).
@@ -73,7 +77,7 @@ export async function POST(request: Request) {
         expectedVersion: body.expectedVersion,
       });
       if (!input.success) throw bad();
-      const result = await payCall(ctx, 'founderAdmin.changes.submit', 'POST', input.data, parseWith(founderChangeSubmitResultSchema));
+      const result = await payRecordCall(ctx, PAY_FOUNDER_ADMIN_CHANGES_SUBMIT, input.data);
       if (result.kind !== 'ok') return fromFailure(result, { notBuilt: RESERVE_NOT_BUILT, notFoundCode: 'pay.merchant_not_found' });
       return json({ ok: true, result: result.data });
     }
@@ -98,14 +102,14 @@ export async function POST(request: Request) {
         ),
       });
       if (!input.success) throw bad();
-      const result = await payCall(ctx, 'founderAdmin.changes.confirm', 'POST', input.data, parseWith(founderChangeSubmitResultSchema));
+      const result = await payRecordCall(ctx, PAY_FOUNDER_ADMIN_CHANGES_CONFIRM, input.data);
       if (result.kind !== 'ok') return fromFailure(result, { notBuilt: RESERVE_NOT_BUILT, notFoundCode: 'pay.change_not_found' });
       return json({ ok: true, result: result.data });
     }
 
     if (action === 'tiers') {
       // A read, here so the confirm panel can ask "did a tier change since this page loaded?" before it calls a mismatch an incident.
-      const tiers = await payCall(ctx, 'founderAdmin.control.tiers.list', 'GET', {}, (raw) => asList(raw, asTier));
+      const tiers = await payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST, {}, (raw) => asList(raw, asTier));
       if (tiers.kind !== 'ok') return fromFailure(tiers);
       return json({ ok: true, tiers: tiers.data });
     }

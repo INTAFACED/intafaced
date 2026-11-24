@@ -31,6 +31,8 @@ export interface AgentConnectionStore {
   latest(keyId: string): Promise<AgentConnectionRecord | null>;
   /** End the key's active connection at `at`; an ended one stays as it ended. Returns the newest connection. */
   end(keyId: string, at: Date): Promise<AgentConnectionRecord | null>;
+  /** The founder's desk (#15): every person's connections, ended or not, newest first, at most `limit`. */
+  listAll(limit: number): Promise<readonly AgentConnectionRecord[]>;
 }
 
 export class InMemoryAgentConnectionStore implements AgentConnectionStore {
@@ -60,6 +62,10 @@ export class InMemoryAgentConnectionStore implements AgentConnectionStore {
     const i = this.rows.findIndex((r) => r.keyId === keyId && r.endedAt === null);
     if (i >= 0) this.rows[i] = { ...this.rows[i]!, endedAt: at };
     return this.latest(keyId);
+  }
+
+  async listAll(limit: number) {
+    return [...this.rows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.keyId.localeCompare(b.keyId)).slice(0, limit);
   }
 }
 
@@ -101,7 +107,9 @@ export class SqlAgentConnectionStore implements AgentConnectionStore {
     await this.sql`
       INSERT INTO trade.user_venue_agent_connections (key_id, user_id, account_id, created_at)
       VALUES (${r.keyId}, ${r.userId}, ${r.accountId}, ${r.createdAt})
-      ON CONFLICT (key_id) WHERE ended_at IS NULL DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
+    // No target: two connects of one key in one millisecond clash on the active key and the primary key
+    // (key_id, created_at) alike, and Postgres may find either first. Either way the active row is the answer.
     const stored = await this.active(r.keyId);
     if (!stored) throw new Error(`the connection of key ${r.keyId} was not stored`);
     return stored;
@@ -120,5 +128,12 @@ export class SqlAgentConnectionStore implements AgentConnectionStore {
       UPDATE trade.user_venue_agent_connections SET ended_at = GREATEST(${at}::timestamptz, created_at)
       WHERE key_id = ${keyId} AND ended_at IS NULL`;
     return this.latest(keyId);
+  }
+
+  async listAll(limit: number) {
+    const rows = await this.sql<Row[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM trade.user_venue_agent_connections
+      ORDER BY created_at DESC, key_id LIMIT ${limit}`;
+    return rows.map(recordOf);
   }
 }

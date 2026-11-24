@@ -1,5 +1,5 @@
 import type { AcademyAdminAssignment } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * An assignment item's brief on the founder console (AC-assignments-01): instructions, points, due date and what a

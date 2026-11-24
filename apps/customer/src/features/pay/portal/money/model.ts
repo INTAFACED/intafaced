@@ -1,6 +1,6 @@
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { dec, roundScaled, toFixedString } from '../../../../data/decimal';
-import type { StatementLine, StatementPage } from './schemas';
+import type { PayStatementLine as StatementLine, PayStatementPage as StatementPage } from '@intafaced/contracts/pay-portal-reads';
 import type {
   Approval,
   AssetAmount,
@@ -307,7 +307,7 @@ export function defaultDestination<D extends { defaultFlag?: string }>(list: rea
 /** The saved destination an approval was made for (same network and same masked number), or null if it is gone. */
 export function destinationOfApproval<D extends { railId: string; destinationMasked: string }>(
   list: readonly D[] | null,
-  approval: Pick<Approval, 'railId' | 'destinationMasked'> | null,
+  approval: Partial<Pick<Approval, 'railId' | 'destinationMasked'>> | null,
 ): D | null {
   if (!list || !approval?.railId || !approval.destinationMasked) return null;
   return list.find((d) => d.railId === approval.railId && d.destinationMasked === approval.destinationMasked) ?? null;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import {
   breakdownFromQuery,
   dayOf,
@@ -86,7 +87,7 @@ describe('lineChart', () => {
   const points = [
     point('2026-10-01T00:00:00.000Z', '-10'),
     point('2026-10-02T00:00:00.000Z', '30'),
-    point('2026-10-03T00:00:00.000Z', null, [{ assetId: 'BTC', reason: 'no_price' }]),
+    point('2026-10-03T00:00:00.000Z', null, [{ assetId: asAssetId('BTC'), reason: 'no_price' }]),
     point('2026-10-04T00:00:00.000Z', '10'),
     point('2026-10-05T00:00:00.000Z', '20'),
   ];
@@ -128,15 +129,15 @@ describe('lineChart', () => {
     const more = [
       ...points,
       point('2026-10-06T00:00:00.000Z', null, [
-        { assetId: 'BTC', reason: 'no_price' },
-        { assetId: 'ETH', reason: 'cost_unknown' },
+        { assetId: asAssetId('BTC'), reason: 'no_price' },
+        { assetId: asAssetId('ETH'), reason: 'cost_unknown' },
       ]),
     ];
     expect(missingOf(more)).toEqual({
       count: 2,
       coins: [
-        { assetId: 'BTC', reason: 'no_price' },
-        { assetId: 'ETH', reason: 'cost_unknown' },
+        { assetId: asAssetId('BTC'), reason: 'no_price' },
+        { assetId: asAssetId('ETH'), reason: 'cost_unknown' },
       ],
     });
   });
@@ -146,8 +147,8 @@ describe('breakdown keys', () => {
   it('reads a market, the held price move and a withdrawal', () => {
     expect(marketKey('BTC/USDT')).toEqual({ kind: 'market', market: 'BTC/USDT' });
     expect(marketKey('held')).toEqual({ kind: 'held' });
-    expect(marketKey('moved:BTC')).toEqual({ kind: 'moved', assetId: 'BTC' });
-    expect(marketKey('swap:ETH')).toEqual({ kind: 'swap', assetId: 'ETH' });
+    expect(marketKey('moved:BTC')).toEqual({ kind: 'moved', assetId: asAssetId('BTC') });
+    expect(marketKey('swap:ETH')).toEqual({ kind: 'swap', assetId: asAssetId('ETH') });
     expect(breakdownFromQuery('?by=day')).toBe('day');
     expect(breakdownFromQuery('?by=nope')).toBe('asset');
   });

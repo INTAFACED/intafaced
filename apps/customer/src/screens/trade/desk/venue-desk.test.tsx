@@ -2,11 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { OrdersTable } from '../../../features/trade/venue/VenueKit';
 import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
-import { VenueReviewRows, VenueVerifyDesk, WithdrawalLine } from './VenueSpotDesk';
+import { VenueReviewRows } from './VenueReviewRows';
+import { VenueVerifyDesk } from './VenueVerifyDesk';
+import { WithdrawalLine } from './VenueAccountPanel';
 import {
+  deskTif,
+  gtdClientId,
+  venueTifOf,
   HeldDraft,
+  amountForValue,
+  depositPlaces,
   depositTransfer,
+  listedPlaces,
+  offeredTif,
+  tagProblem,
+  valueOf,
+  venueSelfTrade,
   intentOf,
+  lockShortfall,
+  pendingOrders,
+  previewMoved,
   refusedAtHeldWorst,
   shortAddress,
   slippageLimit,
@@ -216,6 +231,93 @@ describe('the review’s lines are the venue’s', () => {
   });
 });
 
+describe('J-cex-spot-03: market by spend, every time in force, self-trade, tag and unit', () => {
+  it('a spend sizes the most whole lots whose cost at the worst price stays within it', () => {
+    // 100 / 60300.2 = 0.0016583… → 0.00165 at a 0.00001 lot; 0.00166 × 60300.2 would pass 100.
+    expect(amountForValue('100', '60300.2', '0.00001')).toBe('0.00165');
+    expect(amountForValue('100', '60300.2', '0.0001')).toBe('0.0016');
+    expect(amountForValue('1', '60300.2', '0.0001')).toBeNull();
+    expect(amountForValue('', '60300.2', '0.0001')).toBeNull();
+    expect(amountForValue('100', null, '0.0001')).toBeNull();
+    expect(valueOf('0.001', '30000')).toBe('30');
+  });
+
+  it('a limit carries the picked time in force; a market order stays IOC', () => {
+    const key = new HeldDraft(OWNER, MARKET.symbol, () => 1).keyFor(limitBuy);
+    expect(intentOf({ ...limitBuy, tif: 'IOC' }, MARKET, null, key, true)?.timeInForce).toBe('IOC');
+    expect(intentOf({ ...limitBuy, tif: 'ALO' }, MARKET, null, key, true)?.timeInForce).toBe('ALO');
+    expect(intentOf({ ...limitBuy, type: 'market', tif: 'ALO' }, MARKET, '60300.2', key, true)?.timeInForce).toBe('IOC');
+  });
+
+  it('a changed time in force is a new order with a new key', () => {
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => 1);
+    const gtc = draft.keyFor(limitBuy);
+    expect(draft.keyFor({ ...limitBuy, tif: 'IOC' })).not.toBe(gtc);
+  });
+
+  it('only what the venue offers can be picked: FOK and GTD are not offered by the TEST venue', () => {
+    expect(offeredTif(MARKET, 'GTC')).toBe('GTC');
+    expect(offeredTif(MARKET, 'ALO')).toBe('ALO');
+    expect(offeredTif(MARKET, 'FOK')).toBeNull();
+    expect(offeredTif(MARKET, 'GTD')).toBeNull();
+  });
+
+  it('good till date the venue lacks is run by our engine: it rests good till cancelled; fill-or-kill stays not offered', () => {
+    expect(deskTif(MARKET, 'GTD')).toBe('GTD');
+    expect(deskTif(MARKET, 'FOK')).toBeNull();
+    expect(deskTif(MARKET, 'ALO')).toBe('ALO');
+    expect(venueTifOf('GTD')).toBe('GTC');
+    expect(venueTifOf('IOC')).toBe('IOC');
+    const id = gtdClientId('order:0xabc:BTC-USDC:1763640000000:3');
+    expect(id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(gtdClientId('order:0xabc:BTC-USDC:1763640000000:3')).toBe(id);
+    expect(gtdClientId('order:0xabc:BTC-USDC:1763640000000:4')).not.toBe(id);
+  });
+
+  it('the self-trade rule is the venue’s own, or none where it publishes none', () => {
+    expect(venueSelfTrade({ selfTrade: { known: true, value: 'cancel_resting' } })).toBe('cancel_resting');
+    expect(venueSelfTrade({ selfTrade: { known: false } })).toBeNull();
+    expect(venueSelfTrade({})).toBeNull();
+  });
+
+  it('a tag is optional, up to 32 plain characters', () => {
+    expect(tagProblem('')).toBe(false);
+    expect(tagProblem('desk-run_1.a')).toBe(false);
+    expect(tagProblem('x'.repeat(33))).toBe(true);
+    expect(tagProblem('<b>')).toBe(true);
+  });
+
+  it('the review shows a market order’s price protection in words, the venue’s self-trade rule and the tag', () => {
+    const market = intentOf({ ...limitBuy, type: 'market' }, MARKET, '60300.2', 'order:0xowner:btc-usdc:abc2', true)!;
+    const html = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={market}
+        preview={preview()}
+        status={{ builder: null, test: true }}
+        approved={null}
+        protectionBps="50"
+        selfTrade="cancel_resting"
+        tag="desk-1"
+      />,
+    );
+    const shown = text(html);
+    expect(shown).toContain('Price protection You won’t pay more than 60,300.2 USDC per BTC (50 bps above the best ask)');
+    expect(shown).toContain('If it meets my own order Cancel my resting order');
+    expect(shown).toContain('Tag desk-1');
+    const sell = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={{ ...market, side: 'sell' }}
+        preview={preview()}
+        status={{ builder: null, test: true }}
+        approved={null}
+        protectionBps="50"
+      />,
+    );
+    expect(text(sell)).toContain('You won’t sell for less than 60,300.2 USDC per BTC (50 bps below the best bid)');
+    expect(text(sell)).toContain('If it meets my own order not published by this venue');
+  });
+});
+
 describe('the deposit is the person’s own transfer', () => {
   const route = {
     chainId: 84532,
@@ -225,23 +327,66 @@ describe('the deposit is the person’s own transfer', () => {
     asset: 'USDC',
   };
   it('an ERC-20 transfer of the amount in token units, to the venue’s deposit address, on the route’s token', () => {
-    const sent = depositTransfer(route, '1000');
+    const sent = depositTransfer(route, '1000', 6);
     expect(sent?.to).toBe(route.token);
     expect(sent?.units).toBe(1_000_000_000n);
     expect(sent?.data).toBe(`0xa9059cbb${'0'.repeat(24)}${route.address.slice(2)}${(1_000_000_000).toString(16).padStart(64, '0')}`);
   });
   it('refuses an amount past the token’s decimals, or none', () => {
-    expect(depositTransfer(route, '1.0000001')).toBeNull();
-    expect(depositTransfer(route, '0')).toBeNull();
-    expect(depositTransfer(route, 'ten')).toBeNull();
+    expect(depositTransfer(route, '1.0000001', 6)).toBeNull();
+    expect(depositTransfer(route, '0', 6)).toBeNull();
+    expect(depositTransfer(route, 'ten', 6)).toBeNull();
+  });
+  it('refuses an amount past the asset list’s precision, even within the token’s decimals (J-wallet-01 #5)', () => {
+    expect(depositTransfer(route, '1.001', 2)).toBeNull();
+    expect(depositTransfer(route, '1.01', 2)?.units).toBe(1_010_000n);
+    // A list precision finer than the token's: the token's decimals still bound it.
+    expect(depositTransfer(route, '1.0000001', 8)).toBeNull();
+  });
+});
+
+describe('the venue desk’s Deposit and Withdraw use the supported asset list’s rows (J-wallet-01 #5)', () => {
+  const rows = [
+    { assetId: 'USDC', precision: 6, state: 'active', allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'] },
+    { assetId: 'USDT', precision: 2, state: 'active', allowedActions: ['withdraw'] },
+    { assetId: 'OLD', precision: 6, state: 'retired', allowedActions: [] },
+    { assetId: 'HALT', precision: 6, state: 'halted', allowedActions: ['deposit', 'withdraw'] },
+  ];
+  it('takes the listed precision for an asset open to the action', () => {
+    expect(listedPlaces(rows, 'USDC', 'deposit', 6)).toEqual({ ok: true, places: 6, from: 'list' });
+    expect(listedPlaces(rows, 'USDT', 'withdraw', 18)).toEqual({ ok: true, places: 2, from: 'list' });
+  });
+  it('refuses an unread list, an unlisted asset, and one not active or not open to the action', () => {
+    expect(listedPlaces(null, 'USDC', 'deposit', 6)).toEqual({ ok: false, why: 'unread' });
+    expect(listedPlaces(rows, 'BTC', 'deposit', 6)).toEqual({ ok: false, why: 'unlisted' });
+    expect(listedPlaces(rows, 'USDT', 'deposit', 6)).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'OLD', 'withdraw', 6)).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'HALT', 'withdraw', 6)).toEqual({ ok: false, why: 'closed' });
+  });
+  it('a person the list is not open to (a bank read refused as theirs) keeps the bound the desk had before the list', () => {
+    expect(listedPlaces('gated', 'USDC', 'deposit', 6)).toEqual({ ok: true, places: 6, from: 'venue' });
+    expect(listedPlaces('gated', 'USDC', 'withdraw', 18)).toEqual({ ok: true, places: 18, from: 'venue' });
+  });
+  it('a deposit takes the finer of the list’s precision and the token’s decimals', () => {
+    const route = {
+      chainId: 84532,
+      token: '0x00000000000000000000000000000000000000c0',
+      tokenDecimals: 6,
+      address: '0x00000000000000000000000000000000000000d0',
+      asset: 'USDC',
+    };
+    expect(depositPlaces(route, 2)).toBe(2);
+    expect(depositPlaces(route, 8)).toBe(6);
   });
 });
 
 describe('a withdrawal confirms it’s you before the wallet is asked', () => {
   it('the press asks for the step-up first; only an approval reaches the signing step', () => {
-    expect(withdrawStep('10', null)).toEqual({ step: 'step_up' });
-    expect(withdrawStep('10', { id: 'approval-1' })).toEqual({ step: 'sign', stepUpApprovalId: 'approval-1' });
-    expect(withdrawStep('', null)).toEqual({ step: 'refuse', why: 'amount' });
+    expect(withdrawStep('10', null, 6)).toEqual({ step: 'step_up' });
+    expect(withdrawStep('10', { id: 'approval-1' }, 6)).toEqual({ step: 'sign', stepUpApprovalId: 'approval-1' });
+    expect(withdrawStep('', null, 6)).toEqual({ step: 'refuse', why: 'amount' });
+    // Finer than the list's precision for the asset: refused before the step-up (J-wallet-01 #5).
+    expect(withdrawStep('10.0000001', null, 6)).toEqual({ step: 'refuse', why: 'amount' });
   });
   it('names the destination by its short address, and tracks the venue’s withdrawal by its nonce with its fee or not known', () => {
     expect(shortAddress(OWNER)).toBe('0x1234…abcd');
@@ -272,7 +417,7 @@ describe('a person not verified for trading', () => {
       venue: { id: 'test-venue', displayName: 'TEST venue' },
       test: true,
       builder: null,
-    } as unknown as VenueUp;
+    } as VenueUp;
     const html = renderToStaticMarkup(<VenueVerifyDesk status={status} symbol="BTC-USDC" />);
     const shown = text(html);
     expect(html).toContain('data-access="verify"');
@@ -335,5 +480,68 @@ describe('an order the desk placed that filled (J-cex-spot-01 #8)', () => {
     expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*>Filled</);
     expect(rows[1]!.body).not.toContain('<button');
     expect(rows[0]!.body).toContain('Cancel');
+  });
+});
+
+// J-cex-spot-02 on the venue spot desk: a lock the venue account can't cover is refused before Confirm, a preview that
+// moved between Review and Confirm is asked again, and an order with no definite answer is kept across a reload.
+describe('J-cex-spot-02: placing safely on the venue desk', () => {
+  const preview = (over: Partial<VenuePreview> = {}): VenuePreview => ({
+    symbol: 'BTC-USDC',
+    kind: 'spot',
+    lock: { asset: 'USDC', amount: '6000' },
+    role: 'maker',
+    venueFee: { known: true, value: { asset: 'BTC', amount: '0.00001' } },
+    builderFee: { known: true, value: { asset: 'USDC', amount: '0' } },
+    fill: { known: true, value: { amount: '0', averagePrice: null } },
+    perpetual: null,
+    ...over,
+  });
+
+  it('refuses a lock above the free balance of the asset it locks, from the venue figures, and lets an exact one pass', () => {
+    expect(lockShortfall(preview(), [{ asset: 'USDC', free: '5999.99' }])).toEqual({ asset: 'USDC', lock: '6000', free: '5999.99' });
+    expect(lockShortfall(preview(), [{ asset: 'USDC', free: '6000' }])).toBeNull();
+    // No balance row for the locked asset is nothing free.
+    expect(lockShortfall(preview(), [{ asset: 'BTC', free: '10' }])).toEqual({ asset: 'USDC', lock: '6000', free: '0' });
+  });
+
+  it('calls a preview moved when any figure the review showed changed, and the same figures unmoved', () => {
+    expect(previewMoved(preview(), preview())).toBe(false);
+    expect(previewMoved(preview(), preview({ role: 'taker' }))).toBe(true);
+    expect(previewMoved(preview(), preview({ lock: { asset: 'USDC', amount: '6000.1' } }))).toBe(true);
+    expect(previewMoved(preview(), preview({ fill: { known: true, value: { amount: '0.01', averagePrice: '60000' } } }))).toBe(true);
+  });
+
+  it('keeps an order with no definite answer across a reload, once per client id, until the venue names it', () => {
+    const intent: OrderIntent = {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.01',
+      price: '60000',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: 'order:k1',
+      builderFee: null,
+    };
+    const store = new Map<string, string>();
+    const session = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    const before = globalThis.sessionStorage;
+    Object.defineProperty(globalThis, 'sessionStorage', { value: session, configurable: true });
+    try {
+      pendingOrders(OWNER).add({ clientOrderId: '0xabc', key: 'order:k1', intent });
+      pendingOrders(OWNER).add({ clientOrderId: '0xabc', key: 'order:k1', intent });
+      // A new page (a reload) reads the same list.
+      expect(pendingOrders(OWNER).list()).toEqual([{ clientOrderId: '0xabc', key: 'order:k1', intent }]);
+      expect(pendingOrders('0xother').list()).toEqual([]);
+      pendingOrders(OWNER).remove('0xabc');
+      expect(pendingOrders(OWNER).list()).toEqual([]);
+    } finally {
+      Object.defineProperty(globalThis, 'sessionStorage', { value: before, configurable: true });
+    }
   });
 });

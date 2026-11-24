@@ -1,0 +1,252 @@
+[
+  {
+    "path": "applyAsVendor",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "archiveListing",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "cancelSubscription",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "claimSlot",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "commerceProgramme",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "createListing",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "createNonStrategyListing",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "createStrategyListing",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "history",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "listApplications",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "listed",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "listedAssets",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "listedPage",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "listing",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "listingCategories",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "listings",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "listingsByCategory",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "listingsPage",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "liveMarkets",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "marketData.book",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "marketData.policy",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "marketData.quote",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "mine",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "myEarnings",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "myListings",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "myPurchases",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.sales",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.setListingCategory",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.takedownListing",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "profile",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "proposePerpMarket",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "purchase",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "recurring",
+    "type": "mutation",
+    "caller": "public"
+  },
+  {
+    "path": "refund",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "refundRequests",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "releaseSlot",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "requestRefund",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "reviews.list",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "reviews.submit",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "reviews.summary",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "signals.archive",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "signals.criteria",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "signals.earnings",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "signals.list",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "signals.mine",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "signals.publish",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "slots",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "subscribe",
+    "type": "mutation",
+    "caller": "public"
+  },
+  {
+    "path": "subscriptionAccess",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "vet",
+    "type": "mutation",
+    "caller": "scope"
+  }
+]

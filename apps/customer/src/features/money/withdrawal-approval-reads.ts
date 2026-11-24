@@ -1,35 +1,20 @@
-// hand-declared-ok: svc-pay's `requestViewSchema` lives in the service, not in a browser-safe @intafaced/contracts export yet; moving it there is a contracts follow-up.
 import { z } from 'zod';
-import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
-import { decimalSchema } from '../../shared/money';
+import { payApprovalRequestSchema } from '@intafaced/contracts/pay-money-room';
+import { authoredRefusal, callAs, type ApiClient, type ApiResult } from '../../shared/api';
 import { approvalCopy } from './withdrawal-approval-copy';
+import {
+  PAY_WITHDRAWAL_APPROVAL_LIST,
+  PAY_WITHDRAWAL_APPROVAL_GET,
+  PAY_WITHDRAWAL_APPROVAL_CANCEL,
+} from '@intafaced/contracts/pay-withdrawal-approval-procedures';
 
-// Published svc-pay `withdrawalApproval.*` requestView. A request is the ask and its tally, not a balance and not proof that
-// money was sent: only the withdrawal record says what happened to the funds.
-export const APPROVAL_STATUSES = ['pending', 'approved', 'executed', 'rejected', 'expired', 'canceled', 'failed'] as const;
-export const approvalRequestSchema = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  assetId: z.string().min(1).max(32),
-  amount: z
-    .string()
-    .regex(/^\d+(\.\d{1,18})?$/)
-    .pipe(decimalSchema),
-  rail: z.string(),
-  destination: z.object({ kind: z.string(), ref: z.string() }),
-  clientRef: z.string(),
-  teamAccountId: z.string().guid(),
-  requiredApprovals: z.number().int().min(1),
-  approvalCount: z.number().int().min(0),
-  approvedByMe: z.boolean(),
-  holdAtSubmit: z.boolean(),
-  status: z.enum(APPROVAL_STATUSES),
-  failureCode: z.string().nullable(),
-  expiresAt: z.string().datetime({ offset: true }),
-  createdAt: z.string().datetime({ offset: true }),
-  decidedAt: z.string().datetime({ offset: true }).nullable(),
-});
-export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
+// Published svc-pay `withdrawalApproval.*` requestView, from `@intafaced/contracts/pay-money-room`. A request is the ask and
+// its tally, not a balance and not proof that money was sent: only the withdrawal record says what happened to the funds.
+export {
+  PAY_APPROVAL_STATUSES as APPROVAL_STATUSES,
+  payApprovalRequestSchema as approvalRequestSchema,
+} from '@intafaced/contracts/pay-money-room';
+export type ApprovalRequest = z.infer<typeof payApprovalRequestSchema>;
 
 const requestIdSchema = z
   .string()
@@ -61,7 +46,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       const denied = admission(signal);
       if (denied) return denied;
       if (!limitSchema.safeParse(limit).success) return refuse('withdrawal_approval.window_invalid', 'invalidWindow');
-      const result = await api.query('pay', 'withdrawalApproval.list', { limit }, z.array(approvalRequestSchema), { signal });
+      const result = await callAs(api, PAY_WITHDRAWAL_APPROVAL_LIST, { limit }, z.array(payApprovalRequestSchema), { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -75,7 +60,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       if (denied) return denied;
       const parsed = requestIdSchema.safeParse(requestId);
       if (!parsed.success) return refuse('withdrawal_approval.input_invalid', 'invalidId');
-      const result = await api.query('pay', 'withdrawalApproval.get', { requestId: parsed.data }, approvalRequestSchema, { signal });
+      const result = await callAs(api, PAY_WITHDRAWAL_APPROVAL_GET, { requestId: parsed.data }, payApprovalRequestSchema, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -88,7 +73,7 @@ export function createApprovalReads(api: ApiClient, userId: string | null, curre
       if (denied) return denied;
       const parsed = requestIdSchema.safeParse(requestId);
       if (!parsed.success) return refuse('withdrawal_approval.input_invalid', 'invalidId');
-      return api.mutate('pay', 'withdrawalApproval.cancel', { requestId: parsed.data }, approvalRequestSchema);
+      return callAs(api, PAY_WITHDRAWAL_APPROVAL_CANCEL, { requestId: parsed.data }, payApprovalRequestSchema);
     },
   };
 }
