@@ -2,15 +2,15 @@ import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
 import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
 import type { OrderType } from './order-math';
-import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
-
-const TYPE_KEY = REFUSED_TAB_KEY;
+import type { TypeReasonKey } from './order-type-access';
+import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, TYPE_TAB_KEY, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
 
 /**
- * The order kinds the market does not take (trailing stop), listed in the strip's last slot but disabled: each row is
- * greyed and one line says why.
+ * The order kinds the ticket does not offer here, listed in the strip's last slot but disabled (J-cex-spot-04 #1): the
+ * ticket types this market, its state or this account's mode refuses (`refusedTypes`), then the kinds the service
+ * never takes (trailing stop). Each row is greyed and names its own reason.
  */
-export function MoreOrderTypes() {
+export function MoreOrderTypes({ refused }: { refused: ReadonlyMap<OrderType, TypeReasonKey> }) {
   const { t } = deskCopy.useCopy();
   return (
     <Menu>
@@ -19,12 +19,24 @@ export function MoreOrderTypes() {
         <ChevronDown size={14} aria-hidden="true" />
       </MenuTrigger>
       <MenuContent align="start" className="dk-type-menu">
-        <p className="dk-type-reason" role="note">
-          {t('Order type unavailable')}
-        </p>
+        {[...refused].map(([kind, reason]) => (
+          <MenuItem key={kind} disabled className="dk-type-item" data-testid={`dk-type-off-${kind}`}>
+            <span className="dk-type-name" data-testid="dk-type-name">
+              {t(TYPE_TAB_KEY[kind])}
+            </span>
+            <span className="dk-type-reason" data-testid="dk-type-reason">
+              {t(reason)}
+            </span>
+          </MenuItem>
+        ))}
         {UNSUPPORTED_TYPES.map((kind) => (
-          <MenuItem key={kind} disabled className="dk-type-item">
-            {t(TYPE_KEY[kind])}
+          <MenuItem key={kind} disabled className="dk-type-item" data-testid={`dk-type-off-${kind}`}>
+            <span className="dk-type-name" data-testid="dk-type-name">
+              {t(REFUSED_TAB_KEY[kind])}
+            </span>
+            <span className="dk-type-reason" data-testid="dk-type-reason">
+              {t('Type reason trailing stop')}
+            </span>
           </MenuItem>
         ))}
       </MenuContent>
