@@ -24,6 +24,9 @@ const SCRIPTS = path.dirname(fileURLToPath(import.meta.url));
 /** Each step the seed service may run: its script, its arguments, and the flag that script asks for. */
 export const STEPS = Object.freeze({
   'local-tester-founders.mjs enrol': { script: 'local-tester-founders.mjs', args: ['enrol'], flag: 'LOCAL_TEST', state: true },
+  // The founders' own `full` verification requests, approved by the two TEST operators, as `pnpm local:stack`'s gates do:
+  // Home's bank needs it. The gates read their state folder from LOCAL_STACK_STATE, not --state.
+  'local-test-gates.mjs verify': { script: 'local-test-gates.mjs', args: ['verify'], flag: 'LOCAL_TEST', stateEnv: true },
   'local-test-seed.mjs apply': { script: 'local-test-seed.mjs', args: ['apply'], flag: 'LOCAL_TEST', state: true },
   'local-test-seed.mjs home': { script: 'local-test-seed.mjs', args: ['home'], flag: 'LOCAL_TEST', state: true, notice: true },
   'local-test-seed.mjs status': { script: 'local-test-seed.mjs', args: ['status'], flag: 'LOCAL_TEST', state: true },
@@ -90,7 +93,7 @@ export function main(argv, env = process.env, { spawn = spawnSync, log = (line) 
     ];
     log(`seed: ${name}`);
     const res = spawn(process.execPath, [path.join(SCRIPTS, step.script), ...args], {
-      env: { ...env, [step.flag]: '1' },
+      env: { ...env, [step.flag]: '1', ...(step.stateEnv && plan.state ? { LOCAL_STACK_STATE: plan.state } : {}) },
       stdio: 'inherit',
     });
     const code = res.status ?? 1;

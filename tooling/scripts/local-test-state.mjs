@@ -257,6 +257,41 @@ function readComposeStack(marker, services) {
   }
 }
 
+/** Runs one read-only query on `db` in a child process (the image has no psql); its rows as text, null as ''. */
+function runComposeSql(db, sql) {
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const script = `
+    const { createRequire } = require('node:module');
+    const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+    (async () => {
+      const load = createRequire(input.pkg)('postgres');
+      const sql = (load.default ?? load)(input.db, { max: 1, ssl: false, connect_timeout: 5, onnotice: () => {} });
+      try {
+        const rows = await sql.unsafe(input.sql).values();
+        process.stdout.write(JSON.stringify(rows.map((r) => r.map((v) => (v === null ? '' : String(v))))));
+      } finally { await sql.end({ timeout: 2 }); }
+    })().catch((err) => { process.stderr.write(String(err?.code ?? err?.message ?? err)); process.exit(1); });`;
+  const input = { pkg: path.join(repo, 'services', 'svc-p2p', 'package.json'), db, sql };
+  const res = spawnSync(process.execPath, ['-e', script], { input: JSON.stringify(input), encoding: 'utf8', timeout: 30_000 });
+  if (res.status !== 0) throw new Error(`compose database read failed: ${(res.stderr || res.error?.message || 'no answer').slice(0, 300)}`);
+  return JSON.parse(res.stdout);
+}
+
+/**
+ * One read on a compose marker's loopback Postgres as a service role, with compose's own LOCAL TEST password (the role's
+ * name, tooling/infra/postgres-init): what the gates read with psql on a `pnpm local:stack` stack. Refuses anything but a
+ * compose marker whose database is on loopback at its Postgres port, and any role but a service's own.
+ */
+export function composeSqlRead(marker, role, sql, { run = runComposeSql } = {}) {
+  if (marker?.runtime !== COMPOSE_RUNTIME) refuse('not a compose marker');
+  const db = marker.database ?? {};
+  if (db.host !== '127.0.0.1' || String(db.port) !== String(marker.ports?.postgres) || !/^\d+$/.test(String(db.port)))
+    refuse('compose database is not the marker loopback Postgres');
+  if (!/^[A-Za-z0-9_]+$/.test(db.name ?? '')) refuse('compose database is not the marker loopback Postgres');
+  if (!/^svc_[a-z0-9_]+$/.test(String(role))) refuse(`"${role}" is not a service role`);
+  return run(`postgres://${role}:${role}@127.0.0.1:${db.port}/${db.name}`, sql);
+}
+
 /**
  * Pure ownership check of a compose marker: the database on its loopback Postgres port was started with its stack id, and
  * each named service on its loopback port answers its health check. Stale files alone never pass: a stack id is drawn per

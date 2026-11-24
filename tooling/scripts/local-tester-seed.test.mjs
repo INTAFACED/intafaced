@@ -52,6 +52,7 @@ test('a dev build runs every step in order, each with only its own flag, and pas
     w.calls.map((call) => [call.script, ...call.args]),
     [
       ['local-tester-founders.mjs', 'enrol', '--state', '/tmp/stack'],
+      ['local-test-gates.mjs', 'verify'],
       ['local-test-seed.mjs', 'apply', '--state', '/tmp/stack'],
       ['local-test-seed.mjs', 'home', '--state', '/tmp/stack'],
       ['local-test-seed.mjs', 'status', '--state', '/tmp/stack'],
@@ -65,7 +66,10 @@ test('a dev build runs every step in order, each with only its own flag, and pas
   assert.equal(w.calls[0].script, 'local-tester-founders.mjs');
   assert.deepEqual(w.calls[0].args, ['enrol', '--state', '/tmp/stack']);
   assert.equal(STEPS['local-tester-founders.mjs enrol'].flag, 'LOCAL_TEST');
-  assert.equal(w.lines.at(-1), 'seed: done (4 steps)');
+  // The gates step reads the same state folder, from LOCAL_STACK_STATE; the other steps get no such override.
+  assert.equal(w.calls[1].env.LOCAL_STACK_STATE, '/tmp/stack');
+  assert.equal(w.calls[0].env.LOCAL_STACK_STATE, undefined);
+  assert.equal(w.lines.at(-1), 'seed: done (5 steps)');
   assert.deepEqual(Object.keys(STEPS), [...DEFAULT_STEPS]);
 });
 
@@ -74,7 +78,7 @@ test('a failing step stops the run with its exit code; the steps after it do not
   assert.equal(main([], { APP_ENV: 'dev' }, w), 3);
   assert.deepEqual(
     w.calls.map((call) => `${call.script} ${call.args[0]}`),
-    ['local-tester-founders.mjs enrol', 'local-test-seed.mjs apply'],
+    ['local-tester-founders.mjs enrol', 'local-test-gates.mjs verify', 'local-test-seed.mjs apply'],
   );
   assert.equal(w.lines.at(-1), 'seed: local-test-seed.mjs apply exited 3; the steps after it did not run');
 });

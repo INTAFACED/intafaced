@@ -12,6 +12,7 @@ import {
   localPgBin,
   assertStackOwnership,
   assertComposeOwnership,
+  composeSqlRead,
   processRecordMatches,
   postgresProcessMatches,
   readKernelStart,
@@ -331,4 +332,21 @@ console.log('local-test-state: kernel birth mark checks passed');
   refused({ ports: { postgres: 5433, edge: 4000 } }, read(marker.stackId), /no identity port/);
   assert.equal(reads.length, before);
   console.log('local-test-state: compose stack id and loopback health checks passed');
+
+  // The gates' database reads on a compose stack: the marker's loopback Postgres as a service role, compose's own password.
+  const runs = [];
+  const run = (db, sql) => {
+    runs.push([db, sql]);
+    return [['id-1', 'full']];
+  };
+  assert.deepEqual(composeSqlRead(marker, 'svc_identity', 'SELECT 1', { run }), [['id-1', 'full']]);
+  assert.deepEqual(runs, [['postgres://svc_identity:svc_identity@127.0.0.1:5433/intafaced', 'SELECT 1']]);
+  const sqlRefused = (m, role, why) => assert.throws(() => composeSqlRead(m, role, 'SELECT 1', { run }), why);
+  sqlRefused({ ...marker, runtime: undefined }, 'svc_identity', /not a compose marker/);
+  sqlRefused({ ...marker, database: { host: '10.0.0.5', port: 5433, name: 'intafaced' } }, 'svc_identity', /loopback Postgres/);
+  sqlRefused({ ...marker, database: { host: '127.0.0.1', port: 5432, name: 'intafaced' } }, 'svc_identity', /loopback Postgres/);
+  sqlRefused(marker, 'postgres', /not a service role/);
+  sqlRefused(marker, "svc_identity' OR 1", /not a service role/);
+  assert.equal(runs.length, 1);
+  console.log('local-test-state: compose database reads stay on the marker loopback Postgres as a service role');
 }
