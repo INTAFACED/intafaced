@@ -61,6 +61,10 @@ test('a dev build runs every step in order, each with only its own flag, and pas
     assert.equal(call.env.LOCAL_TEST, '1');
     assert.equal(call.env.INTAFACED_LOCAL_FOUNDER, undefined);
   }
+  // The founder step runs first, on the same state folder as the content seed, and never with the Docker founder flag.
+  assert.equal(w.calls[0].script, 'local-tester-founders.mjs');
+  assert.deepEqual(w.calls[0].args, ['enrol', '--state', '/tmp/stack']);
+  assert.equal(STEPS['local-tester-founders.mjs enrol'].flag, 'LOCAL_TEST');
   assert.equal(w.lines.at(-1), 'seed: done (4 steps)');
   assert.deepEqual(Object.keys(STEPS), [...DEFAULT_STEPS]);
 });
