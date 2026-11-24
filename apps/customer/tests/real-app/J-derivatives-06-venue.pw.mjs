@@ -459,6 +459,11 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
     expect(toUnits(trigger)).toBeGreaterThan(toUnits(p.liquidationPrice.value));
     expect(toUnits(trigger)).toBeLessThan(toUnits(p.markPrice));
 
+    // Every order on the venue carries our builder fee, which this account hasn't approved: the panel says so, and Set
+    // stop asks for that one-time approval first (checked in the sheet), then the wallet signs the close order.
+    await expect(panel.getByTestId('pre-liquidation-stop-approve')).toContainText(
+      `Your account on ${venue.name} hasn’t approved our builder fee of`,
+    );
     const asked = signatures(wallet);
     await set.click();
     await continueInWallet(page);
@@ -468,8 +473,11 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
         timeout: 20_000,
       },
     );
-    // One close order, signed once by the person's wallet and sent once.
-    expect(signatures(wallet)).toBe(asked + 1);
+    // The approval and one close order, each signed once by the person's wallet and sent once.
+    expect(signatures(wallet)).toBe(asked + 2);
+    const prepared = door.of('prepare');
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0].body.intent).toMatchObject({ kind: 'approve_builder_fee' });
     const created = door.of('protections');
     expect(created).toHaveLength(1);
     expect(created[0].body).toMatchObject({
@@ -483,7 +491,7 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
     });
     stopId = created[0].body.clientOrderId;
     expect(stopId).toMatch(/^pls-5000-/);
-    expect(door.of('submit')).toHaveLength(1);
+    expect(door.of('submit')).toHaveLength(2);
     // On the venue: one reduce-only sell of the whole position, waiting on the mark at that price.
     const resting = await triggersOn(s.owner);
     expect(resting).toHaveLength(1);
@@ -508,7 +516,7 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
     await expect(panel.getByTestId('pre-liquidation-stop-said')).toHaveText(`Removed: ${venue.name} cancelled the close order.`, {
       timeout: 20_000,
     });
-    expect(signatures(wallet)).toBe(asked + 2);
+    expect(signatures(wallet)).toBe(asked + 3);
     expect(await triggersOn(s.owner)).toEqual([]);
     await expect(row.getByTestId('pre-liquidation-stop')).toHaveCount(0, { timeout: 20_000 });
     await expect(current).toContainText('No pre-liquidation stop set.');

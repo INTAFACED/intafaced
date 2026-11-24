@@ -457,6 +457,7 @@ function AllPositions({
           desk={desk}
           market={entryOf(marketOf(openRow.venue.id, openRow.position.symbol))}
           stop={stopOf(openRow)}
+          builder={builder}
           run={run}
           onDone={() => {
             stops.reload();

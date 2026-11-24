@@ -4,7 +4,8 @@ import { TextField } from '@intafaced/ui/lit/templates';
 import { usePolled } from '../../protocol';
 import { closingSide, protectionClientId } from '../../../screens/trade/futures/venue-protect-logic';
 import { refusalOf, useSignPrepared } from '../../../screens/trade/futures/VenueProtect';
-import type { ProtectionView, VenueMarket, VenuePosition } from '../venue-api';
+import { compareDecimal } from '../../../data/decimal';
+import { draftId, keys, type ProtectionView, type VenueMarket, type VenuePosition, type VenueUp } from '../venue-api';
 import { VENUE_POLL_MS } from '../venue/poll';
 import { outcomeText, useVenueApi, type RunAction } from '../venue/VenueKit';
 import { venueCopy } from '../venue/venue-copy';
@@ -78,6 +79,7 @@ export function PreLiquidationStopPanel({
   desk,
   market,
   stop,
+  builder,
   run,
   onDone,
   onClose,
@@ -89,6 +91,8 @@ export function PreLiquidationStopPanel({
   desk: { id: string; name: string };
   market: VenueMarket | undefined;
   stop: PreLiquidationStopView | undefined;
+  /** Our builder fee, which every order on the venue carries; null where none is set. */
+  builder: VenueUp['builder'];
   run: RunAction;
   onDone: () => void;
   onClose: () => void;
@@ -103,6 +107,18 @@ export function PreLiquidationStopPanel({
   const press = useRef<{ level: string; id: string } | null>(null);
   const words = { venue: on.name, symbol: position.symbol, desk: desk.name };
   const ratioNow = marginRatio(position);
+  // Whether the venue account has yet to approve our builder fee: the close order carries it, so the venue refuses the
+  // order until the person's wallet signs that one-time approval, which Set stop asks for first.
+  const unapproved = async (signal?: AbortSignal) => {
+    if (!builder) return false;
+    const read = await api.builderFeeApproval(owner, signal, desk.id);
+    return !read.ok || compareDecimal(read.data.value, builder.feeBps) === -1;
+  };
+  const approval = usePolled(
+    async (signal) => ({ ok: true as const, data: await unapproved(signal) }),
+    `pre-liquidation-stop-approval:${owner}:${desk.id}`,
+    VENUE_POLL_MS,
+  );
 
   const blocked: string | null =
     on.id !== desk.id
@@ -123,6 +139,15 @@ export function PreLiquidationStopPanel({
     if (!press.current || press.current.level !== typed) press.current = { level: typed, id: protectionClientId(Date.now(), 0) };
     busy.current = true;
     try {
+      if (builder && (await unapproved())) {
+        const approved = await run(
+          { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
+          { actionKey: keys.builderApproval(owner, builder.address, builder.feeBps, desk.id, draftId()), venueId: desk.id },
+        );
+        approval.reload();
+        const refusedApproval = refusalOf(approved, (r) => outcomeText(v, r));
+        if (refusedApproval) return setSaid({ tone: 'refused', text: refusedApproval.message });
+      }
       const created = await api.createProtection({
         owner,
         symbol: position.symbol,
@@ -223,6 +248,11 @@ export function PreLiquidationStopPanel({
             </p>
           ) : at?.ok ? (
             <p data-testid="pre-liquidation-stop-would">{t('plsWouldClose', { ...words, size: position.size, trigger: at.trigger })}</p>
+          ) : null}
+          {builder && approval.data === true ? (
+            <p className="lt-hint" data-testid="pre-liquidation-stop-approve">
+              {t('plsApprove', { ...words, fee: builder.feeBps })}
+            </p>
           ) : null}
           <Button onClick={() => void set()} disabled={!ready}>
             {t('plsSet')}

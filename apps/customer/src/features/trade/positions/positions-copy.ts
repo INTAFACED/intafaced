@@ -306,6 +306,8 @@ export const positionsCopy = defineCopy('trade.positions', {
   plsLevelHint: 'Above the ratio now and below 100%, where {venue} liquidates.',
   plsWouldClose: 'Closes {size} {symbol} when {venue}’s mark reaches {trigger}.',
   plsSet: 'Set stop',
+  plsApprove:
+    'Your account on {venue} hasn’t approved our builder fee of {fee} bps, which every order there carries. Set stop asks your wallet for that one-time approval first, then for the close order.',
   plsRemove: 'Remove stop',
   plsCurrentTitle: 'On this position now',
   plsNone: 'No pre-liquidation stop set.',
