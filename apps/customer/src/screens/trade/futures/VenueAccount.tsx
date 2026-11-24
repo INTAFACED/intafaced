@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { DataTable, Tabs } from '../../../shared/ui';
+import { Segmented } from '@intafaced/ui/lit';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import type { VenueFeeRates, VenueMarket, VenueOtherFee, VenuePublicFees, VenueUp } from '../../../features/trade/venue-api';
 import { ReadProblem, TestMark, useVenueApi } from '../../../features/trade/venue/VenueKit';
@@ -41,28 +41,28 @@ export function VenueAccount({ status, owner }: { status: VenueUp; owner: string
   const { t } = venueAccountCopy.useCopy();
   const [tab, setTab] = useState<Tab>('fees');
   const venues = venuesOf(status);
+  const tabWords: Record<Tab, string> = {
+    fees: t('Tab fees'),
+    vip: t('Tab vip'),
+    account: t('Tab account'),
+    bills: t('Tab bills'),
+    eligible: t('Tab eligible'),
+  };
   return (
-    <section className="dk-panel" aria-label={t('Account title')} data-testid="venue-account">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Account title')} data-testid="venue-account">
+      <h2 className="lt-panel-title">
         {t('Account title')} <TestMark test={status.test} />
       </h2>
-      <p className="lt-muted">{t('Account note')}</p>
-      <Tabs
-        items={TABS}
+      <p className="lt-quiet">{t('Account note')}</p>
+      <Segmented
+        options={TABS.map((x) => ({ value: x, label: tabWords[x] }))}
         value={tab}
-        onChange={(x) => setTab(x as Tab)}
+        onChange={(x) => setTab(x)}
         label={t('Account title')}
-        labels={{
-          fees: t('Tab fees'),
-          vip: t('Tab vip'),
-          account: t('Tab account'),
-          bills: t('Tab bills'),
-          eligible: t('Tab eligible'),
-        }}
       />
       {venues.map((v) => (
         <section key={`${tab}:${v.id}`} aria-label={t('Venue heading', { venue: v.name })} data-venue={v.id} data-tab={tab}>
-          <h3 className="dk-tab-title">
+          <h3 className="lt-panel-title">
             {t('Venue heading', { venue: v.name })} <TestMark test={v.test} />
           </h3>
           {tab === 'fees' ? <FeesPanel venue={v} owner={owner} /> : null}
@@ -120,11 +120,23 @@ function FeesPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
                     t('Your rates per market', { family: label })
                   )}
                 </p>
-                <DataTable label={label} headers={[t('Col market'), t('Col maker'), t('Col taker'), t('Col builder')]}>
-                  {rows.map((m) => (
-                    <FeeRow key={m.symbol} m={m} t={t} />
-                  ))}
-                </DataTable>
+                <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={label}>
+                  <table className="lt-table lt-table-dense">
+                    <thead>
+                      <tr>
+                        <th scope="col">{t('Col market')}</th>
+                        <th scope="col">{t('Col maker')}</th>
+                        <th scope="col">{t('Col taker')}</th>
+                        <th scope="col">{t('Col builder')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((m) => (
+                        <FeeRow key={m.symbol} m={m} t={t} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             );
           })
@@ -167,15 +179,27 @@ function VipPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
       {tier.data ? <VenueTierView tier={tier.data} /> : null}
       {tier.data ? (
         <section aria-label={t('Other fees title')} data-testid="venue-other-fees">
-          <h4 className="dk-tab-title">{t('Other fees title')}</h4>
+          <h4 className="lt-panel-title">{t('Other fees title')}</h4>
           {other === null ? (
             <p data-testid="venue-other-fees-unpublished">{t('Other fees unpublished')}</p>
           ) : (
-            <DataTable label={t('Other fees title')} headers={[t('Col fee'), t('Col applies'), t('Col rate'), t('Col rule')]}>
-              {other.map((f) => (
-                <OtherFeeRow key={`${f.kind}:${f.symbol ?? '*'}`} f={f} t={t} />
-              ))}
-            </DataTable>
+            <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Other fees title')}>
+              <table className="lt-table lt-table-dense">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('Col fee')}</th>
+                    <th scope="col">{t('Col applies')}</th>
+                    <th scope="col">{t('Col rate')}</th>
+                    <th scope="col">{t('Col rule')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {other.map((f) => (
+                    <OtherFeeRow key={`${f.kind}:${f.symbol ?? '*'}`} f={f} t={t} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       ) : null}
@@ -216,30 +240,42 @@ function AccountPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
   return (
     <div className="lt-stack" data-testid="venue-account-summary">
       <ReadProblem failure={balances.failure ?? markets.failure} venueName={venue.name} />
-      <h4 className="dk-tab-title">{t('Balances title')}</h4>
+      <h4 className="lt-panel-title">{t('Balances title')}</h4>
       {rows !== null && rows.length === 0 ? <p>{t('No balances')}</p> : null}
       {rows !== null && rows.length > 0 ? (
-        <DataTable label={t('Balances title')} headers={[t('Col asset'), t('Col free'), t('Col locked'), t('Col total')]}>
-          {rows.map((b) => (
-            <tr key={b.asset} data-asset={b.asset}>
-              <th scope="row">{b.asset}</th>
-              <td className="lt-num" data-cell="free">
-                {b.free}
-              </td>
-              <td className="lt-num" data-cell="locked">
-                {b.locked}
-              </td>
-              <td className="lt-num" data-cell="total">
-                {b.total}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Balances title')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{t('Col asset')}</th>
+                <th scope="col">{t('Col free')}</th>
+                <th scope="col">{t('Col locked')}</th>
+                <th scope="col">{t('Col total')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((b) => (
+                <tr key={b.asset} data-asset={b.asset}>
+                  <th scope="row">{b.asset}</th>
+                  <td className="lt-num" data-cell="free">
+                    {b.free}
+                  </td>
+                  <td className="lt-num" data-cell="locked">
+                    {b.locked}
+                  </td>
+                  <td className="lt-num" data-cell="total">
+                    {b.total}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
-      <h4 className="dk-tab-title">{t('Summary title')}</h4>
+      <h4 className="lt-panel-title">{t('Summary title')}</h4>
       {summary.failure ? <p data-testid="venue-summary-unread">{t('Not reported')}</p> : null}
       {s ? (
-        <dl className="protocol-facts" data-testid="venue-summary" data-asset={s.asset}>
+        <dl className="lt-kv" data-testid="venue-summary" data-asset={s.asset}>
           <SummaryLine name="equity" label={t('Equity')} value={`${s.equity} ${s.asset}`} />
           <SummaryLine name="free" label={t('Summary free')} value={`${s.free} ${s.asset}`} />
           <SummaryLine name="used" label={t('Used margin')} value={`${s.usedMargin} ${s.asset}`} />
@@ -247,13 +283,25 @@ function AccountPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
           <SummaryLine name="ratio" label={t('Margin ratio')} value={s.marginRatio.known ? s.marginRatio.value : t('Not reported')} />
         </dl>
       ) : null}
-      <h4 className="dk-tab-title">{t('Config title')}</h4>
+      <h4 className="lt-panel-title">{t('Config title')}</h4>
       {perps.length > 0 ? (
-        <DataTable label={t('Config title')} headers={[t('Col market'), t('Col margin mode'), t('Col leverage'), t('Col collateral')]}>
-          {perps.map((m) => (
-            <ConfigRow key={m.symbol} market={m} venue={venue} owner={owner} />
-          ))}
-        </DataTable>
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Config title')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{t('Col market')}</th>
+                <th scope="col">{t('Col margin mode')}</th>
+                <th scope="col">{t('Col leverage')}</th>
+                <th scope="col">{t('Col collateral')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perps.map((m) => (
+                <ConfigRow key={m.symbol} market={m} venue={venue} owner={owner} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
     </div>
   );
@@ -327,17 +375,28 @@ function BillsPanel({ venue, owner }: { venue: VenueRef; owner: string }) {
   return (
     <div className="lt-stack" data-testid="venue-bills">
       <ReadProblem failure={failure} venueName={venue.name} />
-      <p className="lt-muted">{t('Bills note')}</p>
+      <p className="lt-quiet">{t('Bills note')}</p>
       {bills !== null && bills.length === 0 ? <p data-testid="venue-bills-none">{t('Bills none')}</p> : null}
       {bills !== null && bills.length > 0 ? (
-        <DataTable
-          label={t('Tab bills')}
-          headers={[t('Col time'), t('Col type'), t('Col market'), t('Col amount'), t('Col venue id'), t('Col ledger')]}
-        >
-          {bills.map((b) => (
-            <BillRow key={`${b.kind}:${b.venueRef}`} b={b} t={t} />
-          ))}
-        </DataTable>
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Tab bills')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{t('Col time')}</th>
+                <th scope="col">{t('Col type')}</th>
+                <th scope="col">{t('Col market')}</th>
+                <th scope="col">{t('Col amount')}</th>
+                <th scope="col">{t('Col venue id')}</th>
+                <th scope="col">{t('Col ledger')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bills.map((b) => (
+                <BillRow key={`${b.kind}:${b.venueRef}`} b={b} t={t} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
     </div>
   );
@@ -387,7 +446,7 @@ function EligiblePanel({ venue }: { venue: VenueRef }) {
   return (
     <div className="lt-stack" data-testid="venue-eligible">
       <ReadProblem failure={read.failure} venueName={venue.name} />
-      <p className="lt-muted">{t('Eligible note')}</p>
+      <p className="lt-quiet">{t('Eligible note')}</p>
       {e && e.instruments.length === 0 ? (
         <p data-testid="venue-eligible-none" data-code={e.reason?.code ?? ''}>
           {t('Eligible none')} {e.reason?.message ?? ''}
@@ -396,17 +455,28 @@ function EligiblePanel({ venue }: { venue: VenueRef }) {
       {e && e.instruments.length > 0 ? (
         <>
           <p data-testid="venue-settle-currency">{t('Settle line', { assets: settle.join(', ') })}</p>
-          <DataTable label={t('Tab eligible')} headers={[t('Col market'), t('Col settle'), t('Col max leverage')]}>
-            {e.instruments.map((i) => (
-              <tr key={i.symbol} data-instrument={i.symbol}>
-                <th scope="row">{i.symbol}</th>
-                <td data-cell="settle">{i.settleAsset}</td>
-                <td className="lt-num" data-cell="max-leverage">
-                  {i.maxLeverageBps === null ? t('No limit') : t('Leverage value', { times: String(i.maxLeverageBps / 10_000) })}
-                </td>
-              </tr>
-            ))}
-          </DataTable>
+          <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Tab eligible')}>
+            <table className="lt-table lt-table-dense">
+              <thead>
+                <tr>
+                  <th scope="col">{t('Col market')}</th>
+                  <th scope="col">{t('Col settle')}</th>
+                  <th scope="col">{t('Col max leverage')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {e.instruments.map((i) => (
+                  <tr key={i.symbol} data-instrument={i.symbol}>
+                    <th scope="row">{i.symbol}</th>
+                    <td data-cell="settle">{i.settleAsset}</td>
+                    <td className="lt-num" data-cell="max-leverage">
+                      {i.maxLeverageBps === null ? t('No limit') : t('Leverage value', { times: String(i.maxLeverageBps / 10_000) })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       ) : null}
     </div>
