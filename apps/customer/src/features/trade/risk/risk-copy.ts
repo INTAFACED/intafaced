@@ -2,7 +2,8 @@ import { defineCopy } from '../../../shared/i18n';
 
 // The mobile risk control room. Counts, symbols and sizes enter through parameters; nothing here is a number or a sample.
 const en = {
-  eyebrow: 'Trade',
+  explain:
+    'Cancel all orders reaches every market in one request and releases the funds held for those orders; positions stay open until you close them. Counts are read from your account each time you refresh.',
   title: 'Risk control',
   lead: 'Open exposure and the actions that reduce it, on one screen: cancel every open order, close positions, and see alerts, approvals and platform incidents.',
   signedOutTitle: 'Sign in to see your exposure',

@@ -97,6 +97,24 @@ describe("the beta's menus, by what the build switches on and the account can us
     expect(isHiddenPath('/trade/positions')).toBe(false);
   });
 
+  it("leave out Staking and Vaults while the venue offers neither, though the door is on (#10633: Hyperliquid's test network)", () => {
+    on();
+    expect(state.get('/trade/staking')).toBe('volt');
+    expect(state.get('/trade/vaults')).toBe('volt');
+    setBetaAccess({ venue: true });
+    expect(isHiddenPath('/trade/positions')).toBe(false);
+    expect(isHiddenPath('/trade/staking')).toBe(true);
+    expect(isHiddenPath('/trade/vaults')).toBe(true);
+    expect(
+      links()
+        .map(pathOf)
+        .filter((path) => path === '/trade/staking' || path === '/trade/vaults'),
+    ).toEqual([]);
+    setBetaAccess({ venue: true, staking: true });
+    expect(isHiddenPath('/trade/staking')).toBe(false);
+    expect(isHiddenPath('/trade/vaults')).toBe(true);
+  });
+
   it('give a personal account no business room, and a business account its rooms in Volt (#10301: Team and roles)', () => {
     on();
     expect(state.get('/pay/team')).toBe('volt');

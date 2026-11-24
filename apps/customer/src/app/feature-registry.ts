@@ -33,7 +33,7 @@ export interface Feature {
   tab: FeatureTab;
   /** Evidence for rows that were re-checked on the local stack. */
   checked?: string;
-  /** What the signed-in account must have for the beta's menus to show the rooms (beta-volt.ts): a business account, or the venue door on. */
+  /** What the signed-in account must have for the beta's menus to show the rooms (beta-volt.ts): a business account, the venue door on, or a venue that offers staking or vaults. */
   needs?: BetaNeed;
 }
 
@@ -615,12 +615,32 @@ export const features: readonly Feature[] = [
   {
     id: 'user-venue',
     label: "Trading on the customer's own venue account",
-    paths: ['/trade/account', '/trade/positions', '/trade/staking', '/trade/vaults', '/uc/trading-permissions', '/fees'],
+    paths: ['/trade/account', '/trade/positions', '/uc/trading-permissions', '/fees'],
     status: 'live',
     needs: 'venue',
     reason:
       "The rooms read svc-trade's user-venue door (/api/v1/venue/status); with TRADE_USER_VENUE_URL unset it answers off and each room says so",
     unlock: 'already live where the door is on',
+    tab: 'trade',
+  },
+  {
+    id: 'user-venue-staking',
+    label: "Staking on the customer's own venue account",
+    paths: ['/trade/staking'],
+    status: 'live',
+    needs: 'staking',
+    reason: "The room reads the venue's own staking terms (/api/v1/venue/staking); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers staking',
+    tab: 'trade',
+  },
+  {
+    id: 'user-venue-vaults',
+    label: "Vaults on the customer's own venue account",
+    paths: ['/trade/vaults'],
+    status: 'live',
+    needs: 'vaults',
+    reason: "The room reads the venue's own vault list (/api/v1/venue/vaults); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers vaults',
     tab: 'trade',
   },
   {

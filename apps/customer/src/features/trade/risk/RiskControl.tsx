@@ -257,7 +257,7 @@ export function RiskControl() {
         }}
         mode="pro"
         figures={[]}
-        explain={<p className="lt-hint">{t('eyebrow')}</p>}
+        explain={<p className="lt-hint">{t('explain')}</p>}
       />
     );
   const summary = orders.resource.status === 'ready' ? summariseOpenOrders(orders.resource.data) : null;
@@ -278,7 +278,7 @@ export function RiskControl() {
           {t('refresh')}
         </Button>
       }
-      explain={<p className="lt-hint">{t('eyebrow')}</p>}
+      explain={<p className="lt-hint">{t('explain')}</p>}
       panels={
         <div className="lt-stack">
           <Section title={t('exposure')}>
