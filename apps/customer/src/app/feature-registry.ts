@@ -793,13 +793,24 @@ export const features: readonly Feature[] = [
     tab: 'public',
   },
   {
+    id: 'official-channels',
+    label: 'Official channels and scam guides',
+    paths: ['/help/official-channels'],
+    status: 'live',
+    reason:
+      'svc-support serves the published official channel list (and an honest unpublished state when blank) alongside the scam guides on /help/official-channels',
+    unlock: 'already live',
+    tab: 'public',
+    checked: '2026-11-24, Real-app journeys run 11739 (J-identity-13 #1 passed on the real stack with proof v2 FAITHFUL).',
+  },
+  {
     id: 'owner-blank-pages',
-    label: 'Platform status, trading rulebook, support chat, official channels and the money mule policy',
-    paths: ['/status', '/rulebook', '/support/chat', '/help/official-channels', '/help/mule-policy'],
+    label: 'Platform status, trading rulebook, support chat and the money mule policy',
+    paths: ['/status', '/rulebook', '/support/chat', '/help/mule-policy'],
     status: 'blocked',
     reason:
-      'Owner values not set: the components the status page reports on, the published rulebook, support hours, the official channel list and the mule policy wording, so each page says it is blank or shows TEST text',
-    unlock: 'the owner sets the status components, publishes the rulebook, the channel list and the mule policy, and sets support hours',
+      'Owner values not set: the components the status page reports on, the published rulebook, support hours and the mule policy wording, so each page says it is blank or shows TEST text',
+    unlock: 'the owner sets the status components, publishes the rulebook and the mule policy, and sets support hours',
     tab: 'public',
   },
   {

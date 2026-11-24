@@ -128,6 +128,8 @@ describe('feature registry (UI-SPEC 3.4)', () => {
     expect(tabHome(featureById('more-rooms')!)).toBe('/more');
     expect(tabHome(featureById('promotions-dividends')!)).toBe('/more');
     expect(tabHome(featureById('notices')!)).toBe('/');
+    expect(tabHome(featureById('official-channels')!)).toBe('/');
+    expect(isFeatureLive('official-channels')).toBe(true);
     expect(tabHome(featureById('public-extras')!)).toBe('/');
     for (const feature of features) expect(isHiddenPath(tabHome(feature)), feature.id).toBe(false);
   });
