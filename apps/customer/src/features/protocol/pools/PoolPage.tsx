@@ -10,7 +10,7 @@ import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explo
 import { Banner } from '../volt/frame';
 import { DataTable, EmptyState, Loading, Panel } from '../volt/parts';
 import { watchCopy } from '../watch/copy';
-import { PriceChart } from './PriceChart';
+import { candleAxis, PriceChart } from './PriceChart';
 import { reservesWords } from './PoolsList';
 import { useExplorerWords } from './refusal';
 import { bpsPercent, pairName, tokenAmount, tokenSymbol } from './format';
@@ -104,11 +104,7 @@ export function PoolPage({ address }: { address: string }) {
           ) : (
             <PriceChart
               candles={shown.candles}
-              window={{
-                start: Math.floor(Date.parse(shown.window.since) / 1000),
-                seconds: shown.window.seconds,
-                width: interval === '5m' ? 300 : 3600,
-              }}
+              window={candleAxis(Math.floor(Date.parse(shown.window.since) / 1000), shown.window.seconds, interval === '5m' ? 300 : 3600)}
               base={base}
               quote={quote}
               width={t(interval === '5m' ? 'chartWidth5m' : 'chartWidth1h')}
