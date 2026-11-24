@@ -49,7 +49,8 @@ export function AccountStatus() {
             <Copy k={status.state === 'active' && status.restrictions.length > 0 ? 'activeWithRecords' : status.state} />
           )}
         </p>
-        <div className="lt-toolbar">
+        {/* The two lists one under the other, each from the start: a wrapping toolbar centred the short one mid-list. */}
+        <div className="lt-stack">
           <div>
             <h3>
               <Copy k="canStill" />

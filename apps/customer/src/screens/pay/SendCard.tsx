@@ -1205,11 +1205,18 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
 }
 
 const labelOf = (row: Source) => (row.name ? `${row.asset} · ${row.name}` : row.asset);
-/** The space the money leaves, by the name the bank keeps for it ("Main" for the main space). */
+/**
+ * The space the money leaves, by the name the bank keeps for it ("Main" for the main space), and the partner bank's
+ * account when the partner holds it (J-pay-01 #3: the source is the partner account).
+ */
 const labelFrom = (row: Source) =>
-  row.space
-    ? payCopy.t('Your {asset}, {name} space', { asset: row.asset, name: row.space })
-    : payCopy.t('Your {asset}', { asset: row.asset });
+  row.heldAt
+    ? row.name
+      ? payCopy.t('Your {asset}, {name} space at {partner}', { asset: row.asset, name: row.name, partner: row.heldAt })
+      : payCopy.t('Your {asset} account at {partner}', { asset: row.asset, partner: row.heldAt })
+    : row.space
+      ? payCopy.t('Your {asset}, {name} space', { asset: row.asset, name: row.space })
+      : payCopy.t('Your {asset}', { asset: row.asset });
 
 /** "Nov 2026" for `2026-11`, in the reader's language. Null when the month is not one. */
 function memberMonth(month: string | null, locale: string): string | null {

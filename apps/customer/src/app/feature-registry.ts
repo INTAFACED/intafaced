@@ -351,6 +351,23 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-credit-previews',
+    label: 'Credit previews',
+    paths: [
+      '/bank/loans/overdraft',
+      '/bank/loans/personal',
+      '/bank/loans/schedule',
+      '/bank/cards/credit-card',
+      '/bank/cards/credit',
+      '/bank/business/loan',
+    ],
+    status: 'blocked',
+    reason:
+      'Overdraft, personal and business loans, credit cards and revolving credit are not offered: their engines are not built and need a licence INTAFACED does not hold, so the bank refuses every action with preview.engine_not_built',
+    unlock: 'a lending licence and a built engine, then J-bank-12 passing on main with a real offer',
+    tab: 'money',
+  },
+  {
     id: 'margin-futures-options',
     label: 'Options',
     paths: ['/trade/options'],

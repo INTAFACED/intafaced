@@ -6,20 +6,12 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {
-  BETA_USER_VENUE,
-  READY_WAIT_MS,
-  betaPaths,
-  closedIssues,
-  frontAction,
-  frontUnitText,
-  readied,
-  round,
-  syncFront,
-} from './beta-host.mjs';
+import { READY_WAIT_MS, betaPaths, closedIssues, frontAction, frontUnitText, readied, round, syncFront } from './beta-host.mjs';
 import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
+/** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
+const SETTINGS = 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 
@@ -30,8 +22,8 @@ function home() {
   fs.writeFileSync(path.join(paths.checkout, '.git'), 'gitdir: x\n');
   fs.mkdirSync(paths.state, { recursive: true });
   fs.writeFileSync(paths.screening, '{}');
-  // The running stack is already on the beta's venue; the venue test below takes this away.
-  fs.writeFileSync(paths.venue, `${BETA_USER_VENUE}\n`);
+  // The running stack is already on the beta's own settings; the settings tests below take this away.
+  fs.writeFileSync(paths.settings, `${SETTINGS}\n`);
   return paths;
 }
 const readStatus = (paths) => JSON.parse(fs.readFileSync(paths.status, 'utf8'));
@@ -296,7 +288,7 @@ test('a round on a stack already on its chain restarts nothing', async () => {
 
 test('the first round wanting the Hyperliquid test network stops the stack on the stand-in venue and starts it whole there, behind the updating page (#10603)', async () => {
   const paths = home();
-  fs.rmSync(paths.venue);
+  fs.rmSync(paths.settings);
   fs.writeFileSync(
     paths.status,
     JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z', upSince: '2026-11-23T04:00:00Z' }),
@@ -309,16 +301,16 @@ test('the first round wanting the Hyperliquid test network stops the stack on th
   );
   for (const s of seen) assert.deepEqual([s.state, s.shown], ['updating', 'updating'], s.step);
   assert.equal(end.state, 'up');
-  assert.equal(fs.readFileSync(paths.venue, 'utf8'), 'hl-testnet\n', 'the launch records the venue it started on');
-  // The next round finds the stack on its venue and restarts nothing.
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`, 'the launch records the settings it started on');
+  // The next round finds the stack on its settings and restarts nothing.
   const again = fakes(paths, { head: OLD, target: OLD });
   await round(paths, again.io);
   assert.ok(!again.seen.some((s) => s.step === 'stop'));
 });
 
-test('a launch that fails leaves the venue unrecorded, so the next round restarts onto it again', async () => {
+test('a launch that fails leaves the settings unrecorded, so the next round restarts onto them again', async () => {
   const paths = home();
-  fs.writeFileSync(paths.venue, 'on\n');
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=on\n');
   fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
   const { io, seen } = fakes(paths, { head: OLD, target: OLD, launch: 1 });
   const end = await round(paths, io);
@@ -327,7 +319,22 @@ test('a launch that fails leaves the venue unrecorded, so the next round restart
     seen.some((s) => s.step === 'stop'),
     'a marker naming another venue restarts the stack',
   );
-  assert.equal(fs.readFileSync(paths.venue, 'utf8'), 'on\n');
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), 'LOCAL_STACK_USER_VENUE=on\n');
+});
+
+test("a stack on the beta's venue that still lists the journeys' TEST markets is stopped and started whole without them (#10599)", async () => {
+  const paths = home();
+  // The marker #10603's launch wrote: the venue alone, so svc-trade still runs with the TEST listings on its board.
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=hl-testnet\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker without the TEST markets setting restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
 });
 
 // ── A beta fix reaches the beta in the next round (#10612) ──────────────────

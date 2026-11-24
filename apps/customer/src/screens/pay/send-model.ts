@@ -19,6 +19,8 @@ export interface Source {
   name: string | null;
   /** The space's name as the bank keeps it ("Main" for the main space), for "From" lines. */
   space: string;
+  /** The partner bank that holds this money, by its own label; null when the ledger holds it. */
+  heldAt: string | null;
   balance: string;
 }
 
@@ -33,6 +35,8 @@ export interface SpaceRow {
   name: string;
   lockedUntil: string | null;
   balance: string;
+  /** Set when the partner bank holds this space's money: its label. */
+  heldAt?: { label: string } | null;
 }
 
 /**
@@ -62,6 +66,7 @@ export function sourcesFrom(spaces: readonly SpaceRow[], nowMs: number): Source[
       asset: space.assetId,
       name: space.kind === 'named' ? space.name : null,
       space: space.name,
+      heldAt: space.heldAt?.label ?? null,
       balance: space.balance,
     }));
 }

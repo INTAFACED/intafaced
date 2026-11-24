@@ -62,7 +62,21 @@ export const sendInput = z.object({
   /** The single-use fresh confirmation for exactly this send, when the bank's money-out rule asks for one. */
   stepUpApprovalId: z.string().min(1).max(64).optional(),
 });
-export const sendOutput = z.object({ ledgerTxId: z.string().min(1), amount });
+/**
+ * A send's answer: the ledger transaction of a send on the custodial layer, or the partner bank's move of a send it holds
+ * the money for (J-pay-01 #5), exactly one of them. Read as `ledgerTxId`, the payment's reference the receipt names.
+ */
+export const sendOutput = z
+  .object({
+    ledgerTxId: z.string().min(1).nullable(),
+    partnerMove: z
+      .object({ id: z.string().min(1) })
+      .nullable()
+      .optional(),
+    amount,
+  })
+  .refine((data) => (data.ledgerTxId === null) !== (data.partnerMove == null), 'A send names one ledger transaction or one partner move')
+  .transform((data) => ({ ledgerTxId: data.ledgerTxId ?? data.partnerMove!.id, amount: data.amount }));
 /** One board page (`offers.page`): continue with `nextCursor` under the same filters and sort. */
 export type OfferPage = ProcedureOutput<typeof P2P_OFFERS_PAGE>;
 export type BoardSort = (typeof P2P_BOARD_SORTS)[number];
