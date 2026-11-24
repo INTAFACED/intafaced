@@ -29,6 +29,7 @@ export function BusinessVerification() {
             </li>
           ))}
         </ol>
+        <p className="lt-muted">{copy.t('boundary')}</p>
       </div>
       <div className="pub-grid">
         <section className="pub-card">
@@ -46,7 +47,6 @@ export function BusinessVerification() {
           </a>
         </section>
       </div>
-      <p className="lt-muted">{copy.t('boundary')}</p>
     </Page>
   );
 }

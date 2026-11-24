@@ -4,7 +4,7 @@ import { type DropReward, type DropView, type TgeNetwork, type TgeView } from '@
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, Tag } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
 import { CatalogueTemplate, FirstState, KeyValue } from '@intafaced/ui/lit/templates';
 import { t as copyText } from './copy';
 import { dropRoomCopy } from './drop-room-copy';
@@ -282,10 +282,8 @@ function TgeClaim({ network, label }: { network: TgeNetwork; label: string }) {
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
   };
   return (
-    <div data-testid={`tge-${network}`}>
-      <Tag tone="neutral" data-testid={`tge-${network}-label`}>
-        {label}
-      </Tag>
+    <div data-testid={`tge-${network}`} className="lt-actions">
+      <strong data-testid={`tge-${network}-label`}>{label}</strong>
       <Button tone="secondary" onClick={() => void claim()} disabled={busy}>
         {t('tgeClaim', { network: label })}
       </Button>
