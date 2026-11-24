@@ -5,7 +5,18 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { JUDGE_FILES, REPAIR_STEP, REVIEW_FILES, SEAL_FILES, judge, judgeOnly, main, reviewJobOf } from './judge-repair.mjs';
+import {
+  FRESH_MS,
+  JUDGE_FILES,
+  REPAIR_STEP,
+  REVIEW_FILES,
+  SEAL_FILES,
+  judge,
+  judgeOnly,
+  main,
+  reviewJobOf,
+  standingFail,
+} from './judge-repair.mjs';
 import { REPAIR_STEP as SEAL_REPAIR_STEP, recheckStep } from './journey-seal.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -92,7 +103,7 @@ test('refuses: a FAIL from the CI review, whatever files changed', () => {
     for (const j of [reviewJob('failure', { conclusion: 'failure' }), reviewJob('success', { test: 'failure', conclusion: 'failure' })]) {
       const v = judge({ sha: SHA, runs: green(), reviewJob: j, review, factory: 'run' });
       assert.equal(v.act, 'refuse');
-      assert.match(v.why, /FAILed this head/);
+      assert.match(v.why, /FAILed this code/);
     }
   }
 });
@@ -150,15 +161,38 @@ test('reviewJobOf passes over a run whose review job was skipped (an edit)', () 
   assert.equal(reviewJobOf([{ name: 'Proof read' }, PASS]), PASS);
 });
 
-// The script end to end against a stand-in GitHub.
+test('standingFail: a FAIL in any attempt of any run stands, the retired Test judge job’s too; a pass or a skip is none', () => {
+  const r = { id: 4, head_sha: SHA };
+  assert.equal(standingFail([{ run: r, attempts: [[PASS], [DOWN]] }]), null);
+  assert.match(standingFail([{ run: r, attempts: [[reviewJob('failure')], [PASS]] }]), /run 4 attempt 1 .*CI review Verdict failed/);
+  assert.match(standingFail([{ run: r, attempts: [[DOWN], [reviewJob('success', { test: 'failure' })]] }]), /attempt 2 .*Test verdict/);
+  const judgeJob = { name: 'Test judge', steps: [{ name: 'Verdict', conclusion: 'failure' }] };
+  assert.match(standingFail([{ run: r, attempts: [[judgeJob]] }]), /Test judge Verdict failed/);
+  // a failed step of another name is no FAIL (the review failing before it judged)
+  assert.equal(standingFail([{ run: r, attempts: [[reviewJob('skipped', { conclusion: 'failure' })]] }]), null);
+});
+
+// The script end to end against a stand-in GitHub. `attempts` holds the jobs of each attempt of each CI review run on
+// the head (run 4 by default); `others` the review runs on other heads, with their trees; `index` the run ids the
+// head's tree index names. The old `jobs?filter=latest` read answers too, with the newest attempt, so a planted case
+// below fails on code that reads only that.
+const TREE = 'f'.repeat(40);
 function github({
   pull = {},
   prFiles = files('tooling/ci/ci-review.mjs'),
   runs = green(),
-  jobs = [PASS],
+  attempts = { 4: [[PASS]] },
+  others = [],
+  index = others.map((o) => o.run.id),
+  mergeBase = new Date().toISOString(),
   factory = 'run\n',
   seen = [],
 } = {}) {
+  const head = () => {
+    const list = typeof runs === 'function' ? runs() : runs;
+    return list.map((r) => (attempts[r.id] ? { ...r, run_attempt: attempts[r.id].length } : r));
+  };
+  const byId = new Map(others.map((o) => [o.run.id, o]));
   return async (url, init) => {
     seen.push(url);
     assert.equal(init.headers.authorization, 'Bearer t');
@@ -167,8 +201,23 @@ function github({
       if (path === 'repos/o/r/pulls/5')
         return { state: 'open', draft: false, base: { ref: 'main' }, head: { sha: SHA, repo: { full_name: 'o/r' } }, ...pull };
       if (path.startsWith('repos/o/r/pulls/5/files')) return prFiles;
-      if (path.startsWith(`repos/o/r/actions/runs?head_sha=${SHA}`)) return { workflow_runs: typeof runs === 'function' ? runs() : runs };
-      if (path.startsWith('repos/o/r/actions/runs/4/jobs?filter=latest&per_page=30&page=1')) return { jobs };
+      if (path.startsWith(`repos/o/r/actions/runs?head_sha=${SHA}`)) return { workflow_runs: head() };
+      let m = path.match(/^repos\/o\/r\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs\?per_page=30&page=1$/);
+      if (m) {
+        const all = attempts[m[1]] ?? byId.get(Number(m[1]))?.attempts;
+        return all?.[m[2] - 1] && { jobs: all[m[2] - 1] };
+      }
+      m = path.match(/^repos\/o\/r\/actions\/runs\/(\d+)\/jobs\?filter=latest&per_page=30&page=1$/);
+      if (m) return attempts[m[1]] && { jobs: attempts[m[1]].at(-1) };
+      m = path.match(/^repos\/o\/r\/actions\/runs\/(\d+)$/);
+      if (m) {
+        const o = byId.get(Number(m[1]));
+        return o && { ...o.run, run_attempt: o.attempts.length };
+      }
+      if (path === `repos/o/r/git/commits/${SHA}`) return { tree: { sha: TREE } };
+      if (path.startsWith(`repos/o/r/compare/main...${SHA}`)) return { merge_base_commit: { commit: { committer: { date: mergeBase } } } };
+      if (path.startsWith(`repos/o/r/actions/artifacts?name=ci-review-tree-${TREE}&`))
+        return { artifacts: index.map((id) => ({ name: `ci-review-tree-${TREE}`, workflow_run: { id } })) };
       if (path === 'repos/o/r/contents/FACTORY?ref=factory-switch') return factory;
       return undefined;
     })();
@@ -196,7 +245,7 @@ test('main: a passing change writes pass=true; every planted fault writes nothin
     ['a fork', github({ pull: { head: { sha: SHA, repo: { full_name: 'fork/r' } } } })],
     ['not into main', github({ pull: { base: { ref: 'side' } } })],
     ['CI red', github({ runs: [...green(), run(9, 'ci.yml', 'failure')] })],
-    ['a review FAIL', github({ jobs: [reviewJob('failure', { conclusion: 'failure' })] })],
+    ['a review FAIL', github({ attempts: { 4: [[reviewJob('failure', { conclusion: 'failure' })]] } })],
     ['a pause', github({ factory: 'pause\n' })],
     ['still going after every poll', github({ runs: [...green(), run(9, 'real-app-journeys.yml', null)] })],
   ]) {
@@ -243,4 +292,51 @@ test('a re-check leaves a seal still in the repair step alone, as one still in t
     recheckStep(runs, new Map([['9', [sealJob('Require the CI review on this exact head')]]]), 'pull_request_target').act,
     'wait',
   );
+});
+
+// The CI review's finding on intafaced#10746 (run 45378887437): a FAIL stands for its code, so none of these asks again.
+const FAIL = reviewJob('failure', { conclusion: 'failure' });
+const otherHead = (id, attempts, tree = TREE) => ({
+  run: { ...run(id, 'ci-review.yml', 'failure'), head_sha: 'd'.repeat(40), head_commit: { tree_id: tree } },
+  attempts,
+});
+test('main: a FAIL in any attempt, any run on the head, or any head with the same tree passes nothing', async () => {
+  const log = () => {};
+  const passing = [
+    ['a PASS on attempt 2 after a PASS', github({ attempts: { 4: [[PASS], [PASS]] } })],
+    ['a FAIL on another head with other code', github({ others: [otherHead(40, [[FAIL]], 'e'.repeat(40))] })],
+    ['a PASS on another head with the same code', github({ others: [otherHead(40, [[PASS]])] })],
+  ];
+  for (const [what, gh] of passing) {
+    const { env, out } = envFor();
+    assert.equal((await main({ env, log, fetchImpl: gh })).act, 'pass', what);
+    assert.equal(output(out), 'pass=true\n', what);
+  }
+  const twoRuns = (older, newer) => ({
+    runs: [...green(), run(8, 'ci-review.yml')],
+    attempts: { 4: [[older]], 8: [[newer]] },
+  });
+  for (const [what, gh] of [
+    // (a) the review re-run: a FAIL on attempt 1, then the judge down or a PASS on attempt 2
+    ['a FAIL, then down on attempt 2', github({ attempts: { 4: [[FAIL], [DOWN]] } })],
+    ['a FAIL, then a PASS on attempt 2', github({ attempts: { 4: [[FAIL], [PASS]] } })],
+    ['a Test verdict FAIL, then down', github({ attempts: { 4: [[reviewJob('success', { test: 'failure' })], [DOWN]] } })],
+    // (b) an empty commit: the same tree on another head FAILed, in any attempt
+    ['a FAIL on another head with the same tree', github({ others: [otherHead(40, [[FAIL]])] })],
+    ['a FAIL on attempt 1 of another head with the same tree', github({ others: [otherHead(40, [[FAIL], [PASS]])] })],
+    // (c) a new run failing before its Verdict, or down, after an older run's FAIL on this head
+    ['a new run failing before Verdict', github(twoRuns(FAIL, reviewJob('skipped', { conclusion: 'failure' })))],
+    ['a new run down', github(twoRuns(FAIL, DOWN))],
+    ['a new run passing', github(twoRuns(FAIL, PASS))],
+    ['a head too old for the tree index', github({ mergeBase: new Date(Date.now() - FRESH_MS - 60_000).toISOString() })],
+  ]) {
+    const { env, out } = envFor();
+    const v = await main({ env, log, fetchImpl: gh, sleep: async () => {} });
+    assert.equal(v.act, 'refuse', what);
+    assert.equal(output(out), '', what);
+  }
+  // a run the index names that can't be read fails closed
+  const { env, out } = envFor();
+  await assert.rejects(main({ env, log, fetchImpl: github({ index: [41] }) }));
+  assert.equal(output(out), '');
 });
