@@ -1144,6 +1144,12 @@ test('the report sorts each hand reason into the kind one script change or one d
     reasonOf('r: s comes from @intafaced/money-math, which contracts does not depend on'),
     'answer or input schema from another package or generic',
   );
+  assert.equal(
+    reasonOf(
+      "svc/a.ts#needsApproval: reads process.env, so its schema changes with the service's settings: a record takes one schema; write it with the setting's field optional and refuse in the handler",
+    ),
+    "schema picked by the service's settings (one record: field optional, handler refuses)",
+  );
   assert.equal(reasonOf('something new'), 'other');
 });
 
@@ -2428,6 +2434,29 @@ test('a generic helper moves with its own type parameter; a package import moves
     "r: sideSchema comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it",
   ]);
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: T is not declared anywhere it can be read'], 'a T no helper declares stays');
+});
+
+test("a schema picked by the service's settings is named as such, not as a name nobody declares", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-settings-'));
+  mkdirSync(join(repo, 'packages/contracts/src'), { recursive: true });
+  writeFileSync(join(repo, 'packages/contracts/src/wire.ts'), 'export const unused = 1;\n');
+  writeFileSync(join(repo, 'packages/contracts/package.json'), JSON.stringify({ dependencies: { zod: '^4' } }));
+  mkdirSync(join(repo, 'svc'), { recursive: true });
+  writeFileSync(
+    join(repo, 'svc/router.ts'),
+    [
+      "import { z } from 'zod';",
+      'const base = z.object({ id: z.string() }).strict();',
+      "function needsApproval(): boolean { return process.env.NEEDS_APPROVAL === 'true'; }",
+      'function inputSchema() { return needsApproval() ? base.extend({ approvalId: z.string() }) : base; }',
+      'const a = inputSchema();',
+      '',
+    ].join('\n'),
+  );
+  const p = load(join(repo, 'svc/router.ts'));
+  const { problems } = closureOf(repo, [{ p, node: p.program.body[4].declarations[0].init, where: 'r' }]);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /needsApproval: reads process\.env, so its schema changes with the service's settings/);
 });
 
 test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {

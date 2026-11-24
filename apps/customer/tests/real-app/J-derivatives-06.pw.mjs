@@ -10,8 +10,8 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 // Run in order on one TEST account funded with TEST USDT. The contract
 // is the TEST perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST ladder. The
 // mark follows the stack's TEST book, which the TEST market maker walks, so every figure that needs the mark is compared
-// with the service's own answer read at the same moment. Not here yet: #3, #4, #6 and #7 (each lands with its own
-// slice; #3's floor waits on an owner decision).
+// with the service's own answer read at the same moment. #1 to #4, #6 and #7 are proven on the person's own venue
+// account in J-derivatives-06-venue.pw.mjs.
 const J = 'J-derivatives-06';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';

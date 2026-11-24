@@ -1606,6 +1606,9 @@ import {
   PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
   PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
   PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
+  PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
+  PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
+  PAY_FOUNDER_ADMIN_APPROVALS_LIST,
 } from './pay-founder-admin-procedures.js';
 
 import { PAY_FRAUD_LIST_OPEN_REVIEWS } from './pay-fraud-procedures.js';
@@ -2238,7 +2241,11 @@ import {
   TOKEN_GOVERNANCE_SET_ROLE,
 } from './token-procedures.js';
 
-import { TRADE_ACCOUNT_CONTROLS_HISTORY, TRADE_ACCOUNT_CONTROLS_GET_STATE } from './trade-account-controls-procedures.js';
+import {
+  TRADE_ACCOUNT_CONTROLS_HISTORY,
+  TRADE_ACCOUNT_CONTROLS_GET_STATE,
+  TRADE_ACCOUNT_CONTROLS_CHANGE,
+} from './trade-account-controls-procedures.js';
 
 import {
   TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
@@ -2330,6 +2337,8 @@ import {
 } from './trade-recurring-procedures.js';
 
 import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from './trade-rfq-procedures.js';
+
+import { RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST } from './trade-risk-alerts-procedures.js';
 
 import { TRADE_SIGNALS_WEBHOOKS_CREATE } from './trade-signals-procedures.js';
 
@@ -4022,6 +4031,9 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
   PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
   PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
+  PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
+  PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
+  PAY_FOUNDER_ADMIN_APPROVALS_LIST,
 ];
 
 const part_pay_fraud_procedures: readonly ProcedureRecord[] = [PAY_FRAUD_LIST_OPEN_REVIEWS];
@@ -4666,6 +4678,7 @@ const part_token_procedures: readonly ProcedureRecord[] = [
 const part_trade_account_controls_procedures: readonly ProcedureRecord[] = [
   TRADE_ACCOUNT_CONTROLS_HISTORY,
   TRADE_ACCOUNT_CONTROLS_GET_STATE,
+  TRADE_ACCOUNT_CONTROLS_CHANGE,
 ];
 
 const part_trade_admin_procedures: readonly ProcedureRecord[] = [
@@ -4763,6 +4776,8 @@ const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
 ];
 
 const part_trade_rfq_procedures: readonly ProcedureRecord[] = [TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE];
+
+const part_trade_risk_alerts_procedures: readonly ProcedureRecord[] = [RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST];
 
 const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE];
 
@@ -5091,6 +5106,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_otc_procedures,
   ...part_trade_recurring_procedures,
   ...part_trade_rfq_procedures,
+  ...part_trade_risk_alerts_procedures,
   ...part_trade_signals_procedures,
   ...part_ws_procedures,
 ];
