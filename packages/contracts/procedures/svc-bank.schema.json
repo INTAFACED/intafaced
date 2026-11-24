@@ -573,6 +573,35 @@
                   },
                   "required": ["label"],
                   "additionalProperties": false
+                },
+                "fees": {
+                  "type": "object",
+                  "properties": {
+                    "fee": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "networkFee": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["fee", "networkFee"],
+                  "additionalProperties": false
                 }
               },
               "required": ["id", "kind", "direction", "asset", "amount", "postedAt", "txId", "counterparty", "spaceName"],

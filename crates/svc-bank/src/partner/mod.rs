@@ -43,9 +43,11 @@ pub const LABEL: &str = "TEST partner bank";
 pub const MAX_MOVES: usize = 200_000;
 /// How old the TEST partner says its figure may be before it is stale (`TEST_PARTNER_STALE_AFTER_MS`).
 pub const STALE_AFTER_MS: i64 = 60_000;
-/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values.
+/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values. The fee is
+/// what its move for a send to another person takes, which is nothing, as a move between a person's own accounts takes
+/// nothing: a stated fee its move did not take would be a figure nobody pays (J-pay-01 #3).
 pub const DAILY_SEND: &str = "1000";
-pub const SEND_FEE: &str = "0.5";
+pub const SEND_FEE: &str = "0";
 /// The stand-in merchant a TEST payment goes to (`TEST_PARTNER_MERCHANT`).
 pub const MERCHANT: &str = "partner:test-merchant";
 /// The TEST partner's statement rules (`TEST_PARTNER_HISTORY_DAYS`, `TEST_PARTNER_SCA_AFTER_DAYS`).
@@ -502,6 +504,8 @@ pub struct State {
     pub purchases: PurchaseDesk,
     pub debits: DirectDebitDesk,
     pub compliance: Compliance,
+    /// The send fee this partner states (`SEND_FEE`, or a test's own TEST figure through `with_send_fee`).
+    send_fee: Amount,
 }
 
 /// The TEST partner bank and ramp (`testPartner()`), on a dev or test stack only.
@@ -549,6 +553,7 @@ impl State {
             purchases: PurchaseDesk::default(),
             debits: DirectDebitDesk::default(),
             compliance: Compliance::default(),
+            send_fee: fixed(SEND_FEE),
         }
     }
 
@@ -867,7 +872,7 @@ impl State {
             send_fee: self
                 .board
                 .read(user_id, |s| s.fee == "known")
-                .then(|| fixed(SEND_FEE)),
+                .then_some(self.send_fee),
             as_of: now,
             label: LABEL,
         })
@@ -1175,6 +1180,14 @@ impl TestPartner {
         Ok(TestPartner {
             state: Mutex::new(State::new(boot)),
         })
+    }
+
+    /// The same partner stating another TEST send fee, for a test that must tell the partner's stated figure apart from
+    /// our own book's "0".
+    #[must_use]
+    pub fn with_send_fee(self, fee: Amount) -> TestPartner {
+        self.lock().send_fee = fee;
+        self
     }
 
     /// `testPartnerFor`: `off` is no partner; `test` is the partner only in an explicit dev or test process.

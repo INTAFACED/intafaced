@@ -144,6 +144,11 @@ export const activityItem = z.object({
   address: z.string().min(1).max(256).optional(),
   /** Set on a line the partner bank reports: whose record it is, TEST on the TEST partner. */
   heldAt: z.object({ label: z.string() }).optional(),
+  /**
+   * On a personal send, the payment's fees as the bank recorded them when it was made: our fee, and the network fee
+   * the book that moved it stated ("0" on our own book; null when the partner gave none). Omitted on every other line.
+   */
+  fees: z.object({ fee: amountString.nullable(), networkFee: amountString.nullable() }).optional(),
 });
 
 export const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
