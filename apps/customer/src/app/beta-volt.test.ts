@@ -7,6 +7,7 @@ import { tabSpecs } from './menus';
 import { findRoom, rooms, searchRooms } from './navigation';
 import { voltCount } from './volt-count';
 import { shownBankRooms } from '../features/money/bank-frame/bank-rooms';
+import { walletSections } from '../features/protocol/routes';
 import { allServices } from '../screens/more/tiles';
 
 const count = voltCount();
@@ -50,6 +51,13 @@ describe("the beta's menus", () => {
       expect(trade?.items.map((item) => item.href)).toContain('/money/activity?tab=orders');
     }
     expect(betaHides('/money/activity')).toBe(false);
+  });
+
+  it('keeps Venue account (/wallet/venue) in Volt and listed in the wallet sections (J-wallet-09)', () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms, rooms));
+    expect(state.get('/wallet/venue')).toBe('volt');
+    expect(betaHides('/wallet/venue')).toBe(false);
+    expect(walletSections()).toContain('venue');
   });
 
   it('shows Futures (/trade/futures) in Trade menus, More > All services, search and contract addresses in the beta (#10700)', () => {
