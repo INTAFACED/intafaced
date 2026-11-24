@@ -5,32 +5,15 @@ import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
-import { appsCopy, refusalCopyKey } from './apps-copy';
+import { appsCopy } from './apps-copy';
 import { firstBadRedirect, parseRedirectInput, parseScopeInput } from './oauth-model';
 import { readApps, readLifetimes, registerApp, rollSecret } from './oauth-api';
+import { Refused } from './OAuthRefused';
 import './apps.css';
 
 type T = ReturnType<typeof appsCopy.useCopy>['t'];
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Shown = { name: string; secret: string | null; replay: boolean };
-
-/** The service's own `oauth.*` code in the person's words; any other refusal says it was refused and shows its code. */
-export function Refused({ failure, t }: { failure: Refusal; t: T }) {
-  const code = failure.code;
-  const key = refusalCopyKey(code);
-  const known = key ? t(key) : t('otherRefusal');
-  return (
-    <div role="alert" className="apps-refused">
-      <strong>{t('refusedHeading')}</strong>
-      <p>{known}</p>
-      {code ? (
-        <p className="lt-muted">
-          {t('codeLabel')}: <code>{code}</code>
-        </p>
-      ) : null}
-    </div>
-  );
-}
 function SecretPanel({ shown, onDone, t }: { shown: Shown; onDone: () => void; t: T }) {
   return (
     <section className="apps-secret" role="status" aria-label={t('secretTitle', { name: shown.name })}>
