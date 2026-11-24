@@ -175,6 +175,7 @@ fn reconciliation_sources(
             urls: pairs(&env.open_items_urls),
             sign,
         }),
+        report_urls: pairs(&env.report_urls),
     })
 }
 
@@ -494,6 +495,7 @@ mod approval_keys {
             idempotency_conflict_mode: "detect",
             rail_statement_urls: BTreeMap::new(),
             open_items_urls: BTreeMap::new(),
+            report_urls: BTreeMap::new(),
         }
     }
 

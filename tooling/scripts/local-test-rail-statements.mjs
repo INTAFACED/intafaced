@@ -7,10 +7,15 @@
  * at `asOf`, in the ledger's signed form. Only the rails whose stand-ins keep records are served; rail `local-test` is the
  * stack's TEST mint and has no statement. A rail it does not serve is 404, a bad query 400, and records it cannot read
  * (a line refused, a key recorded twice with other facts) 503, which the ledger records as its source unavailable, never
- * as a balance. Loopback only. Never part of a real environment.
+ * as a balance.
+ *
+ * `GET /report?reporter=<venue|partner>&place=<id>&asOf=<instant>` answers the TEST venue's or TEST partner's own report of
+ * our records with it for that instant (local-test-own-reports.mjs), or `reported: false` when it had published none by
+ * then (svc-ledger's LEDGER_RECONCILE_REPORT_<REPORTER>_URL). Loopback only. Never part of a real environment.
  */
 import http from 'node:http';
 import { RailRecordError, railStatement } from './local-test-rail-records.mjs';
+import { OwnReportError, ownReport, REPORTERS } from './local-test-own-reports.mjs';
 
 /** The rails whose stack stand-ins write their own records: the TEST chain and its signer, and the TEST bank payout. */
 export const STATEMENT_RAILS = Object.freeze(['crypto-native', 'payout-sim']);
@@ -28,7 +33,18 @@ function send(res, status, body) {
 export function answerStatement(stateDir, method, rawUrl) {
   const url = new URL(rawUrl, 'http://local-test');
   if (method !== 'GET') return [405, { error: 'GET only' }];
-  if (url.pathname === '/health') return [200, { ok: true, label: 'TEST', rails: STATEMENT_RAILS }];
+  if (url.pathname === '/health') return [200, { ok: true, label: 'TEST', rails: STATEMENT_RAILS, reporters: REPORTERS }];
+  if (url.pathname === '/report') {
+    const [reporter, place, at] = ['reporter', 'place', 'asOf'].map((k) => url.searchParams.get(k));
+    if (!reporter || !place || !at) return [400, { error: 'reporter, place and asOf are all required' }];
+    try {
+      return [200, ownReport(stateDir, reporter, place, at)];
+    } catch (err) {
+      if (err instanceof OwnReportError)
+        return [/is not a time|is neither|is not a lower-case/.test(err.message) ? 400 : 503, { error: err.message }];
+      throw err;
+    }
+  }
   if (url.pathname !== '/statement') return [404, { error: 'no such path' }];
   const rail = url.searchParams.get('rail');
   const asOf = url.searchParams.get('asOf');

@@ -613,6 +613,24 @@ function ControlEditor({
               <input id={field('rail')} className="adm-input" value={form.rail} onChange={(e) => set('rail', e.target.value)} />
             </div>
             <div className="adm-field">
+              <label htmlFor={field('reportVenue')}>Venue report (venue id)</label>
+              <input
+                id={field('reportVenue')}
+                className="adm-input"
+                value={form.reportVenue}
+                onChange={(e) => set('reportVenue', e.target.value)}
+              />
+            </div>
+            <div className="adm-field">
+              <label htmlFor={field('reportPartner')}>Partner report (partner id)</label>
+              <input
+                id={field('reportPartner')}
+                className="adm-input"
+                value={form.reportPartner}
+                onChange={(e) => set('reportPartner', e.target.value)}
+              />
+            </div>
+            <div className="adm-field">
               <label htmlFor={field('purpose')}>Purpose</label>
               <input id={field('purpose')} className="adm-input" value={form.purpose} onChange={(e) => set('purpose', e.target.value)} />
             </div>

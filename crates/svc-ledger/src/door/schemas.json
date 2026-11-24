@@ -606,7 +606,7 @@
     },
     { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
     { "t": "nullable", "in": 150 },
-    { "t": "string", "definedMsg": "JS number refused — amounts are decimal strings" },
+    { "t": "string", "definedMsg": "JS number refused \u2014 amounts are decimal strings" },
     { "t": "nullable", "in": 150 },
     { "t": "array", "el": 153 },
     {
@@ -2587,7 +2587,396 @@
         ["postedAt", 17],
         ["reverses", 274]
       ]
-    }
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 90],
+        ["controlId", 90],
+        ["status", 310],
+        ["compared", 311],
+        ["phase", 646],
+        ["errorCode", 646],
+        ["asOf", 39],
+        ["readAt", 39],
+        ["margin", 648],
+        ["sources", 650],
+        ["outsideSide", 336],
+        ["periodStart", 39],
+        ["periodEnd", 39],
+        ["accounts", 654],
+        ["assets", 655],
+        ["reconcilingItems", 659],
+        ["reports", 662]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [313, 647] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 316],
+        ["value", 2]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [313, 649] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 316],
+        ["value", 327]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ledger", 651],
+        ["outside", 652],
+        ["parity", 652]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "object", "shape": [["asOf", 39]], "catchall": "strict" },
+    { "t": "union", "options": [651, 653] },
+    { "t": "object", "shape": [["asOf", 314]], "catchall": "strict" },
+    { "t": "array", "el": 90 },
+    { "t": "array", "el": 656 },
+    {
+      "t": "object",
+      "shape": [
+        ["assetId", 343],
+        ["observed", 657],
+        ["expected", 657],
+        ["difference", 657],
+        ["tolerance", 658],
+        ["reconcilingItems", 353],
+        ["residual", 353],
+        ["missing", 355]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [345, 314] },
+    { "t": "union", "options": [327, 314] },
+    { "t": "optional", "in": 660 },
+    { "t": "array", "el": 661, "checks": [{ "k": "max_length", "n": 2000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["source", 360],
+        ["id", 50],
+        ["kind", 362],
+        ["assetId", 343],
+        ["amount", 345]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 663 },
+    { "t": "array", "el": 664, "checks": [{ "k": "max_length", "n": 2 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["reporter", 665],
+        ["place", 666],
+        ["asOf", 667],
+        ["assets", 655]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["venue", "partner"] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z0-9][a-z0-9:_-]{0,63}$/" }] },
+    { "t": "union", "options": [39, 668, 314] },
+    { "t": "literal", "values": ["not_reported"] },
+    {
+      "t": "object",
+      "shape": [
+        ["evaluations", 670],
+        ["next", 675]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "array", "el": 671 },
+    {
+      "t": "object",
+      "shape": [
+        ["run", 672],
+        ["finishedAt", 39],
+        ["severity", 673]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 90],
+        ["controlId", 90],
+        ["status", 310],
+        ["compared", 311],
+        ["phase", 646],
+        ["errorCode", 646],
+        ["asOf", 39],
+        ["readAt", 39],
+        ["margin", 648],
+        ["sources", 650],
+        ["outsideSide", 336],
+        ["periodStart", 39],
+        ["periodEnd", 39],
+        ["assets", 655],
+        ["reconcilingItems", 659],
+        ["reports", 662]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [313, 674] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 316],
+        ["value", 371]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "nullable", "in": 676 },
+    {
+      "t": "object",
+      "shape": [
+        ["finishedAt", 39],
+        ["id", 90]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 90],
+        ["builtin", 138],
+        ["template", 376],
+        ["checkKind", 678],
+        ["state", 381],
+        ["explanation", 17],
+        ["labels", 680],
+        ["schedule", 681],
+        ["severity", 673],
+        ["tolerance", 687],
+        ["margin", 648],
+        ["accountSet", 689],
+        ["threshold", 699],
+        ["version", 440]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [313, 679] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 316],
+        ["value", 380]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "array", "el": 17 },
+    { "t": "union", "options": [313, 682] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 316],
+        ["value", 683],
+        ["period", 406]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "dunion", "disc": "cadence", "options": [389, 684, 685, 686] },
+    {
+      "t": "object",
+      "shape": [
+        ["cadence", 393],
+        ["hour", 394],
+        ["minute", 391]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["cadence", 397],
+        ["isoWeekday", 398],
+        ["hour", 394],
+        ["minute", 391]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["cadence", 402],
+        ["day", 403],
+        ["hour", 394],
+        ["minute", 391]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [313, 688] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 316],
+        ["default", 327],
+        ["byAsset", 410]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [690, 433] },
+    { "t": "union", "options": [691, 693] },
+    {
+      "t": "object",
+      "shape": [
+        ["mode", 417],
+        ["accountIds", 692]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "array",
+      "el": 90,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["mode", 421],
+        ["ownerType", 694],
+        ["ownerIdPrefix", 111],
+        ["rail", 426],
+        ["reports", 695],
+        ["kind", 698],
+        ["purpose", 11],
+        ["assetId", 432]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "rail_boundary" }]
+    },
+    { "t": "optional", "in": 7 },
+    { "t": "optional", "in": 696 },
+    {
+      "t": "object",
+      "shape": [
+        ["venue", 697],
+        ["partner", 697]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 666 },
+    { "t": "optional", "in": 10 },
+    { "t": "union", "options": [313, 700] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 316],
+        ["bound", 438],
+        ["byAsset", 410]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["controlId", 90],
+        ["total", 311],
+        ["runs", 702]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "array", "el": 645 },
+    { "t": "union", "options": [704, 706] },
+    {
+      "t": "object",
+      "shape": [
+        ["source", 705],
+        ["reporter", 665],
+        ["place", 666],
+        ["asOf", 39],
+        ["balances", 455]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["report"] },
+    {
+      "t": "object",
+      "shape": [
+        ["source", 705],
+        ["reporter", 665],
+        ["place", 666],
+        ["reported", 707]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": [false] },
+    {
+      "t": "object",
+      "shape": [
+        ["template", 376],
+        ["explanation", 492],
+        ["labels", 494],
+        ["schedule", 709],
+        ["severity", 710],
+        ["tolerance", 711],
+        ["margin", 449],
+        ["accountSet", 690],
+        ["threshold", 714],
+        ["reason", 54],
+        ["activate", 137]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 683 },
+    { "t": "optional", "in": 371 },
+    { "t": "optional", "in": 712 },
+    {
+      "t": "object",
+      "shape": [
+        ["default", 449],
+        ["byAsset", 713]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 410 },
+    { "t": "optional", "in": 715 },
+    {
+      "t": "object",
+      "shape": [
+        ["bound", 438],
+        ["byAsset", 410]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "threshold_has_assets", "msg": "ops.control_policy_unset" }]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["controlId", 90],
+        ["explanation", 492],
+        ["labels", 494],
+        ["schedule", 709],
+        ["severity", 710],
+        ["tolerance", 711],
+        ["margin", 449],
+        ["accountSet", 717],
+        ["threshold", 714],
+        ["reason", 54],
+        ["activate", 137],
+        ["lifecycle", 524],
+        ["approvalId", 718],
+        ["operationId", 718]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "lifecycle_alone" }]
+    },
+    { "t": "optional", "in": 690 },
+    { "t": "optional", "in": 50 }
   ],
   "inputs": {
     "post": 0,
@@ -2626,12 +3015,12 @@
     "reconciliationEvaluations": 262,
     "restoreWatermark": 268,
     "postRecipe": 639,
-    "controlRun": 307,
-    "evaluationFeed": 363,
+    "controlRun": 645,
+    "evaluationFeed": 669,
     "postRecipeReply": 567,
-    "controlView": 373,
-    "controlRunList": 441,
-    "controlAccountSet": 414,
+    "controlView": 677,
+    "controlRunList": 701,
+    "controlAccountSet": 689,
     "controlSchedule": 388,
     "controlThreshold": 445,
     "controlTolerance": 448,
@@ -2640,11 +3029,12 @@
     "reconcilingItem": 359,
     "openItemsInput": 462,
     "openItemsPage": 470,
-    "controlDefine": 490,
-    "controlUpdate": 508,
+    "controlDefine": 708,
+    "controlUpdate": 716,
     "controlRunInput": 530,
     "controlRuns": 537,
     "operatorReverse": 642,
-    "operatorReverseReply": 644
+    "operatorReverseReply": 644,
+    "outsideReport": 703
   }
 }
