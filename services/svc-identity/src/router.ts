@@ -29,7 +29,6 @@ import {
 } from '@intafaced/contracts/identity-kyc-profile-procedures';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
-import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
 import { callFounderControl, type FounderControlsPort } from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
@@ -246,6 +245,7 @@ import {
   IDENTITY_COMPLIANCE_FREEZE_IDENTITY,
   IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY,
 } from '@intafaced/contracts/identity-compliance-procedures';
+import { IDENTITY_STAFF_TEST_STATUS } from '@intafaced/contracts/identity-staff-test-status-procedures';
 
 /**
  * svc-identity's API (§4.1).
@@ -1331,12 +1331,16 @@ export function createIdentityRouter(
      * Self-only: the user id comes from the session. Production has no roster, so this is always `role: null` there,
      * and the console never asks it outside APP_ENV dev or test either.
      */
-    staffTestStatus: protectedProcedure.output(staffTestStatusSchema).query(async ({ ctx }) => {
-      // Same gate a founder's session has: a second factor, never an API key, never a sub-account.
-      const interactive = ctx.principal.mfa === true && !ctx.principal.kid && !ctx.principal.sub_account;
-      if (!interactive) return { userId: ctx.principal.userId, role: null };
-      return { userId: ctx.principal.userId, role: await auth.staffTestRole(ctx.principal.userId) };
-    }),
+    staffTestStatus: mountRecord(
+      IDENTITY_STAFF_TEST_STATUS,
+      async ({ ctx }) => {
+        // Same gate a founder's session has: a second factor, never an API key, never a sub-account.
+        const interactive = ctx.principal.mfa === true && !ctx.principal.kid && !ctx.principal.sub_account;
+        if (!interactive) return { userId: ctx.principal.userId, role: null };
+        return { userId: ctx.principal.userId, role: await auth.staffTestRole(ctx.principal.userId) };
+      },
+      kycProfileRefusal,
+    ),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
     account: createAccountRouter(

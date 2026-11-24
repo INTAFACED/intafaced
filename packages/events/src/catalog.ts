@@ -272,6 +272,28 @@ export const selfFreezeApplied = defineEvent(
 );
 
 /**
+ * A support agent froze a customer's account from their request (J-support-public-20 #7, RC-support-public-07).
+ * Published by svc-identity from the freeze's own audit row after it commits, at least once, with the business key
+ * `identity.support_account_freeze.frozen:<freezeId>`. The freeze itself set the account's trading restriction in its
+ * transaction, so every fresh svc-trade operation already refuses; each service that keeps a permission for an agent to
+ * act for the customer revokes it on this event and stops their scheduled agent orders, as on the owner's own freeze.
+ * A revoked permission stays revoked after staff lift the restriction: the customer grants it again. Consumers are
+ * idempotent by `freezeId`. Moves no money.
+ */
+export const supportAccountFrozen = defineEvent(
+  'identity',
+  'support_account_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  "Support froze a customer's account from their request: every agent permission kept for them is revoked and their scheduled agent orders stop (J-support-public-20 #7).",
+);
+
+/**
  * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
  * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
  * in the same transaction as the change, at least once, with the business key
@@ -2307,6 +2329,7 @@ export const EVENT_CATALOG = {
   deathNoticeCreated,
   deathNoticeConfirmed,
   selfFreezeApplied,
+  supportAccountFrozen,
   staffCreated,
   staffUpdated,
   staffDeleted,

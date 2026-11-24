@@ -137,19 +137,28 @@ export async function listRestrictedAccounts(
              a.since_us
       FROM trading_restrictions t
       JOIN LATERAL (
-        SELECT (result->>'occurredAt')::timestamptz AS since,
-               result->>'reason' AS reason,
-               lower(result->>'actorUserId') AS actor,
-               (EXTRACT(EPOCH FROM (result->>'occurredAt')::timestamptz) * 1000000)::bigint::text AS since_us
-        FROM founder_control_audit
-        WHERE kind = 'identity'
-          AND result->>'outcome' = 'changed'
-          AND result->>'action' = 'restrict'
-          AND result->'target'->>'area' = 'trading'
-          AND lower(result->'target'->>'userId') = t.user_id::text
-          AND result->>'reason' IS NOT NULL
-          AND result->>'actorUserId' IS NOT NULL
-        ORDER BY created_at DESC, audit_id DESC
+        -- The newest restrict of the restriction in force: a founder control's audit row, or a support agent's account
+        -- freeze from a request (support_account_freezes, J-support-public-20 #7) that set it.
+        SELECT since, reason, actor, (EXTRACT(EPOCH FROM since) * 1000000)::bigint::text AS since_us
+        FROM (
+          SELECT (result->>'occurredAt')::timestamptz AS since,
+                 result->>'reason' AS reason,
+                 lower(result->>'actorUserId') AS actor,
+                 audit_id::text AS tiebreak
+          FROM founder_control_audit
+          WHERE kind = 'identity'
+            AND result->>'outcome' = 'changed'
+            AND result->>'action' = 'restrict'
+            AND result->'target'->>'area' = 'trading'
+            AND lower(result->'target'->>'userId') = t.user_id::text
+            AND result->>'reason' IS NOT NULL
+            AND result->>'actorUserId' IS NOT NULL
+          UNION ALL
+          SELECT f.recorded_at, f.reason, f.operator_id::text, f.id::text
+          FROM support_account_freezes f
+          WHERE f.user_id = t.user_id AND f.restriction_set
+        ) restricts
+        ORDER BY since DESC, tiebreak DESC
         LIMIT 1
       ) a ON true
       WHERE t.restricted = true

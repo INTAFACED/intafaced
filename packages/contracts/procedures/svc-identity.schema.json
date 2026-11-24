@@ -4335,6 +4335,578 @@
         }
       ]
     },
+    "identity.accountControls.closureHistory": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.closureHistory",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["userId", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["close", "reopen"]
+                },
+                "reasonCode": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["fraud", "negative_balance", "bank_reason", "customer_request", "other"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "changed"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "frozen", "closed"]
+                    },
+                    "closedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["customer", "staff"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "closeReasonCode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["fraud", "negative_balance", "bank_reason", "customer_request", "other"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reopenable": {
+                      "type": "boolean"
+                    },
+                    "graceUntil": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "status", "closedBy", "closeReasonCode", "reopenable"],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "frozen", "closed"]
+                    },
+                    "closedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["customer", "staff"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "closeReasonCode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["fraud", "negative_balance", "bank_reason", "customer_request", "other"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reopenable": {
+                      "type": "boolean"
+                    },
+                    "graceUntil": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "status", "closedBy", "closeReasonCode", "reopenable"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "action",
+                "reasonCode",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "approverUserId",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["close", "reopen"]
+                },
+                "reasonCode": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["fraud", "negative_balance", "bank_reason", "customer_request", "other"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "refused"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "operator.denied",
+                    "mfa.required",
+                    "target.not_found",
+                    "request.conflict",
+                    "identity.close_founder_forbidden",
+                    "identity.close_self_forbidden",
+                    "identity.close_already_closed",
+                    "identity.reopen_not_closed",
+                    "identity.reopen_not_allowed",
+                    "identity.close_requires_approver",
+                    "identity.close_approval_mismatch",
+                    "identity.close_approval_consumed",
+                    "identity.close_blocked",
+                    "identity.close_check_unavailable",
+                    "identity.account_archived"
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["active", "frozen", "closed"]
+                        },
+                        "closedBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["customer", "staff"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "closeReasonCode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["fraud", "negative_balance", "bank_reason", "customer_request", "other"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reopenable": {
+                          "type": "boolean"
+                        },
+                        "graceUntil": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["userId", "version", "status", "closedBy", "closeReasonCode", "reopenable"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "blockers": {
+                  "maxItems": 50,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["code", "count"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "action",
+                "reasonCode",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["close", "reopen"]
+                },
+                "reasonCode": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["fraud", "negative_balance", "bank_reason", "customer_request", "other"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "conflict"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "code": {
+                  "type": "string",
+                  "const": "restriction.version_conflict"
+                },
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "frozen", "closed"]
+                    },
+                    "closedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["customer", "staff"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "closeReasonCode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["fraud", "negative_balance", "bank_reason", "customer_request", "other"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reopenable": {
+                      "type": "boolean"
+                    },
+                    "graceUntil": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "status", "closedBy", "closeReasonCode", "reopenable"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "action",
+                "reasonCode",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "outputChecks": {
+        "account_closure_result_holds": {
+          "at": "output[]",
+          "says": "Unauthorized attempts cannot disclose target state; State belongs to a different account; Outcome, action and state versions disagree; A close carries a reason code and a reopen does not"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "identity.accountControls.closureState": {
       "service": "svc-identity",
       "module": "identity",
@@ -8682,6 +9254,538 @@
             "output[]|2.current.rolling24h"
           ],
           "says": "A limit figure is above zero"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.accountControls.operatorStatus": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.operatorStatus",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "enabled"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^(?:0|[1-9]\\d*)$"
+              },
+              "changedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": ["status", "userId", "version", "changedAt"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "revoked"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^(?:0|[1-9]\\d*)$"
+              },
+              "changedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": ["status", "userId", "version", "changedAt"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "unconfigured"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              }
+            },
+            "required": ["status", "userId"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "not_operator"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              }
+            },
+            "required": ["status", "userId"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.accountControls.tierHistory": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.tierHistory",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["userId", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "tierId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32,
+                  "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "changed"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "tierId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 32,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "tierId"],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "tierId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 32,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "tierId"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "tierId",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "approverUserId",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "tierId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32,
+                  "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "refused"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "operator.denied",
+                    "mfa.required",
+                    "target.not_found",
+                    "request.conflict",
+                    "identity.account_tiers_unset",
+                    "identity.tier_unknown",
+                    "identity.tier_terms_unset",
+                    "identity.tier_unchanged",
+                    "identity.tier_self_forbidden",
+                    "identity.tier_account_closed",
+                    "identity.tier_requires_approver",
+                    "identity.tier_approval_mismatch",
+                    "identity.tier_approval_consumed"
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "tierId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 32,
+                              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["userId", "version", "tierId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "blankTerms": {
+                  "minItems": 1,
+                  "maxItems": 5,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["ratePercent", "monthlyFee", "feeAssetId", "dailyLimit", "clearingDays"]
+                  }
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "tierId",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "tierId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32,
+                  "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "conflict"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "code": {
+                  "type": "string",
+                  "const": "restriction.version_conflict"
+                },
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "tierId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 32,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "tierId"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "tierId",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "outputChecks": {
+        "account_tier_result_holds": {
+          "at": "output[]",
+          "says": "Unauthorized attempts cannot disclose target state; State belongs to a different account; Blank terms come with tier_terms_unset only; Outcome, tier and state versions disagree"
         }
       },
       "samples": [
@@ -19654,6 +20758,125 @@
         }
       ]
     },
+    "identity.embeddedWallet.provision": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "embeddedWallet.provision",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write",
+        "person": true
+      },
+      "refusals": {
+        "wallet.embedded_provider_unset": "PRECONDITION_FAILED",
+        "wallet.embedded_provider_down": "SERVICE_UNAVAILABLE",
+        "wallet.embedded_wallet_mismatch": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "passkey": {
+            "type": "object",
+            "properties": {
+              "credentialId": {
+                "type": "string",
+                "maxLength": 1400,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "publicKey": {
+                "type": "string",
+                "maxLength": 400,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "algorithm": {
+                "type": "number",
+                "const": -7
+              },
+              "registration": {
+                "type": "object",
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "clientDataJson": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "attestationObject": {
+                    "type": "string",
+                    "maxLength": 8000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "transports": {
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["ble", "internal", "nfc", "usb", "hybrid", "smart-card"]
+                    }
+                  }
+                },
+                "required": ["challenge", "clientDataJson", "attestationObject", "transports"]
+              }
+            },
+            "required": ["credentialId", "publicKey", "algorithm"]
+          }
+        },
+        "required": ["passkey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "walletId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]{1,160}$"
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "ownerRef": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["walletId", "address", "ownerRef"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "passkey": {
+              "credentialId": "TEST-credential",
+              "publicKey": "TEST-key",
+              "algorithm": -7
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "passkey": {
+              "credentialId": "TEST-credential",
+              "publicKey": "TEST-key",
+              "algorithm": -8
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "identity.factorStatus": {
       "service": "svc-identity",
       "module": "identity",
@@ -28525,6 +29748,46 @@
         }
       ]
     },
+    "identity.staffTestStatus": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "staffTestStatus",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["support", "compliance", "risk", "finance"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId", "role"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "identity.subAccounts.assets": {
       "service": "svc-identity",
       "module": "identity",
@@ -28968,6 +30231,206 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "identity.support.accountFreeze": {
+      "service": "svc-identity",
+      "transport": "http",
+      "method": "POST",
+      "path": "/internal/support/account-freeze",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-support"]
+      },
+      "refusals": {
+        "identity.unauthenticated": "UNAUTHORIZED",
+        "identity.support_freeze_forbidden": "FORBIDDEN",
+        "identity.support_freeze_input": "BAD_REQUEST",
+        "identity.account_not_found": "NOT_FOUND",
+        "identity.support_freeze_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "ticketId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "operatorId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": ["userId", "ticketId", "operatorId", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recordedBy": {
+            "type": "string",
+            "const": "svc-identity"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tradingRestricted": {
+            "type": "boolean",
+            "const": true
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "auditId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["recordedBy", "userId", "tradingRestricted", "changed", "auditId", "recordedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "ticketId": "11111111-1111-4111-8111-111111111111",
+            "operatorId": "33333333-3333-4333-8333-333333333333",
+            "reason": "TEST account taken over"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "ticketId": "11111111-1111-4111-8111-111111111111",
+            "operatorId": "33333333-3333-4333-8333-333333333333",
+            "reason": ""
+          }
+        }
+      ]
+    },
+    "identity.support.accountFreezeRecords": {
+      "service": "svc-identity",
+      "transport": "http",
+      "method": "POST",
+      "path": "/internal/support/account-freeze/records",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-support"]
+      },
+      "refusals": {
+        "identity.unauthenticated": "UNAUTHORIZED",
+        "identity.support_freeze_forbidden": "FORBIDDEN",
+        "identity.support_freeze_input": "BAD_REQUEST",
+        "identity.account_not_found": "NOT_FOUND",
+        "identity.support_freeze_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "ticketId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId", "ticketId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recordedBy": {
+            "type": "string",
+            "const": "svc-identity"
+          },
+          "records": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "ticketId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "operatorId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "restrictionSet": {
+                  "type": "boolean"
+                },
+                "recordedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": ["id", "ticketId", "operatorId", "reason", "restrictionSet", "recordedAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["recordedBy", "records"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "ticketId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222"
+          }
         }
       ]
     },

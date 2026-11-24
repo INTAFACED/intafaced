@@ -13,8 +13,12 @@
  *       one pass on the stack named by LOCAL_STACK_SLOT and LOCAL_STACK_STATE (beta-host.mjs stackEnv): an invited
  *       account's pending basic or full request is approved by the stack's two TEST operators (local-test-gates.mjs,
  *       the same two-person door `verify` uses), and an invited account holding full gets GRANT once, through
- *       `local-test-stack.mjs fund` (the real ledger), at most MAX_FUNDED_PER_PERSON accounts per person. Prints one
- *       line per action and nothing when there is nothing to do. `--root` holds invited.json and granted.json (default
+ *       `local-test-stack.mjs fund` (the real ledger, what the stack's own exchange trades from), at most
+ *       MAX_FUNDED_PER_PERSON accounts per person. The same GRANT is kept in that person's TEST partner account
+ *       (`testPartner.set({ custody: 'off' })`, `testPartner.fund`), where the launch model holds a person's money and
+ *       which Home and Money read (#10632): on every pass, once per account and fund id, so a restart of svc-bank (which
+ *       empties the TEST partner) puts it back. It is made as that person on their own live session; an account not
+ *       signed in waits for the next pass. Prints one line per action and nothing when there is nothing to do. `--root` holds invited.json and granted.json (default
  *       ~/.intafaced/beta); `--checkout` is the stack's checkout whose tools it runs (default: this file's own).
  *
  * TEST funds only: it runs only the stack's own TEST tools, which refuse anything but this machine's TEST stack, and
@@ -49,6 +53,19 @@ export function invitedOwner(email, tokens) {
 
 /** The ledger reference of an account's one grant: fixed, so a second post of it is a no-op. */
 export const grantRef = (userId) => `beta-invite-${userId}`;
+/** The TEST partner's fund id of an account's grant: the partner pays it in once per person and fund id. */
+export const PARTNER_FUND_ID = 'beta-invite:v1';
+
+/**
+ * The granted accounts whose GRANT is kept at the TEST partner on this pass: an account granted to a token still
+ * recorded, with a live session (`sessions` Map userId -> sessionId). Returns [{ userId, sessionId, first }], `first`
+ * when the partner has never been funded for it (so the pass prints a line only then).
+ */
+export function planPartner({ granted, tokens, sessions }) {
+  return Object.entries(granted)
+    .filter(([userId, g]) => tokens.has(g.token) && sessions.has(userId))
+    .map(([userId, g]) => ({ userId, sessionId: sessions.get(userId), first: !g.partnerAt }));
+}
 
 /**
  * What one pass does, from what it read. `users` [{ id, email }], `approved` Map userId -> Set of tiers, `pending`
@@ -153,6 +170,33 @@ async function pass({ root, checkout }) {
     granted[f.userId] = { token: f.token, asset: GRANT.asset, amount: GRANT.amount, at: new Date().toISOString() };
     writePrivate(files.granted, granted);
     console.log(`invited ${f.email}: ${GRANT.amount} TEST ${GRANT.asset} added through the ledger (ref ${grantRef(f.userId)})`);
+  }
+  await keepAtPartner({ gates, secrets, tokens, files });
+}
+
+/** Keeps each granted account's GRANT in its own TEST partner account (planPartner), made as that person. */
+async function keepAtPartner({ gates, secrets, tokens, files }) {
+  const granted = readJson(files.granted, {});
+  const plan = planPartner({ granted, tokens, sessions: gates.liveSessions(secrets, Object.keys(granted)) });
+  if (plan.length === 0) return;
+  const ctx = await gates.makeContext({ log: () => {} });
+  const refused = (res) => (res.json?.result?.data === undefined ? `${res.status} ${gates.refusalText(res)}` : null);
+  for (const p of plan) {
+    const token = await gates.personToken(ctx, p);
+    const set = await ctx.edge.mutate('bank', 'testPartner.set', { custody: 'off' }, token);
+    const fund = refused(set)
+      ? set
+      : await ctx.edge.mutate('bank', 'testPartner.fund', { fundId: PARTNER_FUND_ID, assetId: GRANT.asset, amount: GRANT.amount }, token);
+    const why = refused(fund);
+    if (why) {
+      console.log(`invited ${p.userId}: TEST funds NOT kept at the TEST partner: ${why}`);
+      continue;
+    }
+    if (!p.first) continue;
+    const now = readJson(files.granted, {});
+    now[p.userId] = { ...now[p.userId], partnerAt: new Date().toISOString() };
+    writePrivate(files.granted, now);
+    console.log(`invited ${p.userId}: ${GRANT.amount} TEST ${GRANT.asset} kept in their TEST partner account (fund ${PARTNER_FUND_ID})`);
   }
 }
 

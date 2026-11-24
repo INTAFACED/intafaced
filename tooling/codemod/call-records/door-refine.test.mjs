@@ -145,3 +145,25 @@ test("a record whose input carries a refine the door names is held to the door's
   knowRefines(new Map([[squash('(planted) => Object.keys(planted).length <= 2'), 'planted_at_most_two_keys']]));
   assert.equal(canon(treeOf(input)), canon(doorTree(nodes, 0)));
 });
+
+test('a block-bodied refine the door names is held to the door whether or not its last statement ends with a semicolon', async () => {
+  const { z } = await contractsZod();
+  const nodes = [
+    { t: 'object', shape: [['from', 1]] },
+    { t: 'string', checks: [{ k: 'refine', id: 'planted_real_day' }] },
+  ];
+  const input = z.object({
+    from: z.string().refine((day) => {
+      const at = new Date(`${day}T00:00:00.000Z`);
+      return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === day;
+    }),
+  });
+  // The recorder's key is esbuild's: no space, and no semicolon before the closing brace (svc-bank's calendar_day).
+  knowRefines([
+    [
+      'day=>{const at=new Date(`${day}T00:00:00.000Z`);return!Number.isNaN(at.getTime())&&at.toISOString().slice(0,10)===day}',
+      'planted_real_day',
+    ],
+  ]);
+  assert.equal(canon(treeOf(input)), canon(doorTree(nodes, 0)));
+});

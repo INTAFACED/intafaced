@@ -652,7 +652,30 @@ test(`${J} #6 escalated as a money request with citations; with no citations it 
   expect(noFile.json.result.data).toBeNull();
 });
 
-test(`${J} #7 a withdrawal freeze asked from the request is recorded by the identity service; no credit is posted and a status change never lifts it`, async ({
+test(`${J} #8 the customer reads a plain status, no promised time and no staff-only text`, async ({ browser }) => {
+  const { ticket, who } = await request(browser);
+  const note = `TEST ${J} ${RUN} staff only: ledger looks fine`;
+  await lead('mutation', 'addInternalNote', { ticketId: ticket.id, body: note, clientRequestId: `j20:${RUN}:staff` });
+  const page = await visitor(browser);
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+  await page.goto(`/support/tickets/${ticket.id}`);
+  const main = page.locator('main');
+  await expect(main.getByRole('heading', { name: ticket.subject })).toBeVisible();
+  await expect(main.getByTestId('support-status').first()).toHaveText(/^(Open|Awaiting your reply|Solved)$/);
+  await expect(main.getByText(note)).toHaveCount(0);
+  await expect(main.getByText(/within \d|by \d{1,2}:\d{2}|due|expected (by|on)|\d+ (hours|days)/i)).toHaveCount(0);
+  const client = await api(who);
+  const read = await client.get(query('get', { ticketId: ticket.id }));
+  expect(JSON.stringify(read.body)).not.toContain(note);
+  expect(JSON.stringify(read.body)).not.toMatch(/"(dueAt|due_at|target|promisedAt|slaDue)"/);
+  await page.context().close();
+});
+
+test(`${J} #9 a withdrawal freeze asked from the request is recorded by the identity service with its audit row; existing holds stay, no credit is posted and a status change never lifts it`, async ({
   browser,
 }) => {
   test.setTimeout(180_000);
@@ -683,7 +706,7 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
   expect((await lockOf()).locked).toBe(false);
 
   // The desk asks; svc-identity records it as the account's security lock, set by support, with its audit row.
-  const res = await asDesk('lead', 'mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: `TEST ${J} #7` });
+  const res = await asDesk('lead', 'mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: `TEST ${J} #9` });
   expect(res.status, `requestWithdrawalFreeze: ${res.text.slice(0, 300)}`).toBe(200);
   const frozen = res.json.result.data;
   expect(frozen).toMatchObject({
@@ -693,7 +716,7 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
   });
   expect(frozen.auditId).toMatch(/^[0-9a-f-]{36}$/);
   // Asking again from the same request answers the first record.
-  const again = (await asDesk('lead', 'mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: `TEST ${J} #7` })).json.result
+  const again = (await asDesk('lead', 'mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: `TEST ${J} #9` })).json.result
     .data;
   expect(again).toMatchObject({ changed: false, auditId: frozen.auditId });
   expect(await lockOf()).toMatchObject({ locked: true, setBy: 'support', unlocksAt: null });
@@ -708,7 +731,7 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
         id: frozen.auditId,
         ticketId: ticket.id,
         operatorId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-        reason: `TEST ${J} #7`,
+        reason: `TEST ${J} #9`,
         lockSet: true,
         recordedAt: frozen.recordedAt,
       },
@@ -730,7 +753,7 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
   const now = (await lead('query', 'get', { ticketId: ticket.id })).status;
   expect(['open', ...walk.slice(0, -1)]).toContain(now);
   for (const status of walk.slice(walk.indexOf(now) + 1)) {
-    const note = status === 'on_hold' ? `TEST ${J} #7 waiting on the customer's identity check` : undefined;
+    const note = status === 'on_hold' ? `TEST ${J} #9 waiting on the customer's identity check` : undefined;
     expect((await lead('mutation', 'setStatus', { ticketId: ticket.id, status, ...(note ? { note } : {}) })).status).toBe(status);
     expect(await lockOf()).toMatchObject({ locked: true, setBy: 'support' });
   }
@@ -738,27 +761,4 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
   expect(await client.balances()).toEqual(before.balances);
   // The record is unchanged by the walk and the refused ask: still the one row.
   expect((await audit()).records.map((row) => row.id)).toEqual([frozen.auditId]);
-});
-
-test(`${J} #8 the customer reads a plain status, no promised time and no staff-only text`, async ({ browser }) => {
-  const { ticket, who } = await request(browser);
-  const note = `TEST ${J} ${RUN} staff only: ledger looks fine`;
-  await lead('mutation', 'addInternalNote', { ticketId: ticket.id, body: note, clientRequestId: `j20:${RUN}:staff` });
-  const page = await visitor(browser);
-  await page.goto('/login');
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: /^sign in$/i }).click();
-  await expect(page).not.toHaveURL(/\/login/);
-  await page.goto(`/support/tickets/${ticket.id}`);
-  const main = page.locator('main');
-  await expect(main.getByRole('heading', { name: ticket.subject })).toBeVisible();
-  await expect(main.getByTestId('support-status').first()).toHaveText(/^(Open|Awaiting your reply|Solved)$/);
-  await expect(main.getByText(note)).toHaveCount(0);
-  await expect(main.getByText(/within \d|by \d{1,2}:\d{2}|due|expected (by|on)|\d+ (hours|days)/i)).toHaveCount(0);
-  const client = await api(who);
-  const read = await client.get(query('get', { ticketId: ticket.id }));
-  expect(JSON.stringify(read.body)).not.toContain(note);
-  expect(JSON.stringify(read.body)).not.toMatch(/"(dueAt|due_at|target|promisedAt|slaDue)"/);
-  await page.context().close();
 });

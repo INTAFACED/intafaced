@@ -212,7 +212,6 @@ export const recoveryWrites = {
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 /** `bank.salary.*` (J-bank-30): the details salary is paid to, the employer form, and the salary credits. */
 const salaryCreditSchema = z.object({
   networkId: z.string(),
@@ -239,5 +238,3 @@ const salaryCreditSchema = z.object({
   ),
 });
 export type SalaryCredit = z.infer<typeof salaryCreditSchema>;
-
-export const accountsReads = {} as const;

@@ -98,7 +98,12 @@ import {
 } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
 import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
-import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
+import {
+  BANK_TRANSFERS_CREATE,
+  BANK_TRANSFERS_SCHEDULE,
+  BANK_TRANSFERS_SCHEDULE_TO_USER,
+  BANK_TRANSFERS_UPDATE_SCHEDULE,
+} from '@intafaced/contracts/bank-transfers-2-procedures';
 
 function BankPage({
   room,
@@ -584,9 +589,9 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ...(scheduled
                           ? destination === 'space'
                             ? { record: BANK_TRANSFERS_SCHEDULE }
-                            : { procedure: 'transfers.scheduleToUser' as const }
+                            : { record: BANK_TRANSFERS_SCHEDULE_TO_USER }
                           : destination === 'space'
-                            ? { procedure: 'transfers.create' as const }
+                            ? { record: BANK_TRANSFERS_CREATE }
                             : { record: BANK_TRANSFERS_TO_USER }),
                         initial: { fromSpaceId: from.id },
                         fields: [

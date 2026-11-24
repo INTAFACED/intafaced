@@ -3,6 +3,8 @@ import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
 import { WithdrawalFreezes } from './withdrawal-freeze.js';
 import { withdrawalFreezeProcedures } from './withdrawal-freeze-router.js';
+import { AccountFreezes } from './account-freeze.js';
+import { accountFreezeProcedures } from './account-freeze-router.js';
 import { MemoryLinkBook, TicketLinks } from './ticket-links.js';
 import { ticketLinkProcedures } from './ticket-links-router.js';
 import { guestProcedures } from './guest-router.js';
@@ -186,11 +188,14 @@ export function createSupportRouter(
   links: TicketLinks = new TicketLinks(new MemoryLinkBook(), support, null, null),
   /** The customer's grants for support to read, and the reads under them (J-support-public-20 #2). Left out, no owner is wired. */
   reads: ReadGrants = new ReadGrants({ book: new MemoryReadGrantBook(), support, linkedWithdrawals: async () => [] }),
+  /** Account freezes asked from a request (J-support-public-20 #7). Left out, no identity is wired and each ask refuses. */
+  accountFreezes: AccountFreezes = new AccountFreezes(support, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
     ...chatProcedures(chat, mapError),
     ...withdrawalFreezeProcedures(freezes, mapError),
+    ...accountFreezeProcedures(accountFreezes),
     ...macroProcedures(macros),
     ...(routing ? routingProcedures(routing, support) : {}),
     ...contactProcedures(contact, support),

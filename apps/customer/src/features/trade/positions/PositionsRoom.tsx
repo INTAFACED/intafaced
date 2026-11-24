@@ -66,7 +66,7 @@ export function PositionsRoom({ path }: { path: string }) {
       mode="pro"
       figures={[]}
       roomAction={link ? deskLink : undefined}
-      explain={<p className="lt-hint">{t('eyebrow')}</p>}
+      explain={<p className="lt-hint">{t('explain')}</p>}
     />
   );
   if (!userId)
@@ -100,7 +100,7 @@ export function PositionsRoom({ path }: { path: string }) {
             <Owned>{(owner) => <Room owner={owner} status={status} path={path} />}</Owned>
           </div>
         }
-        explain={<p className="lt-hint">{t('eyebrow')}</p>}
+        explain={<p className="lt-hint">{t('explain')}</p>}
       />
     </VenueFrame>
   );

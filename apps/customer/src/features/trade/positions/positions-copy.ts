@@ -3,7 +3,8 @@ import { defineCopy } from '../../../shared/i18n';
 // The positions room (J-derivatives-05). English source; curly apostrophes on purpose. No venue brand is written here: a
 // venue's name is the one its own status names. Every figure on the page is the venue's own, with its time.
 export const positionsCopy = defineCopy('trade.positions', {
-  eyebrow: 'Trade',
+  explain:
+    'Each figure is the venue’s own report, with the time it gave it. The venue holds the margin and liquidates under its own rules; INTAFACED holds none of it.',
   title: 'Positions',
   lead: 'Your futures positions on every connected venue, as each venue reports them. The venue holds the margin; INTAFACED holds none of it.',
   signedOutTitle: 'Sign in to see your positions',
