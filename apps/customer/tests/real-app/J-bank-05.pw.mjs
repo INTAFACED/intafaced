@@ -7,6 +7,7 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { venueRecord } from './venue.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-bank-05, in the running app (docs/roadmap/journeys.json): I send money abroad. J-bank-05 keeps the quote's SWIFT fee handling (#1), the no-partner notice (#2) and receiving details per currency (#3);
 // the send, its tracking and the expired-quote refusal are J-pay-12's. The local stack chooses the TEST global-send
@@ -293,7 +294,7 @@ test(`${J} #2 with no partner for the destination, pressing send shows the notic
   await stepPicture(page);
 });
 
-test(`${J} #3 opens receive details for a currency: with no partner having issued any, each shows the needs-a-partner notice with rail.bank and no number`, async ({
+test(`${J} #3 opens receive details for a currency: the details the partner issued per currency, or with none issued the needs-a-partner notice with rail.bank and no number`, async ({
   page,
   stepPicture,
 }) => {
@@ -317,9 +318,38 @@ test(`${J} #3 opens receive details for a currency: with no partner having issue
     await expect(block.getByTestId('account-details-set')).toHaveCount(0);
   }
   await expect(receive).not.toContainText(/IBAN|Sort code|Account number/);
-  await picker.selectOption('EUR');
-  await receive.scrollIntoViewIfNeeded();
-  await stepPicture(page);
+
+  // With the TEST partner issuing this person receiving details: for each currency, exactly the sets the partner's own
+  // book holds, labelled TEST, with no rail.bank notice.
+  const { sender: who } = run.read();
+  await withPartner(
+    who,
+    { accountDetails: 'issued' },
+    async () => {
+      await page.goto('/pay/global');
+      await expect(picker.locator('option', { hasText: 'EUR' })).toHaveCount(1, { timeout: 30_000 });
+      for (const currency of currencies) {
+        const issued = await partnerBook(id, '/account-details', { currency });
+        expect(issued.issued, `${currency}: the partner issued details`).toBe(true);
+        expect(issued.sets.length, `${currency}: the partner issued a set`).toBeGreaterThan(0);
+        await picker.selectOption(currency);
+        const block = receive.getByTestId(`account-details-${currency}`);
+        await expect(block).not.toContainText('rail.bank');
+        const shown = block.getByTestId('account-details-set');
+        await expect(shown).toHaveCount(issued.sets.length, { timeout: 30_000 });
+        for (const [i, set] of issued.sets.entries()) {
+          expect(set.partnerBank, 'the issuing bank is the TEST partner').toMatch(/TEST/);
+          expect(set.accountNumber, 'the number is labelled TEST').toMatch(/^TEST-/);
+          await expect(shown.nth(i)).toContainText(set.accountNumber);
+          await expect(shown.nth(i)).toContainText(set.partnerBank);
+        }
+      }
+      await picker.selectOption('EUR');
+      await receive.scrollIntoViewIfNeeded();
+      await stepPicture(page);
+    },
+    { code },
+  );
 });
 
 /*
@@ -363,7 +393,7 @@ test(`${J}, the send (J-pay-12's): opens global send and picks the corridor: its
   await expect(card.getByTestId('global-country-unsupported')).toHaveCount(0);
   // The recipient form for the corridor: name and IBAN, checked for format before it is saved.
   await card.getByLabel('Recipient’s full name', { exact: true }).fill('Bea TEST');
-  await card.getByLabel('Account number or IBAN', { exact: true }).fill('DE89 3704 0044 0532 0130 00');
+  await card.getByLabel('Account number or IBAN', { exact: true }).fill('DE02 1203 0000 0000 2020 51');
   await card.getByTestId('global-recipient-save').click();
   await expect(card.getByLabel('Recipient', { exact: true }).locator('option', { hasText: 'Bea TEST' })).toHaveCount(1, {
     timeout: 30_000,

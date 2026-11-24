@@ -35,20 +35,23 @@ const PARTNER_OFF = Object.freeze({
   accountDetails: 'none',
 });
 
-/** Sets some of `who`'s switches through their own bank API and returns them all, as the partner now behaves. */
-export async function setPartner(who, change) {
-  const session = await api(who);
+/**
+ * Sets some of `who`'s switches through their own bank API and returns them all, as the partner now behaves. A person
+ * with an authenticator app passes `code`, which gives a fresh code for each sign-in.
+ */
+export async function setPartner(who, change, { code } = {}) {
+  const session = await api(who, code ? { totpCode: await code() } : {});
   const res = await session.post('/api/bank/trpc/testPartner.set', change);
   if (res.status !== 200) throw new Error(`testPartner.set refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
   return res.body.result.data;
 }
 
 /** Runs `fn` with `who`'s partner switched as `change` says, and puts every switch back off after, even when `fn` fails. */
-export async function withPartner(who, change, fn) {
-  const now = await setPartner(who, change);
+export async function withPartner(who, change, fn, { code } = {}) {
+  const now = await setPartner(who, change, { code });
   try {
     return await fn(now);
   } finally {
-    await setPartner(who, PARTNER_OFF);
+    await setPartner(who, PARTNER_OFF, { code });
   }
 }
