@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import type { ApiKeyList } from '@intafaced/contracts/api-keys';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { useSession } from '../session';
 import { useWallet, utcTime } from '../protocol';
+import { FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
 import {
   canonical,
   closeAgentAccount,
@@ -49,8 +50,9 @@ function useVenueSigner(): (next: Signable, owner: string) => Promise<Signed> {
 
 function Said({ note }: { note: Note | null }) {
   if (!note) return null;
+  const toneClass = note.failed ? 'lt-refusal' : 'lt-muted';
   return (
-    <p className={note.failed ? 'error-text' : 'muted'} role={note.failed ? 'alert' : 'status'} data-testid="agent-connect__said">
+    <p className={toneClass} role={note.failed ? 'alert' : 'status'} data-testid="agent-connect__said">
       {note.text}
     </p>
   );
@@ -166,7 +168,7 @@ export function AccountControls({ account, reload }: { account: AgentAccount; re
       {account.next && (
         <div className="lt-actions">
           <p className="lt-muted">{t('waiting')}</p>
-          <Button variant="secondary" disabled={busy !== null} onClick={() => void run(() => signWaiting(account))}>
+          <Button tone="secondary" disabled={busy !== null} onClick={() => void run(() => signWaiting(account))}>
             {t('signWaiting')}
           </Button>
         </div>
@@ -174,7 +176,7 @@ export function AccountControls({ account, reload }: { account: AgentAccount; re
       <form className="lt-stack" noValidate data-testid="agent-connect__fund" onSubmit={(event) => move('fund', event)}>
         <Field label={t('moveIn', { asset })} hint={t('moveInHint')} name="amount" inputMode="decimal" autoComplete="off" />
         <div className="lt-actions">
-          <Button type="submit" variant="secondary" disabled={busy !== null}>
+          <Button type="submit" tone="secondary" disabled={busy !== null}>
             {t('moveInSubmit')}
           </Button>
         </div>
@@ -182,7 +184,7 @@ export function AccountControls({ account, reload }: { account: AgentAccount; re
       <form className="lt-stack" noValidate data-testid="agent-connect__withdraw" onSubmit={(event) => move('withdraw', event)}>
         <Field label={t('moveBack', { asset })} hint={t('moveBackHint')} name="amount" inputMode="decimal" autoComplete="off" />
         <div className="lt-actions">
-          <Button type="submit" variant="secondary" disabled={busy !== null}>
+          <Button type="submit" tone="secondary" disabled={busy !== null}>
             {t('moveBackSubmit')}
           </Button>
         </div>
@@ -190,7 +192,7 @@ export function AccountControls({ account, reload }: { account: AgentAccount; re
       <form className="lt-stack" noValidate data-testid="agent-connect__change-cap" onSubmit={changeCap}>
         <Field label={t('newCap', { asset })} hint={t('newCapHint')} name="cap" inputMode="decimal" autoComplete="off" />
         <div className="lt-actions">
-          <Button type="submit" variant="secondary" disabled={busy !== null}>
+          <Button type="submit" tone="secondary" disabled={busy !== null}>
             {t('newCapSubmit')}
           </Button>
         </div>
@@ -201,13 +203,13 @@ export function AccountControls({ account, reload }: { account: AgentAccount; re
         <Field label={t('limitLeverageField')} name="maxLeverage" inputMode="numeric" autoComplete="off" />
         <Field label={t('limitDailyLossField', { asset })} name="maxDailyLoss" inputMode="decimal" autoComplete="off" />
         <div className="lt-actions">
-          <Button type="submit" variant="secondary" disabled={busy !== null}>
+          <Button type="submit" tone="secondary" disabled={busy !== null}>
             {t('limitsSubmit')}
           </Button>
         </div>
       </form>
       <div className="lt-actions">
-        <Button variant="danger" disabled={busy !== null} onClick={close}>
+        <Button tone="secondary" disabled={busy !== null} onClick={close}>
           {t('close')}
         </Button>
       </div>
@@ -263,12 +265,12 @@ function Activity({ keyId, name }: { keyId: string; name: string }) {
       <h3 id="agent-connect-activity">
         {t('activityTitle')} <bdi lang="und">{name}</bdi>
       </h3>
-      {resource.status === 'loading' && <Loading label={t('activityLoading')} />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
+      {resource.status === 'loading' && <Waiting label={t('activityLoading')} />}
+      {resource.status === 'failed' && <FailureNote result={resource.failure} retry={reload} />}
       {resource.status === 'ready' && resource.data.rows.length === 0 && <p className="lt-muted">{t('activityEmpty')}</p>}
       {resource.status === 'ready' && resource.data.rows.length > 0 && (
         <>
-          <DataTable
+          <ScrollTable
             label={t('activityTitle')}
             headers={[t('colTime'), t('colTool'), t('colOutcome'), t('colStatus'), t('colCode'), t('colOrder'), t('colVenueOrder')]}
           >
@@ -287,17 +289,17 @@ function Activity({ keyId, name }: { keyId: string; name: string }) {
                 <td>{r.order?.venueOrderId ? <code lang="und">{r.order.venueOrderId}</code> : t('none')}</td>
               </tr>
             ))}
-          </DataTable>
+          </ScrollTable>
           <div className="lt-actions">
-            <Button variant="secondary" onClick={() => exportRows(resource.data.rows)}>
+            <Button tone="secondary" onClick={() => exportRows(resource.data.rows)}>
               {t('activityExport')}
             </Button>
-            <Button variant="ghost" onClick={reload}>
+            <Button tone="quiet" onClick={reload}>
               {t('retry')}
             </Button>
           </div>
           {exportFailed && (
-            <p className="error-text" role="alert">
+            <p className="lt-refusal" role="alert">
               {t('activityExportFailed')}
             </p>
           )}
@@ -377,11 +379,11 @@ export function Connections({
     });
 
   return (
-    <Panel title={t('connectionsTitle')} data-testid="agent-connect__connections">
+    <Section className="lt-stack" title={t('connectionsTitle')} data-testid="agent-connect__connections">
       {connections.length === 0 ? (
         <p className="lt-muted">{t('connectionsEmpty')}</p>
       ) : (
-        <DataTable label={t('connectionsTitle')} headers={[t('colKey'), t('colAccount'), t('colEnds'), t('colActions')]}>
+        <ScrollTable label={t('connectionsTitle')} headers={[t('colKey'), t('colAccount'), t('colEnds'), t('colActions')]}>
           {connections.map((c) => {
             const name = keys.find((k) => k.id === c.keyId)?.name ?? c.keyId;
             const account = accounts.find((a) => a.accountId === c.accountId);
@@ -389,7 +391,7 @@ export function Connections({
             return (
               <tr key={c.keyId} data-key={c.keyId}>
                 <td>
-                  <bdi lang="und">{name}</bdi> <span className="badge">{t('tagAgent')}</span>
+                  <bdi lang="und">{name}</bdi> <Tag tone="neutral">{t('tagAgent')}</Tag>
                 </td>
                 <td>
                   <bdi lang="und">{account?.name ?? c.accountId}</bdi>
@@ -399,10 +401,10 @@ export function Connections({
                 </td>
                 <td>
                   <div className="lt-actions">
-                    <Button variant="secondary" onClick={() => setShown({ keyId: c.keyId, name })}>
+                    <Button tone="secondary" onClick={() => setShown({ keyId: c.keyId, name })}>
                       {t('activity')}
                     </Button>
-                    <Button variant="danger" disabled={busy} onClick={() => revoke(c)}>
+                    <Button tone="secondary" disabled={busy} onClick={() => revoke(c)}>
                       {t('revoke')}
                     </Button>
                   </div>
@@ -410,17 +412,17 @@ export function Connections({
               </tr>
             );
           })}
-        </DataTable>
+        </ScrollTable>
       )}
       <Said note={note} />
       {unsigned && !busy && (
         <div className="lt-actions">
-          <Button variant="secondary" onClick={() => void run(() => signVenueRevoke(unsigned.keyId, unsigned.owner, unsigned.view))}>
+          <Button tone="secondary" onClick={() => void run(() => signVenueRevoke(unsigned.keyId, unsigned.owner, unsigned.view))}>
             {t('signVenueRevoke')}
           </Button>
         </div>
       )}
       {shown && <Activity key={shown.keyId} keyId={shown.keyId} name={shown.name} />}
-    </Panel>
+    </Section>
   );
 }

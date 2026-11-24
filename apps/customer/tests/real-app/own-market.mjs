@@ -60,7 +60,7 @@ export async function venueListingWrite(journey, symbol, action, procedure, fiel
  * empty and holds only what this step puts there. `prefix` (letters, such as `JS2`) and `tag` (one letter per use in the
  * file) make the base asset readable in a run's log. Returns `{ symbol, base }`.
  */
-export async function ownSpotMarket(journey, prefix, tag) {
+export async function ownSpotMarket(journey, prefix, tag, opts = {}) {
   const base = `${prefix}${tag}${randomBytes(3).toString('hex').toUpperCase()}`;
   const symbol = `${base}-USDC`;
   const added = await testVenue('/test/market-add', {
@@ -69,6 +69,8 @@ export async function ownSpotMarket(journey, prefix, tag) {
     quoteAsset: 'USDC',
     maxOrderQty: null,
     maxOrderNotional: null,
+    ...(opts.tickSize ? { tickSize: opts.tickSize } : {}),
+    ...(opts.lotSize ? { lotSize: opts.lotSize } : {}),
   });
   expect(added.status, JSON.stringify(added.body)).toBe(200);
   await venueListingWrite(

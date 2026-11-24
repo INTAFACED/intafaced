@@ -102,6 +102,8 @@ export const SERVED_ROUTES: readonly string[] = [
   'GET /api/v1/venue/builder-fee-approval private trade:read',
   'GET /api/v1/venue/builder-fees private trade:read',
   'GET /api/v1/venue/candles private trade:read',
+  'GET /api/v1/venue/chart-candles public trade:read',
+  'GET /api/v1/venue/chart-markets public trade:read',
   'GET /api/v1/venue/convert/history private trade:read',
   'GET /api/v1/venue/convert/pairs private trade:read',
   'GET /api/v1/venue/convert/route private trade:read',

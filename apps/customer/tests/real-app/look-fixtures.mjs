@@ -185,6 +185,10 @@ export const REST_REFUSED = {
     status: 404,
     json: { code: 'NotFound', message: 'the user-venue door is off on this deployment', intafacedCode: 'trade.user_venue_off' },
   },
+  'venue/chart-markets': {
+    status: 404,
+    json: { code: 'NotFound', message: 'the user-venue door is off on this deployment', intafacedCode: 'trade.user_venue_off' },
+  },
 };
 
 /** The TEST wallet's connection, as svc-protocol records it: live for a month from the frozen time, never holding a key. */

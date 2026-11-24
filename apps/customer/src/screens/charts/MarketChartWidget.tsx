@@ -2,11 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type R
 import { usePreferences } from '../../shared/preferences';
 import type { Candle } from '../../data/types';
 import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
+import { useChartSource } from '../trade/chart/chart-source';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
 import { dataStatus as computeStatus, tradeRefusal } from './data-status';
 import { rememberLastTrade, useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
-import { ownerValue, useChartOwnerValues } from './owner-values';
+import { ownerValue, useChartOwnerCounts, useChartOwnerValues } from './owner-values';
+import { venueStatusInputs } from './venue-charts';
 import { refusalText, StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
 import { ChartSettingsDialog } from './ChartSettings';
 import { chartSettingsKey, isStoredChartSettings, readChartSettings, type ChartSettings } from './chart-settings';
@@ -104,18 +106,26 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const { t } = chartsCopy.useCopy();
   const { timeZone, language } = usePreferences();
   const { userId } = useSession();
+  const source = useChartSource();
+  const venue = source.kind === 'venue' ? source : null;
   const polled = useChartCandles(market.symbol, interval);
-  const stream = useCandleStream(market.symbol, interval, openSocket);
+  const stream = useCandleStream(market.symbol, interval, openSocket, venue === null);
   const now = useNow(2_000);
   // The data status: the market's state, its newest trade and the owner's class and boundary, judged against the candles.
-  const lifecycle = useMarketLifecycle(market.symbol);
-  const bookHalt = useBookHalt(market.symbol);
+  const engineLifecycle = useMarketLifecycle(market.symbol, venue === null);
+  const engineBookHalt = useBookHalt(market.symbol, venue === null);
   const serverClock = useServerClock();
-  const lastTrade = useLastTrade(market.symbol);
+  const engineLastTrade = useLastTrade(market.symbol, venue === null);
+  const venueState = venue ? venueStatusInputs(venue, market.symbol, polled, now) : null;
+  const lifecycle = venueState ? venueState.lifecycle : engineLifecycle;
+  const bookHalt = venueState ? venueState.bookHalt : engineBookHalt;
+  const lastTrade = venueState ? venueState.lastTrade : engineLastTrade;
   // The newest trade this tab has read for the market, kept once the tape stops answering, so a down feed names its last
   // tick even on a chart opened during the outage. Module memory, not state: keeping it never causes a render of its own.
   const lastTradeSeenMs = rememberLastTrade(market.symbol, lastTrade);
-  const owner = useChartOwnerValues(market.symbol);
+  const engineOwner = useChartOwnerValues(market.symbol, venue === null);
+  const venueOwner = useChartOwnerCounts(venue !== null);
+  const owner = venue !== null ? venueOwner : engineOwner;
   // Order entry on the chart: the same one rule as the status chip and the trade link (C-ops-02).
   const orderRefusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
   const protectionRead = ownerValue(owner, 'orderProtectionBps');
@@ -310,7 +320,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
       </WorkbenchChart>
     );
 
-  const moreActive = (MORE_INTERVALS as readonly string[]).includes(interval);
+  const primaryIntervals = venue ? CHART_INTERVALS.filter((id) => venue.intervals.includes(id)) : CHART_INTERVALS;
+  const extraIntervals = venue ? MORE_INTERVALS.filter((id) => venue.intervals.includes(id)) : MORE_INTERVALS;
+  const moreActive = (extraIntervals as readonly string[]).includes(interval);
   const note = stream.mode === 'stream' ? t('Feed stream') : isStreamInterval(interval) ? t('Feed poll') : t('Feed poll interval');
   const feedText =
     status.feed === 'connected'
@@ -349,24 +361,26 @@ export const MarketChartWidget = memo(function MarketChartWidget({
       </div>
       <div className="cw-bar">
         <div className="cw-chips" role="group" aria-label={t('Chart intervals')}>
-          {CHART_INTERVALS.map((id) => (
+          {primaryIntervals.map((id) => (
             <button key={id} type="button" aria-pressed={interval === id} onClick={() => onInterval(id)}>
               {intervalLabel(id)}
             </button>
           ))}
-          <Menu>
-            <MenuTrigger data-testid="cw-more" className="cw-more" data-active={moreActive || undefined}>
-              {moreActive ? intervalLabel(interval) : t('More intervals')}
-              <span aria-hidden="true"> ▾</span>
-            </MenuTrigger>
-            <MenuContent align="start">
-              {MORE_INTERVALS.map((id) => (
-                <MenuItem key={id} onClick={() => onInterval(id)}>
-                  {intervalLabel(id)}
-                </MenuItem>
-              ))}
-            </MenuContent>
-          </Menu>
+          {extraIntervals.length > 0 && (
+            <Menu>
+              <MenuTrigger data-testid="cw-more" className="cw-more" data-active={moreActive || undefined}>
+                {moreActive ? intervalLabel(interval) : t('More intervals')}
+                <span aria-hidden="true"> ▾</span>
+              </MenuTrigger>
+              <MenuContent align="start">
+                {extraIntervals.map((id) => (
+                  <MenuItem key={id} onClick={() => onInterval(id)}>
+                    {intervalLabel(id)}
+                  </MenuItem>
+                ))}
+              </MenuContent>
+            </Menu>
+          )}
         </div>
         <div className="cw-chips" role="group" aria-label={t('Chart style')}>
           {CHART_STYLES.map((id) => (

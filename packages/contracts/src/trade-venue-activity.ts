@@ -74,14 +74,15 @@ export const tradeVenueOwnMoveSchema = z
 export type TradeVenueOwnMove = z.infer<typeof tradeVenueOwnMoveSchema>;
 
 /**
- * One credit of coins into the account from outside it (a deposit, or a transfer in from another address), as the venue
- * recorded it (J-portfolio-02 #6). The venue knows no cost for it: the lot it opens has none until the person enters one.
+ * One credit of coins into the account from outside it (a deposit, a transfer in from another address, or a staking
+ * reward), as the venue recorded it (J-portfolio-02 #6, J-portfolio-04 #3). The venue knows no cost for it: the lot it
+ * opens has none until the person enters one.
  */
 export const tradeVenueArrivalSchema = z
   .object({
     /** The venue's own id for the credit. */
     arrivalId: z.string().min(1),
-    kind: z.enum(['deposit', 'transfer_in']),
+    kind: z.enum(['deposit', 'transfer_in', 'reward']),
     asset: z.string().min(1),
     amount: decimal,
     /** The venue's own time for the credit. */
