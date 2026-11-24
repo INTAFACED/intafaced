@@ -1,6 +1,4 @@
-import { Button } from '@intafaced/ui/lit';
 import { readUpcomingChanges } from '../../shared/notify-reads';
-import { LoadingLine } from '../../shared/record/record-parts';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { UpcomingView } from './changelog-list/ChangelogList';
@@ -14,26 +12,19 @@ import { liveCopy } from './developers-live-copy';
 export function BreakingChangesNotice() {
   const { t, requestedLocale } = liveCopy.useCopy();
   const { api } = useSession();
-  const { resource, reload } = useResource(
+  const { resource } = useResource(
     (signal) => readUpcomingChanges(api, requestedLocale, signal),
     `notice-upcoming-changes:${requestedLocale}`,
   );
+  // On /notice, only show developer API breaking changes when an operator has actually published one or retired an endpoint.
+  if (resource.status !== 'ready' || (resource.data.upcoming.length === 0 && resource.data.retired.length === 0)) return null;
   return (
     <section className="lt-review" aria-labelledby="notice-breaking" data-testid="breaking-changes">
       <h2 id="notice-breaking" className="lt-sheet-title">
         {t('upcomingTitle')}
       </h2>
       <p className="lt-hint">{t('upcomingLead')}</p>
-      {resource.status === 'loading' ? (
-        <LoadingLine label={t('loading')} />
-      ) : resource.status === 'failed' ? (
-        <div className="lt-refusal" role="alert">
-          <h3 className="lt-refusal-title">{t('loadFailed')}</h3>
-          <Button onClick={reload}>{t('tryAgain')}</Button>
-        </div>
-      ) : (
-        <UpcomingView data={resource.data} language={requestedLocale} />
-      )}
+      <UpcomingView data={resource.data} language={requestedLocale} />
       <a className="lt-link" href="/developers/changelog">
         {t('changelogBack')}
       </a>

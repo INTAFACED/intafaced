@@ -6,6 +6,8 @@ import { Button } from '@intafaced/ui/lit';
 import { TextAreaField } from '@intafaced/ui/lit/templates';
 import { FailureNote, Waiting } from '../more';
 import { useSession } from '../session';
+import { usePreferences } from '../../shared/preferences';
+import { inviteTimeText } from './invite-time';
 import { referrerChangeCopy as copy } from './referrer-change-copy';
 import { IDENTITY_AFFILIATES_MY_REBIND, IDENTITY_AFFILIATES_WITHDRAW_REBIND } from '@intafaced/contracts/identity-affiliates-procedures';
 
@@ -39,12 +41,12 @@ const OPEN = new Set<Rebind['state']>(['submitted', 'under_review']);
 export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
   const { api } = useSession();
   const { t, requestedLocale } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const { resource, reload } = useResource((signal) => api.call(IDENTITY_AFFILIATES_MY_REBIND, undefined, { signal }), 'referral-rebind');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<Refusal | null>(null);
-  const when = (value: string) =>
-    `${new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value))} UTC`;
+  const when = (value: string) => inviteTimeText(value, requestedLocale, timeZone);
 
   async function send(run: () => Promise<ApiResult<Rebind>>) {
     setBusy(true);

@@ -54,11 +54,11 @@ const en = {
   entitlement:
     'A drop with no value records your entitlement and moves no money. A drop with a value is owed to you once and paid once to your connected wallet.',
   claimed: 'Claimed',
-  tgeTitle: 'Token generation event',
+  tgeTitle: 'Token launch claims',
   tgeSchedule: 'Claim schedule',
   tgeScheduleUnset: 'Not set',
   tgeClaim: 'Claim on {network}',
-  tgeStanding: 'Nothing here posts, mints or signs. The testnet path is a test network, not a live chain.',
+  tgeStanding: 'Token claims are closed. Selecting a network shows why; Testnet is for testing only and holds no real value.',
   testnetLabel: 'Testnet',
   mainnetLabel: 'Mainnet',
   'drop.sold_out': 'This drop is sold out.',
@@ -116,11 +116,12 @@ const es = {
   entitlement:
     'Un drop sin valor registra tu derecho y no mueve dinero. Un drop con valor se te debe una vez y se paga una vez a tu cartera conectada.',
   claimed: 'Reclamado',
-  tgeTitle: 'Evento de generación de tokens',
+  tgeTitle: 'Reclamos de lanzamiento del token',
   tgeSchedule: 'Calendario de reclamo',
   tgeScheduleUnset: 'Sin fijar',
   tgeClaim: 'Reclamar en {network}',
-  tgeStanding: 'Nada aquí publica, acuña ni firma. La ruta de testnet es una red de prueba, no una cadena real.',
+  tgeStanding:
+    'Los reclamos de tokens están cerrados. Elegir una red muestra el motivo; Testnet es solo para pruebas y no tiene valor real.',
   testnetLabel: 'Testnet',
   mainnetLabel: 'Mainnet',
   'drop.sold_out': 'Este drop está agotado.',
@@ -185,11 +186,12 @@ const fr = {
   entitlement:
     'Un drop sans valeur enregistre votre droit et ne déplace pas d’argent. Un drop avec une valeur vous est dû et se paie en un seul versement sur votre portefeuille connecté.',
   claimed: 'Réclamé',
-  tgeTitle: 'Événement de génération de jetons',
+  tgeTitle: 'Réclamations de lancement du jeton',
   tgeSchedule: 'Calendrier de réclamation',
   tgeScheduleUnset: 'Non fixé',
   tgeClaim: 'Réclamer sur {network}',
-  tgeStanding: 'Rien ici ne publie, ne frappe ni ne signe. La voie testnet est un réseau de test, pas une chaîne réelle.',
+  tgeStanding:
+    'Les réclamations de jetons sont fermées. Choisir un réseau en indique la raison ; Testnet sert uniquement aux tests et n’a aucune valeur réelle.',
   testnetLabel: 'Testnet',
   mainnetLabel: 'Mainnet',
   'drop.sold_out': 'Ce drop est épuisé.',
