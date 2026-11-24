@@ -161,10 +161,10 @@ export function PermissionsPage({ title }: { title: string }) {
             <tbody>
               {permissionTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope}>
-                  <th scope="row" style={{ verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-                    <code className="lt-mono">{row.scope}</code>
+                  <th scope="row" data-valign="top">
+                    <code className="lt-mono lt-nowrap">{row.scope}</code>
                   </th>
-                  <td data-align="start" style={{ verticalAlign: 'top', paddingBlock: 'var(--lit-gap-item)' }}>
+                  <td data-align="start" data-valign="top">
                     <ul>
                       {row.routes.map((route) => (
                         <li key={routeLine(route)}>
@@ -177,10 +177,10 @@ export function PermissionsPage({ title }: { title: string }) {
               ))}
               {neverOnAKeyTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope} data-never-on-key="">
-                  <th scope="row" style={{ verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-                    <code className="lt-mono">{row.scope}</code>
+                  <th scope="row" data-valign="top">
+                    <code className="lt-mono lt-nowrap">{row.scope}</code>
                   </th>
-                  <td data-align="start" style={{ verticalAlign: 'top', paddingBlock: 'var(--lit-gap-item)' }}>
+                  <td data-align="start" data-valign="top">
                     {row.routes.length > 0 ? t('neverOnKeyStaff') : t('neverOnKey')}
                     {row.routes.length > 0 ? (
                       <ul>
