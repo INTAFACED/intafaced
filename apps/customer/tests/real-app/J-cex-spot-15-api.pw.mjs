@@ -346,8 +346,9 @@ test(`${J} #7 goes over the per-user budget: edge.rate_limited with the reset ti
     await page.goto('/developers/rate-limits');
     const row = bodyRows(tableIn(page, 'Rate-limit tiers')).filter({ hasText: /^Per user/ });
     await expect(row).toHaveCount(1);
-    await expect(row.getByRole('cell').nth(0)).toHaveText(new RegExp(`^${user.burst.toLocaleString('en')}\\b`));
-    await expect(row.getByRole('cell').nth(1)).toHaveText(new RegExp(`^${user.refillPerMinute.toLocaleString('en')}\\b`));
+    // The table prints each figure as identity publishes it (digits, no grouping).
+    await expect(row.getByRole('cell').nth(0)).toHaveText(String(user.burst));
+    await expect(row.getByRole('cell').nth(1)).toHaveText(String(user.refillPerMinute));
 
     // Each key sends fewer calls than its own burst, together a third more than the per-user budget, all at once. Each
     // key's own bucket holds every call it sends, so whatever is refused is refused by the per-user budget alone.
