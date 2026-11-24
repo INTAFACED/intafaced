@@ -58,41 +58,43 @@ export function GuestVerify() {
   const dead = !token || code === 'support.guest_link_invalid' || code === 'support.guest_link_expired';
   const title = code === 'support.guest_link_expired' ? t('expiredTitle') : dead ? t('invalidTitle') : t('verifyTitle');
   return (
-    <FlowTemplate
-      title={title}
-      description={t('verifyEyebrow')}
-      state={{ kind: 'ready' }}
-      step={
-        <div className="lt-stack" data-testid="support-guest-verify">
-          {dead ? (
-            <div className="lt-refusal" role="alert" data-testid="support-guest-link-dead" data-code={code ?? undefined}>
-              <p className="lt-refusal-body">{code === 'support.guest_link_expired' ? t('expiredBody') : t('invalidBody')}</p>
-              {code ? (
-                <small className="lt-ref" lang="zxx">
-                  {code}
-                </small>
-              ) : null}
-            </div>
-          ) : (
-            <>
-              <p className="lt-muted">{t('verifyIntro')}</p>
-              <div className="lt-actions">
-                <Button tone="primary" onClick={() => void open()} disabled={busy}>
-                  {busy ? t('verifying') : t('verifyButton')}
-                </Button>
+    <div data-testid="support-guest-verify">
+      <FlowTemplate
+        title={title}
+        description={t('verifyEyebrow')}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-stack">
+            {dead ? (
+              <div className="lt-refusal" role="alert" data-testid="support-guest-link-dead" data-code={code ?? undefined}>
+                <p className="lt-refusal-body">{code === 'support.guest_link_expired' ? t('expiredBody') : t('invalidBody')}</p>
+                {code ? (
+                  <small className="lt-ref" lang="zxx">
+                    {code}
+                  </small>
+                ) : null}
               </div>
-              {refusal ? <GuestVerifyRefusal refusal={refusal} t={t} /> : null}
-            </>
-          )}
-        </div>
-      }
-      help={
-        <p>
-          <a className="lt-link" href="/support/new" data-testid="support-guest-back">
-            {t('backToForm')}
-          </a>
-        </p>
-      }
-    />
+            ) : (
+              <>
+                <p className="lt-muted">{t('verifyIntro')}</p>
+                <div className="lt-actions">
+                  <Button tone="primary" onClick={() => void open()} disabled={busy}>
+                    {busy ? t('verifying') : t('verifyButton')}
+                  </Button>
+                </div>
+                {refusal ? <GuestVerifyRefusal refusal={refusal} t={t} /> : null}
+              </>
+            )}
+          </div>
+        }
+        help={
+          <p>
+            <a className="lt-link" href="/support/new" data-testid="support-guest-back">
+              {t('backToForm')}
+            </a>
+          </p>
+        }
+      />
+    </div>
   );
 }

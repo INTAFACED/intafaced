@@ -566,7 +566,7 @@ export function AuthForm({ register }: { register: boolean }) {
     : spentCode
       ? recoveryLanguageFor('title')
       : publicLanguageFor('SIGN IN');
-  return (
+  const flow = (
     <FlowTemplate
       title={roomTitleText}
       titleLang={roomTitleLang}
@@ -669,9 +669,11 @@ export function AuthForm({ register }: { register: boolean }) {
               <Copy k={journal.failed ? 'storage' : problem!} />
             </p>
           )}
-          <p role="status" aria-live="polite">
-            {(pending && activeRecord) || landing ? <Copy k="pending" /> : null}
-          </p>
+          {!spentCode && (
+            <p role="status" aria-live="polite">
+              {(pending && activeRecord) || landing ? <Copy k="pending" /> : null}
+            </p>
+          )}
           {challengeTries !== null && (
             <p role="status" aria-live="polite" data-testid="signin-challenge">
               {challengeTries === 0 ? t('challengeStarting') : t('challenging', { tries: challengeTries })}
@@ -947,5 +949,12 @@ export function AuthForm({ register }: { register: boolean }) {
         </div>
       }
     />
+  );
+  return spentCode ? (
+    <div role="status" data-testid="recovery-code-used">
+      {flow}
+    </div>
+  ) : (
+    flow
   );
 }

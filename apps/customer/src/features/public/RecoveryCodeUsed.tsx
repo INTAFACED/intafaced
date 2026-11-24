@@ -31,11 +31,10 @@ export function RecoveryCodeUsed({
   const Heading = heading === 'none' ? null : heading;
   return (
     <section
-      data-testid="recovery-code-used"
+      data-testid={Heading ? 'recovery-code-used' : undefined}
       className="lt-stack"
-      role="status"
+      role={Heading ? 'status' : undefined}
       aria-labelledby={Heading ? 'recovery-used-title' : undefined}
-      aria-label={Heading ? undefined : t('title')}
     >
       {Heading && (
         <Heading id="recovery-used-title" lang={languageFor('title')}>

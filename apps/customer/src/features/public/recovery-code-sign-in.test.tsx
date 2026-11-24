@@ -107,6 +107,8 @@ describe('a recovery code at the second step', () => {
       await vi.waitFor(() => expect(host.querySelector('[data-testid="recovery-code-used"]')).not.toBeNull());
     });
     const panel = host.querySelector('[data-testid="recovery-code-used"]')!;
+    expect(panel.getAttribute('role')).toBe('status');
+    expect(panel.textContent).toContain('Signed in with a recovery code');
     expect(panel.textContent).toContain('That recovery code is now spent');
     expect(panel.textContent).toContain('Recovery codes left: 7');
     expect(panel.textContent).not.toContain('no recovery codes left');
