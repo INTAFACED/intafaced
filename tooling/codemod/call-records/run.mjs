@@ -144,7 +144,8 @@ function nearestOwners(e, paths, callerFiles, moved, strict = false) {
     for (const [path, names] of handlesIn(f, text, moved)) {
       if (!paths.includes(path)) continue;
       // In a service the record's own name only: the router's const holds every record, and would own any error.
-      if (strict) for (const n of [...names]) if (n !== moved.find((m) => m.path === path)?.record) names.delete(n);
+      const record = moved.find((m) => m.path === path)?.record;
+      if (strict) for (const n of names) if (n !== record) names.delete(n);
       const all = handles.get(path) ?? new Set();
       for (const n of names) all.add(n);
       handles.set(path, all);
