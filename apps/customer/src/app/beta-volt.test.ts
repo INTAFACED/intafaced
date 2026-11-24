@@ -164,6 +164,22 @@ describe("the beta's menus", () => {
     }
   });
 
+  it('shows Idempotent order placement (/developers/idempotency) on the beta while keeping /developers blocked (J-developer-05 #5)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/developers/idempotency')).toBe('volt');
+    expect(betaHides('/developers/idempotency', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/developers/idempotency')).toBeUndefined();
+    expect(isHiddenPath('/developers/idempotency')).toBe(false);
+    expect(betaOffFeatureFor('/developers')?.id).toBe('developer-portal');
+    expect(betaOffFeatureFor('/developers/hosts')?.id).toBe('developer-portal');
+    expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
+    expect(betaOffFeatureFor('/developers/status')?.id).toBe('developer-portal');
+    expect(isHiddenPath('/developers')).toBe(true);
+    expect(isHiddenPath('/developers/hosts')).toBe(true);
+    expect(isHiddenPath('/developers/status')).toBe(true);
+  });
+
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
     expect(betaRooms()).toBeUndefined();
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);

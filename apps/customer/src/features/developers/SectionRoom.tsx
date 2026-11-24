@@ -1,4 +1,5 @@
 // volt-room: /developers/permissions
+// volt-room: /developers/idempotency
 // volt-room: /developers/:section
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { type JSX } from 'react';

@@ -18,6 +18,7 @@ const messages = {
   safetyAgents: 'For an automated agent, use a key on a sub-account that holds only what the agent may use.',
   safetyWithdraw: 'No key can withdraw or move money off the platform. That needs you, signed in on a device.',
   permissionsTableLink: 'See which endpoints each permission reaches',
+  idempotencyGuideLink: 'How to retry API orders safely with an Idempotency-Key',
   capTitle: 'Keys on this account',
   capUsed: '{live} of {limit} keys in use. Revoked and ended keys do not count.',
   capUnset: 'The number of keys an account may hold is not set, so new keys are refused.',
@@ -283,6 +284,7 @@ const messages = {
 const written = {
   es: {
     permissionsTableLink: 'Ver qué puntos finales alcanza cada permiso',
+    idempotencyGuideLink: 'Cómo reintentar órdenes de API de forma segura con Idempotency-Key',
     colActions: 'Acciones',
     revoke: 'Revocar',
     revokeTitle: 'Revocar esta clave',
@@ -355,6 +357,7 @@ const written = {
   },
   fr: {
     permissionsTableLink: 'Voir quels points d’accès chaque autorisation atteint',
+    idempotencyGuideLink: 'Comment relancer des ordres API en toute sécurité avec Idempotency-Key',
     colActions: 'Actions',
     revoke: 'Révoquer',
     revokeTitle: 'Révoquer cette clé',

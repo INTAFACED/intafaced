@@ -58,6 +58,7 @@
     "/developers/changelog/upcoming",
     "/developers/errors/auth",
     "/developers/hosts",
+    "/developers/idempotency",
     "/developers/permissions",
     "/developers/status",
     "/dex",

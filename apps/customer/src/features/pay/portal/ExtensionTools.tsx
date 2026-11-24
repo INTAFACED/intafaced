@@ -8,13 +8,6 @@ import { extensionCopy as c } from './extension-copy';
 export function Arrives({ reason, children }: { reason: string; children: ReactNode }) {
   return <NotLive reason={reason}>{children}</NotLive>;
 }
-export function PortalBack({ href = '/pay/merchant', children }: { href?: string; children?: ReactNode }) {
-  return (
-    <a className="lt-link" href={href}>
-      {children ?? c.t('backHome')}
-    </a>
-  );
-}
 export const recordStates = ['active', 'revoked', 'disabled', 'pending', 'delivered', 'failed', 'dead'] as const;
 export type RecordStatus = (typeof recordStates)[number];
 export function RecordChip({ status }: { status: RecordStatus }) {

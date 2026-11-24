@@ -179,6 +179,16 @@ const fact = (page, label) =>
     .filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) })
     .locator('dd');
 
+/** Opens /trade/orders from its plain route and switches to Connected wallet so clicking a row records an in-app move. */
+async function openVenueOrders(page) {
+  await page.goto('/trade/orders');
+  await page
+    .getByRole('group', { name: 'Which orders', exact: true })
+    .getByRole('button', { name: 'Connected wallet', exact: true })
+    .click();
+  await expect(page).toHaveURL(/product=venue/);
+}
+
 test(`${J} #1 opens /trade/orders: open orders, history, user trades and executions with the same status words and each order's venue named`, async ({
   page,
   browser,
@@ -344,8 +354,10 @@ test(`${J} #2 opens an order that came from a stop, and one made by a liquidatio
     await testVenue('/test/ladder-mid', { symbol: TRIGGER_PERP, price: '3000' }).catch(() => undefined);
   }
 
-  // Filter order history by origin=stop and open the stop order's detail page.
-  await page.goto('/trade/orders?product=venue&origin=stop');
+  // Filter order history by origin=stop through the room's own controls and open the stop order's detail page.
+  await openVenueOrders(page);
+  await page.getByRole('combobox', { name: 'Origin', exact: true }).selectOption('stop');
+  await expect(page).toHaveURL(/origin=stop/);
   const stopRow = page.getByTestId('venue-history').locator(`tr[data-client-order-id="${stopId}"]`);
   await expect(stopRow).toBeVisible({ timeout: 20_000 });
   await expect(stopRow.locator('[data-cell=venue]')).toHaveText(venueName);
@@ -360,7 +372,7 @@ test(`${J} #2 opens an order that came from a stop, and one made by a liquidatio
   await expect(page.getByTestId('venue-order-fill')).not.toHaveCount(0);
 
   // Part 2: filter by label from /trade/orders, then open the labelled order from #1 to verify its origin ("You") and label ("grid-7").
-  await page.goto('/trade/orders?product=venue');
+  await openVenueOrders(page);
   await page.getByRole('textbox', { name: 'Label', exact: true }).fill(LABEL);
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`label=${LABEL}`));
@@ -422,8 +434,10 @@ test(`${J} #2 opens an order that came from a stop, and one made by a liquidatio
     await testVenue('/test/ladder-mid', { symbol: LIQ_PERP, price: '100' }).catch(() => undefined);
   }
 
-  // Filter order history by origin=liquidation and open the liquidation order's detail page.
-  await page.goto('/trade/orders?product=venue&origin=liquidation');
+  // Filter order history by origin=liquidation through the room's own controls and open the liquidation order's detail page.
+  await openVenueOrders(page);
+  await page.getByRole('combobox', { name: 'Origin', exact: true }).selectOption('liquidation');
+  await expect(page).toHaveURL(/origin=liquidation/);
   const liqRow = page.getByTestId('venue-history').locator(`tr[data-client-order-id="${liqOrder.venueClientOrderId}"]`);
   await expect(liqRow).toBeVisible({ timeout: 20_000 });
   await expect(liqRow.locator('[data-cell=venue]')).toHaveText(venueName);
@@ -443,6 +457,7 @@ test(`${J} #2 opens an order that came from a stop, and one made by a liquidatio
 test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or a reviewed cancel-and-replace where it can't; nothing changes until confirmed`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const s = state();
@@ -472,6 +487,7 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
   await dialog.getByRole('button', { name: 'Change amount', exact: true }).click();
   await continueInWallet(page);
   await expect(note).toContainText('Your place in the queue was kept', { timeout: 20_000 });
+  await stepPicture(page);
   expect(signatures(wallet)).toBe(asked + 1);
   const amended = await venueOrder(s.owner, a);
   expect(amended).toMatchObject({ venueOrderId: before.venueOrderId, status: 'open', symbol: PERP });
@@ -565,6 +581,7 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
 
 test(`${J} #4 cancels by id, by instrument and by label, singly and in a batch: each id answered; an unknown id reported while the rest cancel`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   const s = state();
@@ -648,6 +665,7 @@ test(`${J} #4 cancels by id, by instrument and by label, singly and in a batch: 
   await continueInWallet(page);
   for (const id of [l1, l2])
     await expect(ask.locator(`li[data-client-order-id="${id}"]`)).toContainText('cancelled on the venue', { timeout: 20_000 });
+  await stepPicture(page);
   expect(signatures(wallet)).toBe(asked + 1);
   expect((await venueOrder(s.owner, x4)).status).toBe('open');
   await ask.getByRole('button', { name: 'Close', exact: true }).click();
@@ -684,6 +702,7 @@ const clock = (page, iso) =>
 test(`${J} #5 arms cancel-on-disconnect: armed on the venue's scheduled cancel with its time, and orders cancelled when the connection stays silent; or "not offered by this venue"`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   const s = state();
@@ -708,6 +727,7 @@ test(`${J} #5 arms cancel-on-disconnect: armed on the venue's scheduled cancel w
   expect(lead).toBeLessThan(20_000);
   await expect(box.getByText(ARMED)).toHaveText(ARMED, { timeout: 15_000 });
   expect((await box.getByText(ARMED).innerText()).match(ARMED)[1]).toBe(await clock(page, at));
+  await stepPicture(page);
   await box.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Nobody refreshes it: at its time the venue itself cancels the futures orders, once, their locks ended.
@@ -905,7 +925,11 @@ test(`${J} #7 exercises the order-flow protections: the self-trade mode applied 
   expect((await venueRecord(s.owner, '/fills', { since: since.toISOString() })).value, 'nothing traded').toEqual([]);
 
   // Logged: the orders room records the cancel and names the self-trade rule as why it ended.
-  await page.goto(`/trade/orders/${resting}`);
+  await openVenueOrders(page);
+  const cancelledRow = page.getByTestId('venue-history').locator(`tr[data-client-order-id="${resting}"]`);
+  await expect(cancelledRow).toBeVisible({ timeout: 20_000 });
+  await cancelledRow.getByTestId('venue-order-link').click();
+  await expect(page).toHaveURL(new RegExp(`/trade/orders/${resting}$`));
   const heading = page.getByTestId('venue-order-heading');
   await expect(heading.locator('[data-cell="status"]')).toHaveText('Cancelled', { timeout: 20_000 });
   const why = page

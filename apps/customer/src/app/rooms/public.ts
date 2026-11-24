@@ -70,6 +70,9 @@ export const publicCopy = areaCopy({
     'Codes a refused key or token carries': 'Codes a refused key or token carries',
     'API permissions': 'API permissions',
     'Every permission a key may hold and the endpoints it reaches': 'Every permission a key may hold and the endpoints it reaches',
+    'Idempotent order placement': 'Idempotent order placement',
+    'Safe API order retries with Idempotency-Key and cursor pagination':
+      'Safe API order retries with Idempotency-Key and cursor pagination',
     'Hosts per protocol, environment and region': 'Hosts per protocol, environment and region',
     'Developer section': 'Developer section',
     'One section of the developer portal': 'One section of the developer portal',
@@ -101,6 +104,9 @@ export const publicCopy = areaCopy({
     'API permissions': 'Permisos de la API',
     'Every permission a key may hold and the endpoints it reaches':
       'Cada permiso que puede tener una clave y los puntos finales que alcanza',
+    'Idempotent order placement': 'Colocación de órdenes idempotente',
+    'Safe API order retries with Idempotency-Key and cursor pagination':
+      'Reintentos seguros de órdenes por API con Idempotency-Key y paginación por cursor',
     Intafaced: 'Intafaced',
     'Sign in': 'Iniciar sesión',
     'Access your account': 'Accede a tu cuenta',
@@ -177,6 +183,9 @@ export const publicCopy = areaCopy({
     'API permissions': 'Autorisations de l’API',
     'Every permission a key may hold and the endpoints it reaches':
       'Chaque autorisation qu’une clé peut détenir et les points d’accès qu’elle atteint',
+    'Idempotent order placement': 'Passage d’ordres idempotent',
+    'Safe API order retries with Idempotency-Key and cursor pagination':
+      'Nouvelles tentatives sûres d’ordres API avec Idempotency-Key et pagination par curseur',
     Intafaced: 'Intafaced',
     'Sign in': 'Se connecter',
     'Access your account': 'Accédez à votre compte',
@@ -415,6 +424,12 @@ export const publicRooms = areaRooms('public', publicCopy, [
     path: '/developers/permissions',
     title: 'API permissions',
     description: 'Every permission a key may hold and the endpoints it reaches',
+    area: 'public',
+  },
+  {
+    path: '/developers/idempotency',
+    title: 'Idempotent order placement',
+    description: 'Safe API order retries with Idempotency-Key and cursor pagination',
     area: 'public',
   },
   {

@@ -32,6 +32,11 @@ export function KeySafety() {
           {t('permissionsTableLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
         </a>
       </p>
+      <p>
+        <a className="lt-link lt-link-alone" href="/developers/idempotency">
+          {t('idempotencyGuideLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+        </a>
+      </p>
     </section>
   );
 }
