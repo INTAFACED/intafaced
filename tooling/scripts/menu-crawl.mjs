@@ -89,13 +89,16 @@ export async function crawlFrom(roots, { open, links, roomOf, origin, limit = 50
 const dedupe = (edges) => [...new Map(edges.map((e) => [e.join('\n'), e])).values()];
 
 /**
- * The hrefs a Playwright `page` holds once its top bar's door menus and the account menu have been opened (each opens on
- * hover or click and renders its rows only while open; apps/customer/src/app/TopBar.tsx).
+ * The hrefs a Playwright `page` holds. With `menus`, first its top bar's door menus and the account menu are opened (each
+ * renders its rows only while open; apps/customer/src/app/TopBar.tsx): the bar is the same on every page, so a crawl
+ * opens them on its first page only.
  */
-export async function pageLinks(page) {
-  const hrefs = new Set(await page.$$eval('a[href]', (as) => as.map((a) => a.getAttribute('href'))));
+export async function pageLinks(page, { menus = false } = {}) {
+  const read = () => page.$$eval('a[href]', (as) => as.map((a) => a.getAttribute('href')));
+  const hrefs = new Set(await read());
+  if (!menus) return [...hrefs].filter(Boolean);
   const add = async () => {
-    for (const h of await page.$$eval('a[href]', (as) => as.map((a) => a.getAttribute('href')))) hrefs.add(h);
+    for (const h of await read()) hrefs.add(h);
   };
   for (const item of await page.locator('[data-testid="tb-item"]').all()) {
     try {
