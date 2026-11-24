@@ -55,6 +55,9 @@ const en = {
   section_claimLinks: 'Claim links',
   section_venue: 'Venue account',
   section_embedded: 'My wallet',
+  embeddedNote:
+    'Your own self-custody wallet, made with a passkey and no seed phrase. Your key stays with your wallet provider; only you can sign with it.',
+  embeddedOpen: 'Open My wallet',
   sections: 'Wallet sections',
   empty_activity: 'No wallet activity to show. Activity appears once the indexer reads this address.',
   empty_approvals: 'No live approvals: this wallet has not allowed anyone to move the tokens the network’s pools trade.',
