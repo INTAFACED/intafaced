@@ -159,6 +159,8 @@ const messages = {
   'Banner lifecycle': 'Market state unavailable. Order entry is refused until the market state can be read.',
   'Banner down': 'Data is down. The candles shown are the last ones read and are not live. Last trade {tick}.',
   'Banner stale': 'Data is stale. The candles shown were last read {seconds} s ago and are not live. Last trade {tick}.',
+  'Banner stale age':
+    'Data is stale. The last trade was {seconds} s ago, past the {threshold} s stale age, so the candles shown are not live. Last trade {tick}.',
   'Banner delayed':
     'Delayed. The last trade was {seconds} s ago, past the {threshold} s boundary on a real-time market. Last trade {tick}.',
   'Banner delayed class no age': "Delayed. This market's data class is delayed; the last trade's time is not read.",
