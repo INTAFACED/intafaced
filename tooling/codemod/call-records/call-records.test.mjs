@@ -3383,6 +3383,101 @@ test("a run's new type error is owned by the moved call whose caller is in its f
   assert.deepEqual([...owners.get('apps/customer/src/screens/trade/terminal/index.tsx').keys()], ['copy.list']);
 });
 
+test("a run's new type error leaves only the moved call the code around it names: in its caller's file the call it sits in, in a screen the api member it calls; with none named, every candidate", async () => {
+  const { ownersOf } = await import('./run.mjs');
+  const api = 'apps/customer/src/features/pay/portal/money/api.ts';
+  const screen = 'apps/customer/src/features/pay/portal/money/Destinations.tsx';
+  const other = 'apps/customer/src/features/pay/portal/money/Other.tsx';
+  const moved = [
+    { path: 'settlement.list', record: 'PAY_SETTLEMENT_LIST', files: [api] },
+    { path: 'payment.list', record: 'PAY_PAYMENT_LIST', files: [api] },
+    { path: 'merchant.payoutDestinations.add', record: 'PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD', files: [api] },
+  ];
+  const sources = {
+    [api]: [
+      "import { PAY_SETTLEMENT_LIST, PAY_PAYMENT_LIST, PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD } from '@intafaced/contracts/pay';",
+      'export const moneyApi = ({ queryRecord, mutateRecord }) => ({',
+      '  settlements: (merchantId, status) => queryRecord(PAY_SETTLEMENT_LIST, { merchantId, ...(status ? { status } : {}) }),',
+      '  payments: async (merchantId) => {',
+      '    const page = await queryRecord(PAY_PAYMENT_LIST, { merchantId });',
+      '    return page;',
+      '  },',
+      '  destinationAdd: (input) => mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD, input),',
+      '});',
+    ].join('\n'),
+    [screen]: [
+      "import { moneyApi } from './api';",
+      'export function Destinations({ portal, page }) {',
+      '  const shown = page.items;',
+      '  return <Review perform={() => portal.destinationAdd({ ref: shown })} />;',
+      '}',
+    ].join('\n'),
+    [other]: ["import { moneyApi } from './api';", 'export const x = (page) => page.kind;'].join('\n'),
+  };
+  const err = (file, line, col, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(${line},${col}): ${msg}`, line, col });
+  const owners = ownersOf(
+    [
+      err(api, 3, 80, 'error TS2345: Argument of type A'),
+      err(screen, 4, 23, 'error TS2322: Type B is not assignable to type C'),
+      err(other, 2, 27, 'error TS2339: Property D'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  // The settlements line's own call, not the two below it in the same file.
+  assert.deepEqual([...owners.get(api).keys()], ['settlement.list']);
+  // The screen calls portal.destinationAdd; its local `page` is not the api's local `page`.
+  assert.deepEqual([...owners.get(screen).keys()], ['merchant.payoutDestinations.add']);
+  // Nothing around the error names a moved call: every candidate, as before.
+  assert.deepEqual([...owners.get(other).keys()], ['settlement.list', 'payment.list', 'merchant.payoutDestinations.add']);
+});
+
+test("a type error in the run's own service is owned by the record mounted around it, and one that names no record by none", async () => {
+  // The failure it prevents: on 24 Nov 2026 the svc-pay run typechecked only the apps, and shipped a service whose
+  // mountRecord(PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, ...) handler no longer fit its record (#10717's first head).
+  const { ownersOf } = await import('./run.mjs');
+  const router = 'services/svc-pay/src/merchant-ops/router.ts';
+  const audit = 'services/svc-pay/src/control/audit.ts';
+  const moved = [
+    { path: 'merchantOps.permissions.catalogue', record: 'PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE', files: ['apps/customer/src/a.ts'] },
+    { path: 'merchantOps.team.invite', record: 'PAY_MERCHANT_OPS_TEAM_INVITE', files: ['apps/customer/src/a.ts'] },
+  ];
+  const sources = {
+    [router]: [
+      "import { PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, PAY_MERCHANT_OPS_TEAM_INVITE } from '@intafaced/contracts/pay';",
+      'export const merchantOpsRouter = router({',
+      '  invite: mountRecord(PAY_MERCHANT_OPS_TEAM_INVITE, ({ input }) => invite(input), payRefusal),',
+      '  catalogue: mountRecord(',
+      '    PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,',
+      '    ({ ctx }) => catalogue(ctx),',
+      '    payRefusal,',
+      '  ),',
+      '  other: memberRead.query(() => 1),',
+      '});',
+    ].join('\n'),
+    [audit]: ['export const list = (rows) => rows.map((row) => ({ before: row.before }));'].join('\n'),
+  };
+  const err = (file, line, col, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(${line},${col}): ${msg}`, line, col });
+  const owners = ownersOf(
+    [
+      err(router, 6, 5, 'error TS2769: No overload matches this call.'),
+      err(router, 9, 10, 'error TS2322: Type A'),
+      err(audit, 1, 50, 'error TS2719: Type B'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  // Only the record whose mount the error sits in; the error outside any mount, and the one in audit.ts, are nobody's.
+  assert.deepEqual([...owners.get(router).keys()], ['merchantOps.permissions.catalogue']);
+  assert.equal(owners.has(audit), false);
+});
+
 test('a credential-named uuid field gets no sample, since a uuid cannot say it is a placeholder: its record stays by name, and no token literal is written', async () => {
   const { z } = await contractsZod();
   assert.throws(
