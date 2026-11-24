@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, walk } from './ast.mjs';
-import { fanOut } from './fan.mjs';
+import { fanOut, valuesOf } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
 import { businessSite } from './pay-business.mjs';
 import { toolSite } from './tool-forms.mjs';
@@ -108,7 +108,7 @@ export function findSites(repo) {
         const entry = key === 'procedure' && !desk ? opsEntry(p, n) : undefined;
         const spec = key === 'procedure' && !desk && !entry ? writeSpec(p, n) : undefined;
         if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
-        else if (spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...spec });
+        else if (spec) for (const one of spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...one });
         else if (entry) out.push({ file, line: line(n), node: n, shape: 'ops-entry', ...entry });
         else if (key === 'procedure' && isString(n.value) && n.value.value !== '')
           out.push({
@@ -196,16 +196,24 @@ const SPEC_KEYS = ['title', 'notes', 'input'];
  * Its answer schema is the hand one the dialog held it to, `bankWrites[path]` (`schema`), so a check there is not lost.
  */
 function writeSpec(p, n) {
-  const path = literal(n.value);
   const obj = p.parents.get(n);
-  if (!path || obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
+  if (obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
   const keys = new Set(obj.properties.map((pr) => (pr.type === 'Property' ? keyOf(pr) : undefined)));
   if (!SPEC_KEYS.every((k) => keys.has(k))) return undefined;
-  const site = { module: 'bank', path, kind: 'mutation' };
+  // A `procedure:` picked by a `? :` (`approve ? 'business.approve' : 'business.reject'`) is one site per call, written
+  // as one `record: approve ? A : B` once every call has its record (fan.mjs's `fanIn`).
+  const path = literal(n.value);
+  const set = path ? { values: [{ value: path }] } : n.value.type === 'ConditionalExpression' ? valuesOf(p, n.value) : undefined;
+  if (!set?.values) return undefined;
   const repo = p.file.slice(0, p.file.indexOf('/apps/customer/src/'));
-  const hand = repo ? handSchemas(repo).find((h) => h.map.endsWith('Writes') && h.name === path) : undefined;
-  if (hand) site.schema = { p: hand.p, node: hand.prop.value };
-  return site;
+  const hands = repo ? handSchemas(repo) : [];
+  return set.values.map((v, at) => {
+    const site = { module: 'bank', path: v.value, kind: 'mutation' };
+    if (set.values.length > 1) site.fan = { key: n, at, size: set.values.length, test: v.test };
+    const hand = hands.find((h) => h.map.endsWith('Writes') && h.name === v.value);
+    if (hand) site.schema = { p: hand.p, node: hand.prop.value };
+    return site;
+  });
 }
 
 /** The ops-desk reads in one parsed file. */

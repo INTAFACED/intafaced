@@ -62,7 +62,7 @@ function inputBranches(p, input, values) {
  * The strings an expression can take: `{ by, values: [{ value, test }] }`, where `test` is the condition that picks a value
  * (the last value needs none), or `{ open }` naming why the set is not closed.
  */
-function valuesOf(p, node, depth = 0) {
+export function valuesOf(p, node, depth = 0) {
   node = unwrap(node);
   if (!node) return { open: 'it names no service or call' };
   if (depth > 8) return { open: `${where(p, node)} is followed too far` };
@@ -71,8 +71,10 @@ function valuesOf(p, node, depth = 0) {
   if (node.type === 'ConditionalExpression') {
     const c = valuesOf(p, node.consequent, depth + 1);
     const alt = valuesOf(p, node.alternate, depth + 1);
-    if (c.values?.length !== 1 || alt.values?.length !== 1) return { open: `a \`? :\` whose branches are not each one string` };
-    return { by: '`? :`', values: [{ value: c.values[0].value, test: text(p, node.test) }, { value: alt.values[0].value }] };
+    // A chain (`a ? 'x' : b ? 'y' : 'z'`) is one string per test, in order: its else may be a chain of its own.
+    const chain = alt.by === '`? :`' && alt.values?.every((v, i) => (v.test === undefined) === (i === alt.values.length - 1));
+    if (c.values?.length !== 1 || (alt.values?.length !== 1 && !chain)) return { open: `a \`? :\` whose branches are not each one string` };
+    return { by: '`? :`', values: [{ value: c.values[0].value, test: text(p, node.test) }, ...alt.values] };
   }
   if (node.type === 'TemplateLiteral') {
     if (node.expressions.length !== 1) return { open: `${where(p, node)} fills in more than one value` };
@@ -250,9 +252,11 @@ export function fanIn(changes, planned, done, callText) {
         for (const x of back) planned.hand.push({ site: x, why: 'another value of its call stays, and one call sends them all' });
         continue;
       }
-      const call = (b) => callText(changes, b.s, b.name, b.takesNone);
+      // A write spec's `procedure:` names its record (`record: t ? A : B`); a call sends each value by its own record.
+      const spec = s.shape === 'write-spec';
+      const call = (b) => (spec ? b.name : callText(changes, b.s, b.name, b.takesNone));
       const body = got.slice(0, -1).reduceRight((rest, b) => `${b.s.fan.test} ? ${call(b)} : ${rest}`, call(got.at(-1)));
-      changes.edit(file, s.node.start, s.node.end, `(${body})`);
+      changes.edit(file, s.node.start, s.node.end, spec ? `record: ${body}` : `(${body})`);
       for (const b of got) changes.imp(file, b.spec, b.name);
     }
   }

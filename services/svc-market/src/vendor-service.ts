@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { transaction, type Queryable } from '@intafaced/db';
 import { withMarketSpan } from './tracing.js';
 import { decideVendorSlot, usableSlots, type SlotDecision } from './slot-access.js';
@@ -163,6 +164,9 @@ export interface VendorStatusEventRecord {
   actorScope: string;
   createdAt: string;
 }
+
+/** The one column `userIdOf` reads, parsed where it is read. */
+const VendorUserRow = z.object({ user_id: z.string().uuid() });
 
 interface VendorRow {
   id: string;
@@ -1028,6 +1032,15 @@ export class VendorService {
       if (s.ref) out.add(s.ref);
     }
     return out;
+  }
+
+  /**
+   * The user behind a vendor, for a read svc-market makes on the server (the listing's track record in svc-trade).
+   * Never sent to a client: the public listing names the seller by their vendor profile only.
+   */
+  async userIdOf(vendorId: string): Promise<string | null> {
+    const [row] = VendorUserRow.array().parse(await this.sql`SELECT user_id FROM market.vendors WHERE id = ${vendorId}`);
+    return row?.user_id ?? null;
   }
 
   /**

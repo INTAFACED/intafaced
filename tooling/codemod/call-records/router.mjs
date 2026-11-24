@@ -149,6 +149,7 @@ export function procedures(serviceDir, fnName) {
   };
   visit(root.p, root.node, '', 0);
   // Two procedures under one path (a switch's live and stand-in branches): neither is the record, so both are named.
+  // garden/no-switch-router refuses a new one where it is written.
   for (const path of twice) {
     unread.push({ path, why: 'two procedures under one path (a switch router)', file: out.get(path).p.file });
     out.delete(path);
