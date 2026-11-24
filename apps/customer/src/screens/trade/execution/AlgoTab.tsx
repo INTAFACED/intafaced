@@ -102,21 +102,6 @@ export function AlgoTab({
       <div className="lt-stack">
         {capability && !capability.createEnabled ? <Why>{t('Create off banner')}</Why> : null}
         {capability && !capability.jobsEnabled ? <Why>{t('Scheduler off banner')}</Why> : null}
-        <div className="lt-field-row">
-          <Field label={t('Open by id')} hint={t('Any schedule id you have, for example from another device')} className="min-w-64 flex-1">
-            <Input
-              aria-label={t('Open by id')}
-              value={typedId}
-              onValueChange={setTypedId}
-              density="dense"
-              onKeyDown={(e) => e.key === 'Enter' && void openById()}
-            />
-          </Field>
-          <Button variant="secondary" size={32} disabled={!typedId.trim() || !userId} onClick={() => void openById()}>
-            {t('Open')}
-          </Button>
-        </div>
-        {openNote ? <Why>{openNote}</Why> : null}
         {checkNote ? (
           <p role="status" className="m-0 text-sm text-fg">
             {checkNote}
@@ -135,6 +120,21 @@ export function AlgoTab({
         {selectedRow ? (
           <AlgoDetail row={selectedRow} onClone={(parent) => setPrefill({ values: valuesFrom(parent), token: Date.now() })} />
         ) : null}
+        <div className="lt-field-row">
+          <Field label={t('Open by id')} hint={t('Any schedule id you have, for example from another device')} className="min-w-64 flex-1">
+            <Input
+              aria-label={t('Open by id')}
+              value={typedId}
+              onValueChange={setTypedId}
+              density="dense"
+              onKeyDown={(e) => e.key === 'Enter' && void openById()}
+            />
+          </Field>
+          <Button variant="secondary" size={32} disabled={!typedId.trim() || !userId} onClick={() => void openById()}>
+            {t('Open')}
+          </Button>
+        </div>
+        {openNote ? <Why>{openNote}</Why> : null}
       </div>
       <ConfirmDialog
         open={action !== null}

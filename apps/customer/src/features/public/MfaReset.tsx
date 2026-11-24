@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { type MfaResetView } from '@intafaced/contracts/identity';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../shared/api';
+import { FailureNote } from '../../shared/failure-note';
 import { useSession } from '../session';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
@@ -76,13 +77,13 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
 
   const code = refusal?.code;
   return (
-    <section className="public-auth-mfa-reset stack" aria-labelledby="mfa-reset-title">
+    <section className="lt-stack" data-testid="public-auth-mfa-reset" aria-labelledby="mfa-reset-title">
       <h2 id="mfa-reset-title" lang={languageFor('title')}>
         {t('title')}
       </h2>
       {view?.state === 'waiting' ? (
         <div className="lt-stack">
-          <p className="notice" role="status" lang={languageFor('waiting')}>
+          <p className="lt-note" role="status" lang={languageFor('waiting')}>
             <strong>{t('waiting', { time: when(view.completesAt) })}</strong>
           </p>
           <p lang={languageFor('told')}>{t('told', { email: view.told.email })}</p>
@@ -105,12 +106,12 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
             {t('mailed', { email: view.email, time: when(view.codeExpiresAt) })}
           </p>
           <Field label={t('code')} name="mfaResetCode" inputMode="numeric" autoComplete="one-time-code" required disabled={busy} />
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('confirming') : t('confirm')}
             </Button>
             <Button
-              variant="ghost"
+              tone="quiet"
               disabled={busy}
               onClick={() => {
                 setRefusal(null);
@@ -141,15 +142,19 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
             disabled={busy}
           />
           <Field label={t('password')} name="mfaResetPassword" type="password" autoComplete="current-password" required disabled={busy} />
-          <Button type="submit" disabled={busy}>
-            {busy ? t('sending') : t('send')}
-          </Button>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
+              {busy ? t('sending') : t('send')}
+            </Button>
+          </div>
         </form>
       )}
       {refusal &&
         (worded(code) && refusal.reason !== 'uncertain' ? (
           <div data-testid="failure" className="lt-refusal" role="alert">
-            <p lang={languageFor(code)}>{t(code)}</p>
+            <p className="lt-refusal-body" lang={languageFor(code)}>
+              {t(code)}
+            </p>
             {TO_SUPPORT.has(code) && (
               <a className="lt-link" href="/help" lang={languageFor('support')}>
                 {t('support')}
@@ -157,11 +162,13 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
             )}
           </div>
         ) : (
-          <Failure result={refusal} />
+          <FailureNote result={refusal} />
         ))}
-      <Button variant="secondary" onClick={onBack}>
-        {t('back')}
-      </Button>
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={onBack}>
+          {t('back')}
+        </Button>
+      </div>
     </section>
   );
 }

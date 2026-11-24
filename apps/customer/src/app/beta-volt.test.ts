@@ -70,16 +70,20 @@ describe("the beta's menus", () => {
     expect(searchRooms('perp', 'Personal').map((room) => room.path)).toContain('/trade/futures');
   });
 
-  it('shows Agents (/agents) and own-agent pages (/agents/:agentId) in Volt, More, All services and search on the beta (J-agents-08)', () => {
+  it('shows Agents (/agents), Connect your assistant (/agents/connect) and own-agent pages (/agents/:agentId) in Volt, More, All services and search on the beta (J-agents-08, J-agents-21)', () => {
     const betaList = betaRoomList(count.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     expect(state.get('/agents')).toBe('volt');
+    expect(state.get('/agents/connect')).toBe('volt');
     expect(state.get('/agents/:agentId')).toBe('volt');
     expect(betaHides('/agents', betaList)).toBe(false);
+    expect(betaHides('/agents/connect', betaList)).toBe(false);
     expect(betaHides('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70', betaList)).toBe(false);
     expect(betaOffFeatureFor('/agents')).toBeUndefined();
+    expect(betaOffFeatureFor('/agents/connect')).toBeUndefined();
     expect(betaOffFeatureFor('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBeUndefined();
     expect(isHiddenPath('/agents')).toBe(false);
+    expect(isHiddenPath('/agents/connect')).toBe(false);
     expect(isHiddenPath('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBe(false);
     expect(visibleSections().flatMap((group) => group.tiles.map((tile) => tile.href))).toContain('/agents');
     expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/agents');
@@ -98,6 +102,21 @@ describe("the beta's menus", () => {
       expect(betaHides(sample, betaList), sample).toBe(false);
       expect(isHiddenPath(sample), sample).toBe(false);
     }
+  });
+
+  it('shows Activity detail (/money/activity/:id) and Buy and sell (/trade/buy) on the beta (J-portfolio-03 #6 #8)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/money/activity/:id', '/money/activity/tx-1'],
+      ['/trade/buy', '/trade/buy'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    const simpleTrade = tabSpecs('simple', true).find((tab) => tab.door === 'Trade');
+    expect(simpleTrade?.items.map((item) => item.href)).toContain('/trade/buy');
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {

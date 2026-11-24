@@ -657,13 +657,14 @@ export const features: readonly Feature[] = [
   {
     id: 'agents',
     label: 'Agents',
-    paths: ['/agents', '/agents/new', '/agents/:agentId'],
+    paths: ['/agents', '/agents/new', '/agents/connect', '/agents/:agentId'],
     status: 'live',
-    reason: 'The agents catalogue, builder and own-agent rooms run on svc-agents and svc-trade from the signed-in session',
+    reason:
+      'The agents catalogue, builder, outside-assistant connect and own-agent rooms run on svc-agents and svc-trade from the signed-in session',
     unlock: 'already live',
     tab: 'more',
     checked:
-      '2026-11-24, Real-app journeys run 11600 (J-agents-08 #1 to #7 passed on the real stack with proof v2 FAITHFUL and SHOWN pictures).',
+      '2026-11-24, Real-app journeys run 11600 (J-agents-08 #1 to #7) and run 11739 (J-agents-21 #1 to #19 passed on the real stack with proof v2 FAITHFUL and SHOWN pictures).',
   },
   {
     id: 'more-rooms',
@@ -681,7 +682,6 @@ export const features: readonly Feature[] = [
       '/academy/:slug',
       '/agents/team',
       '/agents/approvals',
-      '/agents/connect',
       '/agents/runs/:runId',
       '/quant',
       '/quant/sandbox',

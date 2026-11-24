@@ -1,15 +1,17 @@
-import { fmtAmount, refusalCopy } from '../buy/deps';
-import { dayTime } from '../desk/time';
+import { Tag } from '@intafaced/ui/lit';
+import { Table, type Column } from '@intafaced/ui/lit/templates';
+import { fmtAmount, refusalCopy } from '../../../data';
+import type { ConvertHistoryRow } from '../../../features/trade/tool-api';
 import { usePreferences } from '../../../shared/preferences';
-import { Badge, EmptyState, Table, type TableColumn } from './deps';
+import { dayTime } from '../desk/time';
+import { KitState } from '../kit-parts';
 import { convertCopy } from './copy';
 import { recentAt } from './recent';
 import { useRecentConversions } from './use-recent';
-import type { ConvertHistoryRow } from '../../../features/trade/tool-api';
 
 const ACTIVITY_HREF = '/money/activity?tab=all';
 
-const TONE = { settled: 'lime', accepted: 'warn', refused: 'error', unknown: 'warn', quoted: 'neutral', expired: 'neutral' } as const;
+const TONE = { settled: 'accent', accepted: 'warn', refused: 'error', unknown: 'warn', quoted: 'neutral', expired: 'neutral' } as const;
 
 /**
  * Recent conversions (TRMKT R3): the customer's own convert history from the trade service, newest first. Nothing is
@@ -30,64 +32,56 @@ export function RecentConversions() {
           ? t('Recent refused')
           : t('Recent unknown');
 
-  const columns: TableColumn<ConvertHistoryRow>[] = [
-    { id: 'time', header: t('Time'), value: (row) => dayTime(Date.parse(recentAt(row)), timeZone) },
+  const columns: Column<ConvertHistoryRow>[] = [
+    { key: 'time', label: t('Time'), cell: (row) => dayTime(Date.parse(recentAt(row)), timeZone) },
     {
-      id: 'paid',
-      header: t('You paid'),
-      numeric: true,
-      value: (row) => row.inAmount,
+      key: 'paid',
+      label: t('You paid'),
+      align: 'end',
       cell: (row) => `${fmtAmount(row.inAmount, { places: 8 })} ${row.inAsset}`,
     },
     {
-      id: 'received',
-      header: t('You received'),
-      numeric: true,
-      value: (row) => row.outAmount,
+      key: 'received',
+      label: t('You received'),
+      align: 'end',
       cell: (row) => `${fmtAmount(row.outAmount, { places: 8 })} ${row.outAsset}`,
     },
-    { id: 'status', header: t('Status'), cell: (row) => <Badge tone={TONE[row.lifecycle]}>{statusWord(row)}</Badge> },
+    { key: 'status', label: t('Status'), cell: (row) => <Tag tone={TONE[row.lifecycle]}>{statusWord(row)}</Tag> },
   ];
 
   const refused = recent.status === 'refused' ? refusalCopy(recent.code) : null;
 
   return (
-    <section className="cvt-recent" aria-labelledby="cvt-recent-title" data-testid="cvt-recent">
-      <div className="cvt-recent__head">
+    <section className="lt-stack" aria-labelledby="cvt-recent-title" data-testid="cvt-recent">
+      <div className="lt-toolbar">
         <h2 id="cvt-recent-title">{t('Recent conversions')}</h2>
-        <a className="cvt-recent__all" href={ACTIVITY_HREF}>
+        <a className="lt-link" href={ACTIVITY_HREF}>
           {t('View activity')}
         </a>
       </div>
       {refused ? (
-        <EmptyState
-          variant="refused"
+        <KitState
+          kind="refused"
           title={refused.title}
-          reason={refused.body}
+          body={refused.body}
           code={refused.reference}
           action={refused.action ? { label: refused.action.label, href: refused.action.href } : undefined}
         />
       ) : recent.status === 'error' ? (
-        <EmptyState
-          size="inline"
-          variant="unavailable"
-          title={t('Recent error title')}
-          reason={t('Recent error body')}
-          action={{ label: t('Retry'), onClick: recent.retry, variant: 'secondary' }}
-        />
+        <KitState kind="error" title={t('Recent error title')} onRetry={recent.retry} retryLabel={t('Retry')} />
+      ) : recent.status === 'loading' ? (
+        <KitState kind="loading" rows={3} label={t('Recent label')} />
       ) : (
         <Table
-          label={t('Recent label')}
-          density="dense"
+          caption={t('Recent label')}
+          dense
           columns={columns}
           rows={recent.status === 'ready' ? recent.rows : []}
-          getRowId={(row) => row.quoteId}
-          status={recent.status === 'loading' ? 'loading' : 'ready'}
-          loadingRows={3}
-          emptyState={<EmptyState size="inline" variant="empty" title={t('Recent empty title')} reason={t('Recent empty body')} />}
+          rowKey={(row) => row.quoteId}
+          empty={<KitState kind="empty" title={t('Recent empty title')} body={t('Recent empty body')} />}
         />
       )}
-      {recent.status === 'ready' && recent.more ? <p className="cvt-recent__more">{t('Recent more')}</p> : null}
+      {recent.status === 'ready' && recent.more ? <p className="lt-hint">{t('Recent more')}</p> : null}
     </section>
   );
 }

@@ -1,12 +1,28 @@
-import { useMemo, useRef } from 'react';
-import { useVenueMode } from '../../features/trade/use-venue-mode';
-import { FillsTable as VenueFillsTable, VenueFrame, WalletBar, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
-import { readAllVenueOrders } from '../../features/trade/venue/VenueKit';
-import type { VenueOrder } from '../../features/trade/venue-api';
+import { useMemo, useRef, useState } from 'react';
+import { useVenueMode, type VenueMode } from '../../features/trade/use-venue-mode';
+import { FillsTable as VenueFillsTable, OrdersTable as VenueOrdersTable } from '../../features/trade/venue/VenueKit';
+import {
+  OutcomeLine,
+  TestMark,
+  VenueFrame,
+  WalletBar,
+  heldKeys,
+  readAllVenueOrders,
+  useOwner,
+  useVenueAccount,
+  useVenueActions,
+  useVenueApi,
+  word,
+  type ActionResult,
+} from '../../features/trade/venue/VenueKit';
+import { draftId, keys, type VenueOrder } from '../../features/trade/venue-api';
+import { venueCopy } from '../../features/trade/venue/venue-copy';
 import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from '../trade/desk/OrderTables';
 import { StateBlock } from '@intafaced/ui/lit';
+import { Skeleton, Table } from '@intafaced/ui/lit/templates';
+import { displayAmount } from '../../shared/money';
 import { useResource } from '../../shared/resource';
 import type { Order } from '../../features/trade/trade-api';
 import { FILLS_PAGE, symbolHasAsset, tradesEmpty } from './activity-view';
@@ -146,6 +162,124 @@ function OwnerVenueFills({ owner, test, asset }: { owner: string; test: boolean;
 }
 
 export function OrdersPanel() {
+  const mode = useVenueMode();
+  if (mode.mode === 'checking') return <Skeleton shape="rows" count={4} />;
+  if (mode.mode === 'on') return <VenueOrders mode={mode} />;
+  return <CustodialOrdersPanel />;
+}
+
+/**
+ * Activity's Orders tab on the launch model (when svc-trade's user-venue door is on): lists the person's open
+ * venue orders (with Cancel) and order history read straight from the venue for the connected wallet, with a link to
+ * the full filterable orders room (`/trade/orders?product=venue`).
+ */
+function VenueOrders({ mode }: { mode: Extract<VenueMode, { mode: 'on' }> }) {
+  return (
+    <VenueFrame mode={mode}>
+      <section data-testid="money-venue-orders" className="lt-stack">
+        <WalletBar />
+        <VenueOrdersBody status={mode.status} />
+      </section>
+    </VenueFrame>
+  );
+}
+
+function VenueOrdersBody({ status }: { status: Extract<VenueMode, { mode: 'on' }>['status'] }) {
+  const owner = useOwner();
+  return owner ? <OwnerVenueOrders owner={owner} status={status} /> : null;
+}
+
+function OwnerVenueOrders({ owner, status }: { owner: string; status: Extract<VenueMode, { mode: 'on' }>['status'] }) {
+  const { t } = deskCopy.useCopy();
+  const v = venueCopy.useCopy().t;
+  const api = useVenueApi();
+  const account = useVenueAccount(owner);
+  const { run } = useVenueActions(owner);
+  const keysHeld = useMemo(() => heldKeys(owner), [owner]);
+  const [round, setRound] = useState(0);
+  const [cancelResult, setCancelResult] = useState<ActionResult | null>(null);
+  const { resource: history } = useResource((signal) => readAllVenueOrders(api, owner, signal), `venue-orders-history:${owner}:${round}`);
+  const test = status.available ? status.test : false;
+  const cancelsPerAction = status.available ? (status.cancelsPerAction ?? 0) : 0;
+
+  async function cancel(order: VenueOrder) {
+    const id = order.venueClientOrderId;
+    if (!id) return;
+    const key = keysHeld.get(id);
+    let answer: ActionResult;
+    if (key) {
+      answer = await run({ kind: 'cancel_order', symbol: order.symbol, clientOrderKey: key });
+    } else if (cancelsPerAction >= 1) {
+      answer = await run(
+        { kind: 'cancel_orders', orders: [{ symbol: order.symbol, venueClientOrderId: id }] },
+        { actionKey: keys.cancelBatch(owner, `one-${draftId()}`) },
+      );
+    } else {
+      return;
+    }
+    setCancelResult(answer);
+    account.reload();
+    setRound((n) => n + 1);
+  }
+
+  const ended = history.status === 'ready' ? history.data.map((entry) => entry.order) : [];
+  return (
+    <div data-testid="money-trade-tab" className="lt-stack">
+      <div className="lt-row">
+        <h2 data-testid="money-trade-tab__head" className="lt-heading">
+          {t('Open orders')}
+        </h2>
+        <a className="lt-link" data-testid="money-venue-orders-full" href="/trade/orders?product=venue">
+          {t('View all')}
+        </a>
+      </div>
+      <OutcomeLine result={cancelResult} owner={owner} />
+      <VenueOrdersTable orders={account.openOrders.data} test={test} onCancel={(o) => void cancel(o)} cancelled={[]} />
+      <h2 data-testid="money-trade-tab__head" className="lt-heading">
+        {t('Order history')}
+      </h2>
+      {history.status === 'loading' ? (
+        <Skeleton shape="rows" count={4} />
+      ) : ended.length === 0 ? (
+        <StateBlock kind="empty" testId="money-state" title={t('No order history')} />
+      ) : (
+        <div data-testid="venue-order-history">
+          <TestMark test={test} />
+          <Table
+            caption={t('Order history')}
+            dense
+            scroll
+            columns={[
+              {
+                key: 'market',
+                label: v('Market'),
+                cell: (o: VenueOrder) =>
+                  o.venueClientOrderId ? (
+                    <a className="lt-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
+                      {o.symbol}
+                    </a>
+                  ) : (
+                    o.symbol
+                  ),
+              },
+              { key: 'side', label: v('Side'), cell: (o) => word(v, 'side', o.side) },
+              { key: 'type', label: v('Type'), cell: (o) => word(v, 'type', o.type) },
+              { key: 'price', label: v('Price'), align: 'end', cell: (o) => displayAmount(o.price) },
+              { key: 'amount', label: v('Amount'), align: 'end', cell: (o) => displayAmount(o.amount) },
+              { key: 'filled', label: v('Filled'), align: 'end', cell: (o) => displayAmount(o.filled) },
+              { key: 'status', label: v('Status'), cell: (o) => word(v, 'status', o.status), cellMarks: () => ({ 'data-cell': 'status' }) },
+            ]}
+            rows={ended}
+            rowKey={(o) => o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}:${o.amount}`}
+            rowMarks={(o) => ({ 'data-client-order-id': o.venueClientOrderId ?? '' })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustodialOrdersPanel() {
   const { t } = deskCopy.useCopy();
   const open = useOpenOrders();
   const closed = useClosedOrders(true);

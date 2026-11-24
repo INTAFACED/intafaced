@@ -116,6 +116,72 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
+test(`${J} #4 reads which order types the API accepts: the same list the ticket shows`, async ({ page, stepPicture }) => {
+  test.setTimeout(240_000);
+  const s = state();
+  // The venue's own record of this spot market, read straight from the TEST venue.
+  const venueMarket = (await venueRecord(s.owner, '/markets')).value.find((m) => m.symbol === SYMBOL);
+  expect(venueMarket, `${SYMBOL} is listed on the TEST venue`).toBeTruthy();
+
+  // What the API itself says it takes: GET /api/v1/order-types, through the edge, matching the venue's spot market.
+  const answer = await page.request.get('/api/v1/order-types');
+  expect(answer.status(), await answer.text()).toBe(200);
+  const published = await answer.json();
+  expect(published.source).toBe('venue');
+  expect(published.symbol).toBe(SYMBOL);
+  expect(published.accepted.map((row) => row.id)).toEqual(venueMarket.orderTypes.filter((x) => x === 'limit' || x === 'market'));
+  for (const row of published.accepted) {
+    for (const tif of row.timeInForce) expect(venueMarket.timeInForce).toContain(tif);
+  }
+  // Asking by explicit symbol returns the same list; an unlisted symbol refuses by name.
+  const bySymbol = await page.request.get(`/api/v1/order-types?symbol=${encodeURIComponent(SYMBOL)}`);
+  expect(bySymbol.status(), await bySymbol.text()).toBe(200);
+  expect(await bySymbol.json()).toEqual(published);
+  const unknown = await page.request.get('/api/v1/order-types?symbol=NO-SUCH-PAIR');
+  expect(unknown.status(), await unknown.text()).toBe(400);
+  expect((await unknown.json()).intafacedCode).toBe('trade.venue.unknown_market');
+
+  // The portal's page names each accepted type and each refused type, in the API's order, with each example body whole.
+  await page.goto('/developers');
+  await page.getByRole('main').getByRole('link', { name: 'Order types', exact: true }).click();
+  await expect(page).toHaveURL(/\/developers\/order-types$/);
+  const accepted = page.getByTestId('order-types-accepted').locator('tbody tr');
+  await expect(accepted).toHaveCount(published.accepted.length);
+  expect(await accepted.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-type')))).toEqual(
+    published.accepted.map((row) => row.id),
+  );
+  const docNames = (await accepted.locator('th').allInnerTexts()).map((name) => name.trim());
+  const examples = await accepted.locator('pre').allInnerTexts();
+  expect(examples.map((text) => JSON.parse(text))).toEqual(published.accepted.map((row) => row.send.example));
+  const refused = page.getByTestId('order-types-refused').locator('tbody tr');
+  await expect(refused).toHaveCount(published.refused.length);
+  expect(await refused.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-type')))).toEqual(
+    published.refused.map((row) => row.id),
+  );
+  const docRefused = (await refused.locator('th').allInnerTexts()).map((name) => name.trim());
+  for (const row of published.refused) {
+    await expect(page.locator(`[data-testid="order-types-refused"] tbody tr[data-type="${row.id}"]`)).toContainText(row.code);
+  }
+
+  // The launch venue spot ticket a person sees: its type tabs, in order, and the kinds it lists as not offered.
+  await openVenueDesk(page, s.who, `/trade/spot/${SYMBOL}`, s.walletKey);
+  const ticket = page.getByTestId('dk-order');
+  const tabs = ticket.getByRole('tablist', { name: 'Order type', exact: true }).getByRole('tab');
+  await expect(tabs.first()).toBeVisible();
+  const ticketNames = (await tabs.allInnerTexts()).map((name) => name.trim());
+  expect(ticketNames, 'the API lists exactly the venue ticket’s types, in the ticket’s order').toEqual(docNames);
+  const notOffered = ticket.getByTestId('venue-order-types').getByRole('button');
+  await expect(notOffered).toHaveCount(docRefused.length);
+  for (const btn of await notOffered.all()) await expect(btn).toBeDisabled();
+  expect(
+    await notOffered.evaluateAll((btns) => btns.map((b) => b.getAttribute('data-not-offered'))),
+    'the API refuses the exact types the venue ticket disables, in order',
+  ).toEqual(published.refused.map((row) => row.id));
+  await expect(notOffered).toHaveText(docRefused.map((name) => `${name}: not offered by this venue`));
+  await ticket.scrollIntoViewIfNeeded();
+  await stepPicture();
+});
+
 test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async () => {
   test.setTimeout(180_000);
   const s = state();

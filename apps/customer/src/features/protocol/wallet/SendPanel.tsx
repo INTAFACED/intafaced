@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dialog, Field, Panel } from '../../../shared/ui';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
 import { usePreferences } from '../../../shared/preferences';
 import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
 import { useRegionBlocked } from '../region';
+import { Dialog, Panel } from '../volt/parts';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID } from './eip1193';
 import { RepresentationPanel } from './RepresentationPanel';
@@ -204,6 +205,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         {!ready && <p className="lt-muted">{t('needsWallet')}</p>}
         <form
           aria-label={t('sendTitle')}
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void review();
@@ -245,7 +247,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           )}
           {destination.kind === 'invalid' && <p role="alert">{t('sendInvalidTo')}</p>}
           {problem && <p role="alert">{problem}</p>}
-          <Button type="submit" disabled={!canReview || outcome.kind === 'busy'}>
+          <Button tone="primary" type="submit" disabled={!canReview || outcome.kind === 'busy'}>
             {t('sendReview')}
           </Button>
         </form>
@@ -269,7 +271,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
       </Panel>
       {reviewing && destination.kind === 'address' && chosen && (
         <Dialog title={t('reviewTitle')} onClose={() => setReviewing(false)}>
-          <dl className="protocol-facts">
+          <dl className="lt-kv">
             <div>
               <dt>{t('reviewFrom')}</dt>
               <dd className="lt-num">{wallet.address}</dd>
@@ -299,10 +301,9 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           {contract === 'contract' && (
             <>
               <p role="note">{t('reviewContract')}</p>
-              <label className="field field--check">
-                <input type="checkbox" checked={ticked} onChange={(event) => setTicked(event.target.checked)} />
-                <span>{t('reviewContractTick')}</span>
-              </label>
+              <Checkbox checked={ticked} onCheckedChange={setTicked}>
+                {t('reviewContractTick')}
+              </Checkbox>
             </>
           )}
           {contract === 'unknown' && <p role="note">{t('reviewContractUnknown')}</p>}
@@ -315,11 +316,11 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             spellCheck={false}
             onChange={(event) => setTyped(event.target.value)}
           />
-          <div className="protocol-actions">
-            <Button variant="secondary" onClick={() => setReviewing(false)}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setReviewing(false)}>
               {t('reviewBack')}
             </Button>
-            <Button disabled={!confirmed || outcome.kind === 'busy'} onClick={() => void send()}>
+            <Button tone="primary" disabled={!confirmed || outcome.kind === 'busy'} onClick={() => void send()}>
               {t('reviewSend')}
             </Button>
           </div>

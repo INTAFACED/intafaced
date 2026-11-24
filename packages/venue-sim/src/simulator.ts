@@ -64,6 +64,7 @@ import {
   type UserVenueLongShort,
   type UserVenueMarginTier,
   type UserVenueCollateral,
+  type UserVenuePriceBand,
   type UserVenueMarketMargin,
   type UserVenueMarketEvent,
   type UserVenueSettlement,
@@ -766,6 +767,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderNotional: Amount | null;
       minOrderNotional: Amount | null;
       priceBandBps: Amount | null;
+      /** TEST dynamic price range override (J-derivatives-02 #8): active width and reason while widened, null when usual. */
+      dynamicBand: { widthBps: Amount; reason: string } | null;
       maxOpenOrders: number | null;
     }
   >();
@@ -865,6 +868,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         maxOrderNotional: market.maxOrderNotional ?? null,
         minOrderNotional: market.minOrderNotional ?? null,
         priceBandBps: market.priceBandBps ?? null,
+        dynamicBand: null,
         maxOpenOrders: market.maxOpenOrders ?? null,
       });
       if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
@@ -898,6 +902,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderNotional: market.maxOrderNotional ?? null,
       minOrderNotional: market.minOrderNotional ?? null,
       priceBandBps: market.priceBandBps ?? null,
+      dynamicBand: null,
       maxOpenOrders: market.maxOpenOrders ?? null,
     });
     if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
@@ -1045,6 +1050,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (limits.minOrderNotional !== undefined) state.minOrderNotional = limits.minOrderNotional;
     if (limits.priceBandBps !== undefined) state.priceBandBps = limits.priceBandBps;
     if (limits.maxOpenOrders !== undefined) state.maxOpenOrders = limits.maxOpenOrders;
+  }
+
+  /**
+   * TEST control: widen a market's dynamic price range with the venue's reason (J-derivatives-02 #8), or pass `null` to
+   * return to its usual `priceBandBps`. Changes no resting order.
+   */
+  setDynamicPriceBand(symbol: string, band: { widthBps: Amount; reason: string } | null): void {
+    this.market(symbol);
+    if (band !== null && compare(band.widthBps, ZERO) <= 0)
+      refuse(this.venue.id, 'venue_rejected', 'dynamic price band width must be positive');
+    const state = this.marketState.get(symbol);
+    if (state) state.dynamicBand = band;
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
@@ -1409,7 +1426,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
       minOrderNotional: this.marketState.get(m.symbol)!.minOrderNotional,
-      priceBandBps: this.marketState.get(m.symbol)!.priceBandBps,
+      priceBandBps: this.marketState.get(m.symbol)?.dynamicBand?.widthBps ?? this.marketState.get(m.symbol)?.priceBandBps ?? null,
+      priceBand: this.priceBandOf(m),
       maxOpenOrders: this.marketState.get(m.symbol)!.maxOpenOrders,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
       listedBy: published(m.listedBy),
@@ -1673,12 +1691,42 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           marginMode: setting.marginMode,
         };
       }
+      let riskTier: NonNullable<VenueOrderPreview['perpetual']>['riskTier'] = null;
+      if (market.marginTiers?.length) {
+        const orderSide = intent.side === 'buy' ? 'long' : 'short';
+        const same = held && held.size !== ZERO && held.side === orderSide;
+        const current = same ? market.marginTiers.indexOf(tierOf(market.marginTiers, mul(held.size, held.entryPrice, 'ceil'))) + 1 : null;
+        if (intent.reduceOnly) {
+          const tier = market.marginTiers[(current ?? 1) - 1] ?? market.marginTiers[0];
+          if (tier) {
+            riskTier = {
+              current,
+              projected: current ?? 1,
+              maxLeverageBps: tier.maxLeverageBps,
+              maintenanceRate: tier.maintenanceRate,
+              confirmRequired: false,
+            };
+          }
+        } else {
+          const notional = mul(add(same ? held.size : ZERO, intent.amount), intent.price, 'ceil');
+          const tier = tierOf(market.marginTiers, notional);
+          const projected = market.marginTiers.indexOf(tier) + 1;
+          riskTier = {
+            current,
+            projected,
+            maxLeverageBps: tier.maxLeverageBps,
+            maintenanceRate: tier.maintenanceRate,
+            confirmRequired: projected > (current ?? 1),
+          };
+        }
+      }
       perpetual = {
         leverageBps: setting.leverageBps,
         marginMode: setting.marginMode,
         initialMargin: { known: true, value: initialMargin },
         // No position left after a full close: there is no liquidation price to publish.
         liquidationPrice: after ? this.liquidationPrice(market, after) : { known: false },
+        riskTier,
       };
     }
 
@@ -4437,6 +4485,32 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * book's reference price, as a venue values a market order; with no reference, at its bound. A trigger order's limit
    * price is checked against the band when it triggers, not when it is placed, so the band leaves it alone here.
    */
+  private priceBandOf(market: SimMarketConfig): MaybeKnown<UserVenuePriceBand> {
+    const own = this.marketState.get(market.symbol);
+    if (!own) return { known: false };
+    const widthBps = own.dynamicBand?.widthBps ?? own.priceBandBps;
+    if (widthBps === null) return { known: false };
+    let bid: Amount | null = null;
+    let ask: Amount | null = null;
+    for (const o of this.bookOf(market.symbol)) {
+      if (o.order.side === 'buy' && (bid === null || compare(o.order.price, bid) > 0)) bid = o.order.price;
+      if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
+    }
+    const bookMid = bid !== null && ask !== null ? div(add(bid, ask), parseAmount('2'), 'floor') : (bid ?? ask);
+    const bandReference = bookMid ?? (market.kind === 'perpetual' ? (this.marks.get(market.symbol) ?? null) : null);
+    if (bandReference === null) return { known: false };
+    const reach = div(mul(bandReference, widthBps, 'floor'), BPS, 'floor');
+    const bandLow = max(ZERO, sub(bandReference, reach));
+    const bandHigh = add(bandReference, reach);
+    const usualWidthBps = own.priceBandBps ?? widthBps;
+    const widened = own.dynamicBand !== null && compare(widthBps, usualWidthBps) > 0;
+    const reason = widened && own.dynamicBand ? own.dynamicBand.reason : null;
+    return {
+      known: true,
+      value: { widthBps, usualWidthBps, bandReference, bandLow, bandHigh, widened, reason },
+    };
+  }
+
   private checkPublishedRules(state: AccountState, market: SimMarketConfig, intent: PlaceUserOrderIntent): void {
     const own = this.marketState.get(market.symbol)!;
     const quote = market.quoteAsset;
@@ -4455,15 +4529,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         `the order's value is below the smallest order on ${market.symbol}, ${formatAmount(own.minOrderNotional)} ${quote}`,
       );
     }
-    if (own.priceBandBps !== null && intent.type === 'limit' && !intent.trigger && reference !== null) {
-      const reach = div(mul(reference, own.priceBandBps, 'floor'), BPS, 'floor');
-      const low = sub(reference, reach);
-      const high = add(reference, reach);
+    const effectiveBandBps = own.dynamicBand?.widthBps ?? own.priceBandBps;
+    const bandRef = reference ?? (market.kind === 'perpetual' ? (this.marks.get(market.symbol) ?? null) : null);
+    if (effectiveBandBps !== null && intent.type === 'limit' && !intent.trigger && bandRef !== null) {
+      const reach = div(mul(bandRef, effectiveBandBps, 'floor'), BPS, 'floor');
+      const low = max(ZERO, sub(bandRef, reach));
+      const high = add(bandRef, reach);
       if (compare(intent.price, low) < 0 || compare(intent.price, high) > 0) {
         refuse(
           this.venue.id,
           'price_outside_venue_band',
-          `${market.symbol} takes limit prices from ${formatAmount(low)} to ${formatAmount(high)} ${quote} right now (within ${formatAmount(own.priceBandBps)} bps of ${formatAmount(reference)})`,
+          `${market.symbol} takes limit prices from ${formatAmount(low)} to ${formatAmount(high)} ${quote} right now (within ${formatAmount(effectiveBandBps)} bps of ${formatAmount(bandRef)})`,
         );
       }
     }

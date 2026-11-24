@@ -176,6 +176,9 @@ const messages = {
   'OTC confirm': 'Convert at this price',
   'OTC expired': 'This price has expired. Ask again for a new one.',
   'OTC done': 'Converted and settled: {qty} {base} for {notional} {quote} at {price}.',
+  'OTC unconfirmed': 'Unconfirmed request',
+  'OTC unconfirmed locked': 'New requests stay locked until it is checked.',
+  'OTC check status': 'Check status',
   Questions: 'Questions',
   'Q price': 'How is the price set?',
   'A price':

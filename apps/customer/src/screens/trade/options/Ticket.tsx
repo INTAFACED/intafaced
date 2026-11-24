@@ -41,7 +41,17 @@ interface Review {
   preview: Preview;
 }
 
-export function Ticket({ market, policy, writer }: { market: ListedMarket | null; policy: Loadable<OptionsPolicy>; writer: RoomWriter }) {
+export function Ticket({
+  market,
+  hasContracts = true,
+  policy,
+  writer,
+}: {
+  market: ListedMarket | null;
+  hasContracts?: boolean;
+  policy: Loadable<OptionsPolicy>;
+  writer: RoomWriter;
+}) {
   const { t } = optionsCopy.useCopy();
   const now = useNow(30_000);
   const api = useDeskApi();
@@ -200,7 +210,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
           ]}
         />
       ) : (
-        <p className="lt-hint">{t('Pick a contract')}</p>
+        <p className="lt-hint">{hasContracts ? t('Pick a contract') : t('No contracts listed')}</p>
       )}
 
       <SegmentedControl
@@ -261,7 +271,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
 
       {block ? (
         <p role="status" className="m-0 text-sm text-warn">
-          {t(`Block ${block}`)}
+          {block === 'noContract' && !hasContracts ? t('No contracts listed') : t(`Block ${block}`)}
         </p>
       ) : null}
       {failure ? <Refusal words={failure} size="inline" /> : null}
