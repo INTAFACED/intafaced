@@ -978,12 +978,16 @@ export class UserVenueDoor {
    * A market order is bounded by the owner's price protection, here and not only in the browser: blank refuses
    * `trade.slippage_cap_unset`; no best price on the side it meets refuses `trade.no_reference_price` (never an
    * unbounded order); a worst price past the bound refuses `trade.venue.price_outside_protection`. A limit order is
-   * not touched. Spot only: a perpetual's market order carries the futures ticket's own typed worst price.
+   * not touched. On perpetuals, a blank slippage cap refuses market opens (`!reduceOnly`, J-derivatives-02 #5) while
+   * reduce-only closes always pass and, with a cap published, the futures ticket's typed worst price goes to the venue.
    */
   private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
     if (intent.type !== 'market') return;
     const market = await this.market(venue, intent.symbol);
-    if (market.kind !== 'spot') return;
+    if (market.kind !== 'spot') {
+      if (!intent.reduceOnly) requireMarketSlippageCapBps(this.deps.slippageCapBps);
+      return;
+    }
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
     const spreadLimit = requireMarketSpreadLimitBps(this.deps.spreadLimitBps);
     if (typeof intent.price !== 'bigint') invalid('a market order carries its worst price as a decimal string');

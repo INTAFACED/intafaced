@@ -51,9 +51,14 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
-  // UserVenueMarket's smallest order value and price band (J-cex-spot-04), null where the venue publishes none
+  // UserVenueMarket's smallest order value and price band (J-cex-spot-04, J-derivatives-02 #5 #8), null where the venue publishes none
   'minOrderNotional',
   'priceBandBps',
+  'widthBps',
+  'usualWidthBps',
+  'bandReference',
+  'bandLow',
+  'bandHigh',
   // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
   'capSize',
   // UserVenueMarketEvent (J-derivatives-27 #9 #10)
@@ -152,6 +157,7 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maxOrderNotional',
   'minOrderNotional',
   'priceBandBps',
+  'widthBps',
   'capSize',
   // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
   'premium',
