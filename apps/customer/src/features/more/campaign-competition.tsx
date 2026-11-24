@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { competitionBoardSchema, type CampaignView, type CompetitionBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { type CampaignView, type CompetitionBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_COMPETITION_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
-import { StatRow } from './depth-kit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { EmptyNote, FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
 import { campaignCompetitionCopy } from './campaign-competition-copy';
 
 /**
@@ -16,7 +17,7 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
   const api = useApi();
   const { t, renderedLocale } = campaignCompetitionCopy.useCopy();
   const board = useResource(
-    (signal) => api.query('campaigns', 'competition.board', { campaignId: campaign.id }, competitionBoardSchema, { signal }),
+    (signal) => api.call(CAMPAIGNS_COMPETITION_BOARD, { campaignId: campaign.id }, { signal }),
     `competition-${campaign.id}-${version}`,
   );
   const when = useMemo(() => {
@@ -33,24 +34,24 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
   }, [renderedLocale]);
   if (board.resource.status === 'loading') {
     return (
-      <Panel title={t('title')}>
-        <Loading label={t('loading')} />
-      </Panel>
+      <Section title={t('title')}>
+        <Waiting label={t('loading')} />
+      </Section>
     );
   }
   if (board.resource.status === 'failed') {
     return (
-      <Panel title={t('title')}>
-        <Failure result={board.resource.failure} retry={board.reload} />
-      </Panel>
+      <Section title={t('title')}>
+        <FailureNote result={board.resource.failure} retry={board.reload} />
+      </Section>
     );
   }
   const b: CompetitionBoard = board.resource.data;
   return (
     <div data-testid="competition" data-closed={String(b.closed)}>
-      <Panel title={t('title')}>
-        <StatRow
-          items={[
+      <Section title={t('title')}>
+        <KeyValue
+          rows={[
             {
               label: t('basis'),
               value: (
@@ -89,10 +90,10 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
             },
           ]}
         />
-        <p className="muted">{t('volumeNote')}</p>
-      </Panel>
-      <Panel title={t('prizesTitle')}>
-        <DataTable label={t('prizesLabel')} headers={[t('colPlace'), t('colPrize')]}>
+        <p className="lt-hint">{t('volumeNote')}</p>
+      </Section>
+      <Section title={t('prizesTitle')}>
+        <ScrollTable label={t('prizesLabel')} headers={[t('colPlace'), t('colPrize')]}>
           {b.prizes.map((p) => (
             <tr key={p.rank} data-testid="competition-prize" data-rank={p.rank}>
               <th scope="row">{t('placeValue', { rank: p.rank })}</th>
@@ -101,33 +102,33 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
               </td>
             </tr>
           ))}
-        </DataTable>
-      </Panel>
-      <Panel title={t('mineTitle')}>
+        </ScrollTable>
+      </Section>
+      <Section title={t('mineTitle')}>
         {b.mine ? (
           <p role="status" data-testid="competition-mine" data-rank={b.mine.rank} data-seat={b.mine.seat} data-volume={b.mine.volume}>
             {t('mineValue', { seat: b.mine.seat, rank: b.mine.rank, volume: b.mine.volume, asset: b.volumeAsset })}
           </p>
         ) : (
-          <p className="muted" data-testid="competition-mine-none">
+          <p className="lt-hint" data-testid="competition-mine-none">
             {t('mineNone')}
           </p>
         )}
         {b.unread ? (
-          <p role="status" className="muted" data-testid="competition-unread" data-code={b.unread}>
+          <p role="status" className="lt-hint" data-testid="competition-unread" data-code={b.unread}>
             {t('unread', { code: b.unread })}
           </p>
         ) : b.asOf ? (
-          <p className="muted" data-testid="competition-as-of">
+          <p className="lt-hint" data-testid="competition-as-of">
             {t('asOf', { when: when(b.asOf) })}
           </p>
         ) : null}
-      </Panel>
-      <Panel title={t('boardTitle')}>
+      </Section>
+      <Section title={t('boardTitle')}>
         {b.standings.length === 0 ? (
-          <EmptyState title={t('boardNone')} />
+          <EmptyNote title={t('boardNone')} />
         ) : (
-          <DataTable label={t('boardLabel')} headers={[t('colRank'), t('colEntrant'), t('colVolume'), t('colFills'), t('colQualifies')]}>
+          <ScrollTable label={t('boardLabel')} headers={[t('colRank'), t('colEntrant'), t('colVolume'), t('colFills'), t('colQualifies')]}>
             {b.standings.map((s) => (
               <tr
                 key={s.seat}
@@ -147,15 +148,15 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
                 <td>{s.qualifies ? t('yes') : t('no')}</td>
               </tr>
             ))}
-          </DataTable>
+          </ScrollTable>
         )}
-        <p className="muted">{t('boardOrder')}</p>
-      </Panel>
-      <Panel title={t('milestonesTitle')}>
+        <p className="lt-hint">{t('boardOrder')}</p>
+      </Section>
+      <Section title={t('milestonesTitle')}>
         {b.milestones.length === 0 ? (
-          <p className="muted">{t('milestonesNone')}</p>
+          <p className="lt-hint">{t('milestonesNone')}</p>
         ) : (
-          <DataTable label={t('milestonesLabel')} headers={[t('colTier'), t('colAt'), t('colPrize'), t('colState')]}>
+          <ScrollTable label={t('milestonesLabel')} headers={[t('colTier'), t('colAt'), t('colPrize'), t('colState')]}>
             {b.milestones.map((m) => (
               <tr
                 key={m.tier}
@@ -172,11 +173,11 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
                 <td data-testid="competition-milestone-state">{m.reached ? t('milestoneReached') : t('milestoneOpen')}</td>
               </tr>
             ))}
-          </DataTable>
+          </ScrollTable>
         )}
-        <p className="muted">{t('milestoneNote')}</p>
-      </Panel>
-      <Panel title={t('settlementTitle')}>
+        <p className="lt-hint">{t('milestoneNote')}</p>
+      </Section>
+      <Section title={t('settlementTitle')}>
         {b.settlement ? (
           <div data-testid="competition-settlement">
             <p data-testid="competition-settled">
@@ -188,9 +189,9 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
               })}
             </p>
             {b.settlement.winners.length === 0 ? (
-              <p className="muted">{t('noWinners')}</p>
+              <p className="lt-hint">{t('noWinners')}</p>
             ) : (
-              <DataTable label={t('winnersLabel')} headers={[t('colPlace'), t('colWinner'), t('colPrize')]}>
+              <ScrollTable label={t('winnersLabel')} headers={[t('colPlace'), t('colWinner'), t('colPrize')]}>
                 {b.settlement.winners.map((w) => (
                   <tr key={w.rank} data-testid="competition-winner" data-rank={w.rank} data-seat={w.seat} data-you={String(w.you)}>
                     <th scope="row">{t('placeValue', { rank: w.rank })}</th>
@@ -198,25 +199,25 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
                     <td lang="zxx">{t('prizeValue', { amount: w.amount, asset: b.prizeAsset })}</td>
                   </tr>
                 ))}
-              </DataTable>
+              </ScrollTable>
             )}
             {b.settlement.winners
               .filter((w) => w.you)
               .map((w) => (
                 <p key={w.rank} role="status" data-testid="competition-you-won">
                   {t('youWon', { rank: w.rank, amount: w.amount, asset: b.prizeAsset })}{' '}
-                  <a className="text-link" href="/uc/promotion">
+                  <a className="lt-link" href="/uc/promotion">
                     {t('seeRewards')}
                   </a>
                 </p>
               ))}
           </div>
         ) : (
-          <p className="muted" data-testid="competition-settlement-none">
+          <p className="lt-hint" data-testid="competition-settlement-none">
             {t('settlementNone')}
           </p>
         )}
-      </Panel>
+      </Section>
     </div>
   );
 }

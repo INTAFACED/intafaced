@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TRPCError, publicJurisdictionProcedure } from '@intafaced/contracts';
+import { TRPCError, publicJurisdictionProcedure } from '@intafaced/contracts/trpc';
 import { MoneyError, parseAmount } from '@intafaced/ledger-client/money';
 
 /**

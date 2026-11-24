@@ -35,7 +35,8 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   await page.goto('/pay/settings/notifications');
   const refused = refusedPayCalls(page);
 
-  const historyOf = (p) => p.locator('section').filter({ has: p.getByRole('heading', { name: 'Change history', level: 2 }) });
+  // The section the heading titles, its nearest one: the settings template wraps every section in a region section of its own.
+  const historyOf = (p) => p.getByRole('heading', { name: 'Change history', level: 2 }).locator('xpath=ancestor::section[1]');
   const history = historyOf(page);
   await expect(history).toContainText('No changes yet');
   const row = page.locator('li[data-testid="pp-pref"]').filter({ hasText: 'Export ready' });

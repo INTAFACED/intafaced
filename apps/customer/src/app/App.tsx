@@ -11,6 +11,9 @@ import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
+import { betaHides } from './beta-volt';
+import { BetaNotInVolt } from './BetaNotInVolt';
+import { useBetaAccess } from './BetaAccess';
 import { LegacyRoom, preloadAccountRoutes, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { preloadScreen, screens } from './screens';
@@ -32,6 +35,9 @@ const SharedResultRoute = lazy(() => import('../features/quant/SharedResultRoute
 const ProtocolRoutes = lazy(loadProtocol);
 const Web3Shell = lazy(loadWeb3Shell);
 const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
+// The Volt kit (intafaced issue 9302): every building block in the chosen look, for the owner's one approval. It opens only
+// at `/kit`, which no room or menu links to.
+const VoltKit = lazy(() => import('./kit/VoltKit'));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -95,8 +101,11 @@ export function App() {
   const search = current.slice(path.length);
   const room = findRoom(path);
   const { session, restoring, restoreFailed, retryRestore } = useSession();
+  // The beta's build reads what the account can use and draws the menus again when it changes (beta-volt.ts).
+  useBetaAccess();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
+  const voltKit = !room && path === '/kit';
   const hidden = hiddenFeatureFor(path, search);
   // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
   // build, so the Docker image opens exactly what `vite dev` opens.
@@ -117,15 +126,17 @@ export function App() {
     const coin = /^\/coin\/([A-Za-z0-9]+)\/?$/.exec(path)?.[1];
     const page = devFeatures
       ? 'Hidden features'
-      : pair
-        ? `${pair} · Spot`
-        : coin
-          ? t('{name} price', { name: coin.toUpperCase() })
-          : room
-            ? roomTitle(room, requestedLocale)
-            : t('Page not found');
+      : voltKit
+        ? 'Volt kit'
+        : pair
+          ? `${pair} · Spot`
+          : coin
+            ? t('{name} price', { name: coin.toUpperCase() })
+            : room
+              ? roomTitle(room, requestedLocale)
+              : t('Page not found');
     document.title = `${page} · INTAFACED`;
-  }, [path, room, requestedLocale, devFeatures]);
+  }, [path, room, requestedLocale, devFeatures, voltKit]);
   function followLink(event: MouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
@@ -178,6 +189,12 @@ export function App() {
         <DevFeatures />
       </Suspense>
     );
+  else if (voltKit)
+    body = (
+      <Suspense fallback={fallback}>
+        <VoltKit />
+      </Suspense>
+    );
   // The service did not answer: the cookie is untouched, so offer Retry instead of pretending the person is signed out.
   else if (needsSession && !session && restoreFailed)
     body = (
@@ -195,6 +212,7 @@ export function App() {
         </Page>
       </div>
     );
+  else if (betaHides(path)) body = <BetaNotInVolt />;
   else if (room?.screen) {
     const Screen = screens[room.screen];
     body = (
@@ -215,6 +233,16 @@ export function App() {
   // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
   const content = redirectTo ? null : restoring ? (
     fallback
+  ) : room?.area === 'public' && session && !room.publicFrame ? (
+    // A signed-in person reading help, status, notices, fees or the developer pages keeps the app header.
+    <Shell door={undefined} path={path}>
+      {ribbon}
+      <div className="legacy-room">
+        <Suspense fallback={fallback}>
+          <PublicRoutes path={path} SharedResult={SharedResultRoute} framed />
+        </Suspense>
+      </div>
+    </Shell>
   ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">
       {ribbon}
@@ -236,7 +264,7 @@ export function App() {
       <Web3Shell path={path}>
         <RoomBoundary key={path}>
           {ribbon}
-          <ProtocolRoutes path={path} />
+          {betaHides(path) ? <BetaNotInVolt /> : <ProtocolRoutes path={path} />}
         </RoomBoundary>
       </Web3Shell>
     </Suspense>

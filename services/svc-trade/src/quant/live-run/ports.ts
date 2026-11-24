@@ -1,9 +1,13 @@
-import { selfFreezeStateSchema, serviceCallSigner, unwrapTrpcData, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { selfFreezeStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
+import { QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 
 /**
  * What a live run asks of other services (services never read each other's tables):
  *
- *   · svc-quant, for the strategy version the run trades: `studio.get` as the person themselves, with the edge-signed
+ *   · svc-quant, for the strategy version the run trades: `studio.get` (its record, `QUANT_STUDIO_GET`) as the person themselves, with the edge-signed
  *     principal of their own request passed on byte for byte, so svc-quant answers only that person's strategy. Asked
  *     once, at the start; the run keeps the version's order blocks it read.
  *   · svc-identity, for the owner's own freeze (J-wallet-13): `GET /internal/self-freeze/:userId`, the read every service
@@ -33,10 +37,14 @@ export class StrategySourceUnavailable extends Error {}
 const FETCH_MS = 3_000;
 
 export function createQuantStrategySource(baseUrl: string, fetchFn: typeof globalThis.fetch = globalThis.fetch): StrategySource {
-  const base = baseUrl.replace(/\/+$/, '');
   return {
     async version(forwarded, strategyId, version) {
-      const target = `${base}/trpc/studio.get?input=${encodeURIComponent(JSON.stringify({ id: strategyId }))}`;
+      let target: string;
+      try {
+        target = trpcRecordRequest(QUANT_STUDIO_GET, baseUrl.replace(/\/+$/, ''), { id: strategyId }).url;
+      } catch {
+        throw new StrategySourceUnavailable('svc-quant cannot be asked for that strategy');
+      }
       let response: Response;
       try {
         response = await fetchFn(target, { method: 'GET', headers: forwarded, redirect: 'error', signal: AbortSignal.timeout(FETCH_MS) });
@@ -51,20 +59,17 @@ export function createQuantStrategySource(baseUrl: string, fetchFn: typeof globa
       }
       if (response.status === 404) return null;
       if (!response.ok) throw new StrategySourceUnavailable(`svc-quant refused the read (${response.status})`);
-      const head = unwrapTrpcData(body) as { versions?: unknown; liveApproval?: unknown } | null;
-      const versions = Array.isArray(head?.versions) ? (head.versions as Array<Record<string, unknown>>) : null;
-      if (!versions) throw new StrategySourceUnavailable('svc-quant answered outside its contract');
-      const v = versions.find((x) => x.version === version);
+      const head = trpcRecordReply(QUANT_STUDIO_GET, body);
+      if (!head) throw new StrategySourceUnavailable('svc-quant answered outside its contract');
+      const v = head.versions.find((x) => x.version === version);
       if (!v) return null;
-      const blocks = Array.isArray(v.blocks) ? (v.blocks as StrategyVersionRead['blocks']) : [];
-      const approval = head?.liveApproval as { required?: unknown; approvedVersions?: unknown } | undefined;
-      const approved = Array.isArray(approval?.approvedVersions) && approval.approvedVersions.includes(version);
+      const approved = head.liveApproval.approvedVersions.includes(version);
       return {
-        name: String(v.name ?? ''),
+        name: v.name,
         version,
-        blocks,
-        signalRules: v.modules !== null && v.modules !== undefined,
-        approvalRequired: approval?.required === true && !approved,
+        blocks: v.blocks,
+        signalRules: v.modules !== null,
+        approvalRequired: head.liveApproval.required && !approved,
       };
     },
   };

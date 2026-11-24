@@ -1,6 +1,6 @@
 // World: gates, restart
 import { test, expect } from './journey.mjs';
-import { restartWith as stackRestartWith, restartWithSetting as stackRestartWithSetting, tool } from './stack.mjs';
+import { restartService, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-01, in the running app (docs/roadmap/journeys.json): open the Web3 side, read the honest labels and
@@ -33,16 +33,14 @@ test.afterAll(() => {
 
 // A stack start refuses while the TEST chain's gate is shut, so each restart here opens it for the restart alone and shuts
 // it again before the step reads anything: svc-protocol still sees no node.
-function withGateOpenForRestart(restart) {
+async function restartWithGateOpen(service, settings) {
   tool('local-test-chain.mjs', 'gate', 'open');
   try {
-    restart();
+    await restartService(service, settings);
   } finally {
     tool('local-test-chain.mjs', 'gate', 'closed');
   }
 }
-const restartWith = (...args) => withGateOpenForRestart(() => stackRestartWith(...args));
-const restartWithSetting = (...args) => withGateOpenForRestart(() => stackRestartWithSetting(...args));
 
 const networkChip = (page) => page.locator('[data-chip="network"]');
 const walletChip = (page) => page.locator('[data-chip="wallet"]');
@@ -106,7 +104,7 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
   // The disabled Swap names its first blocker: its title is the chain-unreachable sentence, and the one notice beside it
   // (drawn only for the first blocker) is the crypto network notice.
   await expect(button).toHaveAttribute('title', /^The chain is unreachable/);
-  const firstReason = swap.locator(':scope > .protocol-actions__reason');
+  const firstReason = swap.locator(':scope > [role="note"]');
   await expect(firstReason).toHaveCount(1);
   await expect(firstReason).toHaveAttribute('data-not-connected', 'rail.crypto');
   // The notice's own words: what Swap needs, and that it is off here, with its code.
@@ -148,7 +146,7 @@ test(`${J} #4 Connect wallet lists the browser wallet by its own name; connectin
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await expect(page.locator('[data-wallet-network="ok"]')).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(walletChip(page)).toHaveText(`${TEST_WALLET.name} · ${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
-  expect((await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
+  await expect.poll(async () => (await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
 });
 
 test(`${J} #5 a wallet switched to Ethereum mainnet reads "Wrong network" with a switch request; switching back restores the label`, async ({
@@ -186,15 +184,20 @@ const ROUTER = { address: '0x8d28045bbe8a1aed986751257c5711524a7ec73f', version:
 
 /** Runs `body` while svc-protocol serves the TEST published network registry, then puts the owner's registry back. */
 async function withPublishedNetworks(body) {
-  restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_NETWORKS', 'published');
+  await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_NETWORKS: 'published' });
   try {
     await body();
   } finally {
-    restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_NETWORKS', null);
+    await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_NETWORKS: null });
   }
 }
 
-const networkCard = (page) => page.locator('main section').filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) });
+// The card itself, not the page's Details region that holds it: the innermost section with the heading.
+const networkCard = (page) =>
+  page
+    .locator('main section')
+    .filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) })
+    .filter({ hasNot: page.locator('section') });
 const fact = (page, label) =>
   networkCard(page)
     .locator('dl div')
@@ -203,6 +206,7 @@ const fact = (page, label) =>
 
 test(`${J} #6 the network card shows the name and chain id, "RPC: Not published" and Add to wallet disabled with its blocker; once published, Add to wallet adds exactly those values`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const wallet = await installTestWallet(page, { chainId: 84532 });
@@ -224,13 +228,19 @@ test(`${J} #6 the network card shows the name and chain id, "RPC: Not published"
     await expect(fact(page, 'Name')).toHaveText(PUBLISHED.chainName);
     await expect(fact(page, 'Chain id')).toHaveText('84532');
     await expect(fact(page, 'RPC address')).toHaveText(PUBLISHED.rpcUrls[0]);
-    await expect(fact(page, 'Native currency (decimals)')).toHaveText('ETH (18)');
+    await expect(fact(page, 'Native currency (decimals)')).toHaveText(
+      `${PUBLISHED.nativeCurrency.symbol} (${PUBLISHED.nativeCurrency.decimals})`,
+    );
+    await expect(fact(page, 'Explorer')).toHaveText(PUBLISHED.blockExplorerUrls[0]);
     const add = card.getByRole('button', { name: 'Add to wallet', exact: true });
     await expect(add).toBeEnabled();
     await expect(card).not.toContainText('protocol.network_params_unset');
     await add.click();
     await expect(card.getByRole('status')).toHaveText('The wallet accepted the network.');
     expect(wallet.added).toEqual([[PUBLISHED]]);
+    // The step ends here, on the published card the wallet accepted: its picture is taken before the owner's registry is
+    // put back, from the top of the page (step-picture.mjs).
+    await stepPicture(page);
   });
 });
 
@@ -308,8 +318,8 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
   test.setTimeout(480_000);
   // The blocked-region run: a visitor from the TEST region AA, which svc-protocol does not serve.
   const regionPage = await page.context().newPage();
-  restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
-  restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+  await restartWithGateOpen('protocol', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+  await restartWithGateOpen('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
   try {
     const blocked = await installTestWallet(regionPage, { chainId: 84532, tokens: [TEST_TOKEN] });
     await regionPage.goto('/wallet');
@@ -342,8 +352,8 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
     expect(blocked.requests).toHaveLength(0);
   } finally {
     await regionPage.close();
-    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
-    restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+    await restartWithGateOpen('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
+    await restartWithGateOpen('protocol', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
   }
 
   // The allowed-region run.
@@ -378,7 +388,7 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
   await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Cancel', exact: true }).click();
 
   // A new version asks again: the stack serves TEST-2, and the same wallet's next signing action needs it accepted first.
-  restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION', 'TEST-2');
+  await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION: 'TEST-2' });
   try {
     expect(await representationStatus(page, wallet.address)).toMatchObject({ version: 'TEST-2', accepted: false });
     await form.getByRole('button', { name: 'Review and sign', exact: true }).click();
@@ -393,7 +403,7 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
     expect(again).toMatchObject({ version: 'TEST-2', accepted: true });
     expect(Date.parse(again.acceptedAt)).toBeGreaterThan(Date.parse(status.acceptedAt));
   } finally {
-    restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION', null);
+    await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION: null });
   }
 });
 

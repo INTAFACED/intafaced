@@ -1,5 +1,13 @@
 import { t as copyText, Text } from './copy';
 import { ComplaintRoom } from './complaint/ComplaintRoom';
+import {
+  BusinessLoanPreviewRoom,
+  CreditCardPreviewRoom,
+  LoanSchedulePreviewRoom,
+  OverdraftPreviewRoom,
+  PersonalLoanPreviewRoom,
+  RevolvingCreditPreviewRoom,
+} from './credit-previews/CreditPreviewRooms';
 import { BereavementRoom } from './bereavement/BereavementRoom';
 import { ScamReportRoom } from './scam/ScamReportRoom';
 import { LostPhoneRoom } from './lost-phone/LostPhoneRoom';
@@ -9,19 +17,14 @@ import { BusinessPayoutsRoom, ContractorJoinRoom } from './business-payouts/Busi
 import { BusinessCardsRoom } from './business-cards/BusinessCardsRoom';
 import { BusinessBooksRoom } from './business-books/BusinessBooksRoom';
 import { CardOrderRoom } from './CardOrder';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { z } from 'zod';
-import { Button, EmptyState, Failure, Field, Page } from '../../shared/ui';
-import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { dec } from '../../data/decimal';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Button, EmptyState, Page } from '../../shared/ui';
+import { decimalSchema } from '../../shared/money';
 import { useSession } from '../session';
-import { usePreferences, savePreferences } from '../../shared/preferences';
-import { useResource } from '../../shared/resource';
-import { createMoneyClient, validateTransfer, type MoneyOverview, type Space } from './client';
+import { validateTransfer, type Space } from './client';
 import {
   amount,
   funds,
-  bps,
   endsField,
   scheduleCadenceField,
   Continuation,
@@ -33,109 +36,70 @@ import {
   Section,
   scheduleWindowIssue,
   startsField,
-  useBankRead,
+  useBankRecord,
   useSpaces,
   usePageLimit,
   type ActionSpec,
 } from './components';
-import { AutoInvestRules } from './repeat-buy';
-import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
-import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
-import type { ApiResult } from '../../shared/api';
-import { earnCopy } from './earn-copy';
-import { earnPoolCopy } from './earn-pool-copy';
-import { EarnCompare, poolHref } from './EarnCompare';
-import { EarnPool } from './EarnPool';
-import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote, readReleasable } from './LoanHealth';
-import { loanCopy, loanStatusLabel } from './loan-copy';
+import { EarnPoolRoom, EarnRoom } from './earn/EarnRooms';
+import { LoansRoom } from './loans/LoansRoom';
 import { MoneyActivity } from './activity';
 import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
 import { standingCopy } from './standing-copy';
 import { useBankView } from './bank-context';
-import { OwnerCards } from './Cards';
-import { OwnerRailRecords } from './RailRecords';
-import { railCopy } from './rail-copy';
-import { SelectedSpace } from './SelectedSpace';
-import { SpaceInflows } from './SpaceInflows';
-import { IncomeSorter } from './IncomeSorter';
-import { InstantSavings } from './InstantSavings';
-import { SharedPots } from './SharedPots';
-import { BillsPotActions } from './BillsPot';
-import { AccountHome } from './AccountHome';
+import { CardsRoom } from './cards-room/CardsRoom';
+import { BankOverview } from './bank-overview/BankOverviewRoom';
+import { SpacesRoom } from './spaces/SpacesRoom';
 import { AddMoney } from './AddMoney';
 import { WalletProvider } from '../protocol';
 import { addMoneyCopy } from './add-money-copy';
-import { LinkedAccounts } from './LinkedAccounts';
-import { DirectDebits } from './DirectDebits';
+import { LinkedAccountsRoom } from './linked-accounts/LinkedAccountsRoom';
+import { DirectDebitsRoom } from './direct-debits/DirectDebitsRoom';
 import { directDebitsCopy } from './direct-debits-copy';
 import { RecoveryClaim } from './RecoveryClaim';
 import { recoveryClaimCopy } from './recovery-claim-copy';
-import { MoneyCalendar } from './Calendar';
+import { CalendarRoom } from './calendar/Calendar';
 import { calendarCopy } from './calendar-copy';
-import { Rules } from './Rules';
+import { RulesRoom } from './rules-room/RulesRoom';
 import { rulesCopy } from './rules-copy';
-import { LoanDetail } from './LoanDetail';
+import { LoanDetailRoom } from './loan-detail/LoanDetailRoom';
 import { LoanApply } from './LoanApply';
 import { loanApplyCopy } from './loan-apply-copy';
-import { loanDetailCopy } from './loan-detail-copy';
-import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
 import { BankRailSend } from './BankRailSend';
 import { PlanRule, overBalanceProblem, usePlanTerms } from './PlanRule';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
-import { categoryLabel } from './analytics-copy';
-import { splitAnalytics } from './analytics-model';
-import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
-import { LimitsRoom, limitsCopy } from './LimitsRoom';
-import { BankAccountRoom, OnboardingBanner, bankAccountCopy } from './BankAccountRoom';
-import { GoalProgress, MovementBars } from './GoalAndMovement';
-import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
+import { AnalyticsRoom } from './analytics/AnalyticsRoom';
+import { LimitsPage } from './limits/LimitsRoom';
+import { BankAccountPage } from './bank-account/BankAccountRoom';
 import { RecipientPicker } from './RecipientPicker';
-import { BusinessBank } from './BusinessBank';
-import { businessCopy } from './business-copy';
-import { RampJourneys } from './RampJourneys';
-import { rampDepthCopy } from './ramp-depth-copy';
-import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
+import { BusinessBankRoom } from './business-bank/BusinessBankRoom';
+import { RampsRoom } from './ramps/RampsRoom';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
-import { assetSelectField, spaceTotals, useHoldings } from './holdings';
+import { assetSelectField } from './holdings';
 import { StatementCentre } from './StatementCentre';
 import { SalaryRoom } from './Salary';
 import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
+import { bankLabels } from './bank-frame/bank-rooms';
+import { BankTabs } from './bank-frame/BankFrame';
+import {
+  BANK_TRANSFERS_CANCEL,
+  BANK_TRANSFERS_LIST_SCHEDULES,
+  BANK_TRANSFERS_TO_USER,
+  BANK_TRANSFERS_RESUME,
+  BANK_TRANSFERS_PAUSE,
+} from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
+import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
+import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
 
-const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
-const bankLabels = {
-  Overview: 'nav.overview',
-  Spaces: 'nav.spaces',
-  Transfers: 'nav.transfers',
-  Earn: 'nav.earn',
-  Loans: 'nav.loans',
-  Cards: 'nav.cards',
-  Ramps: 'nav.ramps',
-  Analytics: 'nav.analytics',
-  Business: 'nav.business',
-} as const;
-export function BankNavigation({ current }: { current: string }) {
-  return (
-    <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
-      {bankRooms.map((room) => (
-        <a
-          key={room}
-          href={room === 'Overview' ? '/bank' : `/bank/${room.toLowerCase()}`}
-          aria-current={current === room ? 'page' : undefined}
-        >
-          <Text k={bankLabels[room]} />
-        </a>
-      ))}
-    </nav>
-  );
-}
 function BankPage({
   room,
   title,
@@ -154,13 +118,13 @@ function BankPage({
       description={description}
       actions={
         room !== 'Ramps' ? (
-          <a className="button button--secondary" href="/bank">
+          <a className="lt-button lt-button-secondary" href="/bank">
             <Text k="rooms.bank.overview" />
           </a>
         ) : undefined
       }
     >
-      <BankNavigation current={room} />
+      <BankTabs where={false} />
       {children}
     </Page>
   );
@@ -175,202 +139,49 @@ function spaceName(space: Space) {
     value4: space.lockedUntil && Date.parse(space.lockedUntil) > Date.now() ? copyText('rooms.locked.suffix') : '',
   });
 }
-function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) => void }) {
-  return (
-    <div className="actions">
-      <a className="button button--secondary" href={`/bank/transfers?from=${encodeURIComponent(space.id)}`}>
-        <Text k="rooms.transfer" />
-      </a>
-      <SpaceLockActions space={space} open={open} />
-      <BillsPotActions space={space} open={open} />
-      {space.kind === 'named' && (
-        <Button
-          variant="ghost"
-          onClick={() =>
-            open({
-              title: copyText('rooms.archive.space'),
-              procedure: 'spaces.archive',
-              facts: [
-                [copyText('rooms.space'), space.name],
-                [copyText('rooms.available.quantity'), amount(space.balance, space.assetId)],
-              ],
-              notes: [
-                copyText('rooms.archiving.removes.the.label.from.active.lists'),
-                copyText('rooms.archived.named.space.funds.are.not.included'),
-              ],
-              input: () => ({ spaceId: space.id }),
-              submit: copyText('rooms.archive.label'),
-            })
-          }
-        >
-          <Text k="rooms.archive.label" />
-        </Button>
-      )}
-    </div>
-  );
+/** The review a named space's archive opens (`/bank/spaces`, spaces/SpacesRoom.tsx). */
+export function archiveSpaceSpec(space: Space): ActionSpec {
+  return {
+    title: copyText('rooms.archive.space'),
+    record: BANK_SPACES_ARCHIVE,
+    facts: [
+      [copyText('rooms.space'), space.name],
+      [copyText('rooms.available.quantity'), amount(space.balance, space.assetId)],
+    ],
+    notes: [copyText('rooms.archiving.removes.the.label.from.active.lists'), copyText('rooms.archived.named.space.funds.are.not.included')],
+    input: () => ({ spaceId: space.id }),
+    submit: copyText('rooms.archive.label'),
+  };
 }
-function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: string }) {
-  const { userId } = useSession();
-  const context = spaceContext(search, 'space');
-  const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
-  const spaces = useSpaces(limit);
-  const unnamed = useBankRead('spaces.unnamed', undefined);
-  const held = useHoldings();
-  const heldAssets = held.resource.status === 'ready' ? held.resource.data.assets : [];
-  const depthCopy = transferDepthCopy.useCopy();
-  const create = () =>
-    open({
-      title: copyText('rooms.create.space'),
-      procedure: 'spaces.create',
-      fields: [
-        assetSelectField(depthCopy.t('assetPicker'), depthCopy.t('assetPickerHint'), heldAssets),
-        {
-          name: 'name',
-          label: copyText('rooms.space.name'),
-          validate: (value) => (value.length <= 64 ? null : copyText('rooms.use.64.characters.or.fewer')),
-        },
-        {
-          name: 'goalTarget',
-          label: copyText('rooms.savings.target.asset.units'),
-          optional: true,
-          hint: copyText('rooms.a.target.is.not.a.balance'),
-          validate: moneyValue,
-        },
-        { ...startsField, name: 'lockedUntil', label: copyText('rooms.lock.until.optional'), optional: true },
-      ],
-      notes: [copyText('rooms.a.named.space.is.a.ledger.subaccount'), copyText('rooms.a.future.lock.prevents.bank.debits.from')],
-      input: (values) => ({
-        assetId: values.assetId,
-        name: values.name,
-        ...(values.goalTarget ? { goalTarget: values.goalTarget } : {}),
-        ...(values.lockedUntil ? { lockedUntil: iso(values.lockedUntil) } : {}),
-      }),
-    });
-  return (
-    <BankPage room="Spaces" description={copyText('rooms.give.an.asset.a.purpose.inside.the')}>
-      <SelectedSpace
-        context={context}
-        resource={spaces.resource}
-        owner={userId ?? ''}
-        reload={spaces.reload}
-        actions={(space) => <SpaceActions space={space} open={open} />}
-        below={(space, all) => space.kind === 'named' && <SpaceInflows key={space.id} space={space} spaces={all} open={open} />}
-      />
-      <Section
-        title={context.status === 'none' ? copyText('rooms.your.spaces') : <spaceCopy.Copy k="other" />}
-        actions={
-          <>
-            <Button variant="ghost" onClick={spaces.reload}>
-              <Text k="rooms.refresh" />
-            </Button>
-            <Button
-              onClick={create}
-              disabled={heldAssets.length === 0}
-              aria-describedby={heldAssets.length === 0 ? 'spaces-create-why' : undefined}
-            >
-              <Text k="rooms.create.space" />
-            </Button>
-          </>
-        }
-      >
-        {heldAssets.length === 0 && held.resource.status === 'ready' && (
-          <p id="spaces-create-why" className="money-caption">
-            {depthCopy.t('noAssets')}
-          </p>
-        )}
-        {(context.status === 'none' || spaces.resource.status === 'ready') && (
-          <ResourceView resource={spaces.resource} reload={spaces.reload}>
-            {(returned) => {
-              const rows = context.status === 'valid' ? returned.filter((row) => row.id !== context.id) : returned;
-              return (
-                <>
-                  {rows.length ? (
-                    rows.map((space) => (
-                      <article className="money-record" key={space.id}>
-                        <header>
-                          <div>
-                            <h3>{space.name}</h3>
-                            <p>
-                              {space.assetId} ·{' '}
-                              {space.kind === 'primary'
-                                ? copyText('rooms.primary.included.in.your.user.ledger.projection')
-                                : copyText('rooms.named.ledger.subaccount')}
-                            </p>
-                          </div>
-                          <strong className="numeric">{funds(space.balance, space.assetId)}</strong>
-                        </header>
-                        <dl className="detail-list">
-                          <div>
-                            <dt>
-                              <Text k="rooms.target" />
-                            </dt>
-                            <dd>{space.goalTarget === null ? <spaceCopy.Copy k="noGoal" /> : funds(space.goalTarget, space.assetId)}</dd>
-                          </div>
-                          <div>
-                            <dt>
-                              <Text k="rooms.bank.lock" />
-                            </dt>
-                            <dd>{date(space.lockedUntil)}</dd>
-                          </div>
-                          <EarlyUnlock space={space} />
-                          <div>
-                            <dt>
-                              <Text k="rooms.space.reference" />
-                            </dt>
-                            <dd>
-                              <details>
-                                <summary>{spaceCopy.t('details')}</summary>
-                                <span lang="zxx">{space.id}</span>
-                              </details>
-                            </dd>
-                          </div>
-                        </dl>
-                        <GoalProgress balance={space.balance} target={space.goalTarget} assetId={space.assetId} />
-                        <SpaceActions space={space} open={open} />
-                      </article>
-                    ))
-                  ) : context.status === 'none' ? (
-                    <NoRows title={copyText('rooms.no.spaces.returned')}>
-                      <Text k="rooms.create.a.named.space.its.balance.will" />
-                    </NoRows>
-                  ) : (
-                    <p className="money-caption">
-                      <spaceCopy.Copy k="noOther" />
-                    </p>
-                  )}
-                  <Continuation count={returned.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-                </>
-              );
-            }}
-          </ResourceView>
-        )}
-      </Section>
-      {spaces.resource.status === 'ready' && <IncomeSorter spaces={spaces.resource.data} open={open} />}
-      <InstantSavings open={open} />
-      {spaces.resource.status === 'ready' && <SharedPots spaces={spaces.resource.data} open={open} />}
-      <Section
-        title={copyText('rooms.assets.without.a.space')}
-        description={copyText('rooms.positive.user.available.accounts.only.these.quantities')}
-      >
-        <ResourceView resource={unnamed.resource} reload={unnamed.reload}>
-          {(rows) =>
-            rows.length ? (
-              rows.map((row) => (
-                <div data-testid="money-space-row" className="money-space-row" key={row.assetId}>
-                  <strong>{row.assetId}</strong>
-                  <span className="numeric">{funds(row.balance, row.assetId)}</span>
-                </div>
-              ))
-            ) : (
-              <NoRows title={copyText('rooms.no.unnamed.positive.quantities.returned')}>
-                <Text k="rooms.this.does.not.establish.that.all.balances" />
-              </NoRows>
-            )
-          }
-        </ResourceView>
-      </Section>
-    </BankPage>
-  );
+/** The review Create space opens (`/bank/spaces`, spaces/SpacesRoom.tsx), with the asset picker of what the person holds. */
+export function createSpaceSpec(assetField: ReturnType<typeof assetSelectField>): ActionSpec {
+  return {
+    title: copyText('rooms.create.space'),
+    record: BANK_SPACES_CREATE,
+    fields: [
+      assetField,
+      {
+        name: 'name',
+        label: copyText('rooms.space.name'),
+        validate: (value) => (value.length <= 64 ? null : copyText('rooms.use.64.characters.or.fewer')),
+      },
+      {
+        name: 'goalTarget',
+        label: copyText('rooms.savings.target.asset.units'),
+        optional: true,
+        hint: copyText('rooms.a.target.is.not.a.balance'),
+        validate: moneyValue,
+      },
+      { ...startsField, name: 'lockedUntil', label: copyText('rooms.lock.until.optional'), optional: true },
+    ],
+    notes: [copyText('rooms.a.named.space.is.a.ledger.subaccount'), copyText('rooms.a.future.lock.prevents.bank.debits.from')],
+    input: (values) => ({
+      assetId: values.assetId,
+      name: values.name,
+      ...(values.goalTarget ? { goalTarget: values.goalTarget } : {}),
+      ...(values.lockedUntil ? { lockedUntil: iso(values.lockedUntil) } : {}),
+    }),
+  };
 }
 /** An ISO instant as the local `datetime-local` value the form shows. */
 function localInput(at: string): string {
@@ -392,7 +203,7 @@ function ScheduleActions({
     if (!disabled && current()) open(spec);
   };
   return (
-    <div className="actions">
+    <div className="lt-actions">
       {' '}
       {row.status !== 'cancelled' && (
         <>
@@ -403,7 +214,7 @@ function ScheduleActions({
               onClick={() =>
                 protectedOpen({
                   title: copyText('rooms.edit.standing.order'),
-                  procedure: 'transfers.updateSchedule',
+                  record: BANK_TRANSFERS_UPDATE_SCHEDULE,
                   fields: [positiveMoney(row.assetId), ...(row.cadence === 'once' ? [] : [endsField])],
                   initial: { amount: row.amount, ...(row.endsAt ? { endsAt: localInput(row.endsAt) } : {}) },
                   formFacts: [[copyText('rooms.revision'), String(row.revision)]],
@@ -440,7 +251,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
-                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
+                record: row.status === 'paused' ? BANK_TRANSFERS_RESUME : BANK_TRANSFERS_PAUSE,
                 facts: [
                   [copyText('rooms.schedule'), row.id],
                   [copyText('rooms.amount'), amount(row.amount, row.assetId)],
@@ -462,7 +273,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: copyText('rooms.cancel.standing.order'),
-                procedure: 'transfers.cancel',
+                record: BANK_TRANSFERS_CANCEL,
                 notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
                 facts: [[copyText('rooms.schedule'), row.id]],
                 input: () => ({ scheduleId: row.id }),
@@ -484,7 +295,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   const serial = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLSpanElement>(null);
-  const query = useBankRead('transfers.listSchedules', { limit });
+  const query = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit });
   const rows = query.resource.status === 'ready' ? query.resource.data : [];
   const instruction = selected ? currentInstruction(rows, selected.id) : undefined;
   const other = instruction ? rows.filter((row) => row.id !== instruction.id) : rows;
@@ -571,8 +382,8 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                         <h3 lang="und" dir="auto">
                           {row.cadence} · {row.status}
                         </h3>
-                        <p className="money-standing-row-reference">
-                          <span className="money-visually-hidden">
+                        <p className="lt-wrap">
+                          <span className="lt-sr">
                             <Copy k="reference" />
                           </span>
                           <bdi lang="zxx" dir="ltr">
@@ -586,11 +397,11 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                           </span>
                         </p>
                       </div>
-                      <strong className="numeric" lang="zxx" dir="ltr">
+                      <strong className="lt-num" lang="zxx" dir="ltr">
                         {funds(row.amount, row.assetId)}
                       </strong>
                     </header>
-                    <div className="actions">
+                    <div className="lt-actions">
                       <Button
                         variant="secondary"
                         aria-label={t('inspect', { reference: row.id })}
@@ -626,7 +437,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                   if (current()) setLimit(Math.min(200, limit + 50));
                 }}
               />
-              <p className="money-caption">
+              <p className="lt-muted">
                 <Copy k="listWindow" />
               </p>
             </>
@@ -664,9 +475,11 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
-      <DirectDebitsLink />
-      <CalendarLink />
-      <RulesLink />
+      <div className="lt-stack money-transfer-links">
+        <DirectDebitsLink />
+        <CalendarLink />
+        <RulesLink />
+      </div>
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {
@@ -674,12 +487,12 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
             return spaces.length ? (
               <>
                 {context.status === 'invalid' && !fromId && (
-                  <p className="money-caption">
+                  <p className="lt-muted">
                     <spaceCopy.Copy k="fromInvalid" />
                   </p>
                 )}
                 <div className="money-transfer-setup">
-                  <label className="field">
+                  <label className="lt-field">
                     <span id="bank-transfer-source-label">
                       <Text k="rooms.from.your.space" />
                     </span>
@@ -700,7 +513,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ))}
                     </select>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>
                       <Text k="rooms.destination" />
                     </span>
@@ -712,15 +525,15 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                   {destination === 'user' && (
                     <>
                       <RecipientPicker value={recipient} onChange={setRecipient} />
-                      <p className="money-caption">{depth.t('personNote')}</p>
+                      <p className="lt-muted">{depth.t('personNote')}</p>
                     </>
                   )}
                   {destination === 'space' && (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       {from && ownSpaces(spaces, from, userId ?? '').length === 0 ? depth.t('noOtherSpace') : depth.t('spaceNote')}
                     </p>
                   )}
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('noteField')}</span>
                     <input
                       name="note"
@@ -735,7 +548,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       {scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
                     </small>
                   </label>
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{depth.t('referenceField')}</span>
                     <input
                       name="reference"
@@ -768,13 +581,13 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       if (destination === 'user' && !recipient) return;
                       open({
                         title: scheduled ? copyText('rooms.schedule.transfer') : copyText('rooms.transfer'),
-                        procedure: scheduled
+                        ...(scheduled
                           ? destination === 'space'
-                            ? 'transfers.schedule'
-                            : 'transfers.scheduleToUser'
+                            ? { record: BANK_TRANSFERS_SCHEDULE }
+                            : { procedure: 'transfers.scheduleToUser' as const }
                           : destination === 'space'
-                            ? 'transfers.create'
-                            : 'transfers.toUser',
+                            ? { procedure: 'transfers.create' as const }
+                            : { record: BANK_TRANSFERS_TO_USER }),
                         initial: { fromSpaceId: from.id },
                         fields: [
                           ...(destination === 'space'
@@ -876,654 +689,6 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
     </BankPage>
   );
 }
-function Earn({ open }: { open: (spec: ActionSpec) => void }) {
-  const { api } = useSession();
-  const [limit, setLimit] = usePageLimit();
-  const fail = (subject: string): ApiResult<null> => ({
-    ok: false,
-    reason: 'error',
-    code: 'money.review_read_unavailable',
-    message: earnCopy.t('readFailed', { subject }),
-  });
-  const changed = (): ApiResult<null> => ({ ok: false, reason: 'error', code: 'money.review_changed', message: earnCopy.t('changed') });
-  const validMaturity = (at: string) => z.string().datetime({ offset: true }).safeParse(at).success;
-  const maturityAllowsReview = (at: string | null) => at === null || (validMaturity(at) && Date.parse(at) <= Date.now());
-  async function checkPool(pool: z.infer<typeof poolSchema>, automation = false): Promise<ApiResult<null>> {
-    const fresh = await api.query('bank', 'earn.pools', { limit }, bankReads['earn.pools']);
-    if (!fresh.ok) return fail(earnCopy.t('subjectPool'));
-    const current = fresh.data.find((row) => row.id === pool.id);
-    if (!current || JSON.stringify(current) !== JSON.stringify(pool)) return changed();
-    if (automation) {
-      const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
-      if (!policy.ok) return fail(earnCopy.t('subjectPolicy'));
-      if (!policy.data.enabled) return changed();
-    }
-    return { ok: true, data: null };
-  }
-  async function checkPosition(position: z.infer<typeof positionSchema>): Promise<ApiResult<null>> {
-    const fresh = await api.query('bank', 'earn.positions', { limit }, bankReads['earn.positions']);
-    if (!fresh.ok) return fail(earnCopy.t('subjectPosition'));
-    const current = fresh.data.find((row) => row.id === position.id);
-    if (!current || JSON.stringify(current) !== JSON.stringify(position) || !maturityAllowsReview(current.maturesAt)) return changed();
-    return { ok: true, data: null };
-  }
-  const pools = useBankRead('earn.pools', { limit });
-  const positions = useBankRead('earn.positions', { limit });
-  const held = useHoldings();
-  const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
-  const automation = useBankRead('autoInvest.policy', undefined);
-  return (
-    <BankPage room="Earn" description={earnCopy.t('description')}>
-      {pools.resource.status === 'ready' && <EarnCompare pools={pools.resource.data} />}
-      <div className="money-earn-lanes">
-        <Section
-          title={copyText('rooms.your.positions')}
-          actions={
-            <Button variant="ghost" onClick={positions.reload}>
-              {earnCopy.t('refresh')}
-            </Button>
-          }
-        >
-          <ResourceView resource={positions.resource} reload={positions.reload}>
-            {(rows) => (
-              <>
-                {rows.length ? (
-                  rows.map((position) => (
-                    <article className="money-record" key={position.id}>
-                      <header>
-                        <div>
-                          <h3>
-                            {position.assetId}
-                            <Text k="rooms.earn.position" />
-                          </h3>
-                          <p>
-                            {position.maturesAt === null ? (
-                              earnCopy.t('noFixed')
-                            ) : (
-                              <>
-                                <Text k="rooms.matures" />
-                                {validMaturity(position.maturesAt) ? date(position.maturesAt) : copyText('components.date.unavailable')}
-                              </>
-                            )}
-                          </p>
-                        </div>
-                        <strong className="numeric">
-                          {funds(position.principal, position.assetId)}
-                          <Text k="rooms.principal" />
-                        </strong>
-                      </header>
-                      <p className="money-caption">
-                        {earnCopy.t('position')} · {position.id}
-                      </p>
-                      {/* A staking-style saving waits through unbonding, which its pool's own page shows and starts (BK-earn-04). */}
-                      {position.unbondsAt !== null || position.unbondingDays !== null ? (
-                        <p className="money-caption" data-testid="earn-position-staking">
-                          {position.unbondsAt !== null && position.staking === 'unbonding'
-                            ? earnCopy.t('unbondingOnPool', { date: date(position.unbondsAt) })
-                            : position.staking === 'unbonded'
-                              ? earnCopy.t('unbondedOnPool')
-                              : earnCopy.t('stakingOnPool')}{' '}
-                          <a className="text-link" href={poolHref(position.poolId)}>
-                            {earnCopy.t('openPool')}
-                          </a>
-                        </p>
-                      ) : maturityAllowsReview(position.maturesAt) ? (
-                        <Button
-                          variant="secondary"
-                          onClick={() =>
-                            open({
-                              title: copyText('rooms.withdraw.earn.principal'),
-                              unit: position.assetId,
-                              procedure: 'earn.withdraw',
-
-                              preflight: () => checkPosition(position),
-                              verifyOutcome: (data) => {
-                                const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
-                                return (
-                                  returned.positionId === position.id &&
-                                  returned.status === 'closed' &&
-                                  parseAmount(returned.principal) === parseAmount(position.principal)
-                                );
-                              },
-                              facts: [
-                                [copyText('rooms.position'), position.id],
-                                [copyText('rooms.principal.2'), amount(position.principal, position.assetId)],
-                                [copyText('rooms.matures.2'), date(position.maturesAt)],
-                              ],
-                              notes: [copyText('rooms.the.service.checks.maturity.and.reconciles.ledger'), earnCopy.t('withdrawalOutcome')],
-                              input: () => ({ positionId: position.id }),
-                            })
-                          }
-                        >
-                          <Text k="rooms.review.withdrawal" />
-                        </Button>
-                      ) : (
-                        <p className="money-earn-lock">{earnCopy.t(validMaturity(position.maturesAt!) ? 'locked' : 'maturityMissing')}</p>
-                      )}
-                    </article>
-                  ))
-                ) : (
-                  <NoRows title={copyText('rooms.no.active.earn.positions.returned')}>
-                    <Text k="rooms.a.position.appears.only.after.the.service" />
-                  </NoRows>
-                )}
-                <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-              </>
-            )}
-          </ResourceView>
-        </Section>
-        <Section
-          title={copyText('rooms.available.pools')}
-          actions={
-            <Button
-              variant="ghost"
-              onClick={() => {
-                pools.reload();
-                automation.reload();
-              }}
-            >
-              {earnCopy.t('refresh')}
-            </Button>
-          }
-        >
-          <ResourceView resource={automation.resource} reload={automation.reload}>
-            {(policy) => !policy.enabled && <p className="notice">{earnCopy.t('automationDisabled')}</p>}
-          </ResourceView>
-          <ResourceView resource={pools.resource} reload={pools.reload}>
-            {(rows) => (
-              <>
-                {rows.length ? (
-                  rows.map((pool) => (
-                    <article className="money-record" key={pool.id}>
-                      <header>
-                        <div>
-                          <h3>{pool.name}</h3>
-                          <p>
-                            {pool.assetId} · {pool.kind} ·{' '}
-                            {pool.termDays === null ? copyText('rooms.flexible.term') : copyText('rooms.days', { value1: pool.termDays })}
-                          </p>
-                        </div>
-                        <strong>
-                          {bps(pool.aprBps)}
-                          <Text k="rooms.apr" />
-                        </strong>
-                      </header>
-                      <p className="money-caption">
-                        <Text k="rooms.minimum.deposit" />
-                        {funds(pool.minDeposit, pool.assetId)}
-                        <Text k="rooms.apr.is.the.configured.simple.annual.rate" />
-                      </p>
-                      <p className="money-caption">
-                        <a className="text-link" href={poolHref(pool.id)} data-testid="earn-pool-link" data-pool={pool.id}>
-                          {earnPoolCopy.t('details')}
-                        </a>
-                      </p>
-                      <div className="actions">
-                        <Button
-                          onClick={() =>
-                            open({
-                              title: copyText('rooms.deposit.into.earn'),
-                              procedure: 'earn.deposit',
-
-                              preflight: () => checkPool(pool),
-                              verifyOutcome: (data, input) => {
-                                const returned = data as z.infer<(typeof bankWrites)['earn.deposit']>;
-                                const fixed = pool.kind === 'fixed' && pool.termDays !== null;
-                                return (
-                                  returned.positionId === input.positionId &&
-                                  (fixed
-                                    ? z.string().datetime({ offset: true }).safeParse(returned.maturesAt).success
-                                    : returned.maturesAt === null)
-                                );
-                              },
-                              fields: [positiveMoney(pool.assetId)],
-                              formFacts: earnFormFacts(pool, availableRow(pool.assetId, heldRows, funds), new Date(), bps),
-                              liveRows: (values) => earnLiveRows(pool, values, funds),
-                              facts: [
-                                [copyText('rooms.pool'), pool.name],
-                                [copyText('rooms.apr.2'), bps(pool.aprBps)],
-                                [
-                                  copyText('rooms.term'),
-                                  pool.termDays === null
-                                    ? copyText('rooms.flexible.term')
-                                    : copyText('rooms.days', { value1: pool.termDays }),
-                                ],
-                                [copyText('rooms.minimum'), amount(pool.minDeposit, pool.assetId)],
-                              ],
-                              notes: [
-                                copyText('rooms.principal.moves.from.your.user.available.account'),
-                                copyText('rooms.the.service.verifies.the.pool.is.open'),
-                              ],
-                              validate: (input) =>
-                                parseAmount(String(input.amount)) >= parseAmount(pool.minDeposit)
-                                  ? null
-                                  : copyText('rooms.the.amount.is.below.the.configured.minimum'),
-                              input: (values, requestId) => ({ poolId: pool.id, positionId: requestId, amount: values.amount }),
-                            })
-                          }
-                        >
-                          <Text k="rooms.deposit" />
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          disabled={automation.resource.status !== 'ready' || !automation.resource.data.enabled}
-                          onClick={() =>
-                            open({
-                              title: copyText('rooms.create.threshold.sweep'),
-                              procedure: 'autoInvest.createThresholdSweep',
-                              unit: pool.assetId,
-                              preflight: () => checkPool(pool, true),
-                              fields: [
-                                {
-                                  ...positiveMoney(pool.assetId, 'threshold', earnCopy.t('keepAvailable')),
-                                  hint: earnCopy.t('thresholdHint'),
-                                },
-                              ],
-                              facts: [
-                                [copyText('rooms.pool'), pool.name],
-                                [copyText('rooms.asset'), pool.assetId],
-                              ],
-                              notes: [
-                                copyText('rooms.keep.this.exact.quantity.in.the.primary'),
-                                copyText('rooms.no.cross.asset.rate.is.assumed.the'),
-                              ],
-                              input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, threshold: values.threshold }),
-                            })
-                          }
-                        >
-                          <Text k="rooms.threshold.sweep" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          disabled={automation.resource.status !== 'ready' || !automation.resource.data.enabled}
-                          onClick={() =>
-                            open({
-                              title: copyText('rooms.create.card.round.up'),
-                              procedure: 'autoInvest.createRoundUp',
-                              unit: pool.assetId,
-                              preflight: () => checkPool(pool, true),
-                              fields: [positiveMoney(pool.assetId, 'granularity', copyText('rooms.round.up.increment'))],
-                              facts: [
-                                [copyText('rooms.pool'), pool.name],
-                                [copyText('rooms.asset'), pool.assetId],
-                              ],
-                              notes: [
-                                copyText('rooms.same.asset.spare.change.goes.to.this'),
-                                copyText('rooms.this.instruction.does.not.connect.an.issuer'),
-                              ],
-                              input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, granularity: values.granularity }),
-                            })
-                          }
-                        >
-                          <Text k="rooms.card.round.up" />
-                        </Button>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <NoRows title={copyText('rooms.no.configured.pools.returned')}>
-                    <Text k="rooms.earn.requires.a.published.rate.and.open" />
-                  </NoRows>
-                )}
-                <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-              </>
-            )}
-          </ResourceView>
-        </Section>
-      </div>
-      <p className="muted money-caption">{earnCopy.t('unavailableHistory')}</p>
-      <AutoInvestRules open={open} />
-    </BankPage>
-  );
-}
-function Loans({ open }: { open: (spec: ActionSpec) => void }) {
-  const { api } = useSession();
-  const [limit, setLimit] = usePageLimit();
-  const products = useBankRead('loans.products', { limit });
-  const loans = useBankRead('loans.list', { limit });
-  const health = useBankRead('loans.health', undefined);
-  const held = useHoldings();
-  const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
-  return (
-    <BankPage room="Loans" description={copyText('rooms.configured.borrowing.terms.ledger.collateral.and.authoritative')}>
-      <Section title={copyText('rooms.loan.health')}>
-        <ResourceView resource={health.resource} reload={health.reload}>
-          {(risk) => (
-            <>
-              <div className="money-risk">
-                <strong>
-                  {risk.portfolioLtvBps === Number.MAX_SAFE_INTEGER ? loanCopy.t('portfolioRange') : bps(risk.portfolioLtvBps)}
-                  <Text k="rooms.ltv" />
-                </strong>
-                <span>
-                  {risk.loans.length}
-                  <Text k="rooms.loans.in.this.risk.calculation" />
-                </span>
-              </div>
-              <p className="notice">
-                <Text k="rooms.this.calculation.values.loans.only.its.response" />
-              </p>
-            </>
-          )}
-        </ResourceView>
-      </Section>
-      <Section title={copyText('rooms.loan.products')}>
-        <ResourceView resource={products.resource} reload={products.reload}>
-          {(rows) => (
-            <>
-              {rows.length ? (
-                rows.map((product) => (
-                  <article className="money-record" key={product.id}>
-                    <header>
-                      <div>
-                        <h3>{product.name}</h3>
-                        <p>
-                          <Text k="rooms.borrow" />
-                          {product.debtAssetId}
-                          <Text k="rooms.secure.with" />
-                          {product.collateralAssetId}
-                        </p>
-                      </div>
-                      <strong>
-                        {bps(product.aprBps)}
-                        <Text k="rooms.apr" />
-                      </strong>
-                    </header>
-                    <dl className="detail-list">
-                      <div>
-                        <dt>
-                          <Text k="rooms.minimum.principal" />
-                        </dt>
-                        <dd>
-                          {dec(product.minPrincipal) === 0n
-                            ? copyText('rooms.no.minimum')
-                            : funds(product.minPrincipal, product.debtAssetId)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.maximum.ltv" />
-                        </dt>
-                        <dd>{bps(product.maxLtvBps)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.margin.call.ltv" />
-                        </dt>
-                        <dd>{bps(product.marginCallLtvBps)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.liquidation.ltv" />
-                        </dt>
-                        <dd>{bps(product.liquidationLtvBps)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.mark.quote.asset" />
-                        </dt>
-                        <dd>{product.quoteAssetId}</dd>
-                      </div>
-                    </dl>
-                    <Button
-                      onClick={() =>
-                        open({
-                          title: copyText('rooms.open.loan'),
-                          procedure: 'loans.open',
-                          fields: [
-                            positiveMoney(product.debtAssetId, 'principal', copyText('rooms.principal.to.borrow')),
-                            positiveMoney(product.collateralAssetId, 'collateralAmount', copyText('rooms.collateral.to.pledge')),
-                          ],
-                          formFacts: loanFormFacts(product, availableRow(product.collateralAssetId, heldRows, funds), bps),
-                          liveRows: (values) => loanLiveRows(product, values, funds),
-                          facts: [
-                            [copyText('rooms.product'), product.name],
-                            [copyText('rooms.apr.2'), bps(product.aprBps)],
-                            [copyText('rooms.maximum.ltv'), bps(product.maxLtvBps)],
-                            [copyText('rooms.margin.call'), bps(product.marginCallLtvBps)],
-                            [copyText('rooms.liquidation'), bps(product.liquidationLtvBps)],
-                          ],
-                          notes: [
-                            copyText('rooms.collateral.moves.from.your.user.available.account'),
-                            copyText('rooms.the.service.obtains.acceptable.current.marks.and'),
-                          ],
-                          validate: (input) =>
-                            parseAmount(String(input.principal)) >= parseAmount(product.minPrincipal)
-                              ? null
-                              : copyText('rooms.principal.is.below.the.product.minimum'),
-                          input: (values, requestId) => ({
-                            loanId: requestId,
-                            productId: product.id,
-                            principal: values.principal,
-                            collateralAmount: values.collateralAmount,
-                          }),
-                          submit: copyText('rooms.confirm.loan.request'),
-                        })
-                      }
-                    >
-                      <Text k="rooms.review.borrowing" />
-                    </Button>
-                    <p className="money-caption">
-                      <LoanApplyLink productId={product.id} />
-                    </p>
-                  </article>
-                ))
-              ) : (
-                <NoRows title={copyText('rooms.no.loan.products.returned')}>
-                  <Text k="rooms.borrowing.requires.a.configured.open.product.usable" />
-                </NoRows>
-              )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-            </>
-          )}
-        </ResourceView>
-      </Section>
-      <Section
-        title={copyText('rooms.your.loans')}
-        actions={
-          <Button
-            variant="ghost"
-            onClick={() => {
-              loans.reload();
-              health.reload();
-            }}
-          >
-            <Text k="rooms.refresh.loans.and.health" />
-          </Button>
-        }
-      >
-        <ResourceView resource={loans.resource} reload={loans.reload}>
-          {(rows) => (
-            <>
-              {rows.length ? (
-                rows.map((loan) => (
-                  <article className="money-record money-loan-record" key={loan.id} data-loan-id={loan.id}>
-                    <header>
-                      <div>
-                        <h3>
-                          {loan.debtAssetId}
-                          <Text k="rooms.loan" />
-                        </h3>
-                        <p>
-                          {loanStatusLabel(loan.status)}
-                          {loan.marginCalledAt && copyText('rooms.margin.called', { value1: date(loan.marginCalledAt) })}
-                        </p>
-                      </div>
-                      <strong>
-                        {bps(loan.aprBps)}
-                        <Text k="rooms.apr" />
-                      </strong>
-                    </header>
-                    <dl className="detail-list">
-                      <div>
-                        <dt>{loan.status === 'pending' ? loanCopy.t('pendingPrincipal') : <Text k="rooms.outstanding.principal" />}</dt>
-                        <dd>{funds(loan.outstandingPrincipal, loan.debtAssetId)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.outstanding.interest" />
-                        </dt>
-                        <dd>{funds(loan.outstandingInterest, loan.debtAssetId)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.ledger.collateral" />
-                        </dt>
-                        <dd>{funds(loan.collateral, loan.collateralAssetId)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.loan.reference" />
-                        </dt>
-                        <dd>{loan.id}</dd>
-                      </div>
-                    </dl>
-                    <LoanHealth loan={loan} resource={health.resource} reload={health.reload} />
-                    <LoanDetailLink loanId={loan.id} />
-                    {loanStatusNote(loan.status) && <p className="muted money-loan-status">{loanStatusNote(loan.status)}</p>}
-                    <div className="actions">
-                      <Button
-                        disabled={!loanActionAllowed(loan, 'repay')}
-                        onClick={() =>
-                          open({
-                            title: copyText('rooms.repay.loan'),
-                            procedure: 'loans.repay',
-                            preflight: currentLoanPreflight(api, loan, 'repay', limit),
-                            fields: [positiveMoney(loan.debtAssetId)],
-                            facts: [
-                              [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
-                              [loanCopy.t('debtAsset'), loan.debtAssetId],
-                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
-                              [copyText('rooms.principal.at.last.read'), amount(loan.outstandingPrincipal, loan.debtAssetId)],
-                              [copyText('rooms.interest.at.last.read'), amount(loan.outstandingInterest, loan.debtAssetId)],
-                            ],
-                            notes: [loanCopy.t('repaymentOffer'), copyText('rooms.your.request.reference.remains.stable.an.uncertain')],
-                            input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
-                            // svc-bank `loans.repay` answers a repeated eventId with the first repayment, never a second one.
-                            resendSame: true,
-                          })
-                        }
-                      >
-                        <Text k="rooms.repay" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        disabled={!loanActionAllowed(loan, 'addCollateral')}
-                        onClick={() =>
-                          open({
-                            title: copyText('rooms.add.collateral'),
-                            procedure: 'loans.addCollateral',
-                            preflight: currentLoanPreflight(api, loan, 'addCollateral', limit),
-                            fields: [positiveMoney(loan.collateralAssetId)],
-                            facts: [
-                              [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
-                              [loanCopy.t('debtAsset'), loan.debtAssetId],
-                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
-                            ],
-                            notes: [copyText('rooms.additional.collateral.is.locked.from.your.user')],
-                            input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
-                          })
-                        }
-                      >
-                        <Text k="rooms.add.collateral" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        disabled={!loanActionAllowed(loan, 'releaseExcess')}
-                        onClick={() =>
-                          open({
-                            title: copyText('rooms.release.excess.collateral'),
-                            procedure: 'loans.releaseExcess',
-                            preflight: currentLoanPreflight(api, loan, 'releaseExcess', limit),
-                            validate: (input) =>
-                              typeof input.amount === 'string' && parseAmount(input.amount) <= parseAmount(loan.collateral)
-                                ? null
-                                : loanCopy.t('releaseTooLarge'),
-                            fields: [positiveMoney(loan.collateralAssetId)],
-                            facts: [
-                              [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
-                              [loanCopy.t('debtAsset'), loan.debtAssetId],
-                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
-                              [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
-                            ],
-                            notes: [
-                              copyText('rooms.the.service.obtains.current.marks.before.releasing'),
-                              copyText('rooms.no.available.amount.is.optimistically.increased.refresh'),
-                            ],
-                            reviewTerms: {
-                              checking: loanCopy.t('releasableChecking'),
-                              read: (input, signal) => readReleasable(api, loan.id, loan.collateralAssetId, input.amount, signal),
-                            },
-                            // svc-bank `loans.releaseExcess` keys the release by this eventId, so a retry never releases twice.
-                            input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
-                          })
-                        }
-                      >
-                        <Text k="rooms.release.excess" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        disabled={!loanActionAllowed(loan, 'close')}
-                        onClick={() =>
-                          open({
-                            title: copyText('rooms.release.settled.collateral'),
-                            unit: loan.collateralAssetId,
-                            procedure: 'loans.close',
-                            preflight: currentLoanPreflight(api, loan, 'close', limit),
-                            facts: [
-                              [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
-                              [loanCopy.t('debtAsset'), loan.debtAssetId],
-                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
-                              [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
-                            ],
-                            notes: [copyText('rooms.the.service.releases.collateral.only.after.verifying')],
-                            input: () => ({ loanId: loan.id }),
-                          })
-                        }
-                      >
-                        <Text k="rooms.close.settled.loan" />
-                      </Button>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <NoRows title={copyText('rooms.no.loans.returned')}>
-                  <Text k="rooms.no.loan.balance.is.inferred.from.an" />
-                </NoRows>
-              )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-              <p className="muted money-loan-status">{loanCopy.t('unavailableHistory')}</p>
-            </>
-          )}
-        </ResourceView>
-      </Section>
-    </BankPage>
-  );
-}
-
-function Cards({ open }: { open: (spec: ActionSpec) => void }) {
-  return (
-    <BankPage room="Cards" description={copyText('rooms.issuer.connectivity.and.card.outcomes.are.separate')}>
-      <OwnerCards open={open} />
-    </BankPage>
-  );
-}
-function Ramps({ open }: { open: (spec: ActionSpec) => void }) {
-  const { t } = railCopy.useCopy();
-  const depth = rampDepthCopy.useCopy();
-  return (
-    <BankPage room="Ramps" description={t('description')}>
-      <RampJourneys open={open} />
-      <Section title={depth.t('historyTitle')} description={depth.t('historyLead')}>
-        <OwnerRailRecords />
-      </Section>
-    </BankPage>
-  );
-}
 /** `/bank/ramps/new`: add money, inside the Ramps room. */
 function AddMoneyRoom() {
   const { t } = addMoneyCopy.useCopy();
@@ -1540,21 +705,12 @@ function AddMoneyRoom() {
 function DirectDebitsLink() {
   const { t } = directDebitsCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/direct-debits">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/direct-debits">
         {t('open')}
       </a>{' '}
       {t('openHint')}
     </p>
-  );
-}
-/** `/bank/direct-debits`: Direct Debit mandates and collections, inside the Transfers room (J-bank-06 #4). */
-function DirectDebitsRoom() {
-  const { t } = directDebitsCopy.useCopy();
-  return (
-    <BankPage room="Transfers" title={t('title')} description={t('description')}>
-      <DirectDebits />
-    </BankPage>
   );
 }
 /** `/bank/recovery` (RC-identity-08): where a person named to receive someone's account claims it with their keys. */
@@ -1567,24 +723,12 @@ function RecoveryClaimRoom() {
   );
 }
 /** The way into the recovery claim room from the bank's services. */
-function RecoveryClaimLink() {
-  const { t } = recoveryClaimCopy.useCopy();
-  return (
-    <a className="link-row" href="/bank/recovery">
-      <span>
-        <strong>{t('open')}</strong>
-        <small>{t('openHint')}</small>
-      </span>
-      <span aria-hidden="true">↗</span>
-    </a>
-  );
-}
 /** The way into the money calendar from Transfers. */
 function CalendarLink() {
   const { t } = calendarCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/calendar">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/calendar">
         {t('open')}
       </a>{' '}
       {t('openHint')}
@@ -1595,31 +739,11 @@ function CalendarLink() {
 function RulesLink() {
   const { t } = rulesCopy.useCopy();
   return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/rules">
+    <p className="lt-muted">
+      <a className="lt-link" href="/bank/rules">
         {t('open')}
       </a>{' '}
       {t('openHint')}
-    </p>
-  );
-}
-/** `/bank/rules`: payment reminders, failure notices, notification choices and money rules, inside Transfers (J-bank-06 #6). */
-function RulesRoom() {
-  const { t } = rulesCopy.useCopy();
-  return (
-    <BankPage room="Transfers" title={t('title')} description={t('description')}>
-      <Rules />
-    </BankPage>
-  );
-}
-/** Each loan's way to its details page: the payoff quote, the projection and the statement (J-bank-11 #1). */
-function LoanDetailLink({ loanId }: { loanId: string }) {
-  const { t } = loanDetailCopy.useCopy();
-  return (
-    <p className="money-caption">
-      <a className="text-link" href={`/bank/loans/detail?loan=${encodeURIComponent(loanId)}`}>
-        {t('open')}
-      </a>
     </p>
   );
 }
@@ -1633,61 +757,11 @@ function LoanApplyRoom({ search, open }: { search: string; open: (spec: ActionSp
     </BankPage>
   );
 }
-function LoanApplyLink({ productId }: { productId?: string }) {
-  const { t } = loanApplyCopy.useCopy();
-  return (
-    <a className="text-link" href={productId ? `/bank/loans/apply?product=${encodeURIComponent(productId)}` : '/bank/loans/apply'}>
-      {t('apply')}
-    </a>
-  );
-}
 /** `/bank/loans/detail?loan=<id>`: one loan's payoff quote, projection and statement, inside the Loans room (J-bank-11 #1). */
-function LoanDetailRoom({ search }: { search: string }) {
-  const { t } = loanDetailCopy.useCopy();
+function LoanDetailPage({ search }: { search: string }) {
   const loanId = new URLSearchParams(search).get('loan');
-  return (
-    <BankPage room="Loans" title={t('title')} description={t('description')}>
-      <LoanDetail loanId={loanId && loanId.trim() !== '' ? loanId : null} />
-    </BankPage>
-  );
+  return <LoanDetailRoom loanId={loanId && loanId.trim() !== '' ? loanId : null} />;
 }
-/** `/bank/earn/pool?id=<pool>`: one pool's terms, rate history and the person's savings in it, inside the Earn room (J-bank-08 #1, #2). */
-function EarnPoolRoom({ search, open }: { search: string; open: (spec: ActionSpec) => void }) {
-  const { t } = earnPoolCopy.useCopy();
-  const poolId = new URLSearchParams(search).get('id');
-  return (
-    <BankPage room="Earn" title={t('poolTitle')} description={t('poolDescription')}>
-      <EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} open={open} />
-    </BankPage>
-  );
-}
-/** `/bank/calendar`: everything dated, inside the Transfers room (J-bank-06 #5). */
-function CalendarRoom() {
-  const { t } = calendarCopy.useCopy();
-  return (
-    <BankPage room="Transfers" title={t('title')} description={t('description')}>
-      <MoneyCalendar />
-    </BankPage>
-  );
-}
-/** `/bank/limits`: sending limits from the bank's quote, the fee schedules and the plan (BK-acct-04, J-bank-16 #6). */
-function LimitsPage() {
-  return (
-    <BankPage room="Overview" title={limitsCopy.t('title')} description={limitsCopy.t('description')}>
-      <LimitsRoom />
-    </BankPage>
-  );
-}
-
-/** `/bank/account`: onboarding, requests, reviews, closure and data rights at the partner bank (BK-acct-05, BK-acct-06, J-bank-17). */
-function BankAccountPage() {
-  return (
-    <BankPage room="Overview" title={bankAccountCopy.t('title')} description={bankAccountCopy.t('description')}>
-      <BankAccountRoom />
-    </BankPage>
-  );
-}
-
 /** `/bank/salary`: salary paid in by direct deposit, inside the Overview room (J-bank-30). */
 function SalaryPage({ open }: { open: (spec: ActionSpec) => void }) {
   return (
@@ -1708,27 +782,6 @@ function StatementsRoom() {
     </BankPage>
   );
 }
-/** The way into the statement and export centre from Analytics. */
-function StatementsLink() {
-  const { t } = statementCentreCopy.useCopy();
-  return (
-    <p className="money-caption">
-      <a className="text-link" href="/bank/statements">
-        {t('open')}
-      </a>{' '}
-      {t('openHint')}
-    </p>
-  );
-}
-/** `/bank/ramps/accounts`: linked bank accounts, inside the Ramps room. */
-function LinkedAccountsRoom() {
-  const { t } = linkedAccountsCopy.useCopy();
-  return (
-    <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      <LinkedAccounts />
-    </BankPage>
-  );
-}
 /** `/bank/ramps/cash-out`: cash out to a linked bank account, inside the Ramps room. */
 function CashOutRoom() {
   const { t } = cashOutCopy.useCopy();
@@ -1738,443 +791,12 @@ function CashOutRoom() {
     </BankPage>
   );
 }
-function Analytics() {
-  const depth = transferDepthCopy.useCopy();
-  const held = useHoldings();
-  const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
-  const [chosen, setChosen] = useState('');
-  const [preset, setPreset] = useState<PeriodPreset>('30d');
-  const [custom, setCustom] = useState({ from: '', to: '' });
-  const [useCustom, setUseCustom] = useState(false);
-  const assetId = chosen || assets[0]?.assetId || '';
-  const range = useMemo(() => {
-    if (!assetId) return null;
-    if (useCustom) {
-      if (!Number.isFinite(Date.parse(custom.from)) || !Number.isFinite(Date.parse(custom.to))) return null;
-      if (Date.parse(custom.from) >= Date.parse(custom.to)) return null;
-      return { assetId, from: iso(custom.from), to: iso(custom.to) };
-    }
-    return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
-  }, [assetId, preset, useCustom, custom.from, custom.to]);
-  const query = useBankRead('analytics.spend', range, Boolean(range));
-  const presetLabel = (value: PeriodPreset) =>
-    depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
-  return (
-    <BankPage room="Analytics" description={copyText('rooms.ledger.movements.by.asset.and.date.movement')}>
-      <StatementsLink />
-      {assetId && (
-        <>
-          <AnalyticsBudgets assetId={assetId} />
-          <AnalyticsCompare assetId={assetId} />
-        </>
-      )}
-      <Section title={copyText('rooms.movement.window')}>
-        <div className="money-analytics-form">
-          <label className="field">
-            <span>{depth.t('assetPicker')}</span>
-            <select value={assetId} onChange={(event) => setChosen(event.target.value)} disabled={assets.length === 0}>
-              {assets.length === 0 && <option value="">—</option>}
-              {assets.map((asset) => (
-                <option key={asset.assetId} value={asset.assetId}>
-                  {asset.assetId}
-                </option>
-              ))}
-            </select>
-            <small>{assets.length === 0 && held.resource.status === 'ready' ? depth.t('noAssets') : depth.t('assetPickerHint')}</small>
-          </label>
-          <div className="bd-periods" role="group" aria-label={depth.t('period')}>
-            {PERIOD_PRESETS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                className="bd-chip"
-                aria-pressed={!useCustom && preset === value}
-                onClick={() => {
-                  setUseCustom(false);
-                  setPreset(value);
-                }}
-              >
-                {presetLabel(value)}
-              </button>
-            ))}
-            <button type="button" className="bd-chip" aria-pressed={useCustom} onClick={() => setUseCustom(true)}>
-              {depth.t('periodCustom')}
-            </button>
-          </div>
-          {useCustom && (
-            <>
-              <Field
-                label={copyText('rooms.from')}
-                type="datetime-local"
-                value={custom.from}
-                onChange={(event) => setCustom({ ...custom, from: event.target.value })}
-              />
-              <Field
-                label={copyText('rooms.to')}
-                type="datetime-local"
-                value={custom.to}
-                onChange={(event) => setCustom({ ...custom, to: event.target.value })}
-              />
-              {!range && custom.from && custom.to && (
-                <p className="error-text" role="alert">
-                  {copyText('rooms.choose.a.valid.start.before.the.end')}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </Section>
-      {range ? (
-        <ResourceView resource={query.resource} reload={query.reload}>
-          {(summary) => (
-            <>
-              <Section
-                title={copyText('rooms.movement', { value1: summary.assetId })}
-                description={copyText('rooms.to.2', { value1: date(summary.from), value2: date(summary.to) })}
-              >
-                <div data-testid="money-movement-stats" className="money-movement-stats">
-                  <div>
-                    <span>
-                      <Text k="rooms.inflow" />
-                    </span>
-                    <strong className="numeric">{funds(summary.totalInflow, summary.assetId)}</strong>
-                  </div>
-                  <div>
-                    <span>
-                      <Text k="rooms.outflow" />
-                    </span>
-                    <strong className="numeric">{funds(summary.totalOutflow, summary.assetId)}</strong>
-                  </div>
-                  <div>
-                    <span>
-                      <Text k="rooms.net.movement" />
-                    </span>
-                    <strong className="numeric">{funds(summary.net, summary.assetId)}</strong>
-                  </div>
-                </div>
-                <MovementBars inflow={summary.totalInflow} outflow={summary.totalOutflow} net={summary.net} assetId={summary.assetId} />
-                <p className="money-caption">
-                  {summary.movements}
-                  <Text k="rooms.ledger.movements.transfers.between.your.spaces.may" />
-                </p>
-              </Section>
-              {(() => {
-                const split = splitAnalytics(summary);
-                return (
-                  <>
-                    <Section title={copyText('rooms.outflow.categories')}>
-                      {split.outflow.length ? (
-                        split.outflow.map((row) => (
-                          <div data-testid="money-space-row" className="money-space-row" key={row.category}>
-                            <span>{row.category === 'deposits' ? copyText('rooms.deposit.outflow') : categoryLabel(row.category)}</span>
-                            <strong className="numeric">{funds(row.amount, summary.assetId)}</strong>
-                          </div>
-                        ))
-                      ) : (
-                        <NoRows title={copyText('rooms.no.outflow.categories.returned')}>
-                          <Text k="rooms.the.service.returned.no.categorized.outflow.for" />
-                        </NoRows>
-                      )}
-                    </Section>
-                    {split.moneyInDeposits !== null && (
-                      <Section title={copyText('rooms.money.in.deposits')}>
-                        <div data-testid="money-space-row" className="money-space-row">
-                          <span>{categoryLabel('deposits')}</span>
-                          <strong className="numeric">{funds(split.moneyInDeposits, summary.assetId)}</strong>
-                        </div>
-                        <p className="money-caption">{copyText(split.exact ? 'rooms.money.in.note' : 'rooms.money.in.inexact')}</p>
-                      </Section>
-                    )}
-                  </>
-                );
-              })()}
-            </>
-          )}
-        </ResourceView>
-      ) : (
-        <NoRows title={copyText('rooms.choose.an.asset.and.time.window')}>
-          <Text k="rooms.this.view.does.not.invent.a.default" />
-        </NoRows>
-      )}
-    </BankPage>
-  );
-}
-function Business({ open }: { open: (spec: ActionSpec) => void }) {
-  const { t } = businessCopy.useCopy();
-  return (
-    <BankPage room="Business" title={t('pageTitle')} description={t('lead')}>
-      <BusinessBank open={open} />
-    </BankPage>
-  );
-}
-const bankServices = [
-  { href: '/bank/spaces', label: 'nav.spaces', note: 'overview.spaces.note' },
-  { href: '/bank/transfers', label: 'nav.transfers', note: 'overview.transfers.note' },
-  { href: '/bank/earn', label: 'nav.earn', note: 'overview.earn.note' },
-  { href: '/bank/loans', label: 'nav.loans', note: 'overview.loans.note' },
-  { href: '/bank/cards', label: 'nav.cards', note: 'overview.cards.note' },
-  { href: '/bank/ramps', label: 'nav.ramps', note: 'overview.ramps.note' },
-  { href: '/bank/analytics', label: 'nav.analytics', note: 'overview.analytics.note' },
-  { href: '/bank/business', label: 'nav.business', note: 'overview.business.note' },
-  { href: '/uc/record', label: 'index.money.activity', note: 'overview.activity.note' },
-  { href: '/bank/account', label: 'nav.bank.account', note: 'overview.bank.account.note' },
-  { href: '/bank/salary', label: 'nav.salary', note: 'overview.salary.note' },
-  { href: '/bank/safety/scam', label: 'nav.scam', note: 'overview.scam.note' },
-  { href: '/bank/safety/lost-phone', label: 'nav.lostPhone', note: 'overview.lostPhone.note' },
-  { href: '/bank/safety/complaint', label: 'nav.complaint', note: 'overview.complaint.note' },
-  { href: '/bank/safety/bereavement', label: 'nav.bereavement', note: 'overview.bereavement.note' },
-] as const;
-/**
- * `/bank`: the first page of the neo-bank. It shows only what the bank answers (balances and spaces, each with its own
- * loading, failed or empty state) and opens every bank service, so a bank that is not set up yet still reads as a place.
- */
-function BankOverview() {
-  const { api, userId, mode } = useSession();
-  const { hideBalances } = usePreferences();
-  const [limit, setLimit] = useState(50);
-  const { resource, reload } = useResource<MoneyOverview>(async (signal) => {
-    if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('index.sign.in.to.see.your.money') };
-    if (mode === 'Business')
-      return { ok: false, reason: 'not_supported', message: copyText('index.a.verified.company.ledger.owner.and.company') };
-    return { ok: true, data: await createMoneyClient(api).overview(userId, limit, signal) };
-  }, `${userId}:${mode}:bank-overview:${limit}`);
-  return (
-    <Page
-      eyebrow={copyText('rooms.money.bank')}
-      title={copyText('index.bank')}
-      description={copyText('overview.description')}
-      actions={
-        <>
-          <a className="button button--primary" href="/bank/spaces">
-            <Text k="index.create.space" />
-          </a>
-          <a className="button button--secondary" href="/bank/transfers">
-            <Text k="index.transfer" />
-          </a>
-          <a className="button button--secondary" href="/uc/withdraw">
-            <Text k="custody.withdraw" />
-          </a>
-        </>
-      }
-    >
-      <BankNavigation current="Overview" />
-      <OnboardingBanner />
-      <div className="money-overview-lane">
-        <Section
-          title={copyText('index.holdings')}
-          actions={
-            <>
-              <Button variant="ghost" onClick={() => savePreferences({ hideBalances: !hideBalances })} aria-pressed={hideBalances}>
-                <Text k={hideBalances ? 'index.show.amounts' : 'index.hide.amounts'} />
-              </Button>
-              <Button variant="ghost" onClick={reload}>
-                <Text k="rooms.refresh" />
-              </Button>
-            </>
-          }
-        >
-          <ResourceView resource={resource} reload={reload}>
-            {(overview) => (
-              <>
-                {overview.balances.ok && (
-                  <p className="money-response-time">
-                    {Number.isFinite(Date.parse(overview.balances.data.datetime)) ? (
-                      <time dateTime={overview.balances.data.datetime} dir="auto">
-                        {copyText('overview.reported', { time: date(overview.balances.data.datetime) })}
-                      </time>
-                    ) : (
-                      <Text k="overview.time.unavailable" />
-                    )}
-                  </p>
-                )}
-                {!overview.balances.ok && <Failure result={overview.balances} retry={reload} />}
-                {overview.conflicts.length > 0 && (
-                  <p className="notice" role="status">
-                    <Text k="index.separate.reads.disagree.for" />
-                    {overview.conflicts.join(', ')}
-                    <Text k="index.their.available.projection.is.omitted.refresh.to" />
-                  </p>
-                )}
-                {overview.holdings.length ? (
-                  overview.holdings.map((holding) => (
-                    <a
-                      data-testid="money-holding"
-                      className="money-holding"
-                      href={`/portfolio/${encodeURIComponent(holding.assetId)}`}
-                      key={holding.assetId}
-                    >
-                      <span className="money-asset-mark" aria-hidden="true">
-                        {holding.assetId.slice(0, 1)}
-                      </span>
-                      <span className="money-holding-name">
-                        <strong lang="und">{holding.assetId}</strong>
-                        <small>
-                          {holding.quantity === null ? (
-                            <Text k="index.available.projection.only" />
-                          ) : (
-                            <Text k="index.user.ledger.quantity" />
-                          )}
-                        </small>
-                      </span>
-                      <span className="money-holding-values">
-                        <strong className="numeric" dir="ltr">
-                          <span className="money-quantity-value">
-                            {hideBalances ? '••••' : displayAmount(holding.quantity ?? holding.available)}
-                          </span>
-                          {!hideBalances && (
-                            <span className="money-quantity-unit" lang="und">
-                              {' '}
-                              {holding.assetId}
-                            </span>
-                          )}
-                        </strong>
-                        <dl className="money-quantity-restrictions">
-                          <div>
-                            <dt>
-                              <Text k="index.available" />
-                            </dt>
-                            <dd className="numeric" dir="ltr">
-                              {hideBalances ? '••••' : amount(holding.available, holding.assetId)}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>
-                              <Text k="index.held.restricted" />
-                            </dt>
-                            <dd className="numeric" dir="ltr">
-                              {hideBalances ? '••••' : amount(holding.held, holding.assetId)}
-                            </dd>
-                          </div>
-                        </dl>
-                      </span>
-                      <span className="money-chevron" aria-hidden="true">
-                        ↗
-                      </span>
-                    </a>
-                  ))
-                ) : overview.balances.ok ? (
-                  <NoRows title={copyText('index.no.user.ledger.accounts.returned')}>
-                    <Text k="index.an.empty.projection.is.not.a.complete" />
-                  </NoRows>
-                ) : (
-                  <div className="notice" role="status">
-                    <h3>
-                      <Text k="availability.holdings.unavailable" />
-                    </h3>
-                    <p>
-                      <Text k="availability.refresh.balances" />
-                    </p>
-                  </div>
-                )}
-                {overview.spaces.ok &&
-                  (() => {
-                    const totals = spaceTotals(overview.spaces.data, overview.holdings);
-                    if (!totals.length) return null;
-                    return (
-                      <section className="money-spaces-total" aria-label={copyText('index.spaces.heading')}>
-                        {totals.map((row) => (
-                          <p key={row.assetId}>
-                            <span className="numeric" dir="ltr">
-                              {hideBalances
-                                ? `•••• ${row.assetId}`
-                                : copyText(row.total === null ? 'index.spaces.plus' : 'index.spaces.total', {
-                                    amount: amount(row.total ?? row.inSpaces, row.assetId),
-                                  })}
-                            </span>
-                            {row.total !== null && (
-                              <small>
-                                {hideBalances ? '' : copyText('index.spaces.plus', { amount: amount(row.inSpaces, row.assetId) })}
-                              </small>
-                            )}
-                          </p>
-                        ))}
-                        <small>
-                          <Text k="index.spaces.note" />
-                        </small>
-                      </section>
-                    );
-                  })()}
-              </>
-            )}
-          </ResourceView>
-        </Section>
-        <Section
-          title={copyText('index.your.spaces')}
-          actions={
-            <a className="text-link" href="/bank/spaces">
-              <Text k="index.manage.spaces" />
-            </a>
-          }
-        >
-          <ResourceView resource={resource} reload={reload}>
-            {(overview) =>
-              overview.spaces.ok ? (
-                <>
-                  {overview.spaces.data.length ? (
-                    overview.spaces.data.map((space) => (
-                      <a
-                        data-testid="money-space-row"
-                        className="money-space-row"
-                        href={`/bank/spaces?space=${encodeURIComponent(space.id)}`}
-                        key={space.id}
-                      >
-                        <div>
-                          <strong lang="und">{space.name}</strong>
-                          <small>
-                            {space.kind === 'primary' ? (
-                              <Text k="index.primary.already.in.the.user.ledger.projection" />
-                            ) : (
-                              <Text k="index.named.separate.ledger.subaccount" />
-                            )}
-                          </small>
-                        </div>
-                        <div className="numeric" dir="ltr">
-                          {funds(space.balance, space.assetId)}
-                        </div>
-                      </a>
-                    ))
-                  ) : (
-                    <NoRows title={copyText('rooms.no.spaces.returned')}>
-                      <Text k="rooms.create.a.named.space.its.balance.will" />
-                    </NoRows>
-                  )}
-                  <Continuation count={overview.spaces.data.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-                </>
-              ) : (
-                <Failure result={overview.spaces} retry={reload} />
-              )
-            }
-          </ResourceView>
-        </Section>
-      </div>
-      <AccountHome />
-      <Section title={copyText('overview.services')}>
-        <nav className="money-destinations" aria-label={copyText('overview.services')}>
-          {bankServices.map((service) => (
-            <a className="link-row" href={service.href} key={service.href}>
-              <span>
-                <strong>
-                  <Text k={service.label} />
-                </strong>
-                <small>
-                  <Text k={service.note} />
-                </small>
-              </span>
-              <span aria-hidden="true">↗</span>
-            </a>
-          ))}
-          <RecoveryClaimLink />
-        </nav>
-      </Section>
-    </Page>
-  );
-}
 export function BankRoutes({ path, search, open }: { path: string; search: string; open: (spec: ActionSpec) => void }) {
   switch (path) {
     case '/bank':
       return <BankOverview />;
     case '/bank/spaces':
-      return <Spaces open={open} search={search} />;
+      return <SpacesRoom open={open} search={search} />;
     case '/bank/transfers':
       return <Transfers open={open} search={search} />;
     case '/bank/direct-debits':
@@ -2214,21 +836,33 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/rules':
       return <RulesRoom />;
     case '/bank/earn':
-      return <Earn open={open} />;
+      return <EarnRoom open={open} />;
     case '/bank/earn/pool':
       return <EarnPoolRoom search={search} open={open} />;
     case '/bank/loans':
-      return <Loans open={open} />;
+      return <LoansRoom open={open} />;
     case '/bank/loans/detail':
-      return <LoanDetailRoom search={search} />;
+      return <LoanDetailPage search={search} />;
     case '/bank/loans/apply':
       return <LoanApplyRoom search={search} open={open} />;
+    case '/bank/loans/overdraft':
+      return <OverdraftPreviewRoom />;
+    case '/bank/loans/personal':
+      return <PersonalLoanPreviewRoom />;
+    case '/bank/loans/schedule':
+      return <LoanSchedulePreviewRoom />;
+    case '/bank/cards/credit-card':
+      return <CreditCardPreviewRoom />;
+    case '/bank/cards/credit':
+      return <RevolvingCreditPreviewRoom />;
+    case '/bank/business/loan':
+      return <BusinessLoanPreviewRoom />;
     case '/bank/cards':
-      return <Cards open={open} />;
+      return <CardsRoom open={open} />;
     case '/bank/cards/new':
       return <CardOrderRoom />;
     case '/bank/ramps':
-      return <Ramps open={open} />;
+      return <RampsRoom open={open} />;
     case '/bank/ramps/new':
       return <AddMoneyRoom />;
     case '/bank/ramps/accounts':
@@ -2236,7 +870,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/ramps/cash-out':
       return <CashOutRoom />;
     case '/bank/analytics':
-      return <Analytics />;
+      return <AnalyticsRoom />;
     case '/bank/statements':
       return <StatementsRoom />;
     case '/bank/limits':
@@ -2246,7 +880,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/salary':
       return <SalaryPage open={open} />;
     case '/bank/business':
-      return <Business open={open} />;
+      return <BusinessBankRoom open={open} />;
     case '/uc/record':
       return <MoneyActivity />;
     default:
@@ -2255,7 +889,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
           <EmptyState
             title={copyText('rooms.this.bank.address.is.not.registered')}
             action={
-              <a className="button button--secondary" href="/bank">
+              <a className="lt-button lt-button-secondary" href="/bank">
                 <Text k="rooms.bank.overview" />
               </a>
             }

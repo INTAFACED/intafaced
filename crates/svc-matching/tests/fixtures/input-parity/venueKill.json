@@ -1,0 +1,177 @@
+{
+  "verdicts": [
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "ok =",
+    "ok {\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"operatorId\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"confirmOperatorId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"operatorId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"operatorId\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"approvalId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"operationId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received object\"}]"
+  ],
+  "cases": [
+    [null, 0],
+    ["null", 1],
+    ["7", 2],
+    ["\"x\"", 3],
+    ["[]", 4],
+    ["{}", 5],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}",
+      7
+    ],
+    ["{\"operatorId\":\"\"}", 8],
+    [
+      "{\"operatorId\":\"o\",\"confirmOperatorId\":\"ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}",
+      9
+    ],
+    ["{\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}", 5],
+    [
+      "{\"operatorId\":null,\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      10
+    ],
+    [
+      "{\"operatorId\":7,\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      11
+    ],
+    [
+      "{\"operatorId\":true,\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      12
+    ],
+    [
+      "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      8
+    ],
+    [
+      "{\"operatorId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      13
+    ],
+    [
+      "{\"operatorId\":[],\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      14
+    ],
+    [
+      "{\"operatorId\":{},\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      15
+    ],
+    ["{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}", 6],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":null,\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":7,\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      16
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":true,\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      17
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      9
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":[],\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      18
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":{},\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      19
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":null,\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":7,\"operationId\":\"op-1\"}",
+      20
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":true,\"operationId\":\"op-1\"}",
+      21
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"operationId\":\"op-1\"}",
+      22
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":[],\"operationId\":\"op-1\"}",
+      23
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":{},\"operationId\":\"op-1\"}",
+      24
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":null}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":7}",
+      25
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":true}",
+      26
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"\"}",
+      6
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      27
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":[]}",
+      28
+    ],
+    [
+      "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":{}}",
+      29
+    ]
+  ]
+}

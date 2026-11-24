@@ -62,7 +62,7 @@ describe('execution.sor spine — D78 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -101,7 +101,7 @@ describe('execution.sor spine — D82 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -140,7 +140,7 @@ describe('execution.sor spine — D86 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -179,7 +179,7 @@ describe('execution.sor spine — D90 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -198,7 +198,7 @@ describe('execution.sor spine — D92 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -217,7 +217,7 @@ describe('execution.sor spine — D94 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -236,7 +236,7 @@ describe('execution.sor spine — D96 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -255,7 +255,7 @@ describe('execution.sor spine — D98 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -274,7 +274,7 @@ describe('execution.sor spine — D100 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -293,7 +293,7 @@ describe('execution.sor spine — D102 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -312,7 +312,7 @@ describe('execution.sor spine — D104 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -331,7 +331,7 @@ describe('execution.sor spine — D106 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -350,7 +350,7 @@ describe('execution.sor spine — D108 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -369,7 +369,7 @@ describe('execution.sor spine — D110 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -388,7 +388,7 @@ describe('execution.sor spine — D112 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -407,7 +407,7 @@ describe('execution.sor spine — D114 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -426,7 +426,7 @@ describe('execution.sor spine — D116 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -445,7 +445,7 @@ describe('execution.sor spine — D118 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });
 
@@ -464,6 +464,6 @@ describe('execution.sor spine — D120 denon complete', () => {
       gaps: 0,
     });
     expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeExecutionSpine\(\)\)/);
-    expect(routerSource).toMatch(/spine:\s*scopedProcedure/);
+    expect(routerSource).toMatch(/spine:\s*mountRecord\(EXECUTION_SPINE,/);
   });
 });

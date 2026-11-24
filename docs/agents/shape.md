@@ -7,7 +7,7 @@ Copy the example named here, not the nearest file: much of the code is older tha
 Every call from the app to a service, or from one service to another, is written once as a record. The record holds the address, what goes in, what comes out, every refusal, who may call, and sample inputs. The route, the app's client and the published schema are made from it.
 
 1. Write the record with `defineProcedure` (`packages/contracts/src/procedure.ts`) in the service's records file in `packages/contracts/src/`. Copy `packages/contracts/src/tax-procedures.ts`: `name`, `service`, `module`, `transport`, `kind`, `path`, `access`, `refusals`, `input`, `output`, `samples` (at least one `accept` and one `refuse`).
-2. Run `pnpm --filter @intafaced/contracts procedures:write`. It writes `packages/contracts/src/procedure-registry.ts` and `packages/contracts/procedures.schema.json`; never edit either by hand.
+2. Run `pnpm --filter @intafaced/contracts procedures:write`. It writes `packages/contracts/src/procedure-registry.ts` and one `packages/contracts/procedures/<service>.schema.json` per service; never edit them by hand.
 3. The service mounts it: a service whose router is made from records adds one handler to its `mountRecords` call (copy `exampleRouter` in `packages/contracts/src/procedure-mount.test.ts`; a Rust service mounts its records the way `crates/svc-tax/src/wire.rs` does); in a router not made from records yet, the one call is `mountRecord(RECORD, handler, refusalOf)` from `@intafaced/contracts/procedure-mount`, in place of a hand-written `scopedProcedure(...)`. `refusalOf` reads the service's own error type, written once per service (copy `exampleRefusal` in `packages/contracts/src/procedure-mount.test.ts`).
 4. The app calls `api.call(RECORD, input)`, importing the record from its `@intafaced/contracts/<file>` subpath (copy `apps/customer/src/screens/money/pnl-source.ts`). A check every caller needs on the reply goes in the record's `accept`; one only this caller needs goes in `api.call`'s `accept` option.
 
@@ -19,7 +19,7 @@ What fails the other way: `apps/customer/src/app/recorded-calls.test.ts` (a reco
 
 A screen goes in `apps/customer/src/screens/<id>/index.tsx` when its id is in `apps/customer/src/app/screens.ts`; every other room goes in `apps/customer/src/features/<area>/`, with its screens, calls and words together. Other code imports a feature only through its entry, `apps/customer/src/features/<area>/index.ts` (copy `apps/customer/src/features/pay/index.ts`), never a file inside it.
 
-What fails the other way: nothing yet for an import into another feature's inside.
+What fails the other way: `garden/no-cross-feature-import` (an import that reaches a file inside another feature, in the customer app or the console).
 
 ## 3. Each piece of state: one owner
 
@@ -33,7 +33,7 @@ What fails the other way: `tooling/ci/boundary-scan.mjs` (one service's SQL on a
 - **Route** through the area's routes file named in `apps/customer/README.md`; a new top-level screen id goes in `ScreenId` (`apps/customer/src/app/screen-types.ts`) first.
 - **Draw** with `packages/ui` and its role tokens (`.claude/rules/design.md`); a part being moved keeps its exact output, bugs included.
 
-What fails the other way: `garden/no-effect-in-product` (an effect in product code), `apps/customer/src/app/one-main.test.ts` (a page with two main landmarks), `tooling/ci/look-drift.mjs` (a raw colour, size or physical side). A second live stream fails nothing yet.
+What fails the other way: `garden/no-effect-in-product` (an effect in product code), `apps/customer/src/app/one-main.test.ts` (a page with two main landmarks), `tooling/ci/look-drift.mjs` (a raw colour, size or physical side), `garden/no-restyled-kit-part`, `garden/no-raw-control` and `garden/no-raw-type-class` (a kit part given colour, type, radius or shadow; a raw `<button>` or `<input>`; a raw `text-sm`: use the part's variant, the kit's control or `Text`), each room file held under its count in `apps/customer/kit-ceilings.json` (`tooling/lint/kit-ceilings.test.mjs`). A second live stream fails nothing yet.
 
 ## 5. A service is put together in one place
 

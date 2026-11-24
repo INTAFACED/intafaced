@@ -1,12 +1,12 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type Ref } from 'react';
 import { displayAmount, parseAmount } from '../../../shared/money';
 import {
+  draftId,
   keys,
   type AsOf,
   type OrderIntent,
   type VenueMarket,
   type VenuePreview,
-  type VenueTimeInForce,
   type VenueUp,
 } from '../../../features/trade/venue-api';
 import {
@@ -19,6 +19,8 @@ import {
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
 import { builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
+import { useSignPrepared } from '../futures/VenueProtect';
+import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
 import {
@@ -41,12 +43,15 @@ import {
   valueOf,
   venueSelfTrade,
   draftSignature,
+  gtdClientId,
   intentOf,
+  venueTifOf,
   lockShortfall,
   previewMoved,
   refusedAtHeldWorst,
   ticketProblem,
   unpublishedRules,
+  type DeskTif,
   type TicketFields,
   type VenueOrderType,
   type VenueSide,
@@ -54,6 +59,7 @@ import {
 import type { Access } from './venue-access';
 import { VenueReviewRows } from './VenueReviewRows';
 import { VerifyNote } from './VenueVerifyDesk';
+import { SpotShortOffer, useAccountMode } from '../../../features/trade';
 
 /** What a ticket is asked to hold by the DOM, the chart or one-click close (J-charts-desk-14). */
 export interface TicketPick {
@@ -94,6 +100,7 @@ export function VenueSideForm({
   side,
   type,
   tif,
+  expireAt = null,
   protectionBps,
   market,
   status,
@@ -110,8 +117,10 @@ export function VenueSideForm({
 }: {
   side: VenueSide;
   type: VenueOrderType;
-  /** A limit order's time in force, picked once for both tickets. */
-  tif: VenueTimeInForce;
+  /** A limit order's time in force, picked once for both tickets; good till date is run by our engine (J-cex-spot-03 #7). */
+  tif: DeskTif;
+  /** A good-till-date order's expiry (ISO), in the future; null while none is picked or the time has passed. */
+  expireAt?: string | null;
   /** The owner's market price protection in bps, or null when blank. */
   protectionBps: string | null;
   market: VenueMarket;
@@ -133,6 +142,11 @@ export function VenueSideForm({
   const d = deskCopy.useCopy().t;
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
+  const sign = useSignPrepared(owner ?? '');
+  // Good till date: the order rests on the venue good till cancelled, and our engine cancels it at the expiry.
+  const gtd = type === 'limit' && tif === 'GTD';
+  // The draft this form's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   // The unit flag: the person types the size in the base asset (Amount) or in the quote asset (Total, or Spend on a
@@ -157,7 +171,7 @@ export function VenueSideForm({
     sending.current = true;
     const answer = await run(
       { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, status.builder.feeBps) },
+      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, status.builder.feeBps, undefined, approvalDraft) },
     );
     sending.current = false;
     setApproving(answer);
@@ -175,7 +189,7 @@ export function VenueSideForm({
   // The price a value is sized at: a limit's own price, or a market order's worst price (so a buy's lock stays within it).
   const sizedAt = type === 'limit' ? price.trim() || null : worst;
   const sizedAmount = unit === 'quote' ? (amountForValue(value, sizedAt, market.lotSize) ?? '') : amount;
-  const fields: TicketFields = { side, type, price, amount: sizedAmount, tif };
+  const fields: TicketFields = { side, type, price, amount: sizedAmount, tif: venueTifOf(tif) };
   const issue = ticketProblem(fields, market, worst, capSet);
   // A market order's worst price is held with its key (HeldDraft.hold): the intent sent under one key never changes.
   const held = draft && issue === null ? draft.hold(fields, worst) : null;
@@ -211,12 +225,27 @@ export function VenueSideForm({
 
   const verb = side === 'buy' ? d('Buy asset', { asset: market.baseAsset }) : d('Sell asset', { asset: market.baseAsset });
   // The venue's own figures: what this order locks against what the venue account has free (J-cex-spot-02 #6).
-  const balances = account.balances.data?.value ?? null;
+  // In standard mode a spot order pays from the spot balance, apart from perps (J-derivatives-29 #2): the shortfall is
+  // judged against spot, as the venue reports it.
+  const accountMode = useAccountMode(market.kind === 'spot' ? owner : null);
+  const spotRows =
+    market.kind === 'spot' && accountMode.state === 'known' && accountMode.read.mode === 'standard' ? (accountMode.read.spot ?? []) : null;
+  const balances = spotRows ?? account.balances.data?.value ?? null;
   const short = live?.state === 'ok' && live.signature === signature && balances ? lockShortfall(live.preview.value, balances) : null;
   const refusedNow = live?.state === 'refused' && live.signature === signature;
+  // A buy that spot can't pay in standard mode, or in a mode not known: the move from perps is offered, or refused.
+  const spotOffer = side === 'buy' && market.kind === 'spot' && (spotRows !== null || accountMode.state === 'unknown');
   const tagBad = tagProblem(tag);
   const canSend =
-    access === 'verified' && owner !== null && intent !== null && !busy && !waiting && short === null && !refusedNow && !tagBad;
+    access === 'verified' &&
+    owner !== null &&
+    intent !== null &&
+    !busy &&
+    !waiting &&
+    short === null &&
+    !refusedNow &&
+    !tagBad &&
+    (!gtd || expireAt !== null);
   const amountPlaces = placesOf(market.lotSize);
   const valueLabel = type === 'market' && side === 'buy' ? t('Spend') : t('Total');
   const pricePlaces = placesOf(market.tickSize);
@@ -256,12 +285,14 @@ export function VenueSideForm({
       setResult(null);
       setProblem(null);
       if (size.trim() === '') return;
-      const f: TicketFields = { side, type: kind, price: kind === 'limit' ? at : '', amount: size, tif };
+      const f: TicketFields = { side, type: kind, price: kind === 'limit' ? at : '', amount: size, tif: venueTifOf(tif) };
+      // A good-till-date order is never placed at once: its expiry and our engine's cancel are reviewed first.
+      if (kind === 'limit' && tif === 'GTD' && expireAt === null) return;
       if (!draft || !owner || access !== 'verified' || waiting || ticketProblem(f, market, worstNow, capSet) !== null) return;
       const hold = draft.hold(f, worstNow);
       const order = intentOf(f, market, hold.worst, hold.key, capSet);
       if (!order) return;
-      void (instant && kind === 'limit' ? sendNow(order) : reviewOf(order));
+      void (instant && kind === 'limit' && tif !== 'GTD' ? sendNow(order) : reviewOf(order));
     },
     flatten(all: string, worstNow: string | null) {
       // The ticket shows the same market sell the review holds, so its draft keeps the one key for it.
@@ -270,7 +301,7 @@ export function VenueSideForm({
       setAmount(all);
       setResult(null);
       setProblem(null);
-      const f: TicketFields = { side, type: 'market', price: '', amount: all, tif };
+      const f: TicketFields = { side, type: 'market', price: '', amount: all, tif: venueTifOf(tif) };
       if (!draft || !owner || access !== 'verified' || ticketProblem(f, market, worstNow, capSet) !== null) return;
       const hold = draft.hold(f, worstNow);
       const sell = intentOf(f, market, hold.worst, hold.key, capSet);
@@ -348,7 +379,46 @@ export function VenueSideForm({
       return;
     }
     // The review closes on Confirm: what follows is the wallet's, then the venue's answer under the ticket.
+    if (gtd) return placeGoodTillDate(sent);
     await send(sent);
+  }
+
+  /**
+   * Good till date (J-cex-spot-03 #7): our engine keeps the order and its expiry, and the person's wallet signs the order
+   * itself, a good-till-cancelled limit on the venue. A refusal (an expiry now past, no agent permission yet) is said in
+   * the review, and nothing is signed. `sending` is already held.
+   */
+  async function placeGoodTillDate(order: OrderIntent) {
+    if (!owner || !expireAt) {
+      sending.current = false;
+      return setReviewProblem(t('Expiry past'));
+    }
+    const created = await venue.createSpotOrder({
+      owner,
+      symbol: order.symbol,
+      kind: 'gtd',
+      side: order.side,
+      quantity: order.amount,
+      entryPrice: order.price,
+      entryTif: 'GTC',
+      expireAt,
+      clientOrderId: gtdClientId(order.clientOrderKey),
+    });
+    if (!created.ok || created.data.restsOn !== 'engine' || !created.data.entry) {
+      sending.current = false;
+      return setReviewProblem(t('Not placeable', { detail: created.ok ? t('Expiry past') : created.message }));
+    }
+    const entry = created.data.entry;
+    const placed: OrderIntent = { ...order, clientOrderKey: entry.actionKey };
+    setReview(null);
+    setBusy(true);
+    setSent(placed);
+    const answer = await sign(entry);
+    sending.current = false;
+    setBusy(false);
+    setResult(answer);
+    draft?.settle(order.clientOrderKey);
+    onPlaced(placed, answer, tag.trim());
   }
 
   const edit = (apply: () => void) => {
@@ -423,7 +493,7 @@ export function VenueSideForm({
         aria-label={valueLabel}
       />
       <label className="dk-tif dk-opt">
-        <span className="dk-tif-label">{t('Tag label')}</span>
+        <span className="lt-hint lt-nowrap">{t('Tag label')}</span>
         <input
           type="text"
           className="dk-expiry-input dk-tag-input"
@@ -458,9 +528,9 @@ export function VenueSideForm({
         {access === 'verify' ? (
           <VerifyNote />
         ) : access === 'loading' ? (
-          <p className="dk-note">{t('Checking verification')}</p>
+          <p className="lt-hint">{t('Checking verification')}</p>
         ) : access === 'unread' ? (
-          <p className="dk-note">{t('Verification unread')}</p>
+          <p className="lt-hint">{t('Verification unread')}</p>
         ) : issue === 'rule_unpublished' ? (
           <p className="dk-note dk-note--bad" role="alert" data-code="trade.venue_rule_unpublished">
             {t('Rule unpublished', {
@@ -472,9 +542,9 @@ export function VenueSideForm({
             })}
           </p>
         ) : !owner ? (
-          <p className="dk-note">{t('Connect to trade')}</p>
+          <p className="lt-hint">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
-          <p className="dk-note" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
+          <p className="lt-hint" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
             {t('No price protection')}
           </p>
         ) : tagBad ? (
@@ -482,36 +552,45 @@ export function VenueSideForm({
             {t('Tag bad')}
           </p>
         ) : issue === 'no_book' ? (
-          <p className="dk-note">{t('No book side')}</p>
+          <p className="lt-hint">{t('No book side')}</p>
         ) : issue === 'amount_step' && amount ? (
-          <p className="dk-note">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
+          <p className="lt-hint">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
         ) : issue === 'price_step' && price ? (
-          <p className="dk-note">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
+          <p className="lt-hint">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
         ) : live?.state === 'checking' ? (
-          <p className="dk-note">{t('Checking venue')}</p>
+          <p className="lt-hint">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (
           <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused" data-code={live.code ?? ''}>
             {live.code === BUILDER_FEE_BLANK ? v('Builder fee owner blank') : t('Not placeable', { detail: live.message })}
           </p>
-        ) : short ? (
+        ) : short && !spotOffer ? (
           <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-short">
             {t('Not enough free', { asset: short.asset, lock: displayAmount(short.lock), free: displayAmount(short.free) })}
           </p>
         ) : null}
-        {busy ? <p className="dk-note">{t('Waiting wallet')}</p> : null}
+        {spotOffer && owner ? (
+          <SpotShortOffer
+            owner={owner}
+            venueName={status.venue.displayName}
+            mode={accountMode}
+            lock={short && short.asset === 'USDC' ? short.lock : null}
+            onLanded={accountMode.reload}
+          />
+        ) : null}
+        {busy ? <p className="lt-hint">{t('Waiting wallet')}</p> : null}
         {problem ? (
           <p className="dk-note dk-note--bad" role="alert">
             {problem}
           </p>
         ) : null}
         {result?.kind === 'unknown' ? (
-          <p className="dk-note" role="status">
+          <p className="lt-hint" role="status">
             {outcomeText(v, result)}
           </p>
         ) : result ? (
           <OutcomeLine result={result} owner={owner} />
         ) : null}
-        {result ? <TicketOutcome result={result} sent={sent} base={market.baseAsset} /> : null}
+        {result ? <TicketOutcome result={result} sent={sent} base={market.baseAsset} expireAt={gtd ? expireAt : null} /> : null}
       </div>
       <AlertDialog
         open={review !== null}
@@ -543,7 +622,14 @@ export function VenueSideForm({
               protectionBps={protectionBps}
               selfTrade={venueSelfTrade(market)}
               tag={tag.trim()}
+              expireAt={gtd ? expireAt : null}
             />
+            {gtd && owner ? (
+              <>
+                <p className="lt-hint">{t('Gtd permission')}</p>
+                <AgentPermission owner={owner} />
+              </>
+            ) : null}
             {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
               <Button variant="secondary" size={40} onClick={() => void approve()}>
                 {v('Approve in wallet')}
@@ -575,13 +661,30 @@ export function VenueSideForm({
  * What the venue's definite answer means for the order just sent (J-cex-spot-03 #4, #6): one that ended at once with
  * nothing filled traded nothing, and the venue released its lock; a post-only order the venue refused was never placed.
  */
-function TicketOutcome({ result, sent, base }: { result: ActionResult; sent: OrderIntent | null; base: string }) {
+function TicketOutcome({
+  result,
+  sent,
+  base,
+  expireAt,
+}: {
+  result: ActionResult;
+  sent: OrderIntent | null;
+  base: string;
+  expireAt: string | null;
+}) {
   const { t } = spotVenueCopy.useCopy();
   if (result.kind !== 'outcome' || !sent) return null;
   const o = result.outcome;
+  if (o.accepted && expireAt && sent.clientOrderKey.startsWith('spot-cond:')) {
+    return (
+      <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome="gtd-resting" data-expire-at={expireAt}>
+        {t('Gtd placed', { at: new Date(expireAt).toLocaleString() })}
+      </p>
+    );
+  }
   if (!o.accepted) {
     return sent.timeInForce === 'ALO' ? (
-      <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">
+      <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">
         {t('Post only refused')}
       </p>
     ) : null;
@@ -594,7 +697,7 @@ function TicketOutcome({ result, sent, base }: { result: ActionResult; sent: Ord
     return null;
   }
   return (
-    <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome={filled === 0n ? 'nothing-traded' : 'partly-traded'}>
+    <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome={filled === 0n ? 'nothing-traded' : 'partly-traded'}>
       {filled === 0n ? t('Nothing traded') : t('Partly traded', { filled: displayAmount(o.order.filled), asset: base })}
     </p>
   );

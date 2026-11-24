@@ -7,14 +7,35 @@
  * is 403 and `identity.step_up_unavailable` 503. With no grid service mounted every door answers 503 `trade.grid_unavailable`.
  */
 import { z } from 'zod';
-import { router, scopedProcedure, StepUpCheckError, TRPCError } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
-import { GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
+import { GRID_SET_EXITS, GRID_SET_IDLE_YIELD, GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
+import { answerKeys } from '../answer-keys.js';
 import { TradeError } from '../spot/types.js';
 import { TradingControlError } from '../controls/trading-controls.js';
 import { GRID_CONFLICT_CODES, GRID_NOT_FOUND_CODES, GridError } from './errors.js';
-import type { GridService } from './grid-service.js';
-import type { VenueGrid } from './venue-grid.js';
+import type { GridBotView, GridPresetsView, GridService, GridSetupView, GridTopUpView, GridWithdrawalView } from './grid-service.js';
+import type { VenueGrid, VenueGridView } from './venue-grid.js';
+import {
+  gridSetupAnswer,
+  gridPresetsAnswer,
+  ownGridAnswer,
+  gridAnswer,
+  gridTopUpFreeAnswer,
+  decimalOrBlank,
+  gridTopUpAnswer,
+  gridWithdrawalAnswer,
+} from '@intafaced/contracts/trade-call-schemas';
+import {
+  TRADE_BOTS_GRID_SETUP,
+  TRADE_BOTS_GRID_PRESETS,
+  TRADE_BOTS_GRID_STOP,
+  TRADE_BOTS_GRID_TOP_UP_FREE,
+  TRADE_BOTS_GRID_TOP_UP,
+  TRADE_BOTS_GRID_MODIFY,
+  TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+} from '@intafaced/contracts/trade-bots-procedures';
 
 const VERIFICATION_CODES = new Set(['trade.bots_verification_insufficient', 'trade.bots_verification_level_not_set']);
 
@@ -54,8 +75,19 @@ const gridRefusalOf: RefusalOf = (err) => {
   return typeof code === 'string' ? { code, error: wire } : undefined;
 };
 
-/** Decimal strings only on the wire; blank is allowed through so the service names the blank field. */
-const decimalOrBlank = z.string().max(64).optional().nullable();
+answerKeys<GridSetupView>()(gridSetupAnswer);
+
+answerKeys<GridPresetsView>()(gridPresetsAnswer);
+
+answerKeys<GridBotView>()(ownGridAnswer);
+
+answerKeys<VenueGridView | GridBotView>()(gridAnswer);
+
+answerKeys<GridWithdrawalView>()(gridWithdrawalAnswer);
+
+answerKeys<Awaited<ReturnType<GridService['topUpFree']>>>()(gridTopUpFreeAnswer);
+
+answerKeys<GridTopUpView>()(gridTopUpAnswer);
 
 /**
  * With the user-venue door on, a grid trades on the person's own venue account (venue-grid.ts): create makes a
@@ -72,8 +104,8 @@ export function gridRouter(grid?: GridService, venueGrid?: VenueGrid | null) {
     }
   }
   return router({
-    setup: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => call((g) => g.setup(ctx.principal))),
-    presets: scopedProcedure('trade:read', { module: 'trade' }).query(() => call((g) => g.presets())),
+    setup: mountRecord(TRADE_BOTS_GRID_SETUP, ({ ctx }) => call((g) => g.setup(ctx.principal)), gridRefusalOf),
+    presets: mountRecord(TRADE_BOTS_GRID_PRESETS, () => call((g) => g.presets()), gridRefusalOf),
     create: scopedProcedure('trade:write', { module: 'trade' })
       .input(
         z.object({
@@ -87,66 +119,55 @@ export function gridRouter(grid?: GridService, venueGrid?: VenueGrid | null) {
           owner: z.string().max(64).optional().nullable(),
         }),
       )
+      .output(gridAnswer)
       .mutation(({ ctx, input }) =>
-        call((g): Promise<unknown> => (venueGrid ? venueGrid.create(ctx.principal, input, ctx.region) : g.create(ctx.principal, input))),
+        call((g): Promise<VenueGridView | GridBotView> =>
+          venueGrid ? venueGrid.create(ctx.principal, input, ctx.region) : g.create(ctx.principal, input),
+        ),
       ),
     get: scopedProcedure('trade:read', { module: 'trade' })
       .input(z.object({ botId: z.string().min(1).max(64) }))
+      .output(gridAnswer)
       .query(({ ctx, input }) =>
-        call(async (g): Promise<unknown> =>
+        call(async (g): Promise<VenueGridView | GridBotView> =>
           venueGrid && (await venueGrid.has(input.botId)) ? venueGrid.get(ctx.principal, input.botId) : g.get(ctx.principal, input.botId),
         ),
       ),
-    list: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
-      call(async (g): Promise<unknown[]> => [...(venueGrid ? await venueGrid.list(ctx.principal) : []), ...(await g.list(ctx.principal))]),
-    ),
-    withdrawProfit: scopedProcedure('trade:write', { module: 'trade' })
-      .input(
-        z.object({
-          botId: z.string().min(1).max(64),
-          requestId: z.string().min(8).max(120),
-          asset: z.string().min(2).max(16),
-          amount: decimalOrBlank,
-          stepUpApprovalId: z.string().max(128).optional().nullable(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        call(async (g): Promise<unknown> =>
+    list: scopedProcedure('trade:read', { module: 'trade' })
+      .output(z.array(gridAnswer))
+      .query(({ ctx }) =>
+        call(async (g): Promise<Array<VenueGridView | GridBotView>> => [
+          ...(venueGrid ? await venueGrid.list(ctx.principal) : []),
+          ...(await g.list(ctx.principal)),
+        ]),
+      ),
+    withdrawProfit: mountRecord(
+      TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+      ({ ctx, input }) =>
+        call(async (g): Promise<GridWithdrawalView> =>
           venueGrid && (await venueGrid.has(input.botId))
             ? venueGrid.withdrawProfit(ctx.principal, input.botId)
             : g.withdrawProfit(ctx.principal, input),
         ),
-      ),
-    topUpFree: scopedProcedure('trade:read', { module: 'trade' })
-      .input(z.object({ botId: z.string().min(1).max(64) }))
-      .query(({ ctx, input }) => call((g) => g.topUpFree(ctx.principal, input.botId))),
-    topUp: scopedProcedure('trade:write', { module: 'trade' })
-      .input(
-        z.object({
-          botId: z.string().min(1).max(64),
-          requestId: z.string().min(8).max(120),
-          asset: z.string().max(16).optional().nullable(),
-          amount: decimalOrBlank,
-        }),
-      )
-      .mutation(({ ctx, input }) => call((g) => g.topUp(ctx.principal, input))),
-    modify: scopedProcedure('trade:write', { module: 'trade' })
-      .input(
-        z.object({
-          botId: z.string().min(1).max(64),
-          trailing: z.boolean().optional().nullable(),
-          shiftLimitPercent: decimalOrBlank,
-          minGridCount: z.number().int().optional().nullable(),
-        }),
-      )
-      .mutation(({ ctx, input }) => call((g) => g.modify(ctx.principal, input))),
-    stop: scopedProcedure('trade:write', { module: 'trade' })
-      .input(z.object({ botId: z.string().min(1).max(64) }))
-      .mutation(({ ctx, input }) =>
-        call(async (g): Promise<unknown> =>
+      gridRefusalOf,
+    ),
+    topUpFree: mountRecord(
+      TRADE_BOTS_GRID_TOP_UP_FREE,
+      ({ ctx, input }) => call((g) => g.topUpFree(ctx.principal, input.botId)),
+      gridRefusalOf,
+    ),
+    topUp: mountRecord(TRADE_BOTS_GRID_TOP_UP, ({ ctx, input }) => call((g) => g.topUp(ctx.principal, input)), gridRefusalOf),
+    modify: mountRecord(TRADE_BOTS_GRID_MODIFY, ({ ctx, input }) => call((g) => g.modify(ctx.principal, input)), gridRefusalOf),
+    setExits: mountRecord(GRID_SET_EXITS, ({ ctx, input }) => call((g) => g.setExits(ctx.principal, input)), gridRefusalOf),
+    setIdleYield: mountRecord(GRID_SET_IDLE_YIELD, ({ ctx, input }) => call((g) => g.setIdleYield(ctx.principal, input)), gridRefusalOf),
+    stop: mountRecord(
+      TRADE_BOTS_GRID_STOP,
+      ({ ctx, input }) =>
+        call(async (g): Promise<VenueGridView | GridBotView> =>
           venueGrid && (await venueGrid.has(input.botId)) ? venueGrid.stop(ctx.principal, input.botId) : g.stop(ctx.principal, input.botId),
         ),
-      ),
+      gridRefusalOf,
+    ),
     submitPermission: mountRecord(
       GRID_SUBMIT_PERMISSION,
       ({ ctx, input }) =>

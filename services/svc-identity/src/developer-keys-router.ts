@@ -1,28 +1,28 @@
-import { router, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import {
+  DEVELOPER_KEY_REFUSALS,
+  DEVELOPER_TEAM_REFUSAL_STATUS,
+  IDENTITY_DEVELOPER_KEYS_APPROVALS,
+  IDENTITY_DEVELOPER_KEYS_CALLS,
+  IDENTITY_DEVELOPER_KEYS_GET,
+  IDENTITY_DEVELOPER_KEYS_HOLD_AGENT_ACTION,
+  IDENTITY_DEVELOPER_KEYS_LIST,
+  IDENTITY_DEVELOPER_KEYS_OPERATOR_AUDIT,
+  IDENTITY_DEVELOPER_KEYS_RECORD_CALL,
+  IDENTITY_DEVELOPER_KEYS_REPORT_LEAKED,
+  IDENTITY_DEVELOPER_KEYS_REVOKE,
+  IDENTITY_DEVELOPER_KEYS_ROTATION_REQUEST,
+  IDENTITY_DEVELOPER_KEYS_SCOPES,
+  IDENTITY_DEVELOPER_KEYS_SET_TEAM_ROLE,
+  IDENTITY_DEVELOPER_KEYS_TEAM,
+} from '@intafaced/contracts/identity-developer-keys-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 import {
   apiKeyCreateInputSchema,
   apiKeyCreateOutputSchema,
-  apiKeyDetailSchema,
-  apiKeyGetInputSchema,
-  apiKeyListInputSchema,
-  apiKeyRevokeInputSchema,
-  apiKeyRevokeOutputSchema,
   apiKeySetExpiryInputSchema,
   apiKeySetExpiryOutputSchema,
-  apiKeyListOutputSchema,
-  apiKeyScopesOutputSchema,
-  agentKeyApprovalListInputSchema,
-  agentKeyApprovalListOutputSchema,
-  agentKeyHoldInputSchema,
-  agentKeyHoldOutputSchema,
-  apiKeyCallRecordInputSchema,
-  apiKeyCallRecordOutputSchema,
-  apiKeyCallsInputSchema,
-  apiKeyCallsOutputSchema,
-  developerSetRoleInputSchema,
-  developerSetRoleOutputSchema,
-  developerTeamInputSchema,
-  developerTeamSchema,
   apiKeyRotateInputSchema,
   apiKeyRotateOutputSchema,
 } from '@intafaced/contracts/api-keys';
@@ -49,47 +49,10 @@ import { developerTeam, DeveloperTeamError, revokeOrgKey, setDeveloperRole } fro
 import { MintApiKeyPasskeyError } from './auth/mint-api-key-passkey.js';
 import { userCopy } from './user-copy.js';
 
-export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = {
-  'auth.scope_empty': 'BAD_REQUEST',
-  'auth.scope_unknown': 'BAD_REQUEST',
-  'auth.scope_interactive_only': 'FORBIDDEN',
-  'auth.scope_not_held': 'FORBIDDEN',
-  'auth.ip_invalid': 'BAD_REQUEST',
-  'identity.key_name_invalid': 'BAD_REQUEST',
-  'identity.key_name_taken': 'CONFLICT',
-  'identity.key_expiry_invalid': 'BAD_REQUEST',
-  'identity.key_cap_unset': 'PRECONDITION_FAILED',
-  'identity.key_cap_reached': 'PRECONDITION_FAILED',
-  'identity.key_request_conflict': 'CONFLICT',
-  'identity.key_signing_unset': 'PRECONDITION_FAILED',
-  'identity.key_lead_not_approved': 'FORBIDDEN',
-  'identity.key_lead_check_unavailable': 'PRECONDITION_FAILED',
-  'identity.key_not_found': 'NOT_FOUND',
-  'identity.key_not_live': 'PRECONDITION_FAILED',
-  'identity.key_revoke_reason_invalid': 'BAD_REQUEST',
-  'identity.key_account_required': 'BAD_REQUEST',
-  'identity.key_account_denied': 'FORBIDDEN',
-  'identity.key_org_denied': 'FORBIDDEN',
-  'identity.portfolio_key_cap_unset': 'PRECONDITION_FAILED',
-  'identity.portfolio_key_cap_reached': 'PRECONDITION_FAILED',
-  'auth.agent_scope_forbidden': 'FORBIDDEN',
-  'identity.developer_roles_unset': 'PRECONDITION_FAILED',
-  'identity.developer_role_read_only': 'FORBIDDEN',
-  'identity.developer_role_none': 'FORBIDDEN',
-  'identity.key_rotate_overlap_unset': 'PRECONDITION_FAILED',
-  'identity.key_rotate_overlap_too_long': 'BAD_REQUEST',
-};
+/** The status each developer key refusal leaves with: the records' own table, which must name every code. */
+export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = DEVELOPER_KEY_REFUSALS;
 
-const DEVELOPER_TEAM_STATUS: Record<DeveloperTeamError['code'], TRPCError['code']> = {
-  'identity.developer_roles_unset': 'PRECONDITION_FAILED',
-  'identity.developer_role_read_only': 'FORBIDDEN',
-  'identity.developer_role_none': 'FORBIDDEN',
-  'identity.developer_org_denied': 'NOT_FOUND',
-  'identity.developer_role_denied': 'FORBIDDEN',
-  'identity.developer_role_unknown': 'BAD_REQUEST',
-  'identity.developer_member_unknown': 'NOT_FOUND',
-  'identity.developer_request_conflict': 'CONFLICT',
-};
+const DEVELOPER_TEAM_STATUS: Record<DeveloperTeamError['code'], TRPCError['code']> = DEVELOPER_TEAM_REFUSAL_STATUS;
 
 function refused(err: unknown): never {
   if (err instanceof DeveloperTeamError) {
@@ -137,47 +100,38 @@ function assertSignedInPerson(principal: { kid?: string | undefined; sub_account
 /**
  * The developer room's key doors (`developerKeys.*`), beside `apiKeys.*` so mergeRouters cannot replace either.
  * Only a person signed in on a device may use them: an API key or a sub-account is refused before anything is read.
+ * Thirteen are mounted from their records (`@intafaced/contracts/identity-developer-keys-procedures`); the four that take
+ * a fresh second factor are not yet (see that file).
  */
 export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
   return router({
     developerKeys: router({
-      create: scopedProcedure('identity:write')
-        .input(apiKeyCreateInputSchema.extend({ factorProof: optionalFactorProof }))
-        .output(apiKeyCreateOutputSchema)
-        .mutation(async ({ ctx, input }) => {
-          assertSignedInPerson(ctx.principal);
-          try {
-            return await createDeveloperKey(deps, ctx.principal, input);
-          } catch (err) {
-            refused(err);
-          }
-        }),
-
-      list: scopedProcedure('identity:read')
-        .input(apiKeyListInputSchema)
-        .output(apiKeyListOutputSchema)
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_LIST,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           return listDeveloperKeys(deps, ctx.principal.userId, input.limit);
-        }),
+        },
+        codedRefusal,
+      ),
 
-      get: scopedProcedure('identity:read')
-        .input(apiKeyGetInputSchema)
-        .output(apiKeyDetailSchema)
-        .query(async ({ ctx, input }) => {
+      get: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_GET,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
             return await getDeveloperKey(deps, ctx.principal.userId, input.keyId);
           } catch (err) {
             refused(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /** No second factor: the person can always switch a key off. A key or a sub-account still cannot call it. */
-      revoke: scopedProcedure('identity:write')
-        .input(apiKeyRevokeInputSchema)
-        .output(apiKeyRevokeOutputSchema)
-        .mutation(async ({ ctx, input }) => {
+      revoke: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_REVOKE,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
             if (input.orgId !== undefined) {
@@ -197,29 +151,142 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
           } catch (err) {
             refused(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /** The organisation's developer area as the caller sees it (DV-console-01): their role, the reason, its keys. */
-      team: scopedProcedure('identity:read')
-        .input(developerTeamInputSchema)
-        .output(developerTeamSchema)
-        .query(async ({ ctx, input }) => {
+      team: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_TEAM,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
             return await developerTeam(deps.sql, input.orgId, ctx.principal.userId, deps.developerRoles ?? null);
           } catch (err) {
             refused(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /** The owner gives a member a developer role or takes it away; a member never can. */
-      setTeamRole: scopedProcedure('identity:write')
-        .input(developerSetRoleInputSchema)
-        .output(developerSetRoleOutputSchema)
-        .mutation(async ({ ctx, input }) => {
+      setTeamRole: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_SET_TEAM_ROLE,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
             return await setDeveloperRole(deps.sql, ctx.principal.userId, input, deps.developerRoles ?? null);
+          } catch (err) {
+            refused(err);
+          }
+        },
+        codedRefusal,
+      ),
+
+      /**
+       * An operator reports a leaked key string (DV-keys-05, J-developer-07 #6). The same reply for a match, a repeat
+       * and a string that is no key; a live match is revoked with one audit row and one notice to its holder.
+       */
+      reportLeaked: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_REPORT_LEAKED,
+        async ({ ctx, input }) => {
+          try {
+            return await reportLeakedKey(deps.sql, ctx, input.key);
+          } catch (err) {
+            leakRefused(err);
+          }
+        },
+        codedRefusal,
+      ),
+
+      /** The operator revoke record of one key (at most one entry), for the reporting operator. */
+      operatorAudit: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_OPERATOR_AUDIT,
+        async ({ ctx, input }) => {
+          try {
+            return await operatorKeyAudit(deps.sql, ctx, input.keyId);
+          } catch (err) {
+            leakRefused(err);
+          }
+        },
+        codedRefusal,
+      ),
+
+      /** The waiting rotation request a key made for itself, shown on the key's page for its owner to approve. */
+      rotationRequest: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_ROTATION_REQUEST,
+        async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          return { request: await waitingRotation(deps.sql, ctx.principal.userId, input.keyId) };
+        },
+        codedRefusal,
+      ),
+
+      scopes: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_SCOPES,
+        ({ ctx }) => {
+          assertSignedInPerson(ctx.principal);
+          return { scopes: describeKeyScopes(ctx.principal.scopes) };
+        },
+        codedRefusal,
+      ),
+
+      /** The owner's agent keys' held attempts (DV-keys-05): each a waiting row; nothing was sent. */
+      approvals: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_APPROVALS,
+        async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          return listAgentKeyApprovals(deps.sql, ctx.principal.userId, input.limit);
+        },
+        codedRefusal,
+      ),
+
+      /** One key's call log (DV-keys-06): its owner only; anyone else's key is not found. Never a body or header value. */
+      calls: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_CALLS,
+        async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await listApiKeyCalls(deps.sql, ctx.principal.userId, input);
+          } catch (err) {
+            if (err instanceof ApiKeyCallsError) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+            }
+            throw err;
+          }
+        },
+        codedRefusal,
+      ),
+
+      /** The edge's report of one call it answered for an API key (`api-key-calls.ts`). Only the edge may send it. */
+      recordCall: mountRecord(IDENTITY_DEVELOPER_KEYS_RECORD_CALL, ({ input }) => recordApiKeyCall(deps.sql, input), codedRefusal),
+
+      /**
+       * The edge's ask when an API key attempts a held action (`AGENT_HELD_ACTIONS`): an agent key's attempt becomes a
+       * waiting row and is not forwarded; any other key is not held. Only the edge may call it.
+       */
+      holdAgentAction: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_HOLD_AGENT_ACTION,
+        async ({ input }) => {
+          try {
+            return await holdAgentKeyAction(deps.sql, input);
+          } catch (err) {
+            if (err instanceof AgentKeyApprovalError) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+            }
+            throw err;
+          }
+        },
+        codedRefusal,
+      ),
+
+      create: scopedProcedure('identity:write')
+        .input(apiKeyCreateInputSchema.extend({ factorProof: optionalFactorProof }))
+        .output(apiKeyCreateOutputSchema)
+        .mutation(async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await createDeveloperKey(deps, ctx.principal, input);
           } catch (err) {
             refused(err);
           }
@@ -242,35 +309,6 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
           }
         }),
 
-      /**
-       * An operator reports a leaked key string (DV-keys-05, J-developer-07 #6). The same reply for a match, a repeat
-       * and a string that is no key; a live match is revoked with one audit row and one notice to its holder.
-       */
-      reportLeaked: scopedProcedure('admin:compliance')
-        .input(z.object({ key: z.string().min(1).max(512) }).strict())
-        .output(z.object({ received: z.literal(true) }).strict())
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await reportLeakedKey(deps.sql, ctx, input.key);
-          } catch (err) {
-            leakRefused(err);
-          }
-        }),
-
-      /** The operator revoke record of one key (at most one entry), for the reporting operator. */
-      operatorAudit: scopedProcedure('admin:compliance')
-        .input(z.object({ keyId: z.string().guid(), limit: z.number().int().min(1).max(100).optional() }).strict())
-        .output(
-          z.object({ entries: z.array(z.object({ actorId: z.string(), reason: z.string(), revokedAt: z.string() }).strict()) }).strict(),
-        )
-        .query(async ({ ctx, input }) => {
-          try {
-            return await operatorKeyAudit(deps.sql, ctx, input.keyId);
-          } catch (err) {
-            leakRefused(err);
-          }
-        }),
-
       /** A key can never rotate itself here: a key's own request goes through the approval door instead. */
       rotate: scopedProcedure('identity:write')
         .input(apiKeyRotateInputSchema.extend({ factorProof: optionalFactorProof }))
@@ -284,21 +322,6 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
           }
         }),
 
-      /** The waiting rotation request a key made for itself, shown on the key's page for its owner to approve. */
-      rotationRequest: scopedProcedure('identity:read')
-        .input(z.object({ keyId: z.string().uuid() }))
-        .output(
-          z.object({
-            request: z
-              .object({ requestId: z.string(), keyId: z.string(), overlapSeconds: z.number().int(), createdAt: z.string() })
-              .nullable(),
-          }),
-        )
-        .query(async ({ ctx, input }) => {
-          assertSignedInPerson(ctx.principal);
-          return { request: await waitingRotation(deps.sql, ctx.principal.userId, input.keyId) };
-        }),
-
       /** The owner, signed in on a device with a fresh passkey, approves a key's request: one replacement issues. */
       approveRotation: scopedProcedure('identity:write')
         .input(z.object({ requestId: z.string().uuid(), factorProof: optionalFactorProof }))
@@ -309,62 +332,6 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
             return await approveByPerson(deps, ctx.principal, input);
           } catch (err) {
             rotationRefused(err);
-          }
-        }),
-
-      scopes: scopedProcedure('identity:read')
-        .output(apiKeyScopesOutputSchema)
-        .query(({ ctx }) => {
-          assertSignedInPerson(ctx.principal);
-          return { scopes: describeKeyScopes(ctx.principal.scopes) };
-        }),
-
-      /** The owner's agent keys' held attempts (DV-keys-05): each a waiting row; nothing was sent. */
-      approvals: scopedProcedure('identity:read')
-        .input(agentKeyApprovalListInputSchema)
-        .output(agentKeyApprovalListOutputSchema)
-        .query(async ({ ctx, input }) => {
-          assertSignedInPerson(ctx.principal);
-          return listAgentKeyApprovals(deps.sql, ctx.principal.userId, input.limit);
-        }),
-
-      /** One key's call log (DV-keys-06): its owner only; anyone else's key is not found. Never a body or header value. */
-      calls: scopedProcedure('identity:read')
-        .input(apiKeyCallsInputSchema)
-        .output(apiKeyCallsOutputSchema)
-        .query(async ({ ctx, input }) => {
-          assertSignedInPerson(ctx.principal);
-          try {
-            return await listApiKeyCalls(deps.sql, ctx.principal.userId, input);
-          } catch (err) {
-            if (err instanceof ApiKeyCallsError) {
-              throw new TRPCError({ code: 'NOT_FOUND', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
-            }
-            throw err;
-          }
-        }),
-
-      /** The edge's report of one call it answered for an API key (`api-key-calls.ts`). Only the edge may send it. */
-      recordCall: serviceProcedureFor(['svc-edge'])
-        .input(apiKeyCallRecordInputSchema)
-        .output(apiKeyCallRecordOutputSchema)
-        .mutation(({ input }) => recordApiKeyCall(deps.sql, input)),
-
-      /**
-       * The edge's ask when an API key attempts a held action (`AGENT_HELD_ACTIONS`): an agent key's attempt becomes a
-       * waiting row and is not forwarded; any other key is not held. Only the edge may call it.
-       */
-      holdAgentAction: serviceProcedureFor(['svc-edge'])
-        .input(agentKeyHoldInputSchema)
-        .output(agentKeyHoldOutputSchema)
-        .mutation(async ({ input }) => {
-          try {
-            return await holdAgentKeyAction(deps.sql, input);
-          } catch (err) {
-            if (err instanceof AgentKeyApprovalError) {
-              throw new TRPCError({ code: 'NOT_FOUND', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
-            }
-            throw err;
           }
         }),
     }),

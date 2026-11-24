@@ -1,15 +1,16 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { Button, Field, Loading } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { countryOptions } from '../public';
-import { useBankRead } from './components';
-import { bankWrites } from './contracts';
+import { useBankRecord } from './components';
 import { DepthPanel } from './DepthParts';
 import { cardOrderCopy } from './card-order-copy';
 import { useHoldings } from './holdings';
 import { Refusal } from './CardJourney';
 import './bank-depth.css';
+import { BANK_CARDS_CATALOGUE, BANK_CARDS_ACCEPT_TERMS, BANK_CARDS_ORDER } from '@intafaced/contracts/bank-cards-procedures';
 
 /**
  * `/bank/cards/new` (J-bank-13 #1 to #3; BK-cissue-01 to -03): which cards the bank offers where the person lives and why
@@ -20,6 +21,8 @@ import './bank-depth.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
+/** Each part of the room reads and refuses in its own panel, so the template itself is always ready. */
+const READY: RoomState = { kind: 'ready' };
 
 export function CardOrderRoom() {
   const { t } = cardOrderCopy.useCopy();
@@ -27,7 +30,7 @@ export function CardOrderRoom() {
   const countries = useMemo(() => countryOptions('en'), []);
   const nameOf = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
   const [country, setCountry] = useState('DE');
-  const catalogue = useBankRead('cards.catalogue', { country });
+  const catalogue = useBankRecord(BANK_CARDS_CATALOGUE, { country });
   // The balances the person holds: a card draws on one of them, and earns cashback in the asset it draws on.
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets.map((a) => a.assetId) : [];
@@ -48,15 +51,30 @@ export function CardOrderRoom() {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [result, setResult] = useState<{ id: string; text: string; simulated: boolean } | null>(null);
 
-  if (catalogue.resource.status === 'loading') return <Loading />;
+  // The room sits on the kit's flow template, which draws its title, the page's margins and its place under the app's bar.
+  const room = (step: ReactNode, state: RoomState = READY, summary?: ReactNode) => (
+    <FlowTemplate
+      title={t('title')}
+      description={t('description')}
+      roomAction={
+        <a className="lt-link" href="/bank/cards">
+          {t('back')}
+        </a>
+      }
+      state={state}
+      step={step}
+      summary={summary}
+    />
+  );
+  if (catalogue.resource.status === 'loading') return room(<Loading />);
   if (catalogue.resource.status === 'failed') {
-    return (
-      <div className="bd-stack">
+    return room(
+      <div className="lt-stack">
         <Refusal failure={catalogue.resource.failure} />
         <Button variant="ghost" onClick={catalogue.reload}>
           {t('retry')}
         </Button>
-      </div>
+      </div>,
     );
   }
   const c = catalogue.resource.data;
@@ -64,6 +82,7 @@ export function CardOrderRoom() {
   const product = (type: 'virtual' | 'physical') => c.products.find((p) => p.type === type);
   const chosenDesign = design ?? c.designs[0]?.id ?? null;
   const chosenSpeed = speed ?? c.speeds[0]?.speed ?? null;
+  const offeredSpeed = c.speeds.find((s) => s.speed === chosenSpeed)?.speed;
   const deliverTo = address.country || c.deliveryCountries[0] || '';
   const addressOk = !!(address.name.trim() && address.line1.trim() && address.city.trim() && address.postalCode.trim());
   const blocker = !c.eligible
@@ -82,12 +101,7 @@ export function CardOrderRoom() {
     if (busy) return;
     setBusy(true);
     setFailure(null);
-    const done = await api.mutate(
-      'bank',
-      'cards.acceptTerms',
-      { termsVersion: c.terms.version, textHash: c.terms.textHash },
-      bankWrites['cards.acceptTerms'],
-    );
+    const done = await api.call(BANK_CARDS_ACCEPT_TERMS, { termsVersion: c.terms.version, textHash: c.terms.textHash });
     setBusy(false);
     if (!done.ok) return setFailure(done);
     catalogue.reload();
@@ -108,8 +122,9 @@ export function CardOrderRoom() {
       cardType,
       ...(physical
         ? {
-            designId: chosenDesign,
-            deliverySpeed: chosenSpeed,
+            // The bank takes no null here: an unset design or speed is left out, never sent as null.
+            ...(chosenDesign !== null ? { designId: chosenDesign } : {}),
+            ...(offeredSpeed ? { deliverySpeed: offeredSpeed } : {}),
             shippingAddress: {
               name: address.name.trim(),
               line1: address.line1.trim(),
@@ -123,7 +138,7 @@ export function CardOrderRoom() {
           ? { usesAllowed: 1 }
           : {}),
     };
-    const done = await api.mutate('bank', 'cards.order', input, bankWrites['cards.order']);
+    const done = await api.call(BANK_CARDS_ORDER, input);
     setBusy(false);
     if (!done.ok) return setFailure(done);
     const card = done.data;
@@ -140,35 +155,10 @@ export function CardOrderRoom() {
   }
 
   const speedName = (s: string) => (s === 'express' ? t('express') : s === 'signed' ? t('signed') : t('standard'));
-  return (
-    <div className="bd-stack">
-      <h1>{t('title')}</h1>
-      <p className="muted">{t('description')}</p>
-      <a className="text-link" href="/bank/cards">
-        {t('back')}
-      </a>
-      <DepthPanel title={t('programmeTitle')}>
-        <p data-testid="card-programme" data-simulated={String(c.programme.simulated)}>
-          {c.programme.id === 'none'
-            ? t('noIssuer')
-            : c.programme.simulated
-              ? t('simulation')
-              : t('live', { name: c.programme.displayName })}
-        </p>
-      </DepthPanel>
-      <DepthPanel title={t('productsTitle')}>
-        <ul data-testid="card-products">
-          <li data-testid="card-product-virtual">
-            {t('virtualProduct')} · {t('network', { network: c.network })}
-          </li>
-          <li data-testid="card-product-physical">
-            {t('physicalProduct')} · {t('network', { network: c.network })}
-          </li>
-        </ul>
-        <p className="money-caption">{t('feeNotSet')}</p>
-      </DepthPanel>
+  return room(
+    <div className="lt-stack">
       <DepthPanel title={t('eligibilityTitle')}>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('countryLabel')}</span>
           <select value={country} onChange={(event) => setCountry(event.target.value)}>
             {countries.map((o) => (
@@ -182,15 +172,9 @@ export function CardOrderRoom() {
           {c.eligible ? t('eligible', { country: nameOf(c.country) }) : t('notEligible', { country: nameOf(c.country) })}
         </p>
       </DepthPanel>
-      <DepthPanel title={t('limitsTitle')}>
-        <ul data-testid="card-count-limit">
-          <li>{t('virtualLimit', { held: String(product('virtual')?.held ?? 0), limit: String(product('virtual')?.limit ?? 0) })}</li>
-          <li>{t('physicalLimit', { held: String(product('physical')?.held ?? 0), limit: String(product('physical')?.limit ?? 0) })}</li>
-        </ul>
-      </DepthPanel>
       <DepthPanel title={t('termsTitle')}>
-        <div data-testid="card-terms" className="form-stack">
-          <p className="money-caption">{t('termsVersion', { version: c.terms.version })}</p>
+        <div data-testid="card-terms" className="lt-stack">
+          <p className="lt-muted">{t('termsVersion', { version: c.terms.version })}</p>
           <p>{c.terms.text}</p>
           {accepted ? (
             <p role="status">
@@ -214,7 +198,7 @@ export function CardOrderRoom() {
         </div>
       </DepthPanel>
       <DepthPanel title={t('orderTitle')}>
-        <form className="form-stack" onSubmit={order} noValidate>
+        <form className="lt-stack" onSubmit={order} noValidate>
           <fieldset>
             {(['virtual', 'physical'] as const).map((type) => (
               <label key={type} className="choice">
@@ -222,7 +206,7 @@ export function CardOrderRoom() {
               </label>
             ))}
           </fieldset>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('funding')}</span>
             <select value={asset} onChange={(event) => setAsset(event.target.value)}>
               {assets.map((id) => (
@@ -270,7 +254,7 @@ export function CardOrderRoom() {
                 value={address.postalCode}
                 onChange={(event) => setAddress({ ...address, postalCode: event.target.value })}
               />
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('deliveryCountry')}</span>
                 <select value={deliverTo} onChange={(event) => setAddress({ ...address, country: event.target.value })}>
                   {c.deliveryCountries.map((code) => (
@@ -280,7 +264,7 @@ export function CardOrderRoom() {
                   ))}
                 </select>
               </label>
-              <p className="money-caption" data-code="hardware">
+              <p className="lt-muted" data-code="hardware">
                 {t('hardware')}
               </p>
             </>
@@ -288,7 +272,7 @@ export function CardOrderRoom() {
           <Button type="submit" disabled={busy || blocker !== null}>
             {cardType === 'physical' ? t('orderPhysical') : t('issueVirtual')}
           </Button>
-          {blocker && <p className="money-caption">{blocker}</p>}
+          {blocker && <p className="lt-muted">{blocker}</p>}
           {failure && <Refusal failure={failure} />}
         </form>
         {result && (
@@ -297,6 +281,35 @@ export function CardOrderRoom() {
           </p>
         )}
       </DepthPanel>
-    </div>
+    </div>,
+    READY,
+    <div className="lt-stack">
+      <DepthPanel title={t('programmeTitle')}>
+        <p data-testid="card-programme" data-simulated={String(c.programme.simulated)}>
+          {c.programme.id === 'none'
+            ? t('noIssuer')
+            : c.programme.simulated
+              ? t('simulation')
+              : t('live', { name: c.programme.displayName })}
+        </p>
+      </DepthPanel>
+      <DepthPanel title={t('productsTitle')}>
+        <ul data-testid="card-products">
+          <li data-testid="card-product-virtual">
+            {t('virtualProduct')} · {t('network', { network: c.network })}
+          </li>
+          <li data-testid="card-product-physical">
+            {t('physicalProduct')} · {t('network', { network: c.network })}
+          </li>
+        </ul>
+        <p className="lt-muted">{t('feeNotSet')}</p>
+      </DepthPanel>
+      <DepthPanel title={t('limitsTitle')}>
+        <ul data-testid="card-count-limit">
+          <li>{t('virtualLimit', { held: String(product('virtual')?.held ?? 0), limit: String(product('virtual')?.limit ?? 0) })}</li>
+          <li>{t('physicalLimit', { held: String(product('physical')?.held ?? 0), limit: String(product('physical')?.limit ?? 0) })}</li>
+        </ul>
+      </DepthPanel>
+    </div>,
   );
 }

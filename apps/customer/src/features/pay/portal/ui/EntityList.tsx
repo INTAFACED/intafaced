@@ -29,7 +29,7 @@ export function EntityList<T>({
   return (
     <div className="pe-list">
       <div data-testid="pe-table" className="pe-table">
-        <DataTable label={label} headers={[...columns.map((c) => c.header), ...(href ? [<span className="pp-sr">{t('open')}</span>] : [])]}>
+        <DataTable label={label} headers={[...columns.map((c) => c.header), ...(href ? [<span className="lt-sr">{t('open')}</span>] : [])]}>
           {rows.map((row) => (
             <tr key={rowKey(row)} className={href ? 'pe-row' : undefined}>
               {columns.map((column, i) => (
@@ -53,7 +53,7 @@ export function EntityList<T>({
             <>
               <span className="pe-card-main">
                 <strong>{c.title}</strong>
-                {c.time && <small className="muted">{c.time}</small>}
+                {c.time && <small className="lt-muted">{c.time}</small>}
               </span>
               <span className="pe-card-side">
                 {c.amount && <span className="pe-card-amount">{c.amount}</span>}

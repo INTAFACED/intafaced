@@ -1,9 +1,8 @@
-import { publicProcedure } from '@intafaced/contracts';
-import { z } from 'zod';
 import type { QuantCore } from './core.js';
+import { QUANT_HEALTH } from '@intafaced/contracts/quant-health-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { quantRefusal } from './core.js';
 
 export function healthRoutes(_core: QuantCore) {
-  return publicProcedure
-    .output(z.object({ ok: z.literal(true), service: z.literal('svc-quant') }))
-    .query(() => ({ ok: true as const, service: 'svc-quant' as const }));
+  return mountRecord(QUANT_HEALTH, () => ({ ok: true as const, service: 'svc-quant' as const }), quantRefusal);
 }

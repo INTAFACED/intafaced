@@ -68,7 +68,7 @@
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
- *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
+ *   … --reach                                                 (product paths by the touched-journeys map; its age read with gh)
  *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand, or
  *                                                              this pull request's earlier run, on that head already run;
  *                                                              real-app-journeys.yml's reuse step)
@@ -80,12 +80,15 @@
  *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
  *                                                              how real-app-journeys.yml's touch step passes them)
  */
+import { runJobsSync } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
+import { TOUCH_JOB } from './main-first.mjs';
 import {
   REACH_MAP_MODE,
   alwaysRun,
@@ -94,11 +97,14 @@ import {
   loadMap,
   mapProblem,
   newerMap,
+  pathReach,
   reachSelect,
   readHead,
   runsBehind,
   subscribesVia,
 } from './journey-reach-map.mjs';
+import { countCall } from './api-count.mjs';
+import { reachesLook } from './look-paths.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -119,12 +125,21 @@ export const JOURNEY_CI = [
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
   'tooling/ci/journey-reach-map.mjs',
   'tooling/ci/journey-reach-map.json',
+  // What finds the journeys run's reach among tooling no rule places (quietTooling).
+  'tooling/ci/tooling-reach.mjs',
   'tooling/ci/post-merge-trust.mjs',
   'tooling/ci/review-marker.mjs',
+  // The paths that draw a Customer room or kit part, read by the seal's review rule and the journeys pick.
+  'tooling/ci/look-paths.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
   // The seal's scripts word a spent API budget with it (judge down).
   'tooling/ci/api-budget.mjs',
+  'tooling/ci/api-count.mjs',
+  // The seal's scripts and main-first.mjs call GitHub through it.
+  'tooling/ci/github-fetch.mjs',
+  // Every reader of a run's jobs reads them through it, in pages GitHub answers after a re-run.
+  'tooling/ci/run-jobs.mjs',
   // real-app-journeys.yml's `Main's journeys first` job runs it.
   'tooling/ci/main-first.mjs',
   // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
@@ -309,15 +324,23 @@ export function withSiblings(files, journeyFiles) {
  * A run by hand's journeys input (journey file names, spaces or commas between) as the files it runs: every file of each
  * journey it names (withSiblings), as a pull request's run takes them. (Failure it prevents: on 14 Nov 2026 run
  * 43637111867 named J-derivatives-01.pw.mjs alone, and the steps in J-derivatives-01-venue.pw.mjs read as missing money
- * steps.) A name that is not a journey file at the head stays as given, so the run still refuses it.
+ * steps.) A bare journey id (`J-cex-spot-10`, which journey-shards.mjs runs as `J-cex-spot-10.pw.mjs`) is every file
+ * of that journey too. (Failure it prevents: on 20 Nov 2026 run 44808167679 was given `J-cex-spot-10`, ran
+ * J-cex-spot-10.pw.mjs alone, and #9286's seal read J-cex-spot-10 #1 #2 #3 #4 #6 #9, in J-cex-spot-10-venue.pw.mjs
+ * since #8787, as missing.) A name that is not a journey file or id at the head stays as given, so the run still
+ * refuses it.
  */
 export function dispatchTarget(input, journeyFiles) {
-  return withSiblings(
-    String(input ?? '')
-      .split(/[\s,]+/)
-      .filter(Boolean),
-    journeyFiles,
-  ).join(' ');
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
+  const names = String(input ?? '')
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .flatMap((f) => {
+      if (!journeyFiles || JOURNEY_FILE_NAME.test(f)) return [f];
+      const files = [...journeyFiles].filter((j) => idOf(j) === f);
+      return files.length ? files : [f];
+    });
+  return withSiblings(names, journeyFiles).join(' ');
 }
 
 /** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
@@ -346,6 +369,7 @@ export const HELPER = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.mjs)$
  * look-fixtures.mjs; each ran all 32 shards, 14 Nov 2026.)
  */
 export const STACK_HELPERS = [
+  'admin.mjs',
   'agents.mjs',
   'copy.mjs',
   'desk.mjs',
@@ -395,7 +419,7 @@ const narrowHelper = (p) => {
 };
 
 /** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
-const joinedPaths = (t) =>
+export const joinedPaths = (t) =>
   String(t)
     .replace(/['"`]\s*,\s*['"`]/g, '/')
     .replace(/\/[ \t]*\r?\n[ \t]*(?:\/\/|\*)[ \t]*/g, '/');
@@ -469,8 +493,30 @@ function kindOf(p) {
   // A Rust service's crate is that service: the map reads it as the service's own path (CRATE).
   const crate = CRATE.exec(p);
   if (crate) return { kind: 'full', why: PRODUCT, product: true, as: `services/${crate[1]}/${crate[2]}` };
-  return { kind: 'full', why: 'a path no rule places, so the safe default' };
+  return { kind: 'full', why: UNPLACED };
 }
+
+/** Why a path no rule above places is full: the safe default. */
+export const UNPLACED = 'a path no rule places, so the safe default';
+
+/**
+ * A tooling file no rule places that no journeys run reaches: `reach` is tooling-reach.mjs's `journeys` list for the
+ * tree judged, the pull request's head (nothing the journeys workflow, its actions, the stack, the seed, tooling/scripts,
+ * a journey file or any app, service, package or crate file names reads it). A change made only of these and of paths
+ * that run no journeys runs no journeys (journeyTouch); beside any other path it stays the safe default, so a pull
+ * request that touches product code, the stack or a journey keeps its pick. With no list (`null`: not scanned, or the
+ * scan failed), or a path with a character no tracked path holds, nothing is quiet. (Failure it prevents: #9552,
+ * tooling/design/RECIPE.md and a tooling script, ran 64 journey files on 18 shards, about 23 minutes a push, on 22 Nov
+ * 2026.)
+ */
+export function quietTooling(path, reach = null) {
+  const p = String(path);
+  if (!reach || !/^tooling\/[A-Za-z0-9_.@/-]+$/.test(p) || kindOf(p).why !== UNPLACED) return false;
+  return !reach.some((e) => (e.endsWith('/') || e.endsWith('*') ? p.startsWith(e.replace(/[*]$/, '')) : e === p));
+}
+
+/** Whether a change could be quiet (quietTooling), so a caller scans the tree only then: it holds tooling no rule places. */
+export const mayBeQuiet = (paths) => [...(paths ?? [])].some((p) => String(p).startsWith('tooling/') && kindOf(String(p)).why === UNPLACED);
 
 /**
  * What a pull request with these changed paths must run. `atHead(file)`: whether a journey test file still exists at
@@ -482,9 +528,15 @@ function kindOf(p) {
  * paths run the named journeys besides what the map selects for them (its always-run list included), or the named
  * journeys alone when `reach` is null, and `named` says why. With
  * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
- * `importers` those journeys); otherwise it is full like any other.
+ * `importers` those journeys); otherwise it is full like any other. `tooling`: the head's tooling reach (quietTooling),
+ * or null.
  */
-export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
+export function journeyTouch(paths, atHead = () => true, reach = null, named = null, tooling = null) {
+  // Only tooling no journeys run reaches, beside paths that run none: no journeys (quietTooling).
+  const all = [...new Set(paths ?? [])];
+  const quiet = (p) => quietTooling(p, tooling);
+  if (all.length && all.some(quiet) && all.every((p) => quiet(p) || pathKind(p).kind === 'none'))
+    return { mode: 'none', full: [], files: [] };
   const full = [];
   const product = [];
   const stack = [];
@@ -575,6 +627,17 @@ export function pullPick(paths, touch, { atHead = () => true, reach = null, name
   const journeyFiles = named?.journeyFiles ?? reach?.journeyFiles ?? null;
   const known = journeyFiles instanceof Set;
   const mapOk = Boolean(reach) && known && !mapProblem(reach.map, reach.behind, reach.mode ?? REACH_MAP_MODE);
+  // A change that draws a Customer room or kit part runs every journey the map records reaching what it changes, past
+  // PR_MAX_FILES too (#9960: its `kit-ceilings.json` and render records made it full, so it ran 15 bounded files and
+  // left out the 60 the map records reaching its OrderTables.tsx; J-home-ia-05 #2 broke on main, revert #10027).
+  const room = mapOk ? roomReach(paths, reach) : null;
+  if (room && over)
+    return {
+      ...touch,
+      room: printable(
+        `it draws a Customer room or kit part (${room.part}), so it runs all ${touch.files.length} journey files the map records reaching it, past a pull request's ${PR_MAX_FILES}`,
+      ),
+    };
   const always = mapOk ? alwaysRun(reach.map, journeyFiles) : [];
   const own = [...new Set(paths ?? [])]
     .map((p) => [p, pathKind(p)])
@@ -582,19 +645,82 @@ export function pullPick(paths, touch, { atHead = () => true, reach = null, name
     .map(([, k]) => k.file);
   // The CANARY is asked for whether or not the head holds it: a CANARY file gone from the head is a run that can't plan
   // and a seal that holds, never a bounded set that runs nothing.
-  const files = withSiblings([...own, ...(named?.files ?? []), ...always, ...CANARY], known ? journeyFiles : null);
+  const files = withSiblings([...own, ...(named?.files ?? []), ...always, ...CANARY, ...(room?.files ?? [])], known ? journeyFiles : null);
   const cause = over
     ? `the journeys its paths reach are ${touch.files.length} journey files, past a pull request's ${PR_MAX_FILES}`
     : `${touch.full.length} path(s) no recorded run narrows (${touch.full
         .slice(0, 3)
         .map((x) => `${x.path}: ${x.why}`)
         .join('; ')}${touch.full.length > 3 ? `; ${touch.full.length - 3} more` : ''})`;
-  const bounded = `${cause}, so it runs ${named ? `the journeys it names (${named.ids.join(', ')}), ` : ''}${own.length ? `the ${own.length} journey file(s) it changes, ` : ''}the ${always.length} journey file(s) the map can't speak for and the CANARY; main's full run after the merge judges the rest`;
+  const bounded = `${cause}, so it runs ${named ? `the journeys it names (${named.ids.join(', ')}), ` : ''}${own.length ? `the ${own.length} journey file(s) it changes, ` : ''}${room ? `the ${room.files.length} journey file(s) the map records reaching the ${room.paths} path(s) it can narrow (it draws a Customer room or kit part: ${room.part}), ` : ''}the ${always.length} journey file(s) the map can't speak for and the CANARY; main's full run after the merge judges the rest`;
   return { mode: 'files', full: [], files, bounded: printable(bounded), mainJudges: touch.full.map((x) => x.path) };
+}
+
+/**
+ * For a change that draws a Customer room or kit part (look-paths.mjs reachesLook; a test draws none), the journey
+ * files the map records reaching each product path it can narrow, one path at a time, so a path it can't narrow (a
+ * render record, kit-ceilings.json) no longer drops the others' reach. Null for any other change, or one with no path
+ * the map narrows. `reach` is pullPick's, with a usable map. Returns { files, paths, part }.
+ */
+export function roomReach(paths, reach) {
+  const all = [...new Set(paths ?? [])];
+  const drawn = all.filter((p) => reachesLook([p]) && pathKind(p).product);
+  const part = drawn.find((p) => /\/src\//.test(p)) ?? drawn[0];
+  if (!part) return null;
+  const picked = new Set();
+  let narrowed = 0;
+  for (const p of all) {
+    const k = pathKind(p);
+    if (!k.product) continue;
+    let r;
+    try {
+      r = pathReach(reach.map, k.as ?? p, reach.subscribes?.(k.as ?? p) ?? false, reach.head ?? null);
+    } catch {
+      continue;
+    }
+    if (r.full) continue;
+    narrowed++;
+    for (const i of r.journeys) picked.add(reach.map.journeys[i]);
+  }
+  const files = [...picked].filter((f) => reach.journeyFiles.has(f)).sort();
+  return narrowed ? { files, paths: narrowed, part: printable(part) } : null;
 }
 
 /** A run by hand's title (real-app-journeys.yml `run-name`): the journeys it was given, or `full`. */
 export const DISPATCH_TITLE = /^Real-app journeys by hand, (.+)$/;
+
+/**
+ * GitHub refuses to start a run whose concurrency group is longer than 400 characters: the run ends "failure" with no
+ * jobs ("This run likely failed because of a workflow file issue"). real-app-journeys.yml's group for a run by hand
+ * holds the branch and the whole journeys input (one group per branch and selection, workflow-concurrency.test.mjs
+ * rule 3), and GitHub's expressions can neither measure nor hash a string, so a long input can't start: 63 files on
+ * fix/ps-3298 (1556 characters) failed in run 44766798876. Measured on 20 Nov 2026 with the same group expression:
+ * a 400-character group started (run 44768303533) and a 401-character one failed (run 44768324557).
+ */
+export const DISPATCH_GROUP_MAX = 400;
+/** real-app-journeys.yml's concurrency group for a run by hand on `branch` given `journeys` (workflow-concurrency.test.mjs holds it to the workflow's expression). */
+export const dispatchGroup = (branch, journeys) => `real-app-journeys-refs/heads/${branch}:${journeys}`;
+
+/**
+ * The runs by hand that run `files` on `branch`: the files in order, split into as few lists as keep each run's
+ * concurrency group within DISPATCH_GROUP_MAX, so every one starts. A file whose group passes it on its own still gets
+ * its own run (it can't start: the branch name is too long to dispatch any journey on). Returns [[file]].
+ */
+export function dispatchBatches(branch, files) {
+  const batches = [];
+  for (const f of files ?? []) {
+    const last = batches.at(-1);
+    if (last && dispatchGroup(branch, [...last, f].join(' ')).length <= DISPATCH_GROUP_MAX) last.push(f);
+    else batches.push([f]);
+  }
+  return batches;
+}
+
+/** The `gh workflow run` commands that run `files` on `branch`, one a batch (dispatchBatches); `repo` adds `-R`. */
+export const dispatchCommands = (branch, files, repo = '') =>
+  dispatchBatches(branch, files).map(
+    (b) => `gh workflow run real-app-journeys.yml${repo ? ` -R ${repo}` : ''} --ref ${branch} -f journeys="${b.join(' ')}"`,
+  );
 const JOURNEY_FILE_NAME = /^[A-Za-z0-9._-]+\.pw\.mjs$/;
 /** A shard job of the journeys run (real-app-journeys.yml `journeys` job). */
 export const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
@@ -628,14 +754,20 @@ export function reusableRuns(runs, { sha, repo, journeyFiles, ranShards, workflo
 
 /**
  * What a pull request's run runs after leaving out the journey files `reused` (reusableRuns) already runs on its head.
- * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. Returns
+ * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. A journey's
+ * files are left out together or not at all: the verdict reads only this run's report, so a step in a reused file of a
+ * journey whose other file still runs here reads as missing. (Failure it prevents: #8835's run 44248303203 left out
+ * the hand-run J-derivatives-01-venue.pw.mjs, still ran J-derivatives-01.pw.mjs, and its verdict went red on
+ * "J-derivatives-01#1 #5 #6 #8 #9 #10 #11 (money): passed in run 1719, missing now"; project-state#3029.) Returns
  * { target, mode: 'run'|'none', why }.
  */
 export function afterReuse(target, reused, how = 'by hand') {
   const want = String(target ?? '')
     .split(/\s+/)
     .filter(Boolean);
-  const rest = want.filter((f) => !reused.has(f));
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1] ?? f;
+  const runsHere = new Set(want.filter((f) => !reused.has(f)).map(idOf));
+  const rest = want.filter((f) => !reused.has(f) || runsHere.has(idOf(f)));
   if (!want.length || rest.length === want.length) return { target: want.join(' '), mode: 'run', why: '' };
   const ids = [...new Set(want.filter((f) => reused.has(f)).map((f) => reused.get(f)))];
   const why = `${want.length - rest.length} of its ${want.length} journey file(s) already run ${how} on this head (run ${ids.join(', ')}), so this run leaves them out`;
@@ -690,13 +822,26 @@ export function pullRunsCover(
   return { full, files };
 }
 
-/** The PICK_ARTIFACT a run kept during its current attempt (made at or after the attempt started, not expired), or null. */
-export function currentPickArtifact(run, artifacts) {
-  const start = Date.parse(run?.run_started_at ?? run?.created_at ?? '');
+/**
+ * The PICK_ARTIFACT a run kept during its current attempt, or null: made at or after `touchStart`, when its latest
+ * attempt's touch job (TOUCH_JOB) started, else the attempt's start, and not expired. A re-run of only the failed jobs
+ * keeps the touch job and the pick it made; a re-run of every job, or a deferred attempt, starts the touch job again,
+ * so an older pick counts for nothing. (Failure it prevents: a pick counted only when made after the attempt began,
+ * so #9255's re-run of one failed shard, 20 Nov 2026, left its pick out, and its ready run ran 62 of its 63 journey
+ * files again: 31 more minutes on a green head.)
+ */
+export function currentPickArtifact(run, artifacts, touchStart = null) {
+  const start = Date.parse(touchStart ?? run?.run_started_at ?? run?.created_at ?? '');
   const fits = (artifacts ?? []).filter(
     (a) => a?.name === PICK_ARTIFACT && !a.expired && Number.isFinite(start) && Date.parse(a.created_at ?? '') >= start,
   );
   return fits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+}
+
+/** When the latest attempt's touch job of a run started (`jobs`: its jobs, filter=latest), or null. Pure. */
+export function touchStarted(jobs) {
+  const j = (jobs ?? []).find((x) => x?.name === TOUCH_JOB && x?.started_at);
+  return j ? j.started_at : null;
 }
 
 /** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
@@ -758,7 +903,7 @@ export async function checkoutHead(map, paths, { root = '.', base }) {
   }
 }
 
-/** The pull request's merge base with its base branch, whether a path is on it, and GitHub's compare (GH_TOKEN), for
+/** The pull request's merge base with its base branch, whether a path is on it, and GitHub's compare (gh), for
  *  checkoutHead. Throws when the merge base can't be told. */
 async function mergeBaseReader() {
   const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
@@ -768,12 +913,15 @@ async function mergeBaseReader() {
   if (!/^[0-9a-f]{40}$/.test(String(mb))) throw new Error('no merge base');
   const compare = async (a, b) => JSON.parse(ghApi(`repos/${repo}/compare/${a}...${b}`));
   const atBase = async (p) => {
-    const res = await fetch(`https://api.github.com/repos/${repo}/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${mb}`, {
-      headers: {
-        authorization: `Bearer ${process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? ''}`,
-        accept: 'application/vnd.github.raw+json',
+    const res = await githubFetch(
+      `https://api.github.com/repos/${repo}/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${mb}`,
+      {
+        headers: {
+          authorization: `Bearer ${githubToken()}`,
+          accept: 'application/vnd.github.raw+json',
+        },
       },
-    });
+    );
     if (res.status === 404) return false;
     if (!res.ok) throw new Error(`contents: HTTP ${res.status}`);
     return true;
@@ -781,12 +929,13 @@ async function mergeBaseReader() {
   return { mergeBase: mb, atBase, compare };
 }
 
-/** How many of main's finished full runs came after the map's newest run, read with gh (GH_TOKEN), or null. The same
+/** How many of main's finished full runs came after the map's newest run, read with gh, or null. The same
  *  list the seal reads (journey-seal.mjs makeIo mainRuns: the newest 100, so a burst of cancelled runs can't hide the
  *  map's newest run and blank its age), so the two count the same age. */
 function behindFromApi(map) {
   try {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+    countCall();
     const out = execFileSync(
       'gh',
       ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=100`],
@@ -798,18 +947,43 @@ function behindFromApi(map) {
   }
 }
 
-const ghApi = (path, encoding = 'utf8') =>
-  execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+const ghApi = (path, encoding = 'utf8') => {
+  countCall();
+  return execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+};
 
-/** When this journeys run was created (GITHUB_RUN_ID, read with gh), so the seal can pick the same map build; now when
- *  it can't be read (a run by hand). */
-function runCreated() {
+/**
+ * When this journeys run reads main's touched-journeys map: the creation of the first pull request run of this workflow
+ * on its head (this run's own, when it is the first), so a draft's run, its `ready_for_review` run and the seal
+ * (journey-seal.mjs mapChosenAt) read one map build on one head; now when it can't be read (a run by hand). (Failure it
+ * prevents: each run read the map at its own creation, so a map rebuilt between a draft's run and its ready run
+ * widened the bounded set, and the ready run ran the extra journey files after the first run had finished: 18 to 25
+ * more minutes on #9244, #9248 and #9251, 20 Nov 2026.)
+ */
+function mapTime() {
   try {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
-    const at = Date.parse(JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(process.env.GITHUB_RUN_ID)}`)).created_at);
-    if (process.env.GITHUB_RUN_ID && Number.isFinite(at)) return at;
+    const self = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(process.env.GITHUB_RUN_ID)}`));
+    const at = Date.parse(self.created_at);
+    if (!process.env.GITHUB_RUN_ID || !Number.isFinite(at)) return Date.now();
+    if (self.event !== 'pull_request' || !/^[0-9a-f]{40}$/.test(String(self.head_sha))) return at;
+    try {
+      return firstPullRunAt(pullRunsOnHead(repo, self.head_sha), self) ?? at;
+    } catch {
+      return at;
+    }
   } catch {}
   return Date.now();
+}
+
+/** The creation time of the first of `runs` (this workflow's pull request runs on `self`'s head) and `self`, or null,
+ *  as mapChosenAt reads the same runs. Pure. */
+export function firstPullRunAt(runs, self, workflow = '.github/workflows/real-app-journeys.yml') {
+  const made = [...(runs ?? []), self]
+    .filter((r) => r?.event === 'pull_request' && r?.head_sha === self?.head_sha && (r?.path ?? workflow) === workflow)
+    .map((r) => Date.parse(r?.created_at))
+    .filter(Number.isFinite);
+  return made.length ? Math.min(...made) : null;
 }
 
 /** --reuse: the pull request run's target after reusableRuns (env TARGET, HEAD_SHA, GITHUB_REPOSITORY, GH_TOKEN), as
@@ -833,7 +1007,7 @@ function reuseMain() {
         r?.status === 'completed' &&
         DISPATCH_TITLE.test(String(r.display_title ?? ''))
       ) {
-        const jobs = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?per_page=100`)).jobs ?? [];
+        const jobs = runJobsSync(`repos/${repo}/actions/runs/${Number(r.id)}/jobs`, (p) => JSON.parse(ghApi(p))) ?? [];
         if (jobs.some((j) => SHARD_JOB.test(String(j?.name)) && ['success', 'failure'].includes(j?.conclusion))) ranShards.add(r.id);
       }
     const journeyFiles = checkoutJourneyFiles();
@@ -897,7 +1071,11 @@ function readPicks(repo, sha, runs, self) {
         continue;
       try {
         const arts = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/artifacts?name=${PICK_ARTIFACT}&per_page=20`)).artifacts;
-        const art = currentPickArtifact(r, arts);
+        let touch = null;
+        try {
+          touch = touchStarted(runJobsSync(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?filter=latest`, (p) => JSON.parse(ghApi(p))));
+        } catch {}
+        const art = currentPickArtifact(r, arts, touch);
         if (!art) continue;
         const zip = join(dir, `${Number(r.id)}.zip`);
         writeFileSync(zip, ghApi(`repos/${repo}/actions/artifacts/${Number(art.id)}/zip`, 'buffer'));
@@ -943,8 +1121,8 @@ async function main() {
     process.exit(2);
   }
   // --reach: product paths run only the journeys main's touched-journeys map says reach them, judged against this
-  // checkout of the head. The map is the newest one main's map workflow built and verified before this run was created
-  // (journey-reach-map.mjs builtMap), or this file's own committed copy (the default branch's, in the journeys workflow)
+  // checkout of the head. The map is the newest one main's map workflow built and verified before the head's first pull
+  // request run was created (mapTime; journey-reach-map.mjs builtMap), or this file's own committed copy (the default branch's, in the journeys workflow)
   // when that one is newer or the build can't be read.
   const arg = (k) => (args.indexOf(k) >= 0 ? args[args.indexOf(k) + 1] : undefined);
   const ids = namedJourneyIds({
@@ -957,7 +1135,7 @@ async function main() {
     const built = await builtMap({
       get: (path) => JSON.parse(ghApi(path.replace(/^\//, ''))),
       raw: (path) => ghApi(path.replace(/^\//, ''), 'buffer'),
-      before: runCreated(),
+      before: mapTime(),
       repo,
     });
     const map = newerMap(built, loadMap());
@@ -975,8 +1153,16 @@ async function main() {
     journeyFiles: checkoutJourneyFiles(),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
+  // Tooling no journeys run reaches, by this checkout's tree (the pull request's head; tooling-reach.mjs), scanned only
+  // when the change holds tooling no rule places. A scan that can't run or read leaves today's pick.
+  let tooling = null;
+  if (mayBeQuiet(paths))
+    try {
+      const { checkoutTree, reachOf } = await import('./tooling-reach.mjs');
+      tooling = reachOf(checkoutTree(process.cwd()))?.journeys ?? null;
+    } catch {}
   // What a pull request runs: never the full suite (pullPick).
-  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named), { atHead, reach, named });
+  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named, tooling), { atHead, reach, named });
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (t.bounded && args.includes('--json')) console.error(`journey-touch: ${t.bounded}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
@@ -985,8 +1171,19 @@ async function main() {
     if (t.named) console.log(`  named: ${t.named}`);
     if (t.bounded) console.log(`  bounded: ${t.bounded}`);
     for (const p of (t.mainJudges ?? []).slice(0, 20)) console.log(`  main's full run judges: ${printable(p)}`);
-    console.log(`files: gh workflow run real-app-journeys.yml -R INTAFACED/intafaced --ref <branch> -f journeys="${t.files.join(' ')}"`);
+    let branch = '';
+    try {
+      branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {}
+    for (const c of dispatchCommands(branch && branch !== 'HEAD' ? branch : '<branch>', t.files, 'INTAFACED/intafaced'))
+      console.log(`files: ${c}`);
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();
+// Not awaited at the top level: main() imports tooling-reach.mjs, which imports this file, and that import would wait on
+// this file's own evaluation, which would wait on main(), a cycle that never settles (node exits 13).
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
+  main().catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  });

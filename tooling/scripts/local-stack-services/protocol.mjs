@@ -25,7 +25,15 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { chainRecordPath, RELAY_URL } from '../local-test-chain.mjs';
+import {
+  BRIDGE_ATTESTER_URL,
+  BRIDGE_TOKEN,
+  chainRecordPath,
+  RELAY_URL,
+  SECOND_CHAIN_ID,
+  SECOND_GATE_URL,
+  TEST_CHAIN_ID,
+} from '../local-test-chain.mjs';
 
 /**
  * Router v2's TEST parts from the chain's own record (J-dex-protocol-03): the router, SovereignPermit and TEST Wrapped
@@ -103,11 +111,13 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only (same profile): the embedded self-custody wallet's provider (J-wallet-22) is the labelled TEST
       // provider this stack runs (local-test-wallet-provider.mjs), on loopback. Production stays blank and Create my wallet
       // refuses wallet.embedded_provider_unset. `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=off` on a restart leaves it blank, so
-      // that refusal can be seen too (J-wallet-22 #1).
+      // that refusal can be seen too (J-wallet-22 #1); `=no-export` sets TEST:test-no-export, the same TEST provider
+      // standing in for one whose plan offers no key export (J-wallet-22 #5).
       ...(process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'off'
         ? {}
         : {
-            PROTOCOL_EMBEDDED_WALLET_PROVIDER: 'TEST:test',
+            PROTOCOL_EMBEDDED_WALLET_PROVIDER:
+              process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'no-export' ? 'TEST:test-no-export' : 'TEST:test',
             PROTOCOL_EMBEDDED_WALLET_TEST_URL: `http://127.0.0.1:${PORTS['test-wallet-provider']}`,
           }),
       // LOCAL TEST only: `LOCAL_STACK_PROTOCOL_NETWORKS=published` on a restart serves the TEST network registry beside this
@@ -116,6 +126,18 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // (J-dex-protocol-01 #6, #7). svc-protocol refuses to boot with it outside APP_ENV dev or test.
       ...(process.env.LOCAL_STACK_PROTOCOL_NETWORKS === 'published'
         ? { PROTOCOL_TEST_NETWORKS_REGISTRY: `TEST:${fileURLToPath(new URL('./protocol-test-networks.json', import.meta.url))}` }
+        : {}),
+      // LOCAL TEST only, labelled in the same profile: `LOCAL_STACK_PROTOCOL_BRIDGE=on` on a restart (J-dex-protocol-05 #6)
+      // serves the TEST bridge route table and its TEST provider: the TEST bridge token on both TEST chains, read through
+      // their gates, and the TEST attester local-test-chain.mjs serves. Off (the default) the route table is the owner's
+      // blank one, as #5 reads it, and every transfer refuses bridge.provider_unset.
+      ...(chain && process.env.LOCAL_STACK_PROTOCOL_BRIDGE === 'on'
+        ? {
+            PROTOCOL_BRIDGE_ROUTES: 'TEST',
+            PROTOCOL_BRIDGE_TOKEN_ADDRESS: BRIDGE_TOKEN,
+            PROTOCOL_BRIDGE_RPC_URLS: JSON.stringify({ [TEST_CHAIN_ID]: chain.rpcUrl, [SECOND_CHAIN_ID]: SECOND_GATE_URL }),
+            PROTOCOL_BRIDGE_ATTESTER_URL: BRIDGE_ATTESTER_URL,
+          }
         : {}),
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',

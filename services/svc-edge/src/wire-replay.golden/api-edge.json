@@ -12,7 +12,10 @@
     [
       ["access-control-allow-credentials", "true"],
       ["access-control-allow-origin", "https://app.example.test"],
-      ["access-control-expose-headers", "x-request-id, x-server-received, x-server-sent"],
+      [
+        "access-control-expose-headers",
+        "x-request-id, x-server-received, x-server-sent, intafaced-version, intafaced-version-source, intafaced-advisories, deprecation, link"
+      ],
       ["cache-control", "no-store"],
       ["content-type", "application/json; charset=utf-8"],
       ["referrer-policy", "no-referrer"],
@@ -23,7 +26,7 @@
     ]
   ],
   "bodies": [
-    "{\"asOf\":\"<time>\",\"costs\":[]}",
+    "{\"asOf\":\"<time>\",\"costs\":[],\"edgeLimit\":{\"max\":1000000,\"windowMs\":60000}}",
     "{\"error\":\"Sign in to read a key’s usage\",\"code\":\"token.invalid\",\"message\":\"Sign in to read a key’s usage\",\"docs\":\"/developers/errors#token.invalid\",\"requestId\":\"<uuid>\"}",
     "{\"error\":\"Access token could not be verified\",\"code\":\"token.invalid\",\"message\":\"Access token could not be verified\",\"docs\":\"/developers/errors#token.invalid\",\"requestId\":\"<uuid>\"}",
     "{\"state\":\"none\",\"asOf\":\"<time>\",\"keyId\":\"22222222-2222-4222-8222-222222222222\"}"

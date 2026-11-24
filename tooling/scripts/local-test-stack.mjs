@@ -40,6 +40,9 @@
  *                                         start on that build
  *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
+ *   pnpm local:stack --no-admin           everything but the founder console and its TEST TLS front: neither built nor
+ *                                         started (its Next build peaks near 1.6 GB); `journey` passes it when no file
+ *                                         it runs reaches the console (journey-local.mjs consoleNeeded)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
  *   node tooling/scripts/local-test-stack.mjs second-worker <service> start|stop   a second process of one running service,
  *                                         same settings, its own port (a journey that two workers do a thing once)
@@ -77,7 +80,16 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
-import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import {
+  anvilBin,
+  chainRecordPath,
+  chainStatus,
+  CHAIN_PORTS,
+  GATE_URL,
+  installTestBridge,
+  runSeedScript,
+  TEST_CHAIN_ID,
+} from './local-test-chain.mjs';
 import {
   anotherCheckoutsStack,
   claimSlot,
@@ -101,12 +113,21 @@ import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
-import { serveTestVenue, testVenueChainId, testVenueId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
+import {
+  hlSource,
+  serveTestVenue,
+  testVenueChainId,
+  testVenueId,
+  testVenueKind,
+  userVenueCount,
+  userVenueKind,
+  userVenueSwitchOn,
+} from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
-import agents from './local-stack-services/agents.mjs';
+import agents, { AGENTS_EMPTY_CATALOGUE_DB, agentsCatalogueOff, onEmptyAgentsDb } from './local-stack-services/agents.mjs';
 import bank from './local-stack-services/bank.mjs';
 import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
@@ -160,6 +181,8 @@ import {
   custodyOffRefusal,
   DEFAULT_SERVICES,
 } from './local-test-state.mjs';
+import { lostAccountFiles, pgDurable, pgServerFlags, retireAccountFiles } from './local-test-db-state.mjs';
+import { BANNER_TEXT, withTestBanner } from '../../apps/customer/deployment/test-banner.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -191,6 +214,8 @@ const P = {
   cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
+  // `off` after a `start --no-admin`: the console and its TLS front were left out on purpose, so their rows read off.
+  adminWanted: path.join(STATE, 'admin-wanted'),
 };
 
 // Every port, shifted by LOCAL_STACK_SLOT, lives in local-test-facts.mjs.
@@ -235,7 +260,6 @@ const SCHEMAS = [
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
 const serviceOfSchema = (s) => SCHEMA_SERVICE[s] ?? s;
 const STREAM_PREFIX = 'LOCAL_TEST';
-const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
 const MIN_FREE_GB = 14; // 10 GB machine floor + build margin
 
@@ -267,6 +291,7 @@ const portTaken = (port, what, seen) =>
       'stop it, or start again without LOCAL_STACK_SLOT: a start takes a free slot',
   );
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const readText = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : null);
 function writePrivate(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, text, { mode: 0o600 });
@@ -353,6 +378,17 @@ const SECRET_NAMES = [
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
+/** Every secret this stack mints for itself; tooling/beta/beta-secrets.mjs mints the hosted beta's from the same list. */
+export const LOCAL_TEST_SECRET_SLOTS = [...SECRET_NAMES, 'adminSession'];
+
+/**
+ * One fresh secret for a slot: 32 random bytes as hex (64 chars, satisfies every >=32 rule), but the founder console's
+ * session key, which must be exactly 32 bytes as canonical base64url (apps/admin/src/lib/founder-session.ts).
+ */
+export function mintLocalTestSecret(slot) {
+  return crypto.randomBytes(32).toString(slot === 'adminSession' ? 'base64url' : 'hex');
+}
+
 /** This stack's generated secrets (STATE/secrets.json, mode 600), created on first use; never in the repo. */
 export function loadOrCreateSecrets() {
   // As root, the folders the stack creates above STATE stay traversable for the database's OS user (preparePgPaths).
@@ -365,13 +401,12 @@ export function loadOrCreateSecrets() {
   let changed = false;
   for (const n of SECRET_NAMES) {
     if (!s[n]) {
-      s[n] = crypto.randomBytes(32).toString('hex'); // 64 chars, satisfies every >=32 rule
+      s[n] = mintLocalTestSecret(n);
       changed = true;
     }
   }
-  // The founder console wants exactly 32 bytes as canonical base64url (apps/admin/src/lib/founder-session.ts).
   if (!/^[A-Za-z0-9_-]{43}$/.test(s.adminSession ?? '')) {
-    s.adminSession = crypto.randomBytes(32).toString('base64url');
+    s.adminSession = mintLocalTestSecret('adminSession');
     changed = true;
   }
   // One TEST service key per S2S service, used only when LOCAL_STACK_S2S=dual (s2sEnv). Valid nowhere else.
@@ -444,7 +479,7 @@ const keyrings = new WeakMap();
  * The S2S env for one service. Unset or `off` adds nothing, so the shared secret stays the only form (the default, and
  * what the journeys run). `dual` gives every S2S service the same public keyring and its own signing key: each one
  * signs with its key and still accepts the shared secret, so svc-ledger binds callers by key and refuses a
- * shared-secret post of a key-only recipe (services/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
+ * shared-secret post of a key-only recipe (crates/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
  * fund and seed scripts sign with the shared secret.
  */
 export function s2sEnv(secrets, name, mode = process.env.LOCAL_STACK_S2S) {
@@ -532,7 +567,7 @@ function offOverridden() {
   return out;
 }
 
-function startProc(name, argv, env, cwd, extra = {}) {
+export function startProc(name, argv, env, cwd, extra = {}) {
   // The maker's record is its own script's (local-test-market.mjs); a service under its name would be read as the maker.
   if (name === MAKER_RECORD) throw new Error(`refusing: ${name} names the TEST market maker's record, not a service`);
   const logPath = path.join(P.logs, `${name}.log`);
@@ -627,7 +662,24 @@ function preparePgPaths(extra = []) {
     );
 }
 
+/**
+ * The throwaway server skips crash durability (PG_THROWAWAY_FLAGS), as CI's service database and the tests' own
+ * containers do (packages/db/src/test-postgres.ts): on a busy disk durable writes stalled every test start
+ * (intafaced#9610). Without it a folder left by an unclean stop may be torn, so it is made again rather than trusted:
+ * only a cluster whose control file says "shut down" is reused. The beta host runs this script with
+ * LOCAL_STACK_PG_DURABLE=1 (tooling/beta/beta-host.mjs): full durability, and a box restart is recovered by Postgres
+ * itself, so its testers' accounts survive (#10352).
+ */
+function pgCleanlyStopped() {
+  const r = pgServerTool('pg_controldata', ['-D', P.pgdata], { encoding: 'utf8', env: { ...baseEnv(), LC_ALL: 'C' } });
+  return r.status === 0 && /^Database cluster state:\s+shut down$/mu.test(r.stdout);
+}
+
 function ensurePostgres(secrets) {
+  if (!pgDurable() && fs.existsSync(path.join(P.pgdata, 'PG_VERSION')) && !pgRunning() && !pgCleanlyStopped()) {
+    say('  postgres: the data directory was not stopped cleanly; without crash durability it is made again');
+    fs.rmSync(P.pgdata, { recursive: true, force: true });
+  }
   if (!fs.existsSync(path.join(P.pgdata, 'PG_VERSION'))) {
     say('  postgres: first run, initialising a dedicated data directory');
     const pwfile = path.join(STATE, 'tmp', 'pg-admin.pw');
@@ -656,7 +708,16 @@ function ensurePostgres(secrets) {
     preparePgPaths();
     const r = pgServerTool(
       'pg_ctl',
-      ['-D', P.pgdata, '-l', path.join(P.logs, 'postgres.log'), '-o', `-p ${PORTS.postgres} -h ${HOST} -k ${P.run}`, '-w', 'start'],
+      [
+        '-D',
+        P.pgdata,
+        '-l',
+        path.join(P.logs, 'postgres.log'),
+        '-o',
+        `-p ${PORTS.postgres} -h ${HOST} -k ${P.run} ${pgServerFlags()}`.trim(),
+        '-w',
+        'start',
+      ],
       { encoding: 'utf8', env: baseEnv() },
     );
     if (r.status !== 0) fail(`pg_ctl start failed (port ${PORTS.postgres} busy?): ${(r.stderr || r.stdout).slice(0, 500)}`);
@@ -743,13 +804,9 @@ function ensureNatsBinary() {
 const BACKEND_PKGS = [
   'svc-edge',
   'svc-identity',
-  'svc-ledger',
-  'svc-bank',
   'svc-trade',
   'svc-pay',
-  'svc-matching',
   'svc-token',
-  'svc-agents',
   'svc-p2p',
   'svc-notify',
   'svc-support',
@@ -1152,7 +1209,7 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
-// ── Rust services (svc-tax, svc-academy) ───────────────────────────────────
+// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-matching, svc-agents, svc-bank) ───────────────────────────────────
 
 /** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
 function rustServices() {
@@ -1177,7 +1234,7 @@ function crateAndPathDeps(dir, seen = new Set()) {
 
 /**
  * A hash of everything a Rust service's binary is built from: the workspace manifest, lockfile and toolchain, the crate,
- * and each crate it names by path (svc-academy and svc-tax both build on `crates/service-kit`).
+ * and each crate it names by path (every Rust service builds on `crates/service-kit`).
  */
 export function rustBinInputs(name, repo = REPO) {
   const walk = (dir) =>
@@ -1244,8 +1301,12 @@ function ensureRustBinaries(rebuild) {
       fail(`svc-${name} did not build (see ${logPath})\n${tail}`);
     }
     fs.mkdirSync(path.dirname(rustBin(name)), { recursive: true });
-    fs.copyFileSync(built, rustBin(name));
-    fs.chmodSync(rustBin(name), 0o755);
+    // Copied beside it, then renamed over it: a copy onto the binary of a running service fails with ETXTBSY, and on
+    // the long-lived beta every round after a Rust change then failed before it could start a service that was down.
+    const next = `${rustBin(name)}.${process.pid}.next`;
+    fs.copyFileSync(built, next);
+    fs.chmodSync(next, 0o755);
+    fs.renameSync(next, rustBin(name));
     fs.writeFileSync(rustBinInputsFile(name), `${want}\n`);
   }
 }
@@ -1294,6 +1355,8 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', {
       VITE_TEAM_URL: TEAM_TLS_ORIGIN,
       INTAFACED_SOURCEMAP: 'hidden',
+      // The beta's switch (tooling/beta/beta-host.mjs): only rooms finished in Volt show. Unset on every other stack.
+      ...(process.env.INTAFACED_BETA_VOLT_ONLY === '1' ? { INTAFACED_BETA_VOLT_ONLY: '1' } : {}),
     });
     // Each map becomes positions only (source paths and line positions, no source text) and the .map is deleted, before
     // the build is served or packed: the journeys run's build artifact is public (journey-reach.mjs reduceMaps).
@@ -1327,7 +1390,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    // A Rust service (svc-tax, svc-academy) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
+    // A Rust service (svc-tax, svc-academy, svc-ledger, svc-agents, svc-bank) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
     // the rest are Node packages.
     rustServices().includes(serviceOfSchema(s))
       ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, rustBin(serviceOfSchema(s)))
@@ -1372,6 +1435,42 @@ const supportCatalogueWanted = () => (supportCatalogueOff() ? 'off' : 'on');
  * it wrote before (J-support-public-12 #1, #6). Without it every such start makes the database new.
  */
 const keepSupportEmptyCatalogue = () => process.env.LOCAL_STACK_SUPPORT_CATALOGUE_KEEP === 'on' && supportCatalogueWas() === 'off';
+
+/**
+ * The empty agent catalogue's database (local-stack-services/agents.mjs), made new on every start of agents with
+ * LOCAL_STACK_AGENTS_CATALOGUE=off: dropped, created, given svc-agents' schema and migrated as svc_agents. svc-agents is
+ * stopped by then (start migrates only what is about to start), so nothing holds a connection to it. Its boot stores the
+ * agents again on start, so emptyAgentsCatalogue takes them out once it is up. The stack's own database is never touched.
+ */
+async function resetAgentsEmptyCatalogue(secrets) {
+  psql(secrets, `DROP DATABASE IF EXISTS ${AGENTS_EMPTY_CATALOGUE_DB} WITH (FORCE)`);
+  psql(secrets, `CREATE DATABASE ${AGENTS_EMPTY_CATALOGUE_DB}`);
+  psql(
+    secrets,
+    `CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS agents AUTHORIZATION svc_agents;
+GRANT USAGE ON SCHEMA public TO svc_agents;`,
+    { db: AGENTS_EMPTY_CATALOGUE_DB },
+  );
+  // The Rust binary applies its own migrations (`svc-agents migrate`), as `migrate` runs it for the stack's database.
+  await runPnpmAsync(
+    ['migrate'],
+    'migrate-agents-empty-catalogue',
+    { DATABASE_URL: onEmptyAgentsDb(dbUrl('svc_agents', secrets)) },
+    rustBin('agents'),
+  );
+}
+
+/** With svc-agents up on the empty-catalogue database: every agent its boot stored there taken out, so none is published. */
+function emptyAgentsCatalogue(secrets) {
+  psql(secrets, 'DELETE FROM agents.agent_definitions', { db: AGENTS_EMPTY_CATALOGUE_DB });
+  say(`  agents: empty-catalogue profile on ${AGENTS_EMPTY_CATALOGUE_DB} (LOCAL_STACK_AGENTS_CATALOGUE=off), made new`);
+}
+
+/** Which database the running svc-agents is on: 'off' (the empty-catalogue profile's) or 'on' (the stack's). */
+const agentsCatalogueFile = () => path.join(STATE, 'agents-catalogue');
+const agentsCatalogueWas = () => (fs.existsSync(agentsCatalogueFile()) ? fs.readFileSync(agentsCatalogueFile(), 'utf8').trim() : 'on');
+const agentsCatalogueWanted = () => (agentsCatalogueOff() ? 'off' : 'on');
 
 /**
  * The empty notice board's database (local-stack-services/notify.mjs), made new on every start of notify with
@@ -1452,7 +1551,7 @@ function commonEnv(secrets, name, port) {
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
     // S2S_AUTH_MODE stays unset here unless LOCAL_STACK_S2S=dual (s2sEnv): svc-ledger then accepts this shared
-    // secret and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    // secret and counts each post as unbound. See crates/svc-ledger/CALLER-BINDING.md.
     ...s2sEnv(secrets, name),
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
@@ -1575,8 +1674,7 @@ export function absentWhy(name, chain) {
 }
 
 /** Starts every service once the services it waits for (startDependencies) answer, the rest side by side. */
-async function startServices(all) {
-  const chain = testChain();
+export async function startServices(all, { chain = testChain(), start = startNodeService } = {}) {
   const defs = all.filter((d) => {
     const why = absentWhy(d.name, chain);
     if (why) say(`  ${d.name}: not started, ${why}`);
@@ -1589,7 +1687,7 @@ async function startServices(all) {
     const waits = startDependencies(defs, def, envOf).map((d) => started.get(d));
     started.set(
       def,
-      Promise.all(waits).then(() => startNodeService(def)),
+      Promise.all(waits).then(() => start(def)),
     );
   }
   await Promise.all(started.values());
@@ -1736,15 +1834,14 @@ END $$;`;
  * A new TEST chain: every service that stored the old one's blocks is stopped and its chain rows emptied, so it starts
  * again from the new node's block 0. Called only when this script starts a new anvil, never for a running one.
  */
-async function forgetOldChain(secrets) {
-  const procs = readProcs();
+export async function forgetOldChain(secrets, { procs = readProcs(), alive = ownedAlive, stop = stopProc, run = psql } = {}) {
   const stopped = [];
   for (const { service, schema } of CHAIN_DERIVED) {
-    if (ownedAlive(procs[service])) {
-      say(`  ${service}: ${await stopProc(service, procs[service])} (a new TEST chain)`);
+    if (alive(procs[service])) {
+      say(`  ${service}: ${await stop(service, procs[service])} (a new TEST chain)`);
       stopped.push(service);
     }
-    psql(secrets, emptySchemaSql(schema), { db: DB_NAME });
+    run(secrets, emptySchemaSql(schema), { db: DB_NAME });
     say(`  ${service}: rows from the earlier TEST chain emptied (schema ${schema}); it reads the new chain from block 0`);
   }
   return stopped;
@@ -1758,7 +1855,7 @@ async function forgetOldChain(secrets) {
  */
 async function startTestChain(secrets) {
   const bin = anvilBin(process.env);
-  let renewed = false;
+  let renewed;
   const procs = readProcs();
   if (!bin) {
     if (!ownedAlive(procs.chain)) {
@@ -1774,22 +1871,7 @@ async function startTestChain(secrets) {
     );
     return [];
   }
-  if (!ownedAlive(procs.chain)) {
-    for (const port of Object.values(CHAIN_PORTS)) if (await portOpen(port)) portTaken(port, 'TEST chain');
-    // A new anvil starts empty: whatever an earlier record named is gone with the old node, and so is every block a
-    // service stored from it.
-    fs.rmSync(chainRecordPath(STATE), { force: true });
-    renewed = true;
-    startProc(
-      'chain',
-      [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
-      {
-        ...baseEnv(),
-        LOCAL_STACK_ANVIL_BIN: bin,
-      },
-      REPO,
-    );
-  }
+  renewed = await startNewAnvil(procs, bin);
   const want = `0x${TEST_CHAIN_ID.toString(16)}`;
   for (let i = 0; i < 60; i++) {
     const answer = await rpcChainId();
@@ -1798,11 +1880,50 @@ async function startTestChain(secrets) {
     await sleep(500);
   }
   if ((await chainStatus()).gate !== 'open') fail('the TEST chain gate is closed; a journey left it shut (local-test-chain.mjs gate open)');
+  // The TEST bridge token on both TEST chains (D-bridge-chain-03): only its code, so it costs no block.
+  await installTestBridge().catch((err) => fail(`installing the TEST bridge failed: ${err.message}`));
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
-  if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
-  // Only once the new chain answers and is seeded: a start that fails before this leaves the services and rows as they were.
-  return renewed ? forgetOldChain(secrets) : [];
+  return afterSeed({ seeded, renewed, forget: () => forgetOldChain(secrets) });
+}
+
+/**
+ * Starts a new anvil unless this stack's chain is running, and says whether it did. Only a new anvil is renewed: it starts
+ * empty, so whatever an earlier record named is gone with the old node, and so is every block a service stored from it.
+ * A running chain keeps its record. The collaborators are the script's own (a test passes its own).
+ */
+export async function startNewAnvil(
+  procs,
+  bin,
+  {
+    alive = ownedAlive,
+    open = portOpen,
+    taken = portTaken,
+    dropRecord = () => fs.rmSync(chainRecordPath(STATE), { force: true }),
+    start = () =>
+      startProc(
+        'chain',
+        [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
+        {
+          ...baseEnv(),
+          LOCAL_STACK_ANVIL_BIN: bin,
+        },
+        REPO,
+      ),
+  } = {},
+) {
+  if (alive(procs.chain)) return false;
+  for (const port of Object.values(CHAIN_PORTS)) if (await open(port)) taken(port, 'TEST chain');
+  dropRecord();
+  start();
+  return true;
+}
+
+/** A failed seed stops the start; only a new chain that answers and is seeded forgets the old one's rows, so a start that
+ *  fails before this leaves the services and rows as they were. `stop` is the script's `fail` (a test passes its own). */
+export function afterSeed({ seeded, renewed, forget, stop = fail }) {
+  if (seeded.status !== 0) stop(`seeding the TEST chain failed:\n${seeded.output}`);
+  return renewed ? forget() : [];
 }
 
 async function rpcChainId() {
@@ -1881,13 +2002,14 @@ export function portDecision({ owned, healthy, portInUse }) {
   return portInUse ? 'refuse' : 'start';
 }
 
-async function startNodeService(def) {
+/** `stop` is stopForNewBuild (a test passes its own); so is each part's start below. */
+export async function startNodeService(def, { stop = stopForNewBuild } = {}) {
   const env = def.env();
   const port = Number(env.HTTP_PORT);
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
   const build = currentBuild('backendBuild');
-  await stopForNewBuild(def.name, procs[def.name], build, port);
+  await stop(def.name, procs[def.name], build, port);
   const rec = readProcs()[def.name];
   const owned = ownedAlive(rec);
   const healthy = owned && (await httpGet(url, 2000)).status === 200;
@@ -1907,7 +2029,7 @@ async function startNodeService(def) {
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); a Rust one (svc-tax,
-  // svc-academy) runs its binary (ensureRustBinaries); every other one is Node.
+  // svc-academy, svc-ledger, svc-agents) runs its binary (ensureRustBinaries); every other one is Node.
   // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
   const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
   const argv = def.java
@@ -1966,6 +2088,25 @@ async function restartIdentity() {
 }
 
 /**
+ * Move aside founders.json and operators.json when identity holds none of the accounts they name: the database was made
+ * again (an unclean stop of the throwaway server) and the stack would otherwise sign in as people who no longer exist
+ * (local-test-db-state.mjs, #10352).
+ */
+function retireLostAccountFiles() {
+  const rows = psql(readJson(P.secrets), 'SELECT id FROM identity.users', { db: DB_NAME, tuples: true });
+  const present = new Set(
+    rows
+      .split('\n')
+      .map((l) => l.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const lost = lostAccountFiles(STATE, present);
+  if (lost.length === 0) return;
+  for (const moved of retireAccountFiles(STATE, lost))
+    say(`  accounts: identity holds none of the accounts this file named, so it was moved aside: ${moved}`);
+}
+
+/**
  * Seed local_test_founder_a and local_test_founder_b on this stack's identity and
  * pin IDENTITY_FOUNDER_* to those two ids. No-op when identity or edge is not up.
  */
@@ -1976,6 +2117,7 @@ async function ensureLocalTestFounders() {
     say('  founders: identity or edge is not up, so the local test founder pair was not enrolled on this run');
     return;
   }
+  retireLostAccountFiles();
   const marker = readJson(P.marker);
   const edgeUrl = urlOf('edge');
   const { vaultPath } = ensureFounderVaultDraft({ stateDir: STATE, marker, edgeUrl, log: say });
@@ -2005,9 +2147,9 @@ async function pinOpsFounders() {
   await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
 }
 
-async function startCustomer() {
+export async function startCustomer({ stop = stopForNewBuild } = {}) {
   const build = currentBuild('customerBuild');
-  await stopForNewBuild('customer', readProcs().customer, build, PORTS.customer);
+  await stop('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
   if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
@@ -2072,7 +2214,23 @@ export function userVenueOn(env = process.env) {
 async function startTestVenue(name = 'test-venue') {
   const procs = readProcs();
   const url = `${urlOf(name)}/health`;
-  if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
+  // Which venue and source this start wants: a running one that answers for another (the simulator where
+  // Hyperliquid is wanted, another recording or trader) is stopped and started again, never kept.
+  const kind = userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '';
+  let hl;
+  try {
+    hl = hlSource(process.env);
+  } catch (err) {
+    fail(err.message, 2);
+  }
+  if (ownedAlive(procs[name])) {
+    const health = await httpGet(url, 2000);
+    if (health.status === 200) {
+      if (name !== 'test-venue' || venueAnswersFor(health.text, kind, hl)) return;
+      await stopProc(name, procs[name]);
+      for (let i = 0; i < 50 && (await portOpen(PORTS[name])); i++) await sleep(200);
+    }
+  }
   if (await portOpen(PORTS[name])) portTaken(PORTS[name], name);
   // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
   // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
@@ -2093,16 +2251,36 @@ async function startTestVenue(name = 'test-venue') {
     TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)),
     TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
     TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
+    // Which venue the first one is: the simulator, or the Hyperliquid test network recorded or live (#10203).
+    TEST_VENUE_KIND: kind,
+    // The Hyperliquid recording and the address it is for; blank: none. Never a key.
+    LOCAL_STACK_HL_RECORDING: hl.recording ?? '',
+    LOCAL_STACK_HL_TRADER: hl.trader ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
   const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
   await waitHealthy(name, url, pid, 20_000);
 }
 
+/**
+ * Whether a running first venue's `/health` answer is the one wanted: the simulator names no Hyperliquid source; a
+ * Hyperliquid venue names its kind, recording and trader (packages/venue-hyperliquid http-server.ts).
+ */
+export function venueAnswersFor(healthText, kind, hl) {
+  let source = null;
+  try {
+    source = JSON.parse(healthText)?.source ?? null;
+  } catch {
+    source = null;
+  }
+  if (kind !== 'hl-recorded' && kind !== 'hl-testnet') return source === null;
+  return source !== null && source.kind === kind && source.recording === hl.recording && source.trader === hl.trader;
+}
+
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
-async function startInvitation() {
+export async function startInvitation({ stop = stopForNewBuild } = {}) {
   const build = currentBuild('invitationBuild');
-  await stopForNewBuild('invitation', readProcs().invitation, build, PORTS.invitation);
+  await stop('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
   if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
@@ -2176,12 +2354,12 @@ function treasuryHeldUntil(rec) {
   return Number.isFinite(until) && until > Date.now() ? until : null;
 }
 
-async function startAdmin(secrets) {
+export async function startAdmin(secrets, { stop = stopForNewBuild } = {}) {
   let procs = readProcs();
   const url = `${ADMIN_ORIGIN}/login`;
   let treasury = null;
   const build = currentBuild('adminBuild');
-  await stopForNewBuild('admin', procs.admin, build, PORTS.admin);
+  await stop('admin', procs.admin, build, PORTS.admin);
   procs = readProcs();
   if (ownedAlive(procs.admin)) {
     const until = treasuryHeldUntil(procs.admin);
@@ -2264,8 +2442,8 @@ function serviceNames() {
  * Why the indexer halted, or null. It stays up and answers /health when it halts (its projection no longer matches the
  * chain), so only /ready says so; a /ready that is down for another reason (no chain door yet) is not a halt.
  */
-async function indexerHalt() {
-  const r = await httpGet(`${urlOf('indexer')}/ready`, 2500);
+export async function indexerHalt(get = httpGet) {
+  const r = await get(`${urlOf('indexer')}/ready`, 2500);
   try {
     const body = JSON.parse(r.text);
     return body?.haltedAt ? String(body.reason ?? 'no reason given').slice(0, 120) : null;
@@ -2312,14 +2490,7 @@ async function healthTable({ gateMarket = false } = {}) {
   const nats = await httpGet(`http://${HOST}:${PORTS.natsMonitor}/healthz`, 2000);
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   const chain = testChain();
-  for (const n of serviceNames()) {
-    const r = await settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) });
-    const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
-    // A service the start leaves out on purpose (absentWhy) reads "absent", which doesn't fail the start; DOWN still does.
-    const absent = r.status !== 200 ? absentWhy(n, chain) : null;
-    const state = absent ? 'absent (no TEST chain)' : r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
-    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state]);
-  }
+  for (const n of serviceNames()) rows.push(await serviceHealthRow(n, { procs, chain }));
   if (procs.chain) {
     const status = await chainStatus();
     const answer = await rpcChainId();
@@ -2352,16 +2523,8 @@ async function healthTable({ gateMarket = false } = {}) {
   // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
   // A venue's record outlives its process (a stop keeps it), so a stopped venue the switch doesn't ask for is off too;
   // one the switch asks for that is not running is DOWN.
-  const venues = userVenueOn() ? userVenueCount(process.env.LOCAL_STACK_USER_VENUE) : 0;
-  const wanted = { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
-  for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) {
-    if (!procs[name] || (!wanted[name] && !ownedAlive(procs[name]))) {
-      rows.push([`${name} (TEST)`, PORTS[name], '-', 'off (not started)']);
-      continue;
-    }
-    const adapter = await httpGet(`${urlOf(name)}/health`, 2500);
-    rows.push([`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`]);
-  }
+  const wanted = adaptersWanted();
+  for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) rows.push(await adapterHealthRow(name, { procs, wanted }));
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -2384,10 +2547,15 @@ async function healthTable({ gateMarket = false } = {}) {
     apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
   ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
-  rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   const teamCert = path.join(P.tls, 'team-tls.crt');
   const teamTlsOk = fs.existsSync(teamCert) && (await teamTlsAnswers(teamCert, 4000));
-  rows.push(['team-tls (TEST)', PORTS['team-tls'], procs['team-tls']?.pid ?? '-', teamTlsOk ? 'ok' : 'DOWN']);
+  rows.push(
+    ...consoleRows({
+      adminWanted: readText(P.adminWanted) !== 'off',
+      admin: { port: PORTS.admin, pid: procs.admin?.pid, status: admin.status },
+      teamTls: { port: PORTS['team-tls'], pid: procs['team-tls']?.pid, ok: teamTlsOk },
+    }),
+  );
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
@@ -2396,7 +2564,112 @@ async function healthTable({ gateMarket = false } = {}) {
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
+  return healthAllOk(rows, { gateMarket, marketBad });
+}
+
+/**
+ * One service's health row. A halted indexer still answers /health, so its /ready is read too (`halt`) and names the
+ * halt. A service the start leaves out on purpose (absentWhy) reads "absent", which doesn't fail the start; DOWN still
+ * does. `read` and `halt` are the script's own reads (a test passes its own).
+ */
+export async function serviceHealthRow(
+  n,
+  {
+    procs,
+    chain,
+    read = () => settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) }),
+    halt = indexerHalt,
+  },
+) {
+  const r = await read();
+  const halted = r.status === 200 && n === 'indexer' ? await halt() : null;
+  const absent = r.status !== 200 ? absentWhy(n, chain) : null;
+  const state = absent ? 'absent (no TEST chain)' : r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
+  return [`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state];
+}
+
+/** Which TEST adapters this start asks for: the venues by the user-venue switch, the wallet provider always. */
+export function adaptersWanted(env = process.env) {
+  const venues = userVenueOn(env) ? userVenueCount(env.LOCAL_STACK_USER_VENUE) : 0;
+  return { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
+}
+
+/**
+ * A TEST adapter's health row. One this start never recorded, or a stopped one the switch doesn't ask for (a venue's
+ * record outlives its process), reads "off", which doesn't fail; one it asks for that doesn't answer is DOWN.
+ */
+export async function adapterHealthRow(name, { procs, wanted, alive = ownedAlive, get = httpGet }) {
+  if (!procs[name] || (!wanted[name] && !alive(procs[name]))) return [`${name} (TEST)`, PORTS[name], '-', 'off (not started)'];
+  const adapter = await get(`${urlOf(name)}/health`, 2500);
+  return [`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`];
+}
+
+/**
+ * Whether this start builds and starts the founder console. `--no-admin` leaves it out; a start that names it (`--only
+ * admin` or `team-tls`) or names nothing brings it in; any other `--only` start (a journey restarting one service mid-run)
+ * keeps what the running stack was started with (`recorded`, the admin-wanted file), so it never builds the console mid-run.
+ */
+export function adminWantedBy(flags, only, recorded) {
+  if (flags.includes('--no-admin')) return false;
+  if (!only || only.includes('admin') || only.includes('team-tls')) return true;
+  return recorded !== 'off';
+}
+
+/**
+ * The console's two rows: the founder console and its TEST TLS front. After a `start --no-admin` (`adminWanted` false)
+ * one that does not answer reads "off", which doesn't fail; one that answers still reads ok.
+ */
+export function consoleRows({ adminWanted, admin, teamTls }) {
+  const off = 'off (--no-admin; bring it up: pnpm local:stack restart admin)';
+  const adminUp = admin.status === 200;
+  return [
+    ['admin', admin.port, admin.pid ?? '-', adminUp ? 'ok' : adminWanted ? `DOWN (${admin.status})` : off],
+    ['team-tls (TEST)', teamTls.port, teamTls.pid ?? '-', teamTls.ok ? 'ok' : adminWanted ? 'DOWN' : off],
+  ];
+}
+
+/** The health table passes when every row but the market maker's reads ok, absent or off (and, gated, the maker is live). */
+export function healthAllOk(rows, { gateMarket = false, marketBad = false } = {}) {
   return rows.slice(0, -1).every((r) => /^(ok|absent|off)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
+}
+
+/**
+ * The services this start runs anew: each not running, or running on another build than `build`. An old build never
+ * serves a schema migrated past it, so each is stopped (stopForNewBuild) before their schemas are migrated. `stop` and
+ * `migrateSchemas` are the script's own (a test passes its own).
+ */
+export async function stopThenMigrate({
+  wanted,
+  procs,
+  build,
+  secrets,
+  alive = ownedAlive,
+  stop = stopForNewBuild,
+  migrateSchemas = migrate,
+}) {
+  const toStart = wanted.filter((d) => !alive(procs[d.name]) || !onCurrentBuild(procs[d.name], build));
+  for (const d of toStart) await stop(d.name, procs[d.name], build, PORTS[d.name]);
+  await migrateSchemas(
+    secrets,
+    SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
+  );
+  return toStart;
+}
+
+/** A service stopped for the new chain (`renewed`) that this start did not plan for is migrated before it comes back. */
+export async function migrateRenewed({ renewed, toStart, secrets, migrateSchemas = migrate }) {
+  const extra = renewed.filter((name) => !toStart.some((d) => d.name === name));
+  if (extra.length)
+    await migrateSchemas(
+      secrets,
+      SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
+    );
+  return extra;
+}
+
+/** What the start runs: what was asked for, and what it stopped for a new chain (`renewed`), even under `--only`. */
+export function withRenewed(wanted, defs, renewed) {
+  return [...wanted, ...defs.filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name))];
 }
 
 /** `--only a,b` -> ['a','b'] (validated against the services this script knows); null when absent. */
@@ -2666,7 +2939,7 @@ async function cmdStart(flags) {
   say(`  state ${STATE}`);
   const free = freeGb();
   if (free < MIN_FREE_GB) fail(`only ${free.toFixed(1)} GB free on / (need >= ${MIN_FREE_GB} GB so free space stays above 12 GB)`);
-  for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
+  for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`, `${PG_BIN}/pg_controldata`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   // A first start without the core services leaves a stack the journey helpers refuse (assertActiveLocalStack).
   const only = onlyFlag(flags);
@@ -2702,7 +2975,9 @@ async function cmdStart(flags) {
   }
   adoptEnvCustomerDist();
   ensureNatsBinary();
-  ensureBuilt(flags.includes('--rebuild'));
+  const admin = adminWantedBy(flags, only, readText(P.adminWanted));
+  writePrivate(P.adminWanted, `${admin ? 'on' : 'off'}\n`);
+  ensureBuilt(flags.includes('--rebuild'), { admin });
   ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
@@ -2716,29 +2991,22 @@ async function cmdStart(flags) {
   // The same for svc-notify and the empty notice board.
   if (wanted.some((d) => d.name === 'notify') && ownedAlive(readProcs().notify) && notifyNoticesWas() !== notifyNoticesWanted())
     await cmdStop(['notify']);
-  const procsNow = readProcs();
-  const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
-  // An old build never serves a schema migrated past it: stop it before its migrations run.
-  for (const d of toStart) await stopForNewBuild(d.name, procsNow[d.name], backendBuild, PORTS[d.name]);
-  await migrate(
-    secrets,
-    SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
-  );
+  // The same for svc-agents and the empty agent catalogue.
+  if (wanted.some((d) => d.name === 'agents') && ownedAlive(readProcs().agents) && agentsCatalogueWas() !== agentsCatalogueWanted())
+    await cmdStop(['agents']);
+  const toStart = await stopThenMigrate({ wanted, procs: readProcs(), build: backendBuild, secrets });
   if (supportCatalogueOff() && !keepSupportEmptyCatalogue() && toStart.some((d) => d.name === 'support'))
     await resetSupportEmptyCatalogue(secrets);
   if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
   if (notifyNoticesOff() && toStart.some((d) => d.name === 'notify')) await resetNotifyEmptyNotices(secrets);
   if (toStart.some((d) => d.name === 'notify')) writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
+  const agentsEmpty = agentsCatalogueOff() && toStart.some((d) => d.name === 'agents');
+  if (agentsEmpty) await resetAgentsEmptyCatalogue(secrets);
+  if (toStart.some((d) => d.name === 'agents')) writePrivate(agentsCatalogueFile(), `${agentsCatalogueWanted()}\n`);
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
-  // A service stopped for the new chain that this start did not plan for is migrated before it comes back.
-  const extra = renewed.filter((name) => !toStart.some((d) => d.name === name));
-  if (extra.length)
-    await migrate(
-      secrets,
-      SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
-    );
+  const extra = await migrateRenewed({ renewed, toStart, secrets });
   if (extra.includes('support')) {
     if (supportCatalogueOff() && !keepSupportEmptyCatalogue()) await resetSupportEmptyCatalogue(secrets);
     writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
@@ -2747,6 +3015,9 @@ async function cmdStart(flags) {
     if (notifyNoticesOff()) await resetNotifyEmptyNotices(secrets);
     writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
   }
+  const agentsEmptyExtra = extra.includes('agents') && agentsCatalogueOff();
+  if (agentsEmptyExtra) await resetAgentsEmptyCatalogue(secrets);
+  if (extra.includes('agents')) writePrivate(agentsCatalogueFile(), `${agentsCatalogueWanted()}\n`);
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -2767,10 +3038,8 @@ async function cmdStart(flags) {
   // Protocol's env points at the TEST wallet provider, so `--only protocol` starts it too.
   if (!only || only.includes('test-wallet-provider') || only.includes('protocol')) await startTestWalletProvider();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
-  await startServices([
-    ...wanted,
-    ...serviceDefs(secrets).filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name)),
-  ]);
+  await startServices(withRenewed(wanted, serviceDefs(secrets), renewed));
+  if (agentsEmpty || agentsEmptyExtra) emptyAgentsCatalogue(secrets);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();
@@ -2783,8 +3052,8 @@ async function cmdStart(flags) {
   if (!only || only.includes('invitation')) await startInvitation();
   if (!only || only.includes('apex')) await startApex();
   if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
-  if (!only || only.includes('admin')) await startAdmin(secrets);
-  if (!only || only.includes('admin') || only.includes('team-tls')) await startTeamTls();
+  if (admin && (!only || only.includes('admin'))) await startAdmin(secrets);
+  if (admin && (!only || only.includes('admin') || only.includes('team-tls'))) await startTeamTls();
   ensureMarket();
   say('');
   const allOk = await healthTable();
@@ -2893,6 +3162,8 @@ async function cmdStop(names = []) {
   } else {
     say('  postgres: not running');
   }
+  // The stack is down, so a `--no-admin` it was started with ends here: the next start brings the console up again.
+  fs.rmSync(P.adminWanted, { force: true });
   say('  Data is kept in the state directory. Start again with: pnpm local:stack');
   if (bad) process.exit(1);
   releaseSlot();
@@ -2962,16 +3233,21 @@ function restartNames() {
   ];
 }
 
-async function cmdRestart(names) {
+/** A stop and a full start, so a restart takes the start's own path. The collaborators are the script's own (a test passes its own). */
+export async function cmdRestart(
+  names,
+  { take = takeSlot, refuse = refuseOtherStack, stop = cmdStop, start = cmdStart, adminWanted = () => readText(P.adminWanted) } = {},
+) {
   const known = restartNames();
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
   checkedS2sMode();
-  await takeSlot();
-  await refuseOtherStack();
-  await cmdStop(names);
-  await cmdStart([]);
+  await take();
+  await refuse();
+  await stop(names);
+  // A stack started with --no-admin stays without its console, unless the restart names it.
+  await start(names.includes('admin') || names.includes('team-tls') || adminWanted() !== 'off' ? [] : ['--no-admin']);
 }
 
 // The Customer server proxies /ws/* to CUSTOMER_WS_URL with the /ws prefix stripped, as apps/customer/nginx.conf
@@ -3047,16 +3323,13 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
-const BANNER_HTML =
-  `<style>body{padding-top:28px !important}</style>` +
-  `<div id="local-test-stack-banner" role="status" style="position:fixed;top:0;left:0;right:0;height:28px;z-index:2147483647;` +
-  `display:flex;align-items:center;justify-content:center;background:#F5A915;color:#0b0b0b;` +
-  `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` +
-  `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
-
-function indexWithBanner(dist) {
+/**
+ * The page a site serves. The Customer build carries its own TEST banner (apps/customer/deployment/test-banner.mjs),
+ * so its page is served as built; the invitation and apex stand-ins get the same banner here.
+ */
+function indexWithBanner(dist, site) {
   const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-  return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
+  return site === SITES.customer ? html : withTestBanner(html, {});
 }
 
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
@@ -3294,7 +3567,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     if (p.startsWith('/assets/')) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     let html;
     try {
-      html = indexWithBanner(dist);
+      html = indexWithBanner(dist, site);
     } catch {
       return send(res, 503, 'text/plain; charset=utf-8', `No ${site.label} build found in ${dist}. Run: pnpm local:stack --rebuild`);
     }
@@ -4644,6 +4917,11 @@ export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
 }
 
+/** Env the founder console would get. Starts nothing. */
+export function localTestAdminEnv(secrets = PLAN_SECRETS) {
+  return adminEnv(secrets);
+}
+
 function runningAsCli() {
   const entry = process.argv[1];
   if (!entry) return false;
@@ -4720,6 +4998,8 @@ async function runCli() {
       appEnv: process.env.APP_ENV,
       origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN],
       stateFile: path.join(STATE, 'test-wallet-provider.json'),
+      // The TEST chain, for the page's reads and the person's own signed transactions (J-wallet-24); down: none.
+      rpcUrl: `http://${HOST}:${CHAIN_PORTS.anvil}`,
     });
   else if (cmd === '__serve-test-venue')
     await serveTestVenue({
@@ -4730,6 +5010,8 @@ async function runCli() {
       rpcUrl: process.env.TEST_VENUE_RPC_URL,
       depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
       id: testVenueId(process.env.TEST_VENUE_ID),
+      kind: testVenueKind(process.env.TEST_VENUE_KIND),
+      hl: hlSource(process.env),
     });
   else if (cmd === '__serve-test-venue-b')
     await serveTestVenue({

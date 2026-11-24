@@ -299,6 +299,8 @@ const SAVED_ENV = vi.hoisted(() => {
   return saved;
 });
 
+/** svc-trade calls with no `.output()`: the call-records codemod can't make their record. Lower it as each gains one; never raise it. */
+const ANSWERLESS_AT_MOST = 135;
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
@@ -1504,6 +1506,7 @@ const PATTERN_TRIES = [
 
 /** A plain sample of what an input's own JSON schema asks for. Not always accepted (custom checks are not in the schema): that answer is recorded too. */
 function sample(schema: unknown, depth = 0): unknown {
+  if (acceptsAnyJson(schema)) return null;
   if (typeof schema !== 'object' || schema === null || depth > 8) return null;
   const s = schema as Json;
   if ('const' in s) return s.const;
@@ -1796,4 +1799,29 @@ describe('the wire replay: svc-trade answers every trade call as recorded', () =
       .map(([key, a]) => `${key}: ${a.status} ${a.body.slice(0, 160)} != ${is[key]?.status} ${is[key]?.body.slice(0, 160)}`);
     expect(diffs).toEqual([]);
   }, 600_000);
+  it('names an answer schema on every call but the ones still to do, and that count only falls', async () => {
+    const { app, router } = await serve([]);
+    try {
+      const anyRouter: AnyRouter = router;
+      const procedures: Record<string, { _def: { type: string; output?: unknown } }> = anyRouter._def.procedures;
+      const answerless = Object.keys(procedures)
+        .filter((path) => procedures[path]!._def.type !== 'subscription' && procedures[path]!._def.output === undefined)
+        .sort();
+      expect(answerless.length).toBeLessThanOrEqual(ANSWERLESS_AT_MOST);
+    } finally {
+      await app.close();
+    }
+  }, 600_000);
 });
+
+/**
+ * `jsonValueSchema` (z.json()) as JSON Schema: a choice of every JSON kind. Main had `z.unknown()` there (`{}`), which
+ * the sampler read as null; this reads the same, so the replay sends main's request (tooling/codemod/call-records/portable.mjs).
+ */
+function acceptsAnyJson(schema: unknown): boolean {
+  if (typeof schema !== 'object' || schema === null) return false;
+  const options = (schema as { anyOf?: unknown }).anyOf;
+  if (!Array.isArray(options)) return false;
+  const kinds = new Set(options.map((o: unknown) => (typeof o === 'object' && o !== null ? (o as { type?: unknown }).type : undefined)));
+  return ['string', 'number', 'boolean', 'null', 'array', 'object'].every((k) => kinds.has(k));
+}

@@ -472,7 +472,9 @@ export async function reconcileDispatchedPayout(svc: PayServiceInternal, settlem
       const accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
       const reversed = outcomes.some((outcome) => outcome.kind === 'reversed');
       const settled = outcomes.some((outcome) => outcome.kind === 'settled');
-      if (reversed || settlement.status === 'failed') return svc.getSettlement(settlementId, connection);
+      // Only this admission's own outcome says it is finished. A retry runs from a settlement still marked `failed`
+      // (the earlier attempt's reversal), so that status alone is not proof this attempt was reversed.
+      if (reversed) return svc.getSettlement(settlementId, connection);
       const proceedsPlan = settlementLedgerPlan({
         settlementId: admission.settlement_id,
         payoutAttempt: admission.attempt,
@@ -532,9 +534,21 @@ export async function reconcileDispatchedPayout(svc: PayServiceInternal, settlem
             state: 'dispatched',
           });
         }
-        if (queried.status === 'not_sent') {
-          const failureCode = 'rail.not_sent';
-          const failureReason = 'Rail status query confirmed the original key was not sent';
+        // A send the chain mined and reverted moved nothing, so it never settles. Below the rail's finality depth a reorg
+        // could still drop the revert and mine the same signed send: the hold stays. At it, the hold goes back like a refusal.
+        if (queried.status === 'reverted' && !queried.final) {
+          throw new PayError('Payout send reverted on the chain, not final yet; hold stays', 'pay.rail_outcome_unknown', {
+            settlementId,
+            idempotencyKey,
+            state: 'dispatched',
+          });
+        }
+        if (queried.status === 'not_sent' || queried.status === 'reverted') {
+          const failureCode = queried.status === 'reverted' ? 'rail.reverted' : 'rail.not_sent';
+          const failureReason =
+            queried.status === 'reverted'
+              ? 'Rail status query found the original key sent and reverted on the chain'
+              : 'Rail status query confirmed the original key was not sent';
           await postPayLedger(svc.ledger, plan.reverse);
           await payoutTransaction(connection, async (tx) => {
             await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${tx.json({ failureReason, failureCode })}) ON CONFLICT DO NOTHING`;

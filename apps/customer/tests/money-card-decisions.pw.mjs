@@ -368,7 +368,7 @@ const refreshCards = (page, locale = 'en') => main(page).getByRole('button', { n
 const refreshDecisions = (page, locale = 'en') =>
   historyPanel(page, locale).getByRole('button', { name: ui[locale].refreshDecisions, exact: true }).click();
 const retry = (page) => historyPanel(page).getByRole('button', { name: 'Try again', exact: true }).click();
-const enterCards = (page) => main(page).locator('.money-bank-nav a[href="/bank/cards"]').click();
+const enterCards = (page) => main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/cards"]').click();
 async function aboveFooter(locator, minimum = 0) {
   await expect
     .poll(() =>
@@ -410,8 +410,8 @@ async function ready(page, card, rows, locale = 'en', hidden = false) {
     const a = h.getByRole('article').nth(index);
     await expect(a.locator('h4')).toHaveText(row.decision);
     await expect(a.locator('.money-card-status dd')).toHaveText(row.status);
-    await expect(a.locator('.money-card-funding .numeric')).toHaveText(hidden ? '••••' : quantity(row.amount));
-    await expect(a.locator('.money-card-funding .money-caption')).toHaveText(card.assetId);
+    await expect(a.getByTestId('card-decision-amount').locator('.lt-mono')).toHaveText(hidden ? '••••' : quantity(row.amount));
+    await expect(a.getByTestId('card-decision-amount').locator('.lt-hint')).toHaveText(card.assetId);
     await expect(a.locator('.money-card-decision-time time')).toHaveAttribute('datetime', row.decidedAt);
     await expect(a.locator('.money-card-decision-time time')).toHaveAttribute('dir', 'auto');
     await expect(a.locator('.money-card-authorization dd')).toHaveText(row.authorizationRef);
@@ -420,7 +420,7 @@ async function ready(page, card, rows, locale = 'en', hidden = false) {
     await expect(a.locator('.money-card-conversion')).toHaveCount(row.conversion === null ? 0 : 1);
     if (row.conversion) {
       const c = a.locator('.money-card-conversion');
-      await expect(c.locator('.numeric')).toHaveText(hidden ? '••••' : quantity(row.conversion.settlementAmount));
+      await expect(c.locator(':is(.numeric, .lt-num)')).toHaveText(hidden ? '••••' : quantity(row.conversion.settlementAmount));
       await expect(c).toContainText(row.conversion.settlementAssetId);
       await expect(c).toContainText(`${quantity(row.conversion.rate)} ${row.conversion.settlementAssetId} / ${card.assetId}`);
       await expect(c).toContainText(row.conversion.rateQuality);
@@ -439,7 +439,7 @@ async function snapshot(page, state, name) {
       const b = e?.getBoundingClientRect();
       return b ? { top: b.top, bottom: b.bottom, left: b.left, right: b.right, width: b.width, height: b.height } : null;
     };
-    const glyphs = [...(p?.querySelectorAll('.money-card-funding .numeric') ?? [])].slice(0, 1).map((e) => {
+    const glyphs = [...(p?.querySelectorAll('[data-testid="card-decision-amount"] .lt-mono') ?? [])].slice(0, 1).map((e) => {
       const range = document.createRange();
       range.selectNodeContents(e);
       return {
@@ -595,7 +595,7 @@ test('current full card identity, exact decisions and natural arrival at four wi
         await expect.poll(() => currentURL(page)).toBe('/bank/cards');
         expect(
           await main(page)
-            .locator('.money-bank-nav a')
+            .locator('[data-testid="money-bank-nav"] a')
             .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('href'))),
         ).toEqual(paths);
         await inspect(page, a, locale, width >= 768);
@@ -611,7 +611,7 @@ test('current full card identity, exact decisions and natural arrival at four wi
             expect(r.left).toBeGreaterThanOrEqual(g.bounds.left - 0.5);
             expect(r.right).toBeLessThanOrEqual(g.bounds.right + 0.5);
           }
-        await expect(p.locator('.money-card-configuration .numeric')).toHaveText(quantity(a.perAuthorizationLimit));
+        await expect(p.locator('.money-card-configuration :is(.numeric, .lt-num)')).toHaveText(quantity(a.perAuthorizationLimit));
         await expect(p.locator('.money-card-reference dd')).toHaveAttribute('lang', 'zxx');
         await expect(historyPanel(page, locale).getByRole('article').first().locator('.money-card-status dd')).toHaveAttribute(
           'lang',
@@ -634,13 +634,13 @@ test('current full card identity, exact decisions and natural arrival at four wi
         expect(b.panTail).toBe(a.panTail);
         expect(b.id).not.toBe(a.id);
         expect(decisionReads(state).at(-1).input.cardId).toBe(b.id);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].hide, exact: true }).click();
         await enterCards(page);
         await inspect(page, a, locale);
         await ready(page, a, rows, locale, true);
         await snapshot(page, state, `cards-${width}-${requested}-hidden`);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].show, exact: true }).click();
         await enterCards(page);
         await inspect(page, a, locale);
@@ -692,7 +692,7 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       ]) {
         state.authorizationReply = async () => make();
         await refreshDecisions(page);
-        await expect(historyPanel(page).locator('.failure')).toBeVisible();
+        await expect(historyPanel(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
         await expect(historyPanel(page).getByRole('article')).toHaveCount(0);
         await snapshot(page, state, 'cards-' + name);
         await captureHandler(historyPanel(page).getByRole('button', { name: 'Try again', exact: true }), '__oldCardRetry');
@@ -751,17 +751,17 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       for (const reply of [readRefusals.unavailable(), { status: 200, data: [{ ...b, perAuthorizationLimit: 'NaN' }] }]) {
         state.listReply = async () => reply;
         await refreshCards(page);
-        await expect(panel(page).locator('.failure')).toBeVisible();
+        await expect(panel(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
         await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
         await expect(historyPanel(page)).toHaveCount(0);
         await expect(panel(page).locator('.money-card-reference dd')).toHaveText(b.id);
         state.listReply = listNormal;
-        await panel(page).locator('.failure').getByRole('button', { name: 'Try again', exact: true }).click();
+        await panel(page).locator(':is(.failure, .lt-refusal)').getByRole('button', { name: 'Try again', exact: true }).click();
         await ready(page, b, state.authorizationsByCard.get(b.id));
       }
       state.authorizationReply = async () => ({ status: 200, data: [{ ...decisionRows(b)[0], amount: 'NaN' }] });
       await refreshDecisions(page);
-      await expect(historyPanel(page).locator('.failure')).toBeVisible();
+      await expect(historyPanel(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
       state.authorizationReply = normal;
       await retry(page);
       await ready(page, b, state.authorizationsByCard.get(b.id));
@@ -926,7 +926,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
     await invoke(page, '__beforeLoading');
     await frames(page);
     expect(decisionReads(state)).toHaveLength(before);
-    await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+    await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
     await main(page).getByLabel('From your space', { exact: true }).selectOption(primaryId);
     await main(page).getByRole('button', { name: 'Continue', exact: true }).click();
     const dialog = page.getByRole('dialog');
@@ -1002,7 +1002,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
       await ready(page, a, state.authorizationsByCard.get(a.id));
       expect(await readBankOriginalRaw(page)).toBe(bankOriginalRaw);
       await snapshot(page, state, `cards-original-${unreadable ? 'unreadable' : 'unknown'}`);
-      await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+      await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
       await main(page).getByLabel('From your space', { exact: true }).selectOption(primaryId);
       await main(page).getByRole('button', { name: 'Continue', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);

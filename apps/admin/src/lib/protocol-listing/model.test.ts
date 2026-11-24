@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readDeskRequest } from '@/lib/desk/approval-packet';
+import { readDeskRequest } from '@/lib/desk';
 import { listingProblem, listingRequest, parseReasonCodeLines, type ListingForm } from './model';
 
 const POOL = '0xAbCdEf0123456789aBcDeF0123456789abCDef01';

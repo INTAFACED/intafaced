@@ -24,10 +24,17 @@ on:
 
 permissions: {}
 
-# One review per head. A newer push gets its own group, so it neither waits for nor cancels an older head's review.
+# One review per pull request, of its newest head (INTAFACED/project-state#3820; t3code's CI shape): a push cancels the
+# review still running on the head it replaced, whose verdict nobody can use, since the seal reads the review of the exact
+# head it merges (review-marker.mjs) and a push cancels that older head's seal too. On 22 Nov 2026, 43 such superseded
+# reviews ran to the end, 294 runner minutes plus their model calls. A push's, an open's and a ready-for-review's first
+# attempt share the pull request's group; only a push cancels. Everything else keeps a group per head that no push
+# cancels and that cancels nothing: an edit (a base change reviews the head being merged; a title edit runs no job but
+# could replace a waiting push's review in a shared group), a reopen, and a re-run (run_attempt above 1: a re-run of an
+# old head's review must never cancel the new head's). workflow-concurrency.test.mjs holds this.
 concurrency:
-  group: ci-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.head.sha }}
-  cancel-in-progress: false
+  group: ${{ github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened' || github.event.action == 'ready_for_review') && format('ci-review-pr-{0}-{1}', github.event.pull_request.number, github.event.pull_request.base.ref) || format('ci-review-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.base.ref, github.event.pull_request.head.sha) }}
+  cancel-in-progress: ${{ github.run_attempt == '1' && github.event.action == 'synchronize' }}
 
 jobs:
   review:
@@ -43,8 +50,9 @@ jobs:
       !github.event.pull_request.draft &&
       (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-24.04
-    # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB.
-    timeout-minutes: 30
+    # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB. A change that
+    # draws a Customer room also waits for CI's look gate on its head (up to 25 minutes, look-pictures.mjs).
+    timeout-minutes: 55
     environment: ci-review
     env:
       APP_KEY_SET: ${{ secrets.INTAFACED_APP_KEY != '' }} # true or false only; the key itself is read by one step
@@ -57,7 +65,7 @@ jobs:
       tests: ${{ steps.tests.outcome }}
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
-      actions: read # read this run's tree index
+      actions: read # read this run's tree index, and CI's look gate pictures on the head
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -118,7 +126,9 @@ jobs:
       # The pull request's code is read as text (the compare API and two shallow fetches of its base and head), never
       # checked out or run. A changed look baseline's PNGs, which the text diff shows only as "Binary files differ", are
       # read as blobs at the same base and head and given as images (ci-review.mjs collectBaselineImages; project-state
-      # #1819); past any of its caps, none are.
+      # #1819); past any of its caps, none are. A change that draws a Customer room or kit part waits for CI's look gate on
+      # the same head and gives the reviewer a band of each reached room's before and after picture (look-pictures.mjs,
+      # #9325), in what the image caps leave; `actions: read` reads that run's jobs and artifacts.
       - name: Read the diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -189,7 +199,7 @@ jobs:
             CLAUDE_CODE_OAUTH_TOKEN="placeholder-the-api-refuses"
           fi
           if [ -f "$dir/skip-reviewer" ]; then
-            echo "the diff step already decided (an exact automatic revert, or too large to review even in parts)"
+            echo "the diff step already decided (an exact automatic revert, a verdict carried from the same patch, or too large to review even in parts)"
             exec node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
           fi
           if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then

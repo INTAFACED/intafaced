@@ -25,8 +25,13 @@ import { restartServiceRules } from './restart-service-rule.js';
 import { storedSearchRules } from './stored-search-rule.js';
 import { callByNameRules } from './call-by-name-rule.js';
 import { runtimeSwapRules } from './runtime-swap-rule.js';
+import { switchRouterRules } from './switch-router-rule.js';
 import { crossFeatureImportRules } from './cross-feature-import-rule.js';
 import { sourceTextTestRules } from './source-text-test-rule.js';
+import { composeOnlyRules } from './compose-only-rule.js';
+import { serviceSentenceRules } from './service-sentence-rule.js';
+import { kitLookRules } from './kit-look-rules.js';
+import { testPostgresRules } from './test-postgres-rule.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -225,11 +230,16 @@ export default {
     ...staleReadRules,
     ...stepPictureRules,
     ...handClockRules,
+    ...testPostgresRules,
     ...restartServiceRules,
     ...storedSearchRules,
     ...callByNameRules,
     ...runtimeSwapRules,
+    ...switchRouterRules,
     ...crossFeatureImportRules,
     ...sourceTextTestRules,
+    ...composeOnlyRules,
+    ...serviceSentenceRules,
+    ...kitLookRules,
   },
 };

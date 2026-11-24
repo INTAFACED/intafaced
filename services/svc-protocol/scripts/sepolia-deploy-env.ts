@@ -1,5 +1,6 @@
 /** CLI re-export — parser lives under src/ so tests stay inside rootDir. */
 export {
+  assertNotDevKey,
   BANNED_LIVE_CHAIN_IDS,
   CIRCLE_USDC_BASE_SEPOLIA,
   createAddressAfterOneTx,

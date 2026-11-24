@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  academyPeerReviewFileSchema,
-  academyReviewStateSchema,
-  type AcademyReviewState,
-  type AcademyReviewTask,
-} from '@intafaced/contracts/academy-courses';
+import { academyReviewStateSchema, type AcademyReviewState, type AcademyReviewTask } from '@intafaced/contracts/academy-courses';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
@@ -12,6 +7,8 @@ import { useApi } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { byteSize } from './AcademyAssignment';
+import { ACADEMY_PEER_REVIEW } from '@intafaced/contracts/academy-peer-review-procedures';
+import { ACADEMY_PEER_REVIEW_FILE } from '@intafaced/contracts/academy-peer-review-file-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -53,7 +50,7 @@ export function ReviewForm({
   const self = task.kind === 'self';
   return (
     <form
-      className="academy-lms-stack"
+      className="lt-stack"
       data-testid={self ? 'review-self' : 'review-work'}
       onSubmit={(event) => {
         event.preventDefault();
@@ -81,7 +78,7 @@ export function ReviewForm({
         </p>
       )}
       {task.criteria.map((criterion, i) => (
-        <fieldset key={criterion.name} className="academy-lms-stack">
+        <fieldset key={criterion.name} className="lt-stack">
           <legend lang="und">{criterion.name}</legend>
           <span data-testid="academy-lms-meta" className="academy-lms-meta">
             {criterion.levels.map((level) => (
@@ -101,7 +98,7 @@ export function ReviewForm({
         </fieldset>
       ))}
       {missing && (
-        <p role="status" data-testid="failure" className="failure">
+        <p role="status" data-testid="failure" className="lt-refusal">
           {t('rvMissingLevel', { criterion: missing })}
         </p>
       )}
@@ -121,10 +118,7 @@ export function ReviewForm({
 export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handedIn: number }) {
   const api = useApi();
   const { t } = copy.useCopy();
-  const view = useResource(
-    (signal) => api.mutate('academy', 'peerReview', { itemId }, academyReviewStateSchema, { signal }),
-    `peer-review:${itemId}:${handedIn}`,
-  );
+  const view = useResource((signal) => api.call(ACADEMY_PEER_REVIEW, { itemId }, { signal }), `peer-review:${itemId}:${handedIn}`);
   const [sending, setSending] = useState(false);
   const [opening, setOpening] = useState(false);
   const [refused, setRefused] = useState<Failure | null>(null);
@@ -163,7 +157,7 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
   const openFile = async (task: AcademyReviewTask) => {
     setOpening(true);
     setRefused(null);
-    const file = await api.query('academy', 'peerReviewFile', { itemId, taskId: task.id }, academyPeerReviewFileSchema);
+    const file = await api.call(ACADEMY_PEER_REVIEW_FILE, { itemId, taskId: task.id });
     setOpening(false);
     if (!file.ok) return setRefused(file);
     const bytes = Uint8Array.from(atob(file.data.contentBase64), (c) => c.charCodeAt(0));
@@ -176,14 +170,14 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
   };
 
   return (
-    <section className="academy-lms-stack" data-testid="assignment-review" aria-label={t('rvTitle')}>
+    <section className="lt-stack" data-testid="assignment-review" aria-label={t('rvTitle')}>
       <h3>{t('rvTitle')}</h3>
       <p role="status" data-testid="review-count">
         {reviewCountLine(state, t)}
       </p>
-      {state.stage === 'hand_in_first' && <p className="muted">{t('rvHandInFirst')}</p>}
+      {state.stage === 'hand_in_first' && <p className="lt-muted">{t('rvHandInFirst')}</p>}
       {state.stage === 'waiting' && (
-        <p className="muted" data-testid="review-waiting">
+        <p className="lt-muted" data-testid="review-waiting">
           {t('rvWaiting')}
         </p>
       )}
@@ -198,7 +192,7 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
         />
       )}
       {uncertain && (
-        <p role="status" data-testid="failure" className="failure">
+        <p role="status" data-testid="failure" className="lt-refusal">
           {t('rvUncertain')}
         </p>
       )}

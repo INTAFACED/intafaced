@@ -1,4 +1,6 @@
 import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
+import type { ApiVersion } from '@intafaced/contracts/api-versions';
+import { ApiVersionDefaults } from '../api-version-default.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
@@ -188,6 +190,7 @@ import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import { credentialsFor, type PasskeyPurpose } from './passkey-purposes.js';
 import type { RankService } from '../rank/rank-service.js';
 import { effectiveIdleSeconds, endOldestBeyondLimit, type SessionLimits } from './session-limits.js';
+import { SELF_FREEZE_REASONS, SUB_ACCOUNT_KINDS } from '@intafaced/contracts/identity-call-schemas';
 
 /**
  * AUTH (§4.1, §9).
@@ -299,10 +302,7 @@ export class AuthError extends Error {
 /** Sign-in's `details` for a non-active account, once the person proved who they are. Only `closed` is final. */
 const accountStateOf = (status: string) => ({ accountState: status === 'closed' ? ('closed' as const) : ('frozen' as const) });
 
-/** Blank / non-integer / out of 1..200 KYC pending queue limit. Never invent 50. */
-export const SELF_FREEZE_REASONS = ['compromise', 'temporary', 'personal'] as const;
 export type SelfFreezeReason = (typeof SELF_FREEZE_REASONS)[number];
-export const SUB_ACCOUNT_KINDS = ['standard', 'managed', 'derivatives', 'spot'] as const;
 export type SubAccountKind = (typeof SUB_ACCOUNT_KINDS)[number];
 /** 5 to 20 letters or digits. */
 export const SUB_ACCOUNT_NICKNAME = /^[A-Za-z0-9]{5,20}$/;
@@ -1046,12 +1046,15 @@ export class AuthService {
     device?: string;
     ip?: string;
     deviceKey?: string | null;
+    /** Throws to refuse the draft's address before any account is made (the invited-list gate). */
+    admit?: (email: string) => void;
   }): Promise<{ session: SessionTokens; accountType: AccountType; referrerId: string | null }> {
     // A code asked for before the list was switched off makes no account while it is off (J-identity-22 #1).
     this.assertCountryListSet();
-    const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) =>
-      this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash),
-    );
+    const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) => {
+      input.admit?.(d.email);
+      return this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash);
+    });
     const session = await this.finishRegistration(userId, {
       handle: draft.handle,
       email: draft.email,
@@ -3102,6 +3105,8 @@ export class AuthService {
     ipAllowlist?: string[];
     /** The key's rate limit for the edge (`installApiKeyRateExchange`); null while no tier is set. */
     rateLimit?: KeyRateLimit | null;
+    /** The account's default API version, applied by the edge to a call with no version header; null while not set. */
+    apiVersionDefault: ApiVersion | null;
   }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw await this.deadApiKeyRefusal(key);
@@ -3133,7 +3138,16 @@ export class AuthService {
       },
       this.tokens,
     );
-    return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
+    const apiVersionDefault = await new ApiVersionDefaults(this.sql).versionOf(verified.userId);
+    return {
+      accessToken,
+      expiresAt,
+      userId: verified.userId,
+      keyId: verified.keyId,
+      scopes: verified.scopes,
+      mode: verified.mode,
+      apiVersionDefault,
+    };
   }
 
   /**
@@ -4406,3 +4420,4 @@ export function signinPhone(identifier: string): string {
   if (!/^\+[0-9 ()-]+$/.test(trimmed)) return '';
   return `+${trimmed.replace(/\D/g, '')}`;
 }
+export { SUB_ACCOUNT_KINDS };

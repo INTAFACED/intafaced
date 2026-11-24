@@ -260,7 +260,7 @@ describe('composePortfolioView', () => {
       chainAccount: CHAIN,
       fetch: async () =>
         jsonResponse({
-          result: { data: [{ market: 'IFC-USD', size: '3', entryPrice: '10' }] },
+          result: { data: [{ market: 'IFC-USD', account: CHAIN, size: '3', entryPrice: '10', blockHeight: 8, blockHash: '0xab' }] },
         }),
     });
 

@@ -5,7 +5,7 @@ import { EDGE, fund, json, journeyState, staffFreeze, staffRestore, toUnits, too
 import { awayBid, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn } from './tables.mjs';
-import { blankSigningWindow, signingPolicy } from './developer.mjs';
+import { VERSION_PIN, blankSigningWindow, signingPolicy } from './developer.mjs';
 
 // J-developer-04, in the running app (docs/roadmap/journeys.json): sign requests and understand the errors that come
 // back. One test per step, titled "J-developer-04 #<n>". The person is a TEST account on the local stack with a passkey
@@ -50,7 +50,10 @@ async function call(
   { key, secret, body, timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomUUID(), tamper, sendBody } = {},
 ) {
   const raw = body === undefined ? '' : JSON.stringify(body);
-  const headers = { ...(key ? { authorization: `Bearer ${key}` } : {}), ...(raw ? { 'content-type': 'application/json' } : {}) };
+  const headers = {
+    ...(key ? { authorization: `Bearer ${key}`, ...VERSION_PIN } : {}),
+    ...(raw ? { 'content-type': 'application/json' } : {}),
+  };
   if (secret) {
     headers['x-intafaced-request-timestamp'] = timestamp;
     headers['x-intafaced-request-nonce'] = nonce;
@@ -174,7 +177,7 @@ test(`${J} #2 sends a timestamp just outside the owner window: the stale code; a
   await page.goto('/developers/authentication');
   const shown = page.getByTestId('developers-sign-window');
   await expect(shown, 'the page shows the window (portal PR of DV-auth-01)').toBeVisible(UNBUILT);
-  expect(Number((await shown.textContent())?.match(/\d+/)?.[0])).toBe(windowSeconds);
+  await expect.poll(async () => Number((await shown.textContent())?.match(/\d+/)?.[0])).toBe(windowSeconds);
 });
 
 test(`${J} #3 sends a request with two invalid fields: one typed body listing both, with a request id and a docs link`, async () => {

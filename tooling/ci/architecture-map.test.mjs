@@ -41,7 +41,7 @@ test('project-state#2338: a services table with no svc-campaigns row fails', () 
 
 test('a row for a deleted service or a missing package fails', () => {
   const planted = doc
-    .replace('| `svc-ledger`', '| `svc-chain`      |  gone |\n| `svc-ledger`')
+    .replace('| `svc-campaigns`', '| `svc-chain`      |  gone |\n| `svc-campaigns`')
     .replace('| `packages/auth`', '| `packages/gone`');
   const found = problems(planted, folders);
   assert.ok(

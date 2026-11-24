@@ -1,7 +1,7 @@
 import { accountStatusSchema, type AccountRestriction } from '@intafaced/contracts/identity-account-status';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { Failure, Loading } from './kit-parts';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { accountStatusCopy as copy } from './account-status-copy';
@@ -41,7 +41,7 @@ export function AccountStatus() {
     // A staff close with a grace date (J-identity-14 #1): closed, but open to withdraw until the date.
     const graceUntil = status.state === 'closed' ? (status.restrictions.find((r) => r.kind === 'closed')?.graceUntil ?? null) : null;
     return (
-      <div className="stack">
+      <div>
         <p data-testid="account-status__state" data-state={status.state} data-grace-until={graceUntil ?? undefined}>
           {graceUntil ? (
             <Copy k="closing" params={{ time: stamp(graceUntil, timeZone) }} />
@@ -49,12 +49,12 @@ export function AccountStatus() {
             <Copy k={status.state === 'active' && status.restrictions.length > 0 ? 'activeWithRecords' : status.state} />
           )}
         </p>
-        <div className="account-status__lists">
+        <div className="lt-toolbar">
           <div>
             <h3>
               <Copy k="canStill" />
             </h3>
-            <ul data-testid="account-status__can">
+            <ul className="lt-rows" data-testid="account-status__can">
               {status.canStill.length === 0 ? (
                 <li>
                   <Copy k="nothing" />
@@ -68,7 +68,7 @@ export function AccountStatus() {
             <h3>
               <Copy k="cannot" />
             </h3>
-            <ul data-testid="account-status__cannot">
+            <ul className="lt-rows" data-testid="account-status__cannot">
               {status.cannot.length === 0 ? (
                 <li>
                   <Copy k="nothing" />
@@ -97,7 +97,7 @@ export function AccountStatus() {
   };
 
   return (
-    <section className="account-status" aria-labelledby="account-status-title" data-testid="account-status">
+    <section id="account-status" aria-labelledby="account-status-title" data-testid="account-status">
       <h2 id="account-status-title">
         <Copy k="title" />
       </h2>

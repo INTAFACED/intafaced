@@ -214,3 +214,59 @@ describe('copy settlement reconcile (J-copy-bots-otc-11 #2 #3)', () => {
     expect(one.rows).toEqual([]);
   });
 });
+
+describe('a share of a copy filled on the venue (venue-fee-share.ts)', () => {
+  const VENUE = 'test-venue-sim';
+  const ACCOUNT = '0x00000000000000000000000000000000000000f1/0x00000000000000000000000000000000000000f2';
+  const onVenue = (over: Partial<StoredShareRow> = {}) =>
+    share({
+      fillId: `${VENUE}:${ACCOUNT}:sim-fill-1`,
+      venue: { venueId: VENUE, venueAccount: ACCOUNT, venueFillId: 'sim-fill-1', claimId: 'claim-1' },
+      ...over,
+    });
+  const fund = (s: StoredShareRow) =>
+    tx(
+      recipes.feeShareBudgetFund({
+        venueId: VENUE,
+        claimId: 'claim-1',
+        assetId: s.assetId,
+        claimAmount: 10n ** 18n,
+        amount: 5n * 10n ** 17n,
+      }),
+    );
+  const owe = (s: StoredShareRow, amount = s.owed) =>
+    tx(
+      recipes.feeShareOwe({
+        venueId: VENUE,
+        venueAccount: ACCOUNT,
+        fillId: 'sim-fill-1',
+        recipient: { kind: 'lead-trader', userId: s.leaderId },
+        assetId: s.assetId,
+        feeEarned: s.protocolFee,
+        rate: { bps: 1234 },
+        amount,
+        sharedSoFarOnFill: 0n,
+      }),
+    );
+
+  it('is settled when the owed post carries the share and the poster recorded the fee it is a share of; keyed by the owe key', () => {
+    const s = onVenue();
+    const row = judgeSettlement(s, { sweep: fund(s), payout: owe(s) }, [venueFee(s.protocolFee)]);
+    expect(row).toMatchObject({ status: 'settled', reasons: [], ledgerAmount: '0.0001', venueAmount: '0.001' });
+    expect(row.key).toBe(owe(s).idempotencyKey);
+    expect(row.sweepKey).toBe(fund(s).idempotencyKey);
+  });
+
+  it('is held, with the owe key, while it waits for the claim; and held when the owed amount differs', () => {
+    const waiting = onVenue({ settled: false, venue: { venueId: VENUE, venueAccount: ACCOUNT, venueFillId: 'sim-fill-1', claimId: null } });
+    const row = judgeSettlement(waiting, { sweep: null, payout: null }, [venueFee(waiting.protocolFee)]);
+    expect(row).toMatchObject({ status: 'held', reasons: ['ledger_post_missing'], sweepKey: '' });
+    expect(row.key).toMatch(/^fee-share:builder-fee:test-venue-sim:\S+:sim-fill-1:lead-trader:/);
+    const s = onVenue();
+    expect(judgeSettlement(s, { sweep: fund(s), payout: owe(s, 1n) }, [venueFee(s.protocolFee)]).reasons).toEqual([
+      'ledger_amount_differs',
+    ]);
+    expect(judgeSettlement(s, { sweep: null, payout: owe(s) }, [venueFee(s.protocolFee)]).reasons).toEqual(['ledger_post_missing']);
+    expect(judgeSettlement(s, { sweep: fund(s), payout: owe(s) }, []).reasons).toEqual(['venue_not_reported']);
+  });
+});

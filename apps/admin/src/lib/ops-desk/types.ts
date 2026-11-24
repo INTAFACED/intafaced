@@ -25,6 +25,11 @@ export type CellKind =
   | 'seconds'
   /** A decimal string a service formatted (money). Shown exactly as given, never parsed. */
   | 'amount'
+  /**
+   * A typed code that someone outside reads back to us (the error code an API reply carried, `edge.api_key_denied`). Shown
+   * exactly as given, never in words, so support quotes the very code the developer's client received.
+   */
+  | 'code'
   /** An array of strings. */
   | 'list'
   /** An array of `{ assetId, amount }`, one money total per asset. Shown as "12.5 USDT, 0.1 BTC", amounts exactly as given. */
@@ -166,6 +171,8 @@ export type RowAction =
   | 'identity.kyc_document.open'
   /** Accepting or rejecting one selfie that waits for comparison (`kyc.selfie.decide`), with a second founder's approval. */
   | 'identity.kyc_selfie.decide'
+  /** Approving one pending verification at its level (`kyc.approve`), with a second founder's approval. */
+  | 'identity.kyc.approve'
   /** Freezing one deposit address (one founder), or lifting its freeze with a second founder (svc-pay `founderAdmin.depositFreezes`). */
   | 'pay.deposit_address'
   /** Waiting on the sending platform, or releasing a declared deposit held for the inbound travel rule (one founder each). */

@@ -12,16 +12,18 @@ const dir = join(dirname(fileURLToPath(import.meta.url)), 'locales');
 const files = readdirSync(dir)
   .filter((name) => name.endsWith('.json'))
   .sort();
+/** A drop-in language file: JSON data, read by its locale code. */
+const readLocale = (code: string) => JSON.parse(readFileSync(join(dir, `${code}.json`), 'utf8'));
 
 describe('drop-in language files', () => {
   it('has a generated index that holds exactly the files on disk', () => {
-    const onDisk = Object.fromEntries(files.map((name) => [name.slice(0, -5), JSON.parse(readFileSync(join(dir, name), 'utf8'))]));
+    const onDisk = Object.fromEntries(files.map((name) => [name.slice(0, -5), readLocale(name.slice(0, -5))]));
     expect(LOCALE_FILES).toEqual(onDisk);
   });
 
   it.each(files)('%s: names a declared locale, a known provenance and only keys English has', (name) => {
     const code = name.slice(0, -5);
-    const parsed = JSON.parse(readFileSync(join(dir, name), 'utf8'));
+    const parsed = readLocale(code);
     expect(findLocale(code), `${name}: not a declared locale`).toBeDefined();
     expect(code, `${name}: English is the source and has no file`).not.toBe('en');
     expect(PROVENANCES, `${name}: provenance must be human or machine`).toContain(parsed.meta?.provenance);

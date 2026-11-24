@@ -5,12 +5,14 @@
  * `changelogOutput`); a response that does not match is refused, never shown.
  */
 import { z } from 'zod';
+import { NOTIFY_CHANGELOG_AREA_IDS, notifyNoticeEntrySchema as entrySchema } from '@intafaced/contracts/notify-public-notices';
 import type { ApiClient, ApiResult } from './api';
+import { NOTIFY_STATUS_FEED, NOTIFY_CHANGELOG, NOTIFY_UPCOMING_CHANGES } from '@intafaced/contracts/notify-notify-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const impact = z.enum(['none', 'minor', 'major', 'critical']);
 export const STATUS_COMPONENT_IDS = ['api', 'webhooks', 'console'] as const;
 const component = z.enum(STATUS_COMPONENT_IDS);
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const statusFeedSchema = z.object({
   asOf: z.string(),
@@ -54,59 +56,17 @@ export const statusFeedSchema = z.object({
     ),
   }),
 });
-export type StatusFeed = z.infer<typeof statusFeedSchema>;
+export type StatusFeed = ProcedureOutput<typeof NOTIFY_STATUS_FEED>;
 
-export const CHANGELOG_AREA_IDS = [
-  'trading',
-  'market_data',
-  'account',
-  'wallet',
-  'payments',
-  'webhooks',
-  'websocket',
-  'fix',
-  'authentication',
-] as const;
-export type ChangelogAreaId = (typeof CHANGELOG_AREA_IDS)[number];
-
-const changelogSchema = z.object({
-  area: z.enum(CHANGELOG_AREA_IDS),
-  breaking: z.boolean(),
-  endpoints: z.array(z.string()),
-  scopes: z.array(z.string()),
-  addedOn: day.nullable(),
-  releaseOn: day.nullable(),
-  before: z.string().nullable(),
-  after: z.string().nullable(),
-  migrationNote: z.string().nullable(),
-  retired: z.array(z.string()),
-});
-export const entrySchema = z.object({
-  id: z.string().guid(),
-  kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog', 'fee_change']),
-  title: z.string(),
-  body: z.string(),
-  status: z.enum(['draft', 'published']),
-  publishedAt: z.string().nullable(),
-  startsAt: z.string().nullable(),
-  endsAt: z.string().nullable(),
-  version: z.number().int(),
-  changelog: changelogSchema.nullable(),
-  /** The founders' category an announcement is filed under, as filed (SP-status-03). Absent from an older svc-notify. */
-  category: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
-  /** A changelog read in a chosen language: the language this entry's title and body are in. Absent on other reads. */
-  language: z.string().optional(),
-});
+/** One notice entry and the changelog's areas, from `@intafaced/contracts/notify-public-notices`. */
+export { NOTIFY_CHANGELOG_AREA_IDS as CHANGELOG_AREA_IDS, entrySchema };
+export type ChangelogAreaId = (typeof NOTIFY_CHANGELOG_AREA_IDS)[number];
 export type ChangelogEntry = z.infer<typeof entrySchema>;
 
-const upcomingSchema = z.object({
-  upcoming: z.array(entrySchema),
-  retired: z.array(z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: day.nullable() })),
-});
-export type UpcomingChanges = z.infer<typeof upcomingSchema>;
+export type UpcomingChanges = ProcedureOutput<typeof NOTIFY_UPCOMING_CHANGES>;
 
 export const readStatusFeed = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<StatusFeed>> =>
-  api.query('notify', 'notify.statusFeed', { days: 30 }, statusFeedSchema, { signal });
+  api.call(NOTIFY_STATUS_FEED, { days: 30 }, { signal });
 
 /** The changelog in the reader's chosen language (`language`, the app's locale code): each entry names the language it is in. */
 export const readChangelog = (
@@ -115,13 +75,11 @@ export const readChangelog = (
   language: string,
   signal?: AbortSignal,
 ): Promise<ApiResult<ChangelogEntry[]>> =>
-  api.query(
-    'notify',
-    'notify.changelog',
+  api.call(
+    NOTIFY_CHANGELOG,
     { limit: 50, language, ...(filter.area ? { area: filter.area } : {}), ...(filter.breaking ? { breaking: true } : {}) },
-    z.array(entrySchema).max(50),
     { signal },
   );
 
 export const readUpcomingChanges = (api: ApiClient, language: string, signal?: AbortSignal): Promise<ApiResult<UpcomingChanges>> =>
-  api.query('notify', 'notify.upcomingChanges', { language }, upcomingSchema, { signal });
+  api.call(NOTIFY_UPCOMING_CHANGES, { language }, { signal });

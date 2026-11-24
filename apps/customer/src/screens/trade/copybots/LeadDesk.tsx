@@ -38,11 +38,12 @@ export function LeadDesk({ api }: { api: RoomApi }) {
   };
 
   const columns: TableColumn<FeeRow>[] = [
-    { id: 'fill', header: t('Fill'), value: (r) => `Fill ${r.fillId.slice(0, 8)}`, pin: 'start' },
+    { id: 'fill', header: t('Fill'), value: (r) => `Fill ${r.venueFillId ?? r.fillId.slice(0, 8)}`, pin: 'start' },
     { id: 'asset', header: t('Asset'), value: (r) => r.assetId },
     { id: 'fee', header: t('Our fee on the fill'), numeric: true, value: (r) => r.feeOnFill, cell: (r) => displayAmount(r.feeOnFill) },
     { id: 'share', header: t('Share of the fee'), value: (r) => bpsText(String(r.appliedShareBps)) ?? '' },
     { id: 'amount', header: t('Fee share'), numeric: true, value: (r) => r.amount, cell: (r) => `${displayAmount(r.amount)} ${r.assetId}` },
+    { id: 'owed', header: t('Recorded'), value: () => t('Owed by INTAFACED') },
     { id: 'at', header: t('Time'), value: (r) => new Date(r.at).toLocaleString() },
   ];
   const data = earnings.data;
@@ -85,7 +86,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
           }
         />
         <form
-          className="cb-action-row"
+          className="lt-actions"
           onSubmit={(event) => {
             event.preventDefault();
             void askShare();
@@ -111,9 +112,9 @@ export function LeadDesk({ api }: { api: RoomApi }) {
             { label: t('Listing'), value: level.data ? (level.data.leaderRef ?? t('You are not a listed leader')) : null },
           ]}
         />
-        <p className="muted">{t('Maximum ratio: not set by the platform')}</p>
+        <p className="lt-muted">{t('Maximum ratio: not set by the platform')}</p>
         <form
-          className="cb-action-row"
+          className="lt-actions"
           onSubmit={(event) => {
             event.preventDefault();
             void askRatio();

@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query, mutate, draft } = vi.hoisted(() => ({
+const { query, mutate, call, draft } = vi.hoisted(() => ({
   query: vi.fn(() => new Promise(() => undefined)),
   mutate: vi.fn(() => new Promise(() => undefined)),
+  call: vi.fn(() => new Promise(() => undefined)),
   draft: { current: null as null | { name: string; cash: string; blocks: unknown[]; drawdown: string; notional: string; kill: string } },
 }));
 
@@ -11,9 +12,9 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
-  const api = { query, mutate, canWrite: () => true };
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
+  const api = { query, mutate, call, canWrite: () => true };
   const session = { api, userId: 'a0000000-0000-4000-8000-000000000001', session: null };
   return { ...real, useSession: () => session as unknown as ReturnType<typeof real.useSession>, useApi: () => api as never };
 });

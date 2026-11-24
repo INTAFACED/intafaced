@@ -1,22 +1,26 @@
 import 'server-only';
 import {
-  founderDisputeListSchema,
-  founderLiveSummarySchema,
   founderMerchantSectionSchema,
-  founderPayoutListSchema,
-  founderRecentMerchantsSchema,
-  founderRiskSummarySchema,
-  merchantMetricsSnapshotSchema,
-  payHaltPendingClearListSchema,
   type FounderDisputeListInput,
   type FounderMerchantSection,
   type FounderMerchantSectionPage,
   type FounderPayoutListInput,
   type FounderRiskSummaryInput,
 } from '@intafaced/contracts';
-import { parseWith, payCall, type PayCallContext, type PayCallResult } from '@/lib/merchants';
+import { PAY_HALTS_PENDING_CLEARS } from '@intafaced/contracts/pay-halt-procedures';
+import { payRecordCall, type PayCallContext, type PayCallResult, payRecordRead } from '@/lib/merchants';
 import { asNotePage } from './notes';
 import { one, PAGE_LIMIT, RISK_TOP_N, RISK_WINDOWS, sectionRequest, type Query, type RiskWindowKey } from './read-model';
+import {
+  PAY_FOUNDER_ADMIN_MERCHANTS_SECTION,
+  PAY_FOUNDER_ADMIN_MERCHANTS_RECENT,
+  PAY_FOUNDER_ADMIN_PAYOUTS_LIST,
+  PAY_FOUNDER_ADMIN_DISPUTES_LIST,
+  PAY_FOUNDER_ADMIN_LIVE_SUMMARY,
+  PAY_FOUNDER_ADMIN_RISK_SUMMARY,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * The founder reads added in #4870, one loader each. Every loader returns a named outcome and never invents a row: a
@@ -30,7 +34,7 @@ export function loadSection(
   section: FounderMerchantSection,
   query: Query | undefined,
 ): Promise<PayCallResult<FounderMerchantSectionPage>> {
-  return payCall(ctx, 'founderAdmin.merchants.section', 'GET', sectionRequest(merchantId, section, query), (raw) => {
+  return payRecordRead(ctx, PAY_FOUNDER_ADMIN_MERCHANTS_SECTION, sectionRequest(merchantId, section, query), (raw) => {
     const parsed = founderMerchantSectionSchema.safeParse(raw);
     return parsed.success && parsed.data.section === section ? parsed.data : null;
   });
@@ -38,13 +42,7 @@ export function loadSection(
 
 export function loadRecentMerchants(ctx: PayCallContext, query: Query | undefined) {
   const cursor = one(query, 'cursor');
-  return payCall(
-    ctx,
-    'founderAdmin.merchants.recent',
-    'GET',
-    { limit: PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
-    parseWith(founderRecentMerchantsSchema),
-  );
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_MERCHANTS_RECENT, { limit: PAGE_LIMIT, ...(cursor ? { cursor } : {}) });
 }
 
 export const PAYOUT_STATUSES = ['pending', 'posted', 'paid_out', 'failed'] as const;
@@ -61,7 +59,7 @@ export function payoutListInput(query: Query | undefined): FounderPayoutListInpu
 }
 
 export function loadPayoutList(ctx: PayCallContext, query: Query | undefined) {
-  return payCall(ctx, 'founderAdmin.payouts.list', 'GET', payoutListInput(query), parseWith(founderPayoutListSchema));
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_PAYOUTS_LIST, payoutListInput(query));
 }
 
 export function disputeListInput(query: Query | undefined): FounderDisputeListInput {
@@ -77,11 +75,11 @@ export function disputeListInput(query: Query | undefined): FounderDisputeListIn
 }
 
 export function loadDisputeList(ctx: PayCallContext, query: Query | undefined) {
-  return payCall(ctx, 'founderAdmin.disputes.list', 'GET', disputeListInput(query), parseWith(founderDisputeListSchema));
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_DISPUTES_LIST, disputeListInput(query));
 }
 
 export function loadLiveSummary(ctx: PayCallContext) {
-  return payCall(ctx, 'founderAdmin.live.summary', 'GET', {}, parseWith(founderLiveSummarySchema));
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_LIVE_SUMMARY, {});
 }
 
 /** The caller picks the cutoff (there is no default N) and the window; "all projected days" sends no window at all. */
@@ -91,32 +89,25 @@ export function riskInput(window: RiskWindowKey): FounderRiskSummaryInput {
 }
 
 export function loadRiskSummary(ctx: PayCallContext, window: RiskWindowKey) {
-  return payCall(ctx, 'founderAdmin.risk.summary', 'GET', riskInput(window), parseWith(founderRiskSummarySchema));
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_RISK_SUMMARY, riskInput(window));
 }
 
 /** Clears waiting for a second founder. The same read the Halts desk uses. */
 export function loadPendingClears(ctx: PayCallContext) {
-  return payCall(ctx, 'payHalts.pendingClears', 'GET', { limit: 50 }, parseWith(payHaltPendingClearListSchema));
+  return payRecordCall(ctx, PAY_HALTS_PENDING_CLEARS, { limit: 50 });
 }
 
 /** The merchant's 30-day snapshot, used here only for its per-asset balances. */
 export function loadBalances(ctx: PayCallContext, merchantId: string) {
-  return payCall(
-    ctx,
-    'founderAdmin.metrics.merchant',
-    'GET',
-    { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } },
-    parseWith(merchantMetricsSnapshotSchema),
-  );
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_METRICS_MERCHANT, { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
 }
 
 /** A merchant's operator notes, newest first. Retracted notes are listed only when asked for. */
 export function loadNotes(ctx: PayCallContext, merchantId: string, query: Query | undefined) {
   const cursor = one(query, 'cursor');
-  return payCall(
+  return payRecordRead(
     ctx,
-    'founderAdmin.ops.notes.list',
-    'GET',
+    PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
     {
       merchantId,
       limit: PAGE_LIMIT,

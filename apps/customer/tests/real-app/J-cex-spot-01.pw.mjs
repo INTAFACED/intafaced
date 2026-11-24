@@ -711,10 +711,10 @@ test(`${J} #6 types a limit buy of TEST 0.1 BTC and reviews: the venue's lock, t
   expect(status, JSON.stringify(preview).slice(0, 300)).toBe(200);
   const lock = listed(review, /lock/i);
   await expect(lock).toContainText(preview.value.lock.asset);
-  expect(shownUnits(await lock.innerText())).toBe(wireUnits(preview.value.lock.amount));
+  await expect.poll(async () => shownUnits(await lock.innerText())).toBe(wireUnits(preview.value.lock.amount));
   const venueFee = listed(review, /venue.?s fee/i);
   expect(preview.value.venueFee.known).toBe(true);
-  expect(shownUnits(await venueFee.innerText())).toBe(wireUnits(preview.value.venueFee.value.amount));
+  await expect.poll(async () => shownUnits(await venueFee.innerText())).toBe(wireUnits(preview.value.venueFee.value.amount));
   // Our builder fee is its own line and reads none: the venue charges builder fees only in the quote asset.
   expect(preview.value.builderFee).toMatchObject({ known: true });
   expect(wireUnits(preview.value.builderFee.value.amount)).toBe(0n);
@@ -833,7 +833,7 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
     const r = own.nth(i);
     await expect(r).toContainText('Buy');
     await expect(r.locator('[data-cell="role"]')).toHaveText('Maker');
-    expect(shownUnits(await r.locator('[data-cell="price"]').innerText())).toBe(toUnits(venueBuy.price));
+    await expect.poll(async () => shownUnits(await r.locator('[data-cell="price"]').innerText())).toBe(toUnits(venueBuy.price));
     shownFilled += shownUnits(await r.locator('[data-cell="amount"]').innerText());
   }
   expect(shownFilled, 'the desk shows the whole order filled').toBe(toUnits(VENUE_BUY));
@@ -844,8 +844,8 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
   // The order the desk placed stays listed as the venue reads it: Filled, all of it, nothing locked, nothing to cancel.
   const orderRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${venueBuy.clientOrderId}"]`);
   await expect(orderRow.locator('[data-cell="status"]')).toHaveText('Filled', { timeout: 15_000 });
-  expect(shownUnits(await orderRow.locator('[data-cell="filled"]').innerText())).toBe(toUnits(VENUE_BUY));
-  expect(shownUnits(await orderRow.locator('[data-cell="locked"]').innerText())).toBe(0n);
+  await expect.poll(async () => shownUnits(await orderRow.locator('[data-cell="filled"]').innerText())).toBe(toUnits(VENUE_BUY));
+  await expect.poll(async () => shownUnits(await orderRow.locator('[data-cell="locked"]').innerText())).toBe(0n);
   await expect(orderRow.getByRole('button')).toHaveCount(0);
   // The venue balances moved by the fill: BTC up by what was bought (less a fee taken in BTC), USDC's lock spent.
   const after = { usdc: await venueBalance(who, owner, 'USDC'), btc: await venueBalance(who, owner, 'BTC') };
@@ -1090,9 +1090,9 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   for (const lot of booked) {
     const row = main.locator(`tr[data-lot="${lot.id}"]`);
     await expect(row).toHaveCount(1);
-    expect(shownUnits(await row.locator('td[data-col=left]').innerText())).toBe(wireUnits(lot.remaining));
+    await expect.poll(async () => shownUnits(await row.locator('td[data-col=left]').innerText())).toBe(wireUnits(lot.remaining));
     await expect(row.locator('td[data-col=cost]')).toHaveText(new RegExp(`^${DOLLARS}$`));
-    expect(shownUnits(await row.locator('td[data-col=cost]').innerText())).toBe(asShownUsd(lot.costUsd));
+    await expect.poll(async () => shownUnits(await row.locator('td[data-col=cost]').innerText())).toBe(asShownUsd(lot.costUsd));
     await expect(row.locator('td[data-col=days]')).toHaveText(/^\d+$/);
   }
   const count = await rows.count();
@@ -1283,7 +1283,7 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   const record = (await venueRead(who, `withdrawals/${encodeURIComponent(nonce)}`, owner)).value;
   expect(record).toMatchObject({ asset: 'USDC', status: 'done', destination: owner });
   expect(wireUnits(record.amount)).toBe(toUnits('10'));
-  if (record.fee.known) expect(shownUnits(await fee.innerText())).toBe(wireUnits(record.fee.value));
+  if (record.fee.known) await expect.poll(async () => shownUnits(await fee.innerText())).toBe(wireUnits(record.fee.value));
   else await expect(fee).toHaveText(/not known/i);
   const after = await venueBalance(who, owner, 'USDC');
   expect(wireUnits(before.total) - wireUnits(after.total)).toBe(toUnits('10') + (record.fee.known ? wireUnits(record.fee.value) : 0n));

@@ -3,7 +3,6 @@ import { defineCopy } from '../../../shared/i18n';
 // The trading account room (J-derivatives-25). English source; curly apostrophes on purpose. No venue or partner brand is
 // written here: each name is the one its own source gives. Every figure is its source's own, with its time.
 export const tradingAccountCopy = defineCopy('trade.account', {
-  eyebrow: 'Trade',
   title: 'Trading account',
   lead: 'Your trading money on your venue accounts and your spending money at your partner bank, each as its own source reports it. INTAFACED holds neither and never adds them into one balance.',
   liquidationLine: 'Liquidation only ever uses your trading account. Your spending balances are never used.',
@@ -66,6 +65,8 @@ export const tradingAccountCopy = defineCopy('trade.account', {
   hDepositLeg: 'Wallet to venue',
   legNotYet: 'Not sent',
   legSent: 'Sent',
+  legClaimed: 'Sent, unconfirmed on chain',
+  legConfirmed: 'Confirmed on chain',
   marginCall:
     'Margin call on your trading account at {venue}: its equity is below the maintenance requirement, as {venue} reports it. Only your trading account can be liquidated; your spending balances are never used.',
   marginCallAction: 'Move money into your trading account',
@@ -84,5 +85,25 @@ export const tradingAccountCopy = defineCopy('trade.account', {
   hVenueId: 'Venue id',
   sideLong: 'long',
   sideShort: 'short',
+  // The trading account's statement, from the venue's own records (J-derivatives-26 #7)
+  statementTitle: 'Statement',
+  statementIntro:
+    'One file of your trading account’s orders, trades, liquidations and money movements for the days you pick, as {venue} records them. Nothing moves.',
+  statementFrom: 'From',
+  statementTo: 'To (included)',
+  statementMake: 'Make statement',
+  statementDownload: 'Download',
+  statementDays: 'Pick a first and a last day, up to today.',
+  statementOrder: 'The first day comes after the last.',
+  statementRefused: 'the statement was refused',
+  statementMismatch: 'The statement file did not match its fingerprint, so it is not shown. Ask again.',
+  statementPending: 'Being made. Ask again in a moment.',
+  statementFailed: 'We couldn’t make that statement: {reason}.',
+  statementReady:
+    'Statement {id}: {orders} orders, {trades} trades, {liquidations} liquidation parts and {movements} money movements, from {venue}’s records.',
+  statementLiquidations: '{count} liquidation parts, with {venue}’s fee and ids:',
+  statementLiquidationsLabel: 'Liquidations in this statement',
+  hPartId: 'Venue part id',
+  hLiquidationId: 'Venue liquidation id',
   ledgerNote: 'INTAFACED records nothing for these moves: the partner and the venue hold the money and its record.',
 });

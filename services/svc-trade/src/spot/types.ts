@@ -60,6 +60,9 @@ export interface ReconcileResult {
   readonly detail: string;
 }
 
+/** The one zone a market may sit in (J-cex-spot-14 #7). */
+export type MarketZone = 'higher_risk';
+
 export interface Market {
   readonly id: string;
   readonly symbol: string;
@@ -82,6 +85,13 @@ export interface Market {
    * with `trade.opening_window` and a limit order is taken. Null: no window (or the read did not load it).
    */
   readonly openingWindowEndsAt?: Date | null;
+  /**
+   * The higher-risk zone (J-cex-spot-14 #7, SP-markets-data-02): a zone market takes limit orders only, each worth at
+   * most `zoneOrderCap` in the quote asset. Null or absent: outside the zone (or the read did not load it).
+   */
+  readonly zone?: MarketZone | null;
+  /** A zone market's owner-set cap on one order's value, in the quote asset. Null: unset, so the market takes no order. */
+  readonly zoneOrderCap?: Amount | null;
   readonly assetClass: AssetClass;
   /**
    * When this market accepts orders.
@@ -320,6 +330,9 @@ export type TradeErrorCode =
   | 'trade.mode_limit_only'
   /** A new listing inside its opening window: only limit orders are taken until it ends (SP-markets-data-02). */
   | 'trade.opening_window'
+  | 'trade.higher_risk_zone'
+  | 'trade.zone_setting_unset'
+  | 'trade.zone_cap_exceeded'
   /** The retail price improvement layer has no priority class (SP-markets-data-04): an order asking for it is refused. */
   | 'trade.rpi_unavailable'
   /** Cancel-only mode: a new order is refused; cancel works. */

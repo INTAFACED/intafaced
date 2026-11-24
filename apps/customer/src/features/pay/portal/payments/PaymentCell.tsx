@@ -13,10 +13,10 @@ export function PaymentCell({ portal, paymentId }: { portal?: PortalApi; payment
   const known = payment.resource.status === 'ready' ? payment.resource.data : null;
   return (
     <>
-      <a className="text-link" href={`/pay/payments/${encodeURIComponent(paymentId)}`}>
+      <a className="lt-link" href={`/pay/payments/${encodeURIComponent(paymentId)}`}>
         {t('disputePaymentRef', { ref: known?.railRef ?? shortId(paymentId) })}
       </a>
-      {known?.customerRef && <small className="pay-cell-note">{known.customerRef}</small>}
+      {known?.customerRef && <small className="lt-hint">{known.customerRef}</small>}
     </>
   );
 }

@@ -26,6 +26,7 @@ export const PAGE_SECTION_IDS = [
   'idempotency',
   'quant',
   'websocket',
+  'support',
 ] as const;
 /** A section whose page is written in this portal. DevelopersRoutes keeps one component per id (a typed record). */
 export type PageSectionId = (typeof PAGE_SECTION_IDS)[number];
@@ -68,7 +69,7 @@ export const SECTIONS: readonly Section[] = [
   { id: 'quant', audience: 'practice', page: true },
   { id: 'explorer', audience: 'practice', page: true },
   { id: 'openapi', audience: 'practice', page: true },
-  { id: 'support', audience: 'practice', waitsFor: 'DV-portal-03' },
+  { id: 'support', audience: 'practice', page: true },
   { id: 'status', audience: 'practice', page: true },
 ];
 

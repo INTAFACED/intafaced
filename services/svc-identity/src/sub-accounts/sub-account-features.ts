@@ -6,12 +6,8 @@
 import type { Sql } from 'postgres';
 import { SUB_ACCOUNT_KINDS, type SubAccountKind } from '../auth/auth-service.js';
 import { userCopy } from '../user-copy.js';
+import { SUB_ACCOUNT_FEATURES } from '@intafaced/contracts/identity-call-schemas';
 
-/**
- * The trading products svc-trade serves today: spot, convert, futures, algo (TWAP) and copy. Margin is not listed: the
- * margin terms are stored but no borrow door exists. Bots trade through API keys, not a separate product.
- */
-export const SUB_ACCOUNT_FEATURES = ['spot', 'convert', 'futures', 'algo', 'copy'] as const;
 export type SubAccountFeature = (typeof SUB_ACCOUNT_FEATURES)[number];
 
 export type FeatureEligibility = ReadonlyMap<SubAccountKind, ReadonlySet<SubAccountFeature>>;

@@ -14,6 +14,16 @@ vi.mock('../session/session', () => ({
       session.calls.push(args);
       return { ok: false, message: 'preview.engine_not_built — quant.tick_engine:start', code: 'preview.engine_not_built' };
     },
+    call(
+      this: { mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own mutate, as the client sends it; it has no other.
+      if (record.kind !== 'mutation') throw new TypeError('this API double has no query');
+      return Reflect.apply(this.mutate, this, [record.module, record.path, input, record.output, opts]);
+    },
   }),
 }));
 vi.mock('./QuantRooms', () => ({ QuantRooms: () => null }));
@@ -68,4 +78,18 @@ describe('Preview rooms while the sign-in is restoring', () => {
       expect(session.calls).toHaveLength(1);
     });
   }
+});
+
+describe('the optimiser', () => {
+  it('keeps the passes the person filters and sorts readable; only the engine output is blurred', () => {
+    session.restoring = false;
+    act(() => root.render(<OptimiseRoom paper={false} />));
+    const table = host.querySelector('table[aria-label="Optimisation passes"]');
+    expect(table).not.toBeNull();
+    expect(table!.closest('[data-blurred]'), 'the passes table is not blurred').toBeNull();
+    const engines = [...host.querySelectorAll('[data-testid="preview-engine"]')];
+    expect(engines.length).toBeGreaterThan(0);
+    for (const panel of engines) expect(panel.getAttribute('data-blurred')).toBe('true');
+    expect(engines.map((p) => p.textContent).join(' ')).toContain('TEST');
+  });
 });

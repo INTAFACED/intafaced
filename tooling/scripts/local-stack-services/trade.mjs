@@ -60,6 +60,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     DATABASE_URL: dbUrl('svc_trade', secrets),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
+    BANK_URL: urlOf('bank'), // the partner's cash leg of a cash convert, asked as the person (J-cex-spot-11 #11)
     AGENTS_URL: urlOf('agents'), // the own agent's gate before its allowance or order (J-agents-08 #4 #6)
     CAMPAIGNS_URL: urlOf('campaigns'), // a person's fee-saver coupon on our builder fee (J-campaigns-09 #2 #3)
     QUANT_URL: urlOf('quant'), // the strategy version a live run trades, read as the person (J-algo-dev-07)
@@ -116,6 +117,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_MM_SEED_STATE_PATH: path.join(P.data, 'mm-seed-last-run.json'),
     // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
     TRADE_CONVERT_QUOTE_TTL_MS: '15000',
+    // How long a venue Convert price may be accepted before a fresh one must be (J-cex-spot-11 #4); the venue holds no
+    // price. The labelled TEST value; venue convert quotes refuse trade.convert_window_unset without it.
+    TRADE_CONVERT_ACCEPT_WINDOW_MS: testValue('TRADE_CONVERT_ACCEPT_WINDOW_MS'),
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in
     // seconds, as retail exchanges publish them (OKX accepts 10 to 120). Without them arming refuses
     // trade.cancel_all_after_unset. The sweep runs every second here so a journey does not wait on the 5 s default.
@@ -239,6 +243,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // proving. Production leaves it off until an operator turns it on.
     // LOCAL_STACK_TRADE_ALGO_JOBS=off restarts trade with it off, so J-copy-bots-otc-23 #2 sees the scheduler-off refusal.
     TRADE_ALGO_JOBS_ENABLED: process.env.LOCAL_STACK_TRADE_ALGO_JOBS === 'off' ? 'off' : 'on',
+    // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds a TEST business block for the TEST region AA
+    // (packages/config jurisdiction.ts testBusinessBlocksFromEnv), and edge.mjs then stamps every request from AA, so the
+    // venue door's region gate blocks this account, named on the gated list (J-derivatives-01 #2), as bank.mjs does.
+    ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
     // LOCAL TEST, not owner decisions: the quote desk's law and its reference price, read from the labelled TEST profile
     // so the OTC journeys price, accept and settle on TEST money against the house inventory.
     // Each one blank refuses by name (services/svc-trade/src/otc/); production stays blank until the owner sets it.
@@ -289,8 +297,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // ETH-USDC is left unlisted, for two operators to review.
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
           // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
+          // J-derivatives-14's TEST perpetual XDEV-PERP (the one a developer reads and trades through our API).
           TRADE_USER_VENUE_TEST_LISTINGS:
-            'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP',
+            'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:
@@ -309,7 +318,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_PROTECTION_ENGINE_INTERVAL_MS: '1000',
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
-          TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),
+          // `LOCAL_STACK_AGENT_MARKETS_ADD=<symbols>` adds a journey's own TEST markets to the list for one restart, so an
+          // assistant may copy on a market no other file trades (J-copy-bots-otc-06 #1).
+          TRADE_AGENT_MARKETS: [testValue('TRADE_AGENT_MARKETS'), process.env.LOCAL_STACK_AGENT_MARKETS_ADD?.trim()]
+            .filter(Boolean)
+            .join(','),
           // J-agents-21 #16: the ceilings of the person's own leverage and daily-loss caps (the per-order cap's is the
           // largest agent order above).
           TRADE_AGENT_MAX_LEVERAGE: testValue('TRADE_AGENT_MAX_LEVERAGE'),
@@ -328,6 +341,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
           // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).
           TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '2000',
+          // J-ops-console-28: our builder address's mode at each TEST venue is checked every 2 seconds (and on each read of the
+          // console's view), and an alert out of the required mode goes to the labelled TEST contact.
+          TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '2000',
+          TRADE_BUILDER_MODE_ALERT_CONTACT: testValue('TRADE_BUILDER_MODE_ALERT_CONTACT'),
           // Move own funds (OWNER 288 Q4; J-campaigns-03): the labelled TEST float, schedule, rewards wallet and builder key
           // seed, so what the TEST builder account holds above the float is swept to the TEST rewards wallet.
           TRADE_OWN_FUNDS_FLOAT: testValue('TRADE_OWN_FUNDS_FLOAT'),

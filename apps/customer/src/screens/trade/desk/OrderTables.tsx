@@ -6,15 +6,17 @@ import { isTerminalOrder, type Order } from '../../../features/trade/trade-api';
 import { usePreferences } from '../../../shared/preferences';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import { Button, fmtAmount, fmtPct, fmtPrice, refusalCopy, Skeleton, StateBlock, StatusTag, type Loadable } from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { fmtAmount, fmtPct, fmtPrice, refusalCopy, type Loadable } from '../../../data';
+import { CheckField, StatusChip } from '@intafaced/ui/lit/templates';
+import { KitState } from '../kit-parts';
 import type { DeskMarket } from './market';
 import { fillFeeRate, fillRebate, fillRole, fillZeroFee } from './fill-detail';
 import { groupFillsByOrder } from './fill-groups';
 import { parseAmount } from '../../../shared/money';
 import { dayTime } from './time';
 import { placesOf, quotePlaces } from './text';
-import { canEdit } from './EditOrder';
-import { canEditStop, exitKindKey } from './order-kind';
+import { canEdit, canEditStop, exitKindKey } from './order-kind';
 import { orderTag } from './tif';
 import { OrderChanges } from './OrderChanges';
 
@@ -61,11 +63,7 @@ export const byNewest = <T extends { timestamp: number }>(rows: readonly T[]): T
 
 export function Side({ side }: { side: 'buy' | 'sell' }) {
   const { t } = deskCopy.useCopy();
-  return (
-    <span className="dk-side" data-side={side}>
-      {side === 'buy' ? t('Side buy') : t('Side sell')}
-    </span>
-  );
+  return <span data-side={side}>{side === 'buy' ? t('Side buy') : t('Side sell')}</span>;
 }
 
 /** "Post only", "IOC" or "FOK" beside the order kind; a plain limit or market order carries no tag. */
@@ -73,7 +71,7 @@ export function OrderTag({ order }: { order: Pick<Order, 'timeInForce' | 'postOn
   const { t } = deskCopy.useCopy();
   const tag = orderTag(order);
   if (tag === null) return null;
-  return <span className="dk-tag">{tag === 'PO' ? t('Tag post only') : tag}</span>;
+  return <span className="lt-hint">{tag === 'PO' ? t('Tag post only') : tag}</span>;
 }
 
 /** The linked take-profit and stop-loss of an OCO, or of the exit a bracket placed, under the order kind. Nothing on a plain order. */
@@ -84,7 +82,7 @@ export function ExitLegs({ order, tick }: { order: Pick<Order, 'exit'>; tick: st
   const takeProfit = fmtPrice(exit.takeProfit, tick);
   const stopLoss = fmtPrice(exit.stopLoss, tick);
   return (
-    <span className="dk-tag dk-exit-legs if-num">
+    <span className="lt-hint">
       {exit.stopLossLimit
         ? t('Exit legs limit', { takeProfit, stopLoss, limit: fmtPrice(exit.stopLossLimit, tick) })
         : t('Exit legs', { takeProfit, stopLoss })}
@@ -102,39 +100,40 @@ export function OtoLink({ order, tick, quote }: { order: Pick<Order, 'linked'>; 
   if (!link) return null;
   if (link.role === 'close')
     return (
-      <a
-        className="dk-tag dk-oto-link"
-        href={`/trade/orders/${encodeURIComponent(link.entryOrderId)}`}
-        aria-label={t('Oto entry link label')}
-      >
+      <a className="lt-link" href={`/trade/orders/${encodeURIComponent(link.entryOrderId)}`} aria-label={t('Oto entry link label')}>
         {t('Oto close of')}
       </a>
     );
   const price = fmtPrice(link.closePrice, tick);
-  if (link.closeOrderId === null) return <span className="dk-tag dk-oto-link if-num">{t('Oto close waiting', { price, quote })}</span>;
+  if (link.closeOrderId === null) return <span className="lt-hint">{t('Oto close waiting', { price, quote })}</span>;
   return (
-    <a
-      className="dk-tag dk-oto-link if-num"
-      href={`/trade/orders/${encodeURIComponent(link.closeOrderId)}`}
-      aria-label={t('Oto close link label')}
-    >
+    <a className="lt-link" href={`/trade/orders/${encodeURIComponent(link.closeOrderId)}`} aria-label={t('Oto close link label')}>
       {t('Oto close placed', { price, quote })}
     </a>
+  );
+}
+
+/** An order's state in words, with the kit's mark: filled reads done, working pending, cancelled and failed failed. */
+function OrderStatusChip({ status, label }: { status: 'filled' | 'working' | 'cancelled' | 'failed'; label: string }) {
+  return (
+    <span data-slot="status-tag" data-status={status}>
+      <StatusChip status={status === 'filled' ? 'done' : status === 'working' ? 'pending' : 'failed'} label={label} />
+    </span>
   );
 }
 
 export function orderStatus(order: Order, t: ReturnType<typeof deskCopy.useCopy>['t']) {
   if (order.status === 'open') {
     const partly = order.filled !== '0' && order.remaining !== '0';
-    return <StatusTag status="working" label={partly ? t('Order status partly') : t('Order status open')} />;
+    return <OrderStatusChip status="working" label={partly ? t('Order status partly') : t('Order status open')} />;
   }
-  if (order.status === 'closed') return <StatusTag status="filled" label={t('Order status closed')} />;
+  if (order.status === 'closed') return <OrderStatusChip status="filled" label={t('Order status closed')} />;
   // A resting order pulled because the person's own new order met it (the engine's self-trade rule) says so.
   if (order.status === 'canceled' && order.rejectCode === 'self_trade_prevention')
-    return <StatusTag status="cancelled" label={t('Order status self trade')} />;
-  if (order.status === 'canceled') return <StatusTag status="cancelled" label={t('Order status canceled')} />;
-  if (order.status === 'expired') return <StatusTag status="cancelled" label={t('Order status expired')} />;
-  return <StatusTag status="failed" label={t('Order status rejected')} />;
+    return <OrderStatusChip status="cancelled" label={t('Order status self trade')} />;
+  if (order.status === 'canceled') return <OrderStatusChip status="cancelled" label={t('Order status canceled')} />;
+  if (order.status === 'expired') return <OrderStatusChip status="cancelled" label={t('Order status expired')} />;
+  return <OrderStatusChip status="failed" label={t('Order status rejected')} />;
 }
 
 export function LoadState<T>({
@@ -148,17 +147,10 @@ export function LoadState<T>({
 }) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
-  if (load.status === 'loading' || load.status === 'empty')
-    return (
-      <div className="dk-bt-skeleton" role="status" aria-busy="true">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Skeleton key={i} height={32} className="bg-field" />
-        ))}
-      </div>
-    );
+  if (load.status === 'loading' || load.status === 'empty') return <KitState kind="loading" rows={4} />;
   if (load.status === 'error')
     return (
-      <StateBlock
+      <KitState
         kind="error"
         title={
           thing === 'orders' ? t('Couldn’t load orders') : thing === 'trades' ? t('Couldn’t load trade history') : t('Couldn’t load assets')
@@ -170,14 +162,14 @@ export function LoadState<T>({
   if (load.status === 'refused') {
     if (!userId)
       return (
-        <StateBlock
+        <KitState
           kind="empty"
           title={t('Log in to see your orders')}
           action={{ label: t('Log in'), href: `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}` }}
         />
       );
     const words = refusalCopy(load.code);
-    return <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
+    return <KitState kind="refused" title={words.title} body={words.body} action={words.action} />;
   }
   return <>{children(load.data)}</>;
 }
@@ -200,14 +192,19 @@ export function CancelButton({ order, onDone }: { order: Order; onDone: () => vo
     setState(result.ok ? 'done' : result.reason === 'uncertain' ? 'uncertain' : 'refused');
     onDone();
   }
-  if (state === 'done') return <span className="dk-bt-note">{t('Cancel done')}</span>;
-  if (state === 'uncertain') return <span className="dk-bt-note dk-bt-note--bad">{t('Cancel uncertain')}</span>;
+  if (state === 'done') return <span className="lt-hint">{t('Cancel done')}</span>;
+  if (state === 'uncertain')
+    return (
+      <span className="lt-hint" data-tone="bad">
+        {t('Cancel uncertain')}
+      </span>
+    );
   return (
-    <span className="dk-bt-cancel">
+    <span className="lt-actions">
       <Button
-        variant="secondary"
-        size={28}
-        loading={state === 'busy'}
+        tone="secondary"
+        disabled={state === 'busy'}
+        aria-busy={state === 'busy' || undefined}
         onClick={() => void cancel()}
         aria-label={t('Cancel order label', {
           side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
@@ -217,7 +214,11 @@ export function CancelButton({ order, onDone }: { order: Order; onDone: () => vo
       >
         {state === 'busy' ? t('Cancelling') : t('Cancel order')}
       </Button>
-      {state === 'refused' ? <span className="dk-bt-note dk-bt-note--bad">{t('Cancel refused')}</span> : null}
+      {state === 'refused' ? (
+        <span className="lt-hint" data-tone="bad">
+          {t('Cancel refused')}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -267,26 +268,26 @@ export function OrdersTable({
   const detailsTitle = t('Order details open');
   return (
     <>
-      <table data-testid="dk-table" className="dk-table">
+      <table data-testid="dk-table" className="lt-table">
         <thead>
           <tr>
             {withAction && onSelect ? (
               <th>
-                <span className="sr-only">{t('Select order')}</span>
+                <span className="lt-sr">{t('Select order')}</span>
               </th>
             ) : null}
             <th>{t('Time')}</th>
             <th>{t('Pair')}</th>
             <th>{t('Type')}</th>
             <th>{t('Side')}</th>
-            <th className="dk-num">{t('Price')}</th>
-            <th className="dk-num">{t('Amount')}</th>
-            <th className="dk-num">{t('Filled')}</th>
-            {withAction ? <th className="dk-num">{t('Held')}</th> : null}
+            <th data-align="end">{t('Price')}</th>
+            <th data-align="end">{t('Amount')}</th>
+            <th data-align="end">{t('Filled')}</th>
+            {withAction ? <th data-align="end">{t('Held')}</th> : null}
             {withAction || !desk ? null : (
               <>
-                <th className="dk-num">{t('Average price')}</th>
-                <th className="dk-num">{t('Cost')}</th>
+                <th data-align="end">{t('Average price')}</th>
+                <th data-align="end">{t('Cost')}</th>
               </>
             )}
             <th>{withAction ? t('Action') : t('Status')}</th>
@@ -298,11 +299,10 @@ export function OrdersTable({
               {withAction && onSelect ? (
                 <td>
                   {isTerminalOrder(order) ? null : (
-                    <input
-                      type="checkbox"
-                      className="dk-select"
+                    <CheckField
+                      label=""
                       checked={selected?.has(order.id) ?? false}
-                      onChange={(event) => onSelect(order.id, event.currentTarget.checked)}
+                      onChange={(on) => onSelect(order.id, on)}
                       aria-label={t('Select order label', {
                         side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
                         amount: fmtAmount(order.amount, { places: 8 }),
@@ -313,60 +313,69 @@ export function OrdersTable({
                   )}
                 </td>
               ) : null}
-              <td className="if-num">
+              <td data-label={t('Time')}>
                 <a
                   data-testid="dk-order-link"
-                  className="dk-order-link"
+                  className="lt-link"
                   href={`/trade/orders/${encodeURIComponent(order.id)}`}
                   title={detailsTitle}
                 >
                   {dayTime(order.timestamp, timeZone)}
                 </a>
               </td>
-              <td>{order.symbol}</td>
-              <td>
-                {typeWordOf(order, t, precision)}
-                <OrderTag order={order} />
-                <ExitLegs order={order} tick={precision.tickOf(order.symbol)} />
-                <OtoLink order={order} tick={precision.tickOf(order.symbol)} quote={quoteOf(order.symbol)} />
-                {withAction && lastPriceOf ? (
-                  <PendingStop order={order} tick={precision.tickOf(order.symbol)} last={lastPriceOf(order.symbol)} />
-                ) : null}
-                {order.tag ? (
-                  <span className="dk-tag" title={t('Order tag label', { tag: order.tag })}>
-                    {order.tag}
-                  </span>
-                ) : null}
+              <td data-label={t('Pair')}>{order.symbol}</td>
+              <td data-label={t('Type')}>
+                <span className="lt-actions">
+                  {typeWordOf(order, t, precision)}
+                  <OrderTag order={order} />
+                  <ExitLegs order={order} tick={precision.tickOf(order.symbol)} />
+                  <OtoLink order={order} tick={precision.tickOf(order.symbol)} quote={quoteOf(order.symbol)} />
+                  {withAction && lastPriceOf ? (
+                    <PendingStop order={order} tick={precision.tickOf(order.symbol)} last={lastPriceOf(order.symbol)} />
+                  ) : null}
+                  {order.tag ? (
+                    <span className="lt-hint" title={t('Order tag label', { tag: order.tag })}>
+                      {order.tag}
+                    </span>
+                  ) : null}
+                </span>
               </td>
-              <td>
+              <td data-label={t('Side')}>
                 <Side side={order.side} />
               </td>
-              <td className="dk-num if-num">
+              <td data-align="end" data-label={t('Price')}>
                 {order.price === null ? t('Market price word') : fmtPrice(order.price, precision.tickOf(order.symbol))}
               </td>
-              <td className="dk-num if-num">{fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}</td>
-              <td className="dk-num if-num">{fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}</td>
+              <td data-align="end" data-label={t('Amount')}>
+                {fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}
+              </td>
+              <td data-align="end" data-label={t('Filled')}>
+                {fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}
+              </td>
               {withAction ? (
-                <td className="dk-num if-num">
+                <td data-align="end" data-label={t('Held')}>
                   <Held order={order} lot={precision.lotOf(order.symbol)} unknown={t('Held unknown label')} />
                 </td>
               ) : null}
               {withAction || !desk ? null : (
                 <>
-                  <td className="dk-num if-num">{order.average ? fmtPrice(order.average, precision.tickOf(order.symbol)) : '—'}</td>
-                  <td className="dk-num if-num">
-                    {order.cost === null ? '—' : fmtAmount(order.cost, { places: quotePlaces(quoteOf(order.symbol)), fixed: true })}{' '}
-                    {order.cost === null ? null : <span className="dk-unit">{quoteOf(order.symbol)}</span>}
+                  <td data-align="end" data-label={t('Average price')}>
+                    {order.average ? fmtPrice(order.average, precision.tickOf(order.symbol)) : '—'}
+                  </td>
+                  <td data-align="end" data-label={t('Cost')}>
+                    <span>
+                      {order.cost === null ? '—' : fmtAmount(order.cost, { places: quotePlaces(quoteOf(order.symbol)), fixed: true })}{' '}
+                      {order.cost === null ? null : <span className="lt-hint">{quoteOf(order.symbol)}</span>}
+                    </span>
                   </td>
                 </>
               )}
-              <td>
+              <td data-label={withAction ? t('Action') : t('Status')}>
                 {withAction && !isTerminalOrder(order) ? (
-                  <span className="dk-bt-actions">
+                  <span className="lt-actions">
                     {onEdit && (canEdit(order) || canEditStop(order)) && precision.marketOf(order.symbol) ? (
                       <Button
-                        variant="secondary"
-                        size={28}
+                        tone="secondary"
                         onClick={() => onEdit?.(order)}
                         aria-label={t(canEditStop(order) ? 'Edit stop label' : 'Edit order label', {
                           side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
@@ -398,7 +407,7 @@ function PendingStop({ order, tick, last }: { order: Order; tick: string | undef
   if ((order.type !== 'stop_limit' && order.type !== 'stop') || !order.stopPrice || order.triggered !== null || isTerminalOrder(order))
     return null;
   return (
-    <span className="dk-tag dk-pending if-num">
+    <span className="lt-hint">
       {t('Pending trigger', { stop: fmtPrice(order.stopPrice, tick), quote: quoteOf(order.symbol) })}
       {' · '}
       {last ? t('Pending last price', { price: fmtPrice(last, tick) }) : t('Pending last price unknown')}
@@ -414,7 +423,7 @@ function Held({ order, lot, unknown }: { order: Order; lot: number; unknown: str
   return (
     <>
       {fmtAmount(hold.amount, quote ? { places: quotePlaces(hold.asset), fixed: true } : { places: lot })}{' '}
-      <span className="dk-unit">{hold.asset}</span>
+      <span className="lt-hint">{hold.asset}</span>
     </>
   );
 }
@@ -465,17 +474,19 @@ export function FillsTable({
         key={fill.id}
         data-fill={fill.id}
         data-of={of ?? undefined}
-        className={of ? 'dk-fill-part' : undefined}
+        data-part={of ? 'fill' : undefined}
         aria-current={isCurrent(fill.id) ? 'true' : undefined}
         ref={isCurrent(fill.id) ? currentRow : undefined}
       >
-        <td className="if-num">{dayTime(fill.timestamp, timeZone)}</td>
+        <td>{dayTime(fill.timestamp, timeZone)}</td>
         {activity ? (
           <td>
-            <span data-testid="dk-trade-what" className="dk-trade-what" data-side={fill.side}>
-              {t(fill.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', { amount, asset: baseOf(fill.symbol) })}
+            <span className="lt-lines">
+              <span data-testid="dk-trade-what" data-side={fill.side}>
+                {t(fill.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', { amount, asset: baseOf(fill.symbol) })}
+              </span>
+              <span className="lt-hint">{typeWord ? `${fill.symbol} · ${typeWord}` : fill.symbol}</span>
             </span>
-            <span className="dk-trade-sub">{typeWord ? `${fill.symbol} · ${typeWord}` : fill.symbol}</span>
           </td>
         ) : (
           <>
@@ -485,26 +496,26 @@ export function FillsTable({
             </td>
           </>
         )}
-        <td className="dk-num if-num">{fmtPrice(fill.price, precision.tickOf(fill.symbol))}</td>
-        {activity ? null : <td className="dk-num if-num">{amount}</td>}
-        <td className="dk-num if-num">
-          {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
+        <td data-align="end">{fmtPrice(fill.price, precision.tickOf(fill.symbol))}</td>
+        {activity ? null : <td data-align="end">{amount}</td>}
+        <td data-align="end">
+          {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} <span className="lt-hint">{quote}</span>
         </td>
         {activity ? null : <td>{roleWord(fillRole(fill), t)}</td>}
-        <td className="dk-num if-num" data-fee={zeroFee ? 'zero' : undefined}>
+        <td data-align="end" data-fee={zeroFee ? 'zero' : undefined}>
           {zeroFee ? t('Zero fee') : fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
-          {!activity && !zeroFee && rate ? <span className="dk-unit"> {fmtPct(rate, { signed: false })}</span> : null}
+          {!activity && !zeroFee && rate ? <span className="lt-hint"> {fmtPct(rate, { signed: false })}</span> : null}
           {fill.feeFallback && fill.fee && FEE_FALLBACK[fill.feeFallback] ? (
-            <span className="dk-fee-fallback" data-fee-fallback={fill.feeFallback}>
+            <span className="lt-hint" data-fee-fallback={fill.feeFallback}>
               {' · '}
               {t(FEE_FALLBACK[fill.feeFallback]!, { asset: fill.fee.currency })}
             </span>
           ) : null}
           {rebate ? (
-            <span data-testid="dk-rebate" className="dk-rebate" data-rebate={rebate.cost}>
+            <span data-testid="dk-rebate" className="lt-hint" data-rebate={rebate.cost}>
               {' '}
               {t('Rebate {amount} {asset}', { amount: fmtAmount(rebate.cost, { places: 8 }), asset: rebate.currency })}
-              {activity ? null : <span className="dk-unit"> {fmtPct(rebate.rate, { signed: false })}</span>}
+              {activity ? null : <span className="lt-hint"> {fmtPct(rebate.rate, { signed: false })}</span>}
             </span>
           ) : null}
         </td>
@@ -512,7 +523,7 @@ export function FillsTable({
     );
   };
   return (
-    <table data-testid="dk-table" className="dk-table" data-layout={layout}>
+    <table data-testid="dk-table" className="lt-table" data-layout={layout}>
       <thead>
         <tr>
           <th>{t('Time')}</th>
@@ -524,11 +535,11 @@ export function FillsTable({
               <th>{t('Side')}</th>
             </>
           )}
-          <th className="dk-num">{t('Price')}</th>
-          {activity ? null : <th className="dk-num">{t('Amount')}</th>}
-          <th className="dk-num">{t('Total')}</th>
+          <th data-align="end">{t('Price')}</th>
+          {activity ? null : <th data-align="end">{t('Amount')}</th>}
+          <th data-align="end">{t('Total')}</th>
           {activity ? null : <th>{t('Role')}</th>}
-          <th className="dk-num">{t('Fee')}</th>
+          <th data-align="end">{t('Fee')}</th>
         </tr>
       </thead>
       <tbody>
@@ -541,37 +552,39 @@ export function FillsTable({
               if (group.fills.length === 1) return [fillRow(first, null, typeWord)];
               const quote = quoteOf(first.symbol);
               const head = (
-                <tr key={`order:${group.order}`} className="dk-fill-order" data-order={group.order ?? undefined}>
-                  <td className="if-num">{dayTime(first.timestamp, timeZone)}</td>
+                <tr key={`order:${group.order}`} data-part="order" data-order={group.order ?? undefined}>
+                  <td>{dayTime(first.timestamp, timeZone)}</td>
                   <td>
-                    <span data-testid="dk-trade-what" className="dk-trade-what" data-side={first.side}>
-                      {t(first.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', {
-                        amount: fmtAmount(group.amount, { places: 8 }),
-                        asset: baseOf(first.symbol),
-                      })}
-                    </span>
-                    <span className="dk-trade-sub">
-                      {typeWord
-                        ? t('Order of fills', { type: typeWord, count: group.fills.length })
-                        : t('Order of fills no type', { count: group.fills.length })}
-                      {/* The order filled more than the fills read here: older ones are past the latest page. */}
-                      {order && parseAmount(order.filled) > parseAmount(group.amount) ? ` · ${t('Order of fills older')}` : null}
+                    <span className="lt-stack">
+                      <span data-testid="dk-trade-what" data-side={first.side}>
+                        {t(first.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', {
+                          amount: fmtAmount(group.amount, { places: 8 }),
+                          asset: baseOf(first.symbol),
+                        })}
+                      </span>
+                      <span className="lt-hint">
+                        {typeWord
+                          ? t('Order of fills', { type: typeWord, count: group.fills.length })
+                          : t('Order of fills no type', { count: group.fills.length })}
+                        {/* The order filled more than the fills read here: older ones are past the latest page. */}
+                        {order && parseAmount(order.filled) > parseAmount(group.amount) ? ` · ${t('Order of fills older')}` : null}
+                      </span>
                     </span>
                   </td>
-                  <td className="dk-num if-num" title={t('Average price')}>
+                  <td data-align="end" title={t('Average price')}>
                     {group.average ? fmtPrice(group.average, precision.tickOf(first.symbol)) : '—'}
                   </td>
-                  <td className="dk-num if-num">
-                    {fmtAmount(group.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
+                  <td data-align="end">
+                    {fmtAmount(group.cost, { places: quotePlaces(quote), fixed: true })} <span className="lt-hint">{quote}</span>
                   </td>
-                  <td className="dk-num if-num" data-fee={fillZeroFee(group) ? 'zero' : undefined}>
+                  <td data-align="end" data-fee={fillZeroFee(group) ? 'zero' : undefined}>
                     {fillZeroFee(group)
                       ? t('Zero fee')
                       : group.fee
                         ? `${fmtAmount(group.fee.cost, { places: 8 })} ${group.fee.currency}`
                         : '—'}
                     {group.rebate ? (
-                      <span data-testid="dk-rebate" className="dk-rebate">
+                      <span data-testid="dk-rebate" className="lt-hint">
                         {' '}
                         {t('Rebate {amount} {asset}', {
                           amount: fmtAmount(group.rebate.cost, { places: 8 }),

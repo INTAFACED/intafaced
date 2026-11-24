@@ -14,21 +14,19 @@
  * assigned and does nothing. The cursor is stored, so it survives a restart.
  */
 import type { Sql, TransactionSql } from 'postgres';
-import { SUPPORT_ROUTING_ACTOR_ID } from '@intafaced/contracts';
+import { SUPPORT_ROUTING_ACTOR_ID } from '@intafaced/contracts/support';
+import { SUPPORT_NO_AGENT_AVAILABLE, SUPPORT_ROUTING_MODES, SUPPORT_SKILLS_MAX } from '@intafaced/contracts/support-desk-procedures';
 import type { GroupBook } from './desk-groups.js';
 import type { StaffAvailability, StaffBook } from './desk-staff.js';
 import { insertTicketEvent } from './store.js';
 import { SupportError } from './support-service.js';
 
-export const ROUTING_MODES = ['off', 'round_robin', 'load_balanced'] as const;
-export type RoutingMode = (typeof ROUTING_MODES)[number];
+export type RoutingMode = (typeof SUPPORT_ROUTING_MODES)[number];
 
-export const NO_AGENT_AVAILABLE = 'support.no_agent_available' as const;
 /** The actor named on an automatic assignment's audit row: the routing worker's fixed id (a trail row's actor is an id). */
 export const ROUTING_ACTOR = SUPPORT_ROUTING_ACTOR_ID;
 /** Skills are short tags; the same rule binds an agent's skills and a request's need. */
 export const SKILL_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
-export const SKILLS_MAX = 20;
 
 export interface GroupRouting {
   readonly groupId: string;
@@ -71,7 +69,7 @@ export type RouteOutcome =
       readonly groupId: string;
       readonly mode: RoutingMode;
     }
-  | { readonly status: 'queued'; readonly ticketId: string; readonly groupId: string; readonly code: typeof NO_AGENT_AVAILABLE }
+  | { readonly status: 'queued'; readonly ticketId: string; readonly groupId: string; readonly code: typeof SUPPORT_NO_AGENT_AVAILABLE }
   | {
       readonly status: 'skipped';
       readonly ticketId: string;
@@ -356,7 +354,7 @@ export class SqlRoutingBook implements RoutingBook {
             state_at = CASE WHEN support.ticket_routing.state = 'no_agent' AND support.ticket_routing.state_at IS NOT NULL
                             THEN support.ticket_routing.state_at ELSE EXCLUDED.state_at END
         `;
-        return { status: 'queued', ticketId, groupId, code: NO_AGENT_AVAILABLE };
+        return { status: 'queued', ticketId, groupId, code: SUPPORT_NO_AGENT_AVAILABLE };
       }
       const assigned = await tx<{ status: string }[]>`
         UPDATE support.tickets
@@ -471,7 +469,7 @@ export class DeskRouting {
     input: { groupId: string; mode: RoutingMode },
   ): Promise<{ routing: GroupRouting; routed: RouteOutcome[] }> {
     await this.lead(actorId);
-    if (!ROUTING_MODES.includes(input.mode))
+    if (!SUPPORT_ROUTING_MODES.includes(input.mode))
       throw new SupportError('routing mode must be off, round_robin or load_balanced', 'support.routing_mode_invalid');
     const routing = await this.book.setMode({ ...input, by: actorId, at: this.now().toISOString() });
     if (!routing) throw new SupportError('that group does not exist', 'support.group_unknown');
@@ -485,7 +483,7 @@ export class DeskRouting {
     if (input.capacity !== null && (!Number.isInteger(input.capacity) || input.capacity < 0 || input.capacity > 10_000))
       throw new SupportError('capacity must be a whole number from 0', 'support.capacity_invalid');
     const skills = input.skills.map((s) => s.trim().toLowerCase());
-    if (skills.length > SKILLS_MAX || skills.some((s) => !SKILL_PATTERN.test(s)))
+    if (skills.length > SUPPORT_SKILLS_MAX || skills.some((s) => !SKILL_PATTERN.test(s)))
       throw new SupportError('a skill is a short tag of letters, digits, - or _', 'support.skill_invalid');
     return this.book.setStaffRouting({ userId: input.userId, capacity: input.capacity, skills, by: actorId, at: this.now().toISOString() });
   }
@@ -519,7 +517,7 @@ export class DeskRouting {
     ticketId: string;
     requiredSkill: string | null;
     state: 'assigned' | 'no_agent' | null;
-    code: typeof NO_AGENT_AVAILABLE | null;
+    code: typeof SUPPORT_NO_AGENT_AVAILABLE | null;
     stateAt: string | null;
   }> {
     await this.member(actorId);
@@ -529,22 +527,22 @@ export class DeskRouting {
       ticketId,
       requiredSkill: row?.requiredSkill ?? null,
       state: row?.state ?? null,
-      code: row?.state === 'no_agent' ? NO_AGENT_AVAILABLE : null,
+      code: row?.state === 'no_agent' ? SUPPORT_NO_AGENT_AVAILABLE : null,
       stateAt: row?.stateAt ?? null,
     };
   }
 
   /** Requests in a routed group still waiting because no agent could take them. */
-  async waiting(actorId: string): Promise<{ ticketId: string; code: typeof NO_AGENT_AVAILABLE; since: string | null }[]> {
+  async waiting(actorId: string): Promise<{ ticketId: string; code: typeof SUPPORT_NO_AGENT_AVAILABLE; since: string | null }[]> {
     await this.member(actorId);
     const ids = await this.book.routable();
     const states = await this.book.ticketRouting(ids);
-    const out: { ticketId: string; code: typeof NO_AGENT_AVAILABLE; since: string | null }[] = [];
+    const out: { ticketId: string; code: typeof SUPPORT_NO_AGENT_AVAILABLE; since: string | null }[] = [];
     for (const s of states) {
       if (s.state !== 'no_agent') continue;
       try {
         await this.desk.assertDeskVisible(actorId, s.ticketId);
-        out.push({ ticketId: s.ticketId, code: NO_AGENT_AVAILABLE, since: s.stateAt });
+        out.push({ ticketId: s.ticketId, code: SUPPORT_NO_AGENT_AVAILABLE, since: s.stateAt });
       } catch {
         // Outside the caller's scope: not listed.
       }

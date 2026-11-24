@@ -1,7 +1,9 @@
 import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { CopyError } from './errors.js';
 import { copyFeeShareLedgerKeys } from './fee-share.js';
+import { venueFeeShareFundKey, venueFeeShareOweKey } from './venue-fee-share.js';
 
 /**
  * COPY SETTLEMENT OVERSIGHT (CB-ops-02, J-copy-bots-otc-11 #1 #2 #3 #4). Read only: finance's view of every lead fee share
@@ -18,6 +20,12 @@ import { copyFeeShareLedgerKeys } from './fee-share.js';
  * A copy filled on the TEST book has no venue fill, so no venue reports a builder fee for it, and it is held for that.
  *
  * A share the cap or a zero fee left at nothing is not owed, and is counted apart, never as settled.
+ *
+ * A share of a copy filled on the venue (venue-fee-share.ts, the launch money model) has two other ledger keys: the
+ * set-aside of the claim that funds it (`fee-share:budget-fund:<venue>:<claim>`) and the share owed to the lead
+ * (`fee-share:builder-fee:<venue>:<account>:<fill>:lead-trader:<lead>`), which carries the stored amount; its venue fee is
+ * the builder fee the poster recorded for that very fill. Until the claim is set aside and the share owed it is held as
+ * `ledger_post_missing`, with the owe key.
  */
 
 /** The reconcile windows finance chooses from. There is no default: a blank window refuses. */
@@ -52,6 +60,13 @@ export interface StoredShareRow {
   readonly skippedReason: null | 'cap_reached' | 'zero_share';
   readonly settled: boolean;
   readonly createdAt: Date;
+  /** A share of a copy filled on the venue: the fill our builder fee was earned on, and the claim that funds the share. */
+  readonly venue?: {
+    readonly venueId: string;
+    readonly venueAccount: string;
+    readonly venueFillId: string;
+    readonly claimId: string | null;
+  } | null;
 }
 
 /** One builder fee the venue reported on the follower's fill of a copy. */
@@ -83,6 +98,16 @@ export interface SettlementRow {
   readonly createdAt: string;
 }
 
+/** The two ledger keys a stored share is matched under: `payout` is the post that carries the share's amount. */
+export function shareKeys(share: Pick<StoredShareRow, 'fillId' | 'leaderId' | 'assetId' | 'venue'>): { sweep: string; payout: string } {
+  if (!share.venue) return copyFeeShareLedgerKeys(share.fillId, share.leaderId, share.assetId);
+  const v = share.venue;
+  return {
+    sweep: v.claimId ? venueFeeShareFundKey(v.venueId, v.claimId) : '',
+    payout: venueFeeShareOweKey({ ...v, leaderId: share.leaderId }),
+  };
+}
+
 /** What one transaction moves into the account it debits: the amount the recipe carried. */
 function postedAmount(tx: LedgerTx, assetId: string): Amount | null {
   const debits = tx.entries.filter((e) => e.direction === 'debit' && e.assetId === assetId);
@@ -96,7 +121,7 @@ export function judgeSettlement(
   ledger: { readonly sweep: LedgerTx | null; readonly payout: LedgerTx | null },
   venue: readonly VenueBuilderFeeReport[],
 ): SettlementRow {
-  const keys = copyFeeShareLedgerKeys(share.fillId, share.leaderId, share.assetId);
+  const keys = shareKeys(share);
   const base = {
     followId: share.followId,
     fillId: share.fillId,
@@ -128,9 +153,16 @@ export function judgeSettlement(
   }
 
   const reasons: SettlementHeldReason[] = [];
-  if (!share.settled) reasons.push('settle_unfinished');
-  if (ledger.payout === null || ledger.sweep === null) reasons.push('ledger_post_missing');
-  else if (payoutAmount !== share.owed || sweepAmount !== share.owed) reasons.push('ledger_amount_differs');
+  if (share.venue) {
+    // Not owed yet (waiting for the venue to pay us the fee) is a missing post, not an unfinished settle. The set-aside
+    // funds many shares at once, so only the owed post carries this share's amount.
+    if (ledger.payout === null || (share.settled && ledger.sweep === null)) reasons.push('ledger_post_missing');
+    else if (payoutAmount !== share.owed) reasons.push('ledger_amount_differs');
+  } else {
+    if (!share.settled) reasons.push('settle_unfinished');
+    if (ledger.payout === null || ledger.sweep === null) reasons.push('ledger_post_missing');
+    else if (payoutAmount !== share.owed || sweepAmount !== share.owed) reasons.push('ledger_amount_differs');
+  }
   if (!venueReported) reasons.push('venue_not_reported');
   else if (venue.some((v) => v.assetId !== share.assetId) || venueSum !== share.protocolFee) reasons.push('venue_fee_differs');
 
@@ -192,8 +224,11 @@ async function judgeAll(deps: SettlementOversightDeps, shares: readonly StoredSh
     const batch = shares.slice(i, i + LEDGER_READS_AT_ONCE);
     const read = await Promise.all(
       batch.map(async (share) => {
-        const keys = copyFeeShareLedgerKeys(share.fillId, share.leaderId, share.assetId);
-        const [sweep, payout] = await Promise.all([deps.ledger.getTxByKey(keys.sweep), deps.ledger.getTxByKey(keys.payout)]);
+        const keys = shareKeys(share);
+        const [sweep, payout] = await Promise.all([
+          keys.sweep ? deps.ledger.getTxByKey(keys.sweep) : Promise.resolve(null),
+          deps.ledger.getTxByKey(keys.payout),
+        ]);
         return judgeSettlement(share, { sweep, payout }, venue.get(shareId(share)) ?? []);
       }),
     );
@@ -239,7 +274,20 @@ type ShareSqlRow = {
   skipped_reason: string | null;
   settled: boolean;
   created_at: Date;
+  venue_id: string | null;
+  venue_account: string | null;
+  venue_fill_id: string | null;
+  claim_id: string | null;
 };
+
+const VenueFeeRow = z.object({
+  venue_id: z.string(),
+  venue_account: z.string(),
+  fill_id: z.string(),
+  asset_id: z.string(),
+  amount: z.string(),
+  recorded_at: z.union([z.date(), z.string()]).transform((v) => (v instanceof Date ? v : new Date(v))),
+});
 
 /** The SQL reads behind the oversight: svc-trade's own copy tables and the builder-fee log, never another service's. */
 export function sqlSettlementOversight(sql: Sql, ledger: Pick<LedgerClient, 'getTxByKey'>): SettlementOversightDeps {
@@ -248,7 +296,7 @@ export function sqlSettlementOversight(sql: Sql, ledger: Pick<LedgerClient, 'get
     async shares({ since, through, followId, limit }) {
       const rows = await sql<ShareSqlRow[]>`
         SELECT follow_id, fill_id, leader_id, follower_id, asset_id, protocol_fee::text, capped_leader_share::text,
-               skipped_reason, settled, created_at
+               skipped_reason, settled, created_at, venue_id, venue_account, venue_fill_id, claim_id
           FROM trade.copy_settled_fee_shares
          WHERE created_at <= ${through}
            ${since ? sql`AND created_at > ${since}` : sql``}
@@ -267,6 +315,10 @@ export function sqlSettlementOversight(sql: Sql, ledger: Pick<LedgerClient, 'get
         skippedReason: r.skipped_reason === 'cap_reached' || r.skipped_reason === 'zero_share' ? r.skipped_reason : null,
         settled: r.settled,
         createdAt: r.created_at,
+        venue:
+          r.venue_id && r.venue_account && r.venue_fill_id
+            ? { venueId: r.venue_id, venueAccount: r.venue_account, venueFillId: r.venue_fill_id, claimId: r.claim_id }
+            : null,
       }));
     },
     async venueReports(shares) {
@@ -291,6 +343,31 @@ export function sqlSettlementOversight(sql: Sql, ledger: Pick<LedgerClient, 'get
           JOIN trade.venue_builder_fees v ON v.fill_id = f.id::text AND v.status <> 'not_our_order'
          WHERE p.follow_id = ANY(${follows}::text[])
       `;
+      // A venue copy's share: the builder fee the poster recorded for the very fill the share is of.
+      const onVenue = shares.flatMap((s) => (s.venue ? [{ share: s, venue: s.venue }] : []));
+      if (onVenue.length > 0) {
+        const fees = VenueFeeRow.array().parse(
+          await sql`
+            SELECT v.venue_id, v.venue_account, v.fill_id, v.asset_id, v.amount::text AS amount, v.recorded_at
+              FROM trade.venue_builder_fees v
+              JOIN unnest(${onVenue.map((o) => o.venue.venueId)}::text[], ${onVenue.map((o) => o.venue.venueAccount)}::text[],
+                          ${onVenue.map((o) => o.venue.venueFillId)}::text[]) AS k(venue_id, venue_account, fill_id)
+                ON k.venue_id = v.venue_id AND k.venue_account = v.venue_account AND k.fill_id = v.fill_id
+             WHERE v.status = 'posted'`,
+        );
+        for (const { share: s, venue: v } of onVenue) {
+          const list = fees
+            .filter((f) => f.venue_id === v.venueId && f.venue_account === v.venueAccount && f.fill_id === v.venueFillId)
+            .map((f) => ({
+              venueId: f.venue_id,
+              fillId: f.fill_id,
+              assetId: f.asset_id,
+              amount: parseAmount(f.amount),
+              recordedAt: f.recorded_at,
+            }));
+          if (list.length > 0) out.set(shareId(s), list);
+        }
+      }
       for (const r of rows) {
         const id = shareId({ followId: r.follow_id, fillId: r.leader_fill_id });
         const list = out.get(id) ?? [];

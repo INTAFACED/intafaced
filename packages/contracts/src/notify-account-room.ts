@@ -1,15 +1,26 @@
 /**
- * What svc-notify answers the account room's notification pages (module `notify`): the inbox, channels, out-of-app
- * preferences and targets, each notification's deliveries, and registering, verifying and removing a target. Browser-safe
- * (zod only). These are the account pages' readings, stricter than `notify-room`'s (each list holds one row per channel);
- * a check against the caller's own user or request stays in the app.
+ * What the account room's notification pages (module `notify`) accept from svc-notify: the inbox and out-of-app
+ * preferences, read with the schemas here, and the account room's own checks over the replies of calls that have records
+ * (`notify-procedures`): channels, targets, each notification's deliveries, and registering, verifying and removing a
+ * target. Browser-safe (zod only). They are stricter than every caller's (each list holds one row per channel); a check
+ * against the caller's own user or request stays in the app.
  */
 import { z } from 'zod';
+import type {
+  NOTIFY_CHANNELS,
+  NOTIFY_DELIVERIES,
+  NOTIFY_MARK_READ,
+  NOTIFY_REGISTER_TARGET,
+  NOTIFY_TARGETS,
+  NOTIFY_VERIFY_TARGET,
+} from './notify-procedures.js';
+import type { ProcedureOutput } from './procedure.js';
 
 const date = z.string().datetime({ offset: true });
-const unique = <T extends { channel: string }>(rows: T[]) => new Set(rows.map((row) => row.channel)).size === rows.length;
+const dated = (value: string) => date.safeParse(value).success;
+const datedOrNull = (value: string | null) => value === null || dated(value);
+const unique = <T extends { channel: string }>(rows: readonly T[]) => new Set(rows.map((row) => row.channel)).size === rows.length;
 
-export const accountNotifyChannelSchema = z.enum(['inapp', 'email', 'push', 'sms']);
 export const accountNotifyOutOfAppSchema = z.enum(['email', 'push', 'sms']);
 
 export const accountNotificationSchema = z.object({
@@ -27,60 +38,26 @@ export const accountNotificationSchema = z.object({
 /** `notify.list` for a page of `limit` rows. */
 export const accountInboxSchema = (limit: number) =>
   z.object({ items: z.array(accountNotificationSchema).max(limit), nextCursor: z.string().guid().nullable() });
-/** `notify.markRead` of one notification. */
-export const accountMarkedOneSchema = z.object({ marked: z.number().int().min(0).max(1) });
 
 export const accountNotifyPrefsSchema = z
   .array(z.object({ channel: accountNotifyOutOfAppSchema, muted: z.boolean() }))
   .max(3)
   .refine(unique, 'Duplicate notification preferences');
-export const accountNotifyChannelsSchema = z
-  .array(
-    z.object({
-      channel: accountNotifyChannelSchema,
-      configured: z.boolean(),
-      available: z.boolean(),
-      reason: z.string().nullable(),
-      requires: z.array(z.string()),
-      socket: z.string().nullable(),
-    }),
-  )
-  .max(4)
-  .refine(unique, 'Duplicate notification channels');
-export const accountNotifyTargetSchema = z.object({
-  channel: accountNotifyOutOfAppSchema,
-  address: z.string().min(1),
-  locale: z.string(),
-  verifiedAt: date.nullable(),
-});
-export const accountNotifyTargetsSchema = z.array(accountNotifyTargetSchema).max(3).refine(unique, 'Duplicate notification targets');
-export const accountNotifyDeliveriesSchema = z
-  .array(
-    z.object({
-      channel: accountNotifyChannelSchema,
-      status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
-      attempts: z.number().int().nonnegative(),
-      attemptedAt: date.nullable(),
-      acceptedAt: date.nullable(),
-      refusalCode: z.string().nullable(),
-    }),
-  )
-  .max(4)
-  .refine(unique, 'Duplicate notification delivery channels');
+/** `notify.channels`: one row per channel, so at most four. */
+export const accountChannelsHold = (rows: ProcedureOutput<typeof NOTIFY_CHANNELS>): boolean => rows.length <= 4 && unique(rows);
+/** `notify.targets`: one non-empty address per out-of-app channel, each confirmation a dated timestamp. */
+export const accountTargetsHold = (rows: ProcedureOutput<typeof NOTIFY_TARGETS>): boolean =>
+  rows.length <= 3 && unique(rows) && rows.every((row) => row.address.length > 0 && datedOrNull(row.verifiedAt));
+/** `notify.deliveries`: one row per channel, each attempt and acceptance a dated timestamp. */
+export const accountDeliveriesHold = (rows: ProcedureOutput<typeof NOTIFY_DELIVERIES>): boolean =>
+  rows.length <= 4 && unique(rows) && rows.every((row) => datedOrNull(row.attemptedAt) && datedOrNull(row.acceptedAt));
+/** `notify.markRead` of one notification marks at most one. */
+export const accountMarkedOneHolds = (reply: ProcedureOutput<typeof NOTIFY_MARK_READ>): boolean => reply.marked <= 1;
 
 /** A refusal code, never a six-digit verification code. */
-const targetRefusal = z
-  .string()
-  .min(1)
-  .refine((value) => !/^\d{6}$/.test(value), 'A refusal is not a verification code')
-  .nullable();
-/** `notify.registerTarget`. */
-export const accountTargetRegisteredSchema = z
-  .object({ status: z.enum(['sent', 'refused', 'failed']), channel: accountNotifyOutOfAppSchema, code: targetRefusal, expiresAt: date })
-  .refine((row) => (row.status === 'refused' ? row.code !== null : row.code === null), 'Invalid registration outcome');
-/** `notify.verifyTarget`. */
-export const accountTargetVerifiedSchema = z
-  .object({ verified: z.boolean(), code: targetRefusal })
-  .refine((row) => !row.verified || row.code === null, 'Invalid verification outcome');
-/** `notify.removeTarget`. */
-export const accountTargetRemovedSchema = z.object({ removed: z.boolean() });
+const refusalOrNull = (code: string | null) => code === null || !/^\d{6}$/.test(code);
+/** `notify.registerTarget`: a refusal code is never a verification code, and it expires at a dated timestamp. */
+export const accountRegisteredHolds = (reply: ProcedureOutput<typeof NOTIFY_REGISTER_TARGET>): boolean =>
+  refusalOrNull(reply.code) && dated(reply.expiresAt);
+/** `notify.verifyTarget`: a refusal code is never a verification code. */
+export const accountVerifiedHolds = (reply: ProcedureOutput<typeof NOTIFY_VERIFY_TARGET>): boolean => refusalOrNull(reply.code);

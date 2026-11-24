@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from 'react';
 import { useFavorites } from '../../data/favorites';
 import { alertsCopy } from './alerts-copy';
 import { priceProblem } from './alerts-model';
-import { Button } from './deps';
+import { Button } from '@intafaced/ui/lit';
 import { ALERT_CONDITIONS, directionOfCondition, type AlertCondition, type WatchlistIntent } from './notify-api';
 import type { AlertMarket } from './use-alerts';
 
@@ -82,26 +82,24 @@ export function WatchlistAlert({
   }
 
   return (
-    <section className="nf-card nf-alertform" aria-labelledby={`${id}-title`} data-testid="alerts-watchlist">
-      <h2 className="nf-h2" id={`${id}-title`}>
-        {copy.t('watchTitle')}
-      </h2>
-      <p className="nf-muted">{copy.t('watchIntro')}</p>
+    <section aria-labelledby={`${id}-title`} data-testid="alerts-watchlist">
+      <h2 id={`${id}-title`}>{copy.t('watchTitle')}</h2>
+      <p className="lt-hint">{copy.t('watchIntro')}</p>
       {listed.found.length === 0 ? (
-        <p className="nf-muted" data-testid="alerts-watchlist-empty">
+        <p className="lt-hint" data-testid="alerts-watchlist-empty">
           {copy.t('watchEmpty')}
         </p>
       ) : review ? (
         <div data-testid="alerts-watchlist-review">
-          <h3 className="nf-h2">{copy.t('watchReviewTitle')}</h3>
-          <dl className="nf-facts">
+          <h3>{copy.t('watchReviewTitle')}</h3>
+          <dl className="lt-kv">
             <div>
               <dt>{copy.t('watchReviewMarkets')}</dt>
               <dd>{review.marketIds.map((marketId) => markets.find((market) => market.id === marketId)?.label ?? marketId).join(', ')}</dd>
             </div>
             <div>
               <dt>{copy.t('reviewWhen')}</dt>
-              <dd lang="zxx" className="nf-num">
+              <dd lang="zxx" className="lt-mono">
                 {copy.t(CONDITION_KEY[review.condition])} {review.targetPrice}
               </dd>
             </div>
@@ -110,14 +108,14 @@ export function WatchlistAlert({
               <dd>{String(review.marketIds.length)}</dd>
             </div>
           </dl>
-          <p className="nf-muted">{copy.t('watchOnce')}</p>
-          <div className="nf-address__actions">
-            <Button variant="secondary" size={32} disabled={busy} onClick={() => setReview(null)}>
+          <p className="lt-hint">{copy.t('watchOnce')}</p>
+          <div className="lt-actions">
+            <Button tone="secondary" disabled={busy} onClick={() => setReview(null)}>
               {copy.t('back')}
             </Button>
             <Button
-              size={32}
-              loading={busy}
+              tone="primary"
+              aria-busy={busy || undefined}
               disabled={busy || blockedReason !== null}
               onClick={() => {
                 void onSave(review).then((result) => {
@@ -143,10 +141,10 @@ export function WatchlistAlert({
             toReview();
           }}
         >
-          <fieldset className="nf-field" disabled={blockedReason !== null}>
+          <fieldset className="lt-field" disabled={blockedReason !== null}>
             <legend>{copy.t('watchMarkets')}</legend>
             {listed.found.map((market) => (
-              <label key={market.id} className="nf-check">
+              <label key={market.id} className="lt-field">
                 <input
                   type="checkbox"
                   checked={chosen.has(market.id)}
@@ -160,17 +158,17 @@ export function WatchlistAlert({
                 <span>{market.label}</span>
               </label>
             ))}
-            <div className="nf-address__actions">
-              <Button variant="ghost" size={28} onClick={() => setChosen(new Set(listed.found.map((market) => market.id)))}>
+            <div className="lt-actions">
+              <Button tone="quiet" onClick={() => setChosen(new Set(listed.found.map((market) => market.id)))}>
                 {copy.t('watchAll')}
               </Button>
-              <Button variant="ghost" size={28} onClick={() => setChosen(new Set())}>
+              <Button tone="quiet" onClick={() => setChosen(new Set())}>
                 {copy.t('watchNone')}
               </Button>
             </div>
-            {listed.left > 0 ? <small className="nf-muted">{copy.t('watchLeftOut', { count: String(listed.left) })}</small> : null}
+            {listed.left > 0 ? <small className="lt-hint">{copy.t('watchLeftOut', { count: String(listed.left) })}</small> : null}
           </fieldset>
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('conditionLabel')}</span>
             <select
               value={condition}
@@ -187,7 +185,7 @@ export function WatchlistAlert({
               ))}
             </select>
           </label>
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('priceLabelNoMarket')}</span>
             <input
               inputMode="decimal"
@@ -201,18 +199,18 @@ export function WatchlistAlert({
                 setTouched(false);
               }}
             />
-            <small className={problem ? 'nf-error' : 'nf-muted'}>
+            <small data-part={problem ? 'error' : undefined}>
               {problem === 'empty' ? copy.t('priceEmpty') : problem === 'invalid' ? copy.t('priceInvalid') : copy.t('watchSame')}
             </small>
           </label>
-          {touched && picked.length === 0 ? <p className="nf-error">{copy.t('watchNeedOne')}</p> : null}
-          {tooMany ? <p className="nf-error">{copy.t('watchTooMany', { count: String(picked.length), room: String(room) })}</p> : null}
-          <div className="nf-address__actions">
-            <Button type="submit" size={32} disabled={blockedReason !== null}>
+          {touched && picked.length === 0 ? <p data-part="error">{copy.t('watchNeedOne')}</p> : null}
+          {tooMany ? <p data-part="error">{copy.t('watchTooMany', { count: String(picked.length), room: String(room) })}</p> : null}
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={blockedReason !== null}>
               {copy.t('review')}
             </Button>
           </div>
-          {blockedReason ? <p className="nf-muted">{copy.t(blockedReason)}</p> : null}
+          {blockedReason ? <p className="lt-hint">{copy.t(blockedReason)}</p> : null}
         </form>
       )}
     </section>

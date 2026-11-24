@@ -1,8 +1,21 @@
-// hand-declared-ok: svc-trade's user-venue door and session-key answers are declared in svc-trade (src/venue/session-key.ts), not in @intafaced/contracts.
-import { z } from 'zod';
+import {
+  builderFeeApprovalSchema,
+  tradingDoorStatusSchema,
+  tradingPreparedSchema,
+  tradingSessionPreparedSchema,
+  tradingSessionStatusSchema,
+  tradingSubmitSchema,
+  type TradingDoorStatus,
+  type TradingPrepared,
+  type TradingSessionState,
+  type TradingSessionStatus,
+  type TradingSessionView,
+  type TradingSubmitAnswer,
+} from '@intafaced/contracts/protocol-trading-session';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { ApiClient } from '../../../shared/api';
 import { DEVICE_SESSION_KEY_PREFIX } from '../../../shared/device-session-key';
+import { heldSchema } from './held-key';
 
 /**
  * The trading session (J-wallet-22 #8, slice D-venue-09): one approval per session, signed by the person's wallet after
@@ -16,67 +29,14 @@ import { DEVICE_SESSION_KEY_PREFIX } from '../../../shared/device-session-key';
  * next sign-in has no session, and the next session approves a new key. A key once used is never approved again (svc-trade refuses it).
  */
 
-// ── svc-trade's user-venue door, as this room reads it (services/svc-trade/src/venue/user-venue-rest.ts) ──────────────
-
-const doorStatusSchema = z.union([
-  z.object({ enabled: z.literal(false) }),
-  z.object({
-    enabled: z.literal(true),
-    available: z.literal(false),
-    refusal: z.object({ code: z.string(), detail: z.string() }).passthrough(),
-  }),
-  z.object({
-    enabled: z.literal(true),
-    available: z.literal(true),
-    venue: z.object({ id: z.string(), displayName: z.string(), proofLevel: z.string() }),
-    test: z.boolean(),
-    builder: z.object({ address: z.string(), feeBps: z.string() }).nullable(),
-  }),
-]);
-export type DoorStatus = z.infer<typeof doorStatusSchema>;
-
-const sessionStateSchema = z.enum(['awaiting_signature', 'approving', 'live', 'expired', 'ended', 'replaced', 'refused']);
-export type SessionState = z.infer<typeof sessionStateSchema>;
-const sessionViewSchema = z
-  .object({
-    sessionId: z.string(),
-    actionKey: z.string(),
-    agentAddress: z.string(),
-    validUntil: z.string().nullable(),
-    state: sessionStateSchema,
-    replacedBy: z.enum(['this_sign_in', 'another_sign_in']).nullable(),
-    refusal: z.object({ code: z.string(), detail: z.string() }).passthrough().nullable(),
-  })
-  .passthrough();
-export type SessionView = z.infer<typeof sessionViewSchema>;
-const sessionStatusSchema = z.object({ venueId: z.string(), owner: z.string(), current: sessionViewSchema.nullable(), asOf: z.string() });
-export type SessionStatus = z.infer<typeof sessionStatusSchema>;
-
-const preparedSchema = z
-  .object({
-    actionKey: z.string(),
-    reused: z.boolean(),
-    signed: z.boolean(),
-    prepared: z.object({ digest: z.string(), typedData: z.unknown(), venueClientOrderId: z.string().nullable() }).passthrough(),
-  })
-  .passthrough();
-export type Prepared = z.infer<typeof preparedSchema>;
-const outcomeSchema = z.union([
-  z
-    .object({ definite: z.literal(true), accepted: z.literal(true), order: z.object({ status: z.string() }).passthrough().nullable() })
-    .passthrough(),
-  z
-    .object({
-      definite: z.literal(true),
-      accepted: z.literal(false),
-      refusal: z.object({ code: z.string(), detail: z.string() }).passthrough(),
-    })
-    .passthrough(),
-  z.object({ definite: z.literal(false), reason: z.string() }).passthrough(),
-]);
-const submitSchema = z.object({ actionKey: z.string(), outcome: outcomeSchema }).passthrough();
-export type SubmitAnswer = z.infer<typeof submitSchema>;
-const approvalSchema = z.object({ value: z.string() }).passthrough();
+export type {
+  TradingDoorStatus as DoorStatus,
+  TradingPrepared as Prepared,
+  TradingSessionState as SessionState,
+  TradingSessionStatus as SessionStatus,
+  TradingSessionView as SessionView,
+  TradingSubmitAnswer as SubmitAnswer,
+};
 
 export interface VenueSignature {
   readonly digest: string;
@@ -87,20 +47,20 @@ export interface VenueSignature {
 export function createTradingSessionApi(api: ApiClient) {
   const owner = (address: string) => ({ owner: address.toLowerCase() });
   return {
-    door: (signal?: AbortSignal) => api.rest('/venue/status', doorStatusSchema, { signal }),
-    session: (address: string, signal?: AbortSignal) => api.rest('/venue/session', sessionStatusSchema, { query: owner(address), signal }),
+    door: (signal?: AbortSignal) => api.rest('/venue/status', tradingDoorStatusSchema, { signal }),
+    session: (address: string, signal?: AbortSignal) =>
+      api.rest('/venue/session', tradingSessionStatusSchema, { query: owner(address), signal }),
     builderFeeApproval: (address: string, signal?: AbortSignal) =>
-      api.rest('/venue/builder-fee-approval', approvalSchema, { query: owner(address), signal }),
+      api.rest('/venue/builder-fee-approval', builderFeeApprovalSchema, { query: owner(address), signal }),
     start: (address: string, agentAddress: string) =>
-      api.rest('/venue/session/start', preparedSchema.and(z.object({ sessionId: z.string() })), {
+      api.rest('/venue/session/start', tradingSessionPreparedSchema, {
         method: 'POST',
         body: { ...owner(address), agentAddress },
       }),
-    end: (address: string) =>
-      api.rest('/venue/session/end', preparedSchema.and(z.object({ sessionId: z.string() })), { method: 'POST', body: owner(address) }),
-    prepare: (body: unknown) => api.rest('/venue/prepare', preparedSchema, { method: 'POST', body }),
+    end: (address: string) => api.rest('/venue/session/end', tradingSessionPreparedSchema, { method: 'POST', body: owner(address) }),
+    prepare: (body: unknown) => api.rest('/venue/prepare', tradingPreparedSchema, { method: 'POST', body }),
     submit: (actionKey: string, signature: VenueSignature) =>
-      api.rest('/venue/submit', submitSchema, { method: 'POST', body: { actionKey, signature } }),
+      api.rest('/venue/submit', tradingSubmitSchema, { method: 'POST', body: { actionKey, signature } }),
   };
 }
 export type TradingSessionApi = ReturnType<typeof createTradingSessionApi>;
@@ -123,16 +83,6 @@ export interface HeldKey {
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
 const storeKey = (userId: string) => `${DEVICE_SESSION_KEY_PREFIX}${userId}`;
-const heldSchema = z.object({
-  address: z.string().regex(/^0x[0-9a-f]{40}$/),
-  privateKey: z.string().regex(/^0x[0-9a-f]{64}$/),
-  nextTicket: z.number().int().positive().default(1),
-  pendingOrder: z
-    .object({ key: z.string(), intent: z.record(z.string(), z.unknown()) })
-    .nullable()
-    .default(null),
-});
-
 function storage(): Storage | null {
   try {
     return typeof window === 'undefined' ? null : window.sessionStorage;
@@ -186,7 +136,7 @@ export function dropKey(userId: string, store: Storage | null = storage()): void
  * same approval. Any other key (a session that ended, expired or was replaced, or one from an earlier sign-in) is
  * dropped and never offered again: the next session makes a new one.
  */
-export function keyFor(current: SessionView | null, held: HeldKey | null): 'use' | 'pending' | 'drop' | 'none' {
+export function keyFor(current: TradingSessionView | null, held: HeldKey | null): 'use' | 'pending' | 'drop' | 'none' {
   if (!held) return 'none';
   if (!current || current.agentAddress.toLowerCase() !== held.address) return 'drop';
   if (current.state === 'live') return 'use';
@@ -195,7 +145,7 @@ export function keyFor(current: SessionView | null, held: HeldKey | null): 'use'
 }
 
 /** The session key signs a prepared action itself: no passkey, no provider, nothing leaves the tab but the signature. */
-export async function signWithSessionKey(key: HeldKey, prepared: Prepared['prepared']): Promise<VenueSignature> {
+export async function signWithSessionKey(key: HeldKey, prepared: TradingPrepared['prepared']): Promise<VenueSignature> {
   const t = prepared.typedData as Parameters<ReturnType<typeof privateKeyToAccount>['signTypedData']>[0];
   const signature = await privateKeyToAccount(key.privateKey).signTypedData(t);
   return { digest: prepared.digest, signature, signedBy: key.address };

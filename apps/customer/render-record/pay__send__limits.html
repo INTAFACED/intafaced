@@ -95,40 +95,61 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div class="if-pay" data-testid="pay-room">
-<div class="pay-grid">
-<header data-testid="pay-hero" class="pay-hero">
-<h1>Send limits</h1>
-<p>How much you can send.</p>
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Send limits</h1>
+<p class="lt-description">How much you can send.</p>
+</div>
 </header>
-<section data-testid="pay-card" class="pay-card" aria-label="Send limits">
-<div class="pay-body">
-<dl class="pay-quote">
-<div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section id="pay-room-details" aria-labelledby="pay-room-details-title">
+<h2 id="pay-room-details-title">Details</h2>
+<dl class="lt-kv">
+<div data-unset="true">
 <dt>Your verification level</dt>
-<dd>Not set</dd>
+<dd>
+<bdi>Not set</bdi>
+</dd>
 </div>
-<div>
+<div data-unset="true">
 <dt>Largest single payment</dt>
-<dd>Not set</dd>
+<dd>
+<bdi>Not set</bdi>
+</dd>
 </div>
-<div>
+<div data-unset="true">
 <dt>Daily total</dt>
-<dd>Not set</dd>
+<dd>
+<bdi>Not set</bdi>
+</dd>
 </div>
-<div>
+<div data-unset="true">
 <dt>Sent today</dt>
-<dd>Not set</dd>
+<dd>
+<bdi>Not set</bdi>
+</dd>
 </div>
 </dl>
-<div class="pay-reason" id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-07">
-<p class="pay-reason__title">Not connected</p>
-<p class="pay-reason__body">No limits are published, so none is shown. A blank limit is never replaced by a guess.</p>
-</div>
-<a class="pay-recent__link" href="/pay" data-testid="pay-room-back">Back to Pay</a>
+</section>
+<p>
+<a class="lt-tab" href="/pay" data-testid="pay-room-back">Back to Pay</a>
+</p>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<div id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-07">
+<p>
+<strong>Not connected</strong>
+</p>
+<p>No limits are published, so none is shown. A blank limit is never replaced by a guess.</p>
 </div>
 </section>
 </div>
+</div>
+</div>
+<div class="lit-toasts" role="status" aria-live="polite" data-slot="toast-region">
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">

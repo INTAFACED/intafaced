@@ -6,13 +6,12 @@
  * never forced to release, and the dispute path is the way forward. Blank means no automatic classification: every
  * report goes to a person, through a dispute. The platform never moves fiat.
  */
+import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS } from '@intafaced/contracts/p2p-procedures';
 import type { Amount } from '@intafaced/ledger-client';
 import { PricingError, quantiseFiat } from './pricing.js';
 
-export const MISMATCH_KINDS = ['under', 'over', 'partial'] as const;
 export type MismatchKind = (typeof MISMATCH_KINDS)[number];
 
-export const MISMATCH_CLASSIFICATIONS = ['within_tolerance', 'outside_tolerance', 'reported'] as const;
 export type MismatchClassification = (typeof MISMATCH_CLASSIFICATIONS)[number];
 
 export interface MismatchReport {

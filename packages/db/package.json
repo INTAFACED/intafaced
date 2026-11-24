@@ -17,10 +17,14 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
+    },
+    "./test-postgres": {
+      "types": "./dist/test-postgres.d.ts",
+      "default": "./dist/test-postgres.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
     "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -31,6 +35,7 @@
     "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "11.14.0",
     "@types/node": "^22.20.5",
     "drizzle-kit": "^0.31.11",
     "rimraf": "^6.1.4",

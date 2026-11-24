@@ -17,20 +17,19 @@
  */
 
 import type { AlertPlan } from './owner-values.js';
-
-/** Watches evaluated against an injected mark source. */
-export type SourcedAlertKind = 'price' | 'funding' | 'liquidation_proximity' | 'whale';
-
-export const SOURCED_ALERT_KINDS = ['price', 'funding', 'liquidation_proximity', 'whale'] as const satisfies readonly SourcedAlertKind[];
-
-/**
- * Kinds with no sourced series. Create never stores; evaluate never fires.
- * Intelligence stays here. Whale does not — it evaluates against the whale
- * mark or refuses `alerts.whale_mark_dark`.
- */
-export type UnpublishedAlertKind = 'intelligence';
-
-export const UNPUBLISHED_ALERT_KINDS = ['intelligence'] as const satisfies readonly UnpublishedAlertKind[];
+import {
+  type SourcedAlertKind,
+  SOURCED_ALERT_KINDS,
+  type AlertCondition,
+  ALERT_CONDITIONS,
+  EXTRA_CONDITIONS,
+  type AlertFrequency,
+  type AlertPriceSource,
+  ALERT_PRICE_SOURCES,
+  ALERT_OUT_CHANNELS,
+  type UnpublishedAlertKind,
+  UNPUBLISHED_ALERT_KINDS,
+} from '@intafaced/contracts/notify-call-schemas';
 
 export type AlertKind = SourcedAlertKind | 'portfolio' | UnpublishedAlertKind;
 
@@ -92,40 +91,9 @@ export type AlertDirection = 'above' | 'below';
 /** `stopped` is a pause the person chose: it never fires and can be resumed. `cancelled` is final. */
 export type AlertStatus = 'active' | 'fired' | 'cancelled' | 'expired' | 'stopped';
 
-/**
- * How a watch compares the mark with its target.
- *
- *   greater_than / less_than   a LEVEL: fires whenever the mark is at or above (below) the target. The only conditions that
- *                              existed before C-alerts-scan-01, stored as direction above / below.
- *   crossing_up / crossing_down / crossing   fire only on a CHANGE of side, seen between two sweeps. The side the mark was last
- *                              seen on is `lastSide`; a watch with no observation yet fires nothing and records one.
- */
-export type AlertCondition = 'crossing' | 'crossing_up' | 'crossing_down' | 'greater_than' | 'less_than';
-export const ALERT_CONDITIONS = [
-  'crossing',
-  'crossing_up',
-  'crossing_down',
-  'greater_than',
-  'less_than',
-] as const satisfies readonly AlertCondition[];
-
-/**
- * How often an alert may trigger. `once` is the original rule: the alert triggers and is done. `every_crossing` keeps a crossing
- * alert active, so it triggers each time the mark crosses the level again. Which of the repeating ones a deployment allows is an
- * owner setting (`NOTIFY_ALERT_FREQUENCIES`); `once` is always allowed.
- */
-export type AlertFrequency = 'once' | 'every_crossing';
 export type AlertStopReason = 'burst';
 export const ALERT_STOP_REASONS = ['burst'] as const satisfies readonly AlertStopReason[];
-export const ALERT_FREQUENCIES = ['once', 'every_crossing'] as const satisfies readonly AlertFrequency[];
 
-/**
- * Which price a price alert is evaluated against. `mark` is the original rule: mid of bid and ask when the book is two-sided,
- * else last. `bid`, `ask` and `last` read that one field of the ticker; a ticker without it refuses
- * `notify.price_source_unavailable` and never falls back to another side. Only kind `price` uses it.
- */
-export type AlertPriceSource = 'mark' | 'bid' | 'ask' | 'last';
-export const ALERT_PRICE_SOURCES = ['mark', 'bid', 'ask', 'last'] as const satisfies readonly AlertPriceSource[];
 /** A source other than the mark: one field of the ticker, read on its own. */
 export type AlertPriceSide = Exclude<AlertPriceSource, 'mark'>;
 export function isAlertPriceSource(source: unknown): source is AlertPriceSource {
@@ -196,12 +164,8 @@ export type PriceAlert = {
   readonly webhookUrl: string | null;
 };
 
-/** Out-of-app channels an alert may ask for. SMS is not offered for alerts. */
-export const ALERT_OUT_CHANNELS = ['email', 'push'] as const;
 export type AlertOutChannel = (typeof ALERT_OUT_CHANNELS)[number];
 
-/** An added condition: a level only (crossing needs a remembered side, which an added condition does not have). */
-export const EXTRA_CONDITIONS = ['greater_than', 'less_than'] as const;
 export type AlertExtra = { readonly condition: (typeof EXTRA_CONDITIONS)[number]; readonly targetPrice: string };
 
 /** What the person may change on an alert that has not triggered. `null` clears a name, message or expiry. */
@@ -317,3 +281,15 @@ export type AlertEvalOutcome =
       readonly code: AlertRefuseCode;
       readonly detail: string;
     };
+export {
+  type SourcedAlertKind,
+  SOURCED_ALERT_KINDS,
+  type AlertCondition,
+  ALERT_CONDITIONS,
+  EXTRA_CONDITIONS,
+  type AlertFrequency,
+  type AlertPriceSource,
+  ALERT_OUT_CHANNELS,
+  type UnpublishedAlertKind,
+  UNPUBLISHED_ALERT_KINDS,
+};

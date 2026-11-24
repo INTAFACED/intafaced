@@ -1,11 +1,7 @@
 import type { Sql } from 'postgres';
-import {
-  ServiceAuthError,
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { ServiceAuthError, verifyServiceHeaders } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { MiningError } from './errors.js';
 import { resolveJob, type JobSource } from './job-source.js';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';

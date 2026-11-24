@@ -5,41 +5,6 @@
 import { z } from 'zod';
 import { signedAmountSchema, unsignedAmountSchema } from './wire-amount.js';
 
-/** What `algo.get` sends beyond the base algo answer: the schedule clock, the participation rate, the chase and the children. */
-export const algoParentFields = {
-  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
-  participationBps: z.number().int().nullable().optional(),
-  povBasis: z.enum(['traded_volume', 'opposite_liquidity']).nullable().optional(),
-  startedAt: z.string().nullable().optional(),
-  nextDueAt: z.string().nullable().optional(),
-  scheduleStretchReason: z.string().nullable().optional(),
-  randomSeed: z.number().int().nullable().optional(),
-  triggerPrice: unsignedAmountSchema.nullable().optional(),
-  triggeredAt: z.string().nullable().optional(),
-  awaitingTrigger: z.boolean().optional(),
-  plannedSliceQtys: z.array(unsignedAmountSchema).optional(),
-  /** Chase: the bound, the own-side best price it started from, the newest child's price and how often it re-priced. */
-  chaseMaxDistanceBps: z.number().int().nullable().optional(),
-  chaseStartPrice: unsignedAmountSchema.nullable().optional(),
-  chasePrice: unsignedAmountSchema.nullable().optional(),
-  chaseReprices: z.number().int().nullable().optional(),
-  /**
-   * `algo.get` children: each child's order id (how the blotter links it to its schedule), its placed size and, for POV,
-   * the volume or book size it was a share of; a chase child's price.
-   */
-  children: z
-    .array(
-      z.object({
-        orderId: z.string().min(1),
-        sliceIndex: z.number().int(),
-        qty: unsignedAmountSchema.optional(),
-        basisQty: unsignedAmountSchema.nullable().optional(),
-        price: unsignedAmountSchema.nullable().optional(),
-      }),
-    )
-    .optional(),
-};
-
 /** `algo.result`: per quote asset, the average price of the real child fills — null while nothing has filled. */
 export const algoResultSchema = z.object({
   quotes: z.array(z.object({ quoteAsset: z.string(), filledQty: unsignedAmountSchema, averageFillPrice: unsignedAmountSchema.nullable() })),

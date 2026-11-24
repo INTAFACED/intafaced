@@ -278,6 +278,7 @@ describe('HTTP answers', () => {
       'XFND-PERP',
       'XBIL-PERP',
       'XCRS-PERP',
+      'XDEV-PERP',
     ]);
 
     // A resting order placed while trading stays as it is through every state change.

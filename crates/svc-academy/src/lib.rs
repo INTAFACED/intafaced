@@ -1,6 +1,7 @@
-//! svc-academy in Rust: the Academy's live lobbies, curriculum, courses, assessments, certificates, community and
-//! programmes, ported from `services/svc-academy` one slice at a time behind a door that answers every call as the
-//! TypeScript router does.
+//! svc-academy: the Academy's live lobbies, curriculum, courses, assessments, certificates, community and programmes,
+//! behind a door that answers every call as the TypeScript router did. It replaced the TypeScript service
+//! (`services/svc-academy`, ported one slice at a time and deleted in the change that made this one serve; read it in
+//! git history before that merge); what the TypeScript answered is kept as the reference this service is held to.
 //!
 //! The door (`door`) holds every call: who may call it, its input check and how its refusals become answers, held to
 //! the TypeScript's recorded answers by `tests/wire_replay.rs`. Each slice (`slices`) answers its own calls; a call not

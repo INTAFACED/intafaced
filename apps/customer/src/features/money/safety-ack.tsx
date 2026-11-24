@@ -5,15 +5,22 @@ import {
   SUPPORT_SAFETY_KEY_REUSED,
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
   SUPPORT_SCAM_TRANSFER_UNCHECKED,
-  supportSafetyAcknowledgementSchema,
-  supportSafetyAcknowledgementsSchema,
   type SupportSafetyAcknowledgement,
+  type SupportBereavementInput,
+  type SupportComplaintInput,
   type SupportSafetyCaseKind,
+  type SupportScamReportInput,
 } from '@intafaced/contracts/support-safety';
-import type { ApiResult } from '../../shared/api';
+import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { safetyCopy } from './safety-copy';
+import {
+  SUPPORT_SAFETY_MINE,
+  SUPPORT_SAFETY_COMPLAIN,
+  SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+  SUPPORT_SAFETY_REPORT_SCAM,
+} from '@intafaced/contracts/support-safety-procedures';
 
 /**
  * What the complaint and bereavement rooms share (BK-safe-03, J-bank-18 #5 #6): one request key per form, kept until a
@@ -45,13 +52,20 @@ export function safetyRefusal(failure: Failed, t: T): Refusal {
   };
 }
 
+/** A complaint and a report of a death carry the form's key; a scam report's transfer is its key, so it carries none of ours. */
+export const sendComplaint = (api: ApiClient, input: Omit<SupportComplaintInput, 'requestKey'>, requestKey: string) =>
+  api.call(SUPPORT_SAFETY_COMPLAIN, { ...input, requestKey });
+export const sendBereavement = (api: ApiClient, input: Omit<SupportBereavementInput, 'requestKey'>, requestKey: string) =>
+  api.call(SUPPORT_SAFETY_REPORT_BEREAVEMENT, { ...input, requestKey });
+export const sendScamReport = (api: ApiClient, input: SupportScamReportInput) => api.call(SUPPORT_SAFETY_REPORT_SCAM, input);
+
 /**
  * One send at a time, under the form's key; the key changes only after an answer that is not a lost one. A scam report
  * carries no key of ours: the transfer it names is its key (one report per transfer).
  */
 export function useSafetySend<I extends object>(
   kind: SupportSafetyCaseKind,
-  procedure: 'safety.complain' | 'safety.reportBereavement' | 'safety.reportScam',
+  ask: (api: ApiClient, input: I, requestKey: string) => Promise<ApiResult<SupportSafetyAcknowledgement>>,
 ) {
   const { api } = useSession();
   const { t } = safetyCopy.useCopy();
@@ -65,8 +79,7 @@ export function useSafetySend<I extends object>(
     sending.current = true;
     setBusy(true);
     setRefusal(null);
-    const body = procedure === 'safety.reportScam' ? input : { ...input, requestKey: key.current };
-    const out = await api.mutate('support', procedure, body, supportSafetyAcknowledgementSchema);
+    const out = await ask(api, input, key.current);
     sending.current = false;
     setBusy(false);
     if (out.ok) {
@@ -86,7 +99,7 @@ export function useMyAcknowledgements(kind: SupportSafetyCaseKind, after: string
   return useResource(
     (signal) =>
       userId
-        ? api.query('support', 'safety.mine', undefined, supportSafetyAcknowledgementsSchema, { signal })
+        ? api.call(SUPPORT_SAFETY_MINE, undefined, { signal })
         : Promise.resolve({ ok: true as const, data: { acknowledgements: [] } }),
     `safety-mine:${kind}:${userId ?? 'out'}:${after ?? ''}`,
   );

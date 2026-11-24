@@ -1,29 +1,28 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import {
-  campaignCalendarSchema,
-  campaignCatalogueSchema,
   campaignDefinitionInputSchema,
-  campaignGateSchema,
   campaignGetInputSchema,
   ruleLibraryEntrySchema,
   ruleLibrarySaveInputSchema,
   ruleTestInputSchema,
   ruleTestResultSchema,
-  campaignJoinInputSchema,
-  campaignJoinResultSchema,
-  campaignReviewInputSchema,
-  campaignReviewResultSchema,
   campaignSchema,
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
-  campaignViewSchema,
-  myCampaignsSchema,
-  earningEvaluateInputSchema,
-  earningEvaluationSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { guard, mapError, opsProcedure } from './kit.js';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import {
+  CAMPAIGNS_OPS_CAMPAIGNS_CALENDAR,
+  CAMPAIGNS_OPS_CAMPAIGNS_EARNING_EVALUATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_VALIDATE,
+  CAMPAIGNS_PARTICIPATION_JOIN,
+  CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW,
+} from '@intafaced/contracts/campaigns-procedures';
+import { mapError, opsProcedure, refusalOf, requireOpsMfa } from './kit.js';
 import type { CampaignServices } from '../router.js';
+import { CAMPAIGNS_CATALOGUE_LIST, CAMPAIGNS_CATALOGUE_GET } from '@intafaced/contracts/campaigns-catalogue-procedures';
+import { CAMPAIGNS_PARTICIPATION_MINE } from '@intafaced/contracts/campaigns-participation-procedures';
 
 /** Campaigns themselves: the catalogue and joining for the customer; the operator's campaign desk and rule library. */
 export function campaignRoutes({ campaigns }: CampaignServices) {
@@ -31,58 +30,51 @@ export function campaignRoutes({ campaigns }: CampaignServices) {
     customer: {
       catalogue: router({
         /** The type list, parked types with their blocker, and every published campaign with the caller's own participation. */
-        list: scopedProcedure('campaigns:read', guard)
-          .output(campaignCatalogueSchema)
-          .query(async ({ ctx }) => {
+        list: mountRecord(
+          CAMPAIGNS_CATALOGUE_LIST,
+          async ({ ctx }) => {
             try {
               return await campaigns.catalogue(ctx.principal!.userId);
             } catch (err) {
               mapError(err);
             }
-          }),
-        get: scopedProcedure('campaigns:read', guard)
-          .input(campaignGetInputSchema)
-          .output(campaignViewSchema)
-          .query(async ({ ctx, input }) => {
+          },
+          refusalOf,
+        ),
+        get: mountRecord(
+          CAMPAIGNS_CATALOGUE_GET,
+          async ({ ctx, input }) => {
             try {
               return await campaigns.get({ id: input.id, accountId: ctx.principal!.userId });
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
       participation: router({
-        /** Joins for the caller's own account only. A second call returns the first participation. */
-        join: scopedProcedure('campaigns:write', guard)
-          .input(campaignJoinInputSchema)
-          .output(campaignJoinResultSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              return await campaigns.join({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        /** One eligibility review request for the caller's own account, for a campaign whose rules refuse them. */
-        requestReview: scopedProcedure('campaigns:write', guard)
-          .input(campaignReviewInputSchema)
-          .output(campaignReviewResultSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              return await campaigns.requestReview({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        mine: scopedProcedure('campaigns:read', guard)
-          .output(myCampaignsSchema)
-          .query(async ({ ctx }) => {
+        join: mountRecord(
+          CAMPAIGNS_PARTICIPATION_JOIN,
+          async ({ ctx, input }) => campaigns.join({ campaignId: input.campaignId, accountId: ctx.principal.userId }),
+          refusalOf,
+        ),
+        requestReview: mountRecord(
+          CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW,
+          async ({ ctx, input }) => campaigns.requestReview({ campaignId: input.campaignId, accountId: ctx.principal.userId }),
+          refusalOf,
+        ),
+        mine: mountRecord(
+          CAMPAIGNS_PARTICIPATION_MINE,
+          async ({ ctx }) => {
             try {
               return await campaigns.myCampaigns(ctx.principal!.userId);
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
     },
     opsCampaigns: {
@@ -104,13 +96,14 @@ export function campaignRoutes({ campaigns }: CampaignServices) {
             mapError(err);
           }
         }),
-      calendar: opsProcedure.output(campaignCalendarSchema).query(async () => {
-        try {
-          return await campaigns.calendar();
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+      calendar: mountRecord(
+        CAMPAIGNS_OPS_CAMPAIGNS_CALENDAR,
+        async ({ ctx }) => {
+          requireOpsMfa(ctx);
+          return campaigns.calendar();
+        },
+        refusalOf,
+      ),
       create: opsProcedure
         .input(campaignDefinitionInputSchema)
         .output(campaignSchema)
@@ -131,16 +124,14 @@ export function campaignRoutes({ campaigns }: CampaignServices) {
             mapError(err);
           }
         }),
-      validate: opsProcedure
-        .input(campaignGetInputSchema)
-        .output(campaignGateSchema)
-        .query(async ({ input }) => {
-          try {
-            return await campaigns.validate(input);
-          } catch (err) {
-            mapError(err);
-          }
-        }),
+      validate: mountRecord(
+        CAMPAIGNS_OPS_CAMPAIGNS_VALIDATE,
+        async ({ ctx, input }) => {
+          requireOpsMfa(ctx);
+          return campaigns.validate(input);
+        },
+        refusalOf,
+      ),
       /** submit, approve (a second person), activate, pause, resume, end, close, archive. */
       transition: opsProcedure
         .input(campaignTransitionInputSchema)
@@ -153,17 +144,14 @@ export function campaignRoutes({ campaigns }: CampaignServices) {
           }
         }),
       earning: router({
-        /** Each earning rule's answer to one TEST event; writes nothing. A points rule refuses for itself only. */
-        evaluate: opsProcedure
-          .input(earningEvaluateInputSchema)
-          .output(earningEvaluationSchema)
-          .query(async ({ input }) => {
-            try {
-              return await campaigns.evaluateEarning(input);
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        evaluate: mountRecord(
+          CAMPAIGNS_OPS_CAMPAIGNS_EARNING_EVALUATE,
+          async ({ ctx, input }) => {
+            requireOpsMfa(ctx);
+            return campaigns.evaluateEarning(input);
+          },
+          refusalOf,
+        ),
       }),
     },
     ops: {

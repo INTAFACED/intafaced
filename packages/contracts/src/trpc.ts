@@ -549,7 +549,22 @@ export interface GuardOptions {
    * service is refused here, instead of a service file comparing the caller name.
    */
   person?: boolean;
+  /**
+   * The person's own session only: an API key (`kid`) or a sub-account token is refused FORBIDDEN with this machine code,
+   * right after a service on the request is refused and before the scope: a key is told the call is the person's own
+   * (`agents.execute_person_only`), never to ask for a scope no key can hold (J-agents-12 #3).
+   */
+  ownSession?: string;
+  /**
+   * The serving service's own check, run last, on what only it can read live (svc-p2p's merchant standing for an API key):
+   * it throws the refusal itself. A record names it (`Access.check`) and the service hands it to the mount
+   * (`ServiceParts.checks`), so the hand guard and the mounted one run the same function.
+   */
+  check?: ServiceCheck;
 }
+
+/** A service's own guard check (`GuardOptions.check`): it returns when the caller may go on, and throws its refusal when not. */
+export type ServiceCheck = (ctx: Context & { principal: Principal }) => Promise<void> | void;
 
 /**
  * The one authorisation guard. Scope, tier, and jurisdiction are checked in a
@@ -582,6 +597,12 @@ function refuseActingService(ctx: Context, guards: GuardOptions): void {
   }
 }
 
+function refuseKeyOrSubAccount(ctx: Context & { principal: Principal }, guards: GuardOptions): void {
+  if (guards.ownSession !== undefined && (ctx.principal.kid || ctx.principal.sub_account)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: guards.ownSession });
+  }
+}
+
 function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: GuardOptions): void {
   if (!guards.module) return;
   const decision = checkAccess({
@@ -598,12 +619,13 @@ function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: Gua
 
 /**
  * Any signed-in principal, holding no particular scope; then, when `module` is named, the same jurisdiction check as
- * `scopedProcedure`. Like `protectedProcedure` it names nobody (`procedureCallers` reports `undefined`): use it only where
+ * `scopedProcedure`, and last the service's own `check` when one is given. Like `protectedProcedure` it names nobody (`procedureCallers` reports `undefined`): use it only where
  * a record says `signedIn`.
  */
-export function signedInProcedure(guards: Pick<GuardOptions, 'module' | 'plane'> = {}) {
-  return protectedProcedure.use(({ ctx, next }) => {
+export function signedInProcedure(guards: Pick<GuardOptions, 'module' | 'plane' | 'check'> = {}) {
+  return protectedProcedure.use(async ({ ctx, next }) => {
     refuseJurisdiction(ctx, guards);
+    if (guards.check) await guards.check(ctx);
     return next({ ctx });
   });
 }
@@ -611,6 +633,7 @@ export function signedInProcedure(guards: Pick<GuardOptions, 'module' | 'plane'>
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
   return protectedProcedure.meta({ caller: 'scope' }).use(async ({ ctx, next }) => {
     refuseActingService(ctx, guards);
+    refuseKeyOrSubAccount(ctx, guards);
     try {
       requireScope(ctx.principal, scope);
       if (guards.tier) requireTier(ctx.principal, guards.tier);
@@ -620,6 +643,7 @@ export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
 
     await assertLiveOwnerPayScope(ctx, scope);
     refuseJurisdiction(ctx, guards);
+    if (guards.check) await guards.check(ctx);
 
     return next({ ctx });
   });
@@ -632,7 +656,7 @@ export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
  * List `pay:onboard` before `pay:read` so a stale read does not hide a live
  * onboarding session.
  */
-export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: GuardOptions = {}) {
+export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: Omit<GuardOptions, 'ownSession'> = {}) {
   return protectedProcedure.meta({ caller: 'scope' }).use(async ({ ctx, next }) => {
     refuseActingService(ctx, guards);
     let accepted = false;
@@ -673,9 +697,12 @@ export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: 
       if (sawMfa) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'A second factor is required' });
       }
-      throw new TRPCError({ code: 'FORBIDDEN', message: `One of ${scopes.join(', ')} is required` });
+      // The same typed code a single-scope refusal carries, so a client branches on `scope.denied` either way.
+      const message = `One of ${scopes.join(', ')} is required`;
+      throw new TRPCError({ code: 'FORBIDDEN', message, cause: new AuthError(message, 'scope.denied') });
     }
     refuseJurisdiction(ctx, guards);
+    if (guards.check) await guards.check(ctx);
     return next({ ctx });
   });
 }
@@ -700,12 +727,14 @@ export const serviceProcedure = t.procedure.meta({ caller: 'service' }).use(({ c
  * A procedure only the listed services may call. No caller is UNAUTHORIZED; a
  * caller that is not listed is FORBIDDEN. When the caller was verified by its own
  * key (`serviceAuth: 'keypair'`) the name is proven; under the shared secret it is
- * a claim, which is why the list is still enforced either way.
+ * a claim, which is why the list is still enforced either way. `forbidden` keeps a door's own wording for an unlisted
+ * caller (FORBIDDEN with that message and no code), as `Access.forbidden` names it.
  */
-export function serviceProcedureFor(callers: readonly string[]) {
+export function serviceProcedureFor(callers: readonly string[], options: { readonly forbidden?: string } = {}) {
   return t.procedure.meta({ caller: 'service' }).use(({ ctx, next }) => {
     requireServiceCaller(ctx.service);
     if (!callers.includes(ctx.service)) {
+      if (options.forbidden !== undefined) throw new TRPCError({ code: 'FORBIDDEN', message: options.forbidden });
       throw new TRPCError({
         code: 'FORBIDDEN',
         message: 'This service is not allowed to call this procedure',
@@ -746,7 +775,7 @@ function refuseDelegatedCaller(ctx: Context & { principal: Principal }): void {
  * The signed-in person only. Refuses an API key, a sub-account token and a service forwarding the person's principal,
  * whatever scopes they carry; then checks `scope`, when one is named, and the guards, as `scopedProcedure` does.
  */
-export function personProcedure(scope: Scope | null = null, guards: Omit<GuardOptions, 'person'> = {}) {
+export function personProcedure(scope: Scope | null = null, guards: Omit<GuardOptions, 'person' | 'ownSession' | 'check'> = {}) {
   return protectedProcedure.meta({ caller: 'person' }).use(async ({ ctx, next }) => {
     refuseDelegatedCaller(ctx);
     try {
@@ -768,7 +797,7 @@ export type OperatorScope = (typeof FOUNDER_SESSION_SCOPE_ALLOWLIST)[number] | '
  * Operators only: the signed-in person's own session (as `personProcedure`), holding `scope`, whose operator
  * entitlement `ctx.operatorAuthority` reads as enabled on this call. No authority installed refuses.
  */
-export function operatorProcedure(scope: OperatorScope, guards: Omit<GuardOptions, 'person'> = {}) {
+export function operatorProcedure(scope: OperatorScope, guards: Omit<GuardOptions, 'person' | 'ownSession' | 'check'> = {}) {
   return protectedProcedure.meta({ caller: 'operator' }).use(async ({ ctx, next }) => {
     refuseDelegatedCaller(ctx);
     try {

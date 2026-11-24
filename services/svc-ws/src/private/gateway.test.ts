@@ -1,6 +1,6 @@
 import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { ORDERS_ENGINE_UNAVAILABLE, PrivateOrderHub } from './hub.js';
@@ -40,6 +40,24 @@ const POSITION = {
   marginMode: 'cross' as const,
   fundingPaid: '0',
   ts: '2026-07-31T00:00:00.000Z',
+};
+
+/**
+ * The owner's own order, published last: the hub delivers to one socket in publish order, so once this arrives,
+ * anything published before it that was going to arrive has arrived.
+ */
+const LAST_OWN_ORDER = {
+  orderId: '99999999-9999-4999-8999-999999999999',
+  userId: USER,
+  marketId: 'btc-usdt',
+  status: 'open' as const,
+  side: 'buy' as const,
+  type: 'limit' as const,
+  qty: '2',
+  filledQty: '0',
+  price: '100',
+  clientOrderId: null,
+  ts: '2026-07-31T00:00:09.000Z',
 };
 
 const tokens: TokenConfig = {
@@ -211,9 +229,11 @@ describe('private WebSocket gateway', () => {
 
   it('rejects expired token with HTTP 401', async () => {
     await boot();
+    // Minted a minute ago with a one-second life: expired now, with no wait.
     const shortLived: TokenConfig = { ...tokens, accessTtlSeconds: 1 };
-    const token = await accessToken(['trade:read'], shortLived);
-    await new Promise((r) => setTimeout(r, 1_100));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() - 60_000);
+    const token = await accessToken(['trade:read'], shortLived).finally(() => vi.useRealTimers());
     expect(await upgradeStatus(`${PRIVATE_STREAM_PATH}?access_token=${token}`)).toBe(401);
   });
 
@@ -231,19 +251,11 @@ describe('private WebSocket gateway', () => {
     expect(client.parsed().some((f) => f.channel === 'positions' && f.type !== 'ready' && f.type !== 'snapshot')).toBe(true);
 
     const waitMs = Math.max(50, issued.expiresAt.getTime() - Date.now()) + 1_000;
-    if (!client.closed) {
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          client.socket.once('close', () => resolve());
-        }),
-        new Promise<void>((r) => setTimeout(r, waitMs)),
-      ]);
-    }
-
-    expect(client.closed).not.toBeNull();
+    await vi.waitFor(() => expect(client.closed).not.toBeNull(), { timeout: waitMs });
     expect(client.closed!.code).toBe(CLOSE_UNAUTHORIZED);
+    // The seat is gone from the hub, so a later position has nowhere to go.
+    await vi.waitFor(() => expect(hub.connections).toBe(0));
     hub.publishPosition({ ...POSITION, contracts: '9', ts: '2026-07-31T00:00:01.000Z' });
-    await new Promise((r) => setTimeout(r, 80));
     const live = client.parsed().filter((f) => f.channel === 'positions' && f.type !== 'ready' && f.type !== 'snapshot');
     expect(live).toHaveLength(1);
     expect(live[0]!.contracts).toBe('1');
@@ -428,11 +440,12 @@ describe('private WebSocket gateway', () => {
       fundingPaid: '0',
       ts: '2026-07-31T00:00:00.000Z',
     });
-    await client.frameCount(client.parsed().length + 1);
-    await new Promise((r) => setTimeout(r, 40));
+    hub.publish(LAST_OWN_ORDER);
+    await client.frameCount(client.parsed().length + 2);
     const data = client.parsed().filter((f) => f.type !== 'ready' && f.type !== 'snapshot');
-    expect(data).toHaveLength(1);
-    expect(data[0]!.channel).toBe('orders');
+    expect(data).toHaveLength(2);
+    expect(data.map((f) => f.channel)).toEqual(['orders', 'orders']);
+    expect(data[1]!.orderId).toBe(LAST_OWN_ORDER.orderId);
     client.socket.close();
   });
 
@@ -442,9 +455,6 @@ describe('private WebSocket gateway', () => {
     const client = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${token}&channel=fills`);
     await client.frameCount(1);
     expect(JSON.parse(client.frames[0]!)).toMatchObject({ channel: 'fills', type: 'ready', userId: USER });
-    await new Promise((r) => setTimeout(r, 40));
-    expect(client.parsed().every((f) => f.channel === 'fills')).toBe(true);
-    expect(client.parsed().some((f) => f.type === 'snapshot')).toBe(false);
 
     hub.publishFill({
       fillId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
@@ -464,6 +474,10 @@ describe('private WebSocket gateway', () => {
     });
     await client.frameCount(2);
     expect(JSON.parse(client.frames[1]!).channel).toBe('fills');
+    // Ready, then the fill, and nothing between: no position and no invented snapshot.
+    expect(client.frames).toHaveLength(2);
+    expect(client.parsed().every((f) => f.channel === 'fills')).toBe(true);
+    expect(client.parsed().some((f) => f.type === 'snapshot')).toBe(false);
     client.socket.close();
   });
 
@@ -523,8 +537,10 @@ describe('private WebSocket gateway', () => {
       clientOrderId: null,
       ts: '2026-07-31T00:00:02.000Z',
     });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(client.frames).toHaveLength(before);
+    hub.publish(LAST_OWN_ORDER);
+    await client.frameCount(before + 1);
+    expect(client.frames).toHaveLength(before + 1);
+    expect(client.parsed().at(-1)).toMatchObject({ orderId: LAST_OWN_ORDER.orderId, userId: USER });
     client.socket.close();
   });
 
@@ -556,7 +572,7 @@ describe('private WebSocket gateway', () => {
     const client = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${token}`);
     await client.untilSnapshot('orders');
     // Catalog hydrate (positions snapshot) can land after orders snapshot.
-    await new Promise((r) => setTimeout(r, 40));
+    await client.untilSnapshot('positions');
 
     hub.publish({
       orderId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
@@ -683,8 +699,10 @@ describe('private WebSocket gateway', () => {
       ts: '2026-07-31T00:00:00.000Z',
     });
 
-    await new Promise((r) => setTimeout(r, 50));
-    expect(client.frames).toHaveLength(before);
+    hub.publish(LAST_OWN_ORDER);
+    await client.frameCount(before + 1);
+    expect(client.frames).toHaveLength(before + 1);
+    expect(client.parsed().at(-1)).toMatchObject({ orderId: LAST_OWN_ORDER.orderId, userId: USER });
     client.socket.close();
   });
 
@@ -694,13 +712,17 @@ describe('private WebSocket gateway', () => {
     const client = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${token}`);
     await client.untilSnapshot('orders');
     // Catalog frames (fills/positions ready + snapshots) can land after the
-    // orders snapshot. Drain them so a late hydrate is not counted as an ack.
-    await new Promise((r) => setTimeout(r, 40));
+    // orders snapshot. Wait for the last of them so a late hydrate is not counted as an ack.
+    await client.untilSnapshot('positions');
     const inboundBefore = client.frames.length;
     client.socket.send(JSON.stringify({ op: 'subscribe', channel: 'orders' }));
     client.socket.send('not-json');
-    await new Promise((r) => setTimeout(r, 40));
-    expect(client.frames).toHaveLength(inboundBefore);
+    // The seat handles inbound frames one at a time, in order: once this well-formed subscribe is answered, the two
+    // frames before it have been handled, and neither may have been answered.
+    client.socket.send(JSON.stringify({ op: 'subscribe', id: 'last', channels: [{ ch: 'orders' }] }));
+    await client.frameCount(inboundBefore + 1);
+    expect(client.frames).toHaveLength(inboundBefore + 1);
+    expect(client.parsed().at(-1)).toMatchObject({ op: 'ack', for: 'subscribe', id: 'last' });
     expect(client.closed).toBeNull();
     client.socket.close();
   });
@@ -762,48 +784,17 @@ describe('private WebSocket gateway', () => {
     dead.on('error', () => undefined);
 
     let frames = 0;
-    const gotReady = new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('ready frames never arrived')), 3_000);
-      dead.on('message', () => {
-        frames++;
-        if (frames >= 3) {
-          clearTimeout(t);
-          resolve();
-        }
-      });
-    });
-    const closed = new Promise<void>((resolve) => {
-      dead.once('close', () => resolve());
+    dead.on('message', () => {
+      frames++;
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('private socket never opened')), 3_000);
-      if (dead.readyState === WebSocket.OPEN) {
-        clearTimeout(t);
-        resolve();
-        return;
-      }
-      dead.once('open', () => {
-        clearTimeout(t);
-        resolve();
-      });
-      dead.once('error', (err) => {
-        clearTimeout(t);
-        reject(err);
-      });
-    });
-    await gotReady;
+    await vi.waitFor(() => expect(frames, 'ready frames never arrived').toBeGreaterThanOrEqual(3), { timeout: 3_000 });
     expect(hub.connections).toBe(1);
 
     // Two heartbeat windows: first marks not-alive + ping; second terminates.
     // Give headroom for slow CI schedulers.
-    await Promise.race([closed, new Promise<void>((r) => setTimeout(r, 2_000))]);
-    expect(dead.readyState).toBe(WebSocket.CLOSED);
-    const deadline = Date.now() + 2_000;
-    while (hub.connections !== 0 && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    expect(hub.connections).toBe(0);
+    await vi.waitFor(() => expect(dead.readyState).toBe(WebSocket.CLOSED), { timeout: 2_000 });
+    await vi.waitFor(() => expect(hub.connections).toBe(0), { timeout: 2_000 });
   }, 15_000);
 
   it('refuses a user past per-user cap while another user still connects', async () => {
@@ -820,12 +811,7 @@ describe('private WebSocket gateway', () => {
     const a3 = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${tokenA}`);
     await a3.openOrClose();
     // Hub closes then gateway terminates — code may be 1013 or abnormal 1006.
-    if (!a3.closed) {
-      await new Promise<void>((resolve) => {
-        a3.socket.once('close', () => resolve());
-        setTimeout(resolve, 1_000);
-      });
-    }
+    await vi.waitFor(() => expect(a3.closed).not.toBeNull(), { timeout: 1_000 });
     expect(
       a3.frames.filter((f) => {
         try {

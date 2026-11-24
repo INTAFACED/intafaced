@@ -27,7 +27,7 @@ interface Props {
 function Stat({ label, value, loading }: { label: string; value: string; loading: boolean }) {
   return (
     <div className="dk-stat">
-      <span className="dk-stat-label">{label}</span>
+      <span className="lt-hint">{label}</span>
       {loading ? <Skeleton width={64} height={16} className="bg-field" /> : <span className="dk-stat-value if-num">{value}</span>}
     </div>
   );
@@ -47,7 +47,7 @@ function MaintenanceStat({ window, zone }: { window: NonNullable<DeskMarket['mai
         : t('Maintenance in minutes', { n: when.n });
   return (
     <div className="dk-stat" data-testid="dk-maintenance">
-      <span className="dk-stat-label">{text}</span>
+      <span className="lt-hint">{text}</span>
       <span className="dk-stat-value">
         {window.endsAt === null ? t('Maintenance end not set') : t('Maintenance until', { time: clockMinutes(window.endsAt, zone) })}
       </span>
@@ -134,8 +134,19 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
         {market.openingWindowEndsAt != null && market.openingWindowEndsAt > Date.now() ? (
           // A new listing's opening window (J-cex-spot-14 #7): limit orders only until it ends.
           <div className="dk-stat" data-testid="dk-opening-window">
-            <span className="dk-stat-label">{t('Opening window')}</span>
+            <span className="lt-hint">{t('Opening window')}</span>
             <span className="dk-stat-value">{t('Opening window until', { time: dayTime(market.openingWindowEndsAt, zone) })}</span>
+          </div>
+        ) : null}
+        {market.zone === 'higher_risk' ? (
+          // The higher-risk zone (J-cex-spot-14 #7): flagged, capped and disclosed. Limit orders only, under the owner cap.
+          <div className="dk-stat" data-testid="dk-zone">
+            <span className="lt-hint">{t('Higher-risk zone')}</span>
+            <span className="dk-stat-value">
+              {market.zoneOrderCap != null
+                ? t('Zone cap', { cap: fmtAmount(market.zoneOrderCap, { places: 8 }), asset: market.quote })
+                : t('Zone cap not set')}
+            </span>
           </div>
         ) : null}
         <Stat

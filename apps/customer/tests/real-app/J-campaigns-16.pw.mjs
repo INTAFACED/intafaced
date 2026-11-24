@@ -37,10 +37,11 @@ const campaigns = (page) => tableIn(page, 'Campaigns');
 const signedIn = new WeakSet();
 
 async function openDesk(page, founder = 'a') {
-  if (!signedIn.has(page)) await founderSignIn(page, founder);
+  const who = signedIn.has(page) ? null : await founderSignIn(page, founder);
   signedIn.add(page);
   await page.goto(`${ADMIN}/more-ops/campaigns`);
   await expect(page.getByRole('heading', { name: 'Campaigns', level: 1, exact: true })).toBeVisible(UNBUILT);
+  return who;
 }
 
 /** svc-campaigns' own database role on the stack (loopback, the marker's postgres port, the stack's secret), to read what is stored. */
@@ -56,9 +57,10 @@ async function campaignsDb() {
 }
 
 async function openDraft(page) {
-  await openDesk(page);
+  const who = await openDesk(page);
   await campaigns(page).getByRole('link', { name: draftName(), exact: true }).click(UNBUILT);
   await expect(builder(page)).toBeVisible();
+  return who;
 }
 
 test(`${J} #1 opens the campaigns desk with none: the overview with honest empty states and no sample number`, async ({ page }) => {
@@ -113,9 +115,24 @@ test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the s
   await openDesk(page);
   await page.getByRole('button', { name: 'New campaign', exact: true }).click();
   await builder(page).getByRole('textbox', { name: 'Name', exact: true }).fill(`${NAME} second`);
+  await builder(page).getByRole('radio', { name: 'Task', exact: true }).check();
   await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(builder(page).getByRole('tab', { selected: true })).toHaveText(step ?? '');
   await openDesk(page);
+  // Both drafts are listed side by side: the second was saved, and the first is still there beside it.
   await expect(campaigns(page).getByRole('link', { name: NAME, exact: true })).toBeVisible();
+  await expect(campaigns(page).getByRole('link', { name: `${NAME} second`, exact: true })).toBeVisible();
+  // Each is its own draft on the desk's list of what svc-campaigns holds.
+  for (const name of [NAME, `${NAME} second`]) {
+    const row = campaigns(page)
+      .getByRole('row')
+      .filter({ has: page.getByRole('link', { name, exact: true }) });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('cell').nth(2)).toHaveText('Draft');
+  }
+  // Opening the first again still resumes it at the step it was left on.
+  await openDraft(page);
+  await expect(builder(page).getByRole('tab', { selected: true })).toHaveText(step ?? '');
 });
 
 test(`${J} #3 validates a draft with blanks: the list names each blank (budget, rules, time frame, time zone, reward)`, async ({
@@ -129,6 +146,7 @@ test(`${J} #3 validates a draft with blanks: the list names each blank (budget, 
 
 test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture account, saves it to the library: each failing leaf shown, nothing stored by the test; too deep refuses`, async ({
   page,
+  stepPicture,
 }, testInfo) => {
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Rules', exact: true }).click();
@@ -199,12 +217,40 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   await expect(builder(page).getByRole('status')).toContainText(`Saved to the rule library as ${ruleName}, revision`);
   await page.getByRole('button', { name: 'Open the rule library', exact: true }).click();
   await expect(library).toContainText(`${ruleName}, revision`);
+  // The save is the library's one new row: the tree as built, an AND group holding the account-type condition and an OR
+  // group of the verification and region conditions. Nothing else changed.
+  const saved = await stored();
+  const added = saved.rules.filter((r) => !before.rules.includes(r)).map((r) => JSON.parse(r));
+  expect(added).toHaveLength(1);
+  expect(added[0].name).toBe(ruleName);
+  const tree = added[0].tree;
+  // Group 1 is the AND group holding the account-type condition and the OR group; the outer group wraps it.
+  const groups = (g) => [g, ...g.parts.filter((p) => p.kind === 'group').flatMap(groups)];
+  const and = groups(tree).find((g) => g.op === 'and' && g.parts.some((p) => p.kind === 'group' && p.op === 'or'));
+  expect(and, 'the saved tree holds an AND group').toBeTruthy();
+  expect(and.parts.map((p) => (p.kind === 'group' ? `group:${p.op}` : `condition:${p.field}`))).toEqual([
+    'condition:accountType',
+    'group:or',
+  ]);
+  expect(and.parts[1].parts.map((p) => `${p.kind}:${p.field}`)).toEqual(['condition:kycTier', 'condition:region']);
+  expect(saved.drafts).toEqual(before.drafts);
+  // The save's own audit line (campaign.rule.save) is the one other row it adds.
+  expect(saved.counts).toEqual({
+    ...before.counts,
+    rule_library: before.counts.rule_library + 1,
+    audit_log: before.counts.audit_log + 1,
+  });
 
   // Four more groups inside group 1.2 nest the rule seven deep, past the depth limit: the try refuses by its code.
   for (let i = 0; i < 4; i += 1) await rule.getByRole('button', { name: 'Add an AND group', exact: true }).click();
   await page.getByRole('button', { name: 'Test on a fixture account', exact: true }).click();
   await expect(builder(page).getByRole('alert')).toContainText('campaigns.rule_too_deep');
   await expect(page.getByTestId('rule-test-result')).toHaveCount(0);
+  // Saving the too-deep tree refuses the same way, and the library keeps only the revision saved above.
+  await page.getByRole('button', { name: 'Save to the library', exact: true }).click();
+  await expect(builder(page).getByRole('alert')).toContainText('campaigns.rule_too_deep');
+  expect(await stored()).toEqual(saved);
+  await stepPicture(page);
 });
 
 test(`${J} #5 defines participation exclusions and a region list: a blank region list refuses activation`, async ({ page }) => {
@@ -314,16 +360,22 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
 test(`${J} #8 the requester tries to approve and a second founder approves: the requester is refused, and the approval applies to that revision only`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
-  await openDraft(page);
+  const a = await openDraft(page);
   await page.getByRole('button', { name: /^approve and take live/i }).click(UNBUILT);
   await expect(builder(page).getByRole('alert')).toContainText('You asked for this, so another founder must approve it.');
   await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaigns.second_person_required');
   // The refused approval changed nothing: the campaign still waits for a second founder.
   await page.reload();
   await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
+  // svc-campaigns recorded no approval: founder A asked, nobody approved, and the budget asked for is the one held.
+  await expect(page.getByTestId('campaign-submitted-by')).toHaveText(a.userId);
+  await expect(page.getByTestId('campaign-approved-by')).toHaveText('Not approved');
+  const budget = page.getByTestId('campaign-summary').locator('dt:text-is("Budget") + dd');
+  await expect(budget).toHaveText(/ of 100(\.0+)? USDT$/);
   const second = await (await browser.newContext()).newPage();
-  await openDesk(second, 'b');
+  const b = await openDesk(second, 'b');
   await campaigns(second).getByRole('link', { name: draftName(), exact: true }).click();
   await second.getByRole('button', { name: /^approve and take live/i }).click();
   await expect(second.getByRole('status')).toContainText(/Approved revision \d+/);
@@ -337,6 +389,13 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
   await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByTestId('campaign-pending')).toContainText(`Revision ${approved + 1}, a draft`);
   await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${approved}`);
+  // Founder B approved revision N, asked by A; the edit is revision N+1, a draft no one has approved, and the live
+  // campaign keeps revision N with its approved budget of 100, not the edit's 90.
+  await expect(page.getByTestId('campaign-approved-by')).toHaveText(b.userId);
+  await expect(page.getByTestId('campaign-submitted-by')).toHaveText(a.userId);
+  await expect(page.getByTestId('campaign-pending')).toContainText(`Revision ${approved + 1}, a draft not yet sent for approval`);
+  await expect(budget).toHaveText(/ of 100(\.0+)? USDT$/);
+  await stepPicture(page);
 });
 
 test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep the old one; archiving an active campaign is refused`, async ({

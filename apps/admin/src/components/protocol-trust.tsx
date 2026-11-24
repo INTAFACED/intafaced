@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ADDRESS_LABEL_KINDS,
   HUMAN_TOKEN_TIERS,
+  type ProtocolBlocklistOutput,
   type ProtocolComplianceReport,
   type ProtocolNameTagRequest,
   type ProtocolOnboardingChecklist,
@@ -36,6 +37,7 @@ interface TrustRead {
   tiers: Part<ProtocolTokenTiersOutput>;
   onboarding: Part<{ asOf: string; chainId: number; checklists: ProtocolOnboardingChecklist[] }>;
   nameTags: Part<{ asOf: string; chainId: number; requests: ProtocolNameTagRequest[] }>;
+  blocklist: Part<ProtocolBlocklistOutput>;
 }
 
 const tabId = (tab: TrustTab) => `trust-tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`;
@@ -431,6 +433,131 @@ function TokenTiers({ tokens, read, reload }: { tokens: TrustRead['tokens']; rea
   );
 }
 
+/**
+ * The token blocklist (D-launch-listing-02, J-dex-protocol-30 #6): a blocked token is not routed (svc-protocol refuses every
+ * route, path and swap that names it) and its pages show the Blocked badge. Below it, the permissioned tokens: each
+ * approved onboarding checklist's token, which only addresses its checker allows may hold.
+ */
+function Blocklist({ tokens, read, reload }: { tokens: TrustRead['tokens']; read: TrustRead['blocklist']; reload: () => void }) {
+  const { busy, problem, send } = useSend(reload);
+  const [token, setToken] = useState('');
+  const [reason, setReason] = useState('');
+  if (!read.ok) return <Failed message={read.message} />;
+  const nameOf = new Map(
+    tokens.ok ? tokens.data.tokens.map((r) => [r.token.address.toLowerCase(), `${r.token.name} (${r.token.symbol})`] as const) : [],
+  );
+  return (
+    <div className="dk-stack">
+      <p className="dk-muted">
+        A blocked token is not routed: every route, path and swap that names it is refused, and its pages show the Blocked badge. Read{' '}
+        {formatAsOf(read.data.asOf)} on chain {read.data.chainId}.
+      </p>
+      <form
+        className="dk-stack"
+        aria-label="Add a token to the blocklist"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send({ op: 'blocklist-add', token: token.trim(), reason }).then((ok) => {
+            if (ok) {
+              setToken('');
+              setReason('');
+            }
+          });
+        }}
+      >
+        <div className="adm-field">
+          <label htmlFor="trust-block-token">Token address</label>
+          <input
+            id="trust-block-token"
+            className="adm-input"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
+        <div className="adm-field">
+          <label htmlFor="trust-block-reason">Reason (why it is blocked)</label>
+          <textarea
+            id="trust-block-reason"
+            className="adm-textarea"
+            rows={2}
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+        <button type="submit" className="adm-btn" disabled={busy || token.trim().length === 0 || reason.trim().length === 0}>
+          Add to the blocklist
+        </button>
+      </form>
+      <Problem problem={problem} />
+      {read.data.blocked.length === 0 ? (
+        <p role="status">No token is on the blocklist on this network.</p>
+      ) : (
+        <table className="adm-table" aria-label="Blocked tokens">
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Routing</th>
+              <th>Badge</th>
+              <th>Why</th>
+              <th>Added</th>
+            </tr>
+          </thead>
+          <tbody>
+            {read.data.blocked.map((b) => (
+              <tr key={b.token}>
+                <td>
+                  {nameOf.get(b.token.toLowerCase()) && <div>{nameOf.get(b.token.toLowerCase())}</div>}
+                  <code>{b.token}</code>
+                </td>
+                <td>Not routed</td>
+                <td>Blocked badge shown</td>
+                <td>{b.reason}</td>
+                <td>
+                  {formatAsOf(b.addedAt)} by <code>{b.addedBy}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <h3>Permissioned tokens</h3>
+      <p className="dk-muted">Each approved permissioned pool checklist gates its token: only addresses its checker allows may hold it.</p>
+      {read.data.permissioned.length === 0 ? (
+        <p role="status">No permissioned pool checklist is approved on this network, so no token is gated.</p>
+      ) : (
+        <table className="adm-table" aria-label="Permissioned tokens">
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Pool</th>
+              <th>Gating</th>
+              <th>Approved</th>
+            </tr>
+          </thead>
+          <tbody>
+            {read.data.permissioned.map((p) => (
+              <tr key={`${p.token}:${p.pool}`}>
+                <td>
+                  {nameOf.get(p.token.toLowerCase()) && <div>{nameOf.get(p.token.toLowerCase())}</div>}
+                  <code>{p.token}</code>
+                </td>
+                <td>{p.pool}</td>
+                <td>
+                  Gated by the checker <code>{p.checkerAddress}</code>
+                </td>
+                <td>{formatAsOf(p.approvedAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 const CHECKLIST_FIELDS = [
   ['pool', 'Pool name'],
   ['legalEntity', 'Legal entity'],
@@ -739,7 +866,7 @@ function AuditRoom({ read }: { read: TrustRead['audit'] }) {
 
 /**
  * The Protocol trust desk (J-dex-protocol-30): scam reports and their two-reviewer labels, the trust criteria, and the
- * audit and disclosure room, token tiers, name tags and permissioned pool onboarding, read from svc-protocol as the signed-in founder. The other tabs name what they wait for.
+ * audit and disclosure room, token tiers, the blocklist, name tags and permissioned pool onboarding, read from svc-protocol as the signed-in founder. The other tabs name what they wait for.
  */
 export function ProtocolTrust() {
   const [tab, setTab] = useState<TrustTab>('Scam reports');
@@ -796,6 +923,8 @@ export function ProtocolTrust() {
           <TokenTiers tokens={read.tokens} read={read.tiers} reload={() => void reload()} />
         ) : tab === 'Permissioned pools' ? (
           <PermissionedPools read={read.onboarding} reload={() => void reload()} />
+        ) : tab === 'Blocklist' ? (
+          <Blocklist tokens={read.tokens} read={read.blocklist} reload={() => void reload()} />
         ) : tab === 'Name tags' ? (
           <NameTags read={read.nameTags} reload={() => void reload()} />
         ) : tab === 'Trust criteria' ? (

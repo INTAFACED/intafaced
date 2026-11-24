@@ -54,6 +54,9 @@ export function BellPopover({ path }: { path?: string }) {
         side="bottom"
         align="end"
         sideOffset={8}
+        // The bell sits in the sticky top bar: fixed, the popover stays under it while the page scrolls, so a row never
+        // moves under a press.
+        positionMethod="fixed"
         data-testid="nf-pop"
         className="nf-pop w-[400px] max-w-[calc(100vw-16px)] p-0"
         initialFocus={inner}

@@ -1,66 +1,37 @@
-// hand-declared-ok: svc-token's emissionSchedule, treasury, buybackRuns and revenueShareHistory outputs are declared in its router; packages/contracts has no token schemas yet
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  TOKEN_BUYBACK_RUNS,
+  TOKEN_EMISSION_SCHEDULE,
+  TOKEN_REVENUE_SHARE_HISTORY,
+  TOKEN_TREASURY,
+} from '@intafaced/contracts/token-procedures';
 import type { ApiResult } from '../../shared/api';
 import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { decimalSchema, displayAmount } from '../../shared/money';
+import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
-import { Details, Read } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { Details } from './catalogue-parts';
+import { EmptyNote, FailureNote, KitRead as Read, ScrollTable, Section, Waiting } from './volt-parts';
 import { tokenEconomyCopy } from './token-economy-copy';
 
-const paramsReason = z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']);
-
 /** The token service's `emissionSchedule` read: the owner's parameters and the next epochs' rewards, or why they are blank. */
-export const emissionScheduleSchema = z
-  .object({
-    params: z
-      .object({
-        initialEpochReward: decimalSchema,
-        halvingIntervalEpochs: z.number().int().positive(),
-        maxSupply: decimalSchema,
-      })
-      .nullable(),
-    epochs: z.array(z.object({ epoch: z.number().int().nonnegative(), reward: decimalSchema })).nullable(),
-    missing: z.string().nullable(),
-    reason: paramsReason.nullable(),
-  })
-  .refine((r) => (r.params === null) === (r.reason !== null), 'emission schedule is neither set nor refused');
-
+export type EmissionScheduleRead = ProcedureOutput<typeof TOKEN_EMISSION_SCHEDULE>;
 /**
  * The treasury read's supply figures: `minted` is the lifetime sum of closed epoch mints (null when none closed) and
  * `burned` the burn account's balance.
  */
-export const mintedSchema = z.object({ minted: decimalSchema.nullable(), burned: decimalSchema });
-
+export type MintedRead = Pick<ProcedureOutput<typeof TOKEN_TREASURY>, 'minted' | 'burned'>;
 /** The token service's `revenueShareHistory` read: this account's real-yield payouts, one row per weekly window, each read from its ledger posting. */
-export const yieldHistorySchema = z.object({
-  items: z.array(
-    z.object({
-      windowId: z.string().min(1),
-      amount: decimalSchema.nullable(),
-      assetId: z.string().nullable(),
-      ledgerTxId: z.string().nullable(),
-      reason: z.literal('ledger_tx_unread').nullable(),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-});
-
+export type YieldHistoryRead = ProcedureOutput<typeof TOKEN_REVENUE_SHARE_HISTORY>;
 /**
  * The buyback rate of the token service's `buybackRuns` read. Its runs are not drawn here, so their arithmetic, which
  * the Burn tab checks, does not decide whether the rate can be shown.
  */
-export const buybackRateSchema = z.object({
-  rate: z.object({ buybackBps: z.number().int().min(0).max(10_000), burnSplitBps: z.number().int().min(0).max(10_000) }).nullable(),
-  reason: paramsReason.nullable(),
-});
-
-export type BuybackRateRead = z.infer<typeof buybackRateSchema>;
-export type EmissionScheduleRead = z.infer<typeof emissionScheduleSchema>;
-export type MintedRead = z.infer<typeof mintedSchema>;
-export type YieldHistoryRead = z.infer<typeof yieldHistorySchema>;
+export type BuybackRateRead = Pick<ProcedureOutput<typeof TOKEN_BUYBACK_RUNS>, 'rate' | 'reason'>;
+/** Every window this room lists names its window. */
+const windowsNamed = (read: YieldHistoryRead) => read.items.every((item) => item.windowId.length > 0);
 type Loaded<T> = { resource: Resource<T>; reload: () => void };
 
 const EPOCHS = 12;
@@ -76,14 +47,11 @@ export function TokenEconomyPanels() {
   const api = useApi();
   const { userId } = useSession();
   const schedule = useResource(
-    (signal) => api.query('token', 'emissionSchedule', { count: EPOCHS }, emissionScheduleSchema, { signal }),
+    (signal) => api.call(TOKEN_EMISSION_SCHEDULE, { count: EPOCHS }, { signal }),
     `token-emission-schedule:${userId}`,
   );
-  const minted = useResource((signal) => api.query('token', 'treasury', undefined, mintedSchema, { signal }), `token-minted:${userId}`);
-  const buyback = useResource(
-    (signal) => api.query('token', 'buybackRuns', { limit: 1 }, buybackRateSchema, { signal }),
-    `token-buyback-rate:${userId}`,
-  );
+  const minted = useResource((signal) => api.call(TOKEN_TREASURY, undefined, { signal }), `token-minted:${userId}`);
+  const buyback = useResource((signal) => api.call(TOKEN_BUYBACK_RUNS, { limit: 1 }, { signal }), `token-buyback-rate:${userId}`);
   return (
     <>
       <EmissionScheduleView schedule={schedule} minted={minted} />
@@ -115,8 +83,8 @@ export function SupplyView({
   /** A blank owner value is not reported; one the service cannot read says so. */
   const absent = (reason: string | null) => (reason === 'token.params_invalid' ? t('unreadable') : t('notReported'));
   return (
-    <Panel title={t('supplyTitle')} aria-label={t('supplyTitle')}>
-      <p className="muted">
+    <Section title={t('supplyTitle')} aria-label={t('supplyTitle')}>
+      <p className="lt-hint">
         <Copy k="supplyBody" />
       </p>
       <div data-testid="supply-figures">
@@ -135,8 +103,8 @@ export function SupplyView({
         <Copy k="distributionUnset" />
       </p>
       {/* A failed schedule or treasury read already shows its refusal and retry in the emission panel above. */}
-      {buyback.resource.status === 'failed' && <Failure result={buyback.resource.failure} retry={buyback.reload} />}
-    </Panel>
+      {buyback.resource.status === 'failed' && <FailureNote result={buyback.resource.failure} retry={buyback.reload} />}
+    </Section>
   );
 }
 
@@ -146,8 +114,8 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
   const { Copy, t } = tokenEconomyCopy.useCopy();
   const shown = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   return (
-    <Panel title={t('emissionTitle')} aria-label={t('emissionTitle')}>
-      <p className="muted">
+    <Section title={t('emissionTitle')} aria-label={t('emissionTitle')}>
+      <p className="lt-hint">
         <Copy k="emissionBody" />
       </p>
       <Read resource={schedule.resource} retry={schedule.reload}>
@@ -170,20 +138,20 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
                   {data.reason === 'token.params_invalid' ? t('scheduleUnreadable') : t('scheduleUnset')}
                 </p>
               )}
-              <DataTable headers={[t('epoch'), t('reward'), t('change')]} label={t('epochsTitle')}>
+              <ScrollTable headers={[t('epoch'), t('reward'), t('change')]} label={t('epochsTitle')}>
                 {epochs.map((row) => {
                   // Epochs count from 0, so a halving takes effect at each multiple of the interval (economics/emission.ts).
                   const halving = data.params !== null && row.epoch > 0 && row.epoch % data.params.halvingIntervalEpochs === 0;
                   return (
                     <tr key={row.epoch}>
                       <td>{row.epoch}</td>
-                      <td className="numeric">{shown(row.reward)}</td>
+                      <td data-align="end">{shown(row.reward)}</td>
                       <td>{halving ? t('halvedHere') : ''}</td>
                     </tr>
                   );
                 })}
-              </DataTable>
-              {epochs.length === 0 && <EmptyState title={t('noEpochs')} />}
+              </ScrollTable>
+              {epochs.length === 0 && <EmptyNote title={t('noEpochs')} />}
             </>
           );
         }}
@@ -196,7 +164,7 @@ export function EmissionScheduleView({ schedule, minted }: { schedule: Loaded<Em
       <p data-testid="emission-minter">
         <Copy k="minterRule" />
       </p>
-    </Panel>
+    </Section>
   );
 }
 
@@ -205,7 +173,7 @@ export function YieldHistory() {
   const api = useApi();
   const { userId } = useSession();
   const first = useResource(
-    (signal) => api.query('token', 'revenueShareHistory', { limit: YIELD_PAGE }, yieldHistorySchema, { signal }),
+    (signal) => api.call(TOKEN_REVENUE_SHARE_HISTORY, { limit: YIELD_PAGE }, { signal, accept: windowsNamed }),
     `token-yield-history:${userId}`,
   );
   const [later, setLater] = useState<YieldHistoryRead | null>(null);
@@ -218,7 +186,7 @@ export function YieldHistory() {
   async function more(cursor: string) {
     setBusy(true);
     setFailure(null);
-    const res = await api.query('token', 'revenueShareHistory', { limit: YIELD_PAGE, cursor }, yieldHistorySchema);
+    const res = await api.call(TOKEN_REVENUE_SHARE_HISTORY, { limit: YIELD_PAGE, cursor }, { accept: windowsNamed });
     setBusy(false);
     if (res.ok) setLater((prev) => ({ items: [...(prev?.items ?? []), ...res.data.items], nextCursor: res.data.nextCursor }));
     else setFailure(res);
@@ -250,36 +218,36 @@ export function YieldHistoryView({
   const { hideBalances } = usePreferences();
   const { Copy, t } = tokenEconomyCopy.useCopy();
   return (
-    <Panel title={t('yieldTitle')} aria-label={t('yieldTitle')}>
-      <p className="muted">
+    <Section title={t('yieldTitle')} aria-label={t('yieldTitle')}>
+      <p className="lt-hint">
         <Copy k="yieldBody" />
       </p>
       <Read resource={read.resource} retry={read.reload}>
         {(data) => (
           <>
-            <DataTable headers={[t('window'), t('paid'), t('asset'), t('posting')]} label={t('yieldTable')}>
+            <ScrollTable headers={[t('window'), t('paid'), t('asset'), t('posting')]} label={t('yieldTable')}>
               {data.items.map((row) => (
                 <tr key={row.windowId}>
                   <td>{row.windowId}</td>
-                  <td className="numeric">
+                  <td data-align="end">
                     {row.amount === null ? t('amountUnread') : hideBalances ? t('hidden') : displayAmount(row.amount)}
                   </td>
                   <td>{row.assetId ?? t('postingUnread')}</td>
                   <td>{row.ledgerTxId ?? t('postingUnread')}</td>
                 </tr>
               ))}
-            </DataTable>
-            {data.items.length === 0 && <EmptyState title={t('noYield')} />}
-            {more?.busy && <Loading />}
-            {more?.failure && <Failure result={more.failure} retry={() => data.nextCursor && more.more(data.nextCursor)} />}
+            </ScrollTable>
+            {data.items.length === 0 && <EmptyNote title={t('noYield')} />}
+            {more?.busy && <Waiting />}
+            {more?.failure && <FailureNote result={more.failure} retry={() => data.nextCursor && more.more(data.nextCursor)} />}
             {data.nextCursor && more && !more.busy && (
-              <Button variant="secondary" onClick={() => data.nextCursor && more.more(data.nextCursor)}>
+              <Button tone="secondary" onClick={() => data.nextCursor && more.more(data.nextCursor)}>
                 {t('olderWindows')}
               </Button>
             )}
           </>
         )}
       </Read>
-    </Panel>
+    </Section>
   );
 }

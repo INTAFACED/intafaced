@@ -16,11 +16,11 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 // model: the venue holds the trading money, the stack's TEST partner bank holds the spending money
 // (`testPartner.set({ custody: 'off' })`), the app shows each as its source reports it, and the ledger posts nothing.
 //
-// TEST setup in the journey's start (the "starts:" test; #1's own test comes with the card that draws on the partner
-// account): one verified TEST person with a TEST browser wallet holding TEST ETH for gas on
-// the stack's TEST chain and an empty account on the TEST venue, TEST 1000 USDC in their TEST partner account and a TEST
-// card in USDC. Every figure is read from its own source and compared: the venue's record (`/balances`, `/fills`), the
-// partner's own book on loopback (`/test-partner`), the card partner's figure and the TEST chain. #4 rests the TEST
+// TEST setup in the journey's start (the "starts:" test): one verified TEST person with a TEST browser wallet holding
+// TEST ETH for gas on the stack's TEST chain and an empty account on the TEST venue, TEST 1000 USDC in their TEST partner
+// account and a TEST card in USDC. Every figure is read from its own source and compared: the venue's record
+// (`/balances`, `/fills`), the partner's own book on loopback (`/test-partner`), which the TEST card spends from, and the
+// TEST chain. #4 rests the TEST
 // BTC-USDC ladder at a TEST price the trading account can pay for, and puts it back after the step.
 const J = 'J-derivatives-25';
 const PARTNER_USDC = '1000';
@@ -131,14 +131,66 @@ test(`${J} starts: a verified TEST person with a TEST wallet holding TEST ETH fo
   run.write({ cardId: card.id, panTail: card.panTail, ledger: await ledgerOf(), userId: (await door()).userId });
 });
 
+test(`${J} #1 opens /trade/account: two named groups, each with an as-of time: trading (the venue account, free and locked, from the venue; empty) and spending (the partner account and card, from the partner; 1000.00 USDC); the line "Liquidation only ever uses your trading account. Your spending balances are never used."`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, userId, ledger, panTail } = state();
+  await openAccount(page);
+  const venueName = (await venueInfo()).displayName;
+
+  // Trading: the venue account as the venue's own record holds it: empty, every asset it lists at 0 (the TEST venue lists
+  // USDC at 0.00), each row free, locked and total equal to the record, with the venue named and an as-of time.
+  const venueRows = (await venueRecord(owner, '/balances')).value;
+  expect(venueRows.filter((b) => toUnits(b.total) !== 0n)).toEqual([]);
+  const venueBlock = trading(page).getByTestId('trading-venue');
+  await expect(trading(page).getByRole('heading', { name: /^Trading\b/, level: 2 })).toBeVisible({ timeout: 20_000 });
+  await expect(venueBlock.locator('tr[data-asset]')).toHaveCount(venueRows.length, { timeout: 20_000 });
+  await tradingEqualsVenue(page, owner);
+  await expect(venueBlock.getByTestId('trading-source')).toContainText(`From ${venueName} · As of `);
+  await expect(venueBlock.getByTestId('trading-source').locator('[data-as-of]')).not.toHaveAttribute('data-as-of', '');
+
+  // Spending: the partner account and the card, each as the partner reports it: TEST 1000.00 USDC, with an as-of time.
+  const partnerFigure = await partnerMain(userId);
+  expect(sameDecimal(partnerFigure, PARTNER_USDC)).toBe(true);
+  await expect(spending(page).getByRole('heading', { name: 'Spending', level: 2, exact: true })).toBeVisible();
+  await expect(spending(page).getByTestId('spending-source')).toContainText(`From ${PARTNER_BANK} · As of `);
+  await expect(spending(page).getByTestId('spending-source').locator('[data-as-of]')).not.toHaveAttribute('data-as-of', '');
+  await expect(mainRow(page).locator('td').first()).toHaveText('USDC account');
+  await expect
+    .poll(async () => sameDecimal(await cellAmount(mainRow(page).locator('[data-cell="balance"]')), partnerFigure), { timeout: 20_000 })
+    .toBe(true);
+  // The card's available figure: the TEST partner card spends from the person's partner account (svc-bank
+  // cards/partner-card-holds.ts, `drawn`), so its source is the partner's own book, read above.
+  const cardFigure = partnerFigure;
+  const cardLine = spending(page).getByTestId('spending-card');
+  await expect(cardLine).toHaveCount(1);
+  await expect(cardLine).toContainText(`Card ending ${panTail}: `);
+  await expect(cardLine).toContainText(` USDC available, from ${PARTNER_BANK}`);
+  const shown = (await cardLine.innerText()).match(/: ([\d,.]+) USDC available/)?.[1]?.replace(/,/g, '');
+  expect(shown, await cardLine.innerText()).toBe('1000.00');
+  expect(sameDecimal(shown, cardFigure)).toBe(true);
+
+  // The line on liquidation, and the ledger posts nothing.
+  await expect(page.getByTestId('liquidation-line')).toHaveText(
+    'Liquidation only ever uses your trading account. Your spending balances are never used.',
+  );
+  await stepPicture();
+  expect(await ledgerOf()).toEqual(ledger);
+});
+
 test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the partner's transfer to the wallet, then the wallet's deposit, each with its fee or "not known"; the same move again sends nothing; the ledger posts nothing`, async ({
   page,
 }) => {
   test.setTimeout(420_000);
   const { owner, userId, ledger } = state();
   await signInNow(page, state().who);
-  const { secret, step } = await addAuthenticator(page, totp);
-  run.write({ secret, step });
+  // A retry of this step finds the authenticator its first try added (signInNow then took a code from it): set up once.
+  if (!state().secret) {
+    const { secret, step } = await addAuthenticator(page, totp);
+    run.write({ secret, step });
+  }
   resetSession();
   const wallet = await openAccount(page, { signedIn: true });
   const route = (await testVenue('/venue')).body.deposit;

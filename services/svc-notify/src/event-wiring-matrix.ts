@@ -162,6 +162,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row trade.copy.skipped for the follower, the reason in words, once per follow and leader fill',
   },
   {
+    event: 'recurringBuySuspended',
+    durable: 'notify-recurring-buy-suspended',
+    subject: 'intafaced.trade.recurring_buy.paused',
+    effect: 'Inbox row trade.recurring_buy.suspended for the person, once per recurring buy and slot',
+  },
+  {
     event: 'copyStopped',
     durable: 'notify-copy-stopped',
     subject: 'intafaced.trade.copy.stopped',
@@ -244,6 +250,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     durable: 'notify-venue-delisting',
     subject: 'intafaced.trade.venue_delisting.created',
     effect: 'One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key',
+  },
+  {
+    event: 'venueRiskAlerted',
+    durable: 'notify-venue-risk-alert',
+    subject: 'intafaced.trade.venue_risk_alert.crossed',
+    effect:
+      'One inbox row for the person per margin alert, margin call or liquidation alert on a venue position, once per alert key, sent out of app',
   },
   {
     event: 'coreOpsReconciliationAlertOpened',

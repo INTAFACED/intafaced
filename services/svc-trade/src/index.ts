@@ -3,14 +3,12 @@ import { createRiskStopService } from './futures/risk-stop.js';
 import { registerRiskStopRest } from './futures/risk-stop-rest.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import {
-  createEdgeContext,
-  createIdentityApprovalClient,
-  createIdentityOperationDecisionClient,
-  createStepUpCheck,
-  retainRawBody,
-  s2sFromEnv,
-} from '@intafaced/contracts';
+import { createIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { createIdentityOperationDecisionClient } from '@intafaced/contracts/operation-identity-client';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { createStepUpCheck } from '@intafaced/contracts/step-up-check';
 import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
@@ -37,6 +35,7 @@ import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { VenueStatements } from './venue/venue-statements.js';
+import { VenueMarginSamples } from './venue/venue-margin-samples.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { registerTrackRecord } from './signals/track-record.js';
@@ -121,7 +120,7 @@ import { endExpiredPasses } from './spot/tier-passes.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
-import { UserVenueDoorError } from './venue/user-venue-door.js';
+import { UserVenueDoorError, parseBuilderFee } from './venue/user-venue-door.js';
 import { wireUserVenue } from './venue/wire.js';
 import { wireVenueAgents } from './venue/agents-wire.js';
 import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
@@ -130,10 +129,19 @@ import { createIdentityFreezeRead, createQuantStrategySource } from './quant/liv
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
+import { VenueAutoTopUp } from './venue/auto-top-up.js';
+import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
+import { VenueBalanceWatch } from './venue/balance-watch.js';
+import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
+import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
+import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
-import { wireBuilderFees } from './builder-fee/wire.js';
+import { claimReader, wireBuilderFees } from './builder-fee/wire.js';
+import { runVenueFeeShares } from './copy/venue-fee-share.js';
+import { SqlVenueFeeShareStore } from './copy/venue-fee-share-store.js';
+import { sqlCopyShares } from './copy/my-copy-fees.js';
 import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
 import {
   parseDataTerms,
@@ -232,6 +240,9 @@ import { loadGridPolicy } from './grid/policy.js';
 import { SqlGridStore } from './grid/store.js';
 import { VenueGrid } from './grid/venue-grid.js';
 import { SqlVenueGridStore } from './grid/venue-grid-store.js';
+import { RecurringBuys } from './recurring/recurring-buys.js';
+import { busRecurringNotices } from './recurring/notices.js';
+import { SqlRecurringStore, ageRecurringBuy } from './recurring/store.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
@@ -491,7 +502,7 @@ const stepUp = createStepUpCheck({
 });
 // The user-venue door, its router, our listings of its markets and the deposits read (src/venue/wire.ts).
 const userVenueWiring = wireUserVenue({ app, sql, bus, stepUp, perks, outS2s, doorS2s });
-const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes } =
+const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, venueConverts } =
   userVenueWiring;
 // The agents beside the door, each off with it (src/venue/agents-wire.ts).
 const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading, ownAgentRebalance } =
@@ -528,6 +539,37 @@ const venueSpotConditionals = userVenue
       now: () => new Date(),
     })
   : null;
+// Auto top-up of an isolated position's margin on the person's own venue account (J-derivatives-06 #4): one agent-signed
+// margin change per crossing of the person's level, within the position's cap and the permission's own cap, ticked with
+// the protections. Off with the door.
+const venueAutoTopUp = userVenue
+  ? new VenueAutoTopUp({
+      door: userVenue,
+      store: new SqlAutoTopUpStore(sql),
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      now: () => new Date(),
+    })
+  : null;
+// The private balances stream's source (J-cex-spot-15 #9): one event per change in the balance of each venue account a
+// person's own wallet signed for, with its source and the venue's new total, on the protections' interval, apart from them
+// so a slow venue read never holds a protection back. Reads only; the ledger posts nothing. Off with the door.
+const venueBalanceWatch = userVenue
+  ? new VenueBalanceWatch({
+      venue: () => userVenue.venue(),
+      accounts: (venueId) => userVenueStore.ownerSignedAccountsAll(venueId),
+      store: new SqlBalanceWatchStore(sql),
+      publish: async (userId, change) => {
+        await bus.publish('venueBalanceChanged', { ...change, userId }, { idempotencyKey: `${change.changeId}:${userId}` });
+      },
+      now: () => new Date(),
+    })
+  : null;
+// Margin and liquidation-risk alerts on a position on the person's own venue account (J-derivatives-06 #6 #7): one alert
+// per crossing of a level, published to svc-notify after its row is written, ticked with the protections. Off with the door.
+const venueRiskAlerts = userVenue
+  ? new VenueRiskAlerts({ door: userVenue, store: new SqlRiskAlertStore(sql), notices: busRiskAlertNotices(bus), now: () => new Date() })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -536,9 +578,24 @@ if (venueProtections && protectionEngineMs > 0) {
   setInterval(() => {
     if (busy) return;
     busy = true;
-    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick()])
+    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick(), venueAutoTopUp?.tick(), venueRiskAlerts?.tick()])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
+      )
+      .finally(() => {
+        busy = false;
+      });
+  }, protectionEngineMs).unref();
+}
+if (venueBalanceWatch && protectionEngineMs > 0) {
+  let busy = false;
+  setInterval(() => {
+    if (busy) return;
+    busy = true;
+    venueBalanceWatch
+      .tick()
+      .catch((err: unknown) =>
+        process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_balance_watch.tick_failed', message: String(err) })}\n`),
       )
       .finally(() => {
         busy = false;
@@ -631,6 +688,18 @@ const engineFlatten = createFollowerFlattenPort({
 const engineCopiedPositions = sqlCopiedPositions(sql);
 const copy = new CopyService(ledger, {
   ...(venueCopy ? { venueFollows: venueCopy } : {}),
+  // A follower's copied venue fills and what each cost (J-copy-bots-otc-06 #1): read from the venue and our own rows.
+  ...(venueCopy
+    ? {
+        myCopyFees: {
+          copiedFills: (followerId: string) => venueCopy.copiedFills(followerId),
+          venueLabel: () => venueCopy.venueLabel(),
+          shares: sqlCopyShares(sql),
+          leadName: (leaderId: string) => leaderDirectory.listingName(leaderId),
+          now: () => new Date(),
+        },
+      }
+    : {}),
   copiedPositions: async (input) => {
     const v = await onVenue(input.followId);
     return (v ? await v.positions(input) : null) ?? engineCopiedPositions(input);
@@ -784,6 +853,21 @@ const venueGrid = userVenue
       now: () => new Date(),
     })
   : null;
+// The recurring buy of a basket on the person's own venue account (J-copy-bots-otc-16): with the door on, each slot buys
+// each coin as a venue order signed by the recurring-buy agent key the person's wallet approves; its rows are svc-trade's own.
+const recurringBuys = userVenue
+  ? new RecurringBuys({
+      door: userVenue,
+      store: new SqlRecurringStore(sql),
+      verification: () => botVerification,
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      liveTier: (userId) => venueGridTier.tierOf(userId),
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      notices: busRecurringNotices(bus, (message, fields) => app.log.warn(fields, message)),
+      platformPauses: readPlatformPauses,
+      now: () => new Date(),
+    })
+  : null;
 // Chart alert webhooks (CB-bots-api-signal-01): an alert's order is prepared through the user-venue door as the webhook's
 // creator, under the alert's own business key, for the person's wallet to sign and send; the door holds no key that signs.
 const signalLiveTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -834,6 +918,8 @@ const leadDesk = new LeadDesk({
   },
   ownerDay: copyOwnerDay,
 });
+/** The venue's margin readings our door keeps, for a founder's ratio history (J-derivatives-26 #8). */
+const venueMarginSamples = new VenueMarginSamples(sql, (err) => app.log.warn({ err }, 'venue margin sample not kept'));
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -891,6 +977,17 @@ export const appRouter = createTradeRouter(
   agentDesk,
   quantHalts,
   venueGrid,
+  recurringBuys,
+  venueAutoTopUp,
+  // A founder's read of one person's venue accounts and ratio history (J-derivatives-26 #8); off: the door is off.
+  {
+    audit: (row, at) => writeOperatorAudit(sql, row, at),
+    venue: userVenue ? () => userVenue.venue() : null,
+    store: new SqlPreparedActionStore(sql),
+    samples: venueMarginSamples,
+    now: () => new Date(),
+  },
+  venueRiskAlerts,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1047,6 +1144,26 @@ subscriptions.push(await subscribeSelfFreeze(bus, { liveRuns, agentOrders, ownAg
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 builderFeeWiring.scheduleJobs(futuresJobs.host);
+// The lead's share of our builder fee on each copied venue fill (J-copy-bots-otc-06 #1 #3; copy/venue-fee-share.ts): recorded
+// once the fill's Earn is booked, set aside from each collected claim, then owed to the lead, with the collect job's cadence.
+// Blank share rate: it waits and records nothing.
+if (venueCopy && userVenue && env.TRADE_BUILDER_FEE_COLLECT === 'on') {
+  const venueFeeShareStore = new SqlVenueFeeShareStore(sql);
+  const feeShareBuilder = parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS)?.address ?? '';
+  futuresJobs.host.every('copy.venue_fee_shares', env.TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS, async () => {
+    const run = await runVenueFeeShares({
+      law: copyFeeShareLaw,
+      ledger,
+      store: venueFeeShareStore,
+      copyFills: () => venueCopy.copiedFills(),
+      claims: claimReader(await userVenue.venue()),
+      builder: feeShareBuilder,
+    });
+    if (run.status === 'waiting') app.log.warn({ job: 'copy.venue_fee_shares', reason: run.reason }, 'copy fee shares: nothing recorded');
+    else if (run.budgetShort > 0 || run.claimNotBooked > 0)
+      app.log.warn({ job: 'copy.venue_fee_shares', ...run }, 'copy fee shares: some wait for a booked claim or budget');
+  });
+}
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
 // orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
 // around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.
@@ -1288,6 +1405,9 @@ const gridJobs = createJobHost({ onError: (name, err) => app.log.error({ err, jo
 if (env.TRADE_ALGO_JOBS_ENABLED) gridJobs.every('trade.grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => grid.tickAll());
 if (env.TRADE_ALGO_JOBS_ENABLED && venueGrid)
   gridJobs.every('trade.venue_grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => venueGrid.tickAll());
+// The recurring buy's slots run with the algo scheduler: off, a rule is saved and waits.
+if (env.TRADE_ALGO_JOBS_ENABLED && recurringBuys)
+  gridJobs.every('trade.recurring_buy_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => recurringBuys.tickAll());
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },
@@ -1669,7 +1789,7 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'otc-quote': ageOtcQuote(sql) },
+  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql) },
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
@@ -1907,8 +2027,10 @@ registerPrivateRest(app, {
   venueSpotConditionals,
   liveRuns,
   venueSellQuotes,
+  venueConverts,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueMarginSamples: userVenueRouter ? venueMarginSamples : null,
   venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   venueBuilderFees: userVenueRouter ? builderFees.ofUser : null,
   algo: trade,

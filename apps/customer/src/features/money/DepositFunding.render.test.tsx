@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -46,7 +47,7 @@ afterEach(() => {
 const catalogue: DepositCatalogue = {
   assets: [
     {
-      assetId: 'USDT',
+      assetId: asAssetId('USDT'),
       networks: [
         { id: 'ethereum', label: 'Ethereum', minimumDeposit: '10', confirmationsRequired: 12, estimatedArrivalMinutes: 5 },
         { id: 'tron', label: 'Tron', minimumDeposit: '5.5', confirmationsRequired: 20, estimatedArrivalMinutes: 3 },

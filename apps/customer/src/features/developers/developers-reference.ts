@@ -950,6 +950,23 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'Candles of the venue’s own prints on one market we list, on one interval, oldest first: an interval with no print is not sent',
   },
   {
+    name: 'venueMarginRules',
+    method: 'GET',
+    path: '/api/v1/venue/margin-rules',
+    product: 'accounts',
+
+    summary:
+      'The maximum leverage and the one maintenance level the venue publishes on its listed perpetual on one asset: null where it publishes none',
+  },
+  {
+    name: 'venueSpotCandles',
+    method: 'GET',
+    path: '/api/v1/venue/spot-candles',
+    product: 'accounts',
+
+    summary: "Candles of the venue's own prints on the spot market listed on one asset, oldest first, with the market's symbol",
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
@@ -1040,6 +1057,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
   },
   {
+    name: 'venueDepositRoutes',
+    method: 'GET',
+    path: '/api/v1/venue/deposit-routes',
+    product: 'accounts',
+
+    summary: 'How the venue takes each asset it lists as a deposit: the network and its own words for the route, or none offered',
+  },
+  {
     name: 'venueWithdrawalTerms',
     method: 'GET',
     path: '/api/v1/venue/withdrawal-terms',
@@ -1078,6 +1103,38 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'Your equity, free collateral, used margin, maintenance and margin ratio as the venue reports them',
+  },
+  {
+    name: 'venueAccountMode',
+    method: 'GET',
+    path: '/api/v1/venue/account-mode',
+    product: 'accounts',
+
+    summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
+  },
+  {
+    name: 'venuePositionMode',
+    method: 'GET',
+    path: '/api/v1/venue/position-mode',
+    product: 'accounts',
+
+    summary: 'The position mode, one-way or hedge, your account holds one venue perpetual in, as the venue reports it',
+  },
+  {
+    name: 'venueStakingAccount',
+    method: 'GET',
+    path: '/api/v1/venue/staking-account',
+    product: 'accounts',
+
+    summary: 'Your staking balance, delegations with each lock-up’s end, the unstaking queue and rewards, as the venue reports them',
+  },
+  {
+    name: 'venueVaultHoldings',
+    method: 'GET',
+    path: '/api/v1/venue/vault-holdings',
+    product: 'accounts',
+
+    summary: 'Your vault positions with each lock-up’s end, your account value as the venue counts it, and your vault transfers',
   },
   {
     name: 'venueLiquidation',
@@ -1128,6 +1185,22 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'The venue’s own insurance fund and where to read it, or “not published by this venue”, never 0',
   },
   {
+    name: 'venueStaking',
+    method: 'GET',
+    path: '/api/v1/venue/staking',
+    product: 'accounts',
+
+    summary: 'The venue’s validators, reward rate, staking fee-discount tiers, lock-up and unstaking queue as it publishes them',
+  },
+  {
+    name: 'venueVaults',
+    method: 'GET',
+    path: '/api/v1/venue/vaults',
+    product: 'accounts',
+
+    summary: 'The venue’s vaults, each with its lock-up, leader profit share, value and past return as the venue publishes them',
+  },
+  {
     name: 'venueLiquidationAlerts',
     method: 'GET',
     path: '/api/v1/venue/liquidation-alerts',
@@ -1172,6 +1245,23 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     path: '/api/v1/venue/eligible-instruments',
     product: 'accounts',
     summary: 'The perpetuals your account is eligible for on the venue, each with its settle asset, or none with the reason',
+  },
+  {
+    name: 'venueOpenInterest',
+    method: 'GET',
+    path: '/api/v1/venue/open-interest',
+    product: 'accounts',
+
+    summary:
+      "A listed perpetual's open interest and the venue's count of accounts long and short, with their ratio, from the venue's own positions: a count the venue does not publish answers null with its reason",
+  },
+  {
+    name: 'venueRiskLimits',
+    method: 'GET',
+    path: '/api/v1/venue/risk-limits',
+    product: 'accounts',
+
+    summary: "A listed perpetual's risk-limit tiers as the venue publishes them, or null with ladder_unset while it publishes none",
   },
   {
     name: 'venuePriceHistory',
@@ -1273,6 +1363,58 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
 
     summary:
       'The venue’s own price for selling an amount on your venue account now: what fills, its average price and fees, or "not known". Sends nothing',
+  },
+  {
+    name: 'venueConvertPairs',
+    method: 'GET',
+    path: '/api/v1/venue/convert/pairs',
+    product: 'accounts',
+    summary:
+      'What can be converted on your venue account now: each pair with its per-conversion limit or none set, the coins not offered, and whether Convert is paused',
+  },
+  {
+    name: 'venueConvertRoute',
+    method: 'GET',
+    path: '/api/v1/venue/convert/route',
+    product: 'accounts',
+    summary: 'How one asset converts to another on the venue: the market joining them, or why none does. Prices nothing',
+  },
+  {
+    name: 'venueConvertQuote',
+    method: 'POST',
+    path: '/api/v1/venue/convert/quote',
+    product: 'accounts',
+    summary:
+      'A price for a conversion: the venue’s best price, the slippage limit, the most it can cost and the fees as the venue previews them. Holds no price and locks nothing',
+  },
+  {
+    name: 'venueConvertAccept',
+    method: 'POST',
+    path: '/api/v1/venue/convert/accept',
+    product: 'accounts',
+    summary:
+      'Accept a quote: its one venue order prepared for your wallet to sign. The same quote id twice is the same order; a price past its window is refused',
+  },
+  {
+    name: 'venueConvertLimit',
+    method: 'POST',
+    path: '/api/v1/venue/convert/limit',
+    product: 'accounts',
+    summary: 'A limit convert: one venue order resting at your target rate, prepared for your wallet to sign',
+  },
+  {
+    name: 'venueConvertSubmit',
+    method: 'POST',
+    path: '/api/v1/venue/convert/submit',
+    product: 'accounts',
+    summary: 'Send a signed conversion to the venue once; a lost answer is read back by its client id, never sent as a second order',
+  },
+  {
+    name: 'venueConvertHistory',
+    method: 'GET',
+    path: '/api/v1/venue/convert/history',
+    product: 'accounts',
+    summary: 'Your accepted conversions as the venue records them: paid and received amounts, fees and time',
   },
   {
     name: 'venuePrepare',
@@ -2012,6 +2154,7 @@ export const STREAM_REFERENCE: readonly Stream[] = [
   { door: 'private', channel: 'orders', product: 'spot', private: true },
   { door: 'private', channel: 'fills', product: 'spot', private: true },
   { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'private', channel: 'balances', product: 'accounts', private: true },
   { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
 

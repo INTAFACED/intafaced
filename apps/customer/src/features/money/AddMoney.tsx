@@ -5,11 +5,14 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useWallet } from '../protocol';
 import { useSession } from '../session';
 import { addMoneyCopy } from './add-money-copy';
-import { date, funds, useBankRead } from './components';
+import { date, funds, useBankRead, useBankRecord } from './components';
 import { addMoneyRequestSchema, type AddMoneyMethod, type AddMoneyOption, type AddMoneyRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import { IncomingPayments } from './IncomingPayments';
 import './bank-depth.css';
+import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from '@intafaced/contracts/bank-add-money-procedures';
+import { leaveTo } from '../../app/location';
+import { shownCode, withCode } from '../../shared/reference';
 
 /**
  * Add money (J-bank-02): the amount, every way to pay with the fee and arrival the bank quoted (a blank reads "not set"),
@@ -77,50 +80,50 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
     <label className={`bd-choice ${chosen ? 'bd-choice--on' : ''}`} data-testid={`method-${row.method}`}>
       <input type="radio" name="add-money-method" value={row.method} checked={chosen} onChange={onChoose} />
       <strong>{t(METHOD_KEYS[row.method])}</strong>
-      <span className="money-caption">
+      <span className="lt-muted">
         {t('fee')}: {quote ? funds(quote.fee, quote.payCurrency) : feeUnknown ? t('notKnown') : t('notSet')}
       </span>
-      <span className="money-caption">
+      <span className="lt-muted">
         {t('arrives')}: {quote?.deliveryEstimate ?? t('notSet')}
       </span>
-      <span className="money-caption">
+      <span className="lt-muted">
         {t('youPay')}: {quote ? funds(quote.payAmount, quote.payCurrency) : feeUnknown ? t('notKnown') : t('notSet')}
       </span>
       {quote && (
-        <span className="money-caption" data-testid="method-receive">
+        <span className="lt-muted" data-testid="method-receive">
           {t('youReceive')}: {funds(quote.amount, quote.assetId)}
         </span>
       )}
       {quote && (
-        <span className="money-caption">
+        <span className="lt-muted">
           {t('priceUntil')}: {date(quote.expiresAt, true)}
         </span>
       )}
       {row.standIn && (
-        <small className="muted">
+        <small className="lt-muted">
           {row.payStandIn ? t('standInPriced', { label: row.standIn }) : t('standIn', { label: row.standIn })}
         </small>
       )}
       {row.quote && row.payStandIn && (
-        <small className="muted">
+        <small className="lt-muted">
           {t(row.method === 'bank_transfer' ? 'payStandInTransfer' : 'payStandIn', { label: row.payStandIn })}
         </small>
       )}
       {row.blocker && (
-        <small className="muted">
-          {feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
+        <small className="lt-muted" data-code={row.blocker}>
+          {withCode(feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail }), row.blocker, (code) => t('reference', { code }))}
         </small>
       )}
     </label>
   );
 }
 
-function Refused({ title, body, reference }: { title: string; body: string; reference: string }) {
+function Refused({ title, body, reference, code }: { title: string; body: string; reference: string; code?: string | null }) {
   return (
-    <div className="failure" role="status" data-testid="add-money-refused">
+    <div className="lt-refusal" role="status" data-testid="add-money-refused" data-code={code ?? undefined}>
       <h3>{title}</h3>
       <p>{body}</p>
-      <small className="muted">{reference}</small>
+      <small className="lt-muted">{reference}</small>
     </div>
   );
 }
@@ -130,7 +133,14 @@ function Answer({ outcome }: { outcome: AddMoneyRequest | Refusal }) {
   const { t } = addMoneyCopy.useCopy();
   if (!('ok' in outcome)) return <Outcome request={outcome} />;
   if (outcome.code !== EXPIRED) return <Failure result={outcome} />;
-  return <Refused title={t('expiredTitle')} body={t('expiredNow')} reference={t('reference', { code: EXPIRED })} />;
+  return (
+    <Refused
+      title={t('expiredTitle')}
+      body={t('expiredNow')}
+      reference={withCode('', EXPIRED, (code) => t('reference', { code })).trim()}
+      code={EXPIRED}
+    />
+  );
 }
 
 function Outcome({ request }: { request: AddMoneyRequest }) {
@@ -141,7 +151,8 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
       <Refused
         title={expired ? t('expiredTitle') : t('refusedTitle')}
         body={expired ? t('expiredBody') : t('refusedBody', { rail: request.rail })}
-        reference={`${request.rail} · ${t('reference', { code: request.refusalCode ?? '' })}`}
+        code={request.refusalCode}
+        reference={shownCode(request.refusalCode) ? `${request.rail} · ${t('reference', { code: request.refusalCode! })}` : request.rail}
       />
     );
   }
@@ -165,7 +176,7 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
         </dl>
       )}
       {onramp?.hostedUrl && (
-        <a className="button button--primary" href={onramp.hostedUrl} rel="noopener noreferrer">
+        <a className="lt-button lt-button-primary" href={onramp.hostedUrl} rel="noopener noreferrer">
           {t('goPay')}
         </a>
       )}
@@ -196,7 +207,7 @@ function Delivery({ request }: { request: AddMoneyRequest }) {
   const { t } = addMoneyCopy.useCopy();
   if (!request.walletAddress) return null;
   return (
-    <p className="money-caption" data-testid="tracker-delivery" data-state={request.deliveryTx ? 'delivered' : 'waiting'}>
+    <p className="lt-muted" data-testid="tracker-delivery" data-state={request.deliveryTx ? 'delivered' : 'waiting'}>
       <span lang="und" dir="ltr">
         {request.deliveryTx
           ? t('deliveredTo', { address: request.walletAddress })
@@ -205,7 +216,7 @@ function Delivery({ request }: { request: AddMoneyRequest }) {
       {request.deliveryTx && (
         <>
           {' · '}
-          <a className="text-link" href={`/chain/tx/${request.deliveryTx}`} data-testid="tracker-delivery-tx">
+          <a className="lt-link" href={`/chain/tx/${request.deliveryTx}`} data-testid="tracker-delivery-tx">
             {t('deliveryTx')}
           </a>
         </>
@@ -219,22 +230,22 @@ export function TrackerSteps({ request }: { request: AddMoneyRequest }) {
   const { t } = addMoneyCopy.useCopy();
   return (
     <>
-      <p className="money-caption">
+      <p className="lt-muted">
         <strong>{t(METHOD_KEYS[request.method])}</strong> · <StatusWord request={request} />
       </p>
-      <ol className="bd-stack">
+      <ol className="lt-stack">
         {STEPS.map((step) => {
           const at = reachedAt(request, step);
           const state = stepState(request, step);
           return (
             <li key={step} data-testid="tracker-step" data-step={step} data-state={state}>
               <strong>{t(step === 'credited' && request.walletAddress ? 'step_delivered' : STEP_KEYS[step])}</strong>{' '}
-              <small className="muted">{at ? date(at, true) : state === 'skipped' ? t('stepSkipped') : t('stepNotYet')}</small>
+              <small className="lt-muted">{at ? date(at, true) : state === 'skipped' ? t('stepSkipped') : t('stepNotYet')}</small>
             </li>
           );
         })}
       </ol>
-      <p className="money-caption" data-testid="tracker-receive">
+      <p className="lt-muted" data-testid="tracker-receive">
         {t('trackerAmount')}: <span dir="ltr">{funds(request.onramp?.amount ?? request.amount, request.assetId)}</span>
       </p>
       <Delivery request={request} />
@@ -265,7 +276,7 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
     let reads = 0;
     let failures = 0;
     const read = async () => {
-      const result = await api.query('bank', 'addMoney.request', { requestId }, addMoneyRequestSchema);
+      const result = await api.call(BANK_ADD_MONEY_REQUEST, { requestId });
       if (stopped) return;
       reads += 1;
       if (result.ok) {
@@ -300,7 +311,7 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
       ) : !request ? (
         <Loading />
       ) : (
-        <div className="bd-stack" data-testid="add-money-tracker" data-status={request.status}>
+        <div className="lt-stack" data-testid="add-money-tracker" data-status={request.status}>
           <TrackerSteps request={request} />
           {failure && <Failure result={failure} retry={() => setAttempt((n) => n + 1)} />}
         </div>
@@ -322,7 +333,7 @@ function StatusWord({ request }: { request: AddMoneyRequest }) {
 
 function Requests() {
   const { t } = addMoneyCopy.useCopy();
-  const read = useBankRead('addMoney.requests', { limit: 20 });
+  const read = useBankRecord(BANK_ADD_MONEY_REQUESTS, { limit: 20 });
   const { resource } = read;
   return (
     <DepthPanel title={t('requestsTitle')} lead={t('requestsLead')}>
@@ -332,7 +343,7 @@ function Requests() {
         ) : resource.status === 'failed' ? (
           <Failure result={resource.failure} retry={read.reload} />
         ) : resource.data.length === 0 ? (
-          <p className="money-caption">{t('noRequests')}</p>
+          <p className="lt-muted">{t('noRequests')}</p>
         ) : (
           resource.data.map((row) => (
             <div className="money-space-row" key={row.requestId} data-testid="add-money-request" data-status={row.status}>
@@ -340,12 +351,16 @@ function Requests() {
                 <strong>{t(METHOD_KEYS[row.method])}</strong>
                 <small>{date(row.createdAt)}</small>
               </div>
-              <span className="numeric" dir="ltr">
+              <span className="lt-num" dir="ltr">
                 {funds(row.amount, row.assetId)}
               </span>
               <span>
                 <StatusWord request={row} />
-                {row.refusalCode && <small className="muted"> {t('reference', { code: row.refusalCode })}</small>}
+                {row.refusalCode && (
+                  <small className="lt-muted" data-code={row.refusalCode}>
+                    {shownCode(row.refusalCode) ? ` ${t('reference', { code: row.refusalCode })}` : null}
+                  </small>
+                )}
               </span>
             </div>
           ))
@@ -458,7 +473,7 @@ export function AddMoney() {
     if (result.ok && result.data.status === 'opened') setFollowed(result.data.requestId);
     if (page) {
       setRedirecting(true);
-      window.location.assign(page);
+      leaveTo(page);
     }
     // A final answer closes this request, so asking again is a new one. A failure keeps the id, so a retry is the same request.
     if (result.ok && result.data.status !== 'opening') setRequestId(crypto.randomUUID());
@@ -466,17 +481,17 @@ export function AddMoney() {
   }
 
   return (
-    <div className="bd-stack" data-testid="add-money">
+    <div className="lt-stack" data-testid="add-money">
       <DepthPanel title={t('askTitle')}>
         {currencies.resource.status === 'loading' ? (
           <Loading />
         ) : currencies.resource.status === 'failed' ? (
           <Failure result={currencies.resource.failure} retry={currencies.reload} />
         ) : assets.length === 0 ? (
-          <p className="money-caption">{t('noCurrency')}</p>
+          <p className="lt-muted">{t('noCurrency')}</p>
         ) : (
-          <div className="bd-stack">
-            <label className="field">
+          <div className="lt-stack">
+            <label className="lt-field">
               <span>{t('asset')}</span>
               <select value={asset} onChange={(event) => setAssetId(event.target.value)}>
                 {assets.map((id) => (
@@ -487,7 +502,7 @@ export function AddMoney() {
               </select>
               <small>{t('assetHint')}</small>
             </label>
-            <fieldset className="bd-stack" aria-label={t('deliverTo')}>
+            <fieldset className="lt-stack" aria-label={t('deliverTo')}>
               <span>{t('deliverTo')}</span>
               <div className="bd-choice-row" role="radiogroup" aria-label={t('deliverTo')}>
                 <label className={`bd-choice ${deliver === 'balance' ? 'bd-choice--on' : ''}`}>
@@ -512,7 +527,7 @@ export function AddMoney() {
                   <strong>{t('deliverWallet')}</strong>
                 </label>
               </div>
-              <p className="money-caption" data-testid="ramp-destination" data-deliver={deliver}>
+              <p className="lt-muted" data-testid="ramp-destination" data-deliver={deliver}>
                 {deliver === 'wallet' && walletAddress ? (
                   <>
                     {t('deliverWalletAddress')}:{' '}
@@ -545,7 +560,7 @@ export function AddMoney() {
               onChange={(event) => setCountry(event.target.value)}
               error={countryBad ? t('countryBad') : undefined}
             />
-            <div className="actions">
+            <div className="lt-actions">
               <Button onClick={seeWays}>{t('seeWays')}</Button>
             </div>
           </div>
@@ -565,7 +580,7 @@ export function AddMoney() {
                   <Method key={row.method} row={row} chosen={row.method === method} onChoose={() => choose(row.method)} />
                 ))}
               </div>
-              <div className="actions">
+              <div className="lt-actions">
                 <Button onClick={() => setStep('confirm')} disabled={!option}>
                   {t('continue')}
                 </Button>
@@ -577,7 +592,7 @@ export function AddMoney() {
 
       {ask && option && step === 'confirm' && (
         <DepthPanel title={t(METHOD_KEYS[option.method])}>
-          <div className="bd-stack" data-testid="add-money-confirm">
+          <div className="lt-stack" data-testid="add-money-confirm">
             {option.method === 'bank_transfer' && (
               <div>
                 <h3>{t('ownershipTitle')}</h3>
@@ -587,13 +602,13 @@ export function AddMoney() {
             {deliver === 'wallet' && walletAddress && <p data-testid="add-money-sign-note">{t('deliverSign')}</p>}
             {option.method === 'pay_by_bank' && <p>{t('redirect')}</p>}
             {(option.method === 'card' || option.method === 'wallet_pay') && <p>{t('hostedCard')}</p>}
-            <div className="actions">
+            <div className="lt-actions">
               <Button onClick={() => void start()} disabled={busy || redirecting || (deliver === 'wallet' && !walletAddress)}>
                 {redirecting ? t('redirecting') : busy ? t('working') : t('ask')}
               </Button>
             </div>
             {unsigned && (
-              <p className="money-caption" role="status" data-testid="add-money-unsigned">
+              <p className="lt-muted" role="status" data-testid="add-money-unsigned">
                 {t('deliverUnsigned')}
               </p>
             )}

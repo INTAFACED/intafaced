@@ -14,6 +14,7 @@ import {
   coreOpsReconciliationAlertUpdated,
   copySkipped,
   copyStopped,
+  recurringBuySuspended,
   agentUsageAlertCrossed,
   agentAlertFired,
   agentApprovalRequested,
@@ -24,6 +25,7 @@ import {
   kycApproved,
   ledgerFreezeUpdated,
   venueDelistingScheduled,
+  venueRiskAlerted,
   orderUpdated,
   p2pEscrowLocked,
   p2pEscrowRefunded,
@@ -992,6 +994,26 @@ export async function subscribeNotificationEvents(
     }),
   );
 
+  // A recurring buy suspended for insufficient funds (J-copy-bots-otc-16 #6): svc-trade publishes once per rule and slot
+  // after the status moved. One notice per rule and slot, however often it is sent; the room shows the suspended state.
+  attachments.push(
+    await attach(bus, 'recurringBuySuspended', recurringBuySuspended.subject, 'notify-recurring-buy-suspended', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.recurring_buy.suspended',
+          titleKey: 'notify.trade.recurring_buy_suspended.title',
+          bodyKey: 'notify.trade.recurring_buy_suspended.body',
+          params: { ruleId: payload.ruleId, asset: payload.asset, amount: payload.amount, free: payload.free },
+          href: '/trade/bots/dca',
+          severity: 'action',
+          sourceSubject: recurringBuySuspended.subject,
+          sourceIdempotencyKey: `${payload.ruleId}:${payload.slot}`,
+        }),
+      );
+    }),
+  );
+
   // An own agent's monthly spend alert (J-agents-02 #6): svc-agents records it once per agent and UTC month and
   // publishes it on that business key, so the owner gets one inbox row for it however often it is sent. Email is the
   // person's choice on the Limits page, which shows that channel's real state: only then does the row go out of app.
@@ -1186,6 +1208,36 @@ export async function subscribeNotificationEvents(
     await attach(bus, 'venueDelistingScheduled', venueDelistingScheduled.subject, 'notify-venue-delisting', async (payload) => {
       // One dated notice for everyone, filed under the delisting's own key; the venue id is never shown.
       await noticeVenueDelisting(notify, { symbol: payload.symbol, delistsAt: payload.delistsAt, noticeKey: payload.noticeKey });
+    }),
+  );
+
+  // A margin alert, margin call or liquidation alert on the person's own venue position (J-derivatives-06 #6): svc-trade
+  // publishes each crossing once, on its business key, and republishes until it is sent, so the person gets one inbox
+  // row per crossing however often it arrives. It asks them to act, so it goes out of app on every channel they
+  // confirmed. The venue is never named.
+  attachments.push(
+    await attach(bus, 'venueRiskAlerted', venueRiskAlerted.subject, 'notify-venue-risk-alert', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: `trade.risk.${payload.kind}`,
+          titleKey: `notify.trade.risk.${payload.kind}.title`,
+          bodyKey: `notify.trade.risk.${payload.kind}.body`,
+          params: {
+            symbol: payload.symbol,
+            asset: payload.asset,
+            level: payload.level,
+            margin: payload.marginWithResult,
+            ratio: payload.marginRatio ?? '',
+            asked: payload.asked ?? '',
+          },
+          href: '/trade/positions',
+          severity: 'action',
+          sourceSubject: venueRiskAlerted.subject,
+          sourceIdempotencyKey: payload.alertKey,
+          outOfApp: true,
+        }),
+      );
     }),
   );
 

@@ -1,6 +1,8 @@
-import { QUANT_QUOTA_RESOURCES, publicJurisdictionProcedure, quantQuotaSchema, router } from '@intafaced/contracts';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { QUANT_QUOTA_RESOURCES } from '@intafaced/contracts/quant-algo';
+import { router } from '@intafaced/contracts/trpc';
+import { toTrpc, type QuantCore, quantRefusal } from './core.js';
+import { QUANT_QUOTA_GET } from '@intafaced/contracts/quant-quota-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 export function quotaRoutes(core: QuantCore) {
   const { quota, accountOf, team } = core;
@@ -9,10 +11,9 @@ export function quotaRoutes(core: QuantCore) {
      * The caller's plan (AL-limits-01): the profile that applies, and each resource's usage, counted from the stored
      * rows, against its limit. A blank limit reads null and the screen says "not set"; with no profile, every limit does.
      */
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ ...accountField }).optional())
-      .output(quantQuotaSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_QUOTA_GET,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input?.accountId);
           const [applied, counts, collaborators] = await Promise.all([
@@ -46,6 +47,8 @@ export function quotaRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

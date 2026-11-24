@@ -1,6 +1,6 @@
 import type { AccountLimitOverride, AccountLimitPolicy, AccountLimitResult } from '@intafaced/contracts/account-controls';
 import type { WithdrawalAllowance } from '@intafaced/contracts';
-import { compareDecimal } from '@/lib/merchants/money';
+import { compareDecimal } from '@/lib/money';
 
 /**
  * A customer's limit overrides as the console shows them (OPS-accounts-desk-03, J-ops-console-04 #12). Identity keeps the

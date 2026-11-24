@@ -175,10 +175,15 @@ Data frames are an envelope around the payload the single-market doors already s
 { "ch": "trades",  "market": "<id>", "data": { "type": "trade", "marketId": "<id>", "sequence": 812, "price": "30000.5", "quantity": "0.25", "ts": "..." } }
 { "ch": "ticker",  "data": { "type": "snapshot" | "update", "ts": 1760000000000, "tickers": [
     { "market": "<id>", "symbol": "BTC/USDT", "last": "30000.5", "change24h": "120.25", "changePct24h": "0.4",
-      "high": "31000", "low": "29000", "volume": "12.5", "quoteVolume": "375000" } ] } }
+      "high": "31000", "low": "29000", "volume": "12.5", "quoteVolume": "375000",
+      "bid": "30000", "ask": "30001.5", "spread": "1.5" } ] } }
 { "ch": "candles", "market": "<id>", "interval": "1m", "data": { "type": "candle", "marketId": "<id>", "interval": "1m",
     "t": 1760000040000, "o": "30000", "h": "30010", "l": "29990", "c": "30005", "v": "1.5", "closed": false } }
 ```
+
+A ticker row carries the top of the book as svc-trade's ticker read publishes it: `bid`, `ask` and `spread` (best ask
+minus best bid, exact in decimal), each `null` without both sides of the book. A row is sent again when any of its
+fields changes, the top of the book included, so the ticker channel is also the live spread.
 
 Control frames have `op` instead of `ch`:
 
@@ -501,7 +506,10 @@ Direct `NEXT_PUBLIC_WS_URL` / `apps/web` wiring is not the compose path for the 
 ## Private stream (`/private/stream`)
 
 JWT-authenticated, push-only. Query `?access_token=` (or `Authorization: Bearer`). Requires `trade:read` or
-`trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
+`trade:write`. `?channel=` names one of `orders`, `fills`, `positions` or `balances`; omitted, it opens the
+first three. `balances` carries one `{ channel: "balances", type: "balance" }` frame per change in the person's own venue
+balance (svc-trade's `venueBalanceChanged`: its source, the change and the venue's new total), and drops a change id
+it has already sent that person. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
 configuration refuses private upgrades with 503. Public depth/tape are unaffected.
 
 **Stream tokens** (identity `POST /api/v1/stream/token`, audience `<JWT_AUDIENCE>.stream`) open this door too, and

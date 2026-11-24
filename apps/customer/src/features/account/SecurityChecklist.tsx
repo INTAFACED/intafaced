@@ -1,10 +1,12 @@
 import { useRef } from 'react';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { Tag } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { securityChecklistCopy as copy } from './security-checklist-copy';
-import { factorStatus, type FactorStatus } from './security-checklist';
+import { type FactorStatus } from './security-checklist';
 import { ScamGuidesLink } from './CompromisedEntry';
+import { IDENTITY_FACTOR_STATUS } from '@intafaced/contracts/identity-factor-status-procedures';
 
 /**
  * The Security checklist at the top of `/uc/safe` (slice I-signin-sessions-14): each sign-in method with its status and
@@ -21,10 +23,7 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
   // The last answer for this person stays on screen while a change on the page reloads it, so the page does not jump.
   const last = useRef<{ userId: string | null; data: FactorStatus } | null>(null);
   const { resource, reload } = useResource(
-    (signal) =>
-      userId
-        ? api.query('identity', 'factorStatus', undefined, factorStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_FACTOR_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `security-checklist:${userId}:${client.current.version}:${revision}`,
   );
   if (resource.status === 'ready' && resource.data) last.current = { userId, data: resource.data };
@@ -37,22 +36,22 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
   return (
     <section
       data-testid="security__checklist"
-      className="security__checklist security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <ScamGuidesLink />
-      <ul data-testid="security__rows" className="security__rows">
+      <ul className="lt-rows" data-testid="security__rows">
         {status.checklist.map((item) => {
           const more = detail(status, item.key, t);
           return (
-            <li key={item.key} data-testid="security__row" className="security__row" data-done={item.done}>
+            <li key={item.key} data-testid="security__row" data-done={item.done}>
               <div>
-                <strong>{t(item.key)}</strong> <span className="badge">{item.done ? t('done') : t('pending')}</span>
-                {more && <span className="muted"> · {more}</span>}
-                {!item.done && <p className="muted">{t(`${item.key}Why`)}</p>}
+                <strong>{t(item.key)}</strong> <Tag>{item.done ? t('done') : t('pending')}</Tag>
+                {more && <span className="lt-hint"> · {more}</span>}
+                {!item.done && <p className="lt-hint">{t(`${item.key}Why`)}</p>}
               </div>
             </li>
           );
@@ -60,15 +59,15 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
       </ul>
       {/* With no second step on yet, the service lets the password alone change sign-in methods; say so plainly. */}
       <h3>{hasSecondStep ? t('requiredTitle') : t('requiredTitleNoFactor')}</h3>
-      {!hasSecondStep && <p className="muted">{t('noFactorYet')}</p>}
-      <ul data-testid="security__rows" className="security__rows">
+      {!hasSecondStep && <p className="lt-hint">{t('noFactorYet')}</p>}
+      <ul className="lt-rows" data-testid="security__rows">
         {status.secondStepRequired.floor.map((action) => (
-          <li key={action} data-testid="security__row" className="security__row">
-            <span>{t(action)}</span> <span className="badge">{t('required')}</span>
+          <li key={action} data-testid="security__row">
+            <span>{t(action)}</span> <Tag>{t('required')}</Tag>
           </li>
         ))}
       </ul>
-      {status.secondStepRequired.policy === null && <p className="muted">{t('policyUnset')}</p>}
+      {status.secondStepRequired.policy === null && <p className="lt-hint">{t('policyUnset')}</p>}
     </section>
   );
 }

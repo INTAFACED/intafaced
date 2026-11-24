@@ -86,7 +86,8 @@ async function strangerPays(page, handle, amount, payee) {
   await page.getByLabel(/Amount/).fill(amount);
   await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: /^Send/ }).click();
-  await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
+  // Sent means its receipt, or the held notice, shows: Review's first-payment warning is a status too, so any status is not proof.
+  await expect(page.getByTestId('pay-receipt').or(page.getByTestId('pay-held')).first()).toBeVisible({ timeout: 30_000 });
   // A refusal is an alert: the send went through only if none shows.
   await expect(page.getByRole('alert')).toHaveCount(0);
 }
@@ -149,9 +150,17 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   const { me } = people();
   await signIn(page, me);
   // The handle settings as svc-identity answers handle.get on a load of Receive: the handle, the cap and the count.
+  // Only a read this load starts counts: Receive re-reads the settings on its own (a dialog closing), and a reply to that
+  // earlier read is gone once the page reloads.
   const settingsOn = async (load) => {
+    const since = Date.now();
     const [answer] = await Promise.all([
-      page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/handle.get') && res.request().method() === 'GET'),
+      page.waitForResponse(
+        (res) =>
+          new URL(res.url()).pathname.endsWith('/handle.get') &&
+          res.request().method() === 'GET' &&
+          res.request().timing().startTime >= since,
+      ),
       load(),
     ]);
     expect(answer.ok(), 'handle.get answers').toBe(true);
@@ -278,7 +287,7 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     await page.getByLabel(/Amount/).fill('1');
     await page.getByRole('button', { name: 'Review' }).click({ timeout: 15_000 });
     await page.getByRole('alertdialog').getByRole('button', { name: /^Send/ }).click({ timeout: 15_000 });
-    await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('pay-receipt').or(page.getByTestId('pay-held')).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(async () => toUnits((await usdt(me)).free) - before, { timeout: 30_000 }).toBe(toUnits('1'));
     await expect.poll(async () => spending - toUnits((await usdt(stranger)).free), { timeout: 30_000 }).toBe(toUnits('1'));

@@ -24,8 +24,9 @@ const SWITCH = 'LOCAL_STACK_USER_VENUE';
  * switches the door off on its way out, so the next file in the shard does not start with it on. A worker killed outright
  * (SIGKILL, out of memory) runs no handler, so that case is not covered.
  */
-export function venueForThisFile(test, value = 'on') {
+export function venueForThisFile(test, value = 'on', { recording = null, trader = null } = {}) {
   let on = false;
+  const hl = hyperliquidFileSettings(value, recording, trader);
   const offOnExit = () => {
     if (!on) return;
     on = false;
@@ -40,14 +41,79 @@ export function venueForThisFile(test, value = 'on') {
     on = true;
     process.once('exit', offOnExit);
     // `on` is the one TEST venue; `two` adds the second (J-derivatives-28), started and stopped the same way.
-    restartWithSetting('trade', SWITCH, value);
+    // `hl-recorded` and `hl-testnet` are Hyperliquid's test network, replayed from this file's recording or live and
+    // recorded into it, for the address the file's wallet signs as.
+    withSettings(hl, () => restartWithSetting('trade', SWITCH, value));
   });
-  test.afterAll(() => {
+  test.afterAll(async () => {
     test.setTimeout(240_000);
+    // A replayed file fails on every request its recording had no answer for, by its key, even one no step checked.
+    // Read before the switch-off and checked after it, so a miss never leaves the door on for the next file.
+    const misses = value === 'hl-recorded' ? (await venueOk(TEST_VENUE, '/replay/misses')).misses : [];
     restartWithSetting('trade', SWITCH, 'off');
     on = false;
     process.off('exit', offOnExit);
+    expect(misses, 'requests the Hyperliquid recording has no answer for').toEqual([]);
   });
+}
+
+/** The GitHub secret (and env var) with the funded Hyperliquid test-network wallet's key: what an `hl-testnet` file signs with. */
+const HL_TRADER_KEY_ENV = 'HL_TESTNET_TRADER_KEY';
+
+/** A Hyperliquid file asked for what it lacks: `code` names it. */
+class HyperliquidFileError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/**
+ * The funded test-network wallet an `hl-testnet` file signs with, from HL_TESTNET_TRADER_KEY. MetaMask exports the key
+ * without `0x`, so both forms are read. Unset refuses `hl_live_key_missing`, naming the secret. Never printed.
+ */
+function hlLiveTrader(env = process.env) {
+  const text = (env[HL_TRADER_KEY_ENV] ?? '').trim();
+  if (text === '')
+    throw new HyperliquidFileError(
+      'hl_live_key_missing',
+      `LOCAL_STACK_USER_VENUE=hl-testnet needs ${HL_TRADER_KEY_ENV}, the funded test-network wallet's key: it is not set`,
+    );
+  const hex = /^0x/i.test(text) ? text.slice(2) : text;
+  if (!/^[0-9a-fA-F]{64}$/.test(hex))
+    throw new HyperliquidFileError('hl_live_key_malformed', `${HL_TRADER_KEY_ENV} must be 64 hex digits, with or without 0x`);
+  return privateKeyToAccount(`0x${hex.toLowerCase()}`);
+}
+
+/**
+ * The settings a Hyperliquid file restarts trade with (local-test-venue.mjs `hlSource`): its recording's name and the
+ * address its wallet signs as. Null on the simulator. A Hyperliquid file must name both.
+ */
+function hyperliquidFileSettings(value, recording, trader) {
+  if (value !== 'hl-recorded' && value !== 'hl-testnet') return null;
+  if (!recording || !trader)
+    throw new HyperliquidFileError(
+      'hl_file_unnamed',
+      `venueForThisFile(${value}) needs { recording, trader }: the recording's name and the wallet address`,
+    );
+  // Live, the file signs with the funded test-network wallet: no key refuses by name, and the trader must be its address.
+  if (value === 'hl-testnet' && hlLiveTrader().address.toLowerCase() !== trader.toLowerCase())
+    throw new HyperliquidFileError('hl_live_trader_mismatch', `hl-testnet records for ${HL_TRADER_KEY_ENV}'s address, not ${trader}`);
+  return { LOCAL_STACK_HL_RECORDING: recording, LOCAL_STACK_HL_TRADER: trader.toLowerCase() };
+}
+
+/** `fn` with each setting in the environment, each put back after. */
+function withSettings(settings, fn) {
+  const saved = Object.fromEntries(Object.keys(settings ?? {}).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, settings ?? {});
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 }
 
 /** One call to the TEST venue: its JSON answer and status. Amounts travel as decimal strings. */
@@ -72,6 +138,14 @@ async function venueFetch(url, init) {
 /** The stack's second TEST venue (local-test-stack.mjs PORTS['test-venue-b']), on with LOCAL_STACK_USER_VENUE=two. */
 export const TEST_VENUE_B = stackUrl('test-venue-b');
 
+/** A TEST venue's id and name, by its base URL, with the base it was read at. */
+export async function testVenueInfoAt(base) {
+  const { status, body } = await testVenueAt(base, '/venue');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  expect(body.label).toBe('TEST');
+  return { id: body.venue.id, displayName: body.venue.displayName, base };
+}
+
 /** One call to either TEST venue by its base URL. */
 export async function testVenueAt(base, path, body) {
   const res = await venueFetch(`${base}${path}`, {
@@ -80,6 +154,13 @@ export async function testVenueAt(base, path, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
+}
+
+/** One call to either TEST venue that must answer 200: its JSON answer (a refusal fails the step with its words). */
+export async function venueOk(base, path, body) {
+  const { status, body: out } = await testVenueAt(base, path, body);
+  expect(status, JSON.stringify(out).slice(0, 300)).toBe(200);
+  return out;
 }
 
 /** The venue's id and the chain its signatures name. */
@@ -236,5 +317,31 @@ export function venueWrites(page) {
     const p = new URL(r.url()).pathname;
     if (r.method() === 'POST' && (p === '/api/v1/venue/prepare' || p === '/api/v1/venue/submit')) sent.push(p);
   });
+  return sent;
+}
+
+/** A reply our door accepted: its body, or the step fails with what it said. */
+export function doorOk(res) {
+  expect(res.status, JSON.stringify(res.body).slice(0, 600)).toBe(200);
+  return res.body;
+}
+
+/** A prepared venue action signed by a wallet key, in the shape our door's submit takes. */
+export async function signPrepared(key, prepared) {
+  const t = prepared.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  return { digest: prepared.digest, signature, signedBy: key.address.toLowerCase() };
+}
+
+/** One action the person's own wallet signs, through our door: prepared, signed, sent, and accepted by the venue. */
+export async function walletDoorAct(session, key, { subAccount = null, intent, actionKey = null }) {
+  const owner = key.address.toLowerCase();
+  const prepared = doorOk(
+    await session.post('/api/v1/venue/prepare', { owner, subAccount, signer: { role: 'owner', address: owner }, intent, actionKey }),
+  );
+  const sent = doorOk(
+    await session.post('/api/v1/venue/submit', { actionKey: prepared.actionKey, signature: await signPrepared(key, prepared.prepared) }),
+  );
+  expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   return sent;
 }

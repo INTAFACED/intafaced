@@ -23,7 +23,7 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
   return (
     <section aria-label={t('Your requests')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
       <h2 className="m-0 text-md font-medium text-fg">{t('Your requests')}</h2>
-      <p className="m-0 text-sm text-fg-2">{t('Board lead')}</p>
+      <p className="lt-hint">{t('Board lead')}</p>
       {board.status === 'loading' ? <Skeleton className="h-24 w-full" aria-label={t('Board loading')} /> : null}
       {board.status === 'refused' ? <Refusal words={roomWords({ code: board.code })} size="inline" /> : null}
       {board.status === 'error' ? (
@@ -36,14 +36,14 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
       ) : null}
       {board.status === 'ready'
         ? board.data.groups.map((group) => (
-            <div key={group.status} data-testid="board-group" data-status={group.status} className="flex flex-col gap-2">
+            <div key={group.status} data-testid="board-group" data-status={group.status} className="lt-stack">
               <h3 className="m-0 text-sm font-medium text-fg">
                 {t('Board group', { label: t(GROUP_WORD[group.status]), count: String(group.count) })}
               </h3>
-              {group.requests.length === 0 ? <p className="m-0 text-xs text-fg-2">{t('Board group empty')}</p> : null}
-              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              {group.requests.length === 0 ? <p className="lt-hint">{t('Board group empty')}</p> : null}
+              <ul className="lt-list">
                 {group.requests.map((request) => (
-                  <li key={request.rfqId} data-testid="board-request" data-rfq-id={request.rfqId} className="flex flex-col gap-1">
+                  <li key={request.rfqId} data-testid="board-request" data-rfq-id={request.rfqId} className="lt-stack">
                     <span className="text-sm text-fg">
                       {t('Board request', {
                         side: request.side === 'buy' ? t('Board buy') : t('Board sell'),
@@ -88,7 +88,7 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
             </div>
           ))
         : null}
-      {board.status === 'ready' && board.data.more ? <p className="m-0 text-xs text-fg-2">{t('Board more')}</p> : null}
+      {board.status === 'ready' && board.data.more ? <p className="lt-hint">{t('Board more')}</p> : null}
     </section>
   );
 }
