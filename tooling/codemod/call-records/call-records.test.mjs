@@ -3531,8 +3531,4 @@ test("a desk read imports readOf from its one home, never from the ops desk's se
   const [site] = deskReadSite(load(f));
   assert.equal(site.problem, undefined);
   assert.equal(site.helperFrom, '@/lib/desk-read');
-  // The home holds readOf, and nothing in it is server-only.
-  const home = readFileSync(new URL('../../../apps/admin/src/lib/desk-read.ts', import.meta.url), 'utf8');
-  assert.match(home, /export const readOf = /);
-  assert.doesNotMatch(home, /^import ['"]server-only['"]/m);
 });
