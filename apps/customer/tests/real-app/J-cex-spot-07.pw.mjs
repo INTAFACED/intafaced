@@ -574,6 +574,17 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
   expect(walletRefs, 'the wallet received its TEST USD and sent the deposit').toContain(s.txHash);
   const fills = (await venueRecord(s.owner, '/fills', { since: new Date(0).toISOString() })).value;
   const deposits = (await venueRecord(s.owner, '/deposits')).value;
+  const orderHistory = (await venueRecord(s.owner, '/order-history')).value;
+  const filledOrders = new Set(fills.map((f) => f.venueClientOrderId?.toLowerCase()).filter(Boolean));
+  const restingOrCancelledOrders = orderHistory
+    .map((entry) => entry.order)
+    .filter(
+      (o) =>
+        o.venueClientOrderId &&
+        !filledOrders.has(o.venueClientOrderId.toLowerCase()) &&
+        toUnits(o.filled) === 0n &&
+        (o.status === 'open' || o.status === 'canceled' || o.status === 'cancelled'),
+    );
   expect(fills.length).toBeGreaterThan(0);
   expect(deposits.map((d) => d.txHash.toLowerCase())).toEqual([s.txHash]);
   const partner = await partnerRecord(s.account);
@@ -582,6 +593,7 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
   const expected = [
     ...walletRefs.map((ref) => ({ source: 'wallet', ref })),
     ...fills.map((f) => ({ source: 'venue', ref: f.fillId })),
+    ...restingOrCancelledOrders.map((o) => ({ source: 'venue', ref: o.venueClientOrderId })),
     ...deposits.map((d) => ({ source: 'venue', ref: d.txHash.toLowerCase() })),
     ...partner.map((p) => ({ source: 'partner', ref: p.txId })),
   ];

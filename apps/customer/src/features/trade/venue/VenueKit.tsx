@@ -2,7 +2,6 @@ import { useCallback, useRef, type ReactNode } from 'react';
 import { Badge, Checkbox } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
 import { displayAmount } from '../../../shared/money';
-import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
 import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
   keys,
@@ -24,8 +23,9 @@ import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
 import { VENUE_POLL_MS } from './poll';
 import { useAsOfText, useVenueApi, word } from './venue-words';
+import { fillTotal, groupVenueFillsByOrder, readAllVenueOrders } from './venue-fill-groups';
 
-export { VENUE_POLL_MS };
+export { VENUE_POLL_MS, fillTotal, readAllVenueOrders };
 export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
 export { OutcomeLine, ReadBack } from './volt/VoltVenue';
 
@@ -394,6 +394,8 @@ export function FillsTable({
   symbol,
   tagOf,
   withTotal = false,
+  orders,
+  groupByOrder = false,
 }: {
   fills: AsOf<VenueFill[]> | null;
   test: boolean;
@@ -402,10 +404,60 @@ export function FillsTable({
   withTotal?: boolean;
   /** The person's own tag on an order, by client id; given, the table has a Tag column. */
   tagOf?: (clientOrderId: string) => string | undefined;
+  /** The account's venue orders keyed by lowercase venueClientOrderId, so each trade names its order's type (J-portfolio-03 #5). */
+  orders?: ReadonlyMap<string, VenueOrder>;
+  /** When true, orders that filled in parts sit under one order header row with their fills grouped beneath (J-portfolio-03 #5). */
+  groupByOrder?: boolean;
 }) {
   const { t } = venueCopy.useCopy();
   const asOfText = useAsOfText();
   const rows = (fills?.value ?? []).filter((f) => !symbol || f.symbol === symbol);
+  const showType = Boolean(orders) || groupByOrder;
+  const orderOf = (id: string | null): VenueOrder | undefined => (id ? orders?.get(id.toLowerCase()) : undefined);
+  const typeWordOf = (id: string | null): string | null => {
+    const order = orderOf(id);
+    return order ? word(t, 'type', order.type) : null;
+  };
+  const renderFillRow = (f: VenueFill, ofOrder: string | null) => {
+    const typeWord = typeWordOf(f.venueClientOrderId);
+    return (
+      <tr
+        key={f.fillId}
+        data-fill={f.fillId}
+        data-of={ofOrder ?? undefined}
+        data-part={ofOrder ? 'fill' : undefined}
+        data-client-order-id={f.venueClientOrderId ?? ''}
+      >
+        <td>{asOfText(f.filledAt)}</td>
+        <td>{f.symbol}</td>
+        <td>{word(t, 'side', f.side)}</td>
+        {showType ? <td data-cell="type">{typeWord ?? '—'}</td> : null}
+        <td className="lt-num" data-cell="price">
+          {displayAmount(f.price)}
+        </td>
+        <td className="lt-num" data-cell="amount">
+          {displayAmount(f.amount)}
+        </td>
+        {withTotal ? (
+          <td className="lt-num" data-cell="total">
+            {displayAmount(fillTotal(f))} {f.symbol.split('-')[1] ?? ''}
+          </td>
+        ) : null}
+        <td data-cell="role">{word(t, 'role', f.role)}</td>
+        <td className="lt-num" data-cell="venue-fee">
+          <VenueFeeCell amount={f.venueFee} />
+        </td>
+        <td className="lt-num" data-cell="builder-fee">
+          {f.builderFee}
+        </td>
+        <td>{f.feeAsset}</td>
+        <td className="lt-num" data-cell="realised">
+          {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
+        </td>
+        {tagOf ? <td data-cell="tag">{f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''}</td> : null}
+      </tr>
+    );
+  };
   return (
     <div data-testid="venue-fills">
       <TestMark test={test} />
@@ -418,6 +470,7 @@ export function FillsTable({
             t('Time'),
             t('Market'),
             t('Side'),
+            ...(showType ? [t('Type')] : []),
             t('Price'),
             t('Amount'),
             ...(withTotal ? [t('Total')] : []),
@@ -429,36 +482,55 @@ export function FillsTable({
             ...(tagOf ? [t('Tag')] : []),
           ]}
         >
-          {rows.map((f) => (
-            <tr key={f.fillId} data-fill={f.fillId} data-client-order-id={f.venueClientOrderId ?? ''}>
-              <td>{asOfText(f.filledAt)}</td>
-              <td>{f.symbol}</td>
-              <td>{word(t, 'side', f.side)}</td>
-              <td className="lt-num" data-cell="price">
-                {displayAmount(f.price)}
-              </td>
-              <td className="lt-num" data-cell="amount">
-                {displayAmount(f.amount)}
-              </td>
-              {withTotal ? (
-                <td className="lt-num" data-cell="total">
-                  {displayAmount(fillTotal(f))} {f.symbol.split('-')[1] ?? ''}
-                </td>
-              ) : null}
-              <td data-cell="role">{word(t, 'role', f.role)}</td>
-              <td className="lt-num" data-cell="venue-fee">
-                <VenueFeeCell amount={f.venueFee} />
-              </td>
-              <td className="lt-num" data-cell="builder-fee">
-                {f.builderFee}
-              </td>
-              <td>{f.feeAsset}</td>
-              <td className="lt-num" data-cell="realised">
-                {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
-              </td>
-              {tagOf ? <td data-cell="tag">{f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''}</td> : null}
-            </tr>
-          ))}
+          {groupByOrder
+            ? groupVenueFillsByOrder(rows).flatMap((group) => {
+                const [first] = group.fills;
+                if (!first) return [];
+                if (group.fills.length === 1) return [renderFillRow(first, null)];
+                const typeWord = typeWordOf(group.order);
+                const head = (
+                  <tr
+                    key={`order:${group.order}`}
+                    data-part="order"
+                    data-order={group.order ?? undefined}
+                    data-client-order-id={group.order ?? ''}
+                  >
+                    <td>{asOfText(first.filledAt)}</td>
+                    <td>{first.symbol}</td>
+                    <td>{word(t, 'side', first.side)}</td>
+                    <td data-cell="type">
+                      {typeWord
+                        ? t('Order of fills', { type: typeWord, count: group.fills.length })
+                        : t('Order of fills no type', { count: group.fills.length })}
+                    </td>
+                    <td className="lt-num" data-cell="price" title={t('Average price')}>
+                      {group.average ? displayAmount(group.average) : '—'}
+                    </td>
+                    <td className="lt-num" data-cell="amount">
+                      {displayAmount(group.amount)}
+                    </td>
+                    {withTotal ? (
+                      <td className="lt-num" data-cell="total">
+                        {displayAmount(group.total)} {first.symbol.split('-')[1] ?? ''}
+                      </td>
+                    ) : null}
+                    <td data-cell="role">—</td>
+                    <td className="lt-num" data-cell="venue-fee">
+                      {group.venueFee !== null ? <VenueFeeCell amount={group.venueFee} /> : '—'}
+                    </td>
+                    <td className="lt-num" data-cell="builder-fee">
+                      {group.builderFee ?? '—'}
+                    </td>
+                    <td>{group.feeAsset ?? '—'}</td>
+                    <td className="lt-num" data-cell="realised">
+                      {group.realisedPnl === null ? '—' : group.realisedPnl}
+                    </td>
+                    {tagOf ? <td data-cell="tag">{group.order ? (tagOf(group.order) ?? '') : ''}</td> : null}
+                  </tr>
+                );
+                return [head, ...group.fills.map((f) => renderFillRow(f, group.order))];
+              })
+            : rows.map((f) => renderFillRow(f, null))}
         </DataTable>
       )}
       <AsOfLine asOf={fills?.asOf ?? null} />
@@ -481,11 +553,6 @@ function VenueFeeCell({ amount }: { amount: string }) {
       </span>
     );
   return <>{amount}</>;
-}
-
-/** A fill's total: its price times its size, exact (both are the venue's decimals). */
-export function fillTotal(f: VenueFill): string {
-  return formatAmount(mul(parseAmount(f.price), parseAmount(f.amount), 'half-up'));
 }
 
 /**
