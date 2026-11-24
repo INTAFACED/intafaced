@@ -27,6 +27,7 @@ import {
   venueOrderRecordSchema,
   venueOrderPageSchema,
   venueFillSchema,
+  venueArrivalSchema,
   venuePositionSchema,
   venueLeverageChangeSchema,
   venueIsolatedMarginSchema,
@@ -386,6 +387,9 @@ export function venueApi(api: ApiClient) {
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
+    /** Credits into the account from outside it (deposits, transfers in), oldest first (J-portfolio-06 #3). */
+    arrivals: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
+      read('/arrivals', asOf(z.array(venueArrivalSchema)), { owner, ...at }, signal),
     /** The positions on one account: the main account, or one of the owner's sub-accounts, on a venue (J-derivatives-05). */
     positions: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/positions', asOf(z.array(venuePositionSchema)), { owner, ...at }, signal),

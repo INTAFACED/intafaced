@@ -436,6 +436,16 @@ export const venueFillSchema = z.object({
 });
 export type VenueFill = z.infer<typeof venueFillSchema>;
 
+/** One credit into the account from outside it, as the venue reports it (J-portfolio-06 #3). */
+export const venueArrivalSchema = z.object({
+  arrivalId: z.string(),
+  kind: z.enum(['deposit', 'transfer_in']),
+  asset: z.string(),
+  amount: decimalSchema,
+  arrivedAt: isoTime,
+});
+export type VenueArrival = z.infer<typeof venueArrivalSchema>;
+
 export const venuePositionSchema = z.object({
   symbol: z.string(),
   side: z.enum(['long', 'short']),

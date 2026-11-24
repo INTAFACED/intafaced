@@ -230,5 +230,5 @@ export function useStanding(
     failed ? null : prices,
     unit,
   );
-  return { wallet, venue, partner, standing: result, pricesFailed: failed };
+  return { wallet, venue, partner, standing: result, pricesFailed: failed, prices: failed ? null : prices };
 }

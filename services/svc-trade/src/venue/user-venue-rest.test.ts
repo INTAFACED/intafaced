@@ -875,3 +875,28 @@ describe('/api/v1/venue/orders/by-client-id (J-cex-spot-15 #5)', () => {
     expect(random.json().intafacedCode).toBe('trade.venue.invalid_client_order_key');
   });
 });
+
+describe('/api/v1/venue/arrivals (J-portfolio-06 #3)', () => {
+  it('returns the credits the venue recorded for the account with decimal amounts and ISO times', async () => {
+    const account = { venueId: sim.venue.id, owner, subAccount: null };
+    const ref = 'chain:rest-arrivals:1';
+    sim.deposit(account, 'USDT', parseAmount('125.5'), ref);
+
+    await mount(door());
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/arrivals?owner=${owner}` });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json();
+    expect(typeof body.asOf).toBe('string');
+    expect(body.value).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          arrivalId: ref,
+          kind: 'deposit',
+          asset: 'USDT',
+          amount: '125.5',
+          arrivedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        }),
+      ]),
+    );
+  });
+});
