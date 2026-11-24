@@ -1971,7 +1971,7 @@ function ensureStreams() {
     env: { ...baseEnv(), NATS_URL: `nats://${HOST}:${PORTS.nats}`, NATS_STREAM_PREFIX: STREAM_PREFIX },
     encoding: 'utf8',
   });
-  if (r.status !== 0) fail(`creating NATS streams failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  if (r.status !== 0) fail(`creating NATS streams failed: ${(r.stderr || r.stdout).slice(-500)}`);
   say(`  nats streams: ${r.stdout.trim()}`);
 }
 
