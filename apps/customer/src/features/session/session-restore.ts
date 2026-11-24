@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { createApiClient, type ApiResult } from '../../shared/api';
+import { createApiClient, type ApiResult, callAs } from '../../shared/api';
 import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
-import { IDENTITY_AUTH_SUB_ACCOUNT_SESSION } from '@intafaced/contracts/identity-auth-procedures';
+import { IDENTITY_AUTH_SUB_ACCOUNT_SESSION, IDENTITY_AUTH_REFRESH } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -133,7 +133,7 @@ export function createSessionRefresher(
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
   const attempt = async (idle: boolean) =>
-    mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
+    mapRefreshResult(await callAs(api, IDENTITY_AUTH_REFRESH, idle ? { idle: true } : {}, sessionSchema));
   async function once(idle: boolean): Promise<RefreshOutcome> {
     const first = await attempt(idle);
     if (first.kind !== 'unavailable') return first;
