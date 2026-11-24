@@ -4,7 +4,7 @@ import { Button, Select } from '@intafaced/ui/lit';
 import { MonitorTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { ScrollTable, Waiting } from '../../more';
 import { useSession } from '../../session';
-import { usePolled } from '../../protocol';
+import { TabList, usePolled } from '../../protocol';
 import { closeWorstPrice } from '../../../screens/trade/futures/VenueFuturesDesk';
 import { compareDecimal } from '../../../data/decimal';
 import { useVenueMode } from '../use-venue-mode';
@@ -40,6 +40,7 @@ import {
 import { positionsCopy } from './positions-copy';
 import { LiquidationAftermath, LiquidationPanel } from './LiquidationPanels';
 import { AutoTopUpPanel } from './AutoTopUpPanel';
+import { MarginCalls, RiskAlertsPanel } from './RiskAlertsPanel';
 
 /**
  * The positions room (`/trade/positions`, J-derivatives-05): the person's futures positions on every connected venue with
@@ -65,7 +66,7 @@ export function PositionsRoom({ path }: { path: string }) {
       mode="pro"
       figures={[]}
       roomAction={link ? deskLink : undefined}
-      explain={<p className="lt-hint">{t('eyebrow')}</p>}
+      explain={<p className="lt-hint">{t('explain')}</p>}
     />
   );
   if (!userId)
@@ -99,7 +100,7 @@ export function PositionsRoom({ path }: { path: string }) {
             <Owned>{(owner) => <Room owner={owner} status={status} path={path} />}</Owned>
           </div>
         }
-        explain={<p className="lt-hint">{t('eyebrow')}</p>}
+        explain={<p className="lt-hint">{t('explain')}</p>}
       />
     </VenueFrame>
   );
@@ -153,6 +154,7 @@ interface VenueRead {
 const FILLS_WINDOW_MS = 7 * 24 * 3_600_000;
 
 function Room({ owner, status, path }: { owner: string; status: VenueUp; path: string }) {
+  const { t } = positionsCopy.useCopy();
   const venue = useVenueApi();
   const venues = venuesOf(status);
   const since = useRef(new Date(Date.now() - FILLS_WINDOW_MS).toISOString()).current;
@@ -205,42 +207,62 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
   const fillsOf = (venueId: string) => reads.data?.find((r) => r.venue.id === venueId)?.fills ?? [];
   const reload = () => reads.reload();
   const addressed = new URL(path, location.origin).searchParams.get('subAccount');
+  const [tab, setTab] = useState<'positions' | 'calls'>(
+    new URL(path, location.origin).searchParams.get('tab') === 'margin-calls' ? 'calls' : 'positions',
+  );
+  const up = venues.find((v) => v.down === null);
   return (
-    <>
-      <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
-      <AllPositions
-        owner={owner}
-        reads={reads.data}
-        rows={rows}
-        marketOf={marketOf}
-        fillsOf={fillsOf}
-        run={run}
-        onDone={reload}
-        test={status.test}
-        builder={status.builder}
-      />
-      <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
-      <Modes
-        owner={owner}
-        venues={venues}
-        perpsOf={(venueId) => (markets.data?.[venueId] ?? []).filter((m) => m.kind === 'perpetual').map((m) => m.symbol)}
-        run={run}
-      />
-      {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
-      {venues
-        .filter((v) => v.down === null)
-        .map((v) => (
-          <SubAccounts
-            key={v.id}
+    <TabList
+      label={t('tabsLabel')}
+      tabs={[
+        { id: 'positions', label: t('tabPositions') },
+        { id: 'calls', label: t('tabCalls') },
+      ]}
+      value={tab}
+      onChange={setTab}
+    >
+      {tab === 'calls' ? (
+        up ? (
+          <MarginCalls owner={owner} venue={up} />
+        ) : null
+      ) : (
+        <>
+          <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
+          <AllPositions
             owner={owner}
-            venue={v}
-            mainRows={rows.filter((r) => r.venue.id === v.id)}
-            marketOf={(symbol) => marketOf(v.id, symbol)}
+            reads={reads.data}
+            rows={rows}
+            marketOf={marketOf}
+            fillsOf={fillsOf}
             run={run}
             onDone={reload}
+            test={status.test}
+            builder={status.builder}
           />
-        ))}
-    </>
+          <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
+          <Modes
+            owner={owner}
+            venues={venues}
+            perpsOf={(venueId) => (markets.data?.[venueId] ?? []).filter((m) => m.kind === 'perpetual').map((m) => m.symbol)}
+            run={run}
+          />
+          {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
+          {venues
+            .filter((v) => v.down === null)
+            .map((v) => (
+              <SubAccounts
+                key={v.id}
+                owner={owner}
+                venue={v}
+                mainRows={rows.filter((r) => r.venue.id === v.id)}
+                marketOf={(symbol) => marketOf(v.id, symbol)}
+                run={run}
+                onDone={reload}
+              />
+            ))}
+        </>
+      )}
+    </TabList>
   );
 }
 
@@ -815,6 +837,7 @@ function IsolatedMargin({
         </p>
       ) : null}
       {now ? <AutoTopUpPanel owner={owner} symbol={p.symbol} venueName={row.venue.name} /> : null}
+      {now ? <RiskAlertsPanel owner={owner} symbol={p.symbol} venueName={row.venue.name} /> : null}
       <Button tone="secondary" onClick={onClose}>
         {t('close')}
       </Button>

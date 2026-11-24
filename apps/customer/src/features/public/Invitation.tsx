@@ -410,7 +410,7 @@ export function Invitation() {
       {!parsed.success && !tag && (
         <section data-testid="invitation__card" className="lt-stack">
           <h2>{t(capability ? 'invalid' : 'missing')}</h2>
-          <p className="lt-hint">{t(capability ? 'invalidBody' : 'missingBody')}</p>
+          <p className="lt-hint">{t(capability ? 'invalidBody' : userId ? 'missingSignedInBody' : 'missingBody')}</p>
           <a data-testid="invitation__primary" className="lt-button lt-button-primary" href="/uc/promotion">
             {t('account')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
           </a>

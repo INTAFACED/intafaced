@@ -119,6 +119,8 @@ import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createFactorStatusRouter } from './factor-status-router.js';
+import { createEmbeddedWalletRouter } from './embedded-wallet/router.js';
+import { turnkeyFromSettings } from './embedded-wallet/turnkey.js';
 import { createSigninMethodsRouter } from './signin-methods-router.js';
 import { createWorkItemsRouter } from './work-items.js';
 import { createServerTimeRouter } from './server-time-router.js';
@@ -137,6 +139,7 @@ import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
 import { relaySelfFreezeEvents } from './auth/self-freeze-events.js';
+import { registerSupportAccountFreezeRoutes, relaySupportAccountFreezeEvents } from './auth/support-account-freeze.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
@@ -774,6 +777,12 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
 const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env.IDENTITY_SOCIAL_FLOW_TTL_SECONDS });
 
+// The owner's embedded-wallet provider (J-wallet-22): all blank is unset; a half-set or malformed key refuses to boot.
+const embeddedWalletMaker = turnkeyFromSettings({
+  organizationId: env.TURNKEY_ORGANIZATION_ID,
+  apiPublicKey: env.TURNKEY_API_PUBLIC_KEY,
+  apiPrivateKey: env.TURNKEY_API_PRIVATE_KEY,
+});
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
@@ -838,6 +847,7 @@ export const appRouter = mergeRouters(
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    ratePolicy,
     portfolioKeyCap: parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX),
     developerRoles: parseDeveloperRoles(env.IDENTITY_DEVELOPER_ROLES),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
@@ -858,6 +868,7 @@ export const appRouter = mergeRouters(
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    ratePolicy,
     mayMint: passkeyMintRule(sql),
     sandboxCapByTier: parseSandboxCapByTier(env.IDENTITY_SANDBOXES_MAX_BY_TIER),
     baseUrl: parseSandboxBaseUrl(env.IDENTITY_SANDBOX_BASE_URL),
@@ -952,6 +963,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
+  createEmbeddedWalletRouter(embeddedWalletMaker),
   createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social, phone: { sms } }),
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
@@ -1380,6 +1392,9 @@ registerSupportWithdrawalFreezeRoute(app, {
   records: (input) => supportWithdrawalFreezeRecords(sql, input),
 });
 
+/** A support agent's account freeze from a customer's request (J-support-public-20 #7): svc-support only. */
+registerSupportAccountFreezeRoutes(app, { sql, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+
 /**
  * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a
  * withdrawal address reads it per request and refuses while `frozen` is true; it keeps no copy. Service credentials only.
@@ -1500,6 +1515,17 @@ setInterval(() => {
     .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.self_freeze_relay_failed'))
     .finally(() => {
       selfFreezeRelayRunning = false;
+    });
+}, 1_000).unref();
+// A support agent's account freeze (J-support-public-20 #7): announced from its own row once it commits, at least once.
+let supportFreezeRelayRunning = false;
+setInterval(() => {
+  if (supportFreezeRelayRunning) return;
+  supportFreezeRelayRunning = true;
+  void relaySupportAccountFreezeEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.support_account_freeze_relay_failed'))
+    .finally(() => {
+      supportFreezeRelayRunning = false;
     });
 }, 1_000).unref();
 // KYC case history (I-kyc-compliance-01): kycSubmitted and kycRejected from their own rows, at least once; one run at a time.

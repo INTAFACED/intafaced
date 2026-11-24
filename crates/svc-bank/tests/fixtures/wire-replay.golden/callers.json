@@ -527,6 +527,7 @@
   { "path": "transfers.resume", "type": "mutation", "caller": "scope" },
   { "path": "transfers.schedule", "type": "mutation", "caller": "scope" },
   { "path": "transfers.scheduleToUser", "type": "mutation", "caller": "scope" },
+  { "path": "transfers.sent", "type": "query", "caller": "scope" },
   { "path": "transfers.settleWithdrawal", "type": "mutation", "caller": "service" },
   { "path": "transfers.toUser", "type": "mutation", "caller": "scope" },
   { "path": "transfers.updateSchedule", "type": "mutation", "caller": "scope" },

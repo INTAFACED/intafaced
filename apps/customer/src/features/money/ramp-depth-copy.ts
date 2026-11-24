@@ -3,7 +3,7 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   sectionsLabel: 'Cash and crypto sections',
   explain:
-    'Adding money and cashing out each need a partner: what is connected in this build is named above, and anything not connected stays on the screen with the reason. Your history lists every request you made, with the status the bank last reported.',
+    'Adding money and cashing out each go through a payment partner. The box above shows which are connected right now, and anything that isn’t says why. Your history lists every request you made, with its latest status from the bank.',
   providerTitle: 'Payment provider',
   providerLead: 'Cash in and cash out run through a payment provider. This is what is connected right now.',
   providerCrypto: 'Crypto cash-out',
@@ -30,7 +30,7 @@ const en = {
   outAmount: 'Amount to send',
   outDestination: 'Wallet address',
   outDestinationHint: 'Paste the address exactly. Transfers to a wrong address cannot be undone.',
-  outNoteQuote: 'The service does not quote a fee in advance. The review shows the exact amount that will be held from your balance.',
+  outNoteQuote: 'The fee isn’t known in advance. The review shows the exact amount that will be held from your balance.',
   outNoteSteps: 'You review the exact amount, confirm, and then follow the status below.',
   outBlockNone: 'Cash-out is not available because no payment provider is connected.',
   outBlockTest: 'Cash-out is not available because only a test rail is connected. Nothing could reach a real wallet.',
@@ -51,7 +51,7 @@ const en = {
 const es = {
   sectionsLabel: 'Secciones de efectivo y cripto',
   explain:
-    'Añadir dinero y retirar necesitan un socio cada uno: arriba se indica qué está conectado en esta versión, y lo que no lo está sigue en pantalla con el motivo. Tu historial muestra cada solicitud que hiciste, con el último estado que informó el banco.',
+    'Añadir dinero y retirar pasan cada uno por un socio de pagos. El recuadro de arriba muestra cuáles están conectados ahora, y lo que no lo está dice por qué. Tu historial muestra cada solicitud que hiciste, con su último estado según el banco.',
   providerTitle: 'Proveedor de pagos',
   providerLead: 'Ingresar y retirar dinero pasa por un proveedor de pagos. Esto es lo que está conectado ahora mismo.',
   providerCrypto: 'Retirada de cripto',
@@ -78,7 +78,7 @@ const es = {
   outAmount: 'Importe a enviar',
   outDestination: 'Dirección de la cartera',
   outDestinationHint: 'Pega la dirección tal cual. Los envíos a una dirección equivocada no se pueden deshacer.',
-  outNoteQuote: 'El servicio no cotiza una comisión por adelantado. La revisión muestra el importe exacto que se retendrá de tu saldo.',
+  outNoteQuote: 'La comisión no se conoce por adelantado. La revisión muestra el importe exacto que se retendrá de tu saldo.',
   outNoteSteps: 'Revisas el importe exacto, confirmas y luego sigues el estado más abajo.',
   outBlockNone: 'La retirada no está disponible porque no hay ningún proveedor de pagos conectado.',
   outBlockTest: 'La retirada no está disponible porque solo hay un canal de prueba conectado. Nada podría llegar a una cartera real.',
@@ -99,7 +99,7 @@ const es = {
 const fr = {
   sectionsLabel: 'Sections espèces et crypto',
   explain:
-    'Ajouter de l’argent et retirer nécessitent chacun un partenaire : ce qui est connecté dans cette version est indiqué ci-dessus, et ce qui ne l’est pas reste à l’écran avec la raison. Votre historique liste chaque demande faite, avec le dernier statut indiqué par la banque.',
+    'Ajouter de l’argent et retirer passent chacun par un partenaire de paiement. Le cadre ci-dessus montre ce qui est connecté en ce moment, et ce qui ne l’est pas dit pourquoi. Votre historique liste chaque demande faite, avec son dernier statut indiqué par la banque.',
   providerTitle: 'Prestataire de paiement',
   providerLead: 'Les dépôts et retraits passent par un prestataire de paiement. Voici ce qui est connecté en ce moment.',
   providerCrypto: 'Retrait en crypto',
@@ -126,7 +126,7 @@ const fr = {
   outAmount: 'Montant à envoyer',
   outDestination: 'Adresse du portefeuille',
   outDestinationHint: 'Collez l’adresse telle quelle. Un envoi vers une mauvaise adresse ne peut pas être annulé.',
-  outNoteQuote: 'Le service ne chiffre pas de frais à l’avance. La vérification montre le montant exact qui sera retenu sur votre solde.',
+  outNoteQuote: 'Les frais ne sont pas connus à l’avance. La vérification montre le montant exact qui sera retenu sur votre solde.',
   outNoteSteps: 'Vous vérifiez le montant exact, confirmez, puis suivez le statut ci-dessous.',
   outBlockNone: 'Le retrait n’est pas disponible car aucun prestataire de paiement n’est connecté.',
   outBlockTest: 'Le retrait n’est pas disponible car seul un canal de test est connecté. Rien ne pourrait arriver à un vrai portefeuille.',

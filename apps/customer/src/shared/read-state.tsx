@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { isServiceNotConnected, type ApiResult } from './api';
+import { isServiceNotConnected, isVerifyFirst, type ApiResult } from './api';
+import { VerifyFirstNote } from './verify-first';
 import { refusalCopy } from '../data/refusals';
 import type { Resource } from './resource';
 import { uiCopy, uiMessage } from './ui-copy';
@@ -43,6 +44,7 @@ export function ReadFailure({ result, retry }: { result: Failed; retry?: () => v
       </div>
     );
   }
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   const uncertain = result.reason === 'uncertain';
   const rawCode = failureRawCode(result);
   if (rawCode && !result.messageCopy) {

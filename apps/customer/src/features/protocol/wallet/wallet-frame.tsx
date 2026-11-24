@@ -1,7 +1,5 @@
-import { Tag } from '@intafaced/ui/lit';
 import { navigate } from '../../../app/location';
 import { usePreferences } from '../../../shared/preferences';
-import { protocolCopy } from '../copy';
 import { WALLET_SECTIONS, type WalletSection, walletSections } from '../routes';
 import { Tabs } from '../volt/parts';
 import { walletCopy } from './copy';
@@ -15,7 +13,6 @@ const SECTIONS = walletSections();
 export function useWalletFrame(section: WalletSection) {
   const { language } = usePreferences();
   const { t, renderedLocale } = walletCopy.forLocale(language);
-  const { t: tp } = protocolCopy.forLocale(language);
   return {
     lang: renderedLocale,
     title: t('title'),
@@ -31,7 +28,7 @@ export function useWalletFrame(section: WalletSection) {
     ),
     banner: (
       <p className="lt-hint">
-        <span>{t('bannerLine')}</span> <Tag>{tp('bannerPill')}</Tag>
+        <span>{t('bannerLine')}</span>
       </p>
     ),
   };

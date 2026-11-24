@@ -5,7 +5,19 @@
  */
 export * from './templates.js';
 export { NOT_CONNECTED_CODES, ServiceOffNotice, type NotConnectedCode, type ServiceOffNoticeProps } from './service-off.js';
-export { GateArea, LegalSlotsSwitch, Receipt, Review, RefusalBox, Region, RoomFrame, StateView, reviewComplete } from './frame.js';
+export {
+  FirstState,
+  GateArea,
+  LegalSlotsSwitch,
+  Receipt,
+  Review,
+  RefusalBox,
+  Region,
+  RoomFrame,
+  StateView,
+  reviewComplete,
+  type FirstStateProps,
+} from './frame.js';
 export { RegistryLegalSlot, BAND_MOMENTS, type RegistryLegalSlotProps } from './legal/LegalSlot.js';
 export { LEGAL_MOMENTS, resolveLegal, type LegalMoment, type LegalSlotType, type TextRun, type Wording } from './legal/registry.js';
 export { formatMoney, isDecimal, reconcileParts, sumDecimals, sumMoney, subtractDecimals, type Part } from './money.js';

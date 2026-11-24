@@ -1,13 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import * as accounts from './contracts-accounts';
-import * as analytics from './contracts-analytics';
-import * as business from './contracts-business';
-import * as cards from './contracts-cards';
-import * as earn from './contracts-earn';
-import * as loans from './contracts-loans';
-import * as payments from './contracts-payments';
-import * as ramps from './contracts-ramps';
-import * as spaces from './contracts-spaces';
 import { countPlanted, countRule } from '../../../../../tooling/lint/count-rule.mjs';
 import { bankReads, bankWrites } from './contracts';
 
@@ -18,7 +9,6 @@ import { bankReads, bankWrites } from './contracts';
 const RULE = 'garden/compose-only';
 const OFF = ['oxlint', 'disable'].join('-');
 const FILE = 'apps/customer/src/features/money/contracts.ts';
-const areas = { accounts, analytics, business, cards, earn, loans, payments, ramps, spaces } as Record<string, Record<string, unknown>>;
 
 describe('contracts.ts only composes the bank areas', () => {
   it('declares nothing of its own and lists no procedure inline, by the rule run strict', () => {
@@ -42,19 +32,8 @@ describe('contracts.ts only composes the bank areas', () => {
     expect(countPlanted(RULE, { [FILE]: planted }, { strict: true }).files).toEqual({ [FILE]: 3 });
   }, 60_000);
 
-  it('gives each procedure to one area, so no spread overwrites another', () => {
-    for (const [kind, composed] of [
-      ['Reads', bankReads],
-      ['Writes', bankWrites],
-    ] as const) {
-      const owners = new Map<string, string[]>();
-      for (const [area, mod] of Object.entries(areas)) {
-        for (const key of Object.keys((mod[`${area}${kind}`] as object | undefined) ?? {})) {
-          owners.set(key, [...(owners.get(key) ?? []), area]);
-        }
-      }
-      expect([...owners].filter(([, by]) => by.length > 1)).toEqual([]);
-      expect(Object.keys(composed).sort()).toEqual([...owners.keys()].sort());
-    }
+  it('keys no bank call by its name: every call is a record, so both composed objects are empty', () => {
+    expect(Object.keys(bankReads)).toEqual([]);
+    expect(Object.keys(bankWrites)).toEqual([]);
   });
 });

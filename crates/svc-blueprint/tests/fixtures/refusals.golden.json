@@ -1,0 +1,298 @@
+{
+  "refusals": [
+    {
+      "kind": "blueprint",
+      "code": "blueprint.not_found",
+      "via": "card",
+      "status": 404,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.not_found\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.not_found",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.not_found\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.not_found\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.crew_not_found",
+      "via": "card",
+      "status": 404,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.crew_not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.crew_not_found\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.crew_not_found",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.crew_not_found\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.crew_not_found\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.crew_full",
+      "via": "card",
+      "status": 409,
+      "body": "{\"error\":{\"message\":\"That crew is full\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.crew_full\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.crew_full",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.crew_full\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.crew_full\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.engine_unavailable",
+      "via": "card",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"The Neural Engine is unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.engine_unavailable\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.engine_unavailable",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.engine_unavailable\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.engine_protocol",
+      "via": "card",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"The Neural Engine returned an unusable profile\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.engine_protocol\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.engine_protocol",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.engine_protocol\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.engine_protocol\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.invalid_profile",
+      "via": "card",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"The Neural Engine returned an unusable profile\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.invalid_profile\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.invalid_profile",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.invalid_profile\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.invalid_profile\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.crew_capacity_unset",
+      "via": "card",
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.crew_capacity_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.crew_capacity_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.crew_capacity_unset",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.crew_capacity_unset\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.crew_capacity_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.mentor_shortlist_unset",
+      "via": "card",
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.mentor_shortlist_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.mentor_shortlist_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.mentor_shortlist_unset",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.mentor_shortlist_unset\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.mentor_shortlist_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.season_unset",
+      "via": "card",
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.season_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.season_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.season_unset",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.season_unset\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.season_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.share_limit_unset",
+      "via": "card",
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.share_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.share_limit_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.share_limit_unset",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.share_limit_unset\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.share_limit_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.share_limit_reached",
+      "via": "card",
+      "status": 409,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.share_limit_reached\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.share_limit_reached\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.share_limit_reached",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.share_limit_reached\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.share_limit_reached\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.opens_list_limit_unset",
+      "via": "card",
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.opens_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.opens_list_limit_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.opens_list_limit_unset",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.opens_list_limit_unset\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.opens_list_limit_unset\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.open_log_unavailable",
+      "via": "card",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.open_log_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.open_log_unavailable\"}}}}"
+    },
+    {
+      "kind": "blueprint",
+      "code": "blueprint.open_log_unavailable",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.open_log_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.open_log_unavailable\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_on_chain_unbuilt",
+      "via": "card",
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_on_chain_unbuilt\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_on_chain_unbuilt\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_on_chain_unbuilt",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_on_chain_unbuilt\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_on_chain_unbuilt\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_cross_plane_address",
+      "via": "card",
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_cross_plane_address\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_cross_plane_address\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_cross_plane_address",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_cross_plane_address\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_cross_plane_address\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_custodial_user_id",
+      "via": "card",
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_custodial_user_id\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_custodial_user_id\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_custodial_user_id",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_custodial_user_id\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_custodial_user_id\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_identity",
+      "via": "card",
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_identity\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_identity\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_identity",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_identity\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_identity\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_kyc",
+      "via": "card",
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_kyc\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_kyc\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_pii_kyc",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_pii_kyc\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_pii_kyc\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_threat_model_unmet",
+      "via": "card",
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_threat_model_unmet\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_threat_model_unmet\"}}}}"
+    },
+    {
+      "kind": "attestation",
+      "code": "blueprint.attestation_threat_model_unmet",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: blueprint.attestation_threat_model_unmet\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"blueprint.attestation_threat_model_unmet\"}}}}"
+    },
+    {
+      "kind": "coded",
+      "code": "outside.code",
+      "via": "card",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"Request failed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"card\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"outside.code\"}}}}"
+    },
+    {
+      "kind": "coded",
+      "code": "outside.code",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: a coded failure\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"outside.code\"}}}}"
+    },
+    {
+      "kind": "plain",
+      "code": "",
+      "via": "card",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"Request failed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"card\",\"requestId\":\"replay-request\"}}}"
+    },
+    {
+      "kind": "plain",
+      "code": "",
+      "via": "me",
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"replay: an unexpected failure\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\"}}}"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { shownCode } from '../../../shared/reference';
 import { AmountInput, Button, CoinIcon, fmtAmount, refusalCopy, type MarketRow } from '../buy/deps';
 import { dec } from '../buy/trade-math';
 import type { LimitConvert as LimitRow, createToolApi } from '../../../features/trade/tool-api';
@@ -93,7 +94,7 @@ export function LimitConvert({
     } else {
       requestId.current = null;
       const copy = refusalCopy(result.code ?? '', { asset: from, available: available ?? '' });
-      setMessage(`${copy.title}. ${copy.body}${result.code ? ` (Ref ${result.code})` : ''}`);
+      setMessage(`${copy.title}. ${copy.body}${shownCode(result.code) ? ` (Ref ${result.code})` : ''}`);
     }
   }
 

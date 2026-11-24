@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_LIST } from '@intafaced/contracts/identity-recipients-procedures';
-import { AdminSessionError, founderEdgeCall, founderEdgeRecordCall, type AdminSessionConfig } from './founder-session.js';
+import {
+  AdminSessionError,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+  founderEdgeRecordRead,
+  type AdminSessionConfig,
+} from './founder-session.js';
 
 /**
  * `founderEdgeRecordCall` is `founderEdgeCall` through the call's record: the call-records codemod
@@ -56,6 +62,29 @@ describe('founderEdgeRecordCall: founderEdgeCall through its record', () => {
     expect(recorded).toEqual(named);
     record(() => Response.json({ result: { data: [{ handle: 1 }] } }));
     await expect(founderEdgeRecordCall(config, IDENTITY_RECIPIENTS_LIST, {})).rejects.toMatchObject({
+      code: 'admin.upstream_invalid',
+      status: 502,
+    });
+  });
+});
+
+describe('founderEdgeRecordRead: a soft read, for a caller whose own .safeParse() decides what an unreadable answer means', () => {
+  it('sends what the call by name sends and hands back the answer the record reads', async () => {
+    const byName = record(() => Response.json({ result: { data: [ADDED] } }));
+    await founderEdgeCall(config, 'identity', 'recipients.list', 'GET', { limit: 5 }, 'token-1');
+    const sentByName = byName();
+    const byRecord = record(() => Response.json({ result: { data: [ADDED] } }));
+    expect(await founderEdgeRecordRead(config, IDENTITY_RECIPIENTS_LIST, { limit: 5 }, 'token-1')).toEqual([ADDED]);
+    expect(byRecord()).toEqual(sentByName);
+  });
+
+  it('an answer the record refuses is undefined, never a throw; a refusal or a broken reply still throws', async () => {
+    record(() => Response.json({ result: { data: [{ handle: 1 }] } }));
+    expect(await founderEdgeRecordRead(config, IDENTITY_RECIPIENTS_LIST, {})).toBeUndefined();
+    record(() => Response.json({ error: { message: 'no' } }, { status: 403 }));
+    await expect(founderEdgeRecordRead(config, IDENTITY_RECIPIENTS_LIST, {})).rejects.toMatchObject({ code: 'admin.authority_refused' });
+    record(() => Response.json({ nope: true }));
+    await expect(founderEdgeRecordRead(config, IDENTITY_RECIPIENTS_LIST, {})).rejects.toMatchObject({
       code: 'admin.upstream_invalid',
       status: 502,
     });

@@ -10,6 +10,7 @@ import {
   ProviderUnavailableError,
   TEST_PROVIDER_DISPLAY_NAME,
   embeddedWalletFromSetting,
+  identityProvisionAdapter,
   testProviderAdapter,
   type EmbeddedWalletProviderAdapter,
   type EmbeddedWalletSetting,
@@ -36,7 +37,6 @@ function fakeProvider(over: Partial<EmbeddedWalletProviderAdapter> = {}) {
       byOwner.set(input.ownerRef, wallet);
       return wallet;
     },
-    getWallet: async () => null,
     ...over,
   };
   return { adapter, calls };
@@ -60,11 +60,22 @@ async function refusal(work: () => Promise<unknown>): Promise<{ code: string; me
 }
 
 describe('the owner’s provider setting', () => {
-  it('blank is unset; privy and turnkey are known but unwired; TEST:test is the TEST provider on the test stack only', () => {
+  it('blank is unset; privy is known but unwired; turnkey needs svc-identity’s URL; TEST:test is the TEST provider on the test stack only', () => {
     expect(embeddedWalletFromSetting(undefined, undefined, 'production')).toEqual({ kind: 'unset' });
     expect(embeddedWalletFromSetting('  ', undefined, 'production')).toEqual({ kind: 'unset' });
     expect(embeddedWalletFromSetting('privy', undefined, 'production')).toEqual({ kind: 'unwired', id: 'privy' });
-    expect(embeddedWalletFromSetting('turnkey', undefined, 'production')).toEqual({ kind: 'unwired', id: 'turnkey' });
+    expect(() => embeddedWalletFromSetting('turnkey', undefined, 'production')).toThrow(/turnkey needs IDENTITY_URL.*Refusing to boot/);
+    expect(() => embeddedWalletFromSetting('turnkey', undefined, 'production', fetch, undefined, 'not a url')).toThrow(
+      /needs IDENTITY_URL/,
+    );
+    const owner = embeddedWalletFromSetting('turnkey', undefined, 'production', fetch, undefined, 'http://svc-identity:4002');
+    // Named without the vendor (user-facing copy names no partner), and offering no export or recovery in this build yet.
+    expect(owner.kind === 'ready' && owner.adapter.info).toEqual({
+      id: 'turnkey',
+      displayName: 'your wallet provider',
+      test: false,
+      capabilities: { export: false, recovery: false },
+    });
     const test = embeddedWalletFromSetting('TEST:test', URL, 'test');
     expect(test.kind === 'ready' && test.adapter.info).toEqual({
       id: 'test',
@@ -215,7 +226,80 @@ describe('the TEST provider adapter over HTTP', () => {
         providerName: 'TEST wallet provider',
       });
     }
-    expect(await testProviderAdapter(URL, answer(404, { error: 'not_found' })).getWallet('nope')).toBeNull();
+  });
+});
+
+describe('the owner’s provider, made through svc-identity', () => {
+  const IDENTITY = 'http://svc-identity:4002';
+  const FORWARDED = { 'x-intafaced-principal': 'p', 'x-intafaced-principal-sig': 's', 'x-intafaced-region': 'DE' };
+  const WALLET_ID = 'sub-1/wallet-1';
+  type Sent = { url: string; method: string; headers: Headers; body: string };
+  function identity(status: number, body: unknown) {
+    const sent: Sent[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      sent.push({ url: String(input), method: String(init?.method), headers: new Headers(init?.headers), body: String(init?.body) });
+      return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+    };
+    return { fetcher, sent };
+  }
+  const make = (fetcher: typeof fetch, forwarded: Record<string, string> | undefined = FORWARDED) =>
+    identityProvisionAdapter(IDENTITY, fetcher).createWallet({
+      ownerRef: ALICE,
+      idempotencyKey: embeddedWalletKey(ALICE),
+      passkey: PASSKEY,
+      ...(forwarded ? { forwarded } : {}),
+    });
+
+  it('asks svc-identity’s record with the person’s own signed principal and the passkey only, and keeps its answer', async () => {
+    const { fetcher, sent } = identity(200, { result: { data: { walletId: WALLET_ID, address: ADDRESS.toLowerCase(), ownerRef: ALICE } } });
+    expect(await make(fetcher)).toEqual({ walletId: WALLET_ID, address: ADDRESS, ownerRef: ALICE });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toBe(`${IDENTITY}/trpc/embeddedWallet.provision`);
+    expect(sent[0]!.method).toBe('POST');
+    expect(JSON.parse(sent[0]!.body)).toEqual({ passkey: PASSKEY });
+    for (const [name, value] of Object.entries(FORWARDED)) expect(sent[0]!.headers.get(name)).toBe(value);
+  });
+
+  it('with no signed-in person on the request nothing is asked, and it is down', async () => {
+    const { fetcher, sent } = identity(200, {});
+    await expect(make(fetcher, {})).rejects.toMatchObject({ name: 'ProviderUnavailableError', providerName: 'your wallet provider' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('a 409 is the provider refusing the passkey; no answer, any other error, non-JSON or no wallet is down; nothing recorded', async () => {
+    const refused = deps({ kind: 'ready', adapter: identityProvisionAdapter(IDENTITY, identity(409, {}).fetcher) });
+    const err = await createEmbeddedWallet(refused, { userId: ALICE, passkey: PASSKEY, forwarded: FORWARDED }).catch((e: unknown) => e);
+    expect((err as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_wallet_mismatch');
+    expect(refused.store.rows.size).toBe(0);
+    const downs: Array<typeof fetch> = [
+      async () => {
+        throw new TypeError('fetch failed');
+      },
+      identity(503, {}).fetcher,
+      identity(412, {}).fetcher,
+      identity(401, {}).fetcher,
+      identity(200, '<html>').fetcher,
+      identity(200, { result: { data: { walletId: WALLET_ID, address: 'not-an-address', ownerRef: ALICE } } }).fetcher,
+    ];
+    for (const fetcher of downs) {
+      const d = deps({ kind: 'ready', adapter: identityProvisionAdapter(IDENTITY, fetcher) });
+      const down = await createEmbeddedWallet(d, { userId: ALICE, passkey: PASSKEY, forwarded: FORWARDED }).catch((e: unknown) => e);
+      expect((down as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_provider_down');
+      expect(d.store.rows.size).toBe(0);
+    }
+  });
+
+  it('a wallet svc-identity says is someone else’s is never recorded', async () => {
+    const d = deps({
+      kind: 'ready',
+      adapter: identityProvisionAdapter(
+        IDENTITY,
+        identity(200, { result: { data: { walletId: WALLET_ID, address: ADDRESS, ownerRef: BOB } } }).fetcher,
+      ),
+    });
+    const err = await createEmbeddedWallet(d, { userId: ALICE, passkey: PASSKEY, forwarded: FORWARDED }).catch((e: unknown) => e);
+    expect((err as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_wallet_mismatch');
+    expect(d.store.rows.size).toBe(0);
   });
 });
 
@@ -291,6 +375,27 @@ describe('embeddedWallet.* mounted', () => {
     expect(await alice.embeddedWallet.create({ passkey: PASSKEY })).toEqual({ created: false, wallet: made.wallet });
     // Another person sees none of it.
     expect((await caller(d, signedIn(BOB)).embeddedWallet.status()).wallet).toBeNull();
+  });
+
+  it('create with the owner’s provider passes the person’s own edge-signed principal on to svc-identity, byte for byte', async () => {
+    const seen: Headers[] = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      seen.push(new Headers(init?.headers));
+      return new Response(JSON.stringify({ result: { data: { walletId: 'sub-1/wallet-1', address: ADDRESS, ownerRef: ALICE } } }));
+    };
+    const ctx = signedIn(ALICE);
+    const d = deps({ kind: 'ready', adapter: identityProvisionAdapter('http://svc-identity:4002', fetcher) });
+    const made = await caller(d, ctx).embeddedWallet.create({ passkey: PASSKEY });
+    expect(made.wallet).toMatchObject({
+      provider: 'turnkey',
+      providerWalletId: 'sub-1/wallet-1',
+      address: ADDRESS,
+      test: false,
+      holdsKey: false,
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.get('x-intafaced-principal')).toBe(ctx.forwardedPrincipal!.raw);
+    expect(seen[0]!.get('x-intafaced-principal-sig')).toBe(ctx.forwardedPrincipal!.signature);
   });
 
   it('refuses with the code leading the message; nothing wired reads as a blank setting', async () => {

@@ -44,7 +44,6 @@ import { quantRoute } from '../quant';
 import { quantModeRoute } from './quant-mode-route';
 import { Support } from './Support';
 import { SupportChatRoom } from './SupportChat';
-import { chatCopy } from './support-chat-copy';
 import { Token, selectedFor, type TokenTab } from './Token';
 import { TokenRoom } from './token-room/TokenRoom';
 import { launchCopy } from './launch-copy';
@@ -210,9 +209,7 @@ function MoreRooms({ path }: { path: string }) {
   } else if (quant) {
     ({ title, description, content } = quant);
   } else if (p === '/support/chat') {
-    title = <chatCopy.Copy k="pageTitle" />;
-    description = <chatCopy.Copy k="pageDescription" />;
-    content = <SupportChatRoom />;
+    volt = <SupportChatRoom />;
   } else if (p === '/support' || p.startsWith('/support/')) {
     // The support desk is drawn on its reading template, with its own title for each of its addresses.
     volt = <Support path={p + url.search} />;
@@ -232,7 +229,7 @@ function MoreRooms({ path }: { path: string }) {
         volt = <MiningWorkerRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
       else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'token')
-        volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
+        volt = <TokenProposalRoom key={hit.id ?? 'invalid'} proposalId={hit.invalid ? null : (hit.id ?? null)} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'market' && hit.id && !hit.invalid)
         volt = <MarketListingPage key={hit.id} listingId={hit.id} />;
       else if (hit.route.kind === 'detail' && room === 'launch' && hit.id && !hit.invalid)

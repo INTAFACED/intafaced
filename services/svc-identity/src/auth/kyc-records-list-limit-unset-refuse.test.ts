@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 import {
   AuthService,
   IDENTITY_KYC_RECORDS_LIST_LIMIT_UNSET,
@@ -45,9 +46,10 @@ describe('kyc.status / listKycRecords limit unset refuse (no invented 50)', () =
     const src = readFileSync(join(HERE, '../router.ts'), 'utf8');
     expect(src).not.toMatch(/listKycRecords\(ctx\.principal\.userId\)\)/);
     expect(src).toMatch(/listKycRecords\(ctx\.principal\.userId, input\.limit\)/);
-    expect(src).not.toMatch(/omit never dumps records[\s\S]{0,250}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.optional\(\)/);
-    expect(src).not.toMatch(/omit never dumps records[\s\S]{0,250}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.default\(/);
-    expect(src).toMatch(/omit never dumps records[\s\S]{0,250}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
+    expect(src).toMatch(/status: mountRecord\(\s*IDENTITY_KYC_STATUS,/);
+    // The record is the input schema: the limit is required, an integer in 1..200, with no default.
+    for (const limit of [1, 200]) expect(IDENTITY_KYC_STATUS.input.safeParse({ limit }).success).toBe(true);
+    for (const limit of [undefined, null, 0, 201, 1.5]) expect(IDENTITY_KYC_STATUS.input.safeParse({ limit }).success).toBe(false);
     expect(src).not.toMatch(/listKycRecords\([^)]*\?\? 50/);
   });
 

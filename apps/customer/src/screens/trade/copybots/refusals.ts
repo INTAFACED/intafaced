@@ -2,7 +2,7 @@
 // sentence (those carry internal desk-law wording). Codes not listed here fall to the shared table in data/refusals.ts.
 // The raw code is only offered as a small "Ref" line for support.
 import { LEAD_ORDER_REFUSALS } from '../../../features/trade/lead-mode';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
 import { refusalCopy } from '../../../data';
 import type { RefusalCopy } from '../../../data';
 
@@ -713,6 +713,8 @@ const SIGNALS: Readonly<Record<string, Words>> = {
 };
 
 export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>): RefusalCopy & { code: string | null } {
+  // A refusal for want of verification carries no code to show: its words and link are the app's one ask to verify.
+  if (isVerifyFirst(failure)) return { ...refusalCopy('denied.kyc_required'), code: null };
   const code = failure.code ?? null;
   const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code] ?? SIGNALS[code]) : undefined;
   if (words) return { ...words, code };

@@ -110,7 +110,7 @@ import {
   IDENTITY_API_KEYS_CREATE,
   IDENTITY_API_KEYS_LIST,
 } from '@intafaced/contracts/identity-api-keys-procedures';
-import { BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_SENT, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
 import { callAs } from '../../shared/api';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
@@ -547,15 +547,18 @@ export function createPersonalPayApi(
     if (denied) return denied;
     const result = await api.call(BANK_SPACES_LIST, { limit: 200 }, { signal });
     if (!result.ok) return result;
-    // A space the partner bank holds has no ledger account, so Pay cannot draw on it: it is not offered as a source.
-    const payable = result.data.flatMap((space) => (space.ledgerAccount ? [{ ...space, ledgerAccount: space.ledgerAccount }] : []));
+    // A space is paid from on the book that holds it: the ledger's account for it, or the partner bank's account when
+    // the partner holds the money (`heldAt`; the bank's send is then the partner's one move, J-pay-01). A space with
+    // neither is not offered, and a ledger account that is not this space's own refuses the whole read.
+    const payable = result.data.filter((space) => space.ledgerAccount !== null || space.heldAt !== null);
     if (
       payable.some(
         (space) =>
-          space.ledgerAccount.assetId !== space.assetId ||
-          (space.kind === 'primary'
-            ? space.ledgerAccount.ownerType !== 'user' || space.ledgerAccount.ownerId !== userId
-            : space.ledgerAccount.ownerType !== 'subaccount' || space.ledgerAccount.ownerId !== space.id),
+          space.ledgerAccount !== null &&
+          (space.ledgerAccount.assetId !== space.assetId ||
+            (space.kind === 'primary'
+              ? space.ledgerAccount.ownerType !== 'user' || space.ledgerAccount.ownerId !== userId
+              : space.ledgerAccount.ownerType !== 'subaccount' || space.ledgerAccount.ownerId !== space.id)),
       )
     )
       return payRefusal('theSourceAccountProjectionDoesNotMatch', { code: 'pay.source_projection_invalid', reason: 'invalid_response' });
@@ -605,6 +608,25 @@ export function createPersonalPayApi(
         recoveryCurrent,
       );
     },
+    /** The send this device is still confirming (its transfer id), or null when none is unsettled. */
+    unsettledSend: () => guard.reference(`${userId}:send`),
+    /**
+     * Settles the send this device is still confirming by the bank's own answer about that exact send: only Completed
+     * clears it; Confirming, a refusal or a failed read leaves Send waiting. Nothing is ever sent again from here.
+     */
+    settleSend: (isCurrent: () => boolean) =>
+      guard.checkOriginal(
+        `${userId}:send`,
+        async (original) => {
+          const unresolved = () =>
+            payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+          if (!original.reference) return unresolved();
+          const read = await api.call(BANK_TRANSFERS_SENT, { transferId: original.reference });
+          if (!read.ok) return read;
+          return read.data.status === 'completed' ? read : unresolved();
+        },
+        isCurrent,
+      ),
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.call(P2P_OFFERS_LIST, input, { signal }),
     /** One board page, filtered and sorted by the service; `cursor` continues the previous page under the same query. */

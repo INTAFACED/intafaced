@@ -3,9 +3,10 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError } from '@/lib/founder-session';
-import { founderCall, parseWith } from '@/lib/desk/founder-call';
+import { founderCall, parseWith, founderRecordCall } from '@/lib/desk/founder-call';
 import { readLimitClearForm, readLimitSetForm } from '@/lib/accounts/limits-forms';
 import { limitsAnswer } from '@/lib/accounts/limits-server';
+import { IDENTITY_ACCOUNT_CONTROLS_LIMITS_CLEAR } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * One founder's change to a customer's limit override (J-ops-console-04 #12): `{ action: 'set', ... }` sets one at or under
@@ -40,6 +41,6 @@ export async function POST(request: Request) {
     );
   const result = set
     ? await founderCall(session, 'identity', 'accountControls.limitsSet', 'POST', set, parseWith(accountLimitResultSchema))
-    : await founderCall(session, 'identity', 'accountControls.limitsClear', 'POST', clear!, parseWith(accountLimitResultSchema));
+    : await founderRecordCall(session, IDENTITY_ACCOUNT_CONTROLS_LIMITS_CLEAR, clear!);
   return limitsAnswer(result, (set ?? clear)!.userId);
 }

@@ -11,14 +11,15 @@ import {
   adminSessionErrorResponse,
   AdminSessionError,
   authorizeAdminRequest,
-  founderEdgeCall,
   founderEdgeRecordCall,
+  founderEdgeRecordRead,
 } from '@/lib/founder-session';
 import { tierExecute } from '@/lib/accounts/tier';
 import { handleStep } from '@/lib/desk/step-route';
 import {
   IDENTITY_ACCOUNT_CONTROLS_TIERS,
   IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
 } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
@@ -49,7 +50,7 @@ export async function GET(request: Request) {
     if (params.get('history') === 'true') {
       const parsed = accountTierHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) });
       if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
-      const data = await founderEdgeCall(config, 'identity', 'accountControls.tierHistory', 'GET', parsed.data, session.accessToken);
+      const data = await founderEdgeRecordRead(config, IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY, parsed.data, session.accessToken);
       const valid =
         Array.isArray(data) &&
         data.length <= Number(params.get('limit')) &&

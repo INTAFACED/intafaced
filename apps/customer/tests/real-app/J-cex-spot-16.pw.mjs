@@ -197,6 +197,8 @@ async function applyWritten(page, f, approvalId) {
   const { dialog } = await apply(page, f, approvalId);
   await expect(dialog.locator('[data-outcome=ok]')).toBeVisible();
   await dialog.getByRole('button', { name: 'Close' }).click();
+  // Gone, not fading: a picture taken next shows the room, not the write dialog closing over its forms.
+  await expect(dialog).toHaveCount(0);
   const written = page.locator('[data-venue=written]');
   await expect(written).toBeVisible({ timeout: 15_000 });
   return written;
@@ -325,6 +327,7 @@ const ledgerBalances = async (client) => JSON.stringify(await client.balances())
 
 test(`${J} #1 reviews which venue markets to show: shown only with a second approver; an approved listing with a blank opening window is refused`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const symbol = await freshMarket('L');
@@ -390,6 +393,8 @@ test(`${J} #1 reviews which venue markets to show: shown only with a second appr
     await expect(marketRow(a.page, symbol).locator('[data-cell=venue-status]')).toHaveText(VENUE_STATE_LABEL[venueOwn.status]);
     const row = await deskRow(symbol);
     expect(row.listing).toMatchObject({ version: 1, proposerId: a.founder.userId, approverId });
+    // The step's picture: the Markets room, the market shown with our listing beside the venue's own state.
+    await stepPicture(a.page);
   } finally {
     await a.close();
   }
@@ -397,6 +402,7 @@ test(`${J} #1 reviews which venue markets to show: shown only with a second appr
 
 test(`${J} #2 proposes a routing state for a market: a proposal waiting for a second operator; the desk shows the state once approved, with the venue's own state beside it`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const symbol = await freshMarket('R');
@@ -443,13 +449,15 @@ test(`${J} #2 proposes a routing state for a market: a proposal waiting for a se
     expect(shown.status).toBe(venueOwn.status);
     await expect(row.locator('[data-cell=venue-status]')).toHaveText(VENUE_STATE_LABEL[venueOwn.status]);
     expect((await deskRow(symbol)).listing).toMatchObject({ version: 2, change: 'routing', routing: 'close_only', approverId });
+    // The step's picture: the desk's row, close only, beside the venue's own state, halted.
+    await stepPicture(a.page);
   } finally {
     await a.close();
     await testVenue('/test/market-status', { symbol, status: 'trading' });
   }
 });
 
-test(`${J} #3 the proposer tries to approve their own proposal: refused with the same-person code`, async ({ browser }) => {
+test(`${J} #3 the proposer tries to approve their own proposal: refused with the same-person code`, async ({ browser, stepPicture }) => {
   test.setTimeout(180_000);
   const symbol = await freshMarket('S');
   await listByApi(symbol);
@@ -464,6 +472,8 @@ test(`${J} #3 the proposer tries to approve their own proposal: refused with the
     const outcome = dialog.locator('[data-outcome=refused]');
     await expect(outcome).toBeVisible();
     await expect(outcome).toContainText('action_approval.same_person');
+    // The step's picture: the refusal with its same-person code, before A goes back to the Markets room.
+    await stepPicture(a.page);
 
     // Nothing was approved and nothing changed: the request still waits for a second operator, routing is still show.
     const { ctx, sessions } = await ops();
@@ -490,6 +500,7 @@ test(`${J} #3 the proposer tries to approve their own proposal: refused with the
 
 test(`${J} #4 stop routing takes effect: new orders routed through INTAFACED refuse with our state; cancels still work; in-flight venue orders show their venue state; the venue's own state shows beside it`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const symbol = await freshMarket('T');
@@ -517,6 +528,8 @@ test(`${J} #4 stop routing takes effect: new orders routed through INTAFACED ref
     await expect(row.locator('[data-cell=routing]')).toHaveText('Stop routing (no new orders)');
     // The venue's own state beside ours: still trading on the venue.
     await expect(row.locator('[data-cell=venue-status]')).toHaveText('Trading');
+    // The step's picture: the desk's row, routing stopped, beside the venue's own state, trading.
+    await stepPicture(a.page);
   } finally {
     await a.close();
   }
@@ -555,6 +568,7 @@ test(`${J} #4 stop routing takes effect: new orders routed through INTAFACED ref
 
 test(`${J} #6 edits our own per-pair limits for routed orders: edit proposes and a second operator approves; never above the venue's; a blank value is refused with a typed code; the new version records who approved it; open orders are untouched`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const symbol = await freshMarket('M');
@@ -621,6 +635,8 @@ test(`${J} #6 edits our own per-pair limits for routed orders: edit proposes and
     );
     expect(toUnits(limits.maxOrderQty) <= toUnits(venueOwnMarket.maxOrderQty)).toBe(true);
     expect(toUnits(limits.maxOrderNotional) <= toUnits(venueOwnMarket.maxOrderNotional)).toBe(true);
+    // The step's picture: the desk's row with our v1 limits and who approved them, beside the venue's own largest order.
+    await stepPicture(a.page);
   } finally {
     await a.close();
   }

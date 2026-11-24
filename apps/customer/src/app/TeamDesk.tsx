@@ -1,8 +1,7 @@
-import { accountOperatorEntitlementSchema, type AccountOperatorEntitlement } from '@intafaced/contracts/account-controls';
-import { z } from 'zod';
+import type { AccountOperatorEntitlement } from '@intafaced/contracts/account-controls';
+import { IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS } from '@intafaced/contracts/identity-account-controls-procedures';
 import { useApi, useSession } from '../features/session/session';
 import { authoredRefusal, type ApiResult } from '../shared/api';
-import { contractProcedure, readContract } from '../shared/contract-call';
 import { useResource } from '../shared/resource';
 import { Button, EmptyState, Page } from '../shared/ui';
 import { appCopy } from './app-copy';
@@ -23,12 +22,6 @@ export function teamConsoleHref(path: string, configured: string | undefined, de
     return undefined;
   }
 }
-
-/** Identity's own founder entitlement for the signed-in account. It decides only what this page offers, never access. */
-const operatorStatus = contractProcedure('identity', 'accountControls.operatorStatus', {
-  output: accountOperatorEntitlementSchema,
-  input: z.object({}).strict(),
-});
 
 /** What this page knows about the signed-in person's founder entitlement. */
 export type FounderCheck =
@@ -57,7 +50,8 @@ export function TeamDesk({ href }: { href: string | undefined }) {
 function SignedInTeamDesk({ href, userId, mode }: { href: string | undefined; userId: string; mode: 'Personal' | 'Business' }) {
   const api = useApi();
   const read = useResource(
-    (signal) => readContract(api, operatorStatus, {}, { signal }).then((result) => ownAnswer(result, userId)),
+    // Identity's own founder entitlement for the signed-in account. It decides only what this page offers, never access.
+    (signal) => api.call(IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS, {}, { signal }).then((result) => ownAnswer(result, userId)),
     `team-desk-operator:${userId}`,
   );
   const status = read.resource;

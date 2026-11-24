@@ -1,3 +1,55 @@
+export interface FirstStateProps {
+  /** What is not there yet, in the room's own words ("No launch events yet"). */
+  title: React.ReactNode;
+  /** When it fills, and from what. */
+  body?: React.ReactNode;
+  /** What the room is for: up to three short lines, each one thing a person does or reads here. */
+  points?: readonly React.ReactNode[];
+  /** The one next step, to a room that has it. */
+  action?: { label: string; href: string };
+  /** The one next step when it is a button in this room (in place of `action`). */
+  children?: React.ReactNode;
+  /** A line-icon from the room's own set, drawn at the top. */
+  icon?: React.ReactNode;
+  /** The title's heading level: 3 inside a titled section (the default), 2 when it sits right under the room's title. */
+  level?: 2 | 3;
+  testId?: string;
+}
+
+/**
+ * A room, or a section of one, with nothing in it yet: what will be there, what the room is for and one
+ * action, drawn as a deliberate first state rather than a lone line. Keeps `lt-empty` and its title and body classes,
+ * so a reader of the plain empty note reads it the same way.
+ */
+export function FirstState({ title, body, points, action, icon, level = 3, testId, children }: FirstStateProps) {
+  const Title = level === 2 ? 'h2' : 'h3';
+  return (
+    <div className="lt-empty" data-first="" data-kind="empty" data-testid={testId}>
+      {icon ? (
+        <span className="lt-first-mark" aria-hidden="true">
+          {icon}
+        </span>
+      ) : null}
+      <Title className="lt-empty-title">{title}</Title>
+      {body ? <p className="lt-empty-body">{body}</p> : null}
+      {points && points.length > 0 ? (
+        <ul className="lt-first-points">
+          {points.map((point, i) => (
+            <li key={i}>{point}</li>
+          ))}
+        </ul>
+      ) : null}
+      {action ? (
+        <a className="lt-button lt-button-secondary" href={action.href}>
+          {action.label}
+        </a>
+      ) : (
+        children
+      )}
+    </div>
+  );
+}
+
 /**
  * What every template shares: the room frame (title, legal band when switched on, notices, body, In-flight lane), the state
  * a room is in, and the regions that draw themselves as skeletons while loading and as figure-free ghosts behind
@@ -169,9 +221,10 @@ export function RefusalBox({ refusal: copy }: { refusal: Refusal }) {
   );
 }
 
+/** A whole room with nothing in it: drawn as its first state, centred with its one action. */
 function EmptyBox({ state }: { state: Extract<RoomState, { kind: 'empty' }> }) {
   return (
-    <div className="lt-empty">
+    <div className="lt-empty" data-first="">
       <p className="lt-empty-title">{state.title}</p>
       {state.body ? <p className="lt-empty-body">{state.body}</p> : null}
       {state.action ? (

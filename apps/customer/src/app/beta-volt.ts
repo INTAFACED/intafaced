@@ -43,31 +43,40 @@ export function betaHides(path: string, list: BetaRooms | undefined = betaRooms(
 /**
  * Where a press that navigates in code lands in this build: `href` itself, unless it opens a room the beta hides; then the
  * nearest parent room the beta shows (`/dex/pools` to `/dex`, if `/dex` is shown), else Home. So a Back button never ends
- * on "Not in this beta". With the switch off it is always `href`. location.ts's navigate() and leaveTo() call it.
+ * on "Not in this beta". With the switch off it is always `href`. location.ts's navigate() and leaveTo() call it with
+ * feature-registry's betaHidden, so a switched-off room is passed over like one not in Volt.
  */
-export function betaShownHref(href: string, list: BetaRooms | undefined = betaRooms()): string {
+export function betaShownHref(
+  href: string,
+  list: BetaRooms | undefined = betaRooms(),
+  hides: (path: string) => boolean = (path) => betaHides(path, list),
+): string {
   if (!list || !href.startsWith('/') || href.startsWith('//')) return href;
   const path = href.split(/[?#]/)[0] || '/';
-  if (!betaHides(path, list)) return href;
+  if (!hides(path)) return href;
   const shown = new Set(list.filter(([route, volt]) => volt && !hasPattern(route)).map(([route]) => route));
   for (let parent = path.slice(0, path.lastIndexOf('/')); parent; parent = parent.slice(0, parent.lastIndexOf('/')))
-    if (shown.has(parent)) return parent;
-  return betaHides('/home', list) ? '/' : '/home';
+    if (shown.has(parent) && !hides(parent)) return parent;
+  return hides('/home') ? '/' : '/home';
 }
 
 /**
  * What the signed-in account can use, for the beta's menus: `business`, the session reads a business account the person
- * belongs to (use-profiles.ts); `venue`, svc-trade says the user-venue door is on (use-venue-mode.ts). Unknown counts as
- * no, so a menu never shows a room before the answer comes. App sets it on each of its renders (BetaAccess.ts), before
- * the shell and its menus draw; it stays at no in every other build.
+ * belongs to (use-profiles.ts); `venue`, svc-trade says the user-venue door is on (use-venue-mode.ts); `staking` and
+ * `vaults`, the door is on and the venue itself answers its staking terms or its vault list (a venue that offers none,
+ * as Hyperliquid's test network, refuses `not_offered`). Unknown counts as no, so a menu never shows a room before the
+ * answer comes. App sets it on each of its renders (BetaAccess.ts), before the shell and its menus draw; it stays at no in
+ * every other build.
  */
-export type BetaNeed = 'business' | 'venue';
+export type BetaNeed = 'business' | 'venue' | 'staking' | 'vaults';
 export type BetaAccess = Readonly<Record<BetaNeed, boolean>>;
-let access: BetaAccess = { business: false, venue: false };
+const NONE: BetaAccess = { business: false, venue: false, staking: false, vaults: false };
+let access: BetaAccess = NONE;
 
 export function betaAccess(): BetaAccess {
   return access;
 }
-export function setBetaAccess(next: BetaAccess): void {
-  access = next;
+/** Sets what the account can use; a need left out is no. */
+export function setBetaAccess(next: Partial<BetaAccess>): void {
+  access = { ...NONE, ...next };
 }

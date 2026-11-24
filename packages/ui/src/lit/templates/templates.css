@@ -72,9 +72,16 @@
 
 .lt-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--lit-gap-item);
+}
+/* The title keeps a readable width: a room action too wide to sit beside it (a long link on a phone) moves under it,
+   never squeezes the title into a narrow column. */
+.lt-title-row > :first-child {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
 }
 
 /* A section's title row that may run out of room (a phone): the title keeps a readable width and the actions move under
@@ -608,6 +615,54 @@
 .lt-empty-body {
   margin: 0;
   color: var(--lit-text-2);
+}
+
+/* A room's first state (FirstState): centred in a dashed well, with what the room is for and one action, so an
+   empty room reads as ready to use rather than unfinished. */
+.lt-empty[data-first] {
+  align-items: center;
+  justify-content: center;
+  gap: var(--lit-gap-item);
+  min-block-size: 14rem;
+  padding-block: var(--lit-gap-section);
+  padding-inline: var(--lit-pad-panel);
+  border: 1px dashed var(--lit-line-strong);
+  background: var(--lit-solid-bg-sunken);
+  text-align: center;
+}
+
+.lt-empty[data-first] .lt-empty-body {
+  max-inline-size: 36rem;
+  text-align: center;
+}
+
+.lt-first-mark {
+  display: grid;
+  place-items: center;
+  inline-size: 3rem;
+  block-size: 3rem;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-accent-text);
+}
+
+.lt-first-points {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-first-points li {
+  padding-block: calc(var(--lit-gap-item) / 3);
+  padding-inline: var(--lit-gap-item);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
 }
 
 .lt-ref {
@@ -1180,6 +1235,8 @@ button.lt-tab {
   padding: var(--lit-pad-panel);
   inline-size: min(100vw - 1rem, 30rem);
   max-block-size: 85vh;
+  /* a line brought into view inside the sheet (apps/customer shared/reveal.ts) stops clear of its edge, never cut by it */
+  scroll-padding-block: var(--lit-pad-panel);
 }
 
 .lt-sheet::backdrop {
@@ -1224,6 +1281,12 @@ button.lt-tab {
   inline-size: 100%;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
+}
+
+/* Cells wrap at word breaks when the columns need it, even inside an old room whose styles hold a heading on one line,
+   so the table stays inside its card; a table that must not wrap scrolls in its own region (lt-table-scroll). */
+.lt-table :is(th, td) {
+  white-space: normal;
 }
 
 .lt-table th {
@@ -1275,6 +1338,9 @@ button.lt-tab {
 .lt-table-scroll {
   max-inline-size: 100%;
   overflow-x: auto;
+  /* The containing block of the table's positioned parts (a screen-reader label), so none reaches past the box and
+     widens the page. */
+  position: relative;
 }
 .lt-table-scroll:focus-visible {
   outline: 2px solid var(--lit-focus);
@@ -1421,6 +1487,17 @@ button.lt-tab {
     content: attr(data-label);
     color: var(--lit-text-2);
   }
+  /* A stacked row's naming cell heads its block, without the header row's rule under it. */
+  .lt-table:has(td[data-label]) tbody th {
+    display: block;
+    border: 0;
+    padding-inline: 0;
+  }
+  /* A table's caption reads across the phone above its stacked rows, never squeezed into one narrow column. */
+  .lt-table caption {
+    display: block;
+    text-align: start;
+  }
   /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
   .lt-table tr[data-empty] td {
     display: block;
@@ -1468,6 +1545,15 @@ button.lt-tab {
   content: attr(data-label);
   color: var(--lit-text-2);
 }
+.lt-table[data-stack='always']:has(td[data-label]) tbody th {
+  display: block;
+  border: 0;
+  padding-inline: 0;
+}
+.lt-table[data-stack='always'] caption {
+  display: block;
+  text-align: start;
+}
 /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
 .lt-table[data-stack='always'] tr[data-empty] td {
   display: block;
@@ -1498,8 +1584,10 @@ button.lt-tab {
   .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody {
     display: table-row-group;
   }
+  /* Words wrap even where an old room's styles hold a heading on one line, so the table stays on the phone. */
   .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) :is(th, td) {
     display: table-cell;
+    white-space: normal;
     overflow-wrap: anywhere;
   }
   .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td {

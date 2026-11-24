@@ -33,7 +33,12 @@ const en = {
   performance: 'Performance',
   performanceNone: 'No performance reported.',
   performanceBasis:
-    'Basis: this listing names no copy leader, bot or signal, so there is no record to measure. Nothing in the Market is ranked by returns.',
+    'Basis: the seller’s trading record could not be read, so no figure is shown. Nothing in the Market is ranked by returns.',
+  performanceFills: 'Fills of the seller’s own orders',
+  performanceFirstFill: 'First fill',
+  performanceNoFill: 'No fill yet',
+  performanceBasisFills:
+    'Basis: the seller’s own trading, counted from the fills INTAFACED stored. A count of fills, not a return or a profit. Nothing in the Market is ranked by returns.',
   writeReview: 'Write a review',
   yourReview: 'Your review',
   score: 'Score',
@@ -49,6 +54,12 @@ const en = {
   categoryNone: 'No category',
   categoryNote: 'Only one-time listings are filed under a category. Strategy subscriptions are not, so a category shows none.',
   categoryEmpty: 'No listing is filed under this category yet.',
+  firstBody: 'Sellers publish one-time items and strategy subscriptions here. Each listing shows its seller, its price and what you get.',
+  firstMineBody: 'Publish a strategy subscription and it is listed here, with its buyers and what you earn from it.',
+  firstPointOneTime: 'One-time items, filed by category',
+  firstPointSubscriptions: 'Strategy subscriptions, paid per period',
+  firstPointSellers: 'Every seller listed, with no ranking',
+  firstAction: 'Publish a strategy subscription',
   cat_bots: 'Bots',
   cat_defi: 'DeFi',
   cat_compliance: 'Compliance',
@@ -92,7 +103,12 @@ const es = {
   performance: 'Rendimiento',
   performanceNone: 'No se informa de rendimiento.',
   performanceBasis:
-    'Base: este listado no nombra ningún líder de copia, bot ni señal, así que no hay registro que medir. Nada en el Mercado se ordena por rentabilidad.',
+    'Base: no se pudo leer el historial de operaciones del vendedor, así que no se muestra ninguna cifra. Nada en el Mercado se ordena por rentabilidad.',
+  performanceFills: 'Ejecuciones de órdenes propias del vendedor',
+  performanceFirstFill: 'Primera ejecución',
+  performanceNoFill: 'Aún sin ejecuciones',
+  performanceBasisFills:
+    'Base: las operaciones propias del vendedor, contadas a partir de las ejecuciones que INTAFACED guardó. Un recuento de ejecuciones, no una rentabilidad ni un beneficio. Nada en el Mercado se ordena por rentabilidad.',
   writeReview: 'Escribir una reseña',
   yourReview: 'Tu reseña',
   score: 'Puntuación',
@@ -117,6 +133,13 @@ const es = {
   cat_data: 'Datos',
   cat_advisory: 'Asesoría',
   cat_partner_integrations: 'Integraciones de socios',
+  firstBody:
+    'Los vendedores publican aquí artículos de pago único y suscripciones a estrategias. Cada anuncio muestra su vendedor, su precio y lo que obtienes.',
+  firstMineBody: 'Publica una suscripción a una estrategia y aparecerá aquí, con sus compradores y lo que ganas con ella.',
+  firstPointOneTime: 'Artículos de pago único, por categoría',
+  firstPointSubscriptions: 'Suscripciones a estrategias, de pago por periodo',
+  firstPointSellers: 'Todos los vendedores, sin clasificación',
+  firstAction: 'Publicar una suscripción a una estrategia',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   doorsTitle: 'Plus dans le Marché',
@@ -152,7 +175,12 @@ const fr = {
   performance: 'Performance',
   performanceNone: 'Aucune performance déclarée.',
   performanceBasis:
-    'Base : cette annonce ne nomme aucun leader de copie, bot ou signal, il n’y a donc rien à mesurer. Rien dans le Marché n’est classé par rendement.',
+    'Base : l’historique de négociation du vendeur n’a pas pu être lu, aucun chiffre n’est donc affiché. Rien dans le Marché n’est classé par rendement.',
+  performanceFills: 'Exécutions des ordres du vendeur',
+  performanceFirstFill: 'Première exécution',
+  performanceNoFill: 'Aucune exécution pour l’instant',
+  performanceBasisFills:
+    'Base : les opérations du vendeur, comptées à partir des exécutions enregistrées par INTAFACED. Un nombre d’exécutions, pas un rendement ni un bénéfice. Rien dans le Marché n’est classé par rendement.',
   writeReview: 'Écrire un avis',
   yourReview: 'Votre avis',
   score: 'Note',
@@ -177,5 +205,12 @@ const fr = {
   cat_data: 'Données',
   cat_advisory: 'Conseil',
   cat_partner_integrations: 'Intégrations partenaires',
+  firstBody:
+    'Les vendeurs publient ici des articles à achat unique et des abonnements à des stratégies. Chaque annonce indique son vendeur, son prix et ce que vous obtenez.',
+  firstMineBody: 'Publiez un abonnement à une stratégie : il apparaît ici, avec ses acheteurs et ce qu’il vous rapporte.',
+  firstPointOneTime: 'Des articles à achat unique, par catégorie',
+  firstPointSubscriptions: 'Des abonnements à des stratégies, payés par période',
+  firstPointSellers: 'Tous les vendeurs, sans classement',
+  firstAction: 'Publier un abonnement à une stratégie',
 } satisfies Record<keyof typeof en, string>;
 export const marketListingCopy = defineCopy('more.market.listing', en, { es, fr });

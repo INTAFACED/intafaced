@@ -159,6 +159,41 @@ export const BANK_TRANSFERS_HELD = defineProcedure({
   ],
 });
 
+/**
+ * The sender's own send to another person, by its transfer id, as its status page reads it (J-pay-01 #6): Confirming
+ * while the bank has reserved it and does not yet know it was made (the partner's answer was lost, or the partner is
+ * not answering), Completed once it posted, with the partner's move or the ledger transaction as its reference. Reading
+ * it asks the book that holds the money whether the move under the send's key was made, and settles it when it was;
+ * it never lets a send go. Nobody else can read it, and a stranger gets the same not-found as a missing id.
+ */
+export const BANK_TRANSFERS_SENT = defineProcedure({
+  ...base,
+  name: 'bank.transfers.sent',
+  kind: 'query',
+  path: 'transfers.sent',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object({ transferId: z.string().min(8).max(64) }),
+  output: z.object({
+    transferId: z.string(),
+    status: z.enum(['confirming', 'completed']),
+    amount: amountString,
+    assetId: assetIdSchema,
+    note: z.string().nullable(),
+    toHandle: z.string().nullable(),
+    /** The partner bank's move, once it is known to be made; null on the ledger path and while confirming. */
+    partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
+    /** The ledger transaction, once posted on our own book; null at the partner and while confirming. */
+    ledgerTxId: z.string().nullable(),
+    createdAt: z.string().datetime(),
+    postedAt: z.string().datetime().nullable(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { transferId: 'ethereum' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 export const BANK_TRANSFERS_TO_USER = defineProcedure({
   ...base,
   name: 'bank.transfers.toUser',
@@ -206,6 +241,55 @@ export const BANK_TRANSFERS_CANCEL = defineProcedure({
   refusals: {},
   input: z.object({ scheduleId: z.string().guid() }),
   output: z.object({ cancelled: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Start a paused standing order again.
+ *
+ * `skipped` is in the OUTPUT, not just the record, because resuming does not
+ * settle up. A client that renders `status: 'active'` and nothing else lets a
+ * user believe the missed months are still coming; they are not, and the
+ * moment to say so is the moment they ask for it. See `resumeSchedule` for
+ * why skipping is the safe direction.
+ */
+export const BANK_TRANSFERS_RESUME = defineProcedure({
+  ...base,
+  name: 'bank.transfers.resume',
+  kind: 'mutation',
+  path: 'transfers.resume',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({
+    status: z.string(),
+    nextRunAt: z.string(),
+    /** Occurrences that came due while paused and will never fire. */
+    skipped: z.array(z.number().int()),
+  }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Hold a standing order. The reversible half of `cancel`.
+ *
+ * Same ownership ordering as `cancel`, for the same reason written there.
+ */
+export const BANK_TRANSFERS_PAUSE = defineProcedure({
+  ...base,
+  name: 'bank.transfers.pause',
+  kind: 'mutation',
+  path: 'transfers.pause',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({ status: z.string(), nextRunAt: z.string() }),
   samples: [
     { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },

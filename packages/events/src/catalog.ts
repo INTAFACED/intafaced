@@ -272,6 +272,28 @@ export const selfFreezeApplied = defineEvent(
 );
 
 /**
+ * A support agent froze a customer's account from their request (J-support-public-20 #7, RC-support-public-07).
+ * Published by svc-identity from the freeze's own audit row after it commits, at least once, with the business key
+ * `identity.support_account_freeze.frozen:<freezeId>`. The freeze itself set the account's trading restriction in its
+ * transaction, so every fresh svc-trade operation already refuses; each service that keeps a permission for an agent to
+ * act for the customer revokes it on this event and stops their scheduled agent orders, as on the owner's own freeze.
+ * A revoked permission stays revoked after staff lift the restriction: the customer grants it again. Consumers are
+ * idempotent by `freezeId`. Moves no money.
+ */
+export const supportAccountFrozen = defineEvent(
+  'identity',
+  'support_account_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  "Support froze a customer's account from their request: every agent permission kept for them is revoked and their scheduled agent orders stop (J-support-public-20 #7).",
+);
+
+/**
  * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
  * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
  * in the same transaction as the change, at least once, with the business key
@@ -1575,6 +1597,39 @@ export const venueDelistingScheduled = defineEvent(
   'Two operators scheduled the date a venue market leaves the routed list. svc-trade writes the listing version and the notice row first and publishes after commit, republishing until it is sent; consumers dedupe on (noticeKey), so customers get one dated notice per market and date.',
 );
 
+/**
+ * A margin or liquidation-risk alert on an isolated position on the person's own venue account (J-derivatives-06 #6):
+ * one crossing of a level, with the venue's figures at it. No funds move and nothing is sent to the venue.
+ */
+export const venueRiskAlerted = defineEvent(
+  'trade',
+  'venue_risk_alert',
+  'crossed',
+  1,
+  z.object({
+    /** The business key the one notice is filed under: `risk:<user>:<venue>:<owner>:<symbol>:<sequence>`. */
+    alertKey: z.string().min(1).max(256),
+    userId: userIdSchema,
+    symbol: z.string().min(1).max(64),
+    kind: z.enum(['margin', 'margin_call', 'liquidation']),
+    asset: z.string().min(1).max(32),
+    /** Decimal strings, never numbers: the margin level, or a ratio in percent for a margin call or the liquidation alert. */
+    level: z.string().regex(/^\d{1,40}(\.\d{1,18})?$/),
+    marginWithResult: z.string().regex(/^-?\d{1,40}(\.\d{1,18})?$/),
+    marginRatio: z
+      .string()
+      .regex(/^\d{1,40}(\.\d{1,18})?$/)
+      .nullable(),
+    /** What a margin call asks: the margin to add for the ratio to come back to its level; null for a margin alert. */
+    asked: z
+      .string()
+      .regex(/^\d{1,40}(\.\d{1,18})?$/)
+      .nullable(),
+    raisedAt: z.string().datetime({ offset: true }),
+  }),
+  'One crossing of a margin or liquidation-risk level on a venue position. svc-trade writes the alert row first and publishes after commit, republishing until it is sent; consumers dedupe on (alertKey), so the person gets one alert per crossing.',
+);
+
 export const projectionUpdated = defineEvent(
   'indexer',
   'projection',
@@ -2274,6 +2329,7 @@ export const EVENT_CATALOG = {
   deathNoticeCreated,
   deathNoticeConfirmed,
   selfFreezeApplied,
+  supportAccountFrozen,
   staffCreated,
   staffUpdated,
   staffDeleted,
@@ -2356,6 +2412,7 @@ export const EVENT_CATALOG = {
   copyStopped,
   recurringBuySuspended,
   venueDelistingScheduled,
+  venueRiskAlerted,
   projectionUpdated,
 } as const;
 

@@ -1,4 +1,3 @@
-import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
 import type { DeskModule, Part } from '@/lib/desk';
 import type { CommonDeskId } from './common-sections';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
@@ -66,9 +65,6 @@ export interface Column {
   readonly words?: Readonly<Record<string, string>>;
 }
 
-/** A desk read's call by its written record: a query an app reaches under a desk module. */
-export type DeskReadRecord = ProcedureRecord & TrpcTransport & { readonly kind: 'query'; readonly module: DeskModule };
-
 export interface ReadSpec {
   readonly id: string;
   readonly title: string;
@@ -79,7 +75,7 @@ export interface ReadSpec {
   readonly plainName?: string;
   readonly procedure: string;
   /**
-   * The name of the call's record, when it has one (`readOf` in the catalog sets it with `module` and `procedure`, all from the
+   * The name of the call's record, when it has one (`readOf`, `@/lib/desk-read`, sets it with `module` and `procedure`, all from the
    * record). The spec reaches the browser, so it holds the name, not the schema; the server looks the record up and parses the
    * answer by it, with every caller's checks, before the columns read it. An answer off the record is unreadable.
    */

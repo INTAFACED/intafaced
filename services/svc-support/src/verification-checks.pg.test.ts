@@ -5,13 +5,15 @@ import postgres from 'postgres';
 import { afterAll, describe, expect, it } from 'vitest';
 import { assertTestDatabase, createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { checkDigest, SqlCheckBook, VerificationChecks, type VerificationOwners } from './verification-checks.js';
+import { ReadGrants, SqlReadGrantBook } from './read-grants.js';
 import { PostgresSupportStore } from './store.js';
 import { SupportService } from './support-service.js';
 
 /**
- * The balance disclosure gate on the real tables (J-support-public-20 #2, RC-support-public-01): two operators recording one
- * value at once leave one check, the attempts cap holds under a race, no typed value reaches a table, and both tables
- * refuse update and delete.
+ * The checks a customer can confirm, on the real tables (RC-support-public-01): two operators recording one value at once
+ * leave one check, the attempts cap holds under a race, no typed value reaches a table, and both tables refuse update and
+ * delete. No read opens on the checks: with both matched and no grant from the customer, a read is refused and audited
+ * (J-support-public-20 #2; the grant itself is in `read-grants.pg.test.ts`).
  */
 
 const ADMIN_URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
@@ -50,13 +52,24 @@ if (!available) {
   describe('the balance disclosure gate, on Postgres', () => {
     const desk = (conn = sql!, attempts = 10) => {
       const store = new PostgresSupportStore(conn);
-      return { store, checks: new VerificationChecks(new SqlCheckBook(conn), new SupportService(store), attempts, owners) };
+      const book = new SqlCheckBook(conn);
+      const support = new SupportService(store);
+      return {
+        store,
+        checks: new VerificationChecks(book, support, attempts, owners),
+        reads: new ReadGrants({
+          book: new SqlReadGrantBook(conn),
+          support,
+          linkedWithdrawals: async () => [],
+          audit: (row) => book.audit(row),
+        }),
+      };
     };
     const ticket = () => desk().store.createTicket({ userId: CUSTOMER, category: 'deposit_withdraw', subject: 'TEST', body: 'TEST' });
     const count = async (ticketId: string) =>
       (await sql!<{ n: number }[]>`SELECT count(*)::int AS n FROM support.ticket_verification_checks WHERE ticket_id = ${ticketId}`)[0]!.n;
 
-    it('two operators recording the same value at once leave one check, and the gate stays shut', async () => {
+    it('two operators recording the same value at once leave one check, counted once', async () => {
       const { id } = await ticket();
       const second = postgres(db!.url, { max: 1, onnotice: () => undefined });
       try {
@@ -66,10 +79,7 @@ if (!available) {
         ]);
         expect(a.matched && b.matched).toBe(true);
         expect(await count(id)).toBe(1);
-        await expect(desk().checks.disclose(OP, id, 'balance')).rejects.toMatchObject({
-          code: 'support.verification_checks_required',
-          missingKey: '1 of 2 matched',
-        });
+        expect(await desk().checks.list(OP, id)).toMatchObject({ matched: 1, attemptsUsed: 1 });
       } finally {
         await second.end({ timeout: 5 });
       }
@@ -91,9 +101,9 @@ if (!available) {
       }
     });
 
-    it('the email and a record id open the gate onto a read that refuses; a mismatch is stored unmatched; no typed value is kept', async () => {
+    it("the email and a record id open no read without the customer's grant; a mismatch is stored unmatched; no typed value is kept", async () => {
       const { id } = await ticket();
-      const { checks } = desk();
+      const { checks, reads } = desk();
       await expect(checks.record(OP, { ticketId: id, kind: 'deposit_id', value: THEIRS })).rejects.toMatchObject({
         code: 'support.verification_mismatch',
       });
@@ -110,9 +120,10 @@ if (!available) {
           ['withdrawal_id', true],
         ]),
       );
-      await expect(checks.disclose(OP, id, 'balance')).rejects.toMatchObject({
-        code: 'support.disclosure_unwired',
-        missingKey: 'svc-ledger',
+      expect((await checks.list(OP, id)).matched).toBe(2);
+      await expect(reads.read(OP, id, 'balance')).rejects.toMatchObject({
+        code: 'support.read_grant_required',
+        missingKey: 'none',
       });
       const stored = JSON.stringify(await sql!`SELECT * FROM support.ticket_verification_checks WHERE ticket_id = ${id}`);
       const audit = JSON.stringify(await sql!`SELECT * FROM support.verification_audit WHERE ticket_id = ${id}`);
@@ -125,7 +136,7 @@ if (!available) {
       SELECT action, outcome, operator FROM support.verification_audit WHERE ticket_id = ${id} ORDER BY id
     `;
       expect(actions.filter((a) => a.action === 'disclosure')).toEqual([
-        { action: 'disclosure', outcome: 'support.disclosure_unwired', operator: OP },
+        { action: 'disclosure', outcome: 'support.read_grant_required', operator: OP },
       ]);
       expect(actions.filter((a) => a.action === 'record').map((a) => a.outcome)).toEqual([
         'support.verification_mismatch',

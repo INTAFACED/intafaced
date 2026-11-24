@@ -129,9 +129,18 @@ const STATEMENTS: [&str; 9] = [
       WHERE owner_id = $1::text AND state = 'running'",
 ];
 
+/// The code a support agent's account freeze leaves on what it stopped (J-support-public-20 #7).
+pub const ACCOUNT_FROZEN_BY_SUPPORT: &str = "agents.identity.account_frozen_support";
+
 /// `applySelfFreeze`: applies one freeze, once, in one transaction recorded under the freeze's id. The same freeze again
 /// returns what the first application changed (`repeated`) and changes nothing.
 pub fn apply_self_freeze(pool: &Pool, freeze: &Freeze<'_>) -> Result<(Applied, bool), OwnError> {
+    apply_freeze(pool, freeze, OWNER_FROZEN_SELF)
+}
+
+/// One freeze, the owner's own or a support agent's (`code` is the one each stopped run is left with), applied once
+/// under its id. Both kinds are keyed by their own freeze's uuid, so the record table holds them side by side.
+fn apply_freeze(pool: &Pool, freeze: &Freeze<'_>, code: &str) -> Result<(Applied, bool), OwnError> {
     let lock = format!("agents.self_freeze:{}", freeze.freeze_id);
     in_transaction(pool, |tx| {
         // One application per freeze: two deliveries at once wait here and the second finds the record.
@@ -150,7 +159,7 @@ pub fn apply_self_freeze(pool: &Pool, freeze: &Freeze<'_>) -> Result<(Applied, b
         for (i, statement) in STATEMENTS.iter().enumerate() {
             // Only the statements that name the freeze's code take it.
             let n = if statement.contains("$2") {
-                tx.execute(*statement, &[&freeze.user_id, &OWNER_FROZEN_SELF])?
+                tx.execute(*statement, &[&freeze.user_id, &code])?
             } else {
                 tx.execute(*statement, &[&freeze.user_id])?
             };
@@ -204,5 +213,25 @@ pub fn on_self_freeze_applied(pool: &Pool, payload: &Json) -> Result<(Applied, b
             freeze_id: field("freezeId"),
             since: field("since"),
         },
+    )
+}
+
+/// The consumer of identity's `supportAccountFrozen` (J-support-public-20 #7, durable
+/// `agents-identity-support-account-freeze-frozen`): a support agent froze the customer's account from their request.
+/// The same revokes as the owner's own freeze, applied once under the freeze's id, each stopped run left with
+/// [`ACCOUNT_FROZEN_BY_SUPPORT`].
+pub fn on_support_account_frozen(pool: &Pool, payload: &Json) -> Result<(Applied, bool), OwnError> {
+    let field = |k: &str| match payload.get(k) {
+        Some(Json::String(s)) => s.as_str(),
+        _ => "",
+    };
+    apply_freeze(
+        pool,
+        &Freeze {
+            user_id: field("userId"),
+            freeze_id: field("freezeId"),
+            since: field("since"),
+        },
+        ACCOUNT_FROZEN_BY_SUPPORT,
     )
 }

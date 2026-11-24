@@ -43,9 +43,11 @@ pub const LABEL: &str = "TEST partner bank";
 pub const MAX_MOVES: usize = 200_000;
 /// How old the TEST partner says its figure may be before it is stale (`TEST_PARTNER_STALE_AFTER_MS`).
 pub const STALE_AFTER_MS: i64 = 60_000;
-/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values.
+/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values. The fee is
+/// what its move for a send to another person takes, which is nothing, as a move between a person's own accounts takes
+/// nothing: a stated fee its move did not take would be a figure nobody pays (J-pay-01 #3).
 pub const DAILY_SEND: &str = "1000";
-pub const SEND_FEE: &str = "0.5";
+pub const SEND_FEE: &str = "0";
 /// The stand-in merchant a TEST payment goes to (`TEST_PARTNER_MERCHANT`).
 pub const MERCHANT: &str = "partner:test-merchant";
 /// The TEST partner's statement rules (`TEST_PARTNER_HISTORY_DAYS`, `TEST_PARTNER_SCA_AFTER_DAYS`).
@@ -502,6 +504,8 @@ pub struct State {
     pub purchases: PurchaseDesk,
     pub debits: DirectDebitDesk,
     pub compliance: Compliance,
+    /// The send fee this partner states (`SEND_FEE`, or a test's own TEST figure through `with_send_fee`).
+    send_fee: Amount,
 }
 
 /// The TEST partner bank and ramp (`testPartner()`), on a dev or test stack only.
@@ -535,7 +539,36 @@ fn payees_key(p: Option<&Vec<Payee>>) -> String {
     })
 }
 
+/// The TEST partner's own billers (`TEST_BILLERS`): the bill-payment directory it offers on a test stack, each named TEST
+/// so no one takes it for a real biller. (id, name, country, category.)
+pub const TEST_BILLERS: [(&str, &str, &str, &str); 3] = [
+    ("test-biller-water", "TEST Water", "GB", "utilities"),
+    ("test-biller-energy", "TEST Energy", "GB", "utilities"),
+    ("test-biller-phone", "TEST Phone", "GB", "telecom"),
+];
+
 impl State {
+    /// The billers the partner pays for this person whose names hold `query` (every one for a blank query), once the
+    /// person's bank rail is on (`bankRail: 'test'`); else the rail's own refusal, as `pay` gives it.
+    pub fn billers(
+        &self,
+        user_id: &str,
+        query: &str,
+    ) -> Result<Vec<(&'static str, &'static str, &'static str, &'static str)>, Refusal> {
+        if self.board.read(user_id, |s| s.bank_rail != "test") {
+            return Err(refuse(
+                "rail.bank",
+                "A bill payment needs rail.bank. It is switched off in this build.",
+            ));
+        }
+        let q = query.trim().to_lowercase();
+        Ok(TEST_BILLERS
+            .iter()
+            .filter(|b| q.is_empty() || b.1.to_lowercase().contains(&q))
+            .copied()
+            .collect())
+    }
+
     fn new(boot: String) -> State {
         State {
             board: Board::default(),
@@ -549,6 +582,7 @@ impl State {
             purchases: PurchaseDesk::default(),
             debits: DirectDebitDesk::default(),
             compliance: Compliance::default(),
+            send_fee: fixed(SEND_FEE),
         }
     }
 
@@ -867,7 +901,7 @@ impl State {
             send_fee: self
                 .board
                 .read(user_id, |s| s.fee == "known")
-                .then(|| fixed(SEND_FEE)),
+                .then_some(self.send_fee),
             as_of: now,
             label: LABEL,
         })
@@ -1175,6 +1209,14 @@ impl TestPartner {
         Ok(TestPartner {
             state: Mutex::new(State::new(boot)),
         })
+    }
+
+    /// The same partner stating another TEST send fee, for a test that must tell the partner's stated figure apart from
+    /// our own book's "0".
+    #[must_use]
+    pub fn with_send_fee(self, fee: Amount) -> TestPartner {
+        self.lock().send_fee = fee;
+        self
     }
 
     /// `testPartnerFor`: `off` is no partner; `test` is the partner only in an explicit dev or test process.

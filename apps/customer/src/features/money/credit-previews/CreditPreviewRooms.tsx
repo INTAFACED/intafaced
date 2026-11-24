@@ -8,7 +8,8 @@ import { useState, type ReactNode } from 'react';
 import { Button, Field, Segmented } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, Table, type KeyValueRow, type Notice, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
-import type { ApiClient, ApiResult, AppProcedure } from '../../../shared/api';
+import { isVerifyFirst, type ApiClient, type ApiResult, type AppProcedure } from '../../../shared/api';
+import { verifyFirstRefusal } from '../../../shared/verify-first';
 import { useSession } from '../../session';
 import {
   BANK_CREDIT_PREVIEWS_ACT,
@@ -93,12 +94,16 @@ function PreviewRefusal({ refused }: { refused: Refused | null }) {
       data-engine={refused.engine ?? ''}
     >
       <RefusalBox
-        refusal={{
-          variant: 'refused',
-          title: tk(c, 'refusalTitle', { action: tk(c, `action_${refused.action}`) }),
-          body: isPreview && engineKey ? tk(c, 'refusalBody', { engine: tk(c, engineKey) }) : c.t('refusalOther'),
-          reference: refused.failed.code ?? PREVIEW_CODE,
-        }}
+        refusal={
+          isVerifyFirst(refused.failed)
+            ? verifyFirstRefusal()
+            : {
+                variant: 'refused',
+                title: tk(c, 'refusalTitle', { action: tk(c, `action_${refused.action}`) }),
+                body: isPreview && engineKey ? tk(c, 'refusalBody', { engine: tk(c, engineKey) }) : c.t('refusalOther'),
+                reference: refused.failed.code ?? PREVIEW_CODE,
+              }
+        }
       />
     </div>
   );

@@ -35,6 +35,7 @@ vi.mock('../components', async (original) => {
   return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 import { SharedPots } from './SharedPots';
+import { BANK_TRANSFERS_CREATE } from '@intafaced/contracts/bank-transfers-2-procedures';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -182,7 +183,7 @@ describe('SharedPots', () => {
     expect(pot.textContent).toContain('Owner: @Olga_Owner · You are: viewer');
     expect(pot.querySelector('[data-testid="shared-pot-balance"]')!.textContent).toBe('15 USDT');
     act(() => button(pot, 'Add money').click());
-    expect(opened[0]).toMatchObject({ procedure: 'transfers.create' });
+    expect(opened[0]?.record).toBe(BANK_TRANSFERS_CREATE);
     expect(opened[0]!.input({ amount: '5' }, 'req-1')).toEqual({
       transferId: 'req-1',
       fromSpaceId: 'main-usdt',

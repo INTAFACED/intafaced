@@ -180,14 +180,28 @@ export function MarketsList({
       cellMarks: () => ({ 'data-col': key, 'data-cell': key }),
       cell,
     });
-    const price = (key: string, header: string, field: 'last' | 'bid' | 'ask' | 'high24h' | 'low24h') =>
+    // Two figures of one kind in one column, one over the other (bid over ask, high over low), so Pro's columns fit a
+    // laptop's width without scrolling. The column sorts by its upper figure.
+    const pricePair = (
+      key: string,
+      header: string,
+      upper: { field: 'bid' | 'high24h'; label: string },
+      lower: { field: 'ask' | 'low24h'; label: string },
+    ) =>
       figure(
         key,
         header,
-        ({ ticker }) => ticker?.[field] ?? null,
+        ({ ticker }) => ticker?.[upper.field] ?? null,
         ({ market, ticker }) => (
-          <span className="lt-num" dir="ltr">
-            {priceText(market, ticker?.[field])}
+          <span className="lt-lines">
+            <span className="lt-num" dir="ltr" data-slot={upper.field}>
+              <span className="lt-sr">{upper.label} </span>
+              {priceText(market, ticker?.[upper.field])}
+            </span>
+            <span className="lt-num lt-muted" dir="ltr" data-slot={lower.field}>
+              <span className="lt-sr">{lower.label} </span>
+              {priceText(market, ticker?.[lower.field])}
+            </span>
           </span>
         ),
       );
@@ -213,6 +227,7 @@ export function MarketsList({
       cellMarks: () => ({ 'data-col': 'name', 'data-cell': 'name' }),
       cell: (entry) => {
         const { market } = entry;
+        const target = marketTarget(market, mode, isHiddenPath, signedIn);
         const full = assetName(market.base, copy);
         const pair = (
           <>
@@ -234,11 +249,12 @@ export function MarketsList({
             <FavoriteStar asset={market.base} favorite={favorite(market)} />
             <AssetIcon asset={market.base} size={dense ? 'sm' : 'md'} />
             <span className="lt-lines">
-              {/* An announced listing never trades, so its name opens nothing; every other row's name is its link. */}
-              {isAnnounced(market) ? (
+              {/* An announced listing never trades, and a row with nowhere shown to go (the beta's build without the desk) opens
+                  nothing, so its name is plain words; every other row's name is its link. */}
+              {isAnnounced(market) || target === null ? (
                 <span className="lt-lines">{pair}</span>
               ) : (
-                <a className="lt-row-link" data-row-link="" href={marketTarget(market, mode, isHiddenPath, signedIn)}>
+                <a className="lt-row-link" data-row-link="" href={target}>
                   <span className="lt-lines">{pair}</span>
                 </a>
               )}
@@ -378,13 +394,10 @@ export function MarketsList({
           // A shut session is never a tradeable row: an order now is refused and not queued (J-cex-spot-14 #6).
           return refused(t('This market is closed. Orders are not queued while it is closed'));
         if (isPaused(entry)) return refused(t('Orders are paused on this market'), pausedNote);
+        const target = marketTarget(market, mode, isHiddenPath, signedIn);
+        if (target === null) return wrap(null);
         return wrap(
-          <a
-            className="lt-button lt-button-secondary"
-            role="button"
-            href={marketTarget(market, mode, isHiddenPath, signedIn)}
-            aria-label={aria}
-          >
+          <a className="lt-button lt-button-secondary" role="button" href={target} aria-label={aria}>
             {text}
           </a>,
         );
@@ -395,11 +408,9 @@ export function MarketsList({
           name,
           last,
           change,
-          price('bid', t('Bid'), 'bid'),
-          price('ask', t('Ask'), 'ask'),
+          pricePair('bid', t('Bid / Ask'), { field: 'bid', label: t('Bid') }, { field: 'ask', label: t('Ask') }),
           spread,
-          price('high', t('24h high'), 'high24h'),
-          price('low', t('24h low'), 'low24h'),
+          pricePair('high', t('24h high / low'), { field: 'high24h', label: t('24h high') }, { field: 'low24h', label: t('24h low') }),
           volume,
           chart,
           status,
@@ -431,7 +442,8 @@ export function MarketsList({
           onSortChange(sort && sort.columnId === next.columnId && sort.direction !== firstDirection(next.columnId) ? null : next)
         }
         onRowActivate={(entry) => {
-          if (!isAnnounced(entry.market)) navigate(marketTarget(entry.market, mode, isHiddenPath, signedIn));
+          const target = isAnnounced(entry.market) ? null : marketTarget(entry.market, mode, isHiddenPath, signedIn);
+          if (target !== null) navigate(target);
         }}
         rowMarks={(entry) => ({ 'data-testid': 'mkt-row', 'data-symbol': entry.market.symbol })}
         headMarks={{ 'data-testid': 'mkt-header' }}

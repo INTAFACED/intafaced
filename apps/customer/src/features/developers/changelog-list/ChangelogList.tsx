@@ -1,4 +1,6 @@
 import type { ChangelogEntry, UpcomingChanges } from '../../../shared/notify-reads';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { BookOpen, CalendarClock } from 'lucide-react';
 import { liveCopy } from '../developers-live-copy';
 
 /** One list of names in an entry (endpoints, scopes, retired), each in code type; nothing when there are none. */
@@ -22,8 +24,30 @@ function Items({ title, items }: { title: string; items: readonly string[] }) {
  * shows its English source and says so, rather than passing it off as a translation. Drawn from the Volt kit, once, for
  * /developers/changelog, /developers/changelog/upcoming and the /notice advance notice.
  */
-export function ChangelogList({ entries, language }: { entries: readonly ChangelogEntry[]; language?: string }) {
+export function ChangelogList({
+  entries,
+  language,
+  unfiltered = false,
+}: {
+  entries: readonly ChangelogEntry[];
+  language?: string;
+  /** No filter is set, so an empty list is the changelog's first state, not a filter that matched nothing. */
+  unfiltered?: boolean;
+}) {
   const { t } = liveCopy.useCopy();
+  if (entries.length === 0 && unfiltered)
+    return (
+      <section role="status">
+        <FirstState
+          level={2}
+          icon={<BookOpen size={24} />}
+          title={t('changelogFirstTitle')}
+          body={t('changelogFirstBody')}
+          points={[t('changelogFirstArea'), t('changelogFirstBreaking'), t('changelogFirstMigration')]}
+          action={{ label: t('changelogFirstAction'), href: '/developers' }}
+        />
+      </section>
+    );
   if (entries.length === 0)
     return (
       <section className="lt-empty" role="status">
@@ -84,11 +108,22 @@ export function ChangelogList({ entries, language }: { entries: readonly Changel
 }
 
 /** Breaking changes not yet in effect, and every retired endpoint with the entry that retired it. */
-export function UpcomingView({ data, language }: { data: UpcomingChanges; language?: string }) {
+export function UpcomingView({ data, language, first = false }: { data: UpcomingChanges; language?: string; first?: boolean }) {
   const { t } = liveCopy.useCopy();
   return (
     <>
-      {data.upcoming.length === 0 ? (
+      {data.upcoming.length === 0 && first ? (
+        // Its own page leads with what it is for; on /notice it stays one line under the notices.
+        <section role="status">
+          <FirstState
+            level={2}
+            icon={<CalendarClock size={24} />}
+            title={t('upcomingNone')}
+            body={t('upcomingFirstBody')}
+            action={{ label: t('upcomingFirstAction'), href: '/developers/changelog' }}
+          />
+        </section>
+      ) : data.upcoming.length === 0 ? (
         <section className="lt-empty" role="status">
           <p className="lt-empty-body">{t('upcomingNone')}</p>
         </section>

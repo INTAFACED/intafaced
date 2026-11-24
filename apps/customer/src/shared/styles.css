@@ -435,6 +435,8 @@ html[data-theme='light'] .button--danger {
   max-height: calc(100dvh - 40px);
   overflow: auto;
   padding: var(--if-space-6);
+  /* a line brought into view inside the dialog (shared/reveal.ts) stops clear of its edge, never cut by it */
+  scroll-padding-block: var(--if-space-6);
   border: 1px solid var(--color-border);
   /* a dialog is a panel: Volt's medium radius is the control's pill, which clips a tall dialog into an ellipse */
   border-radius: var(--if-r-lg);
@@ -579,4 +581,32 @@ html[data-theme='light'] .button--danger {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/*
+ * The ask to verify is made once per room (shared/verify-first.tsx). Every note after the first one a person can see, in
+ * document order, keeps only its sentence: it follows a sibling that is or holds a shown note, itself or through an
+ * ancestor. A note inside a closed disclosure is not shown, so it never stands as the first.
+ */
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ [data-refusal='verify'],
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ *
+  [data-refusal='verify'] {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ [data-refusal='verify']
+  :is(.lt-refusal-title, .lt-link),
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ *
+  [data-refusal='verify']
+  :is(.lt-refusal-title, .lt-link) {
+  display: none;
 }

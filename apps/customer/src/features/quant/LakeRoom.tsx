@@ -9,9 +9,9 @@ import { useApi } from '../session';
 import { QuantRooms } from './QuantRooms';
 import { researchCopy } from './research-copy';
 import { refusalCode } from './refusal-code';
+import { readTime } from './limit-words';
 import { QUANT_LAKE_CATALOGUE } from '@intafaced/contracts/quant-lake-procedures';
 
-const utc = (iso: string) => iso.slice(0, 19).replace('T', ' ');
 type Dataset = QuantLakeCatalogue['symbols'][number]['datasets'][number];
 
 /**
@@ -20,7 +20,9 @@ type Dataset = QuantLakeCatalogue['symbols'][number]['datasets'][number];
  */
 export function LakeRoom({ paper }: { paper: boolean }) {
   const api = useApi();
-  const { t } = researchCopy.useCopy();
+  const { t, requestedLocale } = researchCopy.useCopy();
+  // Every time in the reader's own zone and language, to the second.
+  const when = (iso: string) => readTime(iso, requestedLocale, true);
   const [kind, setKind] = useState('');
   const [symbol, setSymbol] = useState('');
   const catalogue = useResource((signal) => api.call(QUANT_LAKE_CATALOGUE, undefined, { signal }), 'quant-lake-catalogue');
@@ -35,7 +37,6 @@ export function LakeRoom({ paper }: { paper: boolean }) {
         <section>
           <h2>{t('dataTitle')}</h2>
           <section data-testid="quant-lake" aria-label={t('dataTitle')}>
-            <p className="lt-hint">{t('dataIntro')}</p>
             {r.status === 'loading' ? (
               <LoadingLine />
             ) : r.status === 'failed' ? (
@@ -53,7 +54,7 @@ export function LakeRoom({ paper }: { paper: boolean }) {
                   data-capture-seconds={r.data.captureSeconds}
                   data-retention-days={r.data.retentionDays}
                 >
-                  {t('dataSettings', { seconds: r.data.captureSeconds, days: r.data.retentionDays, from: utc(r.data.keptFrom) })}
+                  {t('dataSettings', { seconds: r.data.captureSeconds, days: r.data.retentionDays, from: when(r.data.keptFrom) })}
                 </p>
                 <div className="lt-toolbar">
                   <Select
@@ -95,7 +96,9 @@ export function LakeRoom({ paper }: { paper: boolean }) {
 }
 
 function DatasetView({ symbol, dataset, from, to }: { symbol: string; dataset: Dataset; from: string; to: string }) {
-  const { t } = researchCopy.useCopy();
+  const { t, requestedLocale } = researchCopy.useCopy();
+  // Every time in the reader's own zone and language, to the second.
+  const when = (iso: string) => readTime(iso, requestedLocale, true);
   const windowFrom = dataset.coverage[0]?.from ?? from;
   return (
     <article
@@ -109,8 +112,8 @@ function DatasetView({ symbol, dataset, from, to }: { symbol: string; dataset: D
       <KeyValue
         rows={[
           { label: t('rows'), value: <span lang="zxx">{dataset.rows}</span> },
-          { label: t('first'), value: <span lang="zxx">{dataset.first ? utc(dataset.first) : '—'}</span> },
-          { label: t('last'), value: <span lang="zxx">{dataset.last ? utc(dataset.last) : '—'}</span> },
+          { label: t('first'), value: <span lang="zxx">{dataset.first ? when(dataset.first) : '—'}</span> },
+          { label: t('last'), value: <span lang="zxx">{dataset.last ? when(dataset.last) : '—'}</span> },
         ]}
       />
       {dataset.coverage.length === 0 ? (
@@ -120,8 +123,8 @@ function DatasetView({ symbol, dataset, from, to }: { symbol: string; dataset: D
           label={t('barLabel', {
             symbol,
             kind: t(`kind_${dataset.kind}`),
-            from: utc(new Date(Date.parse(windowFrom)).toISOString()),
-            to: utc(to),
+            from: when(new Date(Date.parse(windowFrom)).toISOString()),
+            to: when(to),
           })}
           from={windowFrom}
           to={to}
@@ -133,7 +136,7 @@ function DatasetView({ symbol, dataset, from, to }: { symbol: string; dataset: D
       <ul>
         {dataset.coverage.map((range) => (
           <li key={range.from} lang="zxx">
-            {t('coverageRange', { from: utc(range.from), to: utc(range.to) })}
+            {t('coverageRange', { from: when(range.from), to: when(range.to) })}
           </li>
         ))}
       </ul>
@@ -144,7 +147,7 @@ function DatasetView({ symbol, dataset, from, to }: { symbol: string; dataset: D
         <ul>
           {dataset.gaps.map((gap) => (
             <li key={gap.from} data-testid="quant-lake-gap" data-from={gap.from} data-to={gap.to}>
-              {t('gapRange', { from: utc(gap.from), to: utc(gap.to) })}
+              {t('gapRange', { from: when(gap.from), to: when(gap.to) })}
             </li>
           ))}
         </ul>
@@ -153,7 +156,7 @@ function DatasetView({ symbol, dataset, from, to }: { symbol: string; dataset: D
         <RecordTable label={`${symbol} ${t(`kind_${dataset.kind}`)} — ${t('latest')}`} headers={[t('colTime'), t('colValue')]}>
           {dataset.latest.map((row) => (
             <tr key={`${row.observedAt}:${JSON.stringify(row.payload).length}`} data-testid="quant-lake-row">
-              <td lang="zxx">{utc(row.observedAt)}</td>
+              <td lang="zxx">{when(row.observedAt)}</td>
               <td>
                 <code lang="zxx">{summary(dataset.kind, row.payload)}</code>
               </td>

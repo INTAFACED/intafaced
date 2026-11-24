@@ -3,7 +3,7 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   sectionsLabel: 'On this page',
   explain:
-    'Your cards spend from your own balance through the card issuer. Each decision and decline is the issuer’s record, shown as it reported it; limits, channels and blocks you set here apply to the next payment.',
+    'Your cards spend from your own balance. Every payment and decline is shown as the card issuer reported it. Limits, channels and blocks you set here apply from the next payment.',
   selected: 'Selected card',
   reference: 'Card reference',
   records: 'Your card records',
@@ -65,7 +65,7 @@ const en = {
 const es = {
   sectionsLabel: 'En esta página',
   explain:
-    'Tus tarjetas gastan de tu propio saldo a través del emisor de la tarjeta. Cada decisión y rechazo es el registro del emisor, mostrado tal como lo comunicó; los límites, canales y bloqueos que fijes aquí se aplican al siguiente pago.',
+    'Tus tarjetas gastan de tu propio saldo. Cada pago y cada rechazo se muestran tal como los comunicó el emisor de la tarjeta. Los límites, canales y bloqueos que fijes aquí se aplican desde el siguiente pago.',
   selected: 'Tarjeta seleccionada',
   reference: 'Referencia de la tarjeta',
   records: 'Tus registros de tarjetas',
@@ -128,7 +128,7 @@ const es = {
 const fr = {
   sectionsLabel: 'Sur cette page',
   explain:
-    'Vos cartes dépensent votre propre solde via l’émetteur de la carte. Chaque décision et chaque refus est l’enregistrement de l’émetteur, montré tel qu’il l’a transmis ; les plafonds, canaux et blocages fixés ici s’appliquent au paiement suivant.',
+    'Vos cartes dépensent votre propre solde. Chaque paiement et chaque refus est montré tel que l’émetteur de la carte l’a transmis. Les plafonds, canaux et blocages fixés ici s’appliquent dès le paiement suivant.',
   selected: 'Carte sélectionnée',
   reference: 'Référence de la carte',
   records: 'Vos enregistrements de cartes',

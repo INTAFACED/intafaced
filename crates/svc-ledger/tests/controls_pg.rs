@@ -42,8 +42,8 @@ use svc_ledger::controls::sources::{
 };
 use svc_ledger::controls::{
     self, ASOF_INVALID, Actor, BUILTIN_IMMUTABLE, CONTROL_NOT_FOUND, ControlError, ITEMS_MOVED,
-    ITEMS_NOW_ONLY, MARGIN_UNSET, POLICY_UNSET, RAIL_SOURCE_UNSET, SOURCE_UNAVAILABLE,
-    STATE_ILLEGAL,
+    ITEMS_NOW_ONLY, MARGIN_UNSET, NOT_REPORTED, POLICY_UNSET, RAIL_SOURCE_UNSET,
+    SOURCE_UNAVAILABLE, STATE_ILLEGAL,
 };
 use svc_ledger::db::Store;
 use svc_ledger::door::{self, DoorConfig, LedgerDoor};
@@ -217,6 +217,35 @@ impl Kit {
     fn fund(&self, user_id: &str, asset_id: &str, amount: &str, rail: &str, rail_ref: &str) {
         let request = j(&format!(
             r#"{{"idempotencyKey":"deposit:{rail}:{rail_ref}","module":"ledger","reason":"deposit.credited","meta":{{"rail":"{rail}","railRef":"{rail_ref}"}},"entries":[{{"account":{{"ownerType":"treasury","ownerId":"rail:{rail}","assetId":"{asset_id}","kind":"available"}},"direction":"credit","amount":"{amount}"}},{{"account":{{"ownerType":"user","ownerId":"{user_id}","assetId":"{asset_id}","kind":"available"}},"direction":"debit","amount":"{amount}"}}]}}"#
+        ));
+        let p = Posting::new(
+            Arc::new(MemoryBus::default()),
+            "svc-ledger".to_owned(),
+            true,
+            EngineOptions {
+                conflict: Conflict::Refuse,
+                clock_skew_bound_ms: None,
+                clock_ms: system_ms,
+            },
+            false,
+            None,
+        );
+        posting::post(&self.store, &p, None, "dual", &request).unwrap();
+    }
+
+    /// One of INTAFACED's own records, as `builderFeeEarn` and `partnerFeeEarn` book them: house fees debited, what the
+    /// venue or partner owes us credited.
+    fn post_own(
+        &self,
+        key: &str,
+        module: &str,
+        reason: &str,
+        fees: &str,
+        owed: &str,
+        amount: &str,
+    ) {
+        let request = j(&format!(
+            r#"{{"idempotencyKey":"{key}","module":"{module}","reason":"{reason}","meta":{{}},"entries":[{{"account":{{"ownerType":"house","ownerId":"{fees}","assetId":"USDT","kind":"available"}},"direction":"debit","amount":"{amount}"}},{{"account":{{"ownerType":"treasury","ownerId":"{owed}","assetId":"USDT","kind":"available"}},"direction":"credit","amount":"{amount}"}}]}}"#
         ));
         let p = Posting::new(
             Arc::new(MemoryBus::default()),
@@ -476,6 +505,14 @@ fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 /// `reconciliationSourcesFrom(outsideSnapshotUrl, railStatementUrls, fetch, undefined, openItems)` on the real client.
+/// The real client reading each reporter's report from its own address, and nothing else.
+fn reporting(reports: &[(&str, &str)]) -> Http {
+    Http {
+        report_urls: pairs(reports),
+        ..http(None, &[], None)
+    }
+}
+
 fn http(book: Option<&str>, rails: &[(&str, &str)], items: Option<&[(&str, &str)]>) -> Http {
     Http {
         outside_snapshot_url: book.map(str::to_owned),
@@ -488,6 +525,7 @@ fn http(book: Option<&str>, rails: &[(&str, &str)], items: Option<&[(&str, &str)
                 Ok(vec![("x-test-signed".to_owned(), payload.to_owned())])
             }),
         }),
+        report_urls: Vec::new(),
     }
 }
 
@@ -1943,6 +1981,229 @@ fn reconciles_one_rails_boundary_against_that_rails_own_statement_equal_is_pass_
         let refused = k.define(&body(
             &format!(
                 r#"{{"template":"outside_balance","accountSet":{{"mode":"query","rail":"recon-rail",{clash}}},
+                    "schedule":{{"cadence":"daily","hour":0,"minute":0}},"severity":"critical","tolerance":{{"default":"0"}},
+                    "reason":"$R","activate":true}}"#
+            ),
+            &[],
+        ));
+        assert!(refused.is_err(), "{clash}: {refused:?}");
+    }
+}
+
+/// What the TEST venue and partner report: each one's USDT figure, or none published (`None`), and its status.
+struct Reported {
+    venue: Option<String>,
+    partner: Option<String>,
+    status: u16,
+    as_of: String,
+}
+
+#[test]
+fn reconciles_our_own_records_at_a_venue_and_a_partner_against_each_ones_report_for_the_instant_not_reported_is_never_a_match()
+ {
+    let Some(k) = Kit::new() else { return };
+    // Our own records: the venue owes us 5 in builder fees, the partner 3 in fees; another venue's 2 is not this control's.
+    k.post_own(
+        "builder-fee:recon-v:acct:fill-1",
+        "trade",
+        "trade.builder_fee.earned",
+        "fees:builder",
+        "venue-builder-fee:recon-v",
+        "5",
+    );
+    k.post_own(
+        "partner-fee:earned:recon-p:pay-1",
+        "merchant",
+        "partner_fee.earned",
+        "fees:merchant",
+        "partner-fee-receivable:recon-p",
+        "3",
+    );
+    k.post_own(
+        "builder-fee:recon-x:acct:fill-1",
+        "trade",
+        "trade.builder_fee.earned",
+        "fees:builder",
+        "venue-builder-fee:recon-x",
+        "2",
+    );
+    let defined = k
+        .define(&body(
+            r#"{"template":"outside_balance","accountSet":{"mode":"query","reports":{"venue":"recon-v","partner":"recon-p"}},
+                "schedule":{"cadence":"daily","hour":0,"minute":0},"severity":"critical","tolerance":{"default":"0"},
+                "reason":"$R","activate":true}"#,
+            &[],
+        ))
+        .unwrap();
+    let id = st(&defined, "id");
+    let state = Arc::new(Mutex::new(Reported {
+        venue: Some("-5".to_owned()),
+        partner: Some("-3".to_owned()),
+        status: 200,
+        as_of: "2026-01-01T00:00:00.000Z".to_owned(),
+    }));
+    let asked: Arc<Mutex<Vec<Query>>> = Arc::new(Mutex::new(Vec::new()));
+    let base = {
+        let (state, asked) = (state.clone(), asked.clone());
+        serve(move |req| {
+            let mut q = req.query.clone();
+            q.sort();
+            asked.lock().unwrap().push(q);
+            let s = state.lock().unwrap();
+            let reporter = req.query("reporter").unwrap_or_default();
+            let place = req.query("place").unwrap_or_default();
+            let figure = if reporter == "venue" {
+                &s.venue
+            } else {
+                &s.partner
+            };
+            let body = match figure {
+                Some(amount) => format!(
+                    r#"{{"source":"report","reporter":"{reporter}","place":"{place}","asOf":"{}","balances":[{{"assetId":"USDT","amount":"{amount}"}}]}}"#,
+                    s.as_of
+                ),
+                None => format!(
+                    r#"{{"source":"report","reporter":"{reporter}","place":"{place}","reported":false}}"#
+                ),
+            };
+            (s.status, Vec::new(), body)
+        })
+    };
+    let report = format!("{base}/report");
+    let both = reporting(&[("venue", &report), ("partner", &report)]);
+    let run = |sources: &Http| {
+        k.run_from(
+            &body(
+                r#"{"controlId":"$ID","reason":"$R","approvalId":"appr-report","operationId":"$OP"}"#,
+                &[("$ID", &id), ("$OP", &k.next_op())],
+            ),
+            sources,
+        )
+        .unwrap()
+    };
+
+    // Both report what the ledger records: PASS, each side with its own as-of and its own accounts.
+    let pass = run(&both);
+    assert_match(&pass, r#"{"status":"PASS","outsideSide":"snapshot"}"#);
+    assert_equal(
+        at(&pass, "assets"),
+        r#"[{"assetId":"USDT","observed":"-8","expected":"-8","difference":"0","tolerance":"0"}]"#,
+    );
+    assert_equal(
+        at(&pass, "reports"),
+        r#"[{"reporter":"venue","place":"recon-v","asOf":"2026-01-01T00:00:00.000Z",
+             "assets":[{"assetId":"USDT","observed":"-5","expected":"-5","difference":"0","tolerance":"0"}]},
+            {"reporter":"partner","place":"recon-p","asOf":"2026-01-01T00:00:00.000Z",
+             "assets":[{"assetId":"USDT","observed":"-3","expected":"-3","difference":"0","tolerance":"0"}]}]"#,
+    );
+    assert_eq!(arr(&pass, "accounts").len(), 2);
+    let read_at = st(&pass, "readAt");
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [
+            pairs(&[
+                ("asOf", &read_at),
+                ("place", "recon-v"),
+                ("reporter", "venue")
+            ]),
+            pairs(&[
+                ("asOf", &read_at),
+                ("place", "recon-p"),
+                ("reporter", "partner")
+            ]),
+        ]
+    );
+    // The run as the list shows it, re-read from its row, keeps each side.
+    let listed = k
+        .list_runs(&body(r#"{"controlId":"$ID"}"#, &[("$ID", &id)]))
+        .unwrap();
+    assert_eq!(
+        at(&arr(&listed, "runs")[0], "reports"),
+        at(&pass, "reports")
+    );
+
+    // One unit over at the venue and one under at the partner: the sums agree, the places do not. FAIL, never cancelled.
+    {
+        let mut s = state.lock().unwrap();
+        s.venue = Some("-6".to_owned());
+        s.partner = Some("-2".to_owned());
+    }
+    let cancelled = run(&both);
+    assert_match(
+        &cancelled,
+        r#"{"status":"FAIL","phase":{"status":"set","value":"outside"}}"#,
+    );
+    assert_equal(
+        at(&cancelled, "assets"),
+        r#"[{"assetId":"USDT","observed":"-8","expected":"-8","difference":"0","tolerance":"0"}]"#,
+    );
+    assert_match(
+        at(&cancelled, "reports"),
+        r#"[{"assets":[{"difference":"1"}]},{"assets":[{"difference":"-1"}]}]"#,
+    );
+
+    // The partner has published no report for the instant: "not reported", UNSET with its code, never a match.
+    {
+        let mut s = state.lock().unwrap();
+        s.venue = Some("-5".to_owned());
+        s.partner = None;
+    }
+    let silent = run(&both);
+    assert_match(
+        &silent,
+        &format!(
+            r#"{{"status":"UNSET","outsideSide":"unset","errorCode":{{"status":"set","value":"{NOT_REPORTED}"}}}}"#
+        ),
+    );
+    assert_eq!(
+        st(&arr(&silent, "reports")[0], "asOf"),
+        "2026-01-01T00:00:00.000Z"
+    );
+    assert_eq!(st(&arr(&silent, "reports")[1], "asOf"), "not_reported");
+    assert!(
+        arr(&silent, "assets")
+            .iter()
+            .all(|a| st(a, "expected") == "unset")
+    );
+
+    // No partner address: its side is unset, the run UNSET with no code.
+    state.lock().unwrap().partner = Some("-3".to_owned());
+    let unset = run(&reporting(&[("venue", &report)]));
+    assert_match(
+        &unset,
+        r#"{"status":"UNSET","errorCode":{"status":"unset"}}"#,
+    );
+    assert_eq!(st(&arr(&unset, "reports")[1], "asOf"), "unset");
+
+    // A report dated after the instant, or a report that cannot be read, is ERROR: never a balance.
+    state.lock().unwrap().as_of = "2999-01-01T00:00:00.000Z".to_owned();
+    let late = run(&both);
+    assert_match(
+        &late,
+        &format!(
+            r#"{{"status":"ERROR","outsideSide":"unavailable","errorCode":{{"status":"set","value":"{SOURCE_UNAVAILABLE}"}}}}"#
+        ),
+    );
+    {
+        let mut s = state.lock().unwrap();
+        s.as_of = "2026-01-01T00:00:00.000Z".to_owned();
+        s.status = 500;
+    }
+    assert_eq!(st(&run(&both), "status"), "ERROR");
+
+    // Reports name their accounts themselves: an empty pair, a rail, an owner type, an owner id prefix or a kind other than
+    // available beside them is refused.
+    for clash in [
+        r#""reports":{}"#,
+        r#""reports":{"venue":"recon-v"},"rail":"recon-rail""#,
+        r#""reports":{"venue":"recon-v"},"ownerType":"treasury""#,
+        r#""reports":{"venue":"recon-v"},"ownerIdPrefix":"venue-""#,
+        r#""reports":{"venue":"recon-v"},"kind":"hold""#,
+        r#""reports":{"venue":"Recon V"}"#,
+    ] {
+        let refused = k.define(&body(
+            &format!(
+                r#"{{"template":"outside_balance","accountSet":{{"mode":"query",{clash}}},
                     "schedule":{{"cadence":"daily","hour":0,"minute":0}},"severity":"critical","tolerance":{{"default":"0"}},
                     "reason":"$R","activate":true}}"#
             ),

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
-import type { ApiResult } from '../api';
+import { isVerifyFirst, type ApiResult } from '../api';
+import { VerifyFirstNote } from '../verify-first';
 import { useFailureWords } from '../failure-words';
 import type { Resource } from '../resource';
 import { uiCopy } from '../ui-copy';
@@ -13,6 +14,7 @@ import { uiCopy } from '../ui-copy';
 /** A failed read or change, in the words the app's Failure says. */
 export function FailureBox({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const w = useFailureWords(result, Boolean(retry));
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div data-testid="failure" className="lt-refusal" role={w.alert ? 'alert' : 'status'}>
       <h3 className="lt-refusal-title">{w.title}</h3>

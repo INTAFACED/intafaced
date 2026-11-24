@@ -1,5 +1,5 @@
 /*
- * Entry CSS for the trade operator desk. Same order as packages/ui/gallery/gallery.css:
+ * The UI kit's styles for the console rooms drawn with it (the trade desk, the quant desk). Same order as packages/ui/gallery/gallery.css:
  * Tailwind 4 WITHOUT preflight, then the kit tokens, theme and base.
  */
 @layer theme, base, components, utilities;
