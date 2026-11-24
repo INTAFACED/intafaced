@@ -1,4 +1,4 @@
-import { merchantLimitIncreaseResultSchema, type PayCap } from '@intafaced/contracts/merchant-control';
+import { merchantLimitIncreaseResultSchema, merchantTierListSchema, type PayCap } from '@intafaced/contracts/merchant-control';
 import { payDestinationAddOutputSchema, payRefundItemSchema, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
 import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import * as p from '../schemas';
@@ -16,7 +16,6 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
   PAY_MERCHANT_CONTROL_APPROVALS_LIST,
-  PAY_MERCHANT_CONTROL_TIERS_LIST,
 } from '@intafaced/contracts/pay-merchant-control-procedures';
 import {
   PAY_SETTLEMENT_LINES,
@@ -132,7 +131,8 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
     mutate('merchantControl.limits.requestIncrease', input, merchantLimitIncreaseResultSchema),
   limitWithdraw: (input: { merchantId: string; requestId: string; reason: string }) =>
     mutateRecord(PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW, input),
-  tiersList: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_TIERS_LIST, { merchantId }, signal),
+  tiersList: (merchantId: string, signal?: AbortSignal) =>
+    query('merchantControl.tiers.list', { merchantId }, merchantTierListSchema, signal),
   pricingHistory: (merchantId: string, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_CONTROL_PRICING_HISTORY, { merchantId, limit: 50 }, signal),
 

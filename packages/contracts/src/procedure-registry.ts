@@ -1665,7 +1665,6 @@ import {
   PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
   PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
   PAY_FOUNDER_ADMIN_APPROVALS_LIST,
-  PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST,
 } from './pay-founder-admin-procedures.js';
 
 import { PAY_FRAUD_LIST_OPEN_REVIEWS } from './pay-fraud-procedures.js';
@@ -1686,8 +1685,6 @@ import {
   PAY_KYB_REQUESTS_LIST,
   PAY_KYB_DOCUMENTS_REVIEW,
 } from './pay-kyb-procedures.js';
-
-import { PAY_MANDATE_LIST, PAY_MANDATE_CANCEL, PAY_MANDATE_GET } from './pay-mandate-procedures.js';
 
 import { PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME } from './pay-merchant-analytics-procedures.js';
 
@@ -1712,8 +1709,6 @@ import {
   PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 } from './pay-merchant-catalog-procedures.js';
 
-import { PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW } from './pay-merchant-checkout-methods-procedures.js';
-
 import { PAY_MERCHANT_CHECKOUT_BRANDING_GET } from './pay-merchant-checkout-procedures.js';
 
 import {
@@ -1728,7 +1723,6 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
   PAY_MERCHANT_CONTROL_APPROVALS_LIST,
-  PAY_MERCHANT_CONTROL_TIERS_LIST,
 } from './pay-merchant-control-procedures.js';
 
 import {
@@ -1767,13 +1761,6 @@ import {
   PAY_MERCHANT_OPS_PAYOUTS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
-  PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE,
-  PAY_MERCHANT_OPS_TEAM_INVITE,
-  PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE,
-  PAY_MERCHANT_OPS_TEAM_REMOVE,
-  PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,
-  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ,
-  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ,
 } from './pay-merchant-ops-procedures.js';
 
 import {
@@ -1802,7 +1789,6 @@ import {
   PAY_MERCHANT_BUSINESS_PROFILE_HISTORY,
   PAY_MERCHANT_BUSINESS_PROFILE_CONFIRM,
   PAY_MERCHANT_BUSINESS_PROFILE_SET_SECOND_APPROVAL,
-  PAY_MERCHANT_CHECKOUT_SETTINGS_GET,
 } from './pay-merchant-procedures.js';
 
 import {
@@ -4191,7 +4177,6 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
   PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
   PAY_FOUNDER_ADMIN_APPROVALS_LIST,
-  PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST,
 ];
 
 const part_pay_fraud_procedures: readonly ProcedureRecord[] = [PAY_FRAUD_LIST_OPEN_REVIEWS];
@@ -4218,8 +4203,6 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_DOCUMENTS_REVIEW,
 ];
 
-const part_pay_mandate_procedures: readonly ProcedureRecord[] = [PAY_MANDATE_LIST, PAY_MANDATE_CANCEL, PAY_MANDATE_GET];
-
 const part_pay_merchant_analytics_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME];
 
 const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
@@ -4243,8 +4226,6 @@ const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 ];
 
-const part_pay_merchant_checkout_methods_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW];
-
 const part_pay_merchant_checkout_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_CHECKOUT_BRANDING_GET];
 
 const part_pay_merchant_control_procedures: readonly ProcedureRecord[] = [
@@ -4259,7 +4240,6 @@ const part_pay_merchant_control_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
   PAY_MERCHANT_CONTROL_APPROVALS_LIST,
-  PAY_MERCHANT_CONTROL_TIERS_LIST,
 ];
 
 const part_pay_merchant_metrics_procedures: readonly ProcedureRecord[] = [
@@ -4298,13 +4278,6 @@ const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_OPS_PAYOUTS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
-  PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE,
-  PAY_MERCHANT_OPS_TEAM_INVITE,
-  PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE,
-  PAY_MERCHANT_OPS_TEAM_REMOVE,
-  PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,
-  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ,
-  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ,
 ];
 
 const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
@@ -4333,7 +4306,6 @@ const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_BUSINESS_PROFILE_HISTORY,
   PAY_MERCHANT_BUSINESS_PROFILE_CONFIRM,
   PAY_MERCHANT_BUSINESS_PROFILE_SET_SECOND_APPROVAL,
-  PAY_MERCHANT_CHECKOUT_SETTINGS_GET,
 ];
 
 const part_pay_merchant_receiving_wallet_procedures: readonly ProcedureRecord[] = [
@@ -5232,10 +5204,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_fraud_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
-  ...part_pay_mandate_procedures,
   ...part_pay_merchant_analytics_procedures,
   ...part_pay_merchant_catalog_procedures,
-  ...part_pay_merchant_checkout_methods_procedures,
   ...part_pay_merchant_checkout_procedures,
   ...part_pay_merchant_control_procedures,
   ...part_pay_merchant_metrics_procedures,

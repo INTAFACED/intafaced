@@ -21,7 +21,6 @@ import {
   IDENTITY_COMPLIANCE_FREEZE_IDENTITY,
   IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY,
 } from '@intafaced/contracts/identity-compliance-procedures';
-import { PAY_ACCOUNT_CONTROLS_HISTORY, PAY_ACCOUNT_CONTROLS_CHANGE } from '@intafaced/contracts/pay-account-controls-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -357,7 +356,9 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Merchant status history',
     summary: 'Why a merchant is suspended / closed — newest first.',
-    ...toolOf(PAY_ACCOUNT_CONTROLS_HISTORY),
+    edgeModule: 'pay',
+    procedure: 'merchantState.history',
+    kind: 'query',
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -371,7 +372,9 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Set merchant status',
     summary: 'Suspend, reinstate, close, or set pending — with a recorded reason. Actor is the token subject.',
-    ...toolOf(PAY_ACCOUNT_CONTROLS_CHANGE),
+    edgeModule: 'pay',
+    procedure: 'merchantState.set',
+    kind: 'mutation',
     authority: 'module',
     scope: 'admin:write',
     consequential: true,

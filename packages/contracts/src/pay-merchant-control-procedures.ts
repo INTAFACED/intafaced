@@ -15,8 +15,6 @@ import {
   payPricingQuoteSchema,
   merchantControlApprovalListInputSchema,
   merchantControlApprovalPageSchema,
-  merchantTierListInputSchema,
-  merchantTierListSchema,
 } from './merchant-control.js';
 import { approvalCancelInputSchema, approvalRequestInputSchema, pricingPreviewInputSchema, usageInputSchema } from './pay-call-schemas.js';
 
@@ -193,24 +191,6 @@ export const PAY_MERCHANT_CONTROL_APPROVALS_LIST = defineProcedure({
   output: merchantControlApprovalPageSchema,
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', limit: 1 } },
-    { verdict: 'refuse', input: 42 },
-  ],
-});
-
-export const PAY_MERCHANT_CONTROL_TIERS_LIST = defineProcedure({
-  ...base,
-  name: 'pay.merchantControl.tiers.list',
-  kind: 'query',
-  path: 'merchantControl.tiers.list',
-  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
-  refusals: {},
-  input: merchantTierListInputSchema,
-  output: merchantTierListSchema,
-  outputChecks: {
-    merchant_tier_list_holds: { at: 'output', says: 'tier ids must be unique; current tier must be one of the listed tiers' },
-  },
-  samples: [
-    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

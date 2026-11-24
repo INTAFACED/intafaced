@@ -2,6 +2,8 @@ import {
   founderChangeConfirmInputSchema,
   founderApprovalDestinationInputSchema,
   founderApprovalDestinationSchema,
+  founderControlAuditListInputSchema,
+  founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
   founderPendingChangeListSchema,
 } from '@intafaced/contracts/founder-admin';
@@ -28,7 +30,6 @@ import {
   PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
   PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
   PAY_FOUNDER_ADMIN_APPROVALS_LIST,
-  PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -194,10 +195,10 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .mutation(({ ctx, input }) => guarded(() => control.closeLimitRequest(founderIdOf(ctx), input))),
     }),
     audit: router({
-      list: mountRecord(PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST, ({ input }) => guarded(() => control.listAudit(input)), {
-        refusalOf: payRefusal,
-        founder,
-      }),
+      list: founder
+        .input(founderControlAuditListInputSchema)
+        .output(founderControlAuditListSchema)
+        .query(({ input }) => guarded(() => control.listAudit(input))),
     }),
   });
 }

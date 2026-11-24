@@ -31,7 +31,13 @@ import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, hasScope, requireMfa } from '@intafaced/auth';
 import { payPageSchema, paySettlementDetailViewSchema, paySettlementViewSchema } from '@intafaced/contracts/pay-merchant-reads';
-import { payDestinationAddOutputSchema, payRefundItemSchema, payRefundListInputSchema } from '@intafaced/contracts/pay-portal-reads';
+import {
+  payCheckoutSettingsGetInputSchema,
+  payCheckoutSettingsSchema,
+  payDestinationAddOutputSchema,
+  payRefundItemSchema,
+  payRefundListInputSchema,
+} from '@intafaced/contracts/pay-portal-reads';
 import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import type { MerchantTermsConfig } from './merchant-portal/terms.js';
@@ -142,7 +148,6 @@ import {
   PAY_MERCHANT_ONBOARDING_DRAFT,
   PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
   PAY_MERCHANT_SUBMIT_KYB,
-  PAY_MERCHANT_CHECKOUT_SETTINGS_GET,
 } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
@@ -719,9 +724,10 @@ export function createPayRouter(
        * `feeRouting` is null unless the caller sees full pricing. `checkoutConfig` stays.
        */
       checkoutSettings: router({
-        get: mountRecord(
-          PAY_MERCHANT_CHECKOUT_SETTINGS_GET,
-          ({ ctx, input }) =>
+        get: ownMerchantRead()
+          .input(payCheckoutSettingsGetInputSchema)
+          .output(payCheckoutSettingsSchema)
+          .query(({ ctx, input }) =>
             wrap(async () => {
               const audience = await assertRead(
                 ctx.principal?.userId,
@@ -733,8 +739,7 @@ export function createPayRouter(
               if (settings.status !== 'configured' || seesFullPricing(audience)) return settings;
               return { ...settings, feeRouting: null };
             }),
-          payRefusal,
-        ),
+          ),
       }),
 
       /**

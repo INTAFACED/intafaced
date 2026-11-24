@@ -3435,6 +3435,49 @@ test("a run's new type error leaves only the moved call the code around it names
   assert.deepEqual([...owners.get(other).keys()], ['settlement.list', 'payment.list', 'merchant.payoutDestinations.add']);
 });
 
+test("a type error in the run's own service is owned by the record mounted around it, and one that names no record by none", async () => {
+  // The failure it prevents: on 24 Nov 2026 the svc-pay run typechecked only the apps, and shipped a service whose
+  // mountRecord(PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, ...) handler no longer fit its record (#10717's first head).
+  const { ownersOf } = await import('./run.mjs');
+  const router = 'services/svc-pay/src/merchant-ops/router.ts';
+  const audit = 'services/svc-pay/src/control/audit.ts';
+  const moved = [
+    { path: 'merchantOps.permissions.catalogue', record: 'PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE', files: ['apps/customer/src/a.ts'] },
+    { path: 'merchantOps.team.invite', record: 'PAY_MERCHANT_OPS_TEAM_INVITE', files: ['apps/customer/src/a.ts'] },
+  ];
+  const sources = {
+    [router]: [
+      "import { PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, PAY_MERCHANT_OPS_TEAM_INVITE } from '@intafaced/contracts/pay';",
+      'export const merchantOpsRouter = router({',
+      '  invite: mountRecord(PAY_MERCHANT_OPS_TEAM_INVITE, ({ input }) => invite(input), payRefusal),',
+      '  catalogue: mountRecord(',
+      '    PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,',
+      '    ({ ctx }) => catalogue(ctx),',
+      '    payRefusal,',
+      '  ),',
+      '  other: memberRead.query(() => 1),',
+      '});',
+    ].join('\n'),
+    [audit]: ['export const list = (rows) => rows.map((row) => ({ before: row.before }));'].join('\n'),
+  };
+  const err = (file, line, col, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(${line},${col}): ${msg}`, line, col });
+  const owners = ownersOf(
+    [
+      err(router, 6, 5, 'error TS2769: No overload matches this call.'),
+      err(router, 9, 10, 'error TS2322: Type A'),
+      err(audit, 1, 50, 'error TS2719: Type B'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  // Only the record whose mount the error sits in; the error outside any mount, and the one in audit.ts, are nobody's.
+  assert.deepEqual([...owners.get(router).keys()], ['merchantOps.permissions.catalogue']);
+  assert.equal(owners.has(audit), false);
+});
+
 test('a credential-named uuid field gets no sample, since a uuid cannot say it is a placeholder: its record stays by name, and no token literal is written', async () => {
   const { z } = await contractsZod();
   assert.throws(

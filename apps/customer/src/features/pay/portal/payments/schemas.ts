@@ -88,7 +88,7 @@ const activityItemSchema = z.object({
 export type ActivityItem = z.infer<typeof activityItemSchema>;
 
 /** `merchantControl.tiers.list` on main: this merchant's own tier, or "not configured". Only the name is read here. */
-const ownTierSchema = z.union([
+export const ownTierSchema = z.union([
   z.object({ status: z.literal('not_configured') }),
   z.object({ status: z.literal('configured'), ownTierId: z.string(), tiers: z.array(z.object({ id: z.string(), name: z.string() })) }),
 ]);
@@ -135,7 +135,7 @@ export type LinkRow = z.infer<typeof linkRowSchema>;
  * `merchant.checkoutSettings.get` on main (packages/contracts/src/pay-portal-reads.ts, #4871): the newest checkout
  * profile, or `not_configured`. `feeRouting` is null when this role may not see it. Nothing is filled in on the page.
  */
-const checkoutSettingsSchema = z.discriminatedUnion('status', [
+export const checkoutSettingsSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('not_configured') }),
   z.object({
     status: z.literal('configured'),

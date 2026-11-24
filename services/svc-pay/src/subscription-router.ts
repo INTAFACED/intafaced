@@ -12,6 +12,7 @@ import {
   preChargeNotifyGap,
   subscriptionsProductPosture,
 } from './subscriptions/mandate-product.js';
+import { ownMerchantRead } from './own-merchant-read.js';
 import {
   subscriptionView,
   amountSchema,
@@ -27,7 +28,23 @@ import {
 } from '@intafaced/contracts/pay-subscription-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from './record-refusal.js';
-import { mandateView, PAY_MANDATE_LIST, PAY_MANDATE_CANCEL, PAY_MANDATE_GET } from '@intafaced/contracts/pay-mandate-procedures';
+
+const mandateView = z.object({
+  id: z.string().guid(),
+  merchantId: z.string().guid(),
+  customerId: z.string(),
+  assetId: z.string(),
+  amount: amountSchema,
+  ceiling: amountSchema.nullable(),
+  cadence: z.enum(['daily', 'weekly', 'monthly']),
+  startsAt: z.string().datetime({ offset: true }),
+  endsAt: z.string().datetime({ offset: true }).nullable(),
+  railAdapter: z.string().nullable(),
+  railMandateRef: z.string().nullable(),
+  status: z.enum(['active', 'cancelled', 'expired']),
+  cancelledAt: z.string().datetime({ offset: true }).nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+});
 
 function toMandateOut(m: Awaited<ReturnType<SubscriptionService['getMandate']>>) {
   return {
@@ -218,23 +235,38 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           }),
         ),
 
-      get: mountRecord(
-        PAY_MANDATE_GET,
-        ({ ctx, input }) =>
+      get: ownMerchantRead()
+        .input(z.object({ mandateId: z.string().guid() }))
+        .output(mandateView)
+        .query(({ ctx, input }) =>
           wrap(async () => {
             const mandate = await subscriptions.getMandate(input.mandateId);
             await assertMandateArea(ctx.principal?.userId, input.mandateId, mandate.merchantId);
             return toMandateOut(mandate);
           }),
-        payRefusal,
-      ),
+        ),
 
       /**
        * Merchant fleet list (ops truth). Read-only — no charge, no cascade.
        */
-      list: mountRecord(
-        PAY_MANDATE_LIST,
-        ({ ctx, input }) =>
+      list: ownMerchantRead()
+        .input(
+          z.object({
+            merchantId: z.string().guid(),
+            status: z.enum(['active', 'cancelled', 'expired']).optional(),
+            /**
+             * Page size. Optional so omit reaches `pay.subscription_mandate_list_limit_unset`.
+             * Blank is not 50; pass 50 explicitly.
+             */
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(300).optional(),
+            search: z.string().trim().min(1).max(200).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
+          }),
+        )
+        .output(z.object({ items: z.array(mandateView), nextCursor: z.string().nullable() }))
+        .query(({ ctx, input }) =>
           wrap(async () => {
             await assertPaymentArea(ctx.principal?.userId, input.merchantId);
             const page = await subscriptions.listMandates(input.merchantId, {
@@ -247,24 +279,23 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             });
             return { items: page.items.map(toMandateOut), nextCursor: page.nextCursor };
           }),
-        payRefusal,
-      ),
+        ),
 
       /**
        * Immediate mandate cancel (SPEC §4). Cascades to active subscriptions.
        * Does not reverse settled executions.
        */
-      cancel: mountRecord(
-        PAY_MANDATE_CANCEL,
-        ({ ctx, input }) =>
+      cancel: scopedProcedure('pay:write', { module: 'pay' })
+        .input(z.object({ mandateId: z.string().guid() }))
+        .output(mandateView)
+        .mutation(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getMandate(input.mandateId);
             await assertMandateArea(ctx.principal?.userId, input.mandateId, existing.merchantId);
             const mandate = await subscriptions.cancelMandate(input.mandateId);
             return toMandateOut(mandate);
           }),
-        payRefusal,
-      ),
+        ),
 
       /**
        * Price/ceiling change without re-consent — refused in code (SPEC §4).

@@ -33,14 +33,18 @@ const out = (cmd, args) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8'
 // exist), and the run goes on: prettier given no paths fails, and the others would read nothing.
 const prettier = (files) => files.length && sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...files]);
 
-/** Each app's type errors now, keyed without the line (a moved file's lines shift). */
-export function appTypeErrors(repo = REPO) {
+/**
+ * Each app's type errors now, and the run's own service's (`services/<service>`, which mounts the records), keyed
+ * without the line (a moved file's lines shift).
+ */
+export function appTypeErrors(repo = REPO, service = undefined) {
   const errors = [];
-  if (!existsSync(join(repo, 'apps'))) return errors;
-  for (const app of readdirSync(join(repo, 'apps'))) {
-    if (!existsSync(join(repo, 'apps', app, 'tsconfig.json'))) continue;
+  const projects = existsSync(join(repo, 'apps')) ? readdirSync(join(repo, 'apps')).map((app) => `apps/${app}`) : [];
+  if (service) projects.push(`services/${service}`);
+  for (const dir of projects) {
+    if (!existsSync(join(repo, dir, 'tsconfig.json'))) continue;
     const r = spawnSync('node', [join(repo, 'tooling', 'scripts', 'tsc.mjs'), '--noEmit', '-p', '.'], {
-      cwd: join(repo, 'apps', app),
+      cwd: join(repo, dir),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -48,9 +52,9 @@ export function appTypeErrors(repo = REPO) {
       const m = /^([^(]+)\((\d+),(\d+)\): (error TS\d+: .*)$/.exec(line);
       if (m)
         errors.push({
-          file: `apps/${app}/${m[1]}`,
-          key: `apps/${app}/${m[1]}: ${m[4]}`,
-          text: `apps/${app}/${line}`,
+          file: `${dir}/${m[1]}`,
+          key: `${dir}/${m[1]}: ${m[4]}`,
+          text: `${dir}/${line}`,
           line: Number(m[2]),
           col: Number(m[3]),
         });
@@ -128,14 +132,17 @@ function handlesIn(file, text, moved) {
  * a use of it. A call two lines on in the same api file, or one the screen never touches, owns nothing; none named, or
  * no position: every path, as before.
  */
-function nearestOwners(e, paths, callerFiles, moved) {
-  if (!e.line || paths.length < 2) return paths;
+function nearestOwners(e, paths, callerFiles, moved, strict = false) {
+  const none = strict ? [] : paths;
+  if (!e.line || (!strict && paths.length < 2)) return none;
   const program = programOf(e.file, e.source);
-  if (!program) return paths;
+  if (!program) return none;
   const handles = new Map();
   for (const [f, text] of callerFiles)
     for (const [path, names] of handlesIn(f, text, moved)) {
       if (!paths.includes(path)) continue;
+      // In a service the record's own name only: the router's const holds every record, and would own any error.
+      if (strict) for (const n of [...names]) if (n !== moved.find((m) => m.path === path)?.record) names.delete(n);
       const all = handles.get(path) ?? new Set();
       for (const n of names) all.add(n);
       handles.set(path, all);
@@ -154,9 +161,12 @@ function nearestOwners(e, paths, callerFiles, moved) {
       if (n.type === 'Identifier') named.add(n.name);
     });
     const found = paths.filter((p) => [...(handles.get(p) ?? [])].some((h) => named.has(h)));
+    // In a service, only the one call that mounts the record (`mountRecord(PAY_X, handler)`): a node holding several
+    // is the router around them, and the error is in none of their handlers.
+    if (strict && found.length) return node.type === 'CallExpression' && found.length === 1 ? found : [];
     if (found.length) return found;
   }
-  return paths;
+  return none;
 }
 
 /**
@@ -189,6 +199,22 @@ export function ownersOf(errors, moved, read = (f) => readFileSync(join(REPO, f)
   for (const e of errors) {
     let paths = [];
     const source = readOr(e.file) ?? '';
+    // In the run's own service (which mounts the records) the owner is the record the code around the error names
+    // (`mountRecord(PAY_X, handler)` whose handler no longer fits it); an error that names none is the run's, unowned.
+    if (e.file.startsWith('services/')) {
+      const found = nearestOwners(
+        { ...e, source },
+        moved.map((m) => m.path),
+        [[e.file, source]],
+        moved,
+        true,
+      );
+      if (!found.length) continue;
+      const own = owners.get(e.file) ?? new Map();
+      for (const p of found) if (!own.has(p)) own.set(p, e.text.replace(/^\S+?\(\d+,\d+\): /, ''));
+      owners.set(e.file, own);
+      continue;
+    }
     let ring = [[e.file, source]];
     const seen = new Set([noExt(e.file)]);
     for (let hop = 0; hop <= 4 && ring.length; hop++) {
@@ -272,7 +298,7 @@ export function run(argv) {
   // or in a file that imports one, leaves that call's path by name (the screen reads its answer, or sends its input, other
   // than the router's types say), and the run starts again without it; an error no moved call can own fails the run.
   build();
-  const before = new Set(appTypeErrors().map((e) => e.key));
+  const before = new Set(appTypeErrors(REPO, service).map((e) => e.key));
   for (let pass = 0; ; pass++) {
     for (let round = 0; ; round++) {
       result = step1(Object.keys(skip).length ? ['--skip-file', skipFile] : []);
@@ -317,16 +343,21 @@ export function run(argv) {
     sh('pnpm', ['procedures:write'], { cwd: join(REPO, 'packages/contracts'), stdio: ['ignore', 'ignore', 'inherit'] });
     sh('node', [here('doubles.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
     sh('node', [here('dead-hand-schemas.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
-    const fresh = appTypeErrors().filter((e) => !before.has(e.key));
+    const fresh = appTypeErrors(REPO, service).filter((e) => !before.has(e.key));
     if (!fresh.length) break;
     const owners = ownersOf(fresh, result.moved ?? []);
     const orphans = fresh.filter((e) => !owners.has(e.file));
     if (orphans.length || pass > 5)
       throw new Error(
-        `the apps don't typecheck after the run, and no moved call owns these errors:\n${(orphans.length ? orphans : fresh).map((e) => e.text).join('\n')}`,
+        `the apps or the service don't typecheck after the run, and no moved call owns these errors:\n${(orphans.length ? orphans : fresh).map((e) => e.text).join('\n')}`,
       );
-    for (const [, paths] of owners)
-      for (const [path, text] of paths) skip[path] ??= { why: `the app's own types disagree with its record: ${text}` };
+    for (const [file, paths] of owners)
+      for (const [path, text] of paths)
+        skip[path] ??= {
+          why: file.startsWith('services/')
+            ? `the service's handler no longer typechecks against its record: ${text}`
+            : `the app's own types disagree with its record: ${text}`,
+        };
     writeFileSync(skipFile, JSON.stringify(skip));
     const patch = kept.size ? out('git', ['diff', '--', ...kept]) : '';
     putBack();

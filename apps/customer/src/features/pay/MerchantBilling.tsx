@@ -25,7 +25,6 @@ import {
   PAY_SUBSCRIPTION_RESUME,
   PAY_SUBSCRIPTION_CANCEL,
 } from '@intafaced/contracts/pay-subscription-procedures';
-import { PAY_MANDATE_LIST, PAY_MANDATE_CANCEL } from '@intafaced/contracts/pay-mandate-procedures';
 
 export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoices: boolean }) {
   const merchantId = pay.authority!.merchantId;
@@ -35,7 +34,15 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
   const [path, setPath] = useState('');
   const [projectedEnd, setProjectedEnd] = useState<string | null | undefined>();
   const mandates = useResource(
-    (signal) => pay.queryRecord(PAY_MANDATE_LIST, { merchantId, limit }, signal).then((result) => s.listed(result)),
+    (signal) =>
+      pay
+        .query(
+          'mandate.list',
+          { merchantId, limit },
+          z.object({ items: z.array(s.mandateSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:mandates:${merchantId}:${limit}`,
   );
   const subscriptions = useResource(
@@ -230,7 +237,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                               />
                             }
                             perform={() =>
-                              pay.mutateRecord(PAY_MANDATE_CANCEL, { mandateId: mandate.id }, 'pay:write', `mandate:${mandate.id}`)
+                              pay.mutate('mandate.cancel', { mandateId: mandate.id }, s.mandateSchema, 'pay:write', `mandate:${mandate.id}`)
                             }
                             onConfirmed={refresh}
                             disabled={Boolean(pay.access('pay:write'))}
