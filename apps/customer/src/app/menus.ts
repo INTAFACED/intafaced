@@ -79,7 +79,7 @@ function pathOf(href: string): string {
  * left with no rows is a plain link. More and Settings need a session, so a signed-out visitor's More tab opens the public Help centre
  * (`/help`) and lists only that; a signed-in person gets `/more` and `/support`.
  */
-export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true, spotPair: string = defaultDeskPair): TabSpec[] {
+export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec[] {
   const all: TabSpec[] = [
     { door: 'Home', href: '/home', icon: 'home', items: [] },
     {
@@ -112,11 +112,11 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true, spotPair
     },
     {
       door: 'Trade',
-      href: tradeTabHref(layoutMode, spotPair),
+      href: tradeTabHref(layoutMode),
       icon: 'markets',
       items: [
         { id: 'markets', href: '/trade', icon: 'markets', title: 'Markets', description: 'Prices for every market' },
-        { id: 'spot', href: `/trade/spot/${spotPair}`, icon: 'spot', title: 'Spot', description: 'Charts, order book and orders' },
+        { id: 'spot', href: `/trade/spot/${defaultDeskPair}`, icon: 'spot', title: 'Spot', description: 'Charts, order book and orders' },
         { id: 'buy', href: '/trade/buy', icon: 'buy', title: 'Buy and sell', description: 'Buy crypto in a few steps' },
         { id: 'convert', href: '/trade/convert', icon: 'convert', title: 'Convert', description: 'Swap one asset for another' },
         { id: 'margin', href: '/trade/margin', icon: 'margin', group: 'Advanced' },

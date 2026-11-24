@@ -1,8 +1,7 @@
-import { useMemo } from 'react';
 import { Tabs } from '@intafaced/ui/lit/templates';
-import { useDefaultSpotPair } from '../../features/trade/venue/default-spot-pair';
 
-const OTHER_ROOMS = [
+const ROOMS = [
+  { label: 'Spot', href: '/trade/spot/BTC-USDT', match: ['/trade/spot'] },
   { label: 'Margin', href: '/trade/margin' },
   { label: 'Futures', href: '/trade/futures' },
   { label: 'Options', href: '/trade/options' },
@@ -18,7 +17,5 @@ const OTHER_ROOMS = [
  * kit's section tab bar, its lit tab the route's own (a room it does not list, such as the terminal, lights none).
  */
 export function TradeSubNav() {
-  const spotPair = useDefaultSpotPair();
-  const items = useMemo(() => [{ label: 'Spot', href: `/trade/spot/${spotPair}`, match: ['/trade/spot'] }, ...OTHER_ROOMS], [spotPair]);
-  return <Tabs label="Trading rooms" items={items} />;
+  return <Tabs label="Trading rooms" items={ROOMS} />;
 }

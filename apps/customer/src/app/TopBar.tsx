@@ -6,7 +6,7 @@ import { usePreferences, savePreferences } from '../shared/preferences';
 import { proCopy } from '../screens/home/pro-copy';
 import { BellPopover } from '../screens/notifications/BellPopover';
 import { currentReturnLocation } from './location';
-import { doorLabel, safeReturnTo, type Door } from './navigation';
+import { defaultDeskPair, doorLabel, safeReturnTo, type Door } from './navigation';
 import { ShellIcon } from './icons';
 import { menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
@@ -16,7 +16,13 @@ import { TopSearch } from './TopSearch';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
-import { useDefaultSpotPair } from '../features/trade/venue/default-spot-pair';
+import { markMenuSpotNavigation } from '../screens/trade/desk/VenueSpotGate';
+
+/** Marks generic menu clicks to the default spot pair so VenueSpotGate opens the active venue's default spot market. */
+const DEFAULT_SPOT_HREF = `/trade/spot/${defaultDeskPair}`;
+const onSpotMenuClick = (href: string) => {
+  if (href === DEFAULT_SPOT_HREF) markMenuSpotNavigation();
+};
 
 // The merchant portal's chrome and menu load only when a merchant page or the Pay menu needs them.
 export const preloadMerchantChrome = () => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar }));
@@ -62,7 +68,14 @@ function MenuRow({ item, close, language }: { item: MenuItem; close: () => void;
   const words = menuItemWords(item, t, language);
   return (
     <li>
-      <a className="tb-menu-item" href={item.href} onClick={close}>
+      <a
+        className="tb-menu-item"
+        href={item.href}
+        onClick={() => {
+          onSpotMenuClick(item.href);
+          close();
+        }}
+      >
         <ShellIcon name={item.icon} />
         <span>
           <strong>{words.title}</strong>
@@ -125,7 +138,10 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
         aria-current={current === tab.door ? 'page' : undefined}
         aria-expanded={hasMenu ? open : undefined}
         aria-controls={hasMenu && open ? menuId : undefined}
-        onClick={() => setOpen(false)}
+        onClick={() => {
+          onSpotMenuClick(tab.href);
+          setOpen(false);
+        }}
       >
         {doorLabel(tab.door, language)}
         {hasMenu && <ChevronDown size={14} aria-hidden="true" className="tb-chev" />}
@@ -252,9 +268,8 @@ export function TopBar({
   const { t } = shellCopy.useCopy();
   const { language, layoutMode } = usePreferences();
   const { session } = useSession();
-  const spotPair = useDefaultSpotPair();
   useBannerOffset();
-  const tabs = tabSpecs(layoutMode, Boolean(session), spotPair);
+  const tabs = tabSpecs(layoutMode, Boolean(session));
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   if (isMerchantArea(path))
@@ -314,14 +329,18 @@ export function MobileTabs({ door, language }: { door: Door | undefined; languag
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
   const { session } = useSession();
-  const spotPair = useDefaultSpotPair();
-  const tabs = tabSpecs(layoutMode, Boolean(session), spotPair);
+  const tabs = tabSpecs(layoutMode, Boolean(session));
   return (
     <nav className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>
         tab
           ? [
-              <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
+              <a
+                key={tab.door}
+                href={tab.href}
+                aria-current={door === tab.door ? 'page' : undefined}
+                onClick={() => onSpotMenuClick(tab.href)}
+              >
                 <ShellIcon name={tab.icon} />
                 {doorLabel(tab.door, language)}
               </a>,
