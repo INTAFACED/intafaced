@@ -51,7 +51,7 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.futures_disabled': {
     title: 'Futures trading is switched off',
-    body: 'The futures service is switched off by the platform right now. Open positions stay as they are. Nothing can be opened or changed until it is switched back on.',
+    body: 'Futures trading is switched off right now. Open positions stay as they are. Nothing can be opened or changed until it resumes.',
   },
   'trade.futures_unconfigured': {
     title: 'Futures profit settlement is not set up',
@@ -600,9 +600,9 @@ const WORDS: Readonly<Record<string, Words>> = {
 function readable(status: number | undefined, reason: string | undefined): Words | null {
   if (status === 401 || reason === 'unauthorized') return { title: 'Sign in again', body: 'Your session ended. Sign in to carry on.' };
   if (status === 501 || reason === 'not_supported')
-    return { title: 'This is not offered', body: 'The service does not offer this action.', retryable: false };
+    return { title: 'This is not offered', body: 'This action is not offered.', retryable: false };
   if (reason === 'unreachable' || (status !== undefined && status >= 502))
-    return { title: 'The trading service did not answer', body: 'Nothing was changed. Try again in a moment.' };
+    return { title: 'Could not reach the trading desk', body: 'Nothing was changed. Try again in a moment.' };
   return null;
 }
 

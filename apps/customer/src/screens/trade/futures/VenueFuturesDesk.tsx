@@ -120,15 +120,15 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
       {/* The contracts band: its titles and lists keep the desk's inner margin. */}
       <div className="lt-stack">
         {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
-        <section className="lt-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
-          <h2 className="lt-panel-title">{t('Contracts')}</h2>
-          {markets.data && perps.length === 0 ? (
+        {markets.data && perps.length === 0 ? (
+          <section className="lt-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
+            <h2 className="lt-panel-title">{t('Contracts')}</h2>
             <div data-testid="venue-no-contract">
               <p>{t('No contract')}</p>
               <p className="lt-quiet">{t('No contract reason', { venue: status.venue.displayName })}</p>
             </div>
-          ) : null}
-        </section>
+          </section>
+        ) : null}
         <GatedList status={status} />
       </div>
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
@@ -139,7 +139,7 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
 /**
  * J-derivatives-01 #2: every contract marked open or blocked for this account, with each reason as svc-trade's gated list
  * names it (the region and level gate, our builder fee, our listing, the venue's own state). It reads on its own, so a
- * person the region or level gate blocks still sees why.
+ * person the region or level gate blocks still sees why. Drawn as one compact strip so the order ticket stays above the fold.
  */
 function GatedList({ status }: { status: VenueUp }) {
   const { t } = futuresVenueCopy.useCopy();
@@ -149,16 +149,23 @@ function GatedList({ status }: { status: VenueUp }) {
   const rows: VenueGatedContract[] = gated.data?.value ?? [];
   return (
     <section className="lt-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
-      <h2 className="lt-panel-title">
-        {t('Gated list')} <TestMark test={status.test} />
-      </h2>
+      <div className="lt-row lt-row-between">
+        <h2 className="lt-panel-title">
+          {t('Gated list')} <TestMark test={status.test} />
+        </h2>
+        {gated.data ? (
+          <p className="lt-quiet" data-testid="venue-gated-as-of">
+            {asOfText(gated.data.asOf)}
+          </p>
+        ) : null}
+      </div>
       <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
-      <ul className="lt-stack">
+      <ul className="lt-toolbar">
         {rows.map((c) => (
           <li key={c.symbol} data-testid="venue-gate" data-symbol={c.symbol} data-open={c.open ? 'true' : 'false'}>
             <strong>{c.symbol}</strong> <span data-testid="venue-gate-state">{c.open ? t('Gated open') : t('Gated blocked')}</span>
             {c.blockers.length > 0 ? (
-              <ul>
+              <ul className="lt-stack-tight">
                 {c.blockers.map((b) => (
                   <li key={b.code} data-code={b.code}>
                     {b.message}
@@ -169,11 +176,6 @@ function GatedList({ status }: { status: VenueUp }) {
           </li>
         ))}
       </ul>
-      {gated.data ? (
-        <p className="lt-quiet" data-testid="venue-gated-as-of">
-          {asOfText(gated.data.asOf)}
-        </p>
-      ) : null}
     </section>
   );
 }
