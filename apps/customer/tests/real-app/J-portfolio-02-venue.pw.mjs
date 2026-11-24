@@ -306,7 +306,16 @@ test(`${J} #2 reads unrealised profit and loss for the coin, as an amount and a 
 }) => {
   test.setTimeout(300_000);
   const s = trader();
-  const { symbol, base, qty, cost } = trades.read();
+  const { symbol, base } = trades.read();
+  if (!symbol || !base) throw new Error(`${J} #1 bought no TEST coin on its own market, so #2 has no open lot to value`);
+  // Read the open holding and its lot basis straight from the venue's own record (fills and balance).
+  const buys = await fillsOf(s.owner, symbol, 'buy', new Date(0).toISOString());
+  expect(buys.length).toBeGreaterThan(0);
+  const qty = sumOf(buys, (f) => gotOf(f, base));
+  const cost = sumOf(buys, (f) => paidOf(f, 'USDC'));
+  expect(qty).toBeGreaterThan(0n);
+  expect(cost).toBeGreaterThan(0n);
+  expect(toUnits((await venueBalance(s.owner, base)).total)).toBe(qty);
   // Another TEST trader quotes the coin on both sides of the book, so the venue has a price now: what a sale gets, its bid, 100.
   const quoter = await otherTrader(s.owner, 'quote', base, '10');
   await testDeposit(otherTraderKey(quoter).address, 'USDC', '10000', `seed:${quoter}:USDC`);
@@ -319,16 +328,17 @@ test(`${J} #2 reads unrealised profit and loss for the coin, as an amount and a 
   const row = await venueRow(main, s.owner, base);
   // By hand: worth now is the open coins at what selling them there would get, the venue's best bid (half-up at 18
   // places), less the lot's cost.
-  const worth = (toUnits(qty) * book.bid + ONE / 2n) / ONE;
-  const unrealised = worth - toUnits(cost);
-  await expect(row.locator('[data-col="unrealised"]')).toHaveText(`${usd(unrealised, true)} (${pct(unrealised, toUnits(cost))})`, {
+  const worth = (qty * book.bid + ONE / 2n) / ONE;
+  const unrealised = worth - cost;
+  await expect(row.locator('[data-col="unrealised"]')).toHaveText(`${usd(unrealised, true)} (${pct(unrealised, cost)})`, {
     timeout: 30_000,
   });
   await expect(row.locator('td').nth(3)).toHaveText(usd(worth));
   await expect(main.locator('[data-figure="unrealised"]')).toHaveText(usd(unrealised, true));
-  // The venue's book is as it was: nothing the page read moved it.
+  // The venue's book and the person's own balance are as they were: nothing the page read moved them.
   const after = await venueBook(symbol);
   expect([after.bid, after.ask]).toEqual([book.bid, book.ask]);
+  expect(toUnits((await venueBalance(s.owner, base)).total)).toBe(qty);
 });
 
 test(`${J} #3 sells the coins on the venue desk: a sale row with what was received, the cost of the lot it used and the realised result; the lot closes`, async ({

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { NAVIGATOR_ONCHAIN_TEST_CHAIN_ID, type NavigatorOnchainBinding } from '@intafaced/contracts/agents-onchain';
 import type { ProtocolSessionKey, ProtocolSessionsList } from '@intafaced/contracts/protocol-sessions';
-import { Button, Field, Tag } from '@intafaced/ui/lit';
+import { Button, Field, Select, Tag } from '@intafaced/ui/lit';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { useApi } from '../session';
@@ -20,7 +20,6 @@ import {
   waitMined,
   WalletProvider,
 } from '../protocol';
-import { Select } from './common';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
 import { FailureNote } from './volt-parts';
 import {

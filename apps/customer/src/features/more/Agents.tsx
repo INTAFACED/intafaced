@@ -8,10 +8,12 @@ import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, Select, TextArea } from '@intafaced/ui/lit';
 import { SectionTabs } from '@intafaced/ui/lit/templates';
-import { FailureNote, ScrollTable, Section } from './volt-parts';
-import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
+import { FailureNote, KitRead as Read, ScrollTable, Section } from './volt-parts';
+import { Details, Limit } from './catalogue-parts';
+import { useKitAction as useAction } from './volt-action';
+import { presentActionFailure } from './action-state';
 import { Campaigns } from './Campaigns';
 import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
@@ -885,7 +887,7 @@ export function AgentsSections({ paper = false, tab, onTab: setTab }: { paper?: 
                     options={available.map((r) => r.task)}
                   />
                   {agent === 'navigator' ? <NavigatorCapLine trading={trading} /> : null}
-                  <TextArea label={agentsCatalogueCopy.t('askAgent')} value={ask} onChange={setAsk} maxLength={200000} />
+                  <TextArea label={agentsCatalogueCopy.t('askAgent')} value={ask} onChange={setAsk} maxLength={200000} rows={5} />
                   <BackgroundRunStart
                     key={active.id}
                     sessionId={active.id}

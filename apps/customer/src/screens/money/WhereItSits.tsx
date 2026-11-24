@@ -9,9 +9,13 @@ import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
 import { shortOrderId, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
-import { usePartnerStanding, useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
+import { moneyCopy } from './copy';
+import { VALUATION_REFRESH_MS, usePartnerStanding, useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
 import type { ValuedPart } from './standing';
 import { StandingTotal, dollars } from './StandingTotal';
+import { ValuationNote } from './ValuationNote';
+import { Movers } from './Movers';
+import { clockTime } from './time';
 import { WhereAllocation } from './WhereAllocation';
 import { WhereHoldingsChange } from './WhereHoldingsChange';
 import { isHiddenPath, navigate } from './deps';
@@ -92,7 +96,8 @@ function BeforeWallet({ t }: { t: T }) {
 }
 
 function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; chainId: number; t: T }) {
-  const { displayCurrency, hideBalances } = usePreferences();
+  const { displayCurrency, hideBalances, timeZone } = usePreferences();
+  const money = moneyCopy.useCopy();
   const network = networkLabel(chainId).name;
   const { wallet, venue, partner, standing, pricesFailed, prices } = useStanding(
     owner,
@@ -101,6 +106,11 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
     displayCurrency === 'BTC' ? 'BTC' : 'USD',
   );
   const part = (id: ValuedPart['id']) => standing.parts.find((p) => p.id === id);
+  const valuation = standing.prices && standing.valuation && standing.valuation.rows.length > 0 ? standing.valuation : null;
+  const sinceLabel =
+    valuation && valuation.windowStart !== null
+      ? money.t('Movers since {time}', { time: clockTime(valuation.windowStart, timeZone) })
+      : money.t('Today');
   return (
     <MoneyOverview
       title={t('Title')}
@@ -126,6 +136,18 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
           <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
           <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
           {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} />}
+          {valuation && standing.prices ? (
+            <ValuationNote
+              view={valuation}
+              copy={money}
+              refreshMs={VALUATION_REFRESH_MS}
+              timeZone={timeZone}
+              priceSourceNote={money.t('Valuation price sources', {
+                published: standing.prices.source,
+                venue: status.venue.displayName,
+              })}
+            />
+          ) : null}
           <WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />
           {standing.prices ? null : (
             <p className="lt-hint" data-testid="assets-no-price-note">
@@ -134,7 +156,12 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
           )}
         </div>
       }
-      watching={<WalletBar />}
+      watching={
+        <div className="lt-stack">
+          <WalletBar />
+          {valuation ? <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} /> : null}
+        </div>
+      }
     />
   );
 }

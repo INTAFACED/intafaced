@@ -300,6 +300,30 @@ export const venueCandleSchema = z.object({
 export type VenueCandle = z.infer<typeof venueCandleSchema>;
 export const venueCandlesReadSchema = asOf(z.array(venueCandleSchema)).extend({ test: z.boolean() });
 
+// ── Public venue chart reads (J-charts-desk-01): signed in or signed out, listed markets and their venue candles ──
+export const venueChartMarketSchema = z.object({
+  symbol: z.string(),
+  kind: z.enum(['spot', 'perpetual']),
+  baseAsset: z.string(),
+  quoteAsset: z.string(),
+  tickSize: decimalSchema,
+  lotSize: decimalSchema,
+  minOrderNotional: decimalSchema.nullable().optional(),
+  status: z.enum(['trading', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
+  listing: z.object({ routing: z.enum(['show', 'close_only', 'stop']), delisted: z.boolean().optional() }).optional(),
+});
+export type VenueChartMarket = z.infer<typeof venueChartMarketSchema>;
+export const venueChartMarketsReadSchema = asOf(z.array(venueChartMarketSchema)).extend({
+  venueName: z.string(),
+  test: z.boolean(),
+  intervals: z.array(z.string()),
+});
+export type VenueChartMarketsRead = z.infer<typeof venueChartMarketsReadSchema>;
+export const venueChartCandlesReadSchema = venueCandlesReadSchema.extend({
+  depth: z.number().int().positive(),
+});
+export type VenueChartCandlesRead = z.infer<typeof venueChartCandlesReadSchema>;
+
 export const venueBalanceSchema = z.object({
   asset: z.string(),
   free: decimalSchema,
