@@ -121,6 +121,7 @@ import {
   portalWords,
   promiseScope,
   screenLiterals,
+  tradePromise,
   unsealedClaims,
 } from './copy-rules.js';
 
@@ -137,6 +138,34 @@ test('no-promise-copy: the Trade lane bans its promise words on code lines, not 
   assert.ok(has(out, 'apps/admin/src/lib/trade-ops/y.ts', 'garden(no-promise-copy)'), out.join('\n'));
   assert.ok(!has(out, 'apps/customer/src/features/trade/z.tsx', 'garden(no-promise-copy)'), out.join('\n'));
   assert.ok(!has(out, 'apps/customer/src/screens/trade/x/copy.test.ts', 'garden(no-promise-copy)'), out.join('\n'));
+});
+
+test('no-promise-copy: the Trade lane lets the factual empty-directory line pass and nothing beside it', skip, () => {
+  const out = lint({
+    'apps/customer/src/screens/trade/copybots/copy.ts':
+      "export const m = {\n  'No leaders are listed yet': 'No leaders are listed yet',\n};\nexport const e = 'No leaders are listed yet';\n",
+    'apps/customer/src/screens/trade/copybots/soon.ts': "export const s = 'No leaders are listed yet — coming soon';\n",
+    'apps/customer/src/screens/trade/copybots/other.ts': "export const o = 'Not available yet';\n",
+  });
+  assert.ok(!has(out, 'apps/customer/src/screens/trade/copybots/copy.ts', 'garden(no-promise-copy)'), out.join('\n'));
+  assert.ok(has(out, 'apps/customer/src/screens/trade/copybots/soon.ts', 'garden(no-promise-copy)'), out.join('\n'));
+  assert.ok(has(out, 'apps/customer/src/screens/trade/copybots/other.ts', 'garden(no-promise-copy)'), out.join('\n'));
+});
+
+test('no-promise-copy: the Trade fact is cut out exactly, so every other promise word still fails at its own column', () => {
+  assert.equal(tradePromise("  'No leaders are listed yet': 'No leaders are listed yet',"), null);
+  const line = "  empty: 'No leaders are listed yet — coming soon',";
+  const m = tradePromise(line);
+  assert.equal(m?.[0], 'coming soon');
+  assert.equal(m.index, line.indexOf('coming soon'));
+  for (const bad of [
+    "  a: 'Not available yet',",
+    "  a: 'No leaders are listed yet. Check back later.',",
+    "  a: 'No leaders are listed yet', b: 'No bots yet',",
+    "  a: 'No leaders listed yet',",
+    "  a: 'No leaders are listed yet!' + ' soon',",
+  ])
+    assert.notEqual(tradePromise(bad), null, bad);
 });
 
 test('no-promise-copy: the copy catalogues outside the Trade and merchant lanes, with the stated facts cut out', skip, () => {
