@@ -2139,12 +2139,16 @@ test("#1574: on a pull request ci.yml's seal reads only CI's own jobs and the sw
   for (const name of PR_READ_STEPS_LIST)
     assert.match(ifOf(name), /github\.event_name == 'merge_group'/, `${name} runs only on a merge queue's commit`);
   assert.match(ifOf('The factory switch says run'), /github\.event_name == 'pull_request'/);
-  // merge-seal.yml, the default branch's copy, still runs both on every pull request, with no `if:` that skips them for one.
+  // merge-seal.yml, the default branch's copy, still runs both on every pull request, with no `if:` that skips them for one
+  // but a change to the judges alone that judge-repair.mjs passed.
   const ms = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
-  assert.match(ms, /- name: Require the named journey steps on this exact head\n\s+if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(
     ms,
-    /- name: Require the CI review on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.needed\.outcome == 'success' \}\}/,
+    /- name: Require the named journey steps on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.repair\.outputs\.pass != 'true' \}\}/,
+  );
+  assert.match(
+    ms,
+    /- name: Require the CI review on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.repair\.outputs\.pass != 'true' && steps\.needed\.outcome == 'success' \}\}/,
   );
 });
 const PR_READ_STEPS_LIST = ['Require the named journey steps on this exact head', 'Require the CI review on this exact head'];
