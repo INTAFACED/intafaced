@@ -3533,3 +3533,12 @@ test('a desk read whose helper would come from a server-only entry it takes only
   assert.equal(site('b.ts', '@/lib/ops-desk', '').problem, undefined, 'a file that already takes values from it changes nothing');
   assert.equal(site('c.ts', '@/lib/plain', 'type').problem, undefined, 'an entry that is not server-only moves');
 });
+
+test('report --service: only the services it names, in order; an unknown or missing name is refused, naming the rest', async () => {
+  const { chosen } = await import('./report.mjs');
+  const all = ['svc-a', 'svc-b', 'svc-c'];
+  assert.deepEqual(chosen(all, []), { rows: all });
+  assert.deepEqual(chosen(all, ['--service', 'svc-c,svc-a']), { rows: ['svc-a', 'svc-c'], only: ['svc-c', 'svc-a'] });
+  assert.match(chosen(all, ['--service', 'svc-a,svc-x']).error, /names from: svc-a, svc-b, svc-c \(not: svc-x\)/);
+  assert.match(chosen(all, ['--service']).error, /not: none given/);
+});

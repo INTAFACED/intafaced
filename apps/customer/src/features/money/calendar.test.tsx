@@ -5,7 +5,9 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { ItemList, MonthGrid, Sources } from './calendar/Calendar';
-import { bankReads, type CalendarItem, type CalendarView } from './contracts';
+import { type CalendarItem, type CalendarView } from './contracts';
+import { BANK_CALENDAR_WINDOW } from '@intafaced/contracts/bank-calendar-procedures';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /** BK-acct-10 screen half (J-bank-06 #5): the money calendar's grid, list and source notes. */
 
@@ -15,7 +17,7 @@ const item = (patch: Partial<CalendarItem> = {}): CalendarItem => ({
   key: 'S-1:0',
   date: '2026-11-20T09:00:00.000Z',
   label: null,
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   amount: '25',
   status: 'upcoming',
   reasonCode: null,
@@ -38,7 +40,7 @@ const view = (patch: Partial<CalendarView> = {}): CalendarView => ({
 
 describe('the money calendar', () => {
   it('reads the bank answer as its schema', () => {
-    expect(bankReads['calendar.window'].parse(view({ items: [item()] })).items[0]?.source).toBe('standing_orders');
+    expect(BANK_CALENDAR_WINDOW.output.parse(view({ items: [item()] })).items[0]?.source).toBe('standing_orders');
   });
 
   it('puts each item on its day in a Monday-first grid, linked to its own room', () => {
