@@ -44,7 +44,8 @@ export function openScreeningScreener(input: {
         resolveParty: input.resolveParty,
         fetchImpl: input.fetchImpl,
       }),
-      listPosture: 'named',
+      // No list posture of its own: whether a send may clear still follows the counsel-grade list this process screens
+      // with (guard.ts `listPostureOf`), so naming a vendor never stands in for that list.
       providerLabel: OPENSANCTIONS_SCREENER,
     };
   }

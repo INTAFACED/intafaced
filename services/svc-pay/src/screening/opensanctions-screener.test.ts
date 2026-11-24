@@ -155,7 +155,7 @@ describe('the guard with OpenSanctions installed', () => {
       replay: FRESH,
     };
   }
-  async function refusalOf(reply: () => Response | Promise<Response>): Promise<string | null> {
+  async function refusalOf(reply: () => Response | Promise<Response>, listPosture: 'blank' | 'named' = 'named'): Promise<string | null> {
     const opened = openScreeningScreener({
       appEnv: 'production',
       setting: 'opensanctions',
@@ -163,7 +163,7 @@ describe('the guard with OpenSanctions installed', () => {
       resolveParty: resolveTo(PARTY),
       fetchImpl: vendor(reply).fetchImpl,
     })!;
-    const guards = createScreeningGuards({ sql: {} as Sql, store: createMemoryScreeningCaseStore(), ...opened });
+    const guards = createScreeningGuards({ sql: {} as Sql, store: createMemoryScreeningCaseStore(), listPosture, ...opened });
     try {
       await guards.beforePayoutExecute!(payoutCtx());
       return null;
@@ -178,6 +178,10 @@ describe('the guard with OpenSanctions installed', () => {
     await expect(refusalOf(() => matchReply([]))).resolves.toBeNull();
     await expect(refusalOf(() => new Response('', { status: 503 }))).resolves.toBe('pay.guard_screening_unavailable');
   });
+
+  it('with no counsel-grade list, even a vendor no-match refuses unavailable: the vendor never stands in for the list', async () => {
+    await expect(refusalOf(() => matchReply([]), 'blank')).resolves.toBe('pay.guard_screening_unavailable');
+  });
 });
 
 describe('the opensanctions setting', () => {
@@ -185,7 +189,7 @@ describe('the opensanctions setting', () => {
     expect(openScreeningScreener({ appEnv: 'production', setting: '', openSanctionsApiKey: TEST_KEY })).toBeNull();
   });
 
-  it('is labelled opensanctions and counts as a named list, in any APP_ENV', () => {
+  it('is labelled opensanctions in any APP_ENV, and sets no list posture of its own', () => {
     const opened = openScreeningScreener({
       appEnv: 'production',
       setting: 'opensanctions',
@@ -193,7 +197,7 @@ describe('the opensanctions setting', () => {
       resolveParty: resolveTo(PARTY),
     })!;
     expect(opened.providerLabel).toBe('opensanctions');
-    expect(opened.listPosture).toBe('named');
+    expect(opened.listPosture).toBeUndefined();
   });
 
   it('refuses to boot without its key, naming the setting', () => {
