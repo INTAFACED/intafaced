@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../vitest/budget.mjs';
 
 export default defineConfig({
   test: {
+    ...TEST_BUDGET,
     env: { APP_ENV: 'test', INTAFACED_SCREENING_FAIL_CLOSED: 'off' },
     testTimeout: 60_000,
     hookTimeout: 60_000,

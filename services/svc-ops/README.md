@@ -27,7 +27,9 @@ Module id: `core-ops`. Edge prefix: `/api/ops`. Port: `4022`.
 
 ## Home's owner values
 
-`home.config` (public, read only) answers Home's owner values for the customer app (HM-dashboard-03, HM-navigation-04, HM-widgets-03): `workListCap` (how many Needs you items Home shows, 1-50), `workListOrder` (work item kinds in the owner's order, each once), `searchResultCap` (how many help articles the header search lists, 1-20) and `noticeStripLimit` (how many of the latest announcements Home's strip shows, 1-10, HM-widgets-03), from `OPS_HOME_WORK_LIST_CAP`, `OPS_HOME_WORK_LIST_ORDER` (comma separated), `OPS_HOME_SEARCH_RESULT_CAP` and `OPS_HOME_NOTICE_STRIP_LIMIT`. Each is blank (`null`) until the owner sets it: Home then refuses its list with `home.work_list_cap_unset`, keeps the owners' order and says so, shows Help as not set, or has the announcement strip say its count is not set (`home.notice_strip_limit_unset`). A malformed value refuses at boot. `revision` is 0 while the values come from the environment.
+`home.config` (public, read only) answers Home's owner values for the customer app (HM-dashboard-03, HM-navigation-04, HM-widgets-03): `workListCap` (how many Needs you items Home shows, 1-50), `workListOrder` (work item kinds in the owner's order, each once), `searchResultCap` (how many help articles the header search lists, 1-20) `noticeStripLimit` (how many of the latest announcements Home's strip shows, 1-10, HM-widgets-03) and `recentActivityLimit` (how many of the newest movements Home's Recent activity lists, 1-20, HM-dashboard-04), from `OPS_HOME_WORK_LIST_CAP`, `OPS_HOME_WORK_LIST_ORDER` (comma separated), `OPS_HOME_SEARCH_RESULT_CAP`, `OPS_HOME_NOTICE_STRIP_LIMIT` and `OPS_HOME_RECENT_ACTIVITY_LIMIT`. Each is blank (`null`) until the owner sets it: Home then refuses its list with `home.work_list_cap_unset`, keeps the owners' order and says so, shows Help as not set, has the announcement strip say its count is not set (`home.notice_strip_limit_unset`), or has Recent activity say its number of movements is not set (`home.recent_activity_limit_unset`). A malformed value refuses at boot. `revision` is 0 while the values come from the environment.
+
+`valuation.prices` (public, read only) answers the prices Home and Assets value a person's holdings with on the launch model (J-home-ia-01 #1 #3): which price source to publish is the owner's decision and none is named, so it answers `published: false` with `valuation.prices_unset` and nothing is valued. `OPS_VALUATION_TEST_PRICES` (`ASSET=usd,...`) is a labelled TEST list for the test stack only (`test: true`, its as-of the time svc-ops read it); set outside APP_ENV exactly dev or test, or with NODE_ENV=production, svc-ops refuses to start, and a malformed list refuses at boot.
 
 ## Venue unit economics
 
@@ -46,6 +48,12 @@ What an answer proves follows `classifyPostOutcome`: a named ledger refusal (for
 Known limit, the same as every console-mode founder action here: if the process dies after identity spends a release or confirm approval and before the movement row commits, the retry is refused `action_approval.not_founders` (identity's replay of a spent approval carries no founder attestation). No value has moved; the founders issue a fresh approval.
 
 Owner settings, both blank by default: `OPS_STAFF_HOLD_CONFIRM_ACCOUNT` names the `ops:hold-confirm:<slug>` account a confirm moves to (blank: confirm refuses `owner.decision` before any approval is spent, and nothing posts); `OPS_STAFF_HOLD_EXPIRY_MAX_HOURS` is the longest expiry a hold may be given (blank: an expiry refuses `ops.hold_expiry_unset`, and holds without one still work). Without storage every call refuses `ops.hold_storage_unconfigured`; without `LEDGER_URL` and a credential every action refuses `ops.hold_ledger_unconfigured`. svc-ops must hold svc-ledger grants for the three recipes before a keypair-mode ledger accepts its posts. No hold events are published yet.
+
+## Operator reversals of ledger transactions
+
+`ledgerReversals.request` (`admin:treasury`) asks to reverse one posted ledger transaction with a reason (12 to 500 characters) and a case reference. It writes only the intent row (`ops.ledger_reversals`): the original, the next ordinal for it, the reason, the case reference and who asked. Nothing posts. `ledgerReversals.execute` (`admin:treasury`, the requester only) spends a different founder's approval of exactly that request (`ops.ledger.reverse`, target `reversal:<requestNo>`, signed over the original, the reason and the case reference; the row refuses an approver equal to the requester), then asks svc-ledger's `operatorReverse` door once. The ledger builds the compensating transaction itself from the stored original under `ops:reversal:<originalTxId>:<ordinal>`; svc-ops sends no leg and holds no balance. `ledgerReversals.get` and `ledgerReversals.list` (`admin:read`) show each request as stored.
+
+A transaction is reversed once: a request on an original with a posted reversal, or one the ledger named refusing ours, is refused `ops.reversal_already_reversed` with the first reversal in the message, before any approval is spent; the ledger's own one-reversal rule is the backstop, and a partial unique index keeps one posted reversal per original here. A lost or unreadable reply and the posting freeze leave the request `pending_retry`; the requester asking again with the same approval, or a 5-second tick 30 s after the last send, sends the stored key and body again, never a new ordinal. A named ledger refusal settles the request `refused` with its code. Without storage every call refuses `ops.reversal_storage_unconfigured`; without `LEDGER_URL` and a credential, `ops.reversal_ledger_unconfigured`. At launch the ledger's custody switch refuses a customer transaction (`ledger.custody_layer_off`). Known limit, as for staff holds: a crash between identity spending the approval and the row committing leaves the request at `intent`; the founders issue a fresh approval.
 
 ## Protocol listing (pool hide, market delist)
 
@@ -93,7 +101,7 @@ The in-console notice: the first failure is `sent`. A repeat is `repeat_unset` w
 
 ## Ledger
 
-None. Revenue reads `queryWarehouseSurface` from `@intafaced/contracts` (ops.analytics). No recipes. No `post`.
+No recipes and no `post`. Staff holds and operator reversals ask svc-ledger's doors, which post through their own recipes (above). Revenue reads `queryWarehouseSurface` from `@intafaced/contracts` (ops.analytics).
 
 ## Durable outreach CRM
 

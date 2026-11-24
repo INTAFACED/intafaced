@@ -1,12 +1,4 @@
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import {
-  limitDeskOutputSchema,
-  limitRequestCreateInputSchema,
-  limitRequestListOutputSchema,
-  limitRequestSchema,
-  limitReviewInputSchema,
-  rateTiersOutputSchema,
-} from '@intafaced/contracts/api-rate-limits';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import {
   createLimitRequest,
@@ -19,6 +11,14 @@ import {
   type RatePolicy,
 } from './auth/api-rate-limits.js';
 import { userCopy } from './user-copy.js';
+import { IDENTITY_API_RATE_TIERS } from '@intafaced/contracts/identity-api-rate-tiers-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
+import { IDENTITY_API_LIMIT_DESK_QUEUE, IDENTITY_API_LIMIT_DESK_REVIEW } from '@intafaced/contracts/identity-api-limit-desk-procedures';
+import {
+  IDENTITY_API_LIMIT_REQUESTS_LIST_MINE,
+  IDENTITY_API_LIMIT_REQUESTS_CREATE,
+} from '@intafaced/contracts/identity-api-limit-requests-procedures';
 
 const STATUS: Record<RateLimitCode, TRPCError['code']> = {
   'identity.rate_limits_unset': 'PRECONDITION_FAILED',
@@ -57,39 +57,43 @@ function assertSignedInPerson(principal: { kid?: string | undefined; sub_account
  */
 export function createApiRateLimitsRouter(sql: Sql, policy: RatePolicy | null) {
   return router({
-    apiRateTiers: publicProcedure.output(rateTiersOutputSchema).query(() => publishedTiers(policy)),
+    apiRateTiers: mountRecord(IDENTITY_API_RATE_TIERS, () => publishedTiers(policy), codedRefusal),
 
     apiLimitRequests: router({
-      create: scopedProcedure('identity:write')
-        .input(limitRequestCreateInputSchema)
-        .output(limitRequestSchema)
-        .mutation(async ({ ctx, input }) => {
+      create: mountRecord(
+        IDENTITY_API_LIMIT_REQUESTS_CREATE,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
             return await createLimitRequest(sql, policy, ctx.principal.userId, input);
           } catch (err) {
             refused(err);
           }
-        }),
-      listMine: scopedProcedure('identity:read')
-        .output(limitRequestListOutputSchema)
-        .query(async ({ ctx }) => {
+        },
+        codedRefusal,
+      ),
+      listMine: mountRecord(
+        IDENTITY_API_LIMIT_REQUESTS_LIST_MINE,
+        async ({ ctx }) => {
           assertSignedInPerson(ctx.principal);
           return listMyLimitRequests(sql, ctx.principal.userId);
-        }),
+        },
+        codedRefusal,
+      ),
     }),
 
     apiLimitDesk: router({
-      queue: scopedProcedure('support:ops')
-        .output(limitDeskOutputSchema)
-        .query(async ({ ctx }) => {
+      queue: mountRecord(
+        IDENTITY_API_LIMIT_DESK_QUEUE,
+        async ({ ctx }) => {
           assertSignedInPerson(ctx.principal);
           return limitDesk(sql, policy);
-        }),
-      review: scopedProcedure('support:ops')
-        .input(limitReviewInputSchema)
-        .output(limitRequestSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      review: mountRecord(
+        IDENTITY_API_LIMIT_DESK_REVIEW,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           if (!ctx.principal.mfa) {
             throw new TRPCError({ code: 'FORBIDDEN', message: `${userCopy('auth.mfa_required')} [auth.mfa_required]` });
@@ -99,7 +103,9 @@ export function createApiRateLimitsRouter(sql: Sql, policy: RatePolicy | null) {
           } catch (err) {
             refused(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

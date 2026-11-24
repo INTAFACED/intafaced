@@ -1,5 +1,8 @@
 'use client';
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useRef, useState } from 'react';
+import { useResource } from '@/lib/hooks/use-resource';
+import { useKeptDraft } from '@/lib/hooks/use-kept-draft';
+import { useBodyData, useCommittedRef, useEventListener, useFocusOnChange, useInterval, useTimeout } from '@/lib/hooks/use-outside';
 import { founderName, useFounderOwners } from './founder-names';
 import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnquiryTasks, useDismissableMenus } from './crm-workflows';
 import { CrmMessages } from './crm-messages';
@@ -28,16 +31,7 @@ import {
   type CrmSort,
   type CrmSortKey,
 } from '@/lib/crm-list';
-import {
-  applyDraft,
-  browserDraftStorage,
-  clearDraft,
-  emptyDraftValues,
-  keptDraft,
-  loadDraft,
-  saveDraft,
-  type DraftValues,
-} from '@/lib/crm-drafts';
+import { applyDraft, browserDraftStorage, clearDraft, emptyDraftValues, keptDraft, loadDraft, type DraftValues } from '@/lib/crm-drafts';
 import { enquiryIdFromSearch, signInHref } from '@/lib/crm-return';
 import { CRM_NOT_CONFIGURED_TEXT, CRM_REFUSED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from '@/lib/crm-refusal';
 import type {
@@ -360,9 +354,7 @@ export function StaleDraftWarning({
  */
 export function DiscardBar({ prompt, onKeep, onDiscard }: { prompt: string; onKeep: () => void; onDiscard: () => void }) {
   const keep = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    keep.current?.focus();
-  }, [prompt]);
+  useFocusOnChange(keep, prompt);
   return (
     <Callout
       tone="warn"
@@ -516,9 +508,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     },
     [filters],
   );
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // The list loads again whenever its filters change; `load` itself keeps only the latest read.
+  useResource(() => load(), filters);
   /**
    * Only the latest call's result is applied (see createOpenGate). `rebase` forces the form fields to the freshly loaded
    * record; it is for a founder-confirmed reload, where the unsaved edits were just discarded. `savedWithBase` says the write
@@ -873,63 +864,46 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     messageText: messageValues.staffText,
     messageReason: messageValues.reason,
   };
-  const draftSignature = JSON.stringify(draftValues);
-  useEffect(() => {
-    if (!detail || busy) return;
-    const storage = browserDraftStorage();
-    const kept = keptDraft(JSON.parse(draftSignature) as DraftValues, draftOf(detail, crmLocalDate));
-    // The draft keeps the revision it was written against until it is cleared, so a restore can never launder a stale base.
-    const revision = expectedRevisionFor(base, detail.opportunity.id, detail.opportunity.revision);
-    if (kept) saveDraft(storage, { enquiryId: detail.opportunity.id, userId, revision, fields: kept });
-    else {
-      clearDraft(storage, detail.opportunity.id);
-      // Nothing left to keep (reverted by hand, or the record now matches), so there is nothing stale either.
-      if (revision !== detail.opportunity.revision) {
-        setBase({ id: detail.opportunity.id, revision: detail.opportunity.revision });
-        // The refused save was about edits that are gone (Cancel, or reverted by hand): no conflict error may outlive them.
-        if (detailErrorKind === 'conflict') setDetailError('');
-      }
-    }
-  }, [detail, busy, draftSignature, userId, base, detailErrorKind]);
+  const keptFields = detail ? keptDraft(draftValues, draftOf(detail, crmLocalDate)) : null;
+  // The draft keeps the revision it was written against until it is cleared, so a restore can never launder a stale base.
+  const keptRevision = detail ? expectedRevisionFor(base, detail.opportunity.id, detail.opportunity.revision) : 0;
+  useKeptDraft(detail ? { enquiryId: detail.opportunity.id, userId, revision: keptRevision, fields: keptFields } : null, !detail || busy, {
+    record: detail,
+    base,
+  });
+  // Nothing left to keep (reverted by hand, or the record now matches), so there is nothing stale either.
+  if (detail && !busy && !keptFields && keptRevision !== detail.opportunity.revision) {
+    setBase({ id: detail.opportunity.id, revision: detail.opportunity.revision });
+    // The refused save was about edits that are gone (Cancel, or reverted by hand): no conflict error may outlive them.
+    if (detailErrorKind === 'conflict') setDetailError('');
+  }
   const expectedRevision = detail ? expectedRevisionFor(base, detail.opportunity.id, detail.opportunity.revision) : 0;
   const staleDraft = detail ? baseIsStale(base, detail.opportunity.id, detail.opportunity.revision) : false;
   // One warning per draft is announced: the copy in the notice area is the alert, and the copies beside the save buttons are notes.
   const staleWarningFor = (role: 'alert' | 'note', refused = false) =>
     staleDraft ? <StaleDraftWarning busy={busy} role={role} refused={refused} onDiscard={() => void refresh()} /> : null;
   // Coming back from sign-in (or a reload) lands on /crm?enquiry=<id>: open that enquiry.
-  useEffect(() => {
+  // Read once, when the desk first loads.
+  useResource(async () => {
     const id = enquiryIdFromSearch(window.location.search);
-    if (id) void open(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => {
-    live.current = {
-      detailId: detail?.opportunity.id ?? '',
-      dirty: hasDirtyDraft(),
-      busy,
-      retentionPending: retentionWritePending,
-      view,
-    };
-    refreshRef.current = refresh;
+    if (id) await open(id);
+  }, 'crm-enquiry-from-address');
+  useCommittedRef(live, {
+    detailId: detail?.opportunity.id ?? '',
+    dirty: hasDirtyDraft(),
+    busy,
+    retentionPending: retentionWritePending,
+    view,
   });
-  useEffect(() => {
-    const run = () => void refreshRef.current(true);
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') run();
-    };
-    const timer = window.setInterval(run, 60_000);
-    window.addEventListener('focus', run);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', run);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, []);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setOwnersWaited(true), 5000);
-    return () => window.clearTimeout(timer);
-  }, []);
+  useCommittedRef(refreshRef, refresh);
+  // A background refresh every minute, and whenever the founder comes back to this tab or window.
+  const autoRefresh = () => void refreshRef.current(true);
+  useInterval(autoRefresh, 60_000);
+  useEventListener(typeof window === 'undefined' ? null : window, 'focus', autoRefresh);
+  useEventListener(typeof document === 'undefined' ? null : document, 'visibilitychange', () => {
+    if (document.visibilityState === 'visible') autoRefresh();
+  });
+  useTimeout(() => setOwnersWaited(true), 5000);
   const items = page?.items ?? [];
   const contacts = new Map(page?.contacts.map((contact) => [contact.id, contact]) ?? []);
   // Sorting only re-orders the page already loaded; the server keeps returning newest first.
@@ -988,16 +962,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     nextEditorDirty(nextAction, { description: editDescription, due: editDue }, crmLocalDate),
   );
   // The skip link lives in the page layout; it needs to know when the list it points at is not on screen.
-  useEffect(() => {
-    document.body.dataset.crmView = view;
-    // One enquiry is open (on a phone it replaces the list): the skip link then points at that enquiry.
-    if (mobileDetail && view === 'enquiries') document.body.dataset.crmDetail = 'open';
-    else delete document.body.dataset.crmDetail;
-    return () => {
-      delete document.body.dataset.crmView;
-      delete document.body.dataset.crmDetail;
-    };
-  }, [view, mobileDetail]);
+  // One enquiry is open (on a phone it replaces the list): the skip link then points at that enquiry.
+  useBodyData({ crmView: view, crmDetail: mobileDetail && view === 'enquiries' ? 'open' : undefined });
   const discardBar = discardQuestion && (
     <DiscardBar prompt={discardQuestion.prompt} onKeep={() => answerDiscard(false)} onDiscard={() => answerDiscard(true)} />
   );

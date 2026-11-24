@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { assertProductionPosture } from './production-posture.js';
+import { assertBetaPosture } from './beta-posture.js';
 
 /**
  * Typed environment loader.
@@ -63,8 +64,7 @@ export const httpEnvSchema = z.object({
 });
 
 /**
- * Required by any service that self-mounts `/trpc` (see the mount boundary
- * decision, docs/decisions/mount-boundary.md).
+ * Required by any service that self-mounts `/trpc`.
  *
  * There is deliberately NO default. A service that mounts without this must
  * fail to boot: the alternative is a service that starts fine, serves traffic,
@@ -195,6 +195,8 @@ export class EnvError extends Error {
 export function loadEnv<T extends z.ZodTypeAny>(schema: T, source: Record<string, unknown> = process.env): z.infer<T> {
   // Before the schema: a server on dev keys must refuse with that reason, not a schema error.
   assertProductionPosture(source);
+  // The beta posture (staging on TEST networks) refuses with any mainnet, real bank or real card route configured.
+  assertBetaPosture(source);
   const result = schema.safeParse(source);
   if (result.success) return result.data;
 

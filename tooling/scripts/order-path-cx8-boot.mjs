@@ -42,6 +42,12 @@ export function cx8RoleEnv(role) {
 }
 
 const ROOT = process.cwd();
+/** svc-ledger's Rust binary (crates/svc-ledger), built by the workflow. */
+const LEDGER_BIN = process.env.SVC_LEDGER_BIN ?? 'target/release/svc-ledger';
+/** svc-matching's Rust binary (crates/svc-matching), built by the workflow. */
+const MATCHING_BIN = process.env.SVC_MATCHING_BIN ?? 'target/release/svc-matching';
+/** svc-bank's Rust binary (crates/svc-bank), built by the workflow. */
+const BANK_BIN = process.env.SVC_BANK_BIN ?? 'target/release/svc-bank';
 const SECRET = process.env.INTERNAL_SERVICE_SECRET ?? 'dev-only-cx8-internal-service-secret-xx';
 const EDGE = process.env.EDGE_PRINCIPAL_SECRET ?? 'dev-only-cx8-edge-principal-secret-xxxx';
 const JWT = process.env.JWT_ACCESS_SECRET ?? 'dev-only-cx8-jwt-access-secret-xxxxxxxx';
@@ -284,7 +290,8 @@ async function enrolFoundersAndRestartIdentity() {
 async function main() {
   log(`PG=${PG} NATS=${NATS}`);
 
-  await run('pnpm', ['--filter', '@intafaced/svc-ledger', 'db:migrate'], {
+  // svc-ledger is the Rust binary the workflow builds (`cargo build --release -p svc-ledger`); it applies its own migrations.
+  await run(LEDGER_BIN, ['migrate'], {
     DATABASE_URL: ledgerUrl,
     ...common,
   });
@@ -302,7 +309,8 @@ async function main() {
       DATABASE_URL: payUrl,
       ...common,
     });
-    await run('pnpm', ['--filter', '@intafaced/svc-bank', 'db:migrate'], {
+    // svc-bank is the Rust binary the workflow builds (`cargo build --release -p svc-bank`); it applies its own migrations.
+    await run(BANK_BIN, ['migrate'], {
       DATABASE_URL: bankUrl,
       ...common,
     });
@@ -315,7 +323,7 @@ async function main() {
 
   writeFileSync(join(ROOT, '.data/matching/engine_journal.ndjson'), '');
 
-  start('ledger', 'node', ['services/svc-ledger/dist/index.js'], {
+  start('ledger', LEDGER_BIN, [], {
     ...common,
     ...cx8RoleEnv('ledger'),
     SERVICE_NAME: 'svc-ledger',
@@ -357,7 +365,7 @@ async function main() {
   // Bank, for the wallet-view journeys: balances read from the ledger, no rail, no card programme, no price feed. Every owner-set
   // figure below is a throwaway for this rig, not a product value.
   if (WITH_PAY)
-    start('bank', 'node', ['services/svc-bank/dist/index.js'], {
+    start('bank', BANK_BIN, [], {
       ...common,
       SERVICE_NAME: 'svc-bank',
       HTTP_HOST: '127.0.0.1',
@@ -367,19 +375,19 @@ async function main() {
       IDENTITY_URL: 'http://127.0.0.1:4002',
       TRADE_URL: 'http://127.0.0.1:4004',
       DATABASE_POOL_MAX: '5',
-      // The custody switch as svc-bank reads it, on as this rig's ledger runs it (OWNER 226 keeps the custodial layer built).
+      // The custody switch as svc-bank reads it: on, as this rig's svc-ledger runs it, so the two services agree (OWNER 226
+      // keeps the custodial layer built). One key only: a second one would silently win over this one.
       LEDGER_CUSTODY_LAYER: 'on',
       // SMOKE RIG ONLY — owner integers and ids that boot refuses without; not production values
       ...profileEnvFor('bank', common.APP_ENV),
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
-      // The custody switch as this rig's svc-ledger runs it (on), so the two services agree (OWNER 226).
-      LEDGER_CUSTODY_LAYER: 'on',
     });
 
   // Tax, for the profit and loss journey: it reads the caller's fills from the ledger (no database of its own). The jurisdiction map,
   // history window and data lake stay unset; the lot book needs none of them.
   if (WITH_PAY)
-    start('tax', 'node', ['services/svc-tax/dist/index.js'], {
+    // svc-tax is the Rust binary the workflow builds (`cargo build --release -p svc-tax`).
+    start('tax', process.env.SVC_TAX_BIN ?? 'target/release/svc-tax', [], {
       ...common,
       SERVICE_NAME: 'svc-tax',
       HTTP_HOST: '127.0.0.1',
@@ -402,7 +410,7 @@ async function main() {
   // enrolled above. Nothing before this point talks to matching (the enrolment is identity-only), and the
   // journal is empty, so there is nothing to restart. The smoke opens the market with operatorId = the
   // requester and confirmOperatorId = the approver, both in this list.
-  start('matching', 'node', ['services/svc-matching/dist/index.js'], {
+  start('matching', MATCHING_BIN, [], {
     ...common,
     ...cx8RoleEnv('matching'),
     SERVICE_NAME: 'svc-matching',

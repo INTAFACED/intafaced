@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApiClient, ApiResult } from '../shared/api';
+import { PAY_PAYMENT_GET } from '@intafaced/contracts/pay-payment-procedures';
 import { findPayment, paymentHref, paymentId } from './search-payment';
 
 const ID = '042f94a7-5249-42de-8db9-c71db25a5fa0';
@@ -20,11 +21,11 @@ const payment = {
 };
 const api = (answer: ApiResult<unknown>) => {
   const calls: unknown[][] = [];
-  const query = (async (...args: unknown[]) => {
+  const call = (async (...args: unknown[]) => {
     calls.push(args);
     return answer;
-  }) as unknown as ApiClient['query'];
-  return { client: { query }, calls };
+  }) as ApiClient['call'];
+  return { client: { call }, calls };
 };
 const refused = (status: number, code?: string): ApiResult<unknown> => ({
   ok: false,
@@ -46,7 +47,8 @@ describe('header search: a merchant payment by id (J-home-ia-02 #7)', () => {
   it('finds the payment with svc-pay payment.get', async () => {
     const { client, calls } = api({ ok: true, data: payment });
     await expect(findPayment(client, ID, signal)).resolves.toEqual({ status: 'ready', payment });
-    expect(calls[0]?.slice(0, 3)).toEqual(['pay', 'payment.get', { paymentId: ID }]);
+    expect(calls[0]?.slice(0, 2)).toEqual([PAY_PAYMENT_GET, { paymentId: ID }]);
+    expect([PAY_PAYMENT_GET.module, PAY_PAYMENT_GET.path]).toEqual(['pay', 'payment.get']);
   });
 
   it("reads svc-pay's not found as none (it answers another owner's payment the same way)", async () => {

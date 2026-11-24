@@ -1,31 +1,9 @@
-// hand-declared-ok: svc-identity's trustedDevices answers are declared in its own router, not in packages/contracts yet
-import { z } from 'zod';
+import type { z } from 'zod';
+import type { trustedDevicesSchema } from '@intafaced/contracts/identity-account-room';
 import type { StepUpBegin } from './security-step-up';
 
-const iso = z.string().datetime({ offset: true });
-
 /** `trustedDevices.list`: whether the check is on, the account's trusted devices, and the sign-ins waiting for approval. */
-export const trustedDevicesSchema = z.object({
-  check: z.enum(['on', 'off']),
-  devices: z.array(
-    z.object({
-      id: z.string().guid(),
-      label: z.string(),
-      firstSeenAt: iso,
-      lastSeenAt: iso,
-      trustedUntil: iso.nullable(),
-      current: z.boolean(),
-      /** A new-device sign-in on it the person has not confirmed yet: Home's "Needs you" asks about it. */
-      newSignIn: z.boolean(),
-    }),
-  ),
-  waiting: z.array(z.object({ flowId: z.string().guid(), label: z.string(), createdAt: iso, expiresAt: iso })),
-});
 export type TrustedDevices = z.infer<typeof trustedDevicesSchema>;
-
-export const deviceRemovedSchema = z.object({ removed: z.boolean(), sessionsEnded: z.number().int().nonnegative() });
-export const deviceApprovedSchema = z.object({ approved: z.literal(true) });
-export const signInConfirmedSchema = z.object({ confirmed: z.number().int().nonnegative() });
 
 /** The step-up for removing one device: bound to the device and this request. */
 export function removeStepUp(deviceId: string, clientRequestId: string): StepUpBegin {

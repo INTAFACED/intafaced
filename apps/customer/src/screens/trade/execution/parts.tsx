@@ -47,7 +47,7 @@ export function Gate<T>({
   const { t } = execCopy.useCopy();
   if (load.status === 'loading' || load.status === 'empty')
     return (
-      <div role="status" aria-busy="true" className="flex flex-col gap-2">
+      <div role="status" aria-busy="true" className="lt-stack">
         {Array.from({ length: rows }, (_, i) => (
           <Skeleton key={i} height={32} />
         ))}

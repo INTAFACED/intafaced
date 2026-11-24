@@ -30,7 +30,7 @@ describe('slice:new', () => {
   });
 
   it('refuses a scope packages/auth does not have, and takes one it does', () => {
-    expect(() => parseArgs(['--service', 'svc-quant', '--name', 'x-y', '--slice', 'S'])).toThrow(/quant:read is not a scope/);
+    expect(() => parseArgs(['--service', 'svc-execution', '--name', 'x-y', '--slice', 'S'])).toThrow(/execution:read is not a scope/);
     expect(parseArgs(['--service', 'svc-quant', '--name', 'x-y', '--slice', 'S', '--scope', 'trade'])).toMatchObject({ scope: 'trade' });
   });
 

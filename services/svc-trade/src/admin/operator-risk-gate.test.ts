@@ -42,7 +42,7 @@ function fakeSql(row: Record<string, string | null> | null, open = '0'): Sql {
     if (text.includes('count(*)')) return Promise.resolve([{ n: open }]);
     throw new Error(`unexpected query ${text}`);
   };
-  return tag as unknown as Sql;
+  return tag as Sql;
 }
 
 const touch = (bid: string | null, ask: string | null) => async (): Promise<Touch> => ({

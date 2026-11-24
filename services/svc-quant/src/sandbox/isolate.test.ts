@@ -9,12 +9,13 @@ import {
 import { createPaperBook } from './book.js';
 import { runIsolate } from './isolate.js';
 
-const limits = { maxOps: 5_000, maxSource: 8_000 };
+const limits = { maxOps: 5_000, maxSource: 8_000, run: { wallClockMs: 5_000, memoryBytes: 1_000_000, outputBytes: 1_000_000 } };
 
 function book() {
   return createPaperBook({
     startingCash: '10000',
     venueVaultSet: false,
+    feeBps: '0',
     marks: { 'BTC-USD': '50000' },
   });
 }

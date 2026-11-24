@@ -19,7 +19,7 @@ import {
 import { SOURCES } from './math';
 import { readPeriod, readValue } from './compute';
 import type { StudyInstance } from './model';
-import { studiesCopy, type StudiesWord } from './copy';
+import { type StudiesWord } from './copy';
 import { useWords } from './words';
 
 const CATEGORY_KEY: Record<Category, StudiesWord> = {
@@ -140,7 +140,7 @@ export function StudySettings({
       <DialogContent className="st-dialog" closeLabel={t('Cancel')}>
         <DialogTitle>{word(def.name)}</DialogTitle>
         <form
-          className="st-settings"
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             if (refusal !== null) return;

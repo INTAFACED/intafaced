@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { formatWhen } from '@/lib/as-of';
-import { lookupQuery, lookupRefusal, type LedgerLookupAnswer, type LedgerLookupQuery, type LedgerTransaction } from '@/lib/ledger/lookup';
+import { LedgerReversal } from '@/components/ledger-reversal';
+import { lookupQuery, lookupRefusal, type LedgerLookupAnswer, type LedgerLookupQuery, type LedgerTransaction } from '@/lib/ledger-lookup';
 
 type Mode = 'txId' | 'businessKey';
 
@@ -20,17 +21,18 @@ type View =
  * other lookup. `initial` (from `/ledger?txId=` or `?businessKey=`, the cross-desk search's link back) is looked up once on
  * opening, as a new recorded read.
  */
-export function LedgerLookup({ initial = null }: { initial?: LedgerLookupQuery | null }) {
+export function LedgerLookup({ initial = null, userId = null }: { initial?: LedgerLookupQuery | null; userId?: string | null }) {
   const [mode, setMode] = useState<Mode>(initial && 'txId' in initial ? 'txId' : 'businessKey');
   const [typed, setTyped] = useState(initial ? ('txId' in initial ? initial.txId : initial.businessKey) : '');
   const [view, setView] = useState<View>({ kind: 'idle' });
   const query = lookupQuery(mode, typed);
   const opened = useRef(false);
 
-  const run = async (nextMode: Mode, value: string) => {
+  /** `quiet`: read again in place (after a reversal posted), keeping the transaction on screen until the answer comes. */
+  const run = async (nextMode: Mode, value: string, quiet = false) => {
     const next = lookupQuery(nextMode, value);
     if (!next) return;
-    setView({ kind: 'reading' });
+    if (!quiet) setView({ kind: 'reading' });
     const param = 'txId' in next ? `txId=${encodeURIComponent(next.txId)}` : `businessKey=${encodeURIComponent(next.businessKey)}`;
     try {
       const res = await fetch(`/api/ledger-lookup?${param}`, { cache: 'no-store' });
@@ -59,6 +61,8 @@ export function LedgerLookup({ initial = null }: { initial?: LedgerLookupQuery |
     setTyped(value);
     void run(nextMode, value);
   };
+
+  const shownTxId = view.kind === 'answer' && view.answer.found ? view.answer.transaction.txId : '';
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -112,7 +116,19 @@ export function LedgerLookup({ initial = null }: { initial?: LedgerLookupQuery |
         </p>
       )}
       {view.kind === 'answer' && view.answer.found && (
-        <TransactionView transaction={view.answer.transaction} readAt={view.readAt} onFollow={follow} />
+        <TransactionView
+          transaction={view.answer.transaction}
+          readAt={view.readAt}
+          onFollow={follow}
+          {...(userId
+            ? {
+                reversal: {
+                  userId,
+                  onChanged: () => void run('txId', shownTxId, true),
+                },
+              }
+            : {})}
+        />
       )}
     </section>
   );
@@ -123,11 +139,15 @@ export function TransactionView({
   transaction,
   readAt,
   onFollow,
+  reversal,
 }: {
   transaction: LedgerTransaction;
   readAt: string;
   onFollow?: (mode: Mode, value: string) => void;
+  /** With it, the operator reversal control for this transaction (OPS-ledger-desk-02): the founder and what to do after a post. */
+  reversal?: { readonly userId: string; readonly onChanged: () => void };
 }) {
+  const openTx = onFollow ? (id: string) => onFollow('txId', id) : undefined;
   return (
     <div data-testid="ledger-lookup-transaction">
       <dl>
@@ -196,6 +216,24 @@ export function TransactionView({
             'None: the ledger holds no event record for this transaction'
           )}
         </dd>
+        <dt>Reversed</dt>
+        <dd data-testid="tx-reversal-links">
+          {transaction.reversedBy ? (
+            <span data-testid="tx-reversed-by" data-tx-id={transaction.reversedBy}>
+              Reverted by <TxId id={transaction.reversedBy} onOpen={openTx} />
+            </span>
+          ) : (
+            'Not reversed'
+          )}
+          {transaction.reverses && (
+            <>
+              {'. '}
+              <span data-testid="tx-reverses" data-tx-id={transaction.reverses}>
+                Reverses <TxId id={transaction.reverses} onOpen={openTx} />
+              </span>
+            </>
+          )}
+        </dd>
         <dt>Hash</dt>
         <dd>
           <code>{transaction.hash}</code>
@@ -237,6 +275,25 @@ export function TransactionView({
       <p className="adm-subtle">
         Read at {formatWhen(readAt)} by this browser’s clock. Account ids are the ledger’s own; no customer name is shown.
       </p>
+      {reversal && (
+        <LedgerReversal
+          key={transaction.txId}
+          txId={transaction.txId}
+          userId={reversal.userId}
+          onFollow={openTx}
+          onChanged={reversal.onChanged}
+        />
+      )}
     </div>
+  );
+}
+
+function TxId({ id, onOpen }: { id: string; onOpen: ((id: string) => void) | undefined }) {
+  return onOpen ? (
+    <button type="button" className="adm-link" onClick={() => onOpen(id)}>
+      {id}
+    </button>
+  ) : (
+    <code>{id}</code>
   );
 }

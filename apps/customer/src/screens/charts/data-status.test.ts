@@ -8,8 +8,11 @@ const ready = <T>(data: T, asOf = NOW) => ({ status: 'ready' as const, data, asO
 const failed = { status: 'error' as const, retry: () => {} };
 const open = ready({ state: 'OPEN', effectiveAt: NOW - 3_600_000, evidenceRefs: ['trade.lifecycle.evidence:x'] });
 const liveBook = ready({ halted: false, venueHalted: false, haltedSinceMs: null, venueHaltedSinceMs: null });
-const owner = (dataClass: 'real_time' | 'delayed' | 'end_of_day' | null, delayedBoundarySeconds: number | null) =>
-  ready({ dataClass, delayedBoundarySeconds });
+const owner = (
+  dataClass: 'real_time' | 'delayed' | 'end_of_day' | null,
+  delayedBoundarySeconds: number | null,
+  staleAgeSeconds: number | null = null,
+) => ready({ dataClass, delayedBoundarySeconds, staleAgeSeconds });
 const fresh = ready([], NOW - 1_000);
 /** A trade stamped on the server clock: the server clock is read equal to the client clock unless a case says otherwise. */
 const tradeAt = (secondsAgo: number) => ready(NOW - secondsAgo * 1000);
@@ -55,6 +58,32 @@ describe('dataStatus: the chip names the real state of the data', () => {
   it('a blank boundary claims neither live nor delayed: the chip names the unset threshold and keeps the age', () => {
     const s = dataStatus(inputs({ owner: owner('real_time', null), lastTrade: tradeAt(95) }));
     expect(s).toMatchObject({ chip: 'threshold_unset', ageSeconds: 95, thresholdSeconds: null });
+  });
+
+  it("past the owner's stale age the stream reads stale with its age, on a real-time or delayed market (row d115)", () => {
+    const real = dataStatus(inputs({ owner: owner('real_time', 30, 35), lastTrade: tradeAt(36) }));
+    expect(real).toMatchObject({ chip: 'stale', staleBy: 'age', ageSeconds: 36, staleAgeSeconds: 35, orderEntry: 'open' });
+    const delayed = dataStatus(inputs({ owner: owner('delayed', 30, 35), lastTrade: tradeAt(36) }));
+    expect(delayed).toMatchObject({ chip: 'stale', staleBy: 'age', ageSeconds: 36 });
+  });
+
+  it('between the delayed and stale ages a real-time market reads delayed; exactly the stale age is not yet stale', () => {
+    expect(dataStatus(inputs({ owner: owner('real_time', 30, 35), lastTrade: tradeAt(35) }))).toMatchObject({
+      chip: 'delayed',
+      delayedBy: 'age',
+      staleBy: null,
+    });
+    expect(dataStatus(inputs({ owner: owner('real_time', 30, 35), lastTrade: tradeAt(5) })).chip).toBe('live');
+  });
+
+  it('a blank stale age judges no stream stale, and end of day is never judged by it', () => {
+    expect(dataStatus(inputs({ owner: owner('real_time', 30, null), lastTrade: tradeAt(9_000) })).chip).toBe('delayed');
+    expect(dataStatus(inputs({ owner: owner('end_of_day', 30, 35), lastTrade: tradeAt(9_000) })).chip).toBe('end_of_day');
+  });
+
+  it('a stale age never judges an unread tape: the age stays unread, not stale', () => {
+    const s = dataStatus(inputs({ owner: owner('real_time', 30, 35), lastTrade: failed, lastTradeSeenMs: NOW - 90_000 }));
+    expect(s.chip).toBe('tick_unread');
   });
 
   it('a delayed class is delayed whatever the age, and end of day is its own word', () => {
@@ -152,6 +181,31 @@ describe('dataStatus: the chip names the real state of the data', () => {
   it('a stale or down feed is not called live even when the trade read is fresh', () => {
     expect(dataStatus(inputs({ candles: failed })).chip).toBe('down');
     expect(dataStatus(inputs({ candles: { status: 'ready', data: [], asOf: NOW - 60_000 } })).chip).toBe('stale');
+  });
+
+  it('our own outage (candles, state and book all unread) reads Down or Stale with the last tick seen, and refuses order entry', () => {
+    const outage = { lifecycle: failed, bookHalt: failed, lastTrade: failed, lastTradeSeenMs: NOW - 40_000 };
+    expect(dataStatus(inputs({ ...outage, candles: failed }))).toMatchObject({
+      chip: 'down',
+      orderEntry: 'refused',
+      lastTradeMs: NOW - 40_000,
+    });
+    const old = { status: 'ready' as const, data: [], asOf: NOW - 60_000 };
+    expect(dataStatus(inputs({ ...outage, candles: old }))).toMatchObject({ chip: 'stale', orderEntry: 'refused' });
+    expect(dataStatus(inputs({ lifecycle: open, bookHalt: failed, candles: failed })).chip).toBe('down');
+  });
+
+  it('an unread state with candles still current stays refused as unavailable, never Down or live', () => {
+    expect(dataStatus(inputs({ lifecycle: failed })).chip).toBe('lifecycle_unavailable');
+  });
+
+  it('a halted market stays halted when the feed stops: only an unread state gives way to the feed', () => {
+    const halted = ready({ state: 'HALTED', effectiveAt: NOW, evidenceRefs: [] });
+    expect(dataStatus(inputs({ lifecycle: halted, candles: failed })).chip).toBe('halted');
+  });
+
+  it('a kept last tick never makes the chart live: an unread tape is tick unread', () => {
+    expect(dataStatus(inputs({ lastTrade: failed, lastTradeSeenMs: NOW - 1_000 })).chip).toBe('tick_unread');
   });
 });
 

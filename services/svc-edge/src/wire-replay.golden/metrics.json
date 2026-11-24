@@ -1,0 +1,23 @@
+{
+  "headers": [
+    [
+      ["content-type", ""],
+      ["referrer-policy", ""],
+      ["x-content-type-options", ""],
+      ["x-frame-options", ""],
+      ["x-ratelimit-limit", ""]
+    ]
+  ],
+  "bodies": [
+    "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram"
+  ],
+  "answers": {
+    "GET /metrics": {
+      "absent anon": [200, 0, 0],
+      "absent bad-token": [200, 0, 0],
+      "absent api-key": [200, 0, 0],
+      "absent no-scope": [200, 0, 0],
+      "absent all": [200, 0, 0]
+    }
+  }
+}

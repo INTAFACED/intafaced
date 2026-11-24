@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bankWriteForReview } from './contracts';
+import { BANK_SORTER_CANCEL, BANK_SORTER_CREATE } from '@intafaced/contracts/bank-sorter-2-procedures';
 
 // An income sorter (BK-pots-03, J-bank-07 #4) is confirmed only when the bank's answer is the sorter that was asked for:
 // its id, asset and every share in order; a stop only when that sorter comes back stopped.
@@ -22,7 +23,7 @@ const sorter = (fields: Record<string, unknown> = {}) => ({
 
 describe('income sorter review', () => {
   it('confirms the sorter it asked for, and no other', () => {
-    const review = bankWriteForReview('sorter.create', { sorterId: SORTER, assetId: 'USDT', legs });
+    const review = bankWriteForReview('sorter.create', { sorterId: SORTER, assetId: 'USDT', legs }, BANK_SORTER_CREATE.output);
     expect(review.safeParse(sorter()).success).toBe(true);
     expect(review.safeParse(sorter({ id: BILLS })).success).toBe(false);
     expect(review.safeParse(sorter({ assetId: 'USDC' })).success).toBe(false);
@@ -32,7 +33,7 @@ describe('income sorter review', () => {
   });
 
   it('confirms a stop only when that sorter comes back stopped', () => {
-    const review = bankWriteForReview('sorter.cancel', { sorterId: SORTER });
+    const review = bankWriteForReview('sorter.cancel', { sorterId: SORTER }, BANK_SORTER_CANCEL.output);
     expect(review.safeParse(sorter({ status: 'cancelled', cancelledAt: '2026-10-24T18:01:00.000Z' })).success).toBe(true);
     expect(review.safeParse(sorter()).success).toBe(false);
   });

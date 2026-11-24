@@ -6,7 +6,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 // A business is in view. Nothing else in the session matters to these two rooms.
-vi.mock('../session/session', () => ({
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
   useSession: () => ({ mode: 'Business', userId: '00000000-0000-4000-8000-000000000001', api: {} }),
 }));
 

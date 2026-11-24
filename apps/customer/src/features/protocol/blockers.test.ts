@@ -38,6 +38,17 @@ const indexer: IndexerStatus = {
   chain: null,
   clob: { live: true, kind: 'sovereign-venue' },
 };
+/** svc-dex's health answer as it ships (internal book off, no external venue), with the AMM venue wired or not. */
+const dexHealth = (ammVenueWired: boolean) =>
+  ({
+    ok: true,
+    service: 'svc-dex',
+    serviceHoldsBalances: false,
+    internalBook: { enabled: false, amm: false },
+    ammVenueWired,
+    externalVenueWired: false,
+    bestEx: { ok: true, claimed: false },
+  }) as const;
 const healthy: ProtocolSnapshot = {
   chain: { status: 'ok', data: chain },
   audit: {
@@ -45,7 +56,7 @@ const healthy: ProtocolSnapshot = {
     data: { id: 'x', kind: 'internal', packagePath: 'p', artifactHash: '0x0', signedBy: null, signedAt: null, audited: false },
   },
   indexer: { status: 'ok', data: indexer },
-  dex: { status: 'ok', data: { ammVenueWired: true, externalVenueWired: false, internalBook: { enabled: true } } },
+  dex: { status: 'ok', data: dexHealth(true) },
   health: { status: 'ok', data: { relayEnabled: true, factoryConfigured: true } },
 };
 const down = { status: 'down', reason: 'unreachable', message: 'The service could not be reached.' } as const;
@@ -134,7 +145,7 @@ describe('Protocol blocker mapping', () => {
   it('blocks pool actions when no AMM venue is wired and launch when the token factory is missing', () => {
     const noAmm = {
       ...healthy,
-      dex: { status: 'ok', data: { ammVenueWired: false, externalVenueWired: false, internalBook: { enabled: true } } },
+      dex: { status: 'ok', data: dexHealth(false) },
     } as ProtocolSnapshot;
     for (const action of ['addLiquidity', 'removeLiquidity', 'createPool'] as const) expect(codes(noAmm, action)).toContain('amm_unwired');
     const noFactory = { ...healthy, chain: { status: 'ok', data: { ...chain, tokenFactoryDeployed: false } } } as ProtocolSnapshot;
@@ -198,7 +209,7 @@ describe('Network label and copy honesty', () => {
 describe('Room sub-navigation', () => {
   it('offers the audited IA for each room', () => {
     expect(protocolSubnav('chain')).toEqual(['status', 'blocks', 'validators', 'audit']);
-    expect(protocolSubnav('dex')).toEqual(['swap', 'pools', 'positions', 'venue']);
+    expect(protocolSubnav('dex')).toEqual(['swap', 'pools', 'positions', 'venue', 'lend']);
     expect(protocolSubnav('protocol')).toEqual(['overview', 'contracts', 'audit', 'rails']);
   });
 

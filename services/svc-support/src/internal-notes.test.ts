@@ -99,6 +99,9 @@ const READS_A_REQUEST = [
   'ticketAttachments',
   'attachmentDownload',
   'myTicketProperties',
+  // The customer's grant for support to read, and the reads under it (J-support-public-20 #2): times and the reader, no text.
+  'grantRead',
+  'readAccess',
 ] as const;
 /**
  * A guest's link reads and replies on one request (SP-tickets-01). Its answer is the owner's own `getTicket` and
@@ -158,7 +161,7 @@ describe('internal notes', () => {
   it('the lists above are every procedure a customer token reaches', async () => {
     const { router, customer } = await desk();
     const reachable: string[] = [];
-    for (const path of Object.keys((router as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures)) {
+    for (const path of Object.keys((router as { _def: { procedures: Record<string, unknown> } })._def.procedures)) {
       const call = (customer as unknown as Record<string, (input: unknown) => Promise<unknown>>)[path]!;
       const refused = await call({}).then(
         () => null,
@@ -206,6 +209,8 @@ describe('internal notes', () => {
       ticketAttachments: await customer.ticketAttachments({ ticketId, limit: 100 }),
       attachmentDownload: await customer.attachmentDownload({ attachmentId: own.id }),
       myTicketProperties: await customer.myTicketProperties({ ticketId }),
+      grantRead: await customer.grantRead({ ticketId, seconds: 3600 }),
+      readAccess: await customer.readAccess({ ticketId }),
       attach: await customer.attach({ ticketId, clientRequestId: 'file-2', contentType: 'text/plain', bodyBase64: BODY }),
       comment: await customer.comment({ ticketId, body: 'TEST still declined', clientRequestId: 'customer-1' }),
       close: null,

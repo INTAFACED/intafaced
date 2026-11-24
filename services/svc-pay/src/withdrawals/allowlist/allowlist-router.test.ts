@@ -45,7 +45,7 @@ const view = {
   userId: USER,
   op: 'add' as const,
   entryId: null,
-  subject: { address: '0x1111111111111111111111111111111111111111' },
+  subject: { group: 'external_wallet' as const, assetId: 'USDC', address: '0x1111111111111111111111111111111111111111', label: 'Cold' },
   requestHash: HASH,
   teamAccountId: '44444444-4444-4444-8444-444444444444',
   requiredApprovals: 2,
@@ -195,7 +195,7 @@ describe('the direct door', () => {
     createPayRouter(
       {} as PayService,
       rails,
-      { withdraw } as unknown as UserMoneyService,
+      { withdraw } as UserMoneyService,
       null,
       undefined,
       undefined,

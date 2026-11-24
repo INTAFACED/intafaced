@@ -1,7 +1,7 @@
 /** Browser hop for a one-operator desk action. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import { readStepReply, type StepReply } from '@/lib/desk/approval-types';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { readStepReply, type StepReply } from '@/lib/approval-types';
+import { explainRefusal } from '@/lib/refusal-copy';
 import type { EscalateRequest } from './direct-model';
 
 export async function postDirect(endpoint: '/api/p2p-ops', request: EscalateRequest, signal?: AbortSignal): Promise<StepReply> {

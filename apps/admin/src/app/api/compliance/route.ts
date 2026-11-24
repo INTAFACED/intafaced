@@ -4,7 +4,7 @@ import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { dispositionGate, dispositionPhrase, type Disposition } from '@/lib/compliance/model';
 import { disposeCase, loadCompliance } from '@/lib/compliance/server';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import { explainRefusal, type RefusalView } from '@/lib/refusal-copy';
 
 /**
  * Live compliance state and queue dispositions (svc-edge `/admin/status`, `/admin/compliance/*`).

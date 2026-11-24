@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { EXPORT_KINDS, resolveExportColumns } from './exports.js';
+import { PAY_EXPORT_KINDS } from '@intafaced/contracts';
+import { resolveExportColumns } from './exports.js';
 import { MerchantOpsError } from './errors.js';
 import { assertTimeZone, reportOptions, zonedFilters, zonedMidnight } from './merchant-disp-bill-rep-report-options.js';
 import type { MerchantCaller } from './roles.js';
@@ -37,6 +38,21 @@ describe('M-rep-01 zoned report periods', () => {
     expect(f.to).toBe('2026-11-02T05:00:00.000Z');
   });
 
+  it('starts the export on the requested day when local midnight is skipped (America/Santiago, 6 Sep 2026)', () => {
+    const filters = zonedFilters({}, { fromDay: '2026-09-06', toDay: '2026-09-06', timeZone: 'America/Santiago' }, NOW);
+    expect(filters).toEqual({ from: '2026-09-06T04:00:00.000Z', to: '2026-09-07T03:00:00.000Z' });
+    // The last instant of 5 Sep local stays out; the first of 6 Sep is in.
+    expect(zonedMidnight('2026-09-06', 'America/Santiago').getTime()).toBe(Date.parse('2026-09-06T04:00:00Z'));
+  });
+
+  it('a skipped midnight in an older year begins the day at the transition (America/Sao_Paulo, 4 Nov 2018)', () => {
+    expect(zonedMidnight('2018-11-04', 'America/Sao_Paulo').toISOString()).toBe('2018-11-04T03:00:00.000Z');
+  });
+
+  it('a repeated midnight begins the day at its first occurrence (America/Havana, 1 Nov 2026)', () => {
+    expect(zonedMidnight('2026-11-01', 'America/Havana').toISOString()).toBe('2026-11-01T04:00:00.000Z');
+  });
+
   it('UTC is identity and keeps other filters', () => {
     expect(zonedFilters({ assetId: 'USDT' }, { fromDay: '2026-12-01', toDay: '2026-12-03', timeZone: 'UTC' }, NOW)).toEqual({
       assetId: 'USDT',
@@ -58,6 +74,15 @@ describe('M-rep-01 zoned report periods', () => {
       code(() => zonedFilters({ from: '2026-12-01T00:00:00Z' }, { fromDay: '2026-12-01', toDay: '2026-12-01', timeZone: 'UTC' }, NOW)),
     ).toBe('pay.export_filter_invalid');
   });
+
+  it('refuses an impossible report end day rather than rolling it into the next month', () => {
+    expect(
+      code(() => zonedFilters({}, { fromDay: '2026-02-01', toDay: '2026-02-30', timeZone: 'UTC' }, new Date('2026-03-10T00:00:00Z'))),
+    ).toBe('pay.export_filter_invalid');
+    expect(code(() => zonedFilters({}, { fromDay: '2026-04-01', toDay: '2026-04-31', timeZone: 'Asia/Makassar' }, NOW))).toBe(
+      'pay.export_filter_invalid',
+    );
+  });
 });
 
 describe('M-rep-01 report options', () => {
@@ -65,7 +90,7 @@ describe('M-rep-01 report options', () => {
     for (const role of ['owner', 'admin', 'finance', 'developer', 'viewer'] as const) {
       const o = reportOptions(caller(role));
       expect(o.formats).toEqual(['csv']);
-      expect(o.kinds.map((k) => k.kind)).toEqual([...EXPORT_KINDS]);
+      expect(o.kinds.map((k) => k.kind)).toEqual([...PAY_EXPORT_KINDS]);
       for (const k of o.kinds) expect(k.columns).toEqual(resolveExportColumns(k.kind, role, undefined));
     }
     const viewerFees = reportOptions(caller('viewer')).kinds.find((k) => k.kind === 'fees')!;

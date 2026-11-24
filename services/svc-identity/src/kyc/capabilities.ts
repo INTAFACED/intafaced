@@ -14,6 +14,7 @@
  * request for a level whose own capabilities include it is refused (`kyc.capability_inactive`). With no mapping
  * published an approval grants no capability, and the read says so (`mapped: false`).
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { KYC_TIERS, type KycTier } from '@intafaced/config';
 import type { KycRejectReasons } from './cases.js';
@@ -99,7 +100,7 @@ interface CapabilityRow {
  * The person's capability rows, under a lock on the person's capabilities as a whole. A row lock alone would miss a
  * row that does not exist yet, so two first writes (an approval and a switch-off) could both take version 1.
  */
-async function locked(tx: Sql, userId: string, capabilities: readonly KycCapability[]): Promise<Map<KycCapability, CapabilityRow>> {
+async function locked(tx: Queryable, userId: string, capabilities: readonly KycCapability[]): Promise<Map<KycCapability, CapabilityRow>> {
   if (capabilities.length === 0) return new Map();
   await tx`SELECT pg_advisory_xact_lock(hashtextextended('identity.kyc_capabilities:' || ${userId}, 0))`;
   const rows = await tx<CapabilityRow[]>`
@@ -109,7 +110,7 @@ async function locked(tx: Sql, userId: string, capabilities: readonly KycCapabil
 }
 
 async function write(
-  tx: Sql,
+  tx: Queryable,
   userId: string,
   capability: KycCapability,
   prior: CapabilityRow | undefined,
@@ -131,7 +132,7 @@ async function write(
  * (`kyc.capability_inactive`), because inactive is a decision a new request does not undo. A higher level stays open:
  * its approval leaves the inactive one off.
  */
-export async function assertRequestable(sql: Sql, map: KycCapabilityMap, userId: string, tier: KycTier): Promise<void> {
+export async function assertRequestable(sql: Queryable, map: KycCapabilityMap, userId: string, tier: KycTier): Promise<void> {
   const own = map.get(tier) ?? [];
   if (own.length === 0) return;
   const [blocked] = await sql<Array<{ capability: string }>>`
@@ -146,7 +147,7 @@ export async function assertRequestable(sql: Sql, map: KycCapabilityMap, userId:
 
 /** A request was stored: what its level would grant beyond the level the person holds becomes pending, owned by its case. */
 export async function markRequested(
-  tx: Sql,
+  tx: Queryable,
   map: KycCapabilityMap,
   record: { userId: string; tier: KycTier; heldTier: KycTier; caseId: string; at: Date },
 ): Promise<void> {
@@ -155,7 +156,8 @@ export async function markRequested(
   const rows = await locked(tx, record.userId, wanted);
   for (const cap of wanted) {
     const prior = rows.get(cap);
-    if (prior?.state === 'inactive' || prior?.state === 'pending') continue;
+    // An active one stays active (a trading clear's `trade_crypto` while the bank's request is reviewed).
+    if (prior?.state === 'inactive' || prior?.state === 'pending' || prior?.state === 'active') continue;
     await write(tx, record.userId, cap, prior, { state: 'pending', caseId: record.caseId, by: null, reasonCode: null, at: record.at });
   }
 }
@@ -165,7 +167,7 @@ export async function markRequested(
  * one stays inactive. Returns what became active.
  */
 export async function grantOnApproval(
-  tx: Sql,
+  tx: Queryable,
   map: KycCapabilityMap,
   decision: { userId: string; tier: KycTier; caseId: string | null; by: string; at: Date },
 ): Promise<KycCapability[]> {
@@ -192,7 +194,7 @@ export async function grantOnApproval(
  * pending stays pending.
  */
 export async function releaseOnReject(
-  tx: Sql,
+  tx: Queryable,
   map: KycCapabilityMap,
   decision: { userId: string; tier: KycTier; caseId: string; by: string; at: Date },
 ): Promise<void> {
@@ -216,7 +218,7 @@ export async function releaseOnReject(
  * decision and returns; with another code it is refused (`kyc.capability_state`), so the recorded reason never changes.
  */
 export async function deactivateCapability(
-  tx: Sql,
+  tx: Queryable,
   input: { userId: string; capability: KycCapability; reasonCode: string; by: string; at: Date },
 ): Promise<void> {
   const rows = await locked(tx, input.userId, [input.capability]);
@@ -253,11 +255,13 @@ export async function listCapabilities(
   userId: string,
   heldTier: KycTier,
   reasons: KycRejectReasons,
+  /** Capabilities held beside the level: the trading checks' clear holds trading alone (`TRADING_CAPABILITIES`). */
+  alsoHeld: readonly KycCapability[] = [],
 ): Promise<KycCapabilitiesOutput> {
   const rows = await sql<CapabilityRow[]>`
     SELECT capability, state, case_id, version, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId}`;
   const byCap = new Map(rows.map((r) => [r.capability, r]));
-  const held = new Set(capabilitiesOfLevel(map, heldTier));
+  const held = new Set([...capabilitiesOfLevel(map, heldTier), ...alsoHeld.filter((cap) => lowestLevelOf(map, cap) !== null)]);
   return {
     mapped: map.size > 0,
     capabilities: KYC_CAPABILITIES.map((capability) => {

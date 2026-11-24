@@ -1,45 +1,43 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
-  anyScopeProcedure,
   merchantControlGetInputSchema,
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
-  merchantControlApprovalPageSchema,
   merchantControlApprovalDecideInputSchema,
   merchantTierListInputSchema,
   merchantTierListSchema,
-  merchantPricingHistoryInputSchema,
-  merchantPricingHistorySchema,
-  merchantLimitOpenInputSchema,
-  merchantLimitOpenSchema,
   merchantLimitIncreaseInputSchema,
   merchantLimitIncreaseResultSchema,
-  merchantLimitWithdrawInputSchema,
-  merchantLimitWithdrawResultSchema,
   payoutApprovalSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-control';
+import { router, scopedProcedure, anyScopeProcedure } from '@intafaced/contracts/trpc';
 import type { Principal } from '@intafaced/auth';
 import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
 import { isInteractivePrincipal, type MerchantRole } from '../merchant-ops/roles.js';
 import { toContractApproval } from '../control/approvals.js';
-import {
-  approvalCancelInputSchema,
-  approvalRequestInputSchema,
-  pricingPreviewInputSchema,
-  pricingQuoteSchema,
-  usageInputSchema,
-  usageViewSchema,
-} from '../control/schemas.js';
 import { guarded } from './control-errors.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import { notBuilt } from './errors.js';
-import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
+import { merchantReserveViewSchema } from '@intafaced/contracts/merchant-control';
 import { refuseTopUpUnwired } from '../merchant-pay-dev-out/top-up.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { projectTierList } from '../team-read-projection.js';
+import {
+  PAY_MERCHANT_CONTROL_GET,
+  PAY_MERCHANT_CONTROL_RESERVE,
+  PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS,
+  PAY_MERCHANT_CONTROL_USAGE,
+  PAY_MERCHANT_CONTROL_PRICING_PREVIEW,
+  PAY_MERCHANT_CONTROL_APPROVALS_CANCEL,
+  PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
+  PAY_MERCHANT_CONTROL_LIMITS_OPEN,
+  PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
+  PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+  PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+} from '@intafaced/contracts/pay-merchant-control-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /**
  * `merchantControl.*` — the merchant-facing control room.
@@ -71,20 +69,9 @@ async function assertLimitAsk(control: ControlService, principal: Principal, mer
 export function createMerchantControlRouter(control?: ControlService) {
   const read = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
-  const payout = scopedProcedure('pay:payout', { module: 'pay' });
-  /**
-   * A payout decision is the checker's, and the checkers are the team: admin and finance hold `payout.approve` in the
-   * role table, while the owner grant law gives `pay:write` to the owner alone. So deciding is a team member's write
-   * (`teamMemberWrite`: an owner on a live `pay:write`, or an active member of a KYB-approved business that is not shut,
-   * on `pay:onboard`), and who may decide is the role check in `approvals.decide` (`canApprovePayout`, a person in a live
-   * session, never the maker). It moves no money: sending stays the owner's, under `pay:payout`.
-   */
-  const decide = control
-    ? teamMemberWrite(() => control.db)
-    : // Not built: the same scopes reach the typed not-built refusal.
-      anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' });
-
   if (!control) {
+    // Not built: the same scopes reach the typed not-built refusal.
+    const decide = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay' });
     return router({
       merchantControl: router({
         get: read
@@ -117,53 +104,62 @@ export function createMerchantControlRouter(control?: ControlService) {
   }
 
   const principalOf = (ctx: { principal: Principal | null }): Principal => ctx.principal as Principal;
+  /**
+   * A payout decision is the checker's, and the checkers are the team: admin and finance hold `payout.approve` in the
+   * role table, while the owner grant law gives `pay:write` to the owner alone. So deciding is a team member's write
+   * (`teamMemberCheck`: an owner on a live `pay:write`, or an active member of a KYB-approved business that is not shut,
+   * on `pay:onboard`), and who may decide is the role check in `approvals.decide` (`canApprovePayout`, a person in a live
+   * session, never the maker). It moves no money: sending stays the owner's, under `pay:payout`.
+   */
+  const teamMember = teamMemberCheck(() => control.db);
+  const decide = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
 
   return router({
     merchantControl: router({
-      get: read
-        .input(merchantControlGetInputSchema)
-        .output(merchantControlProfileSchema)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        PAY_MERCHANT_CONTROL_GET,
+        ({ ctx, input }) =>
           guarded(async () => {
             await control.assertCanView(principalOf(ctx), input.merchantId);
             return control.profile(input.merchantId);
           }),
-        ),
+        payRefusal,
+      ),
       /** M-money-out-01: reserve rule and recorded amounts, labelled recorded and not withheld. */
-      reserve: read
-        .input(merchantControlGetInputSchema)
-        .output(merchantReserveViewSchema)
-        .query(({ ctx, input }) =>
+      reserve: mountRecord(
+        PAY_MERCHANT_CONTROL_RESERVE,
+        ({ ctx, input }) =>
           guarded(async () => {
             await control.assertCanView(principalOf(ctx), input.merchantId);
             return control.reserve(input.merchantId);
           }),
-        ),
+        payRefusal,
+      ),
       /**
        * M-money-out-02: what a top-up of this business can use. No top-up rail is wired, so after the ownership
        * check it always refuses `pay.topup_unconfigured` and never invents an instruction (merchant-pay-dev-out/top-up.ts).
        */
       topUp: router({
         // No answer shape until a top-up rail exists: any answer at all fails the output check.
-        options: read
-          .input(merchantControlGetInputSchema)
-          .output(z.never())
-          .query(({ ctx, input }) =>
+        options: mountRecord(
+          PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS,
+          ({ ctx, input }) =>
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);
               return refuseTopUpUnwired();
             }),
-          ),
+          payRefusal,
+        ),
       }),
-      usage: read
-        .input(usageInputSchema)
-        .output(usageViewSchema)
-        .query(({ ctx, input }) =>
+      usage: mountRecord(
+        PAY_MERCHANT_CONTROL_USAGE,
+        ({ ctx, input }) =>
           guarded(async () => {
             await control.assertCanView(principalOf(ctx), input.merchantId);
             return control.usage(input.merchantId);
           }),
-        ),
+        payRefusal,
+      ),
       tiers: router({
         list: read
           .input(merchantTierListInputSchema)
@@ -178,35 +174,35 @@ export function createMerchantControlRouter(control?: ControlService) {
           ),
       }),
       pricing: router({
-        preview: read
-          .input(pricingPreviewInputSchema)
-          .output(pricingQuoteSchema)
-          .query(({ ctx, input }) =>
+        preview: mountRecord(
+          PAY_MERCHANT_CONTROL_PRICING_PREVIEW,
+          ({ ctx, input }) =>
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);
               return control.previewPricing(input);
             }),
-          ),
-        history: read
-          .input(merchantPricingHistoryInputSchema)
-          .output(merchantPricingHistorySchema)
-          .query(({ ctx, input }) =>
+          payRefusal,
+        ),
+        history: mountRecord(
+          PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+          ({ ctx, input }) =>
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);
               return control.pricingHistory(input.merchantId, input.limit);
             }),
-          ),
+          payRefusal,
+        ),
       }),
       limits: router({
-        open: read
-          .input(merchantLimitOpenInputSchema)
-          .output(merchantLimitOpenSchema)
-          .query(({ ctx, input }) =>
+        open: mountRecord(
+          PAY_MERCHANT_CONTROL_LIMITS_OPEN,
+          ({ ctx, input }) =>
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);
               return control.openLimitRequest(input.merchantId);
             }),
-          ),
+          payRefusal,
+        ),
         requestIncrease: write
           .input(merchantLimitIncreaseInputSchema)
           .output(merchantLimitIncreaseResultSchema)
@@ -217,22 +213,21 @@ export function createMerchantControlRouter(control?: ControlService) {
               return control.requestLimitIncrease(principal, input);
             }),
           ),
-        withdraw: write
-          .input(merchantLimitWithdrawInputSchema)
-          .output(merchantLimitWithdrawResultSchema)
-          .mutation(({ ctx, input }) =>
+        withdraw: mountRecord(
+          PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
+          ({ ctx, input }) =>
             guarded(async () => {
               const principal = principalOf(ctx);
               await assertLimitAsk(control, principal, input.merchantId);
               return control.withdrawLimitRequest(principal, input);
             }),
-          ),
+          payRefusal,
+        ),
       }),
       approvals: router({
-        list: read
-          .input(merchantControlApprovalListInputSchema)
-          .output(merchantControlApprovalPageSchema)
-          .query(({ ctx, input }) =>
+        list: mountRecord(
+          PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+          ({ ctx, input }) =>
             guarded(async () => {
               const page = await control.approvals.list(principalOf(ctx), input);
               return {
@@ -241,19 +236,22 @@ export function createMerchantControlRouter(control?: ControlService) {
                 dailyPayoutRemaining: page.dailyPayoutRemaining,
               };
             }),
-          ),
-        request: payout
-          .input(approvalRequestInputSchema)
-          .output(payoutApprovalSchema)
-          .mutation(({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.request(principalOf(ctx), input)))),
+          payRefusal,
+        ),
+        request: mountRecord(
+          PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
+          ({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.request(principalOf(ctx), input))),
+          payRefusal,
+        ),
         decide: decide
           .input(merchantControlApprovalDecideInputSchema)
           .output(payoutApprovalSchema)
           .mutation(({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.decide(principalOf(ctx), input)))),
-        cancel: payout
-          .input(approvalCancelInputSchema)
-          .output(payoutApprovalSchema)
-          .mutation(({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.cancel(principalOf(ctx), input)))),
+        cancel: mountRecord(
+          PAY_MERCHANT_CONTROL_APPROVALS_CANCEL,
+          ({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.cancel(principalOf(ctx), input))),
+          payRefusal,
+        ),
       }),
     }),
   });

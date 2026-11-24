@@ -5,6 +5,7 @@ import {
   HOME_CONFIG_UNWIRED,
   needsYouShown,
   ratioPercent,
+  rowsShown,
   shownInNeedsYou,
   sourceAnswer,
   workList,
@@ -14,7 +15,15 @@ import {
 const config = (over: Partial<HomeConfig> = {}) =>
   ({
     state: 'ready',
-    config: { workListCap: 5, workListOrder: null, searchResultCap: null, noticeStripLimit: null, revision: 1, ...over },
+    config: {
+      workListCap: 5,
+      workListOrder: null,
+      searchResultCap: null,
+      noticeStripLimit: null,
+      recentActivityLimit: null,
+      revision: 1,
+      ...over,
+    },
   }) as const;
 
 const verify: WorkItem = {
@@ -169,6 +178,14 @@ describe('what "Needs you" shows, as the inbox on Home reads it', () => {
   it('carries only the items it shows: one past the cap is not carried', () => {
     const shown = needsYouShown(workList(config({ workListCap: 1 }), all(ready(verify, device), ready(), ready())));
     expect(shown).toEqual({ settled: true, noticeKeys: new Set() });
+  });
+
+  it('draws two new-device sign-ins as one row, the newest, and still carries both notices (#10315)', () => {
+    const older: WorkItem = { ...device, id: 'new_device:factor-changed:u1:1' };
+    const list = workList(config(), all(ready(verify, device, older), ready(card), ready()));
+    if (list.state !== 'ready') throw new Error(list.state);
+    expect(rowsShown(list.items).map((item) => item.id)).toEqual([verify.id, device.id, card.id]);
+    expect(needsYouShown(list).noticeKeys).toEqual(new Set([NOTICE_KEY, 'factor-changed:u1:1']));
   });
 
   it('is unsettled while it loads, and settled but carrying nothing once refused', () => {

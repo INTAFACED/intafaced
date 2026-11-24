@@ -1,11 +1,12 @@
+import { DocPage } from '../DocPage';
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyRecord } from '@intafaced/contracts/api-keys';
 import type { LimitRequest, RateTiersOutput } from '@intafaced/contracts/api-rate-limits';
 import type { ApiResult } from '../../../shared/api';
-import { Button, Failure, Field } from '../../../shared/ui';
-import { useSession } from '../../session/session';
-import { readDeveloperKeys } from '../../account/developer-keys-api';
-import { docsCopy } from '../developers-docs-copy';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { useSession } from '../../session';
+import { readDeveloperKeys } from '../../account';
+import { FailureNote } from '../../more';
 import { useRead } from '../use-read';
 import { rateLimitsCopy, type RateLimitsCopyKey } from './rate-limits-copy';
 import {
@@ -33,65 +34,59 @@ const liveKey = (key: ApiKeyRecord, now: number) =>
  */
 export function RateLimitsPage({ title }: { title: string }) {
   const { t } = rateLimitsCopy.useCopy();
-  const docs = docsCopy.useCopy();
   const { api, userId } = useSession();
   const tiers = useRead((signal) => readRateTiers(api, signal), [api]);
   const costs = useRead((signal) => readRateCosts(api, signal), [api]);
   const tiersSet = tiers.read.status === 'ready' && tiers.read.data.tiers.length > 0;
 
   return (
-    <div className="pub-page" data-testid="developers-rate-limits">
-      <header className="pub-heading">
-        <h1>{title}</h1>
-        <p className="muted">{t('lead')}</p>
-      </header>
-
+    <DocPage id="rate-limits" title={title} lead={t('lead')}>
       {tiers.read.status === 'ready' && !tiersSet && (
-        <section className="pub-notice" role="status" data-testid="rate-limits__unset">
+        <section className="lt-hint" role="status" data-testid="rate-limits__unset">
           <p>{t('tiersUnset')}</p>
         </section>
       )}
 
-      <section className="pub-card" aria-labelledby="rl-model">
+      <section aria-labelledby="rl-model">
         <h2 id="rl-model">{t('modelTitle')}</h2>
         <p>{t('modelBucket')}</p>
         <p>{t('modelCost')}</p>
-        <p className="muted">{t('modelReplica')}</p>
+        <p className="lt-hint">{t('modelReplica')}</p>
       </section>
 
-      <section className="pub-card" aria-labelledby="rl-tiers">
+      <section aria-labelledby="rl-tiers">
         <h2 id="rl-tiers">{t('tiersTitle')}</h2>
-        {tiers.read.status === 'loading' && <p className="muted">{t('loading')}</p>}
+        {tiers.read.status === 'loading' && <p className="lt-hint">{t('loading')}</p>}
         {tiers.read.status === 'failed' && (
-          <p className="error-text" role="alert">
-            {t('tiersFailed')}{' '}
-            <button type="button" className="text-link" onClick={tiers.reload}>
+          <div className="lt-refusal" role="alert">
+            <p className="lt-refusal-body">{t('tiersFailed')}</p>
+            <Button tone="secondary" onClick={tiers.reload}>
               {t('refresh')}
-            </button>
-          </p>
+            </Button>
+          </div>
         )}
         {tiers.read.status === 'ready' && <TiersTable data={tiers.read.data} />}
       </section>
 
-      <section className="pub-card" aria-labelledby="rl-costs">
+      <section aria-labelledby="rl-costs">
         <h2 id="rl-costs">{t('costsTitle')}</h2>
-        <p className="muted">{t('costsLead')}</p>
-        {costs.read.status === 'loading' && <p className="muted">{t('loading')}</p>}
+        <p className="lt-hint">{t('costsLead')}</p>
+        {costs.read.status === 'loading' && <p className="lt-hint">{t('loading')}</p>}
         {costs.read.status === 'failed' && (
-          <p className="error-text" role="alert">
-            {t('costsFailed')}{' '}
-            <button type="button" className="text-link" onClick={costs.reload}>
+          <div className="lt-refusal" role="alert">
+            <p className="lt-refusal-body">{t('costsFailed')}</p>
+            <Button tone="secondary" onClick={costs.reload}>
               {t('refresh')}
-            </button>
-          </p>
+            </Button>
+          </div>
         )}
         {costs.read.status === 'ready' && costs.read.data.costs.length === 0 && (
-          <p className="pub-notice" role="status">
+          <p className="lt-hint" role="status">
             {t('costsUnset')}
           </p>
         )}
-        <div className="table-scroll">
-          <table className="pub-table">
+        <div>
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('colRoute')}</th>
@@ -113,35 +108,31 @@ export function RateLimitsPage({ title }: { title: string }) {
         </div>
       </section>
 
-      <section className="pub-card" aria-labelledby="rl-refusal">
+      <section aria-labelledby="rl-refusal">
         <h2 id="rl-refusal">{t('refusalTitle')}</h2>
         <p>{t('refusalBody')}</p>
         <p>{t('refusalHeaders')}</p>
       </section>
 
-      <section className="pub-card" aria-labelledby="rl-backoff" data-testid="rate-limits__backoff">
+      <section aria-labelledby="rl-backoff" data-testid="rate-limits__backoff">
         <h2 id="rl-backoff">{t('backoffTitle')}</h2>
         <p>{t('backoffBody')}</p>
-        <p className="muted">{t('backoffExample')}</p>
+        <p className="lt-hint">{t('backoffExample')}</p>
       </section>
 
       {userId ? (
         <LimitRequests tiers={tiers.read.status === 'ready' ? tiers.read.data : null} tiersSet={tiersSet} />
       ) : (
-        <section className="pub-card" aria-labelledby="rl-form">
+        <section aria-labelledby="rl-form">
           <h2 id="rl-form">{t('formTitle')}</h2>
           <p>
-            <a className="text-link" href="/login?next=%2Fdevelopers%2Frate-limits">
+            <a className="lt-link lt-link-alone" href="/login?next=%2Fdevelopers%2Frate-limits">
               {t('formSignIn')}
             </a>
           </p>
         </section>
       )}
-
-      <a className="text-link" href="/developers">
-        ← {docs.t('back')}
-      </a>
-    </div>
+    </DocPage>
   );
 }
 
@@ -149,8 +140,8 @@ function TiersTable({ data }: { data: RateTiersOutput }) {
   const { t } = rateLimitsCopy.useCopy();
   return (
     <>
-      <div className="table-scroll">
-        <table className="pub-table">
+      <div>
+        <table className="lt-table">
           <thead>
             <tr>
               <th scope="col">{t('colTier')}</th>
@@ -172,7 +163,7 @@ function TiersTable({ data }: { data: RateTiersOutput }) {
         </table>
       </div>
       {data.tiers.length > 0 && (
-        <p className="muted">
+        <p className="lt-hint">
           {data.grantCeilingPerMinute === null ? t('ceilingUnset') : t('ceiling', { count: data.grantCeilingPerMinute })}
         </p>
       )}
@@ -249,7 +240,7 @@ function LimitRequests({ tiers, tiersSet }: { tiers: RateTiersOutput | null; tie
   return (
     <>
       <form
-        className="pub-card"
+        className="lt-stack"
         aria-label={t('formTitle')}
         noValidate
         onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -258,64 +249,61 @@ function LimitRequests({ tiers, tiersSet }: { tiers: RateTiersOutput | null; tie
         }}
       >
         <h2>{t('formTitle')}</h2>
-        <p className="muted">{t('formLead')}</p>
+        <p className="lt-hint">{t('formLead')}</p>
         {tiers && !tiersSet && (
-          <p className="pub-notice" role="status">
+          <p className="lt-hint" role="status">
             {t('formUnset')}
           </p>
         )}
-        {tiersSet && keys.read.status === 'ready' && live.length === 0 && <p className="muted">{t('formNoKeys')}</p>}
-        {keys.read.status === 'failed' && <p className="error-text">{t('requestsFailed')}</p>}
-        <label className="field">
-          <span>{t('fieldKey')}</span>
-          <select name="keyId" disabled={!formOpen || busy} required>
-            {live.map((key) => (
-              <option key={key.id} value={key.id}>
-                {key.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {tiersSet && keys.read.status === 'ready' && live.length === 0 && <p className="lt-hint">{t('formNoKeys')}</p>}
+        {keys.read.status === 'failed' && <p className="lt-refusal">{t('requestsFailed')}</p>}
+        <Select
+          label={t('fieldKey')}
+          name="keyId"
+          disabled={!formOpen || busy}
+          required
+          options={live.map((key) => ({ value: key.id, label: key.name }))}
+        />
         <Field label={t('fieldAsked')} hint={t('fieldAskedHint')} name="asked" inputMode="numeric" disabled={!formOpen || busy} />
         <Field label={t('fieldSpikeStarts')} hint={t('fieldSpikeHint')} name="spikeStarts" type="date" disabled={!formOpen || busy} />
         <Field label={t('fieldSpikeEnds')} name="spikeEnds" type="date" disabled={!formOpen || busy} />
         <Field label={t('fieldNote')} name="note" maxLength={500} disabled={!formOpen || busy} />
         {refusal && (
-          <p className="error-text" role="alert">
+          <p className="lt-refusal" role="alert">
             {t(refusal === 'invalidAsked' ? 'invalidAsked' : `refused.${refusal}`)}
           </p>
         )}
-        {failure && <Failure result={failure} />}
+        {failure && <FailureNote result={failure} />}
         {sent && <p role="status">{t('sent')}</p>}
-        <Button type="submit" disabled={!formOpen || busy}>
+        <Button type="submit" tone="primary" disabled={!formOpen || busy}>
           {busy ? t('sending') : t('send')}
         </Button>
       </form>
 
-      <section className="pub-card" aria-labelledby="rl-requests">
+      <section aria-labelledby="rl-requests">
         <h2 id="rl-requests">{t('requestsTitle')}</h2>
-        {mine.read.status === 'loading' && <p className="muted">{t('loading')}</p>}
+        {mine.read.status === 'loading' && <p className="lt-hint">{t('loading')}</p>}
         {mine.read.status === 'failed' && (
-          <p className="error-text" role="alert">
-            {t('requestsFailed')}{' '}
-            <button type="button" className="text-link" onClick={mine.reload}>
+          <div className="lt-refusal" role="alert">
+            <p className="lt-refusal-body">{t('requestsFailed')}</p>
+            <Button tone="secondary" onClick={mine.reload}>
               {t('refresh')}
-            </button>
-          </p>
+            </Button>
+          </div>
         )}
         {mine.read.status === 'ready' && (
           <>
-            <p className="muted">
+            <p className="lt-hint">
               {t('asOf', { at: `${when.format(new Date(mine.read.data.asOf))} UTC` })}{' '}
-              <button type="button" className="text-link" onClick={mine.reload}>
+              <Button tone="quiet" onClick={mine.reload}>
                 {t('refresh')}
-              </button>
+              </Button>
             </p>
-            {mine.read.data.requests.length === 0 && <p className="muted">{t('requestsEmpty')}</p>}
+            {mine.read.data.requests.length === 0 && <p className="lt-hint">{t('requestsEmpty')}</p>}
           </>
         )}
-        <div className="table-scroll">
-          <table className="pub-table">
+        <div>
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('colKey')}</th>

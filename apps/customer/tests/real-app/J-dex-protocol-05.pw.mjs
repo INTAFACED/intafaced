@@ -1,14 +1,28 @@
 // World: restart
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { createPublicClient, decodeFunctionData, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  decodeFunctionData,
+  defineChain,
+  encodeFunctionData,
+  formatUnits,
+  http,
+  parseAbi,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
+import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, connectWhenAsked, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, journeyState, ROOT, tool } from './stack.mjs';
+import { api, journeyState, restartService, ROOT, stackUrl, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { depositCustody, partnerPayIn } from './bank-desk.mjs';
+import { chainRpc, withMiningPaused } from './chain-node.mjs';
+import { userVenue, venueDoor } from './venue-room.mjs';
 
 // J-dex-protocol-05, in the running app (docs/roadmap/journeys.json): move value between a trading venue, the wallet and
 // another chain. One test per step, titled "J-dex-protocol-05 #<n>", run in order by one verified TEST account.
@@ -26,9 +40,17 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // A withdrawal needs a fresh second factor (`trade.step_up.venue.withdraw`), so #3 adds an authenticator app first. Money: the user's wallet signs each venue deposit and withdrawal; the
 // ledger posts nothing, read before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - the bank ramps have no "Buy to wallet" route (D-bridge-chain-02);
-// - /protocol/rails has no route table, burn, attestation or mint tracking (D-bridge-chain-03), and no cross-chain
-//   review sheet (RC-dex-protocol-04);
+// - #4 buys TEST USDC to the wallet on the bank's Add money page (/bank/ramps/new, "Deliver to: My wallet"), through the
+//   stack's TEST pay-in stand-in. Once the payer approves, the stack's TEST partner (tooling/scripts/local-test-chain.mjs
+//   /payin-deliver, called by svc-bank's stand-in) delivers the purchase on the TEST chain from its own address, as TEST
+//   USD (the TEST chain's stand-in for USDC, as the TEST venue's deposit route names it), and the stand-in says it was
+//   paid with that transfer. The test sends nothing: it reads the transfer from the TEST chain itself. Money: the ledger
+//   posts nothing for a purchase delivered to the wallet, read before and after;
+// - #6 and #7 run the bridge on the stack's TEST route (PROTOCOL_BRIDGE_ROUTES=TEST, served while #6 restarts protocol
+//   with `LOCAL_STACK_PROTOCOL_BRIDGE=on`; #7 puts it back off): the TEST bridge token on the stack's two TEST chains and
+//   the stack's TEST attester (tooling/scripts/local-test-chain.mjs). #6's wallet is its own, on both chains; money: the
+//   wallet signs the burn and the mint, the balances move on the chains themselves, and the ledger posts nothing;
+// - /dex has no cross-chain review sheet (RC-dex-protocol-04);
 // - there is no asset link review or contract-read docs (D-bridge-chain-04);
 // - #1's "no banned partner wording" clause reads the names from the brand scan's own list (tooling/ci/brand-scan.mjs
 //   FORBIDDEN) and checks the room's text against each; the test does not spell them out, since the scan refuses them
@@ -36,8 +58,9 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // - #1's later clause (OWNER 226) is the exchange Deposit page with custody absent: #1 restarts the bank with no deposit
 //   custody (as J-wallet-02 #1 does) and puts it back; its address panel says deposit addresses are not available because
 //   crypto custody isn't connected;
-// - #7's crash clause (the process stopping after the intent is stored) cannot be caused from the browser; the step
-//   checks the browser half: the same single row comes back after the browser closes.
+// - #7 causes its crash clause: a second transfer's intent is stored, its burn is sent from the wallet's key, and
+//   svc-protocol is restarted before it hears the hash; the new browser finds #6's row as #6 left it and the second
+//   resumed from its burn on chain, with no burn offered again and one burn per intent.
 const J = 'J-dex-protocol-05';
 const dex = dexRun(`${J}-wallet`);
 const account = dexRun(J);
@@ -49,7 +72,7 @@ const TEST_USD = '0x000000000000000000000000000000000000d011';
 const MINIMUM = '5';
 const CONFIRMATIONS = 3;
 /** The TEST venue's own TEST controls (packages/venue-sim src/http-server.ts), on the stack's loopback port. */
-const TEST_VENUE = 'http://127.0.0.1:14560';
+const TEST_VENUE = stackUrl('test-venue');
 /** The TEST chain's explorer, as the TEST venue links a deposit (tooling/scripts/local-test-venue.mjs). */
 const EXPLORER = '/chain/tx/';
 /** The trading venue's calls and public balances (services/svc-protocol/contracts/venue/SovereignVenue.sol). */
@@ -62,14 +85,6 @@ const VENUE_ABI = parseAbi([
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
 test.describe.configure({ mode: 'default' });
-
-/** The run's verified, funded TEST account, signed in. */
-async function person(page) {
-  const who = account.run.read().who;
-  expect(who, 'the start step made the account').toBeTruthy();
-  await signIn(page, who);
-  return who;
-}
 
 /** The run's account and its venue wallet's key, made by the start step. */
 function venueState() {
@@ -84,22 +99,7 @@ function venueState() {
  * hooks below, and cleared only once the bank is connected again.
  */
 const custody = journeyState(`${J}-custody`);
-function bankDepositCustody(on) {
-  const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
-  if (on) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
-  else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
-  if (!on) custody.write({ off: true });
-  try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
-    if (on) custody.reset({});
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
-    else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;
-  }
-}
-const putCustodyBack = () => {
-  if (custody.read().off) bankDepositCustody(true);
-};
+const { bankDepositCustody, putCustodyBack } = depositCustody(custody);
 test.beforeAll(putCustodyBack);
 test.afterEach(putCustodyBack);
 
@@ -114,53 +114,145 @@ async function openRails(page) {
   return wallet;
 }
 
-// ── the venue account room (#1 to #3) ────────────────────────────────────────────────────────────────────────────────
+// ── the bridge (#6, #7) ──────────────────────────────────────────────────────────────────────────────────────────────
 
-/** svc-trade's user-venue door as the person reads it: off, down, or the TEST venue with its deposit route. */
-async function venueDoor(who) {
-  const { status, body } = await (await api(who)).get('/api/v1/venue/status');
-  if (status !== 200) throw new Error(`venue status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body;
+/**
+ * The bridge steps' own TEST wallet, on both of the stack's TEST chains: the first (the app's chain id) and the second,
+ * where the TEST bridge mints (tooling/scripts/local-test-chain.mjs: TestBridgeToken at BRIDGE_TOKEN on both, and the
+ * TEST attester). `fund <address> bridge` gives it TEST ETH on both and 100 TEST USDC of the bridge token on the first.
+ */
+const bridge = dexRun(`${J}-bridge`);
+const SECOND_CHAIN = 31337;
+const BRIDGE_TOKEN = '0x000000000000000000000000000000000000b41d';
+const BRIDGE_ABI = parseAbi([
+  'function burn(bytes32 intentId, uint256 destinationChainId, address recipient, uint256 amount)',
+  'function mint(bytes32 intentId, uint256 sourceChainId, address recipient, uint256 amount, bytes attestation)',
+  'function balanceOf(address) view returns (uint256)',
+  'event Burned(bytes32 indexed intentId, address indexed sender, uint256 destinationChainId, address recipient, uint256 amount)',
+]);
+/** The TEST route table and its TEST provider are served only with this switch; #5 reads the owner's blank table. */
+const bridgeSwitch = journeyState(`${J}-bridge-switch`);
+async function bridgeOn() {
+  if (bridgeSwitch.read().on) return;
+  bridgeSwitch.write({ on: true });
+  await restartService('protocol', { LOCAL_STACK_PROTOCOL_BRIDGE: 'on' });
 }
-
-/** Restarts trade with the user-venue door on (which starts the TEST venue) or off, and puts this process's env back. */
-function userVenue(on) {
-  const before = process.env.LOCAL_STACK_USER_VENUE;
-  if (on) process.env.LOCAL_STACK_USER_VENUE = 'on';
-  else delete process.env.LOCAL_STACK_USER_VENUE;
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
-    else process.env.LOCAL_STACK_USER_VENUE = before;
-  }
+async function bridgeOff() {
+  if (!bridgeSwitch.read().on) return;
+  await restartService('protocol', { LOCAL_STACK_PROTOCOL_BRIDGE: null });
+  bridgeSwitch.write({ on: false });
 }
+test.afterAll(bridgeOff);
 
-/** One call to the stack's TEST chain node. */
-async function chainRpc(method, params = []) {
-  const res = await fetch(testChain().gateUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+function bridgeClient(chainId) {
+  const status = testChain();
+  expect(status.chain, 'the stack runs its TEST chains').toBe('running');
+  const url = chainId === CHAIN_ID ? status.gateUrl : status.second.gateUrl;
+  return createPublicClient({
+    chain: defineChain({
+      id: chainId,
+      name: 'LOCAL TEST chain',
+      nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
+      rpcUrls: { default: { http: [url] } },
+    }),
+    transport: http(url),
   });
-  const body = await res.json();
-  if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
-  return body.result;
+}
+/** The wallet's TEST USDC of the bridge token on one TEST chain, read from that chain's node. */
+const bridgeBalance = (chainId, address) =>
+  bridgeClient(chainId).readContract({ address: BRIDGE_TOKEN, abi: BRIDGE_ABI, functionName: 'balanceOf', args: [address] });
+/** Every burn the wallet made on the first TEST chain, from the bridge token's own Burned events. */
+const bridgeBurns = (address) =>
+  bridgeClient(CHAIN_ID).getLogs({
+    address: BRIDGE_TOKEN,
+    event: BRIDGE_ABI.find((item) => item.type === 'event'),
+    args: { sender: address },
+    fromBlock: 0n,
+    toBlock: 'latest',
+  });
+
+/** Opens /protocol/rails with the bridge wallet connected to both TEST chains. */
+async function openBridge(page) {
+  const status = testChain();
+  expect(status.chain, 'the stack runs its TEST chains').toBe('running');
+  const wallet = await installTestWallet(page, {
+    chainId: CHAIN_ID,
+    privateKey: bridge.key(),
+    rpcUrl: status.gateUrl,
+    nodes: { [SECOND_CHAIN]: status.second.gateUrl },
+  });
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Disconnect', exact: true })).toBeVisible();
+  await page.goto('/protocol/rails');
+  await expect(rails(page)).toBeVisible();
+  return wallet;
+}
+
+// ── buy to wallet (#4) ───────────────────────────────────────────────────────────────────────────────────────────────
+
+let jobCtx;
+const stackCtx = () =>
+  (jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} })));
+const partnerPaid = partnerPayIn(stackCtx);
+
+/** The next authenticator code of the app #3 added, kept in the run so no code is used twice. */
+async function stepCode() {
+  const { totp } = await totpLib();
+  const now = account.run.read();
+  const next = await nextCode(totp, now.secret, now.step);
+  account.run.write({ step: next.step });
+  return next.code;
 }
 
 /**
- * Runs `fn` with the TEST chain's interval mining paused, so a block lands only when the step mines one, and puts the
- * interval back after, whatever happens. A transfer the wallet sends meanwhile stays pending until the step mines it.
+ * Signs in in the browser after #3 added the authenticator app: the password and the app's next code, as J-bank-02 does,
+ * since identity then asks every sign-in for the code (failure it prevents: run 43368584072, #4 stayed on /login).
  */
-async function withMiningPaused(fn) {
-  const interval = await chainRpc('anvil_getIntervalMining');
-  await chainRpc('evm_setIntervalMining', [0]);
-  try {
-    return await fn();
-  } finally {
-    await chainRpc('evm_setIntervalMining', [interval]);
-  }
+async function signInWithCode(page, who) {
+  const totpCode = account.run.read().secret ? await stepCode() : null;
+  await page.goto('/login');
+  if (totpCode) await page.fill('input[name=totp]', totpCode);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
 }
+
+/** One of the person's own add-money requests, as svc-bank answers it. */
+async function addMoneyRequest(signedIn, requestId) {
+  const input = encodeURIComponent(JSON.stringify({ requestId }));
+  const { status, body } = await (await signedIn()).get(`/api/bank/trpc/addMoney.request?input=${input}`);
+  if (status !== 200) throw new Error(`addMoney.request refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
+  return body.result.data;
+}
+
+/** The TEST pay-in partner's own address on the stack's TEST chain (tooling/scripts/local-test-chain.mjs PAYIN_PARTNER). */
+const PAYIN_PARTNER = '0x0000000000000000000000000000000000ba1d01';
+
+/** One delivery as the TEST chain itself records it: its receipt, its sender, and the ERC-20 transfer it made. */
+async function deliveryOnChain(hash) {
+  const gate = testChain().gateUrl;
+  const chain = defineChain({
+    id: CHAIN_ID,
+    name: 'LOCAL TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
+    rpcUrls: { default: { http: [gate] } },
+  });
+  const client = createPublicClient({ chain, transport: http(gate) });
+  const receipt = await client.waitForTransactionReceipt({ hash, timeout: 60_000 });
+  const tx = await client.getTransaction({ hash });
+  const call = decodeFunctionData({ abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']), data: tx.input });
+  expect(call.functionName).toBe('transfer');
+  return {
+    status: receipt.status,
+    from: tx.from.toLowerCase(),
+    token: tx.to?.toLowerCase(),
+    transfer: { to: call.args[0].toLowerCase(), amount: call.args[1] },
+  };
+}
+
+// ── the venue account room (#1 to #3) ────────────────────────────────────────────────────────────────────────────────
 
 /** The wallet's TEST USD on the TEST chain, in base units (6 decimals), read from the node itself. */
 async function chainUsd(address) {
@@ -181,16 +273,13 @@ async function openVenue(page, who, privateKey, { beforeVenue = null } = {}) {
   return wallet;
 }
 
-/** After a reload: the browser wallet may come back by itself (it is still authorised); otherwise it is connected again. */
+/** After a reload: the browser wallet back in the room, restored by itself or connected again. */
 async function walletBack(page) {
-  const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect(
-    page
-      .getByRole('heading', { name: 'Connected' })
-      .or(page.getByRole('heading', { name: 'Connection expired' }))
-      .or(again),
-  ).toBeVisible();
-  if (await again.isVisible()) await again.click();
+  const back = page
+    .getByRole('heading', { name: 'Connected' })
+    .or(page.getByRole('heading', { name: 'Connection expired' }))
+    .or(page.getByRole('button', { name: 'Connect to my account' }));
+  await connectWhenAsked(page, back);
 }
 
 /** The venue's free TEST USDC for this wallet, read through the door: a whole number of TEST USDC in this journey. */
@@ -237,16 +326,21 @@ const onItsWay = (page) => page.getByRole('region', { name: 'On its way' }).getB
 const rowOf = (page, hash) => onItsWay(page).locator(`tr[data-tx-hash="${hash.toLowerCase()}"]`);
 
 /**
- * The brand scan's forbidden names, read from its own list (tooling/ci/brand-scan.mjs FORBIDDEN), never spelled out here:
- * the scan refuses them anywhere under apps/. A list that reads short fails, so the check can't pass by reading nothing.
+ * The brand scan's verdict on the room's words: the scan itself (tooling/ci/brand-scan.mjs) runs over a scratch tree whose
+ * one file under apps/ holds them, so its own forbidden list judges them, never a copy spelled out here. Its report must
+ * say it read that one file, so the check can't pass by reading nothing.
  */
-function bannedNames() {
-  const src = fs.readFileSync(path.join(ROOT, 'tooling/ci/brand-scan.mjs'), 'utf8');
-  const start = src.indexOf('const FORBIDDEN = [');
-  const block = src.slice(start, src.indexOf('\n];', start));
-  const names = [...block.matchAll(/pattern: \/((?:\\.|[^/\\\n])+)\/([a-z]*),/g)].map(([, source, flags]) => new RegExp(source, flags));
-  expect(names.length, 'the brand scan lists its forbidden names').toBeGreaterThan(5);
-  return names;
+function expectBrandScanPasses(words) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dex05-brand-'));
+  try {
+    fs.mkdirSync(path.join(root, 'apps/customer'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'apps/customer/venue-room-words.md'), words);
+    const run = spawnSync(process.execPath, [path.join(ROOT, 'tooling/ci/brand-scan.mjs')], { cwd: root, encoding: 'utf8' });
+    expect(run.status, `the room names nothing the brand scan forbids:\n${run.stderr}`).toBe(0);
+    expect(run.stdout, "the brand scan read the room's words").toContain('brand-scan clean — 1 files');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 /** The TEST venue's explorer link for deposits: the TEST chain's explorer, or none (a network with no explorer). */
@@ -334,7 +428,7 @@ test(`${J} #1 opens the venue's deposit for a chain: minimums and arrival terms 
 
   // No banned partner wording anywhere in the room: none of the brand scan's forbidden names is on the page.
   const words = await page.locator('main').innerText();
-  for (const name of bannedNames()) expect(words, 'the room names nothing the brand scan forbids').not.toMatch(name);
+  expectBrandScanPasses(words);
 
   // Later (OWNER 226): on the exchange Deposit page, while crypto custody is absent, the address panel says so and shows
   // no address. Custody is made absent for this check and put back after.
@@ -520,17 +614,76 @@ test(`${J} #3 withdraws from the venue to the wallet: destination is the connect
   }
 });
 
-test(`${J} #4 opens Buy to wallet in the bank ramps: the purchase lands in the wallet address, not the exchange balance`, async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await person(page);
+test(`${J} #4 opens Buy to wallet in the ramps: the partner's purchase lands in the wallet address`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const { who } = venueState();
+  const signedIn = async () => api(who, account.run.read().secret ? { totpCode: await stepCode() } : {});
+  // TEST setup: the account holds USDC as a currency to buy, as the person adds one on the Bank Overview.
+  const added = await (await signedIn()).post('/api/bank/trpc/currencies.add', { assetId: 'USDC' });
+  expect(added.status, `currencies.add: ${JSON.stringify(added.body).slice(0, 300)}`).toBe(200);
+  const ledgerBefore = await (await signedIn()).balances();
+  await signInWithCode(page, who);
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const owner = wallet.address.toLowerCase();
+  const before = await chainUsd(wallet.address);
+
   await page.goto('/bank/ramps/new');
   const deliver = page.getByRole('radiogroup', { name: 'Deliver to' });
-  await deliver.getByRole('radio', { name: 'My wallet' }).check(UNBUILT);
-  await expect(page.getByTestId('ramp-destination')).toContainText(new RegExp(wallet.address, 'i'));
-  await expect(page.getByTestId('ramp-destination')).not.toContainText('Exchange balance');
+  await deliver.getByRole('radio', { name: 'My wallet' }).check();
+  const destination = page.getByTestId('ramp-destination');
+  await expect(destination).toContainText(new RegExp(wallet.address, 'i'));
+  await expect(destination).not.toContainText('Exchange balance');
+  await page.getByLabel('Add to').selectOption('USDC');
+  await page.getByLabel('Amount').fill('3');
+  await page.getByLabel('Country you pay from').fill('NL');
+  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  await page.getByTestId('method-pay_by_bank').getByRole('radio').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const { url } = await stackCtx();
+  const confirm = page.getByTestId('add-money-confirm');
+  await expect(confirm.getByTestId('add-money-sign-note')).toContainText('to prove it is yours');
+  await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
+  // The wallet proves it is the person's: the plain-words sheet shows the message, and the TEST wallet signs it.
+  const sheet = page.locator('[data-sheet="sign"]');
+  await expect(sheet).toContainText(`Wallet: ${owner}`);
+  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+  // The partner's page names the wallet the purchase goes to: the partner was told it.
+  await page.waitForURL((at) => at.href.startsWith(`${url('bank')}/test/payin-sim/pay/`));
+  await expect(page.getByTestId('payin-sim-label')).toContainText(/^TEST\b/);
+  await expect(page.getByTestId('payin-sim-deliver-to')).toHaveText(`Delivered to the wallet ${owner}`);
+  const requestId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop());
+  const asked = await addMoneyRequest(signedIn, requestId);
+  expect(asked).toMatchObject({ status: 'opened', assetId: 'USDC', amount: '3', walletAddress: owner, deliveryTx: null });
+  await page.getByRole('button', { name: 'Approve payment' }).click();
+  await page.waitForURL((at) => at.pathname === '/bank/ramps/new' && at.searchParams.get('request') === requestId);
+  const tracker = page.getByTestId('add-money-tracker');
+  await expect(page.getByTestId('tracker-delivery')).toContainText(owner);
+
+  // The stack's TEST partner delivers the purchase to that address on the TEST chain, then says it was paid with that
+  // transfer: the request reads delivered, naming it, and nothing was credited here.
+  await expect(tracker).toHaveAttribute('data-status', 'delivered', { timeout: 90_000 });
+  const paid = await addMoneyRequest(signedIn, requestId);
+  expect(paid).toMatchObject({ requestId, status: 'delivered', walletAddress: owner, creditedAmount: null });
+  const hash = paid.deliveryTx;
+  expect(hash).toMatch(/^0x[0-9a-f]{64}$/i);
+  // That transfer is on the TEST chain: mined, sent by the TEST partner (not this test, not the wallet), moving
+  // 3 TEST USD to the wallet address.
+  const sent = await deliveryOnChain(hash);
+  expect(sent.status).toBe('success');
+  expect(sent.from).toBe(PAYIN_PARTNER);
+  expect(sent.from).not.toBe(owner);
+  expect(sent.token).toBe(TEST_USD);
+  expect(sent.transfer).toEqual({ to: owner, amount: 3_000_000n });
+  await expect(tracker).toContainText('Delivered to your wallet');
+  await expect(page.getByTestId('tracker-delivery')).toHaveText(new RegExp(`Delivered to ${owner}`));
+  await expect(page.getByTestId('tracker-delivery-tx')).toHaveAttribute('href', `/chain/tx/${hash}`);
+  // It landed in the wallet address: the TEST chain itself says the wallet holds 3 TEST USD more.
+  expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
+  // Once: the partner saying paid again is the same delivery, and nothing more moves.
+  expect(await partnerPaid({ requestId, paidAmount: asked.onramp.payAmount, payCurrency: 'EUR', deliveryTx: hash })).toMatchObject(paid);
+  expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
+  // The ledger posts nothing for a purchase delivered to the wallet: INTAFACED holds none of it.
+  expect(await (await signedIn()).balances()).toEqual(ledgerBefore);
 });
 
 test(`${J} #5 opens the rails room with the route table blank: the full layout, the blocker for unset routes with its owner-decision label, no route offered`, async ({
@@ -548,39 +701,121 @@ test(`${J} #5 opens the rails room with the route table blank: the full layout, 
 test(`${J} #6 builds a burn on a TEST route and signs it: burn submitted, then mint ready when the attestation arrives, then minted after the mint is signed`, async ({
   page,
 }) => {
-  await openRails(page);
-  await page.getByRole('button', { name: 'Start a transfer' }).click(UNBUILT);
-  const form = page.getByRole('form', { name: 'Bridge transfer' });
-  await form.getByRole('combobox', { name: 'From' }).selectOption({ label: 'Base Sepolia' });
-  await form.getByRole('combobox', { name: 'To' }).selectOption({ label: 'TEST chain' });
-  await form.getByRole('combobox', { name: 'Token' }).selectOption({ label: 'USDC' });
+  test.setTimeout(300_000);
+  const { who } = venueState();
+  const signedIn = async () => api(who, account.run.read().secret ? { totpCode: await stepCode() } : {});
+  const ledgerBefore = await (await signedIn()).balances();
+  await bridgeOn();
+  const address = privateKeyToAccount(bridge.key()).address;
+  tool('local-test-chain.mjs', 'fund', address, 'bridge');
+  const sourceBefore = await bridgeBalance(CHAIN_ID, address);
+  const destinationBefore = await bridgeBalance(SECOND_CHAIN, address);
+
+  const wallet = await openBridge(page);
+  // The TEST route the TEST table publishes, with its TEST provider.
+  await expect(rails(page).getByRole('row').filter({ hasText: 'TEST chain B' })).toContainText('TEST provider');
+  await page.getByRole('button', { name: 'Start a transfer', exact: true }).click();
+  const form = page.getByRole('form', { name: 'Bridge transfer', exact: true });
+  await form.getByRole('combobox', { name: 'From', exact: true }).selectOption({ label: 'TEST chain' });
+  await form.getByRole('combobox', { name: 'To', exact: true }).selectOption({ label: 'TEST chain B' });
+  await form.getByRole('combobox', { name: 'Token', exact: true }).selectOption({ label: 'TUSDC' });
   await form.getByRole('textbox', { name: /^Amount/ }).fill('1');
-  await form.getByRole('button', { name: 'Review' }).click();
-  await page.getByRole('button', { name: 'Continue in wallet' }).click();
-  const row = transfers(page).getByRole('row').filter({ hasText: '1 USDC' });
+  await form.getByRole('button', { name: 'Review', exact: true }).click();
+  // The plain-words sheet before the wallet: the burn, on the first network, for this amount.
+  const sheet = page.locator('[data-sheet="sequence"]');
+  await expect(sheet).toContainText('Burn on the first network');
+  await expect(sheet).toContainText('1 TUSDC');
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
+  // The wallet signed and sent the burn itself, to the bridge token on the first network.
+  await expect.poll(() => wallet.sends.filter((s) => s.hash).length).toBe(1);
+  const burn = wallet.sends.find((s) => s.hash);
+  expect(burn.params[0].to.toLowerCase()).toBe(BRIDGE_TOKEN);
+  expect(decodeFunctionData({ abi: BRIDGE_ABI, data: burn.params[0].data }).functionName).toBe('burn');
+
+  const row = transfers(page).getByRole('row').filter({ hasText: '1 TUSDC' });
+  await expect(row).toHaveCount(1);
   await expect(row).toContainText('Burn submitted');
   // Kept as soon as the burn is in, so #7 finds the transfer even if this step stops before the mint.
-  dex.run.write({ bridged: true });
+  bridge.run.write({ bridged: true, burnTx: burn.hash });
   await expect(row).toContainText('Mint ready', { timeout: 120_000 });
-  await row.getByRole('button', { name: 'Sign the mint' }).click();
-  await page.getByRole('button', { name: 'Continue in wallet' }).click();
+  await row.getByRole('button', { name: 'Sign the mint', exact: true }).click();
+  await expect(sheet).toContainText('Mint on the second network');
+  await expect(sheet).toContainText(String(SECOND_CHAIN));
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
   await expect(row).toContainText('Minted', { timeout: 60_000 });
+  bridge.run.write({ minted: true });
+
+  // On the chains themselves: 1 TEST USDC left the wallet on the first network and reached it on the second.
+  expect(await bridgeBalance(CHAIN_ID, address)).toBe(sourceBefore - 1_000_000n);
+  expect(await bridgeBalance(SECOND_CHAIN, address)).toBe(destinationBefore + 1_000_000n);
+  // The bridge is non-custodial: the ledger posts nothing for it.
+  expect(await (await signedIn()).balances()).toEqual(ledgerBefore);
 });
 
 test(`${J} #7 closes the browser after the burn and returns: the same row, still tracked; a stored intent resumes, never a second burn`, async ({
   browser,
+  stepPicture,
 }) => {
+  test.setTimeout(240_000);
   const context = await browser.newContext();
   try {
+    await bridgeOn();
+    const before = bridge.run.read();
+    expect(before.bridged, 'the burn step ran').toBe(true);
+    const address = privateKeyToAccount(bridge.key()).address;
+
+    // The crash: a second transfer's intent is stored, the wallet sends its burn, and the service stops before it hears the
+    // hash. Its process is restarted (svc-protocol, the one that stored the intent), as a crash and restart would.
+    const { who } = venueState();
+    const signedIn = async () => api(who, account.run.read().secret ? { totpCode: await stepCode() } : {});
+    const nonce = await bridgeClient(CHAIN_ID).getTransactionCount({ address, blockTag: 'pending' });
+    const started = await (
+      await signedIn()
+    ).post('/api/protocol/trpc/bridge.transfers.start', {
+      wallet: address,
+      fromChainId: CHAIN_ID,
+      toChainId: SECOND_CHAIN,
+      asset: 'TUSDC',
+      amount: '2',
+      clientKey: `bridge-${CHAIN_ID}-${SECOND_CHAIN}-TUSDC-2-n${nonce}`,
+    });
+    expect(started.status, `bridge.transfers.start: ${JSON.stringify(started.body).slice(0, 300)}`).toBe(200);
+    const intent = started.body.result.data;
+    expect(intent.state).toBe('awaiting_burn');
+    const sender = createWalletClient({
+      account: privateKeyToAccount(bridge.key()),
+      chain: bridgeClient(CHAIN_ID).chain,
+      transport: http(testChain().gateUrl),
+    });
+    const crashedBurn = await sender.sendTransaction({ to: intent.burnCall.to, data: intent.burnCall.data });
+    await bridgeClient(CHAIN_ID).waitForTransactionReceipt({ hash: crashedBurn, timeout: 60_000 });
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_BRIDGE: 'on' });
+
+    // The person returns in a new browser.
     const page = await context.newPage();
-    await openRails(page);
-    expect(dex.run.read().bridged, 'the burn step ran').toBe(true);
-    // One row for the one burn, in whichever tracked state it reached; never a second burn row.
-    const row = transfers(page).getByRole('row').filter({ hasText: '1 USDC' });
-    await expect(row).toHaveCount(1);
-    await expect(row).toContainText(/Burn submitted|Mint ready|Minted/);
+    const wallet = await openBridge(page);
+    // #6's transfer: the same one row, in the state #6 left it.
+    const first = transfers(page).getByRole('row').filter({ hasText: '1 TUSDC' });
+    await expect(first).toHaveCount(1);
+    await expect(first).toContainText(before.burnTx);
+    await expect(first).toContainText(before.minted ? 'Minted' : 'Burn submitted');
+    // The stored intent resumed from its burn on chain: burn submitted with that burn, and no burn offered again.
+    const resumed = transfers(page).getByRole('row').filter({ hasText: '2 TUSDC' });
+    await expect(resumed).toHaveCount(1);
+    await expect(resumed).toContainText('Burn submitted', { timeout: 30_000 });
+    await expect(resumed).toContainText(crashedBurn);
+    await expect(resumed.getByRole('button', { name: 'Sign the burn', exact: true })).toHaveCount(0);
+    await stepPicture();
+    // On chain: one burn per intent, two in all; the returning page sent nothing.
+    const burns = await bridgeBurns(address);
+    expect(burns).toHaveLength(2);
+    expect(new Set(burns.map((b) => b.args.intentId)).size).toBe(2);
+    expect(burns.filter((b) => b.args.intentId === intent.intentId).map((b) => b.transactionHash)).toEqual([crashedBurn]);
+    expect(burns.map((b) => b.transactionHash)).toContain(before.burnTx);
+    expect(wallet.sends).toHaveLength(0);
   } finally {
     await context.close();
+    await bridgeOff();
   }
 });
 

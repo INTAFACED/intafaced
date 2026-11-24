@@ -11,9 +11,6 @@
  * 5. Paths: okx-spot.ts snapshotBook
  * 6. RED: unset snapshot succeeds or source git-defaults 100
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { OkxSpotMarketData } from './okx-spot.js';
 import { AsyncFrameQueue, type HttpPort, type HttpResponse, type StreamHandle, type StreamPort } from '../transport.js';
@@ -72,14 +69,6 @@ const depth = {
 };
 
 describe('OkxSpotMarketData.snapshotBook limit unpublished', () => {
-  it('okx-spot.ts does not git-default 100', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'okx-spot.ts'), 'utf8');
-    expect(src).toMatch(/venue\.snapshot_book\.limit_unset/);
-    expect(src).not.toMatch(/limit\s*=\s*DEFAULT_DEPTH_LIMIT/);
-    expect(src).not.toMatch(/const DEFAULT_DEPTH_LIMIT/);
-    expect(src).toMatch(/Never invent 100/);
-  });
-
   it('omitted / null / undefined limit refuses (does not invent 100)', async () => {
     const http = new FakeHttp().queue(depth);
     const adapter = md(http);

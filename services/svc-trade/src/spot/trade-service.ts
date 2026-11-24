@@ -25,6 +25,7 @@
  * `amend_released`. Remainder owed back is derived from fills plus that column.
  */
 
+import type { Queryable } from '@intafaced/db';
 import { NO_PAUSES, botOrdersHalted, type PauseSnapshot } from '../copy/platform-pauses.js';
 import type { Sql } from 'postgres';
 import { TradingControlError, type TradingAdmissionPort, type TradingOperationKind } from '../controls/trading-controls.js';
@@ -430,6 +431,12 @@ export interface PlaceOrderInput {
    * platform token, on a person's own spot order, when the owner's schedule publishes its terms (fee-ifc.ts).
    */
   feeCurrency?: string;
+  /**
+   * Internal: set only by the spot position close (`close-position.ts`), never accepted from REST. A close is a CLOSE,
+   * which limit-only keeps, so its market order is not refused there; it still goes to the engine as a reduce-only
+   * IOC limit at its protection price, funded before it is sent (#4591).
+   */
+  positionClose?: boolean;
   /** Internal binding for the cancel/replace saga; never accepted from REST. */
   replacementOf?: string;
   replacementRequestHash?: string;
@@ -640,7 +647,6 @@ export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] 
   finalizeIfComplete: TradeService['finalizeIfComplete'];
   publishXp: TradeService['publishXp'];
   publishOrderUpdated: TradeService['publishOrderUpdated'];
-  refuseCancelAheadOfFill: TradeService['refuseCancelAheadOfFill'];
   replayStoredAlgo: TradeService['replayStoredAlgo'];
   installAlgoPlaceGrant: TradeService['installAlgoPlaceGrant'];
   requireMarket: TradeService['requireMarket'];
@@ -1498,15 +1504,25 @@ export class TradeService {
     return holds.fillEvidence(this.internal, orderId);
   }
 
-  private async remainingHold(sql: Sql, order: OrderRecord): Promise<Amount> {
+  private async remainingHold(sql: Queryable, order: OrderRecord): Promise<Amount> {
     return holds.remainingHold(this.internal, sql, order);
   }
 
+  private async finalize(orderId: string, status: Extract<OrderStatus, 'filled' | 'rejected'>, reason?: string | null): Promise<void>;
+  private async finalize(
+    orderId: string,
+    status: Extract<OrderStatus, 'cancelled' | 'expired'>,
+    reason: string | null | undefined,
+    evidence: holds.CancelEvidence,
+  ): Promise<void>;
   private async finalize(
     orderId: string,
     status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
     reason?: string | null,
+    evidence?: holds.CancelEvidence,
   ): Promise<void> {
+    if (status === 'cancelled' || status === 'expired')
+      return holds.finalize(this.internal, orderId, status, reason, evidence as holds.CancelEvidence);
     return holds.finalize(this.internal, orderId, status, reason);
   }
 
@@ -1638,10 +1654,6 @@ export class TradeService {
     return events.releaseOnCancelEvent(this.internal, orderId, remainingQty, reason);
   }
 
-  private async refuseCancelAheadOfFill(orderId: string, remainingQty: Amount): Promise<void> {
-    return events.refuseCancelAheadOfFill(this.internal, orderId, remainingQty);
-  }
-
   // ── Reads ─────────────────────────────────────────────────────────────────
 
   async getOrder(principal: Principal, orderId: string): Promise<OrderRecord> {
@@ -1743,6 +1755,11 @@ export class TradeService {
   /** Every fill of one owned order (the grid bot's fee and pair sums). */
   async everyFillOfOrder(principal: Principal, orderId: string): Promise<FillRecord[]> {
     return reads.everyFillOfOrder(this.internal, principal, orderId);
+  }
+
+  /** Every fill of several owned orders in one read, keyed by order id (the order reads' cost: #4677). */
+  async everyFillOfOrders(principal: Principal, orderIds: readonly string[]): Promise<Map<string, FillRecord[]>> {
+    return reads.everyFillOfOrders(this.internal, principal, orderIds);
   }
 
   async findOrder(orderId: string): Promise<OrderRecord | null> {

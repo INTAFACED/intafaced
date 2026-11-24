@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import {
   GOVERNANCE_ROLES,
   ROLE_USER,

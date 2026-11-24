@@ -7,7 +7,6 @@ import {
   ChangeText,
   EmptyState,
   Money,
-  Pct,
   Price,
   StateBlock,
   StatusChip,
@@ -40,8 +39,8 @@ function RatioCell({ position, t }: { position: Position; t: T }) {
   const width = barWidth(health);
   if (health.marginRatioPct === null)
     return (
-      <span title={health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : undefined} className="text-fg-2">
-        —<span className="sr-only">{health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : ''}</span>
+      <span title={health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : undefined} className="lt-muted">
+        —<span className="lt-sr">{health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : ''}</span>
       </span>
     );
   return (
@@ -150,7 +149,7 @@ export function PositionsTable({
       numeric: true,
       cell: (p) =>
         p.markPrice === null ? (
-          <span title={t('Positions mark unavailable')} className="text-fg-2">
+          <span title={t('Positions mark unavailable')} className="lt-muted">
             —
           </span>
         ) : (
@@ -165,7 +164,7 @@ export function PositionsTable({
       cell: (p) => {
         const value = signedAmount(p.unrealizedPnl, 4);
         return value === null ? (
-          <span title={t('Positions mark unavailable')} className="text-fg-2">
+          <span title={t('Positions mark unavailable')} className="lt-muted">
             —
           </span>
         ) : (
@@ -248,7 +247,7 @@ export function PositionsTable({
     );
 
   return (
-    <section aria-label={t('Positions table label')} className="flex flex-col gap-2">
+    <section aria-label={t('Positions table label')} className="lt-stack">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <StatusChip
           kind={positions.status === 'refused' ? 'refused' : undefined}
@@ -264,7 +263,7 @@ export function PositionsTable({
             refused: t('Positions chip refused'),
           }}
         />
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="lt-toolbar">
           {closeAllOff ? <span className="text-2xs text-fg-2">{t('Close all off', { reason: closeAllOff })}</span> : null}
           <Button variant="secondary" size={28} onClick={refreshNow}>
             {t('Positions refresh')}

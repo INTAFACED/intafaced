@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { P2pService } from './p2p-service.js';
@@ -79,7 +79,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -214,12 +214,13 @@ describe('p2p erase/take race', () => {
   }
 
   async function waitUntilBlocked(atLeast: number, timeoutMs = 5_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      if ((await blockedBackends()) >= atLeast) return;
-      if (Date.now() > deadline) throw new Error(`no backend parked on a lock within ${timeoutMs}ms`);
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    await vi.waitFor(
+      async () => expect(await blockedBackends(), `no backend parked on a lock within ${timeoutMs}ms`).toBeGreaterThanOrEqual(atLeast),
+      {
+        timeout: timeoutMs,
+        interval: 25,
+      },
+    );
   }
 
   /** Resolve to the value, or to `{ error }` — so both racers can be awaited without one masking the other. */
@@ -229,16 +230,24 @@ describe('p2p erase/take race', () => {
       (error: Error & { code?: string }) => ({ ok: false as const, error }),
     );
 
-  /** Has this promise settled yet? Never throws, never consumes the rejection. */
-  function settled<T>(p: Promise<T>): Promise<boolean> {
-    const flag = Symbol('pending');
-    return Promise.race([
-      p.then(
-        () => true,
-        () => true,
-      ),
-      new Promise((r) => setTimeout(() => r(flag), 400)),
-    ]).then((v) => v !== flag);
+  /**
+   * Waits until this promise has settled or `atLeast` backends are parked on a lock, then says whether it settled.
+   * Never throws, never consumes the rejection.
+   */
+  async function settledOrParked<T>(p: Promise<T>, atLeast: number): Promise<boolean> {
+    let done = false;
+    void p.then(
+      () => (done = true),
+      () => (done = true),
+    );
+    await vi.waitFor(
+      async () => {
+        if (done) return;
+        expect(await blockedBackends(), `neither settled nor parked on a lock`).toBeGreaterThanOrEqual(atLeast);
+      },
+      { timeout: 5_000, interval: 25 },
+    );
+    return done;
   }
 
   /** Any payment destination of this person that is still readable, anywhere. */
@@ -278,15 +287,19 @@ describe('p2p erase/take race', () => {
       const held = new Promise<void>((r) => {
         release = r;
       });
+      let taken!: () => void;
+      const lockTaken = new Promise<void>((r) => {
+        taken = r;
+      });
       const gate = sql.begin(async (tx) => {
         await tx`SELECT pg_advisory_xact_lock(${INSTRUMENT_OWNER_LOCK_CLASS}, hashtext(${MAKER}))`;
+        taken();
         await held;
       });
-      await waitUntilBlocked(0); // the lock is taken the moment the statement returns
-      await new Promise((r) => setTimeout(r, 100));
+      await lockTaken;
 
       const erase = outcome(erasure.eraseFor(MAKER));
-      expect(await settled(erase)).toBe(false);
+      expect(await settledOrParked(erase, 1)).toBe(false);
 
       release();
       await gate;
@@ -304,16 +317,21 @@ describe('p2p erase/take race', () => {
       // The TAKER's key, not the seller's — a take copies one of the two
       // people's details depending on the offer's side, so it must hold both or
       // the erase it races is only half-excluded.
+      let taken!: () => void;
+      const lockTaken = new Promise<void>((r) => {
+        taken = r;
+      });
       const gate = sql.begin(async (tx) => {
         await tx`SELECT pg_advisory_xact_lock(${INSTRUMENT_OWNER_LOCK_CLASS}, hashtext(${TAKER}))`;
+        taken();
         await held;
       });
-      await new Promise((r) => setTimeout(r, 100));
+      await lockTaken;
 
       const take = outcome(
         p2p.takeOffer({ offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId: crypto.randomUUID() }),
       );
-      expect(await settled(take)).toBe(false);
+      expect(await settledOrParked(take, 1)).toBe(false);
 
       release();
       await gate;
@@ -346,12 +364,17 @@ describe('p2p erase/take race', () => {
       const held = new Promise<void>((r) => {
         release = r;
       });
+      let taken!: () => void;
+      const lockTaken = new Promise<void>((r) => {
+        taken = r;
+      });
       const gate = sql.begin(async (tx) => {
         const locked = await tx`SELECT trade_id FROM p2p.trade_payment_instruments WHERE owner_id = ${MAKER} FOR UPDATE`;
+        taken();
         expect(locked).toHaveLength(1); // the fixture must actually give erase something to block on
         await held;
       });
-      await new Promise((r) => setTimeout(r, 100));
+      await lockTaken;
 
       const erase = outcome(erasure.eraseFor(MAKER));
       await waitUntilBlocked(1);
@@ -361,7 +384,7 @@ describe('p2p erase/take race', () => {
       );
       // Give the take its chance at the window. Before the lock it sailed
       // straight through it; with the lock it parks here.
-      await settled(take);
+      await settledOrParked(take, 2);
 
       release();
       await gate;
@@ -399,18 +422,23 @@ describe('p2p erase/take race', () => {
       const held = new Promise<void>((r) => {
         release = r;
       });
+      let taken!: () => void;
+      const lockTaken = new Promise<void>((r) => {
+        taken = r;
+      });
       const gate = sql.begin(async (tx) => {
         await tx`SELECT trade_id FROM p2p.trade_payment_instruments WHERE owner_id = ${MAKER} FOR UPDATE`;
+        taken();
         await held;
       });
-      await new Promise((r) => setTimeout(r, 100));
+      await lockTaken;
 
       const erase = outcome(erasure.eraseFor(MAKER));
       await waitUntilBlocked(1);
       const take = outcome(
         p2p.takeOffer({ offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId: crypto.randomUUID() }),
       );
-      await settled(take);
+      await settledOrParked(take, 2);
       release();
       await gate;
 

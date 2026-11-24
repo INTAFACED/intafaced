@@ -19,22 +19,45 @@ function sources(dir: string): string[] {
   });
 }
 
+/**
+ * The calls a file makes by record: each `@intafaced/contracts/<file>` record it imports, read from the record itself as
+ * `{ module, path }`, so a call that moved from its name to its record is checked as it was by name.
+ */
+async function recordCalls(text: string): Promise<{ module: string; path: string }[]> {
+  const out: { module: string; path: string }[] = [];
+  for (const m of text.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*'@intafaced\/contracts\/([\w-]+)'/g)) {
+    const names = m[1]!
+      .split(',')
+      .map((x) => x.trim().replace(/^type\s+/, ''))
+      .filter((x) => /^[A-Z][A-Z0-9_]+$/.test(x));
+    if (!names.length) continue;
+    const mod = (await import(`@intafaced/contracts/${m[2]}`)) as Record<string, unknown>;
+    for (const name of names) {
+      const r = mod[name] as { module?: unknown; path?: unknown } | undefined;
+      if (typeof r?.module === 'string' && typeof r.path === 'string') out.push({ module: r.module, path: r.path });
+    }
+  }
+  return out;
+}
+
 describe('no founder or operator door in the merchant portal (G9)', () => {
   it('names no founder-only procedure anywhere in the pay feature', () => {
     const offenders = sources(join(root, 'features', 'pay')).filter((file) => banned.test(readFileSync(file, 'utf8')));
     expect(offenders).toEqual([]);
   });
-  it('calls only merchant-scoped namespaces from the portal', () => {
+  it('calls only merchant-scoped namespaces from the portal', async () => {
     // The client is the core plus one file per package (api.ts, api-core.ts, money/api.ts, payments/api.ts, settings/api.ts,
     // catalog/api.ts).
     const portal = sources(join(root, 'features', 'pay', 'portal')).filter((file) => /[\\/](api|api-core)\.ts$/.test(file));
     expect(portal.length).toBe(6);
     const text = portal.map((file) => readFileSync(file, 'utf8')).join('\n');
+    const namespaces =
+      '((?:(?:merchant|merchantOps|merchantCatalog|merchantStores|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion)\\.[A-Za-z.]+|railHealth))';
     const procedures = [
-      ...text.matchAll(
-        /'((?:(?:merchant|merchantOps|merchantCatalog|merchantStores|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion)\.[A-Za-z.]+|railHealth))'/g,
-      ),
-    ].map((m) => m[1]!);
+      ...[...text.matchAll(new RegExp(`'${namespaces}'`, 'g'))].map((m) => m[1]!),
+      // A call made by its record is read from the record: svc-pay's, under the same namespaces.
+      ...(await recordCalls(text)).filter((r) => r.module === 'pay' && new RegExp(`^${namespaces}$`).test(r.path)).map((r) => r.path),
+    ];
     expect(procedures.length).toBeGreaterThan(20);
     for (const name of procedures)
       expect(name, name).toMatch(
@@ -55,7 +78,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       );
     expect(text).not.toMatch(/admin:|operator|killswitch/i);
   });
-  it('reaches only allowlisted procedures from every api and client file under the portal', () => {
+  it('reaches only allowlisted procedures from every api and client file under the portal', async () => {
     // Every file that talks to the service: *api*.ts and client.ts, wherever they sit under portal/. Named files below
     // must be among them, so the scan cannot quietly shrink to fewer files.
     const portalRoot = join(root, 'features', 'pay', 'portal');
@@ -88,6 +111,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       'merchantCheckout',
       // The payment methods of the business's own hosted checkout (svc-pay checkout-methods/router.ts): resolves the caller's business.
       'merchantCheckoutMethods',
+      // The business's own receiving wallet and its money outside our book (svc-pay receiving-wallet/router.ts): resolves the caller's business.
+      'merchantReceivingWallet',
       'merchantMetrics',
       'merchantAnalytics',
       'submerchant',
@@ -196,8 +221,9 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       const named = new Set<string>();
       // Every 'x.y' string, and the first argument of every call that sends a procedure (not `api.query('pay', …)`, whose first argument is the service).
       for (const m of text.matchAll(/['"`]([A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+)['"`]/g)) named.add(m[1]!);
-      for (const m of text.matchAll(/(?<![.\w])(?:query|mutate|identityQuery|identityMutate)\(\s*['"`]([A-Za-z][A-Za-z0-9.]*)['"`]/g))
-        named.add(m[1]!);
+      for (const m of text.matchAll(/(?<![.\w])(?:query|mutate|identityMutate)\(\s*['"`]([A-Za-z][A-Za-z0-9.]*)['"`]/g)) named.add(m[1]!);
+      // Every call made by its record, read from the record.
+      for (const r of await recordCalls(text)) named.add(r.path);
       for (const name of named) {
         if (notProcedures.has(name)) continue;
         seen += 1;

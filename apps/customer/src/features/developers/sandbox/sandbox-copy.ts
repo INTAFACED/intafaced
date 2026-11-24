@@ -52,11 +52,15 @@ const en = {
   'identity.key_name_invalid': 'Use a key name of 1 to 64 characters.',
   'identity.key_name_taken': 'You already have a key with this name.',
   'identity.key_cap_unset': 'The owner has not set how many keys an account may hold, so no key was made.',
+  'identity.rate_limits_unset': 'No rate budget is set for sandbox keys yet, so a key could make no call. No key was made.',
   'identity.key_cap_reached': 'Your account holds as many keys as it may, so no key was made.',
   'identity.key_request_conflict': 'This request was already used for another key. Read the page again and retry.',
   'identity.delegated_refused': 'Sign in with your own account to do this.',
 
   back: 'All sandboxes',
+  sectionsLabel: 'Sandbox sections',
+  explain:
+    'A sandbox key works only at the sandbox address. Fund adds the owner’s TEST amount and Reset puts every balance back to zero, as often as the owner’s daily limit allows; no figure here is real money.',
   keysHeading: 'Keys for this sandbox',
   colKey: 'Key',
   colPrefix: 'Starts with',

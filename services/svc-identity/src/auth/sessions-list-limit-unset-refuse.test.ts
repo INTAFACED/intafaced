@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IDENTITY_LIST_SESSIONS } from '@intafaced/contracts/identity-list-sessions-procedures';
 import {
   IDENTITY_SESSIONS_LIST_LIMIT_UNSET,
   SESSIONS_LIST_LIMIT_MAX,
@@ -38,9 +39,12 @@ describe('listSessions limit unset refuse (no invented page)', () => {
     const src = readFileSync(join(HERE, '../list-sessions-router.ts'), 'utf8');
     expect(src).not.toMatch(/listSessions\(sql, input\.userId\)\s*;/);
     expect(src).toMatch(/listSessions\(sql, input\.userId, input\.limit,/);
-    expect(src).not.toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.optional\(\)/);
-    expect(src).not.toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.default\(/);
-    expect(src).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
+    expect(src).toMatch(/listSessions: mountRecord\(\s*IDENTITY_LIST_SESSIONS,/);
+    // The record is the input schema: the limit is required, an integer in 1..200, with no default.
+    for (const limit of [1, 200])
+      expect(IDENTITY_LIST_SESSIONS.input.safeParse({ userId: '11111111-1111-4111-8111-111111111111', limit }).success).toBe(true);
+    for (const limit of [undefined, null, 0, 201, 1.5])
+      expect(IDENTITY_LIST_SESSIONS.input.safeParse({ userId: '11111111-1111-4111-8111-111111111111', limit }).success).toBe(false);
     expect(src).not.toMatch(/\?\? 50|\?\? 100|limit = 50|limit = 100/);
   });
 

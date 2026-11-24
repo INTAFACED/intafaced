@@ -1,13 +1,21 @@
-// World: book
+// World: book, restart
 import { createHash } from 'node:crypto';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { ORIGIN, api, bestPrices, fund, toUnits } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, ORIGIN, restartService, restartWithSetting, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { CHAIN_ID } from './dex.mjs';
+import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { connectAndSign, connections } from './venue-room.mjs';
+import { sameDecimal, testDeposit, venueBalance, venueRecord } from './venue.mjs';
 
 // J-home-ia-01, in the running app (docs/roadmap/journeys.json): I open the app and see where I stand. Tests titled
-// "J-home-ia-01 #<n>" prove a whole step. One TEST person walks the steps in order: TEST USDT and BTC through the real
-// ledger, plus a fiat code no market prices, so the total has something it must name and leave out.
+// "J-home-ia-01 #<n>" prove a whole step: #4, #5, #6, #8 and #9 here; #1, #2 and #3, the total on the launch model
+// (OWNER 226: the wallet, the venue account and the partner account, each read from its own source), are in
+// J-home-ia-01-venue.pw.mjs. #7 is later (custody). One TEST person walks the steps in order: TEST USDT and BTC through
+// the real ledger, plus a fiat code no market prices. The three tests titled "with the user-venue door off" read Home's
+// total where the door is off, the bank's own valuation; they prove no step.
 const J = 'J-home-ia-01';
 
 test.describe.configure({ mode: 'serial' });
@@ -100,7 +108,7 @@ test.beforeAll(async ({ browser }) => {
   await page.close();
 });
 
-test(`${J} #1 Home shows the bank's total to the cent, names what it leaves out, and follows the unit chosen (BTC, or dollars with a note)`, async ({
+test(`${J}, with the user-venue door off: Home shows the bank's total to the cent, names what it leaves out, and follows the unit chosen (BTC, or dollars with a note)`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -134,7 +142,10 @@ test(`${J} #1 Home shows the bank's total to the cent, names what it leaves out,
   }
 });
 
-test(`${J} #2 the eye hides amounts and keeps prices, and the choice follows the person to another device`, async ({ page, browser }) => {
+test(`${J}, with the user-venue door off: the eye hides amounts and keeps prices, and the choice follows the person to another device`, async ({
+  page,
+  browser,
+}) => {
   test.setTimeout(120_000);
   await signIn(page, who);
   await page.goto('/');
@@ -147,7 +158,7 @@ test(`${J} #2 the eye hides amounts and keeps prices, and the choice follows the
   await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
 
   // A second device: a fresh browser with nothing stored, signed in as the same person.
-  const other = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
+  const other = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const second = await other.newPage();
   await signIn(second, who);
   await second.goto('/');
@@ -158,7 +169,9 @@ test(`${J} #2 the eye hides amounts and keeps prices, and the choice follows the
   await other.close();
 });
 
-test(`${J} #3 the total's Assets link opens the Assets room with the same total and the same holdings`, async ({ page }) => {
+test(`${J}, with the user-venue door off: the total's Assets link opens the Assets room with the same total and the same holdings`, async ({
+  page,
+}) => {
   test.setTimeout(120_000);
   await signIn(page, who);
   await showsBankTotal(page, '/', HOME_TOTAL, usd);
@@ -195,17 +208,27 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   for (let i = 0; i < 3; i++) await expect(rows.nth(i).getByTestId('home-activity__kind')).toHaveText(/^(Deposit|Welcome funds)$/);
   await expect(list.getByRole('link', { name: 'See all' })).toHaveAttribute('href', '/money/activity');
 
-  // A row opens that movement's own record.
-  const href = await rows.nth(0).getAttribute('href');
-  expect(href).toMatch(/^\/money\/activity\/.+/);
-  await rows.nth(0).click();
-  await expect(page).toHaveURL(href);
-  // The record it opens is that movement's own (its record number is the row's id).
-  await expect(page.locator('main')).toContainText(decodeURIComponent(href.slice('/money/activity/'.length)));
-  await expect(page.locator('main')).toContainText('USDT');
+  // Each row opens that movement's own record: three different links, each landing on the record its id names.
+  const assets = ['USDT', 'EUR', 'BTC'];
+  const hrefs = [];
+  for (let i = 0; i < 3; i++) hrefs.push(await rows.nth(i).getAttribute('href'));
+  for (const href of hrefs) expect(href).toMatch(/^\/money\/activity\/.+/);
+  expect(new Set(hrefs).size).toBe(3);
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) {
+      await page.goto('/');
+      await expect(rows).toHaveCount(3);
+    }
+    await expect(rows.nth(i)).toHaveAttribute('href', hrefs[i]);
+    await rows.nth(i).click();
+    await expect(page).toHaveURL(hrefs[i]);
+    // The record it opens is that movement's own (its record number is the row's id), in the row's asset.
+    await expect(page.locator('main')).toContainText(decodeURIComponent(hrefs[i].slice('/money/activity/'.length)));
+    await expect(page.locator('main')).toContainText(assets[i]);
+  }
 
   // A new, verified account with nothing in it has nothing to list, and says so instead of showing sample rows.
-  const fresh = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
+  const fresh = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const empty = await fresh.newPage();
   const nobody = await signUp(empty, 'hme');
   // Before verification the bank refuses the read: Home says what the card will hold once verified, not a bare
@@ -226,35 +249,81 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   await fresh.close();
 });
 
-test(`${J}, part of #5: a failed activity read says so with Try again, and the rest of Home is unaffected`, async ({ page }) => {
-  test.setTimeout(120_000);
-  await signIn(page, who);
-  // The one outside thing in this run: the browser cannot reach the activity read (the service itself is untouched).
-  let fail = true;
-  await page.route('**/activity.list**', (route) => (fail ? route.abort('connectionrefused') : route.continue()));
-  await page.goto('/');
-  const list = page.locator('section[aria-labelledby="home-activity-title"]');
-  await expect(list).toContainText('Couldn’t load your activity.');
-  await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toMatch(/^\$[\d,]+\.\d{2}$/);
-  fail = false;
-  await list.getByRole('button', { name: 'Try again' }).click();
-  await expect(list.getByTestId('home-activity__row')).toHaveCount(3);
+test(`${J} #5 with the owner's number of movements blank, Recent activity says it is not set and lists none`, async ({ page }) => {
+  test.setTimeout(300_000);
+  // How many movements Home lists is an owner value (svc-ops home.config, OPS_HOME_RECENT_ACTIVITY_LIMIT). The stack sets
+  // a TEST number for the other steps; here svc-ops restarts with it blank, and is put back after.
+  restartWithSetting('ops', 'LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT', 'off');
+  try {
+    await signIn(page, who);
+    await page.goto('/');
+    const list = page.locator('section[aria-labelledby="home-activity-title"]');
+    const unset = list.locator('[data-slot="state-block"]');
+    await expect(unset).toContainText('Number of movements not set', { timeout: 30_000 });
+    // The typed refusal's code, as the shared state block prints it.
+    await expect(unset).toContainText('home.recent_activity_limit_unset');
+    await expect(list.getByTestId('home-activity__row')).toHaveCount(0);
+    // The rest of Home is unaffected.
+    await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toMatch(/^\$[\d,]+\.\d{2}$/);
+  } finally {
+    restartWithSetting('ops', 'LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT', null);
+  }
 });
 
-test(`${J} #4 Needs you: an unverified person gets one item to Verification that is gone after approval; with the margin warning level blank an open loan adds no item; with nothing to do it says nothing needs you`, async ({
+test(`${J} #5 a failed activity read says so with Try again, and the rest of Home is unaffected`, async ({ page }) => {
+  test.setTimeout(300_000);
+  // The bank restarts with its TEST fault on (BANK_ACTIVITY_TEST_FAULT): every read of the ledger's history fails inside
+  // the running bank, while its balances still answer. Put back after.
+  restartWithSetting('bank', 'LOCAL_STACK_BANK_ACTIVITY_FAULT', 'on');
+  try {
+    await signIn(page, who);
+    await page.goto('/');
+    const list = page.locator('section[aria-labelledby="home-activity-title"]');
+    const failed = list.locator('[data-slot="state-block"]');
+    await expect(failed).toContainText('Couldn’t load your activity.', { timeout: 30_000 });
+    await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(list.getByTestId('home-activity__row')).toHaveCount(0);
+    // The rest of Home is unaffected: the total is the bank's own figure to the cent, and Needs you still answers.
+    await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toBe(usd(await bankSummary()));
+    await needsYou(page).settled();
+  } finally {
+    restartWithSetting('bank', 'LOCAL_STACK_BANK_ACTIVITY_FAULT', null);
+  }
+  // With the bank reading again, Try again lists the movements.
+  const list = page.locator('section[aria-labelledby="home-activity-title"]');
+  await list.getByRole('button', { name: 'Try again' }).click();
+  await expect(list.getByTestId('home-activity__row')).toHaveCount(3, { timeout: 30_000 });
+});
+
+/** Home's Needs you list, and a check that every owner answered, so the list is the whole answer. */
+function needsYou(page) {
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  const rows = work.getByTestId('home-work__row');
+  const settled = async () => {
+    await expect(work.locator('[data-slot="state-block"]')).toHaveCount(0);
+    await expect(work.locator('[data-missing]')).toHaveCount(0);
+  };
+  return { work, rows, settled };
+}
+
+/** A new person, verified by the stack's TEST operators and signed in again, on a page of their own. */
+async function approvedPerson(browser, prefix) {
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const who = await signUp(page, prefix);
+  await verify(page, who);
+  await signIn(page, who);
+  return { who, page, context };
+}
+
+test(`${J} #4 Needs you: an unverified person gets one item linking to Verification, and it is gone after approval`, async ({
   browser,
 }) => {
   test.setTimeout(300_000);
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   const fresh = await signUp(page, 'hmw');
-  const work = page.locator('section[aria-labelledby="home-work-title"]');
-  const rows = work.getByTestId('home-work__row');
-  // Every owner answered, so the list is the whole answer (not "nothing so far from the services that answered").
-  const settled = async () => {
-    await expect(work.locator('[data-slot="state-block"]')).toHaveCount(0);
-    await expect(work.locator('[data-missing]')).toHaveCount(0);
-  };
+  const { work, rows, settled } = needsYou(page);
 
   // Unverified: identity's one item, linking to Verification, and nothing else.
   await page.goto('/');
@@ -272,31 +341,77 @@ test(`${J} #4 Needs you: an unverified person gets one item to Verification that
   await verify(page, fresh);
   await signIn(page, fresh);
   await page.goto('/');
-  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
-  await expect(rows).toHaveCount(0);
   await settled();
+  await expect(rows).toHaveCount(0);
+  await expect(work.locator('[data-kind="verification"]')).toHaveCount(0);
+  await context.close();
+});
 
-  // An open loan while the owner's margin warning level is blank: no margin item and no error, only loans in a call would
-  // be listed (none is). The loan is the bank's TEST product from the stack's content seed.
-  expect(fund(fresh.email, 'BTC', '0.01').tx).toBeTruthy();
+test(`${J} #9 with nothing to do, the list says nothing needs you`, async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { page, context } = await approvedPerson(browser, 'hmn');
+  const { work, rows, settled } = needsYou(page);
+  await page.goto('/');
+  await settled();
+  await expect(rows).toHaveCount(0);
+  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
+  await context.close();
+});
+
+test(`${J} #8 with the margin warning level blank, a loan as close to its margin call as a new loan may go adds no margin item to the list`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const { who: fresh, page, context } = await approvedPerson(browser, 'hmm');
+  const { work, settled } = needsYou(page);
   const client = await api(fresh);
+  // The bank's TEST loan product from the stack's content seed, with the bands it publishes to borrowers.
   const products = await client.get(`/api/bank/trpc/loans.products?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
   expect(products.status, JSON.stringify(products.body).slice(0, 300)).toBe(200);
   const product = products.body.result.data.find((row) => row.collateralAssetId === 'BTC' && row.debtAssetId === 'USDT');
   expect(product, 'the TEST content seed publishes a BTC-backed USDT loan product').toBeTruthy();
+  // The level blank, read from the bank's own record: svc-bank publishes the owner's margin warning level
+  // (BANK_MARGIN_WARNING_LTV_BPS) on each loan product, and this stack sets none, so the bank says it is blank (null),
+  // not a number and not a missing field.
+  expect(product).toHaveProperty('marginWarningLtvBps', null);
+  expect(product.maxLtvBps).toBeLessThan(product.marginCallLtvBps);
+
+  // A loan opened near the product's maximum loan-to-value: the bank's own quote for 100 USDT names the smallest pledge
+  // it accepts, so the loan starts about as close to its margin call band as a new loan may. Any warning level below the
+  // call band would list it; with the level blank, only a loan already in a call is listed, and this one is not.
+  const quoted = await client.get(
+    `/api/bank/trpc/loans.quote?input=${encodeURIComponent(JSON.stringify({ productId: product.id, principal: '100' }))}`,
+  );
+  expect(quoted.status, JSON.stringify(quoted.body).slice(0, 300)).toBe(200);
+  const quote = quoted.body.result.data;
+  expect(quote.maxLtvBps).toBe(product.maxLtvBps);
+  // Two percent over the smallest pledge, so a tick of the TEST maker's BTC price between the quote and the open does not
+  // refuse the loan; it still starts within a few points of the maximum. Rounded up to a whole satoshi.
+  const sat = 10n ** 10n;
+  const pledge = fromUnits((((toUnits(quote.requiredCollateral) * 102n) / 100n + sat - 1n) / sat) * sat);
+  expect(fund(fresh.email, 'BTC', pledge).tx).toBeTruthy();
   const opened = await client.post('/api/bank/trpc/loans.open', {
     // The loan's id is its business key, named by this step and person, so a retried step meets the same loan.
-    loanId: businessUuid(`${J}-4-loan:${fresh.handle}`),
+    loanId: businessUuid(`${J}-8-loan:${fresh.handle}`),
     productId: product.id,
-    collateralAmount: '0.01',
+    collateralAmount: pledge,
     principal: '100',
   });
   expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
-  expect(opened.body.result.data.status).toBe('active');
+  const loan = opened.body.result.data;
+  expect(loan.status).toBe('active');
+  // The server's loan-to-value: past the healthy start of the band, short of the call.
+  expect(loan.ltvBps).toBeGreaterThan(product.maxLtvBps - 500);
+  expect(loan.ltvBps).toBeLessThan(product.marginCallLtvBps);
+
+  // The bank's own answer for this person holds no margin item and no refusal, and Home's list shows none and no error.
+  const bankItems = await client.get('/api/bank/trpc/workItems.list');
+  expect(bankItems.status, JSON.stringify(bankItems.body).slice(0, 300)).toBe(200);
+  expect(bankItems.body.result.data.items.filter((item) => item.kind === 'margin_health')).toEqual([]);
   await page.goto('/');
-  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
-  await expect(work.locator('[data-kind="margin_health"]')).toHaveCount(0);
   await settled();
+  await expect(work.locator('[data-kind="margin_health"]')).toHaveCount(0);
+  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
   await context.close();
 });
 
@@ -313,7 +428,7 @@ test(`${J}, part of #4: while Home's owner values cannot be read, Needs you says
   await expect(work).not.toContainText('Nothing needs you');
   fail = false;
   await work.getByRole('button', { name: 'Try again' }).click();
-  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
+  await expect(work.getByText('Nothing needs you right now.', { exact: true })).toBeVisible();
 });
 
 /** Each Get started step as the tile shows it: { step: status }, plus where each open step leads. */
@@ -330,73 +445,156 @@ async function startedSteps(page) {
 }
 const statuses = (steps) => Object.fromEntries(Object.entries(steps).map(([id, step]) => [id, step.status]));
 
-test(`${J} #6 Get started reads each step from the account's records, survives a cleared browser, and leaves when all six are done`, async ({
+/** The TEST USDT #6 puts into INTAFACED's own ledger, and the TEST USDC the TEST venue then credits to the trading account. */
+const LEDGER_USDT = '100';
+const VENUE_USDC = '25';
+
+/**
+ * The person connects a TEST wallet to their account from a second device: the Venue account room's own Connect and the
+ * wallet's signature, which svc-protocol records as theirs. The venue account that wallet owns is their trading account
+ * at the venue. Returns the wallet's address, lowercase, as the venue names the account's owner.
+ */
+async function connectsWallet(browser, who, walletKey) {
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  try {
+    const page = await context.newPage();
+    await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey });
+    await signIn(page, who);
+    await page.goto('/wallet');
+    await page.getByRole('button', { name: 'Venue account', exact: true }).click();
+    await expect(page).toHaveURL(/\/wallet\/venue$/);
+    await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
+    await connectAndSign(page);
+  } finally {
+    await context.close();
+  }
+  const address = privateKeyToAccount(walletKey).address;
+  expect((await connections(who)).map((c) => [c.address, c.status])).toEqual([[address, 'live']]);
+  return address.toLowerCase();
+}
+
+/** Home is drawn: its Recent activity section is on the page, so a missing tile is not a page still loading. */
+async function homeDrawn(page) {
+  await expect(
+    page.locator('section[aria-labelledby="home-activity-title"]').getByRole('heading', { name: 'Recent activity', exact: true }),
+  ).toBeVisible();
+}
+
+test(`${J} #6 a brand-new account's Get started list has register done and the rest open with links; a deposit the venue reports in the trading account turns Add money done on the next load and a deposit into our own ledger does not; the tile goes when all six are done; a cleared browser changes nothing`, async ({
   browser,
+  stepPicture,
 }) => {
-  test.setTimeout(300_000);
+  // Two restarts of svc-trade around the step: the user-venue door on, then off again.
+  test.setTimeout(600_000);
   // Passkeys belong to the stack's relying party, localhost, so this person uses the app there.
   const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN, viewport: { width: 1440, height: 900 } });
-  const page = await context.newPage();
-  const fresh = await signUp(page, 'hmg');
-  await page.goto('/');
-  const open = await startedSteps(page);
-  expect(statuses(open)).toEqual({ register: 'done', verify: 'todo', secure: 'todo', deposit: 'todo', trade: 'todo', alert: 'todo' });
-  expect(open.verify.href).toBe('/verification');
-  expect(open.secure.href).toBe('/uc/safe');
-  expect(open.deposit.href).toBe('/uc/recharge');
-  expect(open.trade.href).toBe('/trade/buy');
-  expect(open.alert.href).toBe('/notifications?view=alerts');
-  await expect(page.getByTestId('home-started__count')).toHaveText('1 of 6 done');
+  const cleared = async (page) => {
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.reload();
+  };
+  try {
+    // The launch model for this step: svc-trade's user-venue door on, which starts the stack's TEST venue. It is put back
+    // off after the step, so every other step of this file runs with the door off as before.
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
+    const page = await context.newPage();
+    const fresh = await signUp(page, 'hmg');
+    await page.goto('/');
+    const open = await startedSteps(page);
+    expect(statuses(open)).toEqual({ register: 'done', verify: 'todo', secure: 'todo', deposit: 'todo', trade: 'todo', alert: 'todo' });
+    expect(open.verify.href).toBe('/verification');
+    expect(open.secure.href).toBe('/uc/safe');
+    expect(open.deposit.href).toBe('/uc/recharge');
+    expect(open.trade.href).toBe('/trade/buy');
+    expect(open.alert.href).toBe('/notifications?view=alerts');
+    await expect(page.getByTestId('home-started__count')).toHaveText('1 of 6 done');
 
-  // Nothing is kept in the browser: with its storage cleared, the same steps come back from the account.
-  await page.evaluate(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-  });
-  await page.reload();
-  expect(statuses(await startedSteps(page))).toEqual(statuses(open));
+    // Nothing is kept in the browser: with its storage cleared, the same steps come back from the account.
+    await cleared(page);
+    expect(statuses(await startedSteps(page))).toEqual(statuses(open));
 
-  // Verified, then money in through the real ledger: both steps are done on the next load.
-  await verify(page, fresh);
-  await signIn(page, fresh);
-  expect(fund(fresh.email, 'USDT', '100').tx).toBeTruthy();
-  await page.goto('/');
-  expect(statuses(await startedSteps(page))).toEqual({
-    register: 'done',
-    verify: 'done',
-    secure: 'todo',
-    deposit: 'done',
-    trade: 'todo',
-    alert: 'todo',
-  });
+    // Verified, then TEST money into INTAFACED's own ledger. The ledger holds it, and Add money stays open: only
+    // verification is done on the next load.
+    await verify(page, fresh);
+    await signIn(page, fresh);
+    expect(fund(fresh.email, 'USDT', LEDGER_USDT).tx).toBeTruthy();
+    const client = await api(fresh);
+    const ledgerUsdt = async () => toUnits((await client.balances()).USDT?.total ?? '0');
+    await expect.poll(async () => (await ledgerUsdt()) === toUnits(LEDGER_USDT), { timeout: 20_000 }).toBe(true);
+    const verified = { register: 'done', verify: 'done', secure: 'todo', deposit: 'todo', trade: 'todo', alert: 'todo' };
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(verified);
 
-  // A passkey from Security, a price alert, and a first trade on the real book.
-  await virtualAuthenticator(page);
-  await addPasskey(page);
-  const client = await api(fresh);
-  const alert = await client.post('/api/notify/trpc/notify.createAlert', {
-    marketId: 'BTC-USDT',
-    direction: 'above',
-    targetPrice: '10000000',
-  });
-  expect(alert.status, JSON.stringify(alert.body).slice(0, 300)).toBe(200);
-  const { ask } = await bestPrices();
-  const buy = await client.post('/api/v1/orders', {
-    symbol: 'BTC/USDT',
-    type: 'limit',
-    side: 'buy',
-    amount: '0.0001',
-    price: ask,
-    timeInForce: 'IOC',
-    clientOrderId: `${J}-6-${fresh.handle}`,
-  });
-  expect(buy.status, JSON.stringify(buy.body).slice(0, 300)).toBeLessThan(300);
-  await expect.poll(async () => (await openOrders(fresh)).length, { timeout: 20_000 }).toBe(0);
-  await expect.poll(async () => toUnits((await client.balances()).BTC?.total ?? '0') > 0n, { timeout: 20_000 }).toBe(true);
+    // The person connects a wallet: its venue account is their trading account. The venue's own record holds nothing in
+    // it yet, so Add money is still open.
+    const owner = await connectsWallet(browser, fresh, testWalletKey());
+    expect((await venueRecord(owner, '/balances')).value.filter((balance) => !sameDecimal(balance.total, '0'))).toEqual([]);
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(verified);
 
-  // Every step done: the tile has nothing left to say and is gone; the rest of Home is unchanged.
-  await page.goto('/');
-  await expect(totalOn(page, HOME_TOTAL).locator('[role=img]')).toBeVisible();
-  await expect(page.locator('section[aria-labelledby="home-started-title"]')).toHaveCount(0);
-  await context.close();
+    // TEST money into the trading account at the venue (the TEST venue's deposit control, keyed by this person's own
+    // chain-transfer-shaped reference). The venue's own record reports it, and on the next load Add money is done.
+    const depositRef = `${CHAIN_ID}:0x${createHash('sha256').update(`${J}-6-venue-deposit:${fresh.handle}`).digest('hex')}:0`;
+    expect(await testDeposit(owner, 'USDC', VENUE_USDC, depositRef)).toBe(true);
+    expect(sameDecimal((await venueBalance(owner, 'USDC')).total, VENUE_USDC)).toBe(true);
+    const funded = { ...verified, deposit: 'done' };
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(funded);
+    await expect(page.getByTestId('home-started__count')).toHaveText('3 of 6 done');
+    await stepPicture(page);
+    // The venue's deposit posted nothing to our ledger, which still holds what was put there and no more.
+    expect(await ledgerUsdt()).toBe(toUnits(LEDGER_USDT));
+    expect((await client.balances()).USDC?.total ?? '0').toMatch(/^0(\.0+)?$/);
+
+    // A passkey from Security and a price alert: five done, the first trade still open.
+    await virtualAuthenticator(page);
+    await addPasskey(page);
+    // A sign-in of its own for the calls that follow: the one above may have run out by now.
+    const trader = await api(fresh);
+    const alert = await trader.post('/api/notify/trpc/notify.createAlert', {
+      marketId: 'BTC-USDT',
+      direction: 'above',
+      targetPrice: '10000000',
+    });
+    expect(alert.status, JSON.stringify(alert.body).slice(0, 300)).toBe(200);
+    const allButTrade = { ...funded, secure: 'done', alert: 'done' };
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(allButTrade);
+    await expect(page.getByTestId('home-started__count')).toHaveText('5 of 6 done');
+
+    // Still nothing kept in the browser: cleared again, the same five are done, Add money from the venue's record.
+    await cleared(page);
+    expect(statuses(await startedSteps(page))).toEqual(allButTrade);
+
+    // A first trade on the real book.
+    const { ask } = await bestPrices();
+    const buy = await trader.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      amount: '0.0001',
+      price: ask,
+      timeInForce: 'IOC',
+      clientOrderId: `${J}-6-${fresh.handle}`,
+    });
+    expect(buy.status, JSON.stringify(buy.body).slice(0, 300)).toBeLessThan(300);
+    await expect.poll(async () => (await openOrders(fresh)).length, { timeout: 20_000 }).toBe(0);
+    await expect.poll(async () => toUnits((await trader.balances()).BTC?.total ?? '0') > 0n, { timeout: 20_000 }).toBe(true);
+
+    // Every step done: the tile has nothing left to say and is gone, on a Home that is drawn. A visit draws the tile
+    // while its steps are read (none before this one found it complete), so it leaves only once all six are done.
+    const tile = page.locator('section[aria-labelledby="home-started-title"]');
+    await page.goto('/');
+    await homeDrawn(page);
+    await expect(tile).toHaveCount(0, { timeout: 20_000 });
+    // And it stays gone with the browser cleared: a new visit draws it while it reads, then every step answers done.
+    await cleared(page);
+    await homeDrawn(page);
+    await expect(tile).toHaveCount(0, { timeout: 20_000 });
+  } finally {
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'off' });
+    await context.close();
+  }
 });

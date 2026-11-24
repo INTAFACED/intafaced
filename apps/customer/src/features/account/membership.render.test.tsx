@@ -15,6 +15,16 @@ const api = {
       return { ok: false, reason: 'error', code: 'contract_mismatch', message: 'bad' };
     return answer;
   },
+  call(
+    this: { query: (...args: never[]) => unknown },
+    record: { kind: string; module: string; path: string; output: unknown },
+    input?: unknown,
+    opts?: unknown,
+  ) {
+    // tooling/codemod/call-records: a call by its record reaches this double's own query, as the client sends it; it has no other.
+    if (record.kind !== 'query') throw new TypeError('this API double has no mutate');
+    return Reflect.apply(this.query, this, [record.module, record.path, input, record.output, opts]);
+  },
 };
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));
 
@@ -82,7 +92,7 @@ describe('Membership on Account (W-balances-04)', () => {
   it('identity unreachable: a refusal with retry, never a tier', async () => {
     await show({ ok: false, reason: 'error', code: 'identity.unavailable', message: 'down' });
     expect(host.querySelector('[data-testid="membership"]')).toBeNull();
-    expect(host.querySelector('.failure')).not.toBeNull();
+    expect(host.querySelector('[data-testid="failure"]')).not.toBeNull();
   });
 
   it('an answer that breaks the schema is a refusal, never a tier', async () => {
@@ -95,7 +105,7 @@ describe('Membership on Account (W-balances-04)', () => {
       },
     });
     expect(host.querySelector('[data-tier]')).toBeNull();
-    expect(host.querySelector('.failure')).not.toBeNull();
+    expect(host.querySelector('[data-testid="failure"]')).not.toBeNull();
   });
 
   it('the schema refuses an answer that invents a current tier or drops the code', () => {

@@ -1,0 +1,94 @@
+# The Customer app's rendered output, compared part by part with what main recorded (apps/customer/src/app/render-record).
+# On main it leaves the result on the commit as the `render compare` status, "<n> differences in <m> parts", where code
+# can read it. A pull request already runs the same comparison in CI's tests (the Customer app's `test` script), so a
+# change to what people see carries its re-recorded files; this run puts main's result where code reads it, and a
+# dispatch on a branch shows the comparison on its own.
+#
+# Only the report job holds `statuses: write`. It runs on main only, checks out no code, and reads the compare job's
+# result file. A newer push cancels an older run: only the newest main's result is read.
+name: Render compare
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-compare-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  compare:
+    name: Render compare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build what the Customer app imports
+        run: pnpm turbo run build --filter='@intafaced/customer^...'
+
+      - name: Compare
+        env:
+          RENDER_RESULT: ${{ runner.temp }}/render-compare/result.json
+        run: |
+          mkdir -p "$(dirname "$RENDER_RESULT")"
+          pnpm --filter @intafaced/customer render:compare
+
+      # Kept when parts differ too: the report reads it.
+      - name: Keep the result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: render-compare
+          path: ${{ runner.temp }}/render-compare
+          retention-days: 7
+          if-no-files-found: ignore
+
+  report:
+    name: Render compare status
+    needs: [compare]
+    if: always() && github.ref == 'refs/heads/main' && needs.compare.result != 'cancelled' && needs.compare.result != 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      statuses: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: render-compare
+          path: render-compare
+
+      # A run that left no result (it broke before comparing) says "error".
+      - name: Leave the result on the commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -s render-compare/result.json ]; then
+            read -r differences parts < <(node -e 'const r = require(process.argv[1]); console.log(r.differences, r.parts)' "$PWD/render-compare/result.json")
+            state=$([ "$differences" = 0 ] && echo success || echo failure)
+            description="$differences differences in $parts parts"
+          else
+            state=error
+            description="no result: the comparison did not finish"
+          fi
+          echo "$state: $description"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="render compare" \
+            -f description="$description" -f target_url="$RUN" > /dev/null

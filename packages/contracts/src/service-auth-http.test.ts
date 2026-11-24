@@ -19,7 +19,7 @@ const keys = new Map(['svc-agents', 'svc-trade'].map((svc) => [svc, pair()]));
 const keyring = parseKeyring(JSON.stringify({ keys: [...keys].map(([svc, k]) => ({ kid: `${svc}.a`, svc, use: 's2s', x: k.x })) }));
 const signer = (svc: ServiceName) => createServiceSigner({ service: svc, kid: `${svc}.a`, privateKey: keys.get(svc)!.privateKey, keyring });
 // Boot second 0: most tests sign a call before they make its verifier, and a verifier refuses calls signed before the
-// second it was made, so a call signed at x.999 s failed as `stale` once the clock ticked (#6085). That refusal has its
+// second it was made, so a call signed at x.999 s failed as `stale` once the clock ticked. That refusal has its
 // own test in service-keys.test.ts.
 const newVerifier = () => createServiceVerifier({ self: 'svc-academy', keyring, bootSecond: 0 });
 
@@ -159,6 +159,30 @@ describe('serviceProcedureFor', () => {
   it('treats a claimed (shared-secret) name as a caller only while it is on the list', async () => {
     expect(await router.createCaller(ctx('svc-agents', 'shared')).ping()).toBe('ok');
     await expect(router.createCaller(ctx('svc-trade', 'shared')).ping()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it("keeps a door's own words for an unlisted caller when it names them, with no code; the list and the 401 are unchanged", async () => {
+    const own = t.router({
+      job: serviceProcedureFor(['svc-token'], { forbidden: 'token job is callable only as svc-token' }).query(() => 'ok'),
+    });
+    expect(await own.createCaller(ctx('svc-token', 'keypair')).job()).toBe('ok');
+    const refused = await own
+      .createCaller(ctx('svc-trade', 'keypair'))
+      .job()
+      .catch((err: unknown) => err);
+    expect(refused).toMatchObject({ code: 'FORBIDDEN', message: 'token job is callable only as svc-token' });
+    expect((refused as { cause?: unknown }).cause).toBeUndefined();
+    await expect(own.createCaller(ctx(null)).job()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    // Without it, the list's own refusal and code.
+    const plain = await router
+      .createCaller(ctx('svc-trade', 'keypair'))
+      .ping()
+      .catch((err: unknown) => err);
+    expect(plain).toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'This service is not allowed to call this procedure',
+      cause: { code: 's2s.caller_forbidden' },
+    });
   });
 });
 

@@ -6,14 +6,15 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   lead: 'How many calls an API key may make, what each call costs, what a refused call tells you, and how to ask for more.',
   modelTitle: 'How the limit works',
   modelBucket:
-    'Each key has a bucket of tokens. The burst is the most the bucket holds, so it is how many calls of cost 1 the key can make at once. The bucket refills at a steady rate, the refill, up to the burst again.',
+    'Each key has a bucket of tokens. The burst is the most the bucket holds, so it is how many calls of cost 1 the key can make at once. The bucket refills at a steady rate, the refill, up to the burst again. All of one account’s keys in one environment also share one per-user budget, a bucket of its own: a call passes only when both hold its cost.',
   modelCost:
     'Each call spends its route’s cost from the bucket. When the bucket holds less than the call’s cost, the call is refused with 429 and nothing is done.',
   modelReplica: 'Each server counts on its own, and a restart fills every bucket again.',
   liveNumbers:
     'The tiers and the cost per route are set by the owner and read live, never written into these pages: the tiers from /api/identity/trpc/apiRateTiers and the costs from /api/edge/rate-limits/costs. The page /developers/rate-limits shows both.',
   tiersTitle: 'Rate-limit tiers',
-  tiersUnset: 'No rate-limit tiers are set yet. Until they are, every call made with an API key is refused with edge.limits_unset.',
+  tiersUnset:
+    'No rate-limit tiers are set yet. Until they are, every call made with an API key is refused with edge.limits_unset, and no key is issued.',
   tiersFailed: 'The tiers could not be read.',
   colTier: 'Tier',
   colBurst: 'Burst (tokens)',
@@ -21,6 +22,7 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   colRefillSecond: 'Refill per second',
   tier_base: 'Base: every live key',
   tier_sandbox: 'Sandbox: every sandbox key',
+  tier_user: 'Per user: all of one account’s keys together',
   ceiling: 'The most one key may be granted: {count} calls a minute.',
   ceilingUnset: 'The most one key may be granted is not set, so no higher limit can be granted.',
   costsTitle: 'Cost per route',
@@ -32,7 +34,7 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   colCost: 'Cost (tokens)',
   refusalTitle: 'A refused call',
   refusalBody:
-    'A call over the limit is answered 429 with code edge.rate_limited. The body names the reason (global: the key’s bucket is spent; endpoint: the route costs more than the whole burst; concurrency: too many calls at once), retryAfterSeconds and the requestId to quote to support.',
+    'A call over the limit is answered 429 with code edge.rate_limited. The body names the reason (global: the key’s bucket is spent; user: the per-user budget all of the account’s keys share is spent; endpoint: the route costs more than the whole burst; concurrency: too many calls at once), retryAfterSeconds and the requestId to quote to support.',
   refusalHeaders:
     'The headers say the same: retry-after, x-ratelimit-reason, x-ratelimit-remaining (0), x-ratelimit-cost, x-ratelimit-limit and x-request-id. Every allowed call carries x-ratelimit-remaining and x-ratelimit-limit, so a program can slow down before it is refused.',
   backoffTitle: 'Backing off after a 429',

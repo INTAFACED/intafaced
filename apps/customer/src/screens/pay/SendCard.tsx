@@ -1,19 +1,15 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Check, ClipboardPaste } from 'lucide-react';
+import { useMemo, useReducer, useRef, useState } from 'react';
+import { useEventListener, useMounted } from '../../shared/outside';
+import { useResource, type Resource } from '../../shared/resource';
+import { ClipboardPaste } from 'lucide-react';
+import { AmountField, AssetIcon, Button, EmptyState, Field, HIDDEN_MASK, StatusNote, useToast } from '@intafaced/ui/lit';
+import { Payee as PayeeCard } from '@intafaced/ui/lit';
+import { Dialog, KeyValue, SelectField, Skeleton, TextField, type KeyValueRow } from '@intafaced/ui/lit/templates';
+import { usePreferences } from '../../shared/preferences';
 import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
   applyPrefill,
   bankPendingKey,
-  Button,
   cleanNote,
-  CoinIcon,
   contactLabel,
   contactsFrom,
   createPersonalPayApi,
@@ -37,19 +33,9 @@ import {
   cleanHandle,
   confirmWithStepUp,
   personSendStepUp,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   sendInput,
-  Skeleton,
-  StateBlock,
   str,
-  useHideBalances,
-  HIDDEN_MASK,
   useSession,
-  useToast,
   type ApiClient,
   type ApiResult,
   type Contact,
@@ -150,17 +136,20 @@ export function SendCard({
     owner: null,
     state: 'loading',
   });
-  useEffect(() => {
-    const controller = new AbortController();
-    void pay.spaces(controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      setSources((previous) => {
-        if (result.ok) return { owner: userId, state: { list: sourcesFrom(result.data, Date.now()) } };
-        return previous.owner === userId && typeof previous.state === 'object' ? previous : { owner: userId, state: 'error' };
-      });
+  const spacesRead = useResource<Source[] | null>(
+    (signal) => pay.spaces(signal).then((result) => ({ ok: true as const, data: result.ok ? sourcesFrom(result.data, Date.now()) : null })),
+    `pay:send:spaces:${userId}:${revision}`,
+  );
+  // A list that has just arrived is taken once; a failed read keeps the list already on screen for this account.
+  const [spacesSeen, setSpacesSeen] = useState<Resource<Source[] | null> | null>(null);
+  if (spacesRead.resource.status === 'ready' && spacesRead.resource !== spacesSeen) {
+    setSpacesSeen(spacesRead.resource);
+    const list = spacesRead.resource.data;
+    setSources((previous) => {
+      if (list) return { owner: userId, state: { list } };
+      return previous.owner === userId && typeof previous.state === 'object' ? previous : { owner: userId, state: 'error' };
     });
-    return () => controller.abort();
-  }, [pay, userId, revision]);
+  }
   const loaded = sources.owner === userId ? sources.state : 'loading';
   const retrySources = () => {
     setSources({ owner: null, state: 'loading' });
@@ -169,19 +158,25 @@ export function SendCard({
 
   if (identity.status === 'loading' || loaded === 'loading')
     return (
-      <div className="pay-body pay-body--skeleton" aria-busy="true" data-testid="send-loading">
-        <Skeleton height={104} />
-        <Skeleton height={132} />
-        <Skeleton height={56} circle />
+      <div aria-busy="true" data-testid="send-loading">
+        <Skeleton shape="form" count={3} />
       </div>
     );
   if (identity.status === 'error')
     return (
-      <StateBlock kind="error" title={payCopy.t('Couldn’t load your details')} onRetry={identity.retry} retryLabel={payCopy.t('Retry')} />
+      <StatusNote
+        tone="error"
+        title={payCopy.t('Couldn’t load your details')}
+        actions={<Button onClick={() => identity.retry()}>{payCopy.t('Retry')}</Button>}
+      />
     );
   if (loaded === 'error')
     return (
-      <StateBlock kind="error" title={payCopy.t('Couldn’t load your balances')} onRetry={retrySources} retryLabel={payCopy.t('Retry')} />
+      <StatusNote
+        tone="error"
+        title={payCopy.t('Couldn’t load your balances')}
+        actions={<Button onClick={() => retrySources()}>{payCopy.t('Retry')}</Button>}
+      />
     );
   return (
     <SendForm
@@ -235,16 +230,12 @@ function SendForm({
   const toast = useToast();
   // The people this customer saved to pay again: a looked-up handle is checked against them (J-pay-01 #2).
   // Kept with the account it was read for, so another account's list is never used after a switch.
-  const [savedRead, setSaved] = useState<{ owner: string; outcome: SavedRecipientsOutcome } | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    setSaved(null);
-    void fetchSavedRecipients(api, controller.signal).then((outcome) => {
-      if (!controller.signal.aborted) setSaved({ owner: userId, outcome });
-    });
-    return () => controller.abort();
-  }, [api, userId]);
-  const saved: SavedRecipientsOutcome | { kind: 'loading' } = savedRead?.owner === userId ? savedRead.outcome : { kind: 'loading' };
+  const savedRead = useResource<SavedRecipientsOutcome>(
+    (signal) => fetchSavedRecipients(api, signal).then((outcome) => ({ ok: true as const, data: outcome })),
+    `pay:send:saved:${userId}`,
+  );
+  const saved: SavedRecipientsOutcome | { kind: 'loading' } =
+    savedRead.resource.status === 'ready' ? savedRead.resource.data : { kind: 'loading' };
 
   function editTo(value: string) {
     // A new keystroke retires the answer for the old one, and any lookup still on its way.
@@ -383,30 +374,35 @@ function SendForm({
   const source = sourceId === '' ? (sources[0] ?? null) : (sources.find((row) => row.id === sourceId) ?? null);
   const [amount, setAmount] = useState('');
   const sourceGone = sourceId !== '' && source === null;
-  useEffect(() => {
+  const [sourceGoneSeen, setSourceGoneSeen] = useState(sourceGone);
+  if (sourceGoneSeen !== sourceGone) {
+    setSourceGoneSeen(sourceGone);
     if (sourceGone) setAmount('');
-  }, [sourceGone]);
+  }
   // Pin the default choice, so that if it drops out later it is "gone", not quietly replaced by the next asset.
   const firstId = sources[0]?.id ?? '';
-  useEffect(() => {
-    if (sourceId === '' && firstId !== '') setSourceId(firstId);
-  }, [sourceId, firstId]);
-  // A payment link fills the form once per link. Everything it sets can be changed, and nothing is sent without Review.
-  const appliedLink = useRef('');
-  useEffect(() => {
-    if (!prefill || prefillKey === '' || appliedLink.current === prefillKey) return;
-    appliedLink.current = prefillKey;
+  if (sourceId === '' && firstId !== '') setSourceId(firstId);
+  // A payment link fills the form once per link, as the form is drawn. Everything it sets can be changed, and nothing is
+  // sent without Review. The link is kept with the lookup it asks for (a pay code to read, or a handle to find), which
+  // starts once the filled form is on screen, below.
+  const [appliedLink, setAppliedLink] = useState<{ key: string; lookup: { kind: 'scan' | 'check'; value: string } | null }>({
+    key: '',
+    lookup: null,
+  });
+  if (prefill && prefillKey !== '' && appliedLink.key !== prefillKey) {
     // The warning is always shown first. The link's own words are quoted after it and never replace it.
     const notices: string[] = [personal.t('requestBannerPlain')];
     if (prefill.note) notices.push(personal.t('requestBanner', { note: prefill.note }));
+    // An answer still on its way for what was typed before is retired, so it cannot overwrite what the link names.
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
+    let linkLookup: { kind: 'scan' | 'check'; value: string } | null = null;
     if (prefill.qr) {
-      void scan(prefill.qr);
+      linkLookup = { kind: 'scan', value: prefill.qr };
     } else if (prefill.kind === 'handle' && byHandle) {
       setTo(prefill.to);
-      void check(prefill.to);
+      linkLookup = { kind: 'check', value: prefill.to };
     } else if (prefill.kind === 'accountId') {
       if (prefill.to === userId.toLowerCase()) {
         setTo('');
@@ -420,6 +416,7 @@ function SendForm({
       setRecipient({ kind: 'idle' });
       setNote(payCopy.t('Handles not on'));
     }
+    setAppliedLink({ key: prefillKey, lookup: linkLookup });
     const applied = applyPrefill(prefill, sources);
     if (applied.sourceId) setSourceId(applied.sourceId);
     setAmount(applied.amount);
@@ -427,14 +424,21 @@ function SendForm({
     if (applied.problem === 'assetNotHeld') notices.push(personal.t('requestAssetMissing', { asset: prefill.asset ?? '' }));
     if (applied.problem === 'amountTooLarge') notices.push(personal.t('requestAmountTooLarge'));
     setLinkNotice(notices.join(' '));
-  }, [prefill, prefillKey]);
+  }
+  // The recipient lookup a link asks for is read once per applied link. It keeps its own order and abort with every
+  // other lookup (scan and check), so a keystroke or a contact picked meanwhile still wins.
+  useResource(() => {
+    const ask = appliedLink.lookup;
+    const read = ask === null ? Promise.resolve() : ask.kind === 'scan' ? scan(ask.value) : check(ask.value);
+    return read.then(() => ({ ok: true as const, data: null }));
+  }, `pay:send:link:${appliedLink.key}`);
   const amountCheck = checkAmount(amount, source);
   // The limits and fee are read for an amount the customer could send; the service applies the same ones again.
   const typedAmount = amountCheck.kind === 'ok' ? dec(amount) : null;
   const quotedAmount = typedAmount === null ? null : str(typedAmount);
   const [terms, recheckTerms] = useSendTerms(pay, source?.asset ?? null, quotedAmount);
   const verdict = termsVerdict(terms, quotedAmount);
-  const hideBalances = useHideBalances();
+  const { hideBalances } = usePreferences();
   const availableText = source
     ? hideBalances
       ? HIDDEN_MASK
@@ -443,38 +447,29 @@ function SendForm({
   const places = source ? Math.min(18, Math.max(BALANCE_PLACES, fractionDigits(source.balance) ?? 0)) : BALANCE_PLACES;
   const amountError =
     amountCheck.kind === 'exceeds' && source ? payCopy.t('You have {value} available.', { value: availableText }) : undefined;
-  const sourceItems = useMemo(() => Object.fromEntries(sources.map((row) => [row.id, labelOf(row)])), [sources]);
+  const sourceOptions = useMemo(() => sources.map((row) => ({ value: row.id, label: labelOf(row) })), [sources]);
 
   // ── The safety layer, as PersonalPay uses it ─────────────────────────────────────────────────────────────────
   const key = `${userId}:send`;
   const [, refreshGuard] = useReducer((n: number) => n + 1, 0);
-  const mounted = useRef(true);
+  const mounted = useMounted();
   const recovering = useRef<object | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  // The device note is only ever read from storage again here; nothing is re-sent from it.
-  useEffect(() => {
-    mounted.current = true;
-    const restore = async () => {
-      await pay.guard.restore(key);
-      if (mounted.current) refreshGuard();
-    };
-    const returned = () => {
-      if (document.visibilityState === 'visible') void restore();
-    };
-    const changed = (event: StorageEvent) => {
-      if (event.key === `pay.unresolved:${key}` || event.key === bankPendingKey(userId) || event.key === null) void restore();
-    };
-    void restore();
-    window.addEventListener('storage', changed);
-    window.addEventListener('focus', returned);
-    document.addEventListener('visibilitychange', returned);
-    return () => {
-      mounted.current = false;
-      window.removeEventListener('storage', changed);
-      window.removeEventListener('focus', returned);
-      document.removeEventListener('visibilitychange', returned);
-    };
-  }, [pay, key, userId]);
+  // The device note is only ever read from storage again here; nothing is re-sent from it. It is read once for this
+  // account (the read's arrival draws the form again), then again when the page is back in view or another tab changes it.
+  useResource(() => pay.guard.restore(key).then(() => ({ ok: true as const, data: null })), `pay:send:guard:${key}`);
+  const restore = async () => {
+    await pay.guard.restore(key);
+    if (mounted.current) refreshGuard();
+  };
+  const returned = () => {
+    if (document.visibilityState === 'visible') void restore();
+  };
+  useEventListener<StorageEvent>(window, 'storage', (event) => {
+    if (event.key === `pay.unresolved:${key}` || event.key === bankPendingKey(userId) || event.key === null) void restore();
+  });
+  useEventListener(window, 'focus', returned);
+  useEventListener(document, 'visibilitychange', returned);
   const unresolved = pay.guard.status(key);
   const recoveryProblem = pay.guard.problem(key);
   const knownCleanup = pay.guard.knownCleanup(key);
@@ -710,60 +705,48 @@ function SendForm({
       pickContact({ userId: entry.toUserId, handle: entry.handle, lastAt: entry.at, times: 1 });
     };
     return (
-      <div className="pay-body" data-testid="pay-receipt">
-        <div className="buy-receipt" role="status">
-          <span className="buy-receipt__badge" aria-hidden="true" data-tone="ok">
+      <div className="lt-stack" data-testid="pay-receipt">
+        <div className="lt-stack" role="status">
+          <span aria-hidden="true" data-tone="ok">
             ✓
           </span>
-          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title">
             {entry.handle
               ? payCopy.t('Sent {amount} {asset} to @{handle}', { amount: shownAmount, asset: entry.asset, handle: entry.handle })
               : payCopy.t('Sent {amount} {asset}', { amount: shownAmount, asset: entry.asset })}
           </h2>
-          <dl className="buy-receipt__rows">
-            <div>
-              <dt>{personal.t('receiptTo')}</dt>
-              <dd className={entry.handle ? undefined : 'pay-mono'}>{entry.handle ? `@${entry.handle}` : entry.toUserId}</dd>
-            </div>
-            <div>
-              <dt>{personal.t('receiptFrom')}</dt>
-              <dd>{receipt.from}</dd>
-            </div>
-            <div>
-              <dt>{payCopy.t('Amount')}</dt>
-              <dd data-testid="pay-receipt-amount">{shown}</dd>
-            </div>
-            <div>
-              <dt>{personal.t('receiptWhen')}</dt>
-              <dd>{new Date(entry.at).toLocaleString(personal.requestedLocale)}</dd>
-            </div>
-            <div>
-              <dt>{personal.t('receiptReference')}</dt>
-              <dd className="pay-mono" data-testid="pay-receipt-reference">
-                {entry.ledgerTxId}
-              </dd>
-            </div>
-            {entry.note ? (
-              <div>
-                <dt>{personal.t('noteRow')}</dt>
-                <dd>{entry.note}</dd>
-              </div>
-            ) : null}
-          </dl>
-          <div className="buy-receipt__actions">
-            <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={ACTIVITY_HREF} role="link" />}>
+          <KeyValue
+            rows={[
+              {
+                label: personal.t('receiptTo'),
+                value: entry.handle ? `@${entry.handle}` : entry.toUserId,
+                ltr: !entry.handle,
+              },
+              { label: personal.t('receiptFrom'), value: receipt.from },
+              { label: payCopy.t('Amount'), value: <span data-testid="pay-receipt-amount">{shown}</span> },
+              { label: personal.t('receiptWhen'), value: new Date(entry.at).toLocaleString(personal.requestedLocale) },
+              {
+                label: personal.t('receiptReference'),
+                value: <span data-testid="pay-receipt-reference">{entry.ledgerTxId}</span>,
+                ltr: true,
+              },
+              ...(entry.note ? [{ label: personal.t('noteRow'), value: entry.note }] : []),
+            ]}
+          />
+          <div className="lt-actions">
+            <a className="lt-button lt-button-primary" href={ACTIVITY_HREF}>
               {payCopy.t('View activity')}
-            </Button>
-            <Button variant="secondary" size={56} fullWidth onClick={() => void copyReceipt()}>
+            </a>
+            <Button size="lg" block onClick={() => void copyReceipt()}>
               {personal.t('receiptCopy')}
             </Button>
-            <Button variant="secondary" size={56} fullWidth onClick={sendAgain} data-testid="pay-send-again">
+            <Button size="lg" block onClick={sendAgain} data-testid="pay-send-again">
               {personal.t('sendAgain')}
             </Button>
             <Button
-              variant="ghost"
-              size={56}
-              fullWidth
+              tone="quiet"
+              size="lg"
+              block
               onClick={() => {
                 lastReceipt.delete(key);
                 setReceipt(null);
@@ -781,11 +764,16 @@ function SendForm({
 
   if (sources.length === 0 && !waiting)
     return (
-      <StateBlock
-        kind="empty"
+      <EmptyState
         title={payCopy.t('Nothing to send title')}
         body={payCopy.t('Nothing to send body')}
-        action={isHiddenPath('/uc/recharge') ? undefined : { label: payCopy.t('Add money'), href: '/uc/recharge' }}
+        action={
+          isHiddenPath('/uc/recharge') ? undefined : (
+            <a className="lt-button lt-button-secondary" href="/uc/recharge">
+              {payCopy.t('Add money')}
+            </a>
+          )
+        }
       />
     );
 
@@ -796,56 +784,115 @@ function SendForm({
     : null;
   const reviewAmount = review ? fmtAmount(review.input.amount, { places: 18 }) : '';
 
-  return (
-    <form
-      className="pay-body"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        // Enter in the To field looks the person up first; a second Enter (or the button) reviews.
-        if (retryable && to.trim() !== '') void check();
-        else prepare();
-      }}
-    >
-      {waiting ? (
-        <WaitingNotice
-          recoveryProblem={Boolean(recoveryProblem)}
-          knownCleanup={knownCleanup}
-          knownConfirmed={knownConfirmed}
-          busy={recoveryBusy}
-          onRetry={() => void retryRecovery()}
-          showActivity={!(recoveryProblem && !knownCleanup)}
-        />
-      ) : null}
-
-      {heldId ? (
-        <p className="pay-banner" role="status" data-testid="pay-held">
-          {payCopy.t('Held for review')}{' '}
-          <a href={heldSendHref(heldId)} data-testid="pay-held-link">
-            {payCopy.t('See its status')}
-          </a>
-        </p>
-      ) : null}
-
-      {linkNotice ? (
-        <p className="pay-banner" role="status" data-testid="pay-link-notice">
-          {linkNotice}
-        </p>
-      ) : null}
-
-      <div className="pay-field" data-testid="to-field">
-        <label className="pay-field__label" htmlFor="pay-to">
-          {byHandle ? payCopy.t('To') : payCopy.t('Account ID')}
-        </label>
-        <div className="pay-to">
-          {byHandle && contactKind(to) === null ? (
-            <span data-testid="pay-to__at" className="pay-to__at" aria-hidden="true">
-              @
+  const reviewRows: KeyValueRow[] = review
+    ? [
+        {
+          label: payCopy.t('To'),
+          value: (
+            <span data-testid="pay-review-to">
+              {review.recipient.handle ? (
+                <PayeeLine who={review.recipient} locale={personal.requestedLocale} testId="pay-review-payee" />
+              ) : (
+                review.recipient.userId
+              )}
             </span>
-          ) : null}
-          <input
+          ),
+          ltr: !review.recipient.handle,
+        },
+        { label: payCopy.t('From'), value: <span data-testid="pay-review-from">{labelFrom(review.source)}</span> },
+        ...(review.note ? [{ label: personal.t('noteRow'), value: <span data-testid="pay-review-note">{review.note}</span> }] : []),
+        {
+          label: personal.t('termsFeeRow'),
+          value: (
+            <span data-testid="pay-review-fee">
+              {parseAmount(review.terms.fee) === 0n
+                ? personal.t('termsNoFee')
+                : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
+              {networkFeeText(review.terms.networkFee, review.source.asset, personal) === null
+                ? null
+                : `. ${networkFeeText(review.terms.networkFee, review.source.asset, personal)}`}
+            </span>
+          ),
+        },
+        {
+          label: payCopy.t('Today’s allowance'),
+          value: (
+            <span data-testid="pay-review-allowance">
+              {payCopy.t('{left} of {daily} {asset} left', {
+                left: fmtAmount(review.terms.left, { places: 18 }),
+                daily: fmtAmount(review.terms.daily, { places: 18 }),
+                asset: review.source.asset,
+              })}
+            </span>
+          ),
+        },
+        {
+          label: personal.t('termsLeftRow'),
+          value: (
+            <span data-testid="pay-review-left">
+              {fmtAmount(review.terms.leftAfter, { places: 18 })} {review.source.asset}
+            </span>
+          ),
+        },
+        {
+          label: payCopy.t('Amount'),
+          value: (
+            <span data-testid="pay-review-amount">
+              {reviewAmount} {review.source.asset}
+            </span>
+          ),
+          total: true,
+        },
+      ]
+    : [];
+
+  return (
+    <>
+      <form
+        className="lt-stack"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          // Enter in the To field looks the person up first; a second Enter (or the button) reviews.
+          if (retryable && to.trim() !== '') void check();
+          else prepare();
+        }}
+      >
+        {waiting ? (
+          <WaitingNotice
+            recoveryProblem={Boolean(recoveryProblem)}
+            knownCleanup={knownCleanup}
+            knownConfirmed={knownConfirmed}
+            busy={recoveryBusy}
+            onRetry={() => void retryRecovery()}
+            showActivity={!(recoveryProblem && !knownCleanup)}
+          />
+        ) : null}
+
+        {heldId ? (
+          <StatusNote data-testid="pay-held">
+            {payCopy.t('Held for review')}{' '}
+            <a className="lt-link" href={heldSendHref(heldId)} data-testid="pay-held-link">
+              {payCopy.t('See its status')}
+            </a>
+          </StatusNote>
+        ) : null}
+
+        {linkNotice ? <StatusNote data-testid="pay-link-notice">{linkNotice}</StatusNote> : null}
+
+        <div className="lt-stack" data-testid="to-field">
+          <Field
             id="pay-to"
-            className="pay-to__input"
+            label={byHandle ? payCopy.t('To') : payCopy.t('Account ID')}
+            before={byHandle && contactKind(to) === null ? <span data-testid="pay-to__at">@</span> : null}
+            after={
+              byHandle ? null : (
+                <Button tone="quiet" onClick={() => void paste()}>
+                  <ClipboardPaste size={14} aria-hidden="true" />
+                  {payCopy.t('Paste')}
+                </Button>
+              )
+            }
             type="text"
             value={to}
             autoComplete="off"
@@ -871,325 +918,238 @@ function SendForm({
             }}
             data-mono={byHandle ? undefined : ''}
           />
-          {byHandle ? null : (
-            <button type="button" className="pay-chip" onClick={() => void paste()}>
-              <ClipboardPaste size={14} aria-hidden="true" />
-              {payCopy.t('Paste')}
-            </button>
-          )}
-        </div>
-        <div id="pay-to-status" className="pay-to__status" aria-live="polite" data-testid="to-status">
-          {recipient.kind === 'checking' ? (
-            <span className="pay-muted">{payCopy.t('Checking handle')}</span>
-          ) : recipient.kind === 'found' ? (
-            <>
-              <PayeeLine who={recipient} locale={personal.requestedLocale} />
-              {lookalike ? (
-                <span className="pay-problem" role="alert" data-testid="pay-lookalike">
-                  {payCopy.t('Looks like saved', { handle: recipient.handle ?? '', saved: lookalike })}
-                </span>
-              ) : savedUnchecked ? (
-                <span className="pay-muted" data-testid="pay-saved-unchecked">
-                  {payCopy.t('Saved not checked')}
-                </span>
-              ) : null}
-            </>
-          ) : recipient.kind === 'problem' ? (
-            <span className="pay-problem" role="alert">
-              {recipient.text}
-              {recipient.retry ? (
-                <button
-                  type="button"
-                  className="pay-chip"
-                  onClick={() => void (scanned.current !== null && to === '' ? scan(scanned.current) : check())}
-                >
-                  {payCopy.t('Try again')}
-                </button>
-              ) : null}
-            </span>
-          ) : note ? (
-            <span className="pay-muted">{note}</span>
-          ) : (
-            <span className="pay-muted">{byHandle ? payCopy.t('Ask for their handle') : payCopy.t('Ask for their account ID')}</span>
-          )}
-        </div>
-        {contacts.length > 0 && recipient.kind !== 'found' ? (
-          <div className="pay-contacts" data-testid="pay-contacts">
-            <span className="pay-contacts__label">{personal.t('recent')}</span>
-            {contacts.map((contact) => (
-              <button
-                key={contact.userId}
-                type="button"
-                className="pay-chip"
-                onClick={() => pickContact(contact)}
-                data-testid="pay-contact"
+          <div id="pay-to-status" aria-live="polite" data-testid="to-status">
+            {recipient.kind === 'checking' ? (
+              <span className="lt-muted">{payCopy.t('Checking handle')}</span>
+            ) : recipient.kind === 'found' ? (
+              <>
+                <PayeeLine who={recipient} locale={personal.requestedLocale} />
+                {lookalike ? (
+                  <StatusNote tone="error" data-testid="pay-lookalike">
+                    {payCopy.t('Looks like saved', { handle: recipient.handle ?? '', saved: lookalike })}
+                  </StatusNote>
+                ) : savedUnchecked ? (
+                  <span className="lt-muted" data-testid="pay-saved-unchecked">
+                    {payCopy.t('Saved not checked')}
+                  </span>
+                ) : null}
+              </>
+            ) : recipient.kind === 'problem' ? (
+              <StatusNote
+                tone="error"
+                actions={
+                  recipient.retry ? (
+                    <Button tone="quiet" onClick={() => void (scanned.current !== null && to === '' ? scan(scanned.current) : check())}>
+                      {payCopy.t('Try again')}
+                    </Button>
+                  ) : undefined
+                }
               >
-                {contactLabel(contact)}
-              </button>
-            ))}
+                {recipient.text}
+              </StatusNote>
+            ) : note ? (
+              <span className="lt-muted">{note}</span>
+            ) : (
+              <span className="lt-muted">{byHandle ? payCopy.t('Ask for their handle') : payCopy.t('Ask for their account ID')}</span>
+            )}
           </div>
-        ) : null}
-      </div>
+          {contacts.length > 0 && recipient.kind !== 'found' ? (
+            <div className="lt-actions" data-testid="pay-contacts">
+              <span className="lt-muted">{personal.t('recent')}</span>
+              {contacts.map((contact) => (
+                <Button key={contact.userId} onClick={() => pickContact(contact)} data-testid="pay-contact">
+                  {contactLabel(contact)}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </div>
 
-      <div className="pay-field" data-testid="amount-field">
-        <span className="pay-field__label">{payCopy.t('Amount')}</span>
-        <div className="pay-field__main">
-          <Select
-            items={sourceItems}
+        <div className="lt-stack" data-testid="amount-field">
+          <SelectField
+            label={payCopy.t('Amount')}
+            aria-label={payCopy.t('Asset to send')}
+            options={source ? sourceOptions : [{ value: '', label: '' }, ...sourceOptions]}
             value={source?.id ?? ''}
-            onValueChange={(value) => {
-              if (typeof value === 'string') {
+            onChange={(value) => {
+              if (value !== '') {
                 setSourceId(value);
                 setAmount('');
               }
             }}
-          >
-            <SelectTrigger className="pay-asset" aria-label={payCopy.t('Asset to send')}>
-              {source ? <CoinIcon asset={source.asset} size={28} /> : null}
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {sources.map((row) => (
-                <SelectItem key={row.id} value={row.id}>
-                  {labelOf(row)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <AmountInput
+          />
+          <AmountField
             size="hero"
-            aria-label={payCopy.t('Amount to send')}
+            label={payCopy.t('Amount to send')}
+            hideLabel
             value={amount}
-            onValueChange={setAmount}
+            onChange={setAmount}
             precision={places}
             placeholder="0"
             error={amountError}
-            className="pay-amount"
+            unit={source ? <AssetIcon asset={source.asset} /> : undefined}
+            available={<span data-testid="pay-available">{source ? payCopy.t('Available {value}', { value: availableText }) : ''}</span>}
+            max={
+              source && !waiting
+                ? {
+                    label: payCopy.t('Max'),
+                    onSelect: () => {
+                      const whole = dec(source.balance);
+                      if (whole !== null) setAmount(str(whole));
+                    },
+                  }
+                : undefined
+            }
+          />
+          <TermsLine verdict={verdict} asset={source?.asset ?? ''} onRetry={recheckTerms} />
+        </div>
+
+        <div data-testid="note-field">
+          <TextField
+            id="pay-note"
+            label={personal.t('note')}
+            type="text"
+            value={memo}
+            maxLength={NOTE_MAX}
+            autoComplete="off"
+            placeholder={personal.t('notePlaceholder')}
+            onChange={setMemo}
+            hint={personal.t('noteHint')}
           />
         </div>
-        <div className="pay-field__foot">
-          <span data-testid="pay-available">{source ? payCopy.t('Available {value}', { value: availableText }) : ''}</span>
-          {source && !waiting ? (
-            <button
-              type="button"
-              className="pay-chip"
-              onClick={() => {
-                const whole = dec(source.balance);
-                if (whole !== null) setAmount(str(whole));
-              }}
-            >
-              {payCopy.t('Max')}
-            </button>
-          ) : null}
-        </div>
-        <TermsLine verdict={verdict} asset={source?.asset ?? ''} onRetry={recheckTerms} />
-      </div>
 
-      <div className="pay-field" data-testid="note-field">
-        <label className="pay-field__label" htmlFor="pay-note">
-          {personal.t('note')}
-        </label>
-        <input
-          id="pay-note"
-          className="pay-text"
-          type="text"
-          value={memo}
-          maxLength={NOTE_MAX}
-          autoComplete="off"
-          placeholder={personal.t('notePlaceholder')}
-          onChange={(event) => setMemo(event.target.value)}
-        />
-        <span className="pay-hint">{personal.t('noteHint')}</span>
-      </div>
-
-      {source && amountCheck.kind === 'ok' && typedAmount !== null ? (
-        <dl className="pay-dialog__rows" data-testid="pay-summary">
-          <div>
-            <dt>{payCopy.t('You send')}</dt>
-            <dd data-testid="pay-summary-amount">
-              {fmtAmount(str(typedAmount), { places: 18 })} {source.asset}
-            </dd>
+        {source && amountCheck.kind === 'ok' && typedAmount !== null ? (
+          <div data-testid="pay-summary">
+            <KeyValue
+              rows={[
+                {
+                  label: payCopy.t('You send'),
+                  value: (
+                    <span data-testid="pay-summary-amount">
+                      {fmtAmount(str(typedAmount), { places: 18 })} {source.asset}
+                    </span>
+                  ),
+                },
+                { label: payCopy.t('From'), value: <span data-testid="pay-summary-source">{labelFrom(source)}</span> },
+                ...(cleanNote(memo)
+                  ? [{ label: personal.t('noteRow'), value: <span data-testid="pay-summary-note">{cleanNote(memo)}</span> }]
+                  : []),
+              ]}
+            />
           </div>
-          <div>
-            <dt>{payCopy.t('From')}</dt>
-            <dd data-testid="pay-summary-source">{labelFrom(source)}</dd>
-          </div>
-          {cleanNote(memo) ? (
-            <div>
-              <dt>{personal.t('noteRow')}</dt>
-              <dd data-testid="pay-summary-note">{cleanNote(memo)}</dd>
-            </div>
-          ) : null}
-        </dl>
-      ) : null}
+        ) : null}
 
-      <Button type="submit" variant="primary" size={56} fullWidth disabled={reason !== null} data-testid="pay-review">
-        {reason !== null && !waiting ? reason : payCopy.t('Review')}
-      </Button>
+        <Button type="submit" tone="primary" size="lg" block disabled={reason !== null} data-testid="pay-review">
+          {reason !== null && !waiting ? reason : payCopy.t('Review')}
+        </Button>
+      </form>
 
-      <AlertDialog open={review !== null} onOpenChange={(open) => !open && closeReview()}>
-        <AlertDialogContent className="pay-dialog" data-testid="pay-dialog">
-          {review ? (
-            <>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {review.recipient.handle
-                    ? payCopy.t('Send {amount} {asset} to @{handle}?', {
-                        amount: reviewAmount,
-                        asset: review.source.asset,
-                        handle: review.recipient.handle,
-                      })
-                    : payCopy.t('Send {amount} {asset} to this account?', { amount: reviewAmount, asset: review.source.asset })}
-                </AlertDialogTitle>
-                <AlertDialogDescription>{payCopy.t('Arrives instantly')}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <dl className="pay-dialog__rows">
-                <div data-testid="pay-review-to">
-                  <dt>{payCopy.t('To')}</dt>
-                  <dd className={review.recipient.handle ? undefined : 'pay-mono'}>
-                    {review.recipient.handle ? (
-                      <PayeeLine who={review.recipient} locale={personal.requestedLocale} testId="pay-review-payee" />
-                    ) : (
-                      review.recipient.userId
-                    )}
-                  </dd>
-                </div>
-                <div data-testid="pay-review-from">
-                  <dt>{payCopy.t('From')}</dt>
-                  <dd>{labelFrom(review.source)}</dd>
-                </div>
-                {review.note ? (
-                  <div data-testid="pay-review-note">
-                    <dt>{personal.t('noteRow')}</dt>
-                    <dd>{review.note}</dd>
-                  </div>
+      {review ? (
+        // Drawn outside the form: Enter inside the review never submits the form and so never starts a second review.
+        <Dialog
+          alert
+          data-testid="pay-dialog"
+          onClose={closeReview}
+          closeLabel={payCopy.t('Dismiss')}
+          title={
+            review.recipient.handle
+              ? payCopy.t('Send {amount} {asset} to @{handle}?', {
+                  amount: reviewAmount,
+                  asset: review.source.asset,
+                  handle: review.recipient.handle,
+                })
+              : payCopy.t('Send {amount} {asset} to this account?', { amount: reviewAmount, asset: review.source.asset })
+          }
+        >
+          <div className="lt-stack">
+            <p className="lt-muted">{payCopy.t('Arrives instantly')}</p>
+            <KeyValue rows={reviewRows} />
+            {review.lookalike && review.recipient.handle ? (
+              <StatusNote tone="error" data-testid="pay-review-lookalike">
+                {payCopy.t('Looks like saved', { handle: review.recipient.handle, saved: review.lookalike })}
+              </StatusNote>
+            ) : null}
+            {firstTimeText ? (
+              <StatusNote tone="warn" data-testid="pay-first-time">
+                {firstTimeText} {payCopy.t('No test payment')}
+              </StatusNote>
+            ) : null}
+            {failure ? (
+              <StatusNote tone="error" data-testid="pay-failure">
+                {failure}
+              </StatusNote>
+            ) : null}
+            {stepUp ? (
+              <section className="lt-stack" data-testid="pay-step-up" aria-labelledby="pay-step-up-title">
+                <h3 id="pay-step-up-title">{payCopy.t('Confirm it’s you')}</h3>
+                <p className="lt-hint">{payCopy.t('Step-up why')}</p>
+                <Field
+                  id="pay-step-up-code"
+                  label={payCopy.t('Authenticator code')}
+                  hint={payCopy.t('Code hint')}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={stepUp.code}
+                  disabled={stepUp.checking !== null || busy}
+                  onChange={(event) => {
+                    const code = event.target.value.replace(/\D/g, '').slice(0, 6);
+                    setStepUp((now) => (now ? { ...now, code } : now));
+                  }}
+                />
+                {stepUp.problem ? (
+                  <StatusNote tone="error" data-testid="pay-step-up-problem">
+                    {stepUp.problem}
+                  </StatusNote>
                 ) : null}
-                <div data-testid="pay-review-fee">
-                  <dt>{personal.t('termsFeeRow')}</dt>
-                  <dd>
-                    {parseAmount(review.terms.fee) === 0n
-                      ? personal.t('termsNoFee')
-                      : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
-                    {review.terms.networkFeeUnknown ? `. ${personal.t('termsNetworkFeeUnknown')}` : null}
-                  </dd>
-                </div>
-                <div data-testid="pay-review-allowance">
-                  <dt>{payCopy.t('Today’s allowance')}</dt>
-                  <dd>
-                    {payCopy.t('{left} of {daily} {asset} left', {
-                      left: fmtAmount(review.terms.left, { places: 18 }),
-                      daily: fmtAmount(review.terms.daily, { places: 18 }),
-                      asset: review.source.asset,
-                    })}
-                  </dd>
-                </div>
-                <div data-testid="pay-review-left">
-                  <dt>{personal.t('termsLeftRow')}</dt>
-                  <dd>
-                    {fmtAmount(review.terms.leftAfter, { places: 18 })} {review.source.asset}
-                  </dd>
-                </div>
-                <div data-strong="" data-testid="pay-review-amount">
-                  <dt>{payCopy.t('Amount')}</dt>
-                  <dd>
-                    {reviewAmount} {review.source.asset}
-                  </dd>
-                </div>
-              </dl>
-              {review.lookalike && review.recipient.handle ? (
-                <p className="pay-dialog__first" role="alert" data-testid="pay-review-lookalike">
-                  {payCopy.t('Looks like saved', { handle: review.recipient.handle, saved: review.lookalike })}
-                </p>
-              ) : null}
-              {firstTimeText ? (
-                <p className="pay-dialog__first" data-testid="pay-first-time">
-                  {firstTimeText} {payCopy.t('No test payment')}
-                </p>
-              ) : null}
-              {failure ? (
-                <p className="pay-dialog__error" role="alert" data-testid="pay-failure">
-                  {failure}
-                </p>
-              ) : null}
+                <Button tone="quiet" disabled={stepUp.checking !== null || busy || waiting} onClick={() => void confirmStepUp('passkey')}>
+                  {stepUp.checking === 'passkey' ? payCopy.t('Checking') : payCopy.t('Confirm with a passkey')}
+                </Button>
+              </section>
+            ) : null}
+            <div className="lt-actions">
+              <Button disabled={busy || stepUp?.checking != null} onClick={closeReview}>
+                {payCopy.t('Cancel')}
+              </Button>
               {stepUp ? (
-                <section className="pay-step-up" data-testid="pay-step-up" aria-labelledby="pay-step-up-title">
-                  <h3 id="pay-step-up-title" className="pay-step-up__title">
-                    {payCopy.t('Confirm it’s you')}
-                  </h3>
-                  <p className="pay-hint">{payCopy.t('Step-up why')}</p>
-                  <div className="pay-field">
-                    <label className="pay-field__label" htmlFor="pay-step-up-code">
-                      {payCopy.t('Authenticator code')}
-                    </label>
-                    <input
-                      id="pay-step-up-code"
-                      className="pay-text"
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      value={stepUp.code}
-                      disabled={stepUp.checking !== null || busy}
-                      onChange={(event) => {
-                        const code = event.target.value.replace(/\D/g, '').slice(0, 6);
-                        setStepUp((now) => (now ? { ...now, code } : now));
-                      }}
-                    />
-                    <p className="pay-hint">{payCopy.t('Code hint')}</p>
-                  </div>
-                  {stepUp.problem ? (
-                    <p className="pay-dialog__error" role="alert" data-testid="pay-step-up-problem">
-                      {stepUp.problem}
-                    </p>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size={40}
-                    disabled={stepUp.checking !== null || busy || waiting}
-                    onClick={() => void confirmStepUp('passkey')}
-                  >
-                    {stepUp.checking === 'passkey' ? payCopy.t('Checking') : payCopy.t('Confirm with a passkey')}
-                  </Button>
-                </section>
-              ) : null}
-              <AlertDialogFooter>
-                <AlertDialogClose render={<Button variant="secondary" size={48} disabled={busy || stepUp?.checking != null} />}>
-                  {payCopy.t('Cancel')}
-                </AlertDialogClose>
-                {stepUp ? (
-                  <Button
-                    variant="primary"
-                    size={48}
-                    onClick={() => void confirmStepUp('code')}
-                    loading={busy || stepUp.checking === 'code'}
-                    disabled={busy || waiting || stepUp.checking !== null || stepUp.code.length < 6}
-                    data-testid="pay-step-up-confirm"
-                  >
-                    {busy ? payCopy.t('Sending') : stepUp.checking === 'code' ? payCopy.t('Checking') : payCopy.t('Confirm and send')}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size={48}
-                    onClick={() => void confirm()}
-                    loading={busy}
-                    disabled={busy || waiting}
-                    data-testid="pay-send"
-                  >
-                    {busy ? payCopy.t('Sending') : payCopy.t('Send now')}
-                  </Button>
-                )}
-              </AlertDialogFooter>
-            </>
-          ) : null}
-        </AlertDialogContent>
-      </AlertDialog>
-    </form>
+                <Button
+                  tone="primary"
+                  onClick={() => void confirmStepUp('code')}
+                  aria-busy={busy || stepUp.checking === 'code' || undefined}
+                  disabled={busy || waiting || stepUp.checking !== null || stepUp.code.length < 6}
+                  data-testid="pay-step-up-confirm"
+                >
+                  {busy ? payCopy.t('Sending') : stepUp.checking === 'code' ? payCopy.t('Checking') : payCopy.t('Confirm and send')}
+                </Button>
+              ) : (
+                <Button
+                  tone="primary"
+                  onClick={() => void confirm()}
+                  aria-busy={busy || undefined}
+                  disabled={busy || waiting}
+                  data-testid="pay-send"
+                >
+                  {busy ? payCopy.t('Sending') : payCopy.t('Send now')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </Dialog>
+      ) : null}
+    </>
   );
 }
 
 type PersonalCopy = ReturnType<typeof personalCopy.useCopy>;
+
+/** The network fee as the bank states it: the figure, none, or "not known"; null when the bank states nothing. */
+function networkFeeText(networkFee: string | null | undefined, asset: string, personal: PersonalCopy): string | null {
+  if (networkFee === undefined) return null;
+  if (networkFee === null) return personal.t('termsNetworkFeeUnknown');
+  if (parseAmount(networkFee) === 0n) return personal.t('termsNoNetworkFee');
+  return personal.t('termsNetworkFee', { fee: fmtAmount(networkFee, { places: 18 }), asset });
+}
 
 /** Why Review is off because of the published terms, in a few words for the button. Null when they allow the send. */
 function termsBlock(verdict: TermsVerdict, personal: PersonalCopy): string | null {
@@ -1217,11 +1177,11 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
   if (verdict.kind === 'none') return null;
   if (verdict.kind === 'unavailable')
     return (
-      <p className="pay-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
+      <p className="lt-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
         {personal.t('termsUnavailable')}{' '}
-        <button type="button" className="pay-chip" onClick={onRetry}>
+        <Button tone="quiet" onClick={onRetry}>
           {personal.t('termsRetry')}
-        </button>
+        </Button>
       </p>
     );
   const text =
@@ -1235,21 +1195,28 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
             ? personal.t('termsOverPayment', { limit: amountOf(verdict.limit), asset })
             : verdict.kind === 'overDaily'
               ? personal.t('termsOverDaily', { left: amountOf(verdict.left), asset })
-              : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}.${verdict.networkFeeUnknown ? ` ${personal.t('termsNetworkFeeUnknown')}` : ''} ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
+              : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}.${networkFeeText(verdict.networkFee, asset, personal) === null ? '' : ` ${networkFeeText(verdict.networkFee, asset, personal)}`} ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
   const blocked = verdict.kind !== 'ok' && verdict.kind !== 'checking';
   return (
-    <p className="pay-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
+    <p className="lt-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
       {text}
     </p>
   );
 }
 
 const labelOf = (row: Source) => (row.name ? `${row.asset} · ${row.name}` : row.asset);
-/** The space the money leaves, by the name the bank keeps for it ("Main" for the main space). */
+/**
+ * The space the money leaves, by the name the bank keeps for it ("Main" for the main space), and the partner bank's
+ * account when the partner holds it (J-pay-01 #3: the source is the partner account).
+ */
 const labelFrom = (row: Source) =>
-  row.space
-    ? payCopy.t('Your {asset}, {name} space', { asset: row.asset, name: row.space })
-    : payCopy.t('Your {asset}', { asset: row.asset });
+  row.heldAt
+    ? row.name
+      ? payCopy.t('Your {asset}, {name} space at {partner}', { asset: row.asset, name: row.name, partner: row.heldAt })
+      : payCopy.t('Your {asset} account at {partner}', { asset: row.asset, partner: row.heldAt })
+    : row.space
+      ? payCopy.t('Your {asset}, {name} space', { asset: row.asset, name: row.space })
+      : payCopy.t('Your {asset}', { asset: row.asset });
 
 /** "Nov 2026" for `2026-11`, in the reader's language. Null when the month is not one. */
 function memberMonth(month: string | null, locale: string): string | null {
@@ -1267,29 +1234,26 @@ function memberMonth(month: string | null, locale: string): string | null {
 function PayeeLine({ who, locale, testId = 'recipient-found' }: { who: Payee; locale: string; testId?: string }) {
   const since = memberMonth(who.memberSince, locale);
   return (
-    <span className="pay-found" data-testid={testId}>
-      <span className="pay-avatar" aria-hidden="true">
-        {(who.name ?? who.handle ?? '#').slice(0, 1).toUpperCase()}
-      </span>
-      {who.handle ? (
-        <span className="pay-found__who">
-          {who.name !== undefined ? (
-            <span className="pay-found__name" data-testid="recipient-name">
-              {who.name ?? payCopy.t('No name shared')}
-            </span>
-          ) : null}
-          <span className="pay-found__handle" data-testid="recipient-handle">{`@${who.handle}`}</span>
-        </span>
-      ) : (
-        <span className="pay-found__name">{payCopy.t('Account ID ready')}</span>
-      )}
-      {who.member ? (
-        <span className="pay-found__badge" data-testid="recipient-member">
-          {since ? payCopy.t('Member since {month}', { month: since }) : payCopy.t('Member')}
-        </span>
-      ) : null}
-      <Check size={16} className="pay-found__check" aria-hidden="true" />
-    </span>
+    <PayeeCard
+      data-testid={testId}
+      face={who.name ?? who.handle ?? '#'}
+      name={
+        who.handle ? (
+          who.name !== undefined ? (
+            <span data-testid="recipient-name">{who.name ?? payCopy.t('No name shared')}</span>
+          ) : null
+        ) : (
+          payCopy.t('Account ID ready')
+        )
+      }
+      handle={who.handle ? <span data-testid="recipient-handle">{`@${who.handle}`}</span> : null}
+      badge={
+        who.member ? (
+          <span data-testid="recipient-member">{since ? payCopy.t('Member since {month}', { month: since }) : payCopy.t('Member')}</span>
+        ) : null
+      }
+      confirmed
+    />
   );
 }
 
@@ -1349,26 +1313,31 @@ function WaitingNotice({
       ? payCopy.t('Check storage body')
       : payCopy.t('Still confirming body');
   return (
-    <div className="pay-waiting" role="status" data-testid="pay-waiting">
-      <p className="pay-waiting__title">{title}</p>
-      <p className="pay-waiting__body">{body}</p>
-      <div className="pay-waiting__actions">
-        {knownCleanup || recoveryProblem ? (
-          <Button variant="secondary" size={40} disabled={busy} onClick={onRetry}>
-            {busy ? payCopy.t('Working') : knownCleanup ? payCopy.t('Finish up') : payCopy.t('Try again')}
-          </Button>
-        ) : null}
-        {showActivity ? (
-          <Button variant="secondary" size={40} nativeButton={false} render={<a href={ACTIVITY_HREF} role="link" />}>
-            {payCopy.t('View activity')}
-          </Button>
-        ) : null}
-        {isHiddenPath(SUPPORT_HREF) ? null : (
-          <Button variant="ghost" size={40} nativeButton={false} render={<a href={SUPPORT_HREF} role="link" />}>
-            {payCopy.t('Contact support')}
-          </Button>
-        )}
-      </div>
-    </div>
+    <StatusNote
+      tone={recoveryProblem && !knownCleanup ? 'warn' : 'neutral'}
+      title={title}
+      data-testid="pay-waiting"
+      actions={
+        <>
+          {knownCleanup || recoveryProblem ? (
+            <Button disabled={busy} onClick={onRetry}>
+              {busy ? payCopy.t('Working') : knownCleanup ? payCopy.t('Finish up') : payCopy.t('Try again')}
+            </Button>
+          ) : null}
+          {showActivity ? (
+            <a className="lt-button lt-button-secondary" href={ACTIVITY_HREF}>
+              {payCopy.t('View activity')}
+            </a>
+          ) : null}
+          {isHiddenPath(SUPPORT_HREF) ? null : (
+            <a className="lt-link" href={SUPPORT_HREF}>
+              {payCopy.t('Contact support')}
+            </a>
+          )}
+        </>
+      }
+    >
+      {body}
+    </StatusNote>
   );
 }

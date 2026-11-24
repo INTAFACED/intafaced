@@ -1,7 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
+import type {
+  AccountControlInput,
+  AccountControlResult,
+  AccountControlState,
+  Context,
+  CommittedOperationAdmission,
+  IdentityOperationDecision,
+  IdentityOperationDecisionPort,
+  IdentityOperationIntent,
+} from '@intafaced/contracts';
 import {
   accountControlInputSchema,
   accountControlResultSchema,
@@ -9,19 +19,14 @@ import {
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   currentAuthorityInputSchema,
-  identityOperationDecisionSchema,
-  identityOperationIntentSchema,
-  type AccountControlInput,
-  type AccountControlResult,
-  type AccountControlState,
-  type Context,
-  type CommittedOperationAdmission,
-  type IdentityOperationDecision,
-  type IdentityOperationDecisionPort,
-  type IdentityOperationIntent,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { identityOperationDecisionSchema, identityOperationIntentSchema } from '@intafaced/contracts/operation-identity-decisions';
 import { writeRestrictionAudit } from '../admin/common.js';
 import { currentTradingRestrictApprovals, tradingRestrictGate, tradingRestrictRequiresApproval } from '../admin/trading-restrict.js';
+
+/** Identity's refusal of every svc-trade operation while the owner's own freeze is on (J-wallet-13 #2). */
+const SELF_FROZEN_MESSAGE =
+  'you froze this account, so INTAFACED places no order for you, whoever asks (you, a bot, a copy, an agent or a schedule). Your funds stay in your own wallet and venue account.';
 
 /**
  * A refusal from trading controls. A restriction is named by its owner: `trade.desk_restricted` is this service's
@@ -36,8 +41,9 @@ export class TradingControlError extends Error {
       | 'operation.conflict'
       | 'auth.credential_denied'
       | 'auth.account_frozen'
+      | 'identity.account_frozen_self'
       | 'operator.denied',
-    message: string = code,
+    message: string = code === 'identity.account_frozen_self' ? SELF_FROZEN_MESSAGE : code,
   ) {
     super(message);
     this.name = 'TradingControlError';
@@ -114,7 +120,7 @@ type IntentRow = {
 };
 
 /** One local guard covers preparation, grant/finalization, and restriction/drain. */
-async function guard(tx: Sql, userId: string): Promise<void> {
+async function guard(tx: Queryable, userId: string): Promise<void> {
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.account-controls:${userId}`}, 0))`;
 }
 
@@ -128,7 +134,7 @@ export class TradingControls implements TradingAdmissionPort {
   private state(userId: string, row?: { restricted: boolean; version: string }): AccountControlState {
     return { target: { area: 'trading', userId }, restricted: row?.restricted ?? false, version: row?.version ?? '0' };
   }
-  private async loadState(tx: Sql, userId: string): Promise<AccountControlState> {
+  private async loadState(tx: Queryable, userId: string): Promise<AccountControlState> {
     const [row] = await tx<Array<{ restricted: boolean; version: string }>>`
       SELECT restricted, version::text FROM trade.account_restrictions WHERE user_id = ${userId}`;
     return this.state(userId, row);
@@ -390,9 +396,16 @@ export class TradingControls implements TradingAdmissionPort {
           // A known cancellation is terminal owner evidence. Commit it before refusing
           // the caller, so restart/retry cannot turn the same intent into a new grant.
           // Each restriction is refused by its owner's code: identity's (shown on account status) or this service's own.
-          let refusal: 'auth.account_frozen' | 'trade.account_restricted' | 'trade.desk_restricted' | 'auth.credential_denied' =
-            'auth.credential_denied';
+          let refusal:
+            | 'auth.account_frozen'
+            | 'identity.account_frozen_self'
+            | 'trade.account_restricted'
+            | 'trade.desk_restricted'
+            | 'auth.credential_denied' = 'auth.credential_denied';
           if (decision.status === 'cancelled' && decision.code === 'auth.account_frozen') refusal = 'auth.account_frozen';
+          // The owner's own freeze (J-wallet-13 #2): refused by its own code, with the freeze reason.
+          else if (decision.status === 'cancelled' && decision.code === 'identity.account_frozen_self')
+            refusal = 'identity.account_frozen_self';
           else if (decision.status === 'cancelled' && decision.code === 'trade.account_restricted') refusal = 'trade.account_restricted';
           else if (restricted) refusal = 'trade.desk_restricted';
           return { admission, refusal };
@@ -415,7 +428,7 @@ export class TradingControls implements TradingAdmissionPort {
     return result;
   }
   private async finalize(
-    tx: Sql,
+    tx: Queryable,
     intent: IdentityOperationIntent,
     decision: IdentityOperationDecision,
   ): Promise<CommittedOperationAdmission | null> {
@@ -439,7 +452,7 @@ export class TradingControls implements TradingAdmissionPort {
       WHERE user_id = ${intent.operation.userId} AND business_id = ${intent.businessId}`;
     return admission;
   }
-  private async drain(tx: Sql, userId: string): Promise<boolean> {
+  private async drain(tx: Queryable, userId: string): Promise<boolean> {
     const pending = await tx<IntentRow[]>`SELECT intent, payload, decision, admission FROM trade.operation_intents
       WHERE user_id = ${userId} AND identity_requested AND decision IS NULL ORDER BY business_id`;
     try {

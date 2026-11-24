@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import http from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +50,8 @@ const VALUES = parseAgentAccountValues({
   TRADE_AGENT_MAX_ORDER_NOTIONAL: '100',
   TRADE_AGENT_WORST_PRICE_BPS: '200',
   TRADE_AGENT_MARKETS: 'BTC-USDC,BTC-PERP',
+  TRADE_AGENT_MAX_LEVERAGE: '5',
+  TRADE_AGENT_MAX_DAILY_LOSS: '100',
 });
 
 function stepUp() {
@@ -114,9 +117,18 @@ describe('the agent account on the TEST venue', () => {
       stepUp: su.check,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      // Blank: its one market order is on a perpetual, which the owner's price protection does not bound.
+      slippageCapBps: null,
       now: () => new Date(),
     });
-    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
   }
   let topUps = 0;
   beforeEach(() => {
@@ -144,6 +156,74 @@ describe('the agent account on the TEST venue', () => {
     expect(su.calls).toHaveLength(0);
     expect(await accounts.list(principal)).toEqual([]);
     expect((await sim.subAccounts(main())).value).toEqual(before.value);
+  });
+
+  it("#3: the agent permission's reach is told before anything is signed: the TEST venue keeps it to the agent account", async () => {
+    // Read with the terms, before the person presses Create, and on the account the create answers before its first
+    // signature.
+    expect((await accounts.terms()).agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'own_account_only' });
+    let v = await create200();
+    expect(v.next?.step).toBe('open_sub_account');
+    expect(v.agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'own_account_only' });
+    v = await signAll(v);
+    // What the venue declared is what it does: the permission is on the agent account and not on the main account.
+    const sub = { ...main(), subAccount: v.subAccount };
+    expect((await sim.agents(sub)).value.map((x) => x.address)).toEqual([v.agentAddress]);
+    expect((await sim.agents(main())).value.map((x) => x.address)).not.toContain(v.agentAddress);
+  });
+
+  it("#3: a venue that does not declare its agent permission's reach is read as reaching the person's other accounts", async () => {
+    const undeclared = () =>
+      HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }).then(
+        (real) =>
+          new Proxy(real, {
+            get: (t, p, r) => (p === 'venue' ? { ...real.venue, agentPermissionReach: undefined } : Reflect.get(t, p, r)),
+          }),
+      );
+    door = new UserVenueDoor({
+      connect: undeclared,
+      appEnv: 'test',
+      store: actions,
+      stepUp: su.check,
+      builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      slippageCapBps: null,
+      now: () => new Date(),
+    });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
+    expect((await accounts.terms()).agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'owner_accounts' });
+    expect((await create200()).agentPermission.reach).toBe('owner_accounts');
+  });
+
+  it('#3: terms still answer when the venue cannot be read, with the reach not known', async () => {
+    door = new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: 'http://127.0.0.1:1', timeoutMs: 500 }),
+      appEnv: 'test',
+      store: actions,
+      stepUp: su.check,
+      builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      slippageCapBps: null,
+      now: () => new Date(),
+    });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
+    const terms = await accounts.terms();
+    expect(terms.agentPermission).toBeNull();
+    expect(terms.ceiling).not.toBeNull();
   });
 
   it('#3: create with cap 200 and fund 150: three wallet signatures; the venue shows 150 in the sub-account and 150 less on main', async () => {
@@ -202,6 +282,8 @@ describe('the agent account on the TEST venue', () => {
     const gone = await accounts.abandon(principal, first.accountId);
     expect(gone.status).toBe('abandoned');
     expect(gone.next).toBeNull();
+    // No account: none is listed.
+    expect(await accounts.list(principal)).toEqual([]);
     expect((await sim.subAccounts(main())).value).toHaveLength(subsBefore);
     expect(await usdc(main())).toBe(mainBefore);
     // Its prepared action can never be sent afterwards.
@@ -220,6 +302,8 @@ describe('the agent account on the TEST venue', () => {
     expect(await usdc(main())).toBe(mainBefore);
     expect(await usdc({ ...main(), subAccount: v.subAccount })).toBe(a('0'));
     expect((await accounts.list(principal)).filter((x) => x.status === 'open')).toEqual([]);
+    // The sub-account the venue opened stays listed, ended, so the person sees it.
+    expect((await accounts.list(principal)).map((x) => [x.accountId, x.status])).toEqual([[v.accountId, 'abandoned']]);
   });
 
   it('#4: funding 100 more is refused agents.account_cap_exceeded naming 50 of room, before anything is prepared; nothing moves', async () => {
@@ -252,6 +336,58 @@ describe('the agent account on the TEST venue', () => {
       accounts.create(principal, { accountId: id(), owner, asset: 'USDC', cap: '600', fund: '1', stepUpApprovalId: 'x' }),
     );
     expect(c.code).toBe('agents.account_cap_above_ceiling');
+  });
+
+  it("#16: the per-order, leverage and daily-loss caps are saved under the owner's ceilings and shown with the funding cap", async () => {
+    const v = await signAll(await create200());
+    expect(v.limits).toEqual({ maxOrderNotional: null, maxLeverage: null, maxDailyLoss: null });
+    expect((await accounts.terms()).limitCeilings).toEqual({ maxOrderNotional: '100', maxLeverage: '5', maxDailyLoss: '100' });
+    const set = await accounts.setLimits(principal, v.accountId, { maxOrderNotional: '50', maxLeverage: '2', maxDailyLoss: '25' });
+    expect(set.limits).toEqual({ maxOrderNotional: a('50'), maxLeverage: '2', maxDailyLoss: a('25') });
+    expect(formatAmount(set.cap)).toBe('200');
+    // A cap left out stays as it was.
+    const one = await accounts.setLimits(principal, v.accountId, { maxLeverage: '3' });
+    expect(one.limits).toEqual({ maxOrderNotional: a('50'), maxLeverage: '3', maxDailyLoss: a('25') });
+    // Setting them moves nothing and asks the wallet for nothing.
+    expect(one.next).toBeNull();
+    expect(one.moves).toHaveLength(1);
+  });
+
+  it("#16: a cap above the owner's ceiling, or with the ceiling blank, is refused naming it; nothing is written", async () => {
+    const v = await signAll(await create200());
+    await accounts.setLimits(principal, v.accountId, { maxOrderNotional: '50', maxLeverage: '2', maxDailyLoss: '25' });
+    for (const [field, value, limit, ceiling] of [
+      ['maxOrderNotional', '100.01', 'per-order size cap', '100'],
+      ['maxLeverage', '6', 'leverage cap', '5'],
+      ['maxDailyLoss', '101', 'daily-loss cap', '100'],
+    ] as const) {
+      const e = await refusedAs(accounts.setLimits(principal, v.accountId, { maxOrderNotional: '40', [field]: value }));
+      expect(e.code, field).toBe('agents.limit_above_ceiling');
+      expect(e.detail, field).toEqual({ limit, ceiling });
+    }
+    expect((await accounts.advance(principal, v.accountId)).limits).toEqual({
+      maxOrderNotional: a('50'),
+      maxLeverage: '2',
+      maxDailyLoss: a('25'),
+    });
+    for (const bad of [{ maxLeverage: '1.5' }, { maxLeverage: 2 }, { maxDailyLoss: 25 }, {}]) {
+      expect((await refusedAs(accounts.setLimits(principal, v.accountId, bad))).code).toBe('agents.account_request_invalid');
+    }
+    expect((await refusedAs(accounts.setLimits(principal, v.accountId, { maxOrderNotional: '0' }))).code).toBe(
+      'agents.account_cap_invalid',
+    );
+    build(parseAgentAccountValues({ TRADE_AGENT_ACCOUNT_CEILING: '500', TRADE_AGENT_ACCOUNT_ASSET: 'USDC', TRADE_AGENT_KEY_SEED: 's' }));
+    const w = await signAll(await create200());
+    for (const field of ['maxOrderNotional', 'maxLeverage', 'maxDailyLoss'] as const) {
+      expect((await refusedAs(accounts.setLimits(principal, w.accountId, { [field]: '1' }))).code, field).toBe(
+        'agents.limit_ceiling_unset',
+      );
+    }
+  });
+
+  it("#16: caps are set only on an open account, from the person's own session", async () => {
+    const opening = await create200();
+    expect((await refusedAs(accounts.setLimits(principal, opening.accountId, { maxLeverage: '2' }))).code).toBe('agents.account_not_open');
   });
 
   it('each move is sent once under agent:move:<moveId>: a lost answer is read back from the venue, and a retry moves nothing more', async () => {
@@ -408,6 +544,11 @@ describe('the agent account on the TEST venue', () => {
     ).rejects.toMatchObject({
       code: 'scope.interactive_only',
     });
+    // Nor raise its own caps (#16).
+    const v = await signAll(await create200());
+    await expect(accounts.setLimits(keyPrincipal, v.accountId, { maxLeverage: '5' })).rejects.toMatchObject({
+      code: 'scope.interactive_only',
+    });
   });
 
   it('a JSON number is never read as money, and an asset other than the funding asset is refused', async () => {
@@ -487,6 +628,26 @@ describe('the agent account on the TEST venue', () => {
       });
     });
 
+    it("refuses a position move into or out of an agent account's sub-account, before anything is stored or signed (J-derivatives-05 #7)", async () => {
+      const v = await signAll(await create200());
+      const movePosition = (subAccount: string, direction: 'into_sub_account' | 'out_of_sub_account', moveKey: string) =>
+        door.prepare(principal, {
+          owner,
+          signer: { role: 'owner', address: owner },
+          intent: { kind: 'move_position', subAccount, direction, symbol: 'BTC-PERP', moveKey },
+        });
+      for (const direction of ['into_sub_account', 'out_of_sub_account'] as const) {
+        const moveKey = `position-move:${owner}:${id()}`;
+        await expect(movePosition(v.subAccount!, direction, moveKey)).rejects.toMatchObject({ code: 'trade.venue_sub_account_not_own' });
+        expect(await actions.find(USER, moveKey)).toBeNull();
+      }
+      // A sub-account opened as the person's own passes that check: the venue is then asked, and this one moves no position.
+      const own = await openOwn(`TEST own ${id()}`);
+      await expect(movePosition(own, 'into_sub_account', `position-move:${owner}:${id()}`)).rejects.toMatchObject({
+        refusal: { code: 'not_offered', detail: `${sim.venue.displayName} moves no open position between accounts` },
+      });
+    });
+
     it('a sub-account opened as your own but whose answer was lost is read back by its name, and a move into it goes on', async () => {
       const name = `TEST lost ${id()}`;
       const asked = await createOwn(name);
@@ -537,7 +698,11 @@ describe('parseAgentAccountValues: blank is null, malformed stops the boot', () 
       asset: null,
       keySeed: null,
       bounds: { maxOrderNotional: null, worstPriceBps: null, markets: null },
+      limitCeilings: { maxLeverage: null, maxDailyLoss: null },
     });
+    expect(VALUES.limitCeilings).toEqual({ maxLeverage: 5, maxDailyLoss: a('100') });
+    expect(() => parseAgentAccountValues({ TRADE_AGENT_MAX_LEVERAGE: '2.5' })).toThrow(/whole number/);
+    expect(() => parseAgentAccountValues({ TRADE_AGENT_MAX_DAILY_LOSS: '0' })).toThrow();
     expect(VALUES.bounds.markets).toEqual(['BTC-USDC', 'BTC-PERP']);
     expect(VALUES.ceiling).toBe(a('500'));
     expect(() => parseAgentAccountValues({ TRADE_AGENT_ACCOUNT_CEILING: '-1' })).toThrow();

@@ -1,12 +1,16 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { accountTierResultSchema, type AccountTierResult } from '@intafaced/contracts';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { failureRefusal } from '@/lib/ops-desk/execute';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { type AccountTierResult } from '@intafaced/contracts';
+import {
+  type DeskRequest,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  type FounderCallContext,
+  founderRecordCall,
+} from '@/lib/desk';
+import { IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Run an approved tier move (J-ops-console-04 #11) against identity, as the signed-in founder.
@@ -36,21 +40,14 @@ export function tierReply(request: TierRequest, result: AccountTierResult): Exec
 export function tierExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'identity.account.tier_move') return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
-      ctx,
-      'identity',
-      'accountControls.tierMove',
-      'POST',
-      {
-        requestId: randomUUID(),
-        userId: request.userId,
-        tierId: request.tierId,
-        reason: request.reason,
-        expectedVersion: request.version,
-        approvalId: ids.approvalId,
-      },
-      parseWith(accountTierResultSchema),
-    );
+    const result = await founderRecordCall(ctx, IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE, {
+      requestId: randomUUID(),
+      userId: request.userId,
+      tierId: request.tierId,
+      reason: request.reason,
+      expectedVersion: request.version,
+      approvalId: ids.approvalId,
+    });
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     return tierReply(request, result.data);
   };

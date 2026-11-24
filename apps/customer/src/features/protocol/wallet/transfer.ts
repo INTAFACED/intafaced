@@ -88,6 +88,32 @@ const NATIVE: Readonly<Record<number, { symbol: string; decimals: number }>> = {
 };
 export const nativeCurrency = (chainId: number = APP_CHAIN_ID) => (Object.hasOwn(NATIVE, chainId) ? NATIVE[chainId]! : null);
 
+/** Whole base units as an exact decimal string (no rounding, no JavaScript number): 21000000000000 at 18 decimals is "0.000021". */
+export function exactUnits(units: bigint, decimals: number): string {
+  const negative = units < 0n;
+  const digits = (negative ? -units : units).toString().padStart(decimals + 1, '0');
+  const whole = digits.slice(0, digits.length - decimals);
+  const fraction = decimals > 0 ? digits.slice(digits.length - decimals).replace(/0+$/, '') : '';
+  return `${negative ? '-' : ''}${whole}${fraction ? `.${fraction}` : ''}`;
+}
+
+/**
+ * The network fee a mined transaction paid, in the network currency's base units, from its receipt: gas used times the
+ * effective gas price, plus the L1 data fee a rollup's receipt names. Null when the receipt does not say (no effective
+ * price, or a field that is not a number): the fee is then not known, never 0.
+ */
+export function receiptFee(receipt: unknown): bigint | null {
+  if (!receipt || typeof receipt !== 'object') return null;
+  const r = receipt as { gasUsed?: unknown; effectiveGasPrice?: unknown; l1Fee?: unknown };
+  const hex = (value: unknown) => (typeof value === 'string' && /^0x[0-9a-fA-F]+$/.test(value) ? BigInt(value) : null);
+  const used = hex(r.gasUsed);
+  const price = hex(r.effectiveGasPrice);
+  if (used === null || price === null) return null;
+  if (r.l1Fee === undefined || r.l1Fee === null) return used * price;
+  const l1 = hex(r.l1Fee);
+  return l1 === null ? null : used * price + l1;
+}
+
 /** Hex for a transaction value. */
 export const toHexValue = (units: bigint) => `0x${units.toString(16)}`;
 

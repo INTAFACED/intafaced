@@ -17,6 +17,8 @@ export const chartOwnerValuesSchema = z.object({
   drawingCap: count,
   brushPointCap: count,
   delayedBoundarySeconds: count,
+  /** The owner's stale age (row d115): a stream whose newest trade is older reads Stale; blank judges none stale. */
+  staleAgeSeconds: count,
   /** The longest main-thread task the chart may hold while ticks stream, in ms; blank while the owner has not set it. */
   renderBudgetMs: count,
   /** How far from the last price, in basis points, a chart order may be moved before the person confirms the distance. */
@@ -47,6 +49,28 @@ export function useChartOwnerValues(symbol: string): Loadable<ChartOwnerValues> 
           { intervalMs: OWNER_VALUES_POLL_MS },
         ),
       [env, symbol],
+    ),
+  );
+}
+
+/**
+ * The owner's counts alone, for a market our engine does not list (a venue market: J-charts-desk-14's venue DOM), so no
+ * data class is asked for and an unknown symbol is never sent.
+ */
+export function useChartOwnerCounts(): Loadable<ChartOwnerValues> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        env.poller.source<ChartOwnerValues>(
+          'chart-owner-values',
+          (signal) =>
+            env.api.rest('/charts/owner-values', chartOwnerValuesSchema, { signal }) as Promise<
+              { ok: true; data: ChartOwnerValues } | { ok: false; reason: string; code?: string; status?: number }
+            >,
+          { intervalMs: OWNER_VALUES_POLL_MS },
+        ),
+      [env],
     ),
   );
 }

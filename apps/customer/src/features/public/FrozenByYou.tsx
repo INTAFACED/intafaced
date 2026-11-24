@@ -3,8 +3,7 @@ import type { AccountRestriction } from '@intafaced/contracts/identity-account-s
 import { Button } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
-import { accountStatusCopy } from '../account/account-status-copy';
-import { selfFreezeCopy } from '../account/self-freeze-copy';
+import { accountStatusCopy, selfFreezeCopy } from '../account';
 import { frozenByYouCopy } from './frozen-by-you-copy';
 
 /**

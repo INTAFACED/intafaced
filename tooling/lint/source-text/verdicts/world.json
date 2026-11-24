@@ -1,0 +1,73 @@
+[
+  {
+    "file": "tooling/scripts/journey-freeze-guard.test.mjs",
+    "target": "../../tooling/scripts/local-test-gates.mjs",
+    "verdict": "rewrite",
+    "asserts": "The posting-freeze lift-leaked command lifts only a LOCAL TEST freeze a journey left on, through the founders' two-person door, and refuses any other freeze by its own name before founder b signs in or anything is proposed.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/journey-freeze-guard.test.mjs#posting-freeze lift-leaked lifts a journey freeze and refuses any other"
+    },
+    "why": "Calls setPostingFreeze(ctx, false, leakedFreezePlan, 'lift-leaked') on a recording fake Edge: a journey freeze is lifted (unfreeze posted with the approval), a reconciliation or versionless freeze is refused as 'posting-freeze lift-leaked refused: ...' after one read; plain off refuses the same journey freeze; and the CLI takes lift-leaked past its usage check."
+  },
+  {
+    "file": "tooling/scripts/local-test-facts.test.mjs",
+    "target": "./local-test-facts.mjs",
+    "verdict": "rewrite",
+    "asserts": "A journey that imports local-test-facts.mjs takes in node built-ins only, none of the stack's code.",
+    "guard": { "kind": "test", "ref": "tooling/scripts/local-test-facts.test.mjs#local-test-facts.mjs imports node built-ins only" },
+    "why": "Loads local-test-facts.mjs under a node:module resolve hook that records every specifier it asks for and requires node: only; a planted module with a static import, a re-export and a top-level dynamic import of stack files is caught by the same hook."
+  },
+  {
+    "file": "tooling/scripts/local-test-market.test.mjs",
+    "target": "local-test-market.mjs",
+    "verdict": "rewrite",
+    "asserts": "A stop that cannot end the market within its cap exits non-zero naming the pid, never prints success, and keeps the record.",
+    "guard": { "kind": "test", "ref": "tooling/scripts/local-test-market.test.mjs#a stop that times out exits non-zero by name" },
+    "why": "Runs the real `stop` command against a planted market that ignores SIGTERM, on a clock preloaded to move 30 s per read so the 90 s wait runs out at once, and asserts exit 1, the named pid line, no 'stopped' line, the process alive and its record kept."
+  },
+  {
+    "file": "tooling/scripts/local-test-seed.test.mjs",
+    "target": "local-test-market.mjs",
+    "verdict": "rewrite",
+    "asserts": "The house inventory stocks every asset of the market maker's default markets.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-seed.test.mjs#house inventory stocks both sides of the stack default markets"
+    },
+    "why": "Imports the maker's own exported DEFAULT_SYMBOLS instead of regex-parsing its source."
+  },
+  {
+    "file": "tooling/scripts/local-test-seed.test.mjs",
+    "target": "local-test-seed.mjs",
+    "verdict": "rewrite",
+    "asserts": "The seed's stack wiring uses svc-bank's and svc-p2p's own services, moves money only through packages/ledger-client recipes to the marker's loopback ledger, connects only to the plan's databases (never DATABASE_URL or LEDGER_URL), and closes TEST rows instead of deleting them.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-seed.test.mjs#the stack wiring uses the services' own code"
+    },
+    "why": "Runs the real openLocal with a resolve hook that swaps the built service, ledger-client, contracts and postgres modules for recording stand-ins and a recording fetch: asserts what it loads and builds, deps.recipes is ledger-client's, connections and posts go only to the plan's URLs with production URLs in the env, and the SQL unseed sends is UPDATE ... SET status = 'closed' with no DELETE."
+  },
+  {
+    "file": "tooling/scripts/local-test-world.test.mjs",
+    "target": "./local-test-world.mjs",
+    "verdict": "rewrite",
+    "asserts": "The merchant step-up token is a one-request bearer: a missing door is found before a TOTP step is spent, refund and payout carry the owner's token and the payout request the teammate's, and no log, record or file carries a token; the operator pair is used only when each signed-in subject is the operator the pair names.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-world.test.mjs#The step-up token is only ever a one-request bearer"
+    },
+    "why": "Calls ensurePayStepUp with a missing door (no code spent), drives populateMerchantStepUpMoney on a scripted pay/identity recording each bearer, log line, record and fs write; and calls signInTestOperatorPair with mismatched subjects, user ids and an unreadable token, each refused with no session and no file written."
+  },
+  {
+    "file": "tooling/scripts/real-app-services.test.mjs",
+    "target": "./local-test-stack.mjs",
+    "verdict": "rewrite",
+    "asserts": "The stack records the LOCAL_STACK_*=off values each process started with, and its overrides command answers them for live restartable services, so the world restore can heal a service left blank.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/real-app-services.test.mjs#The stack records the off values each process started with"
+    },
+    "why": "Starts two processes through the stack's own startProc, one with two off values and one without, then runs the real `overrides` command on that state and asserts it names only the first, with its variables sorted."
+  }
+]

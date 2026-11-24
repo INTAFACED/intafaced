@@ -7,7 +7,6 @@
  * shared writer, and one intent keeps one request id until the numbers change.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { Position } from '@intafaced/exchange-contract/schemas';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -540,7 +539,7 @@ export function Ticket(props: TicketProps) {
       />
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-fg-2">{t('Margin mode')}</span>
+        <span className="lt-hint">{t('Margin mode')}</span>
         <span className="flex items-center gap-2">
           <SegmentedControl
             aria-label={t('Margin mode')}
@@ -571,7 +570,7 @@ export function Ticket(props: TicketProps) {
       ) : null}
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-fg-2">{t('Margin from')}</span>
+        <span className="lt-hint">{t('Margin from')}</span>
         {/* Cash is the margin. Another choice is sent to the review as chosen, so the service names its own refusal. */}
         <SegmentedControl
           aria-label={t('Margin from')}
@@ -586,7 +585,7 @@ export function Ticket(props: TicketProps) {
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-fg-2">{t('Order type')}</span>
+        <span className="lt-hint">{t('Order type')}</span>
         <span className="flex items-center gap-2">
           <SegmentedControl
             aria-label={t('Order type')}
@@ -641,9 +640,9 @@ export function Ticket(props: TicketProps) {
         </Field>
       ) : null}
       {orderType === 'limit' ? (
-        <div className="flex flex-col gap-1">
+        <div className="lt-stack">
           <div className="flex items-center justify-between gap-2">
-            <span id="ticket-correct" className="text-sm text-fg-2">
+            <span id="ticket-correct" className="lt-hint">
               {t('Price correction')}
             </span>
             <Switch
@@ -663,7 +662,7 @@ export function Ticket(props: TicketProps) {
       ) : null}
 
       <div className="flex items-center justify-between gap-2" aria-live="polite">
-        <span className="text-sm text-fg-2">{t('Mark')}</span>
+        <span className="lt-hint">{t('Mark')}</span>
         <span className="flex items-center gap-2">
           <span className="if-num">{markNow === null ? '—' : price(markNow)}</span>
           <StatusChip
@@ -710,7 +709,7 @@ export function Ticket(props: TicketProps) {
       ) : (
         <p className={note}>{t('Contracts off')}</p>
       )}
-      <div role="group" aria-label={t('Percent of max group')} className="flex flex-wrap gap-2">
+      <div role="group" aria-label={t('Percent of max group')} className="lt-actions">
         {PERCENTS.map((pct) => (
           <Button
             key={pct}
@@ -746,7 +745,7 @@ export function Ticket(props: TicketProps) {
         />
       </Field>
       {presets.length > 0 ? (
-        <div role="group" aria-label={t('Leverage presets')} className="flex flex-wrap gap-2">
+        <div role="group" aria-label={t('Leverage presets')} className="lt-actions">
           {presets.map((x) => (
             <Button
               key={x}
@@ -764,9 +763,9 @@ export function Ticket(props: TicketProps) {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-1">
+      <div className="lt-stack">
         <div className="flex items-center justify-between gap-2">
-          <span id="ticket-reduce" className="text-sm text-fg-2">
+          <span id="ticket-reduce" className="lt-hint">
             {t('Reduce only')}
           </span>
           <Switch
@@ -788,7 +787,7 @@ export function Ticket(props: TicketProps) {
           {reduceOnly ? t('Reduce only on') : t('Reduce only off')}
         </p>
       </div>
-      <section aria-labelledby="ticket-tpsl" className="flex flex-col gap-2">
+      <section aria-labelledby="ticket-tpsl" className="lt-stack">
         <h3 id="ticket-tpsl" className="text-sm text-fg-2">
           {t('Take profit stop loss')}
         </h3>

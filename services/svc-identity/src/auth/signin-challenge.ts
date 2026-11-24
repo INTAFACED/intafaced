@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { signInChallengeMet, signInChallengeText, type SignInChallenge, type SignInChallengeProof } from '@intafaced/contracts';
+import type { SignInChallenge, SignInChallengeProof } from '@intafaced/contracts';
+import { signInChallengeMet, signInChallengeText } from '@intafaced/contracts/identity-signin-challenge';
 import { ATTEMPT_POLICY } from './attempt-lockout.js';
 
 /**

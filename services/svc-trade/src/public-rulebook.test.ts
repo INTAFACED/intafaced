@@ -70,7 +70,7 @@ describe('createMatchingRulebookReader', () => {
       fetchFn: (async (url: string, init: RequestInit) => {
         seen.push({ url, headers: init.headers });
         return new Response(JSON.stringify({ published: false }), { status: 200 });
-      }) as unknown as typeof fetch,
+      }) as typeof fetch,
     });
     await expect(ok('current')).resolves.toEqual({ published: false });
     await ok('versions');
@@ -79,7 +79,7 @@ describe('createMatchingRulebookReader', () => {
       { url: 'http://matching:4005/rulebook/versions', headers: undefined },
     ]);
     const refused = createMatchingRulebookReader('http://matching:4005', {
-      fetchFn: (async () => new Response('no', { status: 500 })) as unknown as typeof fetch,
+      fetchFn: (async () => new Response('no', { status: 500 })) as typeof fetch,
     });
     await expect(refused('current')).rejects.toThrow(/failed \(500\)/);
   });

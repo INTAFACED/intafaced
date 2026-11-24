@@ -79,6 +79,28 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     expect(await store.find('22222222-2222-4222-8222-2222222222b2', key)).toBeNull();
   });
 
+  it('never replaces a definite accept, not even with a definite refusal', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const key = `order:${USER}:sql:9184`;
+    await store.insertOnce(USER, key, prepared('9184', '60000'), new Date());
+    await store.signOnce(USER, key, { digest: '0xdigest9184', signature: '0xsig', signedBy: OWNER }, new Date());
+    const refused = {
+      definite: true as const,
+      accepted: false as const,
+      refusal: { venueId: 'venue-test', code: 'nonce_rejected' as const, detail: 'Invalid nonce: nonce too low' },
+      asOf: new Date(1),
+    };
+    // A definite refusal may still be replaced by the venue's later accept; an accept by nothing.
+    expect(await store.recordOutcome(USER, key, refused, new Date())).toMatchObject({ definite: true, accepted: false });
+    const accepted = { definite: true as const, accepted: true as const, venueRef: '1', order: null, asOf: new Date(0) };
+    expect(await store.recordOutcome(USER, key, accepted, new Date())).toMatchObject({ definite: true, accepted: true });
+    expect(await store.recordOutcome(USER, key, refused, new Date())).toMatchObject({ definite: true, accepted: true });
+    expect(await store.recordOutcome(USER, key, { definite: false, reason: 'timeout' }, new Date())).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+  });
+
   it('the table refuses a changed action, a changed signature and a delete', async () => {
     const store = new SqlPreparedActionStore(db!.sql);
     const key = `order:${USER}:sql:2`;
@@ -237,5 +259,26 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     const rates = await store.builderFeeOrders('test-venue-sim', ['0x0301', '0x0302', '0x0303', '0x0304', '0x0305', '0x0999']);
     expect([...rates]).toEqual([['0x0301', parseAmount('0.5')]]);
     expect((await store.builderFeeOrders('test-venue-sim', [])).size).toBe(0);
+  });
+
+  it("J-cex-spot-18 #1: the signed order a person placed under a venue client id, never another person's or an unsigned one", async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const mine = '11111111-1111-4111-8111-1111111111d1';
+    const theirs = '11111111-1111-4111-8111-1111111111d2';
+    const at = new Date('2026-11-18T00:00:00.000Z');
+    const order = (cloid: string): PreparedVenueAction => ({ ...prepared('400', '60000'), venueClientOrderId: cloid });
+    // Signed and placed by this person.
+    await store.insertOnce(mine, 'order:j18:placed', order('0x0401'), at);
+    await store.signOnce(mine, 'order:j18:placed', { digest: '0xdigest400', signature: '0xs', signedBy: OWNER }, at);
+    // Prepared but never signed: not placed.
+    await store.insertOnce(mine, 'order:j18:unsigned', order('0x0402'), at);
+    // Another person's signed order.
+    await store.insertOnce(theirs, 'order:j18:theirs', order('0x0403'), at);
+    await store.signOnce(theirs, 'order:j18:theirs', { digest: '0xdigest400', signature: '0xs', signedBy: OWNER }, at);
+
+    expect((await store.placedOrder(mine, '0x0401'))?.businessKey).toBe('order:j18:placed');
+    expect(await store.placedOrder(mine, '0x0402')).toBeNull();
+    expect(await store.placedOrder(mine, '0x0403')).toBeNull();
+    expect((await store.placedOrder(theirs, '0x0403'))?.userId).toBe(theirs);
   });
 });

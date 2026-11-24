@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
 import { assertMerchantAreaAccess, merchantNotFound } from '../merchant-ownership.js';
 import { allowMerchantRead } from '../merchant-read-access.js';
@@ -388,7 +388,7 @@ export class MerchantProfileService {
     if (!hashesMatch(row.change_hash, expectedChangeHash)) throw new PortalError('pay.change_hash_mismatch', 'conflict');
   }
 
-  private async lockChange(sql: Sql, merchantId: string, requestId: string) {
+  private async lockChange(sql: Queryable, merchantId: string, requestId: string) {
     const rows = await sql<
       Array<{
         maker_id: string;
@@ -408,7 +408,7 @@ export class MerchantProfileService {
     return row;
   }
 
-  private async rejectChange(sql: Sql, requestId: string, checkerId: string | null, reason: string) {
+  private async rejectChange(sql: Queryable, requestId: string, checkerId: string | null, reason: string) {
     await sql`
       UPDATE pay.merchant_profile_changes
          SET status = 'rejected', checker_id = ${checkerId}, checker_reason = ${reason}, decided_at = now()
@@ -416,7 +416,7 @@ export class MerchantProfileService {
   }
 
   /** Owner of the merchant row, or an active admin. A removed or demoted maker is not. */
-  private async makerAuthorized(sql: Sql, merchantId: string, makerId: string): Promise<boolean> {
+  private async makerAuthorized(sql: Queryable, merchantId: string, makerId: string): Promise<boolean> {
     const owners = await sql<Array<{ user_id: string }>>`SELECT user_id FROM pay.merchants WHERE id = ${merchantId}`;
     if (owners[0]?.user_id === makerId) return true;
     const admins = await sql<Array<{ ok: boolean }>>`
@@ -470,14 +470,17 @@ export class MerchantProfileService {
     if (!allowed) throw new PortalError('pay.owner_grant_withdrawn', 'forbidden');
   }
 
-  private async load(sql: Sql, merchantId: string): Promise<StoredRow> {
+  private async load(sql: Queryable, merchantId: string): Promise<StoredRow> {
     const rows = await sql<StoredRow[]>`SELECT ${sql.unsafe(COLUMNS)} FROM pay.merchants WHERE id = ${merchantId}`;
     const row = rows[0];
     if (!row) throw merchantNotFound(merchantId);
     return row;
   }
 
-  private async lock(sql: Sql, merchantId: string): Promise<StoredRow & { kyb_status: 'none' | 'pending' | 'approved' | 'rejected' }> {
+  private async lock(
+    sql: Queryable,
+    merchantId: string,
+  ): Promise<StoredRow & { kyb_status: 'none' | 'pending' | 'approved' | 'rejected' }> {
     const rows = await sql<Array<StoredRow & { kyb_status: 'none' | 'pending' | 'approved' | 'rejected' }>>`
       SELECT ${sql.unsafe(COLUMNS)}, kyb_status::text AS kyb_status
         FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE`;
@@ -486,7 +489,7 @@ export class MerchantProfileService {
     return row;
   }
 
-  private async writeFields(sql: Sql, merchantId: string, fields: ProfileFields, expectedVersion: bigint): Promise<string> {
+  private async writeFields(sql: Queryable, merchantId: string, fields: ProfileFields, expectedVersion: bigint): Promise<string> {
     const address = fields.address;
     const rows = await sql<Array<{ profile_version: string }>>`
       UPDATE pay.merchants SET

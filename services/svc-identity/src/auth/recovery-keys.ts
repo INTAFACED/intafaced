@@ -14,7 +14,7 @@
  * happened answers the current setup and asks for nothing. A revoked key never counts again and cannot be re-added.
  */
 import { createPublicKey } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   recoveryKeyFingerprint,
   recoveryPlanTarget,
@@ -111,7 +111,7 @@ export class RecoveryKeys {
     refuseNonOwner(principal, this.founders);
   }
 
-  async view(userId: string, sql: Sql = this.sql): Promise<RecoveryView> {
+  async view(userId: string, sql: Queryable = this.sql): Promise<RecoveryView> {
     const [plan] = await sql<PlanRow[]>`
       SELECT p.threshold, h.handle AS heir_handle, h.status = 'active' AS heir_active
         FROM recovery_plans p LEFT JOIN users h ON h.id = p.heir_user_id
@@ -160,7 +160,7 @@ export class RecoveryKeys {
     if (input.kind !== 'key') throw new RecoveryKeyError('identity.recovery_kind_not_wired');
     const fingerprint = await fingerprintOf(input.publicKey);
     const label = input.label.trim();
-    const check = async (tx: Sql) => {
+    const check = async (tx: Queryable) => {
       await this.lockActive(tx, principal.userId, { securityLock: true });
       const [row] = await tx<Array<{ revoked_at: Date | null }>>`
         SELECT revoked_at FROM recovery_keys WHERE user_id = ${principal.userId} AND public_material_hash = ${fingerprint}`;
@@ -191,7 +191,7 @@ export class RecoveryKeys {
     input: { keyId: string; clientRequestId: string; stepUpApprovalId?: string | null },
   ): Promise<RecoveryView> {
     this.refuse(principal);
-    const check = async (tx: Sql) => {
+    const check = async (tx: Queryable) => {
       await this.lockActive(tx, principal.userId);
       const [row] = await tx<Array<{ revoked_at: Date | null }>>`
         SELECT revoked_at FROM recovery_keys WHERE id = ${input.keyId} AND user_id = ${principal.userId}`;
@@ -227,7 +227,7 @@ export class RecoveryKeys {
     const handle = input.heirHandle.replace(/^@/, '');
     if (!RECOVERY_HANDLE_RE.test(handle)) throw new RecoveryKeyError('identity.recovery_heir_unknown');
     /** True when the plan already is this heir and threshold, so a retry answers it unchanged. */
-    const check = async (tx: Sql) => {
+    const check = async (tx: Queryable) => {
       await this.lockActive(tx, principal.userId, { securityLock: true });
       const [count] = await tx<Array<{ live: number }>>`
         SELECT count(*)::int AS live FROM recovery_keys WHERE user_id = ${principal.userId} AND revoked_at IS NULL`;
@@ -269,7 +269,7 @@ export class RecoveryKeys {
    * Adding a key and naming the heir also wait for the owner's security lock; revoking a key never does, because it
    * only takes power away.
    */
-  private async lockActive(tx: Sql, userId: string, options: { securityLock?: boolean } = {}): Promise<void> {
+  private async lockActive(tx: Queryable, userId: string, options: { securityLock?: boolean } = {}): Promise<void> {
     const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
     if (!user) throw new RecoveryKeyError('auth.not_found');
     if (user.status !== 'active') throw new RecoveryKeyError('auth.account_frozen');

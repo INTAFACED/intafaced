@@ -15,7 +15,7 @@ vi.mock('../../app/location', async (original) => {
   return { ...real, useReturnLocation: () => '/launch', currentReturnLocation: () => '/launch' };
 });
 
-const state = { userId: null as string | null, restoring: false, restoreFailed: false };
+const state = { userId: null as string | null, restoreFailed: false };
 vi.mock('../session/session', () => ({
   useSession: () => ({ ...state, retryRestore: () => undefined, api: {} }),
   useApi: () => ({}),
@@ -31,7 +31,7 @@ const PRIVATE: [LaunchTab, string][] = [
 ];
 
 describe('signed-out /launch (J-more-catalogue-01 #6, J-more-catalogue-11)', () => {
-  beforeEach(() => Object.assign(state, { userId: null, restoring: false, restoreFailed: false }));
+  beforeEach(() => Object.assign(state, { userId: null, restoreFailed: false }));
 
   it('shows the shared sign-in panel above the public catalogue', () => {
     const html = page('Catalogue');
@@ -52,11 +52,9 @@ describe('signed-out /launch (J-more-catalogue-01 #6, J-more-catalogue-11)', () 
     expect(page('Requirements')).not.toContain('Sign in to continue');
   });
 
-  it('never says "signed out" before the boot refresh answers, or when it could not', () => {
-    state.restoring = true;
-    for (const [tab] of PRIVATE) expect(page(tab), tab).toContain('role="status"');
-    expect(page('Catalogue')).not.toContain('Sign in to continue');
-    Object.assign(state, { restoring: false, restoreFailed: true });
+  // Before the boot refresh answers no room renders at all (App, #8658; src/app/session-gate.render.test.tsx).
+  it('never says "signed out" when the boot refresh could not answer', () => {
+    state.restoreFailed = true;
     for (const [tab] of PRIVATE) {
       const html = page(tab);
       expect(html, tab).toContain('We could not check your sign-in');

@@ -12,7 +12,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import type { EmsOrderStore } from './oms-ems-store.js';
 import { fillFacts, type ChildFillFacts } from './oms-fill-confirm.js';
 import { capAgainstParentRemaining, consumeCappedRemaining } from './oms-parent-cap.js';
-import type { AlgoKind, ApprovedAlgoParent, ApprovedAlgoParentStore } from './oms-start.js';
+import type { AlgoKind, ApprovedAlgoParentStore } from './oms-start.js';
 
 export type OrphanedChildFill = ChildFillFacts & {
   readonly parentClientOrderId: string | null;

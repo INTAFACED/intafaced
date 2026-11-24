@@ -2,27 +2,30 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'rea
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { singleFlight } from '../../shared/password';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { publicAuthContext, publicAuthHref } from './auth-context';
 import { validAuthSession } from './public-auth-guards';
-import {
-  countryOptions,
-  passwordScreeningSchema,
-  secondsLeft,
-  signUpAcceptedSchema,
-  signUpCode,
-  signUpConfirmedSchema,
-  todayIso,
-  type AccountType,
-  type Channel,
-} from './sign-up';
+import { countryOptions, secondsLeft, signUpCode, signUpConfirmedSchema, todayIso, type AccountType, type Channel } from './sign-up';
 import { signUpCopy } from './sign-up-copy';
+import { subdivisionOptions } from './subdivisions';
 import { SocialSignIn } from './SocialSignIn';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 import './sign-up.css';
+import {
+  IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING,
+  IDENTITY_AUTH_SIGN_UP_START,
+  IDENTITY_AUTH_SIGN_UP_RESEND,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+
+/** The service's own sentence saying why a region is blocked ("Ontario, Canada is not served at launch."), or none. */
+const GENERAL_BLOCK = 'We cannot open accounts for this country right now.';
+function blockReason(refusal: Refusal | null): string | undefined {
+  const reason = refusal?.message.trim();
+  return reason && reason !== GENERAL_BLOCK ? reason : undefined;
+}
 type Pending = { flowId: string; email: string; resendAt: number; accountType: AccountType };
 
 /**
@@ -37,6 +40,7 @@ export function SignUp() {
   const context = publicAuthContext(location.pathname, location.search);
   const [accountType, setAccountType] = useState<AccountType>('individual');
   const [channel, setChannel] = useState<Channel>('email');
+  const [country, setCountry] = useState('');
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -48,6 +52,7 @@ export function SignUp() {
   const mounted = useRef(true);
   const problemId = useId();
   const countries = useMemo(() => countryOptions(requestedLocale), [requestedLocale]);
+  const provinces = useMemo(() => subdivisionOptions(country), [country]);
 
   useEffect(() => {
     mounted.current = true;
@@ -61,11 +66,9 @@ export function SignUp() {
   // Whether the owner's breached-password list is set: when it is not, the page says so beside the password rule.
   useEffect(() => {
     const controller = new AbortController();
-    void api
-      .query('identity', 'auth.signUpPasswordScreening', undefined, passwordScreeningSchema, { signal: controller.signal })
-      .then((answer) => {
-        if (!controller.signal.aborted && answer.ok) setScreening(answer.data.breachedList);
-      });
+    void api.call(IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING, undefined, { signal: controller.signal }).then((answer) => {
+      if (!controller.signal.aborted && answer.ok) setScreening(answer.data.breachedList);
+    });
     return () => controller.abort();
   }, [api]);
   // The resend clock: one tick a second while a code step is open and the wait is not over.
@@ -82,6 +85,9 @@ export function SignUp() {
     const field = (name: string) => String(data.get(name) ?? '').trim();
     const email = field('email');
     const nationality = field('nationality');
+    const subdivision = field('subdivision');
+    // Left unanswered, the question is sent as no answer at all, and the service refuses it: never read as no.
+    const usPerson = field('usPerson');
     const input = {
       channel,
       accountType,
@@ -89,6 +95,8 @@ export function SignUp() {
       ...(channel === 'email' ? { email } : { phone: field('phone') }),
       password: String(data.get('password') ?? ''),
       country: field('country'),
+      ...(subdivision ? { subdivision } : {}),
+      ...(usPerson === 'yes' ? { usPerson: true } : usPerson === 'no' ? { usPerson: false } : {}),
       ...(nationality ? { nationality } : {}),
       dateOfBirth: field('dateOfBirth'),
       // Signing up from an invitation link names its referrer when the account is made (CM-referral-01, RF-1).
@@ -97,7 +105,7 @@ export function SignUp() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.signUpStart', input, signUpAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_SIGN_UP_START, input);
       if (!mounted.current) return;
       setBusy(false);
       const password = form.current?.elements.namedItem('password');
@@ -154,7 +162,7 @@ export function SignUp() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.signUpResend', { flowId: pending.flowId }, signUpAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_SIGN_UP_RESEND, { flowId: pending.flowId });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {
@@ -176,16 +184,20 @@ export function SignUp() {
         ? t(code, { minutes: Math.max(1, Math.ceil((refusal?.retryAfterSeconds ?? 60) / 60)) })
         : code === 'identity.resend_too_soon' && wait > 0
           ? t('resendIn', { seconds: wait })
-          : code
-            ? t(code)
-            : null;
+          : code === 'identity.region_blocked' && blockReason(refusal)
+            ? t('regionBlockedBecause', { reason: blockReason(refusal)! })
+            : code === 'identity.subdivision_required' && provinces.length === 0
+              ? t('subdivisionNoField')
+              : code
+                ? t(code)
+                : null;
 
   return (
     <div className="pub-page">
       <header className="pub-heading">
         <p className="eyebrow">{t('eyebrow')}</p>
         <h1>{t('title')}</h1>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
       </header>
       <ol className="pub-steps" aria-label={t('stepsLabel')}>
         <li className={`pub-step pub-step--${pending ? 'done' : 'current'}`} aria-current={pending ? undefined : 'step'}>
@@ -204,7 +216,7 @@ export function SignUp() {
                       checked={accountType === kind}
                       onChange={() => setAccountType(kind)}
                     />{' '}
-                    {t(kind)} <small className="muted">{t(kind === 'individual' ? 'individualHint' : 'businessHint')}</small>
+                    {t(kind)} <small className="lt-muted">{t(kind === 'individual' ? 'individualHint' : 'businessHint')}</small>
                   </label>
                 ))}
               </fieldset>
@@ -248,9 +260,9 @@ export function SignUp() {
                   {t('screeningUnset')}
                 </p>
               )}
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('country')}</span>
-                <select name="country" required disabled={busy} defaultValue="">
+                <select name="country" required disabled={busy} value={country} onChange={(e) => setCountry(e.target.value)}>
                   <option value="" disabled>
                     {t('countryPick')}
                   </option>
@@ -261,7 +273,29 @@ export function SignUp() {
                   ))}
                 </select>
               </label>
-              <label className="field">
+              {provinces.length > 0 && (
+                <label className="lt-field">
+                  <span>{t('subdivision')}</span>
+                  <select key={country} name="subdivision" disabled={busy} defaultValue="">
+                    <option value="">{t('subdivisionPick')}</option>
+                    {provinces.map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <fieldset className="pub-choice" disabled={busy}>
+                <legend>{t('usPerson')}</legend>
+                <small className="lt-muted">{t('usPersonHint')}</small>
+                {(['yes', 'no'] as const).map((answer) => (
+                  <label key={answer}>
+                    <input type="radio" name="usPerson" value={answer} /> {t(answer === 'yes' ? 'usPersonYes' : 'usPersonNo')}
+                  </label>
+                ))}
+              </fieldset>
+              <label className="lt-field">
                 <span>{t('nationality')}</span>
                 <select name="nationality" disabled={busy} defaultValue="">
                   <option value="">{t('nationalityPick')}</option>
@@ -285,10 +319,10 @@ export function SignUp() {
           <h2>{pending ? t('checkEmail') : t('step2')}</h2>
           {pending && (
             <form ref={form} method="post" className="pub-form" onSubmit={confirm}>
-              <p role="status" className="muted">
+              <p role="status" className="lt-muted">
                 {t('checkEmailBody', { email: pending.email })}
               </p>
-              {resent && <p className="muted">{t('resent')}</p>}
+              {resent && <p className="lt-muted">{t('resent')}</p>}
               <Field
                 label={t('code')}
                 name="code"
@@ -305,7 +339,7 @@ export function SignUp() {
               <Button variant="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
                 {t('resend')}
               </Button>
-              {wait > 0 && <small className="muted">{t('resendIn', { seconds: wait })}</small>}
+              {wait > 0 && <small className="lt-muted">{t('resendIn', { seconds: wait })}</small>}
               <Button
                 variant="ghost"
                 disabled={busy}
@@ -339,7 +373,7 @@ export function SignUp() {
             </Button>
           )}
           {(code === 'identity.signup_code_used' || code === 'auth.email_taken') && (
-            <a className="text-link" href={publicAuthHref(context, '/login')}>
+            <a className="lt-link" href={publicAuthHref(context, '/login')}>
               {t('signIn')}
             </a>
           )}
@@ -351,9 +385,9 @@ export function SignUp() {
           </div>
         )
       )}
-      <p className="muted">
+      <p className="lt-muted">
         {t('haveAccount')}{' '}
-        <a className="text-link" href={publicAuthHref(context, '/login')}>
+        <a className="lt-link" href={publicAuthHref(context, '/login')}>
           {t('signIn')}
         </a>
       </p>

@@ -1,12 +1,8 @@
 import type { Sql } from 'postgres';
-import {
-  serviceCallSigner,
-  SUPPORT_RECORD_OWNERSHIP_PATH,
-  supportRecordOwnershipResultSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type SupportTicket,
-} from '@intafaced/contracts';
+import { SUPPORT_TICKET_LINK_KINDS } from '@intafaced/contracts/support-desk-procedures';
+import type { ServiceAuthMode, ServiceSigner, SupportTicket } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
+import { SUPPORT_RECORD_OWNERSHIP_PATH, supportRecordOwnershipResultSchema } from '@intafaced/contracts/support-record-ownership';
 import { SupportError } from './support-service.js';
 import type { TicketOrderSource } from './ticket-order.js';
 import { identitySecretSet } from './identity-grounding-honesty.js';
@@ -30,8 +26,7 @@ import { identitySecretSet } from './identity-grounding-honesty.js';
  * posts or reads money.
  */
 
-export const TICKET_LINK_KINDS = ['order', 'withdrawal', 'deposit'] as const;
-export type TicketLinkKind = (typeof TICKET_LINK_KINDS)[number];
+export type TicketLinkKind = (typeof SUPPORT_TICKET_LINK_KINDS)[number];
 
 export const LINK_RECORD_NOT_OWNED = 'support.link_record_not_owned' as const;
 export const LINK_RECORD_UNVERIFIABLE = 'support.link_record_unverifiable' as const;

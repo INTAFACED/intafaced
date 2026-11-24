@@ -1,0 +1,6 @@
+{
+  "cases": [
+    ["admin.settingsStatus", null, 23],
+    ["health", null, 23]
+  ]
+}

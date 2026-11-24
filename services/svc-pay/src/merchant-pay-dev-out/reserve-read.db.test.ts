@@ -20,7 +20,8 @@ import {
   TEST_TIER,
 } from '../control/control.testkit.js';
 import { createPayNamespaces } from '../namespaces/index.js';
-import { readMerchantReserve, RESERVE_HOLDING } from './reserve-read.js';
+import { RESERVE_HOLDING } from '@intafaced/contracts';
+import { readMerchantReserve } from './reserve-read.js';
 
 /**
  * M-money-out-01 reserve read. Every amount here is a TEST VALUE.
@@ -43,7 +44,7 @@ describe('merchantControl.reserve (recorded, not withheld)', () => {
         throw new Error('no founder in this suite');
       },
       control: new ControlService(sql, ownerAccessPorts(sql), { now: () => NOW }),
-    }).createCaller(ctxOf(userId)) as unknown as {
+    }).createCaller(ctxOf(userId)) as {
       merchantControl: { reserve: (input: { merchantId: string }) => Promise<Awaited<ReturnType<typeof readMerchantReserve>>> };
     };
 
