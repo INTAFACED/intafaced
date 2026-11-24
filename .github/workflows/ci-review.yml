@@ -14,13 +14,16 @@ name: CI review
 # branch rule allows main alone, so only this default-branch workflow can read it; a pull request from a fork gets no
 # run (the key is never spent on one), so such a change can't be sealed and a member re-opens it from a branch here.
 #
-# Only pull requests into main are reviewed (`branches: [main]`), and a pull request pointed at main from another base
-# (`edited` with a base change) is reviewed afresh: a review against a side branch saw another diff, and the seal
-# counts only a run whose pull request's base is main (review-marker.mjs ciReviewVerdict).
+# Only pull requests into main are reviewed (`branches: [main]`), and the seal counts only a run whose pull request's base
+# is main (review-marker.mjs ciReviewVerdict): a review against a side branch saw another diff. No `edited`: GitHub can't
+# filter it to a base change, so every title or body edit started a skipped run (about 330 a day, 21 to 23 Nov 2026), for
+# 2 retargets to main in the 2,500 pull requests from 6 to 24 Nov (#8570, #7574). A pull request pointed at main from
+# another base gets no review until it is reopened or pushed, and the seal fails closed until then and says so
+# (review-marker.mjs RETARGET). project-state#4001, step 4a.
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions: {}
 
@@ -29,9 +32,8 @@ permissions: {}
 # head it merges (review-marker.mjs) and a push cancels that older head's seal too. On 22 Nov 2026, 43 such superseded
 # reviews ran to the end, 294 runner minutes plus their model calls. A push's, an open's and a ready-for-review's first
 # attempt share the pull request's group; only a push cancels. Everything else keeps a group per head that no push
-# cancels and that cancels nothing: an edit (a base change reviews the head being merged; a title edit runs no job but
-# could replace a waiting push's review in a shared group), a reopen, and a re-run (run_attempt above 1: a re-run of an
-# old head's review must never cancel the new head's). workflow-concurrency.test.mjs holds this.
+# cancels and that cancels nothing: a reopen (it reviews the head being merged, as after a retarget), and a re-run
+# (run_attempt above 1: a re-run of an old head's review must never cancel the new head's). workflow-concurrency.test.mjs holds this.
 concurrency:
   group: ${{ github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened' || github.event.action == 'ready_for_review') && format('ci-review-pr-{0}-{1}', github.event.pull_request.number, github.event.pull_request.base.ref) || format('ci-review-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.base.ref, github.event.pull_request.head.sha) }}
   cancel-in-progress: ${{ github.run_attempt == '1' && github.event.action == 'synchronize' }}
@@ -41,14 +43,13 @@ jobs:
     # The seal reads this job by name (REVIEW_JOB) and its steps `Verdict` and `Test verdict` by name (VERDICT_STEP,
     # TEST_VERDICT_STEP): rename them together.
     name: CI review
-    # In-repo pull requests into main only; of `edited` events, only a base change (a title or body edit needs no review).
+    # In-repo pull requests into main only.
     # Not a draft: a build's PR is a draft while its journey is proven by hand (project-state BUILDER.md), and is
     # reviewed and proof-read once, when `ready_for_review` marks it ready, so no head is read twice. A draft can't merge.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.base.ref == 'main' &&
-      !github.event.pull_request.draft &&
-      (github.event.action != 'edited' || github.event.changes.base)
+      !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB. A change that
     # draws a Customer room also waits for CI's look gate on its head (up to 25 minutes, look-pictures.mjs).

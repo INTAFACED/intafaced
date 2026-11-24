@@ -1117,6 +1117,11 @@ test('fails (planted): a PASS reviewed against a side branch, then the pull requ
   const sideBranchPass = run({ pull_requests: [{ number: 7, base: { ref: 'side/b' } }], jobs: [[reviewJob(HEAD, 'success')]] });
   const v = await lookForSignoff({ sha: HEAD, base: 'main', number: 7, io: world([sideBranchPass]) });
   assert.equal(v.ok, false, v.why);
+  // ci-review.yml starts no run on a retarget (no `edited`), so the seal says what starts one.
+  assert.match(v.why, /reviewed only once it is reopened or pushed/);
+  const none = await lookForSignoff({ sha: HEAD, base: 'main', number: 7, io: world([]) });
+  assert.deepEqual([none.ok, none.state], [false, 'none'], none.why);
+  assert.match(none.why, /reviewed only once it is reopened or pushed/);
   // A run that names no pull request (pull_requests empty) is no review of one into main either.
   const unnamed = await lookForSignoff({
     sha: HEAD,
@@ -1144,14 +1149,14 @@ test("fails: a pull request whose base isn't main now is never sealed, even with
   assert.equal(unknown.ok, false, unknown.why);
 });
 
-test('the review job runs only on pull requests into main, and again when one is pointed at main', async () => {
+test('the review job runs only on pull requests into main; a retarget is reviewed on its reopen, with no run per edit', async () => {
   const { readFileSync } = await import('node:fs');
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
   const on = wf.slice(wf.indexOf('\non:'), wf.indexOf('\npermissions:'));
   assert.match(on, /pull_request_target:\n\s+branches: \[main\]\n/);
-  assert.match(on, /types: \[[^\]]*\bedited\b[^\]]*\]/);
+  assert.match(on, /types: \[[^\]]*\breopened\b[^\]]*\]/);
+  assert.doesNotMatch(on, /\bedited\b/, 'a title or body edit starts no run');
   assert.match(wf, /github\.event\.pull_request\.base\.ref == 'main'/);
-  assert.match(wf, /github\.event\.action != 'edited' \|\| github\.event\.changes\.base/);
 });
 
 test('a draft is not reviewed: the review and proof read run once, when it is marked ready', async () => {
@@ -1160,7 +1165,7 @@ test('a draft is not reviewed: the review and proof read run once, when it is ma
   const on = wf.slice(wf.indexOf('\non:'), wf.indexOf('\npermissions:'));
   assert.match(on, /types: \[[^\]]*\bready_for_review\b[^\]]*\]/);
   const review = wf.slice(wf.indexOf('\n  review:'), wf.indexOf('\n    runs-on:', wf.indexOf('\n  review:')));
-  assert.match(review, /!github\.event\.pull_request\.draft &&/);
+  assert.match(review, /\n\s+!github\.event\.pull_request\.draft(?:\s*&&|$)/);
 });
 
 test("starting the seal can't void a PASS: it is a job of its own after the review, never a step of it", async () => {

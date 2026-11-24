@@ -111,6 +111,8 @@ export function mergedNothingToSeal(pull, sha, onSha) {
 }
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
+/** What a head with no review into main does next: ci-review.yml starts no run on `edited`, so not on a retarget either. */
+export const RETARGET = `a pull request pointed at ${REVIEW_BASE} from another base is reviewed only once it is reopened or pushed`;
 const SHA40 = /^[0-9a-f]{40}$/;
 /**
  * The tree index: every CI review run uploads an artifact named REVIEW_INDEX_PREFIX + its head's tree sha, before it
@@ -232,7 +234,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
     return {
       ok: false,
       state: 'none',
-      why: `no ${REVIEW_WORKFLOW} run started by pull_request_target on ${want}${ignored ? ` (${ignored} other run(s) ignored)` : ''}`,
+      why: `no ${REVIEW_WORKFLOW} run started by pull_request_target on ${want}${ignored ? ` (${ignored} other run(s) ignored)` : ''}; ${RETARGET}`,
     };
   let passedIn = null;
   let pending = false;
@@ -268,7 +270,9 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
     : {
         ok: false,
         state: 'none',
-        why: `no ${label} on ${want} passed its ${STEP} step (it did not finish, or failed before a verdict; re-run it)`,
+        why: own.some(intoMain)
+          ? `no ${label} on ${want} passed its ${STEP} step (it did not finish, or failed before a verdict; re-run it)`
+          : `no ${label} on ${want} reviewed it into ${REVIEW_BASE}; ${RETARGET}`,
       };
 }
 

@@ -33,10 +33,10 @@ test("the guard's judgeRuns is the review job's condition, term for term", () =>
   const pr = terms.filter((t) => t.includes('github.event.pull_request') && !DEFERS.includes(t));
   assert.deepEqual(pr.sort(), [...JUDGE_JOB_CONDITIONS].sort(), `the judge job's pull request terms: ${terms.join(' && ')}`);
   assert.match(workflow, /types: \[[^\]]*\bready_for_review\b[^\]]*\]/, 'a draft is reviewed when it is marked ready');
-  // Its other terms skip only an `edited` event that changes no base, and a draft until it is ready.
+  // Its one other term skips a draft until it is ready.
   assert.deepEqual(
-    terms.filter((x) => !pr.includes(x)).sort(),
-    ['!github.event.pull_request.draft', "(github.event.action != 'edited' || github.event.changes.base)"].sort(),
+    terms.filter((x) => !pr.includes(x)),
+    ['!github.event.pull_request.draft'],
   );
 });
 
