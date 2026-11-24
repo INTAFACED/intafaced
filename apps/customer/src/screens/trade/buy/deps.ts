@@ -10,7 +10,6 @@ export {
   AlertDialogTitle,
   Amount,
   AmountInput,
-  Badge,
   Button,
   CoinIcon,
   DialogDescription,
@@ -18,21 +17,17 @@ export {
   Price,
   Skeleton,
   StateBlock,
-  StatusChip,
-  Table,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@intafaced/ui';
 export type { KeyValueItem, TableColumn } from '@intafaced/ui';
-// The desk's own order reads (open and closed), so this screen and the desk share one poll and one set of rows.
-export { useClosedOrders, useOpenOrders } from '../desk/data';
 
 export { classifyRefusal, defaultPoller, fmtAmount, fmtPrice, fmtUsd, refusalCopy, useMarkets, useTicker } from '../../../data';
 export type { Decimal, Loadable, MarketRow, PortfolioSummary, RefusalContext, TickerRow } from '../../../data';
 export { fractionDigits } from '../../../data/decimal';
 export { useSession } from '../../../features/session/session';
-export { createTradeApi, type Draft, type Listing, type Order, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+export type { Draft, Listing, Order, Preview, TradeApi } from '../../../features/trade/trade-api';
 export { convertQuoteSchema, convertTradeSchema, createToolApi, type ToolApi } from '../../../features/trade/tool-api';
 export type { ApiResult } from '../../../shared/api';
 export { isHiddenPath } from '../../../app/feature-registry';

@@ -1,3 +1,4 @@
+import { VENUE_SPOT_OTHER_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import { formatAmount, parseAmount } from '../../../shared/money';
 import {
   canonicalDecimal,
@@ -89,7 +90,7 @@ export function gtdClientId(orderKey: string): string {
 }
 
 /** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
-export const OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
+export const OTHER_ORDER_TYPES = VENUE_SPOT_OTHER_ORDER_TYPES;
 
 /** Every self-trade mode the desk names (J-cex-spot-03 #8); only the venue's own published rule can be picked. */
 export const SELF_TRADE_MODES: readonly VenueSelfTradeMode[] = ['cancel_resting', 'cancel_new', 'cancel_both'];
@@ -132,7 +133,7 @@ export function tagProblem(tag: string): boolean {
 }
 
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'rule_unpublished' | 'amount' | 'price' | 'amount_step' | 'price_step' | 'below_min' | 'no_book' | 'no_cap';
+export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'below_min' | 'no_book' | 'no_cap';
 
 /** A rule a spot order is checked against, which the venue may leave unpublished (J-cex-spot-04 #6). */
 export type VenueRule = 'min' | 'band' | 'cap';
@@ -152,12 +153,11 @@ export function bpsAsPercent(bps: string): string {
 }
 
 /**
- * `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). A spot
- * market whose venue publishes no smallest order value, band or open-order cap takes no order at all: the desk never
- * stands in a default (`trade.venue_rule_unpublished`, refused by our door too).
+ * `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`).
+ * Rules the venue itself does not publish (such as Hyperliquid's spot price band) are shown as not published and left
+ * to the venue without blocking or defaulting here (J-cex-spot-04 #6).
  */
 export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
-  if (market.kind === 'spot' && unpublishedRules(market).length > 0) return 'rule_unpublished';
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
   if (fields.type === 'market') {

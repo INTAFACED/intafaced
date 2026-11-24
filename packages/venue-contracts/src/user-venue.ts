@@ -1647,8 +1647,8 @@ export interface UserVenueMarket {
   readonly maxOrderNotional: Amount | null;
   /**
    * The venue's smallest order value in the quote asset (price times size), or `null` when it publishes none. An order
-   * below it is refused `order_below_venue_min`. Never a guessed floor: on a spot market our door refuses an order while
-   * this is `null` (`trade.venue_rule_unpublished`, J-cex-spot-04 #6).
+   * below it is refused `order_below_venue_min`. Never a guessed floor: when a venue leaves a rule unpublished (`null`),
+   * the desk shows it as not published and leaves enforcement to the venue (J-cex-spot-04 #6).
    */
   readonly minOrderNotional: Amount | null;
   /**

@@ -100,6 +100,21 @@ describe("the beta's menus", () => {
     }
   });
 
+  it('shows Activity detail (/money/activity/:id) and Buy and sell (/trade/buy) on the beta (J-portfolio-03 #6 #8)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/money/activity/:id', '/money/activity/tx-1'],
+      ['/trade/buy', '/trade/buy'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    const simpleTrade = tabSpecs('simple', true).find((tab) => tab.door === 'Trade');
+    expect(simpleTrade?.items.map((item) => item.href)).toContain('/trade/buy');
+  });
+
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
     expect(betaRooms()).toBeUndefined();
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);

@@ -15,6 +15,8 @@ export type ReadMarketTerm =
   | 'maxLeverageBps'
   | 'tickSize'
   | 'lotSize'
+  | 'minOrderNotional'
+  | 'maxOpenOrders'
   | 'makerFeeBps'
   | 'takerFeeBps'
   | 'builderFeeCapBps';
@@ -33,6 +35,18 @@ export const BUILDER_FEE_CAP_BPS: Readonly<Record<UserVenueMarket['kind'], Amoun
 };
 
 /**
+ * Hyperliquid's protocol-wide smallest order value: "Order must have minimum value of 10 {quote_token}" (spot) and "$10"
+ * (perps) (Hyperliquid error-responses docs, read 24 Nov 2026).
+ */
+export const MIN_ORDER_NOTIONAL: Amount = parseAmount('10');
+
+/**
+ * Hyperliquid's default open-order cap per account: "a default open order limit of 1000 plus one additional order for
+ * every 5M USDC of volume, capped at a total of 5000" (Hyperliquid rate-limits docs, read 24 Nov 2026).
+ */
+export const DEFAULT_MAX_OPEN_ORDERS = 1000;
+
+/**
  * Every other term of `UserVenueMarket`, fresh for each market: this adapter does not read it, so it is not known (or null), never guessed.
  * A term the contract adds lands here by type: this fails to compile until it names it. When the adapter starts
  * reading a term, move its name into `ReadMarketTerm` and read it in `reads.ts`.
@@ -43,13 +57,10 @@ export function unreadMarketTerms(): Omit<UserVenueMarket, ReadMarketTerm> {
     status: null,
     maxOrderQty: null,
     maxOrderNotional: null,
-    // The smallest order value, price band and open-order cap are rules the venue states in its documentation, not
-    // figures this adapter reads from the info API: each is not published here, never typed in. On spot our door then
-    // refuses an order naming the missing rule (trade.venue_rule_unpublished, J-cex-spot-04 #6) until it is read.
-    minOrderNotional: null,
+    // Hyperliquid publishes no figure for its price band (error-responses docs state only "order too far from reference
+    // price"), so it stays null and is left to Hyperliquid to enforce (J-cex-spot-04 #6).
     priceBandBps: null,
     priceBand: { known: false },
-    maxOpenOrders: null,
     // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours, feed state and home-market session
     // are not read from the info API by this adapter yet: each is not known, never guessed.
     listedBy: { known: false },
