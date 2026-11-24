@@ -372,6 +372,10 @@ test("the beta's Customer build shows only rooms finished in Volt; the switch is
     'the beta wins over a shell',
   );
   assert.equal(userVenueKind(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE), 'hl-testnet');
+  // The journeys' TEST markets stay off the beta's board (#10599): the stack's switch (local-stack-services/trade.mjs)
+  // reads exactly 'off', and the beta wins over a shell.
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_TEST_MARKETS, 'off');
+  assert.equal(stackEnv(betaPaths('/home/x'), { LOCAL_STACK_TEST_MARKETS: 'on' }).LOCAL_STACK_TEST_MARKETS, 'off');
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {

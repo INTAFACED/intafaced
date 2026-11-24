@@ -149,7 +149,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // Opens refuse trade.futures_unconfigured without a profit source, and liquidation prices stay unknown without
     // the ladder. The ladder is the coarse mechanism-test table (ladder-policy.test-harness.ts), not a risk opinion.
     TRADE_FUTURES_ENABLED: 'true',
-    TRADE_FUTURES_TEST_SEED: 'true',
+    // `LOCAL_STACK_TEST_MARKETS=off` (the beta's stack, tooling/beta/beta-host.mjs) keeps every `test = true` listing off
+    // the board and refuses it by symbol: the journeys' TEST fixtures (an untraded book, a shut session, a delisting) are
+    // not markets a tester can use (#10599). The rows stay in the database and come back with the switch.
+    TRADE_FUTURES_TEST_SEED: process.env.LOCAL_STACK_TEST_MARKETS === 'off' ? 'false' : 'true',
     TRADE_FUTURES_JOBS_ENABLED: 'true',
     TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available',
     // `LOCAL_STACK_TRADE_FUTURES_LADDER=off` on a restart leaves the ladder blank, so J-derivatives-02 #2 sees "tiers
