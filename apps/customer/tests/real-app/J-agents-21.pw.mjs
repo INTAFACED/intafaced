@@ -26,9 +26,10 @@ import { DAY, MINUTE, dayStart, minuteStart, utcDay, utcMinuteOf } from './clock
 // is the TEST key signing the venue's own EIP-712 payloads, as the browser wallet does. The TEST venue's own record is
 // read directly on loopback for what the venue reports.
 //
-// Each step from #4 on also ends in the app on /agents/connect, where the person does or sees it: the agent account's
-// own controls (#4 #5 #13 #14 #16), the connection's Activity (#8 #9 #10 #11 #17 #18), Revoke with the TEST wallet in
-// the browser (#12) and the connection's end date (#19).
+// Each step on /agents/connect ends there with its step picture: ceiling-unset refusal (#1), overview (#2), create with
+// reach disclosure, rejected signature and wallet-signed funding (#3), the agent account's own controls (#4 #5 #13 #14
+// #16), connect with shown-once key and MCP setup (#6), the connection's Activity (#8 #9 #10 #11 #17 #18), Revoke with
+// the TEST wallet in the browser (#12) and the connection's end date (#19).
 //
 // The assistant (#8 #9 #10) is played by this test, calling Edge with the agent API key as an outside assistant would,
 // signing each request with the key's signing secret. Its key is made and connected to the agent account through the
@@ -182,6 +183,7 @@ const refused = (res, status, code) => {
 
 test(`${J} #1 With the owner's agent-account ceiling switched off for one restart, presses Create agent account: refused agents.account_ceiling_unset; no account made`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(420_000);
   const account = await signUp(page, 'jagents21');
@@ -198,25 +200,59 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
   expect(same(await venueUsdc(owner()), '1000')).toBe(true);
 
   const subsBefore = (await record('/sub-accounts', { account: await acct(owner()) })).value;
+  const venueInfo = await venue('/venue');
   restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_ACCOUNT_CEILING: 'off' });
   try {
+    await settleSockets();
     const { session } = await person();
     const terms = body200(await session.get(`${BASE}/terms`));
     expect(terms.ceiling).toBeNull();
-    const accountId = randomUUID();
-    const res = await session.post(BASE, { accountId, owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
-    refused(res, 422, 'agents.account_ceiling_unset');
+    // In the app on /agents/connect: the ceiling-unset note is shown, and pressing Create agent account sends the
+    // request to svc-trade, which refuses agents.account_ceiling_unset before step-up, storage or the wallet.
+    const testWallet = await installTestWallet(page, { chainId: venueInfo.chainId, privateKey: state().walletKey });
+    await signIn(page, account);
+    await openConnectPage(page);
+    await expect(page.getByTestId('agent-connect__ceiling')).toHaveText(
+      'No ceiling for agent accounts is set yet, so no agent account can be made.',
+    );
+    const createRoom = page.getByTestId('agent-connect__create');
+    await createRoom.getByRole('button', { name: 'Connect TEST Wallet', exact: true }).click();
+    await expect(createRoom.getByTestId('venue-wallet-address')).toHaveText(owner());
+    await createRoom.getByRole('button', { name: 'Create agent account', exact: true }).click();
+    await page.getByLabel(`Cap (${terms.asset})`, { exact: true }).fill('200');
+    await page.getByLabel(`First move in (${terms.asset})`, { exact: true }).fill('150');
+    await createRoom.locator('form').getByRole('button', { name: 'Create agent account', exact: true }).click();
+    const createAnswer = page.waitForResponse((res) => res.url().endsWith(BASE) && res.request().method() === 'POST');
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Continue', exact: true }).click();
+    const answered = await createAnswer;
+    expect(answered.status()).toBe(422);
+    const shown = await answered.json();
+    expect(shown.intafacedCode).toBe('agents.account_ceiling_unset');
+    const accountId = answered.request().postDataJSON().accountId;
+    expect(accountId).toBeTruthy();
+    await expect(createRoom.getByRole('alert')).toHaveText(`Refused: agents.account_ceiling_unset: ${shown.message}`);
+    await expect(createRoom.getByRole('status')).toHaveCount(0);
+    await expect(page.getByTestId('agent-connect__accounts')).toContainText('You have no agent account yet.');
+    expect(testWallet.requests).toEqual([]);
     // No account made: none listed, nothing asked of the venue, nothing moved.
     expect(body200(await session.get(BASE)).accounts).toEqual([]);
     refused(await session.get(`${BASE}/${accountId}`), 404, 'agents.account_unknown');
     expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
     expect(same(await venueUsdc(owner()), '1000')).toBe(true);
+    await stepPicture();
   } finally {
     restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_ACCOUNT_CEILING: null });
   }
+  await settleSockets();
   const { session } = await person();
   expect(body200(await session.get(`${BASE}/terms`)).ceiling).not.toBeNull();
 });
+
+/** Opens Connect your assistant and waits for its heading. */
+async function openConnectPage(page) {
+  await page.goto('/agents/connect');
+  await expect(page.getByRole('heading', { name: 'Connect your assistant', level: 1, exact: true })).toBeVisible();
+}
 
 test(`${J} #2 With the TEST ceiling back, opens Connect your assistant: what the assistant can do (trade spot and perps in its own account) and what it cannot (move money, withdraw, bank, pay, cards), and a Create agent account control`, async ({
   page,
@@ -225,8 +261,7 @@ test(`${J} #2 With the TEST ceiling back, opens Connect your assistant: what the
   const terms = body200(await session.get(`${BASE}/terms`));
   expect(terms.ceiling).not.toBeNull();
   await signIn(page, state().account);
-  await page.goto('/agents/connect');
-  await expect(page.getByRole('heading', { name: 'Connect your assistant', level: 1 })).toBeVisible();
+  await openConnectPage(page);
   // What it can do: trade spot and perps, in its own account.
   const can = page.getByTestId('agent-connect__can');
   await expect(can.getByRole('heading', { name: 'What your assistant can do' })).toBeVisible();
@@ -248,11 +283,12 @@ test(`${J} #2 With the TEST ceiling back, opens Connect your assistant: what the
 
 test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: the agent's venue account (a venue sub-account, which the TEST venue offers); where the venue's agent permission would reach the person's other accounts, the app says so before the wallet is asked to sign (shown on the TEST venue switched to declare that reach), and where it reaches only the agent account the app says that; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a signature the wallet rejects moves nothing and makes no account`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const s = state();
   const { session } = await person();
-  let passkey = await testPasskey(session);
+  const passkey = await testPasskey(session);
   run.write({ passkey: passkey.saved() });
   const ledgerBefore = await session.balances();
   const mainBefore = await venueUsdc(owner());
@@ -269,8 +305,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
     const page = await context.newPage();
     const testWallet = await installTestWallet(page, { chainId: venueInfo.chainId, privateKey: s.walletKey });
     await browserHoldsPasskey(page, passkey.saved());
-    passkey = await restorePasskey({ ...passkey.saved(), signCount: passkey.saved().signCount + 1000 });
-    run.write({ passkey: passkey.saved() });
+    run.write({ passkey: { ...passkey.saved(), signCount: passkey.saved().signCount + 1000 } });
     await signIn(page, s.account);
     const createRoom = page.getByTestId('agent-connect__create');
     const reach = createRoom.getByTestId('agent-connect__reach');
@@ -327,8 +362,8 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
     // The account the create answers, before its first signature, says the same reach.
     expect(created.agentPermission).toEqual({ venue: venueName, reach: 'own_account_only' });
     expect(created.next).toMatchObject({ step: 'open_sub_account', signed: false });
-    const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
-    await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Check before you sign', exact: true });
+    await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
     await expect(createRoom.getByRole('alert').filter({ hasText: 'You rejected' })).toHaveText(
       'You rejected the signature. Nothing moved and no account was made.',
     );
@@ -348,78 +383,102 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
       'agents.account_not_open',
     );
     expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+
+    // Without step-up: refused, nothing made.
+    const fields = (id) => ({ accountId: id, owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
+    refused(await session.post(BASE, fields(randomUUID())), 403, 'identity.step_up_required');
+    expect(body200(await session.get(BASE)).accounts).toEqual([]);
+
+    // The account: cap 200, first funding 150, with step-up and the browser wallet signing each venue action on /agents/connect.
+    await expect(createRoom.getByTestId('venue-wallet-address')).toHaveText(owner());
+    const reqStart = testWallet.requests.length;
+    await createRoom.getByRole('button', { name: 'Create agent account', exact: true }).click();
+    await page.getByLabel('Cap (USDC)', { exact: true }).fill('200');
+    await page.getByLabel('First move in (USDC)', { exact: true }).fill('150');
+    await createRoom.locator('form').getByRole('button', { name: 'Create agent account', exact: true }).click();
+    await expect(reach).toHaveText(OWN);
+    const createReal = page.waitForResponse((res) => res.url().endsWith(BASE) && res.request().method() === 'POST');
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey', exact: true }).click();
+    const createRealRes = await createReal;
+    expect(createRealRes.status()).toBe(200);
+    let view = await createRealRes.json();
+    const accountId = view.accountId;
+    expect(accountId).toBeTruthy();
+
+    const signed = [];
+    for (let i = 0; view.next && i < 5; i += 1) {
+      signed.push(view.next);
+      const submitAnswer = answerTo(page, accountId, 'submit');
+      await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
+      const answered = await submitAnswer;
+      expect(answered.status()).toBe(200);
+      view = await answered.json();
+    }
+    // The wallet signed, on its own main account: opening the sub-account, the agent permission for that sub-account (a
+    // key that is not the wallet), and the move of 150 from the main venue account into it, under agent:move:<moveId>.
+    expect(signed.map((step) => step.step)).toEqual(['open_sub_account', 'approve_agent', 'move_in']);
+    const signedRequests = testWallet.requests.slice(reqStart);
+    expect(signedRequests.map((r) => r.method)).toEqual(['eth_signTypedData_v4', 'eth_signTypedData_v4', 'eth_signTypedData_v4']);
+    expect(signedRequests.every((r) => Boolean(r.signature))).toBe(true);
+    expect(signed.every((step) => step.prepared.signer.role === 'owner' && step.prepared.signer.address === owner())).toBe(true);
+    const [open, approve, move] = signed.map((step) => step.prepared);
+    expect(open.intent.kind).toBe('create_sub_account');
+    expect(open.account.subAccount).toBeNull();
+    expect(approve.intent.kind).toBe('approve_agent');
+    expect(approve.account.subAccount).toBe(view.subAccount);
+    expect(approve.intent.agentAddress).not.toBe(owner());
+    expect(move.intent).toMatchObject({
+      kind: 'sub_account_transfer',
+      direction: 'into_sub_account',
+      asset: 'USDC',
+      subAccount: view.subAccount,
+    });
+    expect(same(move.intent.amount, '150')).toBe(true);
+    expect(signed[2].actionKey).toBe(`agent:move:${accountId}`);
+    expect(move.intent.moveKey).toBe(`agent:move:${accountId}`);
+
+    // A venue sub-account under the person's wallet, with the agent permission on it and not on the main account.
+    expect(view.status).toBe('open');
+    const subs = (await record('/sub-accounts', { account: await acct(owner()) })).value;
+    expect(subs.map((sub) => sub.subAccount)).toContain(view.subAccount);
+    expect((await record('/agents', { account: await acct(owner(), view.subAccount) })).value.map((a) => a.address)).toEqual([
+      approve.intent.agentAddress,
+    ]);
+    expect((await record('/agents', { account: await acct(owner()) })).value.map((a) => a.address)).not.toContain(
+      approve.intent.agentAddress,
+    );
+    // The agent account reads balance 150.00, as the venue reports it, and cap 200.00.
+    const venueSub = await venueUsdc(owner(), view.subAccount);
+    expect(same(venueSub, '150.00')).toBe(true);
+    const total = view.balances.value.find((b) => b.asset === 'USDC').total;
+    expect(same(total, venueSub)).toBe(true);
+    expect(same(view.cap, '200.00')).toBe(true);
+    // The main venue account falls by exactly 150.00, as the venue reports it.
+    expect(toUnits(mainBefore) - toUnits(await venueUsdc(owner()))).toBe(toUnits('150'));
+    // The move was sent once: its venue transfer record is one move of 150 under the signed nonce; sending the same signed
+    // bytes again moves nothing more.
+    const transfer = (await record('/transfer', { account: await acct(owner()), nonce: move.nonce })).value;
+    expect(transfer).toMatchObject({ subAccount: view.subAccount, direction: 'into_sub_account', asset: 'USDC', status: 'done' });
+    expect(same(transfer.amount, '150')).toBe(true);
+    refused(
+      await session.post(`${BASE}/${accountId}/submit`, { actionKey: `agent:move:${accountId}`, signature: await sign(move) }),
+      409,
+      'agents.account_not_open',
+    );
+    expect(same(await venueUsdc(owner(), view.subAccount), '150')).toBe(true);
+    // INTAFACED holds and moves nothing: our ledger posted nothing for any of it.
+    expect(await session.balances()).toEqual(ledgerBefore);
+    // On /agents/connect: the created account is open in the table with its venue balance 150.00 and cap 200.00.
+    await expect(createRoom.getByRole('status')).toHaveText(
+      `Agent account open: balance ${total} USDC, cap ${view.cap} USDC, as the venue reports it.`,
+    );
+    await expect(page.getByTestId('agent-connect__accounts').getByRole('table')).toBeVisible();
+    await rowShows(page, session, { accountId, subAccount: view.subAccount }, 'Open');
+    await stepPicture(page);
+    run.write({ accountId, subAccount: view.subAccount });
   } finally {
     await context.close();
   }
-
-  // Without step-up: refused, nothing made.
-  const fields = (accountId) => ({ accountId, owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
-  refused(await session.post(BASE, fields(randomUUID())), 403, 'identity.step_up_required');
-  expect(body200(await session.get(BASE)).accounts).toEqual([]);
-
-  // The account: cap 200, first funding 150, with step-up.
-  const accountId = randomUUID();
-  let view = body200(
-    await session.post(BASE, { ...fields(accountId), stepUpApprovalId: await stepUpFor(session, passkey, fields(accountId)) }),
-  );
-  const signed = [];
-  for (let i = 0; view.next && i < 5; i += 1) {
-    signed.push(view.next);
-    view = body200(
-      await session.post(`${BASE}/${accountId}/submit`, { actionKey: view.next.actionKey, signature: await sign(view.next.prepared) }),
-    );
-  }
-  // The wallet signed, on its own main account: opening the sub-account, the agent permission for that sub-account (a
-  // key that is not the wallet), and the move of 150 from the main venue account into it, under agent:move:<moveId>.
-  expect(signed.map((s) => s.step)).toEqual(['open_sub_account', 'approve_agent', 'move_in']);
-  expect(signed.every((s) => s.prepared.signer.role === 'owner' && s.prepared.signer.address === owner())).toBe(true);
-  const [open, approve, move] = signed.map((s) => s.prepared);
-  expect(open.intent.kind).toBe('create_sub_account');
-  expect(open.account.subAccount).toBeNull();
-  expect(approve.intent.kind).toBe('approve_agent');
-  expect(approve.account.subAccount).toBe(view.subAccount);
-  expect(approve.intent.agentAddress).not.toBe(owner());
-  expect(move.intent).toMatchObject({
-    kind: 'sub_account_transfer',
-    direction: 'into_sub_account',
-    asset: 'USDC',
-    subAccount: view.subAccount,
-  });
-  expect(same(move.intent.amount, '150')).toBe(true);
-  expect(signed[2].actionKey).toBe(`agent:move:${accountId}`);
-  expect(move.intent.moveKey).toBe(`agent:move:${accountId}`);
-
-  // A venue sub-account under the person's wallet, with the agent permission on it and not on the main account.
-  expect(view.status).toBe('open');
-  const subs = (await record('/sub-accounts', { account: await acct(owner()) })).value;
-  expect(subs.map((s) => s.subAccount)).toContain(view.subAccount);
-  expect((await record('/agents', { account: await acct(owner(), view.subAccount) })).value.map((a) => a.address)).toEqual([
-    approve.intent.agentAddress,
-  ]);
-  expect((await record('/agents', { account: await acct(owner()) })).value.map((a) => a.address)).not.toContain(
-    approve.intent.agentAddress,
-  );
-  // The agent account reads balance 150.00, as the venue reports it, and cap 200.00.
-  const venueSub = await venueUsdc(owner(), view.subAccount);
-  expect(same(venueSub, '150.00')).toBe(true);
-  expect(same(view.balances.value.find((b) => b.asset === 'USDC').total, venueSub)).toBe(true);
-  expect(same(view.cap, '200.00')).toBe(true);
-  // The main venue account falls by exactly 150.00, as the venue reports it.
-  expect(toUnits(mainBefore) - toUnits(await venueUsdc(owner()))).toBe(toUnits('150'));
-  // The move was sent once: its venue transfer record is one move of 150 under the signed nonce; sending the same signed
-  // bytes again moves nothing more.
-  const transfer = (await record('/transfer', { account: await acct(owner()), nonce: move.nonce })).value;
-  expect(transfer).toMatchObject({ subAccount: view.subAccount, direction: 'into_sub_account', asset: 'USDC', status: 'done' });
-  expect(same(transfer.amount, '150')).toBe(true);
-  refused(
-    await session.post(`${BASE}/${accountId}/submit`, { actionKey: `agent:move:${accountId}`, signature: await sign(move) }),
-    409,
-    'agents.account_not_open',
-  );
-  expect(same(await venueUsdc(owner(), view.subAccount), '150')).toBe(true);
-  // INTAFACED holds and moves nothing: our ledger posted nothing for any of it.
-  expect(await session.balances()).toEqual(ledgerBefore);
-  run.write({ accountId, subAccount: view.subAccount });
 });
 
 // ── The person in the app, on Connect your assistant (#4 #5 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19) ─────────────
@@ -584,6 +643,7 @@ test(`${J} #5 Raises the cap above the owner's TEST ceiling: refused agents.acco
 
 test(`${J} #6 Connects the assistant, first asking for a withdraw scope, then with the trade scopes: the withdraw scope is refused at create auth.agent_scope_forbidden; then a key tagged Agent, bound to the agent account, with trade scopes only, its secret and the MCP setup shown once`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const s = state();
@@ -653,6 +713,8 @@ test(`${J} #6 Connects the assistant, first asking for a withdraw scope, then wi
       expect.objectContaining({ keyId: made[0].id, accountId: s.accountId, subAccount: s.subAccount }),
     ]);
     run.write({ agentKey, agentKeyId: made[0].id, agentSecret });
+    // Take the step picture while the shown-once panel with the key, secret and MCP setup is on screen, before Done closes it.
+    await stepPicture(page);
 
     // Shown once: after Done, and after a fresh load, the page holds neither the key nor its secret.
     await shown.getByRole('checkbox', { name: 'I have saved the key and the setup' }).check();
