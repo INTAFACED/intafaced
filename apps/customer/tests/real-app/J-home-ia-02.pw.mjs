@@ -1,9 +1,11 @@
 // World: stack, restart
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, uuidOf, verifiedBusiness } from './merchant.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, restartService } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, STACK_PORTS, restartService } from './stack.mjs';
 import { ADMIN } from './admin.mjs';
 import { rooms } from '../../src/app/navigation.ts';
 import { isHiddenPath } from '../../src/app/feature-registry.ts';
@@ -405,6 +407,18 @@ async function founderMisses(page) {
   return { total: Number(m[1]), panel };
 }
 
+/** svc-notify's own database, as its own role (the role the service writes with), on the journey stack. */
+async function notifyDb() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-notify', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  return postgres(`postgres://svc_notify:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+}
+
 test(`${J} #6 a search that finds nothing says so plainly, and one miss is counted for the founders without who searched`, async ({
   page,
   founders,
@@ -414,35 +428,54 @@ test(`${J} #6 a search that finds nothing says so plainly, and one miss is count
   // The founders' count before this person's miss, read where the founders read it.
   const { page: desk } = await founders.console('a');
   const before = await founderMisses(desk);
-  await signIn(page, who);
-  await page.goto('/home');
-  const counted = [];
-  page.on('request', (req) => {
-    if ((req.postData() ?? '').includes('search_miss')) counted.push(req.postData());
-  });
-  const words = `zq nothing ${RUN}`;
-  const panel = await search(page, words);
-  await expect(panel.getByRole('status').filter({ hasText: `No results for "${words}"` })).toBeVisible();
-  // Help is still offered, so a miss has somewhere to go.
-  await expect(panel.getByRole('option', { name: 'Open Help', exact: true })).toBeVisible();
-  await stepPicture();
+  const sql = await notifyDb();
+  try {
+    await signIn(page, who);
+    await page.goto('/home');
+    const counted = [];
+    const sentWith = [];
+    page.on('request', async (req) => {
+      if ((req.postData() ?? '').includes('search_miss')) {
+        counted.push(req.postData());
+        sentWith.push(await req.allHeaders());
+      }
+    });
+    const words = `zq nothing ${RUN}`;
+    const panel = await search(page, words);
+    await expect(panel.getByRole('status').filter({ hasText: `No results for "${words}"` })).toBeVisible();
+    // Help is still offered, so a miss has somewhere to go.
+    await expect(panel.getByRole('option', { name: 'Open Help', exact: true })).toBeVisible();
+    await stepPicture();
 
-  // One count of kind search_miss goes to the founders' metrics desk (HM-desks-02), carrying neither the account nor
-  // the words searched (storing the words is a separate owner switch, off while blank).
-  await expect.poll(() => counted.length).toBe(1);
-  expect(counted[0]).not.toContain(words);
-  expect(counted[0]).not.toContain(RUN);
-  expect(counted[0]).not.toContain(who.email);
-  expect(counted[0]).not.toContain(who.handle);
+    // One count of kind search_miss goes to the founders' metrics desk (HM-desks-02), carrying neither the account nor
+    // the words searched (storing the words is a separate owner switch, off while blank).
+    await expect.poll(() => counted.length).toBe(1);
+    expect(counted[0]).not.toContain(words);
+    expect(counted[0]).not.toContain(RUN);
+    expect(counted[0]).not.toContain(who.email);
+    expect(counted[0]).not.toContain(who.handle);
+    // It is sent signed out: no bearer token names the account.
+    await expect.poll(() => sentWith.length).toBe(1);
+    expect(sentWith[0].authorization ?? '', 'the miss carries no bearer token').toBe('');
 
-  // The founders' desk now counts this miss (others' misses may land too, so at least one more), and what it shows is a
-  // count per day: neither the words searched nor who searched appear anywhere on it.
-  await expect.poll(async () => (await founderMisses(desk)).total, { timeout: 30_000 }).toBeGreaterThan(before.total);
-  const after = await founderMisses(desk);
-  await expect(after.panel).not.toContainText(words);
-  await expect(after.panel).not.toContainText(RUN);
-  await expect(after.panel).not.toContainText(who.email);
-  await expect(after.panel).not.toContainText(who.handle);
+    // What svc-notify stores is a number per kind and UTC day and nothing else: its table has no column that could hold
+    // an account or the words. No route says what a table can hold, so this one read stays.
+    // oxlint-disable-next-line garden/no-journey-sql-read -- the table's columns are a fact no route gives
+    const columns = await sql`SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'notify' AND table_name = 'nav_metric_counts' ORDER BY column_name`;
+    expect(columns.map((c) => c.column_name)).toEqual(['count', 'day', 'kind']);
+
+    // The founders' desk now counts this miss (others' misses may land too, so at least one more), and what it shows is a
+    // count per day: neither the words searched nor who searched appear anywhere on it.
+    await expect.poll(async () => (await founderMisses(desk)).total, { timeout: 30_000 }).toBeGreaterThan(before.total);
+    const after = await founderMisses(desk);
+    await expect(after.panel).not.toContainText(words);
+    await expect(after.panel).not.toContainText(RUN);
+    await expect(after.panel).not.toContainText(who.email);
+    await expect(after.panel).not.toContainText(who.handle);
+  } finally {
+    await sql.end();
+  }
 });
 
 /** One authenticated call through Edge as `who`; the answer's data, or an error naming the refusal. */
