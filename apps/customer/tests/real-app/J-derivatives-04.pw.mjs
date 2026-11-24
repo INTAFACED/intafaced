@@ -156,7 +156,7 @@ function shiftPercent(from, to) {
   return `${bps < 0n ? '-' : '+'}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
 }
 
-test(`${J}, the custodial Later branch, checked on our own book: opens the orders room: open orders, history, the trader's own trades and executions, with the desk's own status words`, async ({
+test(`${J} #1, the custodial Later branch, checked on our own book: opens the orders room: open orders, history, the trader's own trades and executions, with the desk's own status words`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -268,11 +268,11 @@ test(`${J}, the custodial Later branch, checked on our own book: opens the order
 // index hold too, so a step that failed while it held leaves the next step's BTC/USDT book quoted.
 test.afterEach(() => {
   const title = test.info().title;
-  if (title.startsWith(`${J}, the custodial Later branch`)) release();
-  if (title.includes('opens the orders room')) releaseIndex();
+  if (title.startsWith(`${J} #1,`) || title.startsWith(`${J} #2,`) || title.startsWith(`${J}, the custodial Later branch`)) release();
+  if (title.startsWith(`${J} #1,`)) releaseIndex();
 });
 
-test(`${J}, the custodial Later branch, checked on our own book: opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
+test(`${J} #2, the custodial Later branch, checked on our own book: opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
   page,
 }) => {
   test.setTimeout(480_000);
