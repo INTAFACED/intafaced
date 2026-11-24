@@ -3317,3 +3317,68 @@ test('a credential-named uuid field gets no sample, since a uuid cannot say it i
     /"id":"11111111-1111-4111-8111-111111111111"/,
   );
 });
+
+test("a caller's schema that names fewer fields than the answer keeps it (callAs), else stays by name", async () => {
+  const { fieldsOf, droppedFields } = await import('./narrow.mjs');
+  const { keepNarrowing } = await import('./index.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-narrow-'));
+  const dir = join(root, 'apps/customer/src/features/session');
+  mkdirSync(dir, { recursive: true });
+  // The past mistake (identity's auth.refresh): the page's session schema drops the refresh token the router answers with.
+  const router = join(root, 'router.ts');
+  writeFileSync(
+    router,
+    [
+      "import { z } from 'zod';",
+      'const base = z.object({ accessToken: z.string(), expiresAt: z.string() });',
+      'export const sessionOutput = base.extend({ refreshToken: z.string().optional(), userId: z.string() }).strict();',
+      'export const wide = z.object({ a: z.string() }).passthrough();',
+    ].join('\n'),
+  );
+  const caller = join(dir, 'restore.ts');
+  writeFileSync(
+    caller,
+    [
+      "import { z } from 'zod';",
+      'const sessionSchema = z.object({ accessToken: z.string(), expiresAt: z.string(), userId: z.string() });',
+      'const whole = z.object({ accessToken: z.string(), expiresAt: z.string(), userId: z.string(), refreshToken: z.string().optional() });',
+      "export const a = () => api.mutate('identity', 'auth.refresh', {}, sessionSchema);",
+      "export const b = () => api.mutate('identity', 'auth.refresh', {}, whole);",
+      "export const c = () => founderCall(x, 'identity', 'auth.refresh', {}, parse(sessionSchema));",
+    ].join('\n'),
+  );
+  const r = load(router);
+  const c = load(caller);
+  const out = r.program.body[2].declaration.declarations[0].init;
+  const decl = (i) => c.program.body[i].declarations[0].init;
+  assert.deepEqual(fieldsOf(r, out), ['accessToken', 'expiresAt', 'refreshToken', 'userId']);
+  assert.equal(fieldsOf(r, r.program.body[3].declaration.declarations[0].init), undefined, 'passthrough keeps every field: unknown');
+  assert.deepEqual(droppedFields(c, decl(1), r, out), ['refreshToken']);
+  assert.deepEqual(droppedFields(c, decl(2), r, out), []);
+
+  const callOf = (i) => c.program.body[i].declaration.declarations[0].init.body;
+  const site = (i, shape) => ({ file: caller, shape, node: callOf(i), path: 'auth.refresh' });
+  const narrow = site(3, 'mutate');
+  const same = site(4, 'mutate');
+  const hand = [];
+  const kept = keepNarrowing([narrow, same], [r, out], hand);
+  assert.deepEqual(kept, [narrow, same]);
+  assert.equal(narrow.checked, 'sessionSchema', 'the narrowing caller reads through its own schema');
+  assert.equal(same.checked, undefined, 'a caller that names every field takes the record as it is');
+  assert.deepEqual(hand, []);
+
+  // Outside the customer app there is no callAs: the call stays by name, naming what it drops.
+  const adminFile = join(root, 'apps/admin/src/x.ts');
+  mkdirSync(dirname(adminFile), { recursive: true });
+  writeFileSync(adminFile, readFileSync(caller, 'utf8'));
+  const a = load(adminFile);
+  const adminSite = {
+    file: adminFile,
+    shape: 'mutate',
+    node: a.program.body[3].declaration.declarations[0].init.body,
+    path: 'auth.refresh',
+  };
+  const left = [];
+  assert.equal(keepNarrowing([adminSite], [r, out], left).length, 0);
+  assert.match(left[0].why, /drops refreshToken from the answer/);
+});
