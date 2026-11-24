@@ -727,12 +727,22 @@ export const features: readonly Feature[] = [
   },
   {
     id: 'owner-blank-pages',
-    label: 'Platform status, trading rulebook and support chat',
-    paths: ['/status', '/rulebook', '/support/chat'],
+    label: 'Platform status, trading rulebook, support chat, official channels and the money mule policy',
+    paths: ['/status', '/rulebook', '/support/chat', '/help/official-channels', '/help/mule-policy'],
     status: 'blocked',
     reason:
-      'Owner values not set: the components the status page reports on, the published rulebook, and support hours, so each page says it is blank',
-    unlock: 'the owner sets the status components, publishes the rulebook and sets support hours',
+      'Owner values not set: the components the status page reports on, the published rulebook, support hours, the official channel list and the mule policy wording, so each page says it is blank or shows TEST text',
+    unlock: 'the owner sets the status components, publishes the rulebook, the channel list and the mule policy, and sets support hours',
+    tab: 'public',
+  },
+  {
+    id: 'chain-protocol',
+    label: 'INTACHAIN explorer and the Protocol room',
+    paths: ['/chain', '/chain/*', '/protocol', '/protocol/*'],
+    status: 'blocked',
+    reason:
+      'Every action in these rooms carries a standing blocker (features/protocol/blockers.ts roomStandingBlockers: no chain service, no bridge service, not audited), so each room only reads a test network and says it is not launched',
+    unlock: 'INTACHAIN runs its chain service and the external audit is published',
     tab: 'public',
   },
   {
@@ -742,8 +752,6 @@ export const features: readonly Feature[] = [
       '/help',
       '/helplist',
       '/helpdetail',
-      '/help/official-channels',
-      '/help/mule-policy',
       '/help/category/:id',
       '/help/section/:id',
       '/support',

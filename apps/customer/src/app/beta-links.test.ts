@@ -96,6 +96,13 @@ const PARKED = [
   '/support/chat',
   '/market/strategy',
   '/uc/recharge',
+  // Rooms whose every action has a standing blocker, and pages whose owner text is unpublished.
+  '/chain',
+  '/chain/blocks',
+  '/protocol',
+  '/protocol/rails',
+  '/help/official-channels',
+  '/help/mule-policy',
 ];
 const VENUE = ['/uc/trading-permissions', '/trade/positions', '/trade/account', '/trade/staking', '/trade/vaults', '/fees'];
 
