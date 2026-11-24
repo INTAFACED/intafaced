@@ -1,7 +1,8 @@
 // Every app call that names its service and call by strings: the shapes `garden/no-call-by-name` counts
 // (tooling/lint/oxlint-plugin-garden/call-by-name-rule.js), each with what a rewrite needs, or the reason it can't be.
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, walk } from './ast.mjs';
 import { fanOut, valuesOf } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
@@ -174,7 +175,14 @@ function deskRead(p, n) {
     const kind = kindProp ? literal(kindProp.value) : 'query';
     if (kind !== 'query' && kind !== 'mutation') continue;
     const inputProp = obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'input');
+    // A file that takes only types from a server-only entry may be read by a client component: a value import of the
+    // helper would pull the server code into the browser bundle (admin's account search, read by `'use client'`).
+    const problem =
+      helperFrom && type.typeOnly && serverOnly(p.file, helperFrom)
+        ? `${helper} comes from ${helperFrom}, which is server-only, and this file takes only its types: a client file may read it`
+        : undefined;
     return {
+      ...(problem ? { problem } : {}),
       module: literal(moduleProp.value),
       path: literal(n.value),
       kind,
@@ -186,6 +194,17 @@ function deskRead(p, n) {
     };
   }
   return undefined;
+}
+
+/** Whether an import names a module that starts `import 'server-only'`: a relative file, or `@/` under its app's src. */
+function serverOnly(file, from) {
+  const app = /^(.*\/apps\/[^/]+)\//.exec(file)?.[1];
+  const base =
+    from.startsWith('@/') && app ? join(app, 'src', from.slice(2)) : from.startsWith('.') ? join(dirname(file), from) : undefined;
+  if (!base) return false;
+  for (const f of [`${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')])
+    if (existsSync(f)) return /^\s*import ['"]server-only['"]/m.test(readFileSync(f, 'utf8').split('\n').slice(0, 5).join('\n'));
+  return false;
 }
 
 /** The keys every bank write spec has beside its call (`ActionSpec`, apps/customer/src/features/money/components.tsx). */

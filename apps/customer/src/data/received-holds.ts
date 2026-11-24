@@ -46,13 +46,15 @@ export const RECEIVED_HOLD_CODES = [
 ] as const;
 export type ReceivedHoldCode = (typeof RECEIVED_HOLD_CODES)[number];
 
-export type Outcome<T> = { kind: 'ok'; data: T } | { kind: 'refused'; code: ReceivedHoldCode } | { kind: 'failed' };
+/** `failed` keeps any other code the bank gave, so a screen can tell a person not yet verified from a read that broke. */
+export type Outcome<T> = { kind: 'ok'; data: T } | { kind: 'refused'; code: ReceivedHoldCode } | { kind: 'failed'; code?: string };
 
 const known = (code: string | undefined): code is ReceivedHoldCode => (RECEIVED_HOLD_CODES as readonly string[]).includes(code ?? '');
 
 function outcome<T>(result: { ok: true; data: T } | { ok: false; code?: string }): Outcome<T> {
   if (result.ok) return { kind: 'ok', data: result.data };
-  return known(result.code) ? { kind: 'refused', code: result.code } : { kind: 'failed' };
+  if (known(result.code)) return { kind: 'refused', code: result.code };
+  return result.code ? { kind: 'failed', code: result.code } : { kind: 'failed' };
 }
 
 export const fetchReceiveRule = async (api: ApiClient, signal?: AbortSignal) =>

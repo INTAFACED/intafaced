@@ -446,6 +446,9 @@ const script = resolve(here, 'local-test-stack.mjs');
     const rails = Object.keys(unset).filter((name) => name.startsWith('LEDGER_RECONCILE_RAIL_'));
     assert.deepEqual(rails.sort(), ['LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL', 'LEDGER_RECONCILE_RAIL_PAYOUT_SIM_URL']);
     for (const name of rails) assert.equal(unset[name], 'http://127.0.0.1:14525/statement');
+    // The TEST venue and TEST partner report from the same server (J-ops-console-07 #4).
+    assert.equal(unset.LEDGER_RECONCILE_REPORT_VENUE_URL, 'http://127.0.0.1:14525/report');
+    assert.equal(unset.LEDGER_RECONCILE_REPORT_PARTNER_URL, 'http://127.0.0.1:14525/report');
     // A LOCAL TEST clock skew bound, so a joint-restore watermark can be read as of a cut-off (OPS-ledger-desk-05).
     assert.equal(unset.LEDGER_CLOCK_SKEW_BOUND_MS, '1000');
     process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
@@ -622,6 +625,26 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
   }
   console.log('local-test-stack: the copy country list blank switch blanks only TRADE_COPY_JURISDICTION_LAW');
+}
+
+// LOCAL_STACK_TEST_MARKETS=off (the beta's stack) keeps the journeys' TEST listings off svc-trade's board (#10599):
+// only TRADE_FUTURES_TEST_SEED turns false; unset, the journeys' stack lists them as before.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = process.env.LOCAL_STACK_TEST_MARKETS;
+  try {
+    delete process.env.LOCAL_STACK_TEST_MARKETS;
+    const set = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(set.TRADE_FUTURES_TEST_SEED, 'true', 'the journeys see the TEST listings');
+    process.env.LOCAL_STACK_TEST_MARKETS = 'off';
+    const off = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(off.TRADE_FUTURES_TEST_SEED, 'false', 'the off switch must keep the TEST listings off the board');
+    assert.deepEqual({ ...off, TRADE_FUTURES_TEST_SEED: 'true' }, set, 'the off switch must change nothing else in trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TEST_MARKETS;
+    else process.env.LOCAL_STACK_TEST_MARKETS = before;
+  }
+  console.log('local-test-stack: the TEST markets off switch turns off only TRADE_FUTURES_TEST_SEED');
 }
 
 // LOCAL_STACK_TRADE_COPY_LEAD_BALANCE=blank leaves only the TEST least venue balance to lead blank, so
@@ -1139,8 +1162,24 @@ try {
 // The only Customer build call is inside the `!override` guard in ensureBuilt.
 assert.match(
   source,
-  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{\s*VITE_TEAM_URL: TEAM_TLS_ORIGIN,\s*INTAFACED_SOURCEMAP: 'hidden',\s*(\/\/[^\n]*\s*)*\.\.\.\(process\.env\.INTAFACED_BETA_VOLT_ONLY === '1' \? \{ INTAFACED_BETA_VOLT_ONLY: '1' \} : \{\}\),\s*\}\);/,
+  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{\s*VITE_TEAM_URL: TEAM_TLS_ORIGIN,\s*INTAFACED_SOURCEMAP: 'hidden',\s*(\/\/[^\n]*\s*)*\.\.\.\(betaVoltBuild\(\) \? \{ INTAFACED_BETA_VOLT_ONLY: '1' \} : \{\}\),\s*\}\);/,
 );
+// A Customer build made with another beta switch is stale, so the beta rebuilds it with the switch and a plain stack
+// without it (#10599). A stamp from before this rule has no switch recorded: stale on the beta only.
+{
+  const { ownCustomerDistOk } = await import('./local-test-stack.mjs');
+  const teamUrl = 'https://127.0.0.1:1';
+  const built = { customerTeamUrl: teamUrl, customerPositions: true };
+  const ok = (stamp, betaVolt) => ownCustomerDistOk(stamp, { indexExists: true, teamUrl, betaVolt });
+  assert.equal(ok(built, false), true, 'a plain stack keeps a build from before the rule');
+  assert.equal(ok(built, true), false, 'the beta rebuilds a build that has no switch recorded');
+  assert.equal(ok({ ...built, customerBetaVolt: false }, true), false, 'the beta rebuilds a build made without its switch');
+  assert.equal(ok({ ...built, customerBetaVolt: true }, true), true, 'the beta keeps a build made with its switch');
+  assert.equal(ok({ ...built, customerBetaVolt: true }, false), false, 'a plain stack rebuilds the beta build');
+  assert.equal(ownCustomerDistOk({ ...built, customerBetaVolt: true }, { indexExists: false, teamUrl, betaVolt: true }), false);
+  assert.equal(ok({ ...built, customerTeamUrl: 'https://other' }, false), false, 'another Team link stays stale');
+  assert.match(source, /customerBetaVolt: override \? stamp\.customerBetaVolt : betaVoltBuild\(\),/, 'each own build records its switch');
+}
 // Its Team link points at the console's TEST HTTPS front: the build's HTTPS-only check stays as it is (TeamDesk.tsx).
 assert.match(source, /const TEAM_TLS_ORIGIN = `https:\/\/\$\{HOST\}:\$\{PORTS\['team-tls'\]\}`;/);
 assert.match(source, /serveTeamTls\(\{ host: HOST, port: PORTS\['team-tls'\], target: ADMIN_ORIGIN, \.\.\.ensureTestCert\(P\.tls\) \}\)/);

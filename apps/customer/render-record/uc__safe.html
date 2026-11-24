@@ -196,15 +196,17 @@
 <span lang="en" dir="ltr" data-i18n="account.security.memory">Your setup key and recovery codes are shown once. Save them before you leave this page.</span>
 </p>
 </section>
-<div data-testid="failure" class="lt-refusal" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.invalid_response">Information could not be verified</span>
-</h3>
-<p class="lt-refusal-body" lang="en">The service response could not be verified.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<section data-testid="security__card" aria-label="Your devices" lang="en">
+<h2>Your devices</h2>
+<p>Each row is a device you are signed in on. Signing a device out ends its sign-in; it has to sign in again.</p>
+<ul data-testid="security__rows">
+</ul>
+<button aria-expanded="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Show more (2 idle for over a day)</button>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Sign out all other devices</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Refresh</button>
 </div>
+</section>
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>

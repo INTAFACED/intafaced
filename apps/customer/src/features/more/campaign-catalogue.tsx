@@ -4,7 +4,8 @@ import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Select } from '@intafaced/ui/lit';
 import { FailureBox, LoadingLine, RecordTable } from '../../shared/record/record-parts';
-import { EmptyNote } from './volt-parts';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { Gift } from 'lucide-react';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { CAMPAIGNS_CATALOGUE_LIST, CAMPAIGNS_CATALOGUE_GET } from '@intafaced/contracts/campaigns-catalogue-procedures';
 import { CAMPAIGNS_PARTICIPATION_MINE } from '@intafaced/contracts/campaigns-participation-procedures';
@@ -100,9 +101,13 @@ export function CampaignCatalogue() {
           ) : catalogue.resource.status === 'failed' ? (
             <FailureBox result={catalogue.resource.failure} retry={catalogue.reload} />
           ) : catalogue.resource.data.campaigns.length === 0 ? (
-            <EmptyNote title={<Copy k="catalogueNone" />}>
-              <Copy k="catalogueNoneBody" />
-            </EmptyNote>
+            <FirstState
+              icon={<Gift size={24} />}
+              title={t('catalogueNone')}
+              body={t('catalogueNoneBody')}
+              points={[t('firstPointCompete'), t('firstPointTasks'), t('firstPointVouchers')]}
+              action={{ label: t('firstCatalogueAction'), href: '/campaigns/mine' }}
+            />
           ) : (
             <CampaignTable
               campaigns={catalogue.resource.data.campaigns.filter((c) => (!type || c.type === type) && (!status || c.state === status))}
@@ -178,7 +183,12 @@ export function MyCampaigns() {
         ) : mine.resource.status === 'failed' ? (
           <FailureBox result={mine.resource.failure} retry={mine.reload} />
         ) : mine.resource.data.campaigns.length === 0 ? (
-          <EmptyNote title={<Copy k="mineNone" />} />
+          <FirstState
+            icon={<Gift size={24} />}
+            title={t('mineNone')}
+            body={t('mineNoneBody')}
+            action={{ label: t('firstMineAction'), href: '/campaigns' }}
+          />
         ) : (
           <RecordTable label={t('mineLabel')} headers={[t('colName'), t('colType'), t('colState'), t('colWindow'), t('colJoined')]}>
             {mine.resource.data.campaigns.map(({ campaign: c, participation }) => (

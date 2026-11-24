@@ -4,8 +4,11 @@ import { KeyBuckets, parseRouteCosts, routeCost } from './rate-bucket.js';
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '33333333-3333-4333-8333-333333333333';
 const KID = '22222222-2222-4222-8222-222222222222';
+const KID2 = '44444444-4444-4444-8444-444444444444';
+// A per-user budget far above one key's, for the tests of one key's own bucket.
+const ROOMY = { burst: 1000, refillPerMinute: 60_000 } as const;
 // TEST values: burst 5, refill 60 a minute (one token a second).
-const LIMIT = { tier: 'base', burst: 5, refillPerMinute: 60 } as const;
+const LIMIT = { tier: 'base', burst: 5, refillPerMinute: 60, user: ROOMY } as const;
 
 describe('the key token bucket (ENGINE RL-1 to RL-4, T-20)', () => {
   it('allows calls until the burst is spent, then refuses with retry-after = missing tokens over the rate, rounded up', () => {
@@ -43,7 +46,7 @@ describe('the key token bucket (ENGINE RL-1 to RL-4, T-20)', () => {
   it('a granted refill applies from the next call and never fills the bucket above its burst', () => {
     const buckets = new KeyBuckets();
     for (let i = 0; i < 5; i += 1) buckets.take(KID, USER, LIMIT, 1, 0);
-    const granted = { tier: 'granted', burst: 5, refillPerMinute: 600 } as const;
+    const granted = { tier: 'granted', burst: 5, refillPerMinute: 600, user: ROOMY } as const;
     // Ten tokens a second: after 300 ms three are back, where the tier would have given none.
     expect(buckets.take(KID, USER, granted, 3, 300)).toMatchObject({ ok: true, remaining: 0 });
     expect(buckets.usage(KID, USER, 60_000)).toMatchObject({ remaining: 5, burst: 5, refillPerMinute: 600 });
@@ -76,11 +79,44 @@ describe('the key token bucket (ENGINE RL-1 to RL-4, T-20)', () => {
     buckets.prune(3_600_001);
     expect(buckets.usage(KID, USER, 3_600_001).state).toBe('none');
     // Burst 1000 refilling 10 a minute: an hour of quiet refills only 600, so the bucket stays and keeps its limit.
-    const slow = { tier: 'base', burst: 1000, refillPerMinute: 10 } as const;
+    const slow = { tier: 'base', burst: 1000, refillPerMinute: 10, user: { burst: 2000, refillPerMinute: 60_000 } } as const;
     buckets.take(KID, USER, slow, 1000, 0);
     buckets.prune(3_660_000);
     expect(buckets.usage(KID, USER, 3_660_000)).toMatchObject({ state: 'counted', remaining: 610 });
     expect(buckets.take(KID, USER, slow, 700, 3_660_000).ok).toBe(false);
+  });
+});
+
+describe('the per-user budget every key of one account shares (J-cex-spot-15 #7)', () => {
+  // TEST values: each key bursts 5; the account's keys together burst 7, refilling one token a second.
+  const SHARED = { tier: 'base', burst: 5, refillPerMinute: 60, user: { burst: 7, refillPerMinute: 60 } } as const;
+
+  it('two keys of one account spend one budget: past it the call is refused user, with the wait the budget needs', () => {
+    const buckets = new KeyBuckets();
+    for (let i = 0; i < 5; i += 1) expect(buckets.take(KID, USER, SHARED, 1, 0).ok).toBe(true);
+    // The second key's own bucket is full, but only two of the account's seven tokens are left.
+    expect(buckets.take(KID2, USER, SHARED, 1, 0)).toMatchObject({ ok: true, remaining: 1 });
+    expect(buckets.take(KID2, USER, SHARED, 1, 0)).toMatchObject({ ok: true, remaining: 0 });
+    expect(buckets.take(KID2, USER, SHARED, 1, 0)).toEqual({ ok: false, reason: 'user', retryAfterSeconds: 1, cost: 1, burst: 5 });
+    // A refused call spends nothing: a second later one token is back in the budget, and the call passes.
+    expect(buckets.take(KID2, USER, SHARED, 1, 1_000)).toMatchObject({ ok: true });
+    expect(buckets.usage(KID2, USER, 1_000)).toMatchObject({ used: 3, refused: 1 });
+  });
+
+  it('another account, or the same account in the sandbox, has a budget of its own', () => {
+    const buckets = new KeyBuckets();
+    for (let i = 0; i < 5; i += 1) buckets.take(KID, USER, SHARED, 1, 0);
+    for (let i = 0; i < 2; i += 1) buckets.take(KID2, USER, SHARED, 1, 0);
+    expect(buckets.take(KID2, USER, SHARED, 1, 0).ok).toBe(false);
+    expect(buckets.take('55555555-5555-4555-8555-555555555555', OTHER, SHARED, 1, 0).ok).toBe(true);
+    expect(buckets.take('66666666-6666-4666-8666-666666666666', USER, { ...SHARED, tier: 'sandbox' }, 1, 0).ok).toBe(true);
+  });
+
+  it('a key spent past its own burst is still refused global, not user', () => {
+    const buckets = new KeyBuckets();
+    const wide = { ...SHARED, user: { burst: 50, refillPerMinute: 60 } };
+    for (let i = 0; i < 5; i += 1) buckets.take(KID, USER, wide, 1, 0);
+    expect(buckets.take(KID, USER, wide, 1, 0)).toMatchObject({ ok: false, reason: 'global' });
   });
 });
 

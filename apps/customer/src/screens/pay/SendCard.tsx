@@ -9,6 +9,7 @@ import { usePreferences } from '../../shared/preferences';
 import {
   applyPrefill,
   bankPendingKey,
+  classifyFailure,
   cleanNote,
   contactLabel,
   contactsFrom,
@@ -46,6 +47,7 @@ import {
   type StepUpMethod,
 } from './deps';
 import { payCopy } from './copy';
+import { SpacesRefused } from './SpacesRefused';
 import { personalCopy } from './personal-copy';
 import { copyText } from './share';
 import { stepUpAgain, stepUpProblem, type StepUpHow } from './send-step-up';
@@ -132,21 +134,31 @@ export function SendCard({
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
   const [revision, reload] = useReducer((n: number) => n + 1, 0);
   // The list stays on screen while it is read again after a payment, so the receipt is never torn down by a reload.
-  const [sources, setSources] = useState<{ owner: string | null; state: 'loading' | 'error' | { list: Source[] } }>({
+  // `refused`: the bank answered why it won't list them (a person not yet verified), said in its own words, never as a failure.
+  const [sources, setSources] = useState<{
+    owner: string | null;
+    state: 'loading' | 'error' | { refused: string } | { list: Source[] };
+  }>({
     owner: null,
     state: 'loading',
   });
-  const spacesRead = useResource<Source[] | null>(
-    (signal) => pay.spaces(signal).then((result) => ({ ok: true as const, data: result.ok ? sourcesFrom(result.data, Date.now()) : null })),
+  const spacesRead = useResource<Source[] | { refused: string } | null>(
+    (signal) =>
+      pay.spaces(signal).then((result) => {
+        if (result.ok) return { ok: true as const, data: sourcesFrom(result.data, Date.now()) };
+        const failure = classifyFailure(result);
+        return { ok: true as const, data: failure.kind === 'refused' ? { refused: failure.code } : null };
+      }),
     `pay:send:spaces:${userId}:${revision}`,
   );
   // A list that has just arrived is taken once; a failed read keeps the list already on screen for this account.
-  const [spacesSeen, setSpacesSeen] = useState<Resource<Source[] | null> | null>(null);
+  const [spacesSeen, setSpacesSeen] = useState<Resource<Source[] | { refused: string } | null> | null>(null);
   if (spacesRead.resource.status === 'ready' && spacesRead.resource !== spacesSeen) {
     setSpacesSeen(spacesRead.resource);
     const list = spacesRead.resource.data;
     setSources((previous) => {
-      if (list) return { owner: userId, state: { list } };
+      if (Array.isArray(list)) return { owner: userId, state: { list } };
+      if (list) return { owner: userId, state: list };
       return previous.owner === userId && typeof previous.state === 'object' ? previous : { owner: userId, state: 'error' };
     });
   }
@@ -178,6 +190,7 @@ export function SendCard({
         actions={<Button onClick={() => retrySources()}>{payCopy.t('Retry')}</Button>}
       />
     );
+  if ('refused' in loaded) return <SpacesRefused code={loaded.refused} />;
   return (
     <SendForm
       api={api}
@@ -1205,11 +1218,18 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
 }
 
 const labelOf = (row: Source) => (row.name ? `${row.asset} · ${row.name}` : row.asset);
-/** The space the money leaves, by the name the bank keeps for it ("Main" for the main space). */
+/**
+ * The space the money leaves, by the name the bank keeps for it ("Main" for the main space), and the partner bank's
+ * account when the partner holds it (J-pay-01 #3: the source is the partner account).
+ */
 const labelFrom = (row: Source) =>
-  row.space
-    ? payCopy.t('Your {asset}, {name} space', { asset: row.asset, name: row.space })
-    : payCopy.t('Your {asset}', { asset: row.asset });
+  row.heldAt
+    ? row.name
+      ? payCopy.t('Your {asset}, {name} space at {partner}', { asset: row.asset, name: row.name, partner: row.heldAt })
+      : payCopy.t('Your {asset} account at {partner}', { asset: row.asset, partner: row.heldAt })
+    : row.space
+      ? payCopy.t('Your {asset}, {name} space', { asset: row.asset, name: row.space })
+      : payCopy.t('Your {asset}', { asset: row.asset });
 
 /** "Nov 2026" for `2026-11`, in the reader's language. Null when the month is not one. */
 function memberMonth(month: string | null, locale: string): string | null {

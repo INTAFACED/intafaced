@@ -1,5 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, type FounderCallResult, founderRecordRead } from '@/lib/desk';
+import { type FounderCallContext, type FounderCallResult, founderRecordRead } from '@/lib/desk';
 import { customerReference, OUTCOMES, type AgentsLogAction, type CustomerReference } from './model';
 import {
   AGENTS_OPS_LOG_REASONS,
@@ -7,6 +7,7 @@ import {
   AGENTS_OPS_LOG_ACTIONS,
   AGENTS_OPS_LOG_EXPORT,
 } from '@intafaced/contracts/agents-ops-log-procedures';
+import { IDENTITY_ACCOUNT_DIRECTORY_SEARCH } from '@intafaced/contracts/identity-account-directory-procedures';
 
 /**
  * The agent action log desk's hops, always as the signed-in founder through svc-edge: identity resolves a handle to its
@@ -47,11 +48,9 @@ export async function resolveCustomer(ctx: FounderCallContext, ref: CustomerRefe
   if (ref.kind === 'id') return { kind: 'ok', userId: ref.value };
   let cursor: string | null = null;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const result: FounderCallResult<SearchPage> = await founderCall(
+    const result: FounderCallResult<SearchPage> = await founderRecordRead(
       ctx,
-      'identity',
-      'accountDirectory.search',
-      'GET',
+      IDENTITY_ACCOUNT_DIRECTORY_SEARCH,
       { handle: ref.value, ...(cursor ? { cursor } : {}) },
       parseSearchPage,
     );

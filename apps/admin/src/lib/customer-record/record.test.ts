@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SUPPORT_DESK_ACCOUNT_STATE } from '@intafaced/contracts/support-desk-procedures';
 import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
+import { IDENTITY_KYC_LIST_DOCUMENTS } from '@intafaced/contracts/identity-kyc-procedures';
 import { readData } from '@/lib/ops-desk';
 import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
@@ -90,9 +91,13 @@ describe('what each tab reads', () => {
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: mountRecord\(\s*TRADE_ACCOUNT_CONTROLS_HISTORY,/);
     expect(TRADE_ACCOUNT_CONTROLS_HISTORY.access).toEqual({ caller: 'signedIn' });
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
-    expect(service('svc-identity/src/router.ts')).toMatch(
-      /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.guid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
-    );
+    expect(service('svc-identity/src/router.ts')).toMatch(/listDocuments: mountRecord\(\s*IDENTITY_KYC_LIST_DOCUMENTS,/);
+    expect(IDENTITY_KYC_LIST_DOCUMENTS.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
+    expect(Object.keys(IDENTITY_KYC_LIST_DOCUMENTS.input.shape)).toEqual(['userId', 'limit']);
+    for (const limit of [undefined, 0, 201])
+      expect(IDENTITY_KYC_LIST_DOCUMENTS.input.safeParse({ userId: USER, limit }).success).toBe(false);
+    expect(IDENTITY_KYC_LIST_DOCUMENTS.input.safeParse({ userId: USER, limit: 200 }).success).toBe(true);
+    for (const field of Object.keys(IDENTITY_KYC_LIST_DOCUMENTS.output.element.shape)) expect(field).not.toMatch(/bytes|ciphertext/i);
     const allowlist = service('svc-pay/src/withdrawals/allowlist/router.ts');
     expect(allowlist).toMatch(/\bmode: founder/);
     expect(allowlist).toMatch(/\bpolicy: founder/);

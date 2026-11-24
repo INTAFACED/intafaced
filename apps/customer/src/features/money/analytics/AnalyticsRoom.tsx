@@ -1,7 +1,8 @@
 // volt-room: /bank/analytics
 import { useMemo, useState } from 'react';
 import { Button, Field, Select } from '@intafaced/ui/lit';
-import { Bars, MonitorTemplate } from '@intafaced/ui/lit/templates';
+import { Bars, FirstState, MonitorTemplate } from '@intafaced/ui/lit/templates';
+import { ChartPie } from 'lucide-react';
 import { BANK_ANALYTICS_SPEND } from '@intafaced/contracts/bank-analytics-procedures';
 import { currentPreferences } from '../../../shared/preferences';
 import { t as copyText, Text } from '../copy';
@@ -88,6 +89,16 @@ export function AnalyticsRoom() {
       related={<StatementsLink />}
       panels={
         <div className="lt-stack">
+          {assets.length === 0 && held.resource.status === 'ready' ? (
+            // A new account holds nothing yet: the room says what it will show and the one step that fills it.
+            <FirstState
+              icon={<ChartPie size={24} />}
+              title={depth.t('analyticsFirstTitle')}
+              body={depth.t('analyticsFirstBody')}
+              points={[depth.t('analyticsFirstCategories'), depth.t('analyticsFirstBudgets'), depth.t('analyticsFirstCompare')]}
+              action={{ label: depth.t('analyticsFirstAction'), href: '/uc/recharge' }}
+            />
+          ) : null}
           {assetId && (
             <>
               <AnalyticsBudgets assetId={assetId} />

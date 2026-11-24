@@ -1,6 +1,6 @@
 /**
  * The planted cases of journey-list-guard.mjs: main's own journey list passes; a dropped journey, a dropped step, a step
- * taken out of the live count, an unknown slice id and a retirement line without an OWNER number each fail; a strict `Journey-retired:` line with an OWNER number passes, and one in
+ * taken out of the live count, an unknown slice id and a retirement line without a decision each fail; a strict `Journey-retired:` line with an OWNER number or a project-state decision PR passes, and one in
  * code or a comment does not. Two tests run the script itself against a scratch git repository: one on its own, one on
  * a merge built on an older main after main added a journey (judged against the main it was built on).
  */
@@ -74,7 +74,7 @@ test('planted: an unknown slice id fails', async () => {
   );
 });
 
-test('planted: a retirement line without an OWNER number fails; with one it passes', async () => {
+test('planted: a retirement line without a decision fails; with an OWNER number or a decision PR it passes', async () => {
   const head = withoutStep();
   const step = `${target.id} #${target.steps.at(-1).n}`;
   for (const bad of [
@@ -82,6 +82,11 @@ test('planted: a retirement line without an OWNER number fails; with one it pass
     `Journey-retired: ${step} (OWNER)`,
     `Journey-retired: ${step} OWNER 183`,
     `Journey-retired: ${step} (owner 183)`,
+    `Journey-retired: ${step} (decision #3989)`,
+    `Journey-retired: ${step} (decision project-state 3989)`,
+    `Journey-retired: ${step} (Decision project-state#3989)`,
+    `Journey-retired: ${step} (decision project-state#)`,
+    `Journey-retired: ${step} (decision project-state#3989) and more`,
   ]) {
     const v = await verdict(head, bad);
     assert.equal(v.ok, false, bad);
@@ -92,6 +97,8 @@ test('planted: a retirement line without an OWNER number fails; with one it pass
   }
   assert.deepEqual(await verdict(head, `Why.\n\nJourney-retired: ${step} (OWNER 183)\n`), { ok: true, lines: [] });
   assert.deepEqual(await verdict(withoutJourney(), `Journey-retired: ${target.id} (OWNER 183)`), { ok: true, lines: [] });
+  assert.deepEqual(await verdict(head, `Journey-retired: ${step} (decision project-state#3989)`), { ok: true, lines: [] });
+  assert.deepEqual(await verdict(withoutJourney(), `Journey-retired: ${target.id} (decision project-state#3989)`), { ok: true, lines: [] });
   // The printed line, with its placeholder filled in, is accepted.
   const printed = retireLine(drops(JOURNEYS, head)).replace('<n>', '183');
   assert.deepEqual(await verdict(head, printed), { ok: true, lines: [] });

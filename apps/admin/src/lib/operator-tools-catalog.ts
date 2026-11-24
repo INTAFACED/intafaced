@@ -13,9 +13,14 @@ import {
   IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
   IDENTITY_KYC_CAPABILITIES_GET_FOR,
   IDENTITY_KYC_CAPABILITIES_SET,
+  IDENTITY_KYC_APPROVE,
 } from '@intafaced/contracts/identity-kyc-procedures';
 import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
 import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
+import {
+  IDENTITY_COMPLIANCE_FREEZE_IDENTITY,
+  IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY,
+} from '@intafaced/contracts/identity-compliance-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -120,9 +125,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'KYC approve',
     summary: 'Approve a pending KYC record — grants custodial access at that tier. Requires MFA on the token.',
-    edgeModule: 'identity',
-    procedure: 'kyc.approve',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_KYC_APPROVE),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -246,9 +249,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'Freeze identity',
     summary: 'Freeze a user: status frozen, sessions revoked, sub-accounts revoked.',
-    edgeModule: 'identity',
-    procedure: 'compliance.freezeIdentity',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_COMPLIANCE_FREEZE_IDENTITY),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -259,9 +260,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'Unfreeze identity',
     summary: 'Restore a frozen user to active. Does not re-open revoked sub-accounts.',
-    edgeModule: 'identity',
-    procedure: 'compliance.unfreezeIdentity',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,

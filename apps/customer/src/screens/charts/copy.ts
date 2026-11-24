@@ -177,6 +177,7 @@ const messages = {
     'Source: executed trades on this venue; seeded fills are not counted. A quiet interval is drawn as a flat bar at the previous close, marked filled: no trade happened in it.',
   // The chart's settings, kept on this device.
   'Chart settings': 'Chart settings',
+  'Chart tools': 'Chart tools',
   'Settings sections': 'Chart settings sections',
   'Settings tab symbol': 'Symbol',
   'Settings tab status': 'Status line',

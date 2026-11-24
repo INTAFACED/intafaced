@@ -1,7 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
 import { RefusalBox, Sheet, Skeleton } from '@intafaced/ui/lit/templates';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import type { Resource } from '../../../shared/resource';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
 import { payAuthoredMessage, payCopy } from '../copy';
@@ -22,6 +23,7 @@ export function MethodsFailure({ result, retry }: { result: Failed; retry?: () =
   const body = authored ?? (result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message);
   const lang = authored !== undefined ? pay.requestedLocale : result.messageCopy ? languageFor(result.messageCopy.key) : 'und';
   const signIn = result.reason === 'unauthorized';
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div role={result.reason === 'uncertain' ? 'alert' : 'status'} lang={lang}>
       <RefusalBox

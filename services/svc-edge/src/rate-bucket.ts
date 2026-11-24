@@ -6,7 +6,10 @@ import { z } from 'zod';
  * The key's token bucket (DV-limits-01, J-developer-06 #2 #3; ENGINE RL-1 to RL-4).
  *
  * Each API key spends from one bucket of `burst` tokens that refills at `refillPerMinute`; a call spends its route's
- * cost from the owner's cost table (`EDGE_RATE_ROUTE_COSTS`). Identity hands the key's limit over in the exchange. A
+ * cost from the owner's cost table (`EDGE_RATE_ROUTE_COSTS`). Every key of one account, in one environment, also spends
+ * from the account's per-user budget (`limit.user`, J-cex-spot-15 #7): a call passes only when both hold its cost, and
+ * then spends from both; a call the per-user budget refuses is refused `user` and spends from neither. Identity hands
+ * the key's limit over in the exchange. A
  * blank limit or a route with no cost allows nothing: the call is refused with `edge.limits_unset` or `edge.cost_unset`
  * and never metered against a default.
  *
@@ -79,9 +82,18 @@ export type Take =
       readonly burst: number;
     };
 
-/** Every key's bucket on this replica. An unused key's bucket is dropped once it would be full again. */
+/** One account's per-user budget in one environment. */
+interface UserBucket {
+  tokens: number;
+  at: number;
+  burst: number;
+  refillPerMinute: number;
+}
+
+/** Every key's bucket and every account's per-user bucket on this replica. An unused bucket is dropped once it would be full again. */
 export class KeyBuckets {
   private readonly buckets = new Map<string, Bucket>();
+  private readonly users = new Map<string, UserBucket>();
   private takes = 0;
 
   /** Spend `cost` tokens of key `kid`, owned by `userId`, under `limit`. A clock that moved back adds nothing. */
@@ -108,6 +120,17 @@ export class KeyBuckets {
     bucket.at = Math.max(bucket.at, now);
     bucket.burst = limit.burst;
     bucket.refillPerMinute = limit.refillPerMinute;
+    const userKey = `${userId}:${limit.tier === 'sandbox' ? 'sandbox' : 'live'}`;
+    let user = this.users.get(userKey);
+    if (!user) {
+      user = { tokens: limit.user.burst, at: now, burst: limit.user.burst, refillPerMinute: limit.user.refillPerMinute };
+      this.users.set(userKey, user);
+    }
+    const userPerMs = limit.user.refillPerMinute / 60_000;
+    user.tokens = Math.min(limit.user.burst, user.tokens + Math.max(0, now - user.at) * userPerMs);
+    user.at = Math.max(user.at, now);
+    user.burst = limit.user.burst;
+    user.refillPerMinute = limit.user.refillPerMinute;
     if (cost > limit.burst) {
       bucket.refused += 1;
       return {
@@ -123,14 +146,24 @@ export class KeyBuckets {
       const missing = cost - bucket.tokens;
       return { ok: false, reason: 'global', retryAfterSeconds: Math.max(1, Math.ceil(missing / perMs / 1000)), cost, burst: limit.burst };
     }
+    if (user.tokens + 1e-9 < cost) {
+      bucket.refused += 1;
+      const missing = cost - user.tokens;
+      return { ok: false, reason: 'user', retryAfterSeconds: Math.max(1, Math.ceil(missing / userPerMs / 1000)), cost, burst: limit.burst };
+    }
     bucket.tokens -= cost;
     bucket.used += cost;
+    user.tokens -= cost;
+    // What a client may still send: the tighter of the key's own bucket and the account's per-user budget.
     return {
       ok: true,
-      remaining: Math.floor(bucket.tokens + 1e-9),
+      remaining: Math.floor(Math.min(bucket.tokens, user.tokens) + 1e-9),
       cost,
       burst: limit.burst,
-      fullInSeconds: Math.ceil((limit.burst - bucket.tokens) / perMs / 1000),
+      fullInSeconds: Math.max(
+        Math.ceil((limit.burst - bucket.tokens) / perMs / 1000),
+        Math.ceil((limit.user.burst - user.tokens) / userPerMs / 1000),
+      ),
     };
   }
 
@@ -161,6 +194,10 @@ export class KeyBuckets {
     for (const [kid, bucket] of this.buckets) {
       const full = bucket.tokens + Math.max(0, now - bucket.at) * (bucket.refillPerMinute / 60_000) >= bucket.burst;
       if (now - bucket.at > 3_600_000 && full) this.buckets.delete(kid);
+    }
+    for (const [key, user] of this.users) {
+      const full = user.tokens + Math.max(0, now - user.at) * (user.refillPerMinute / 60_000) >= user.burst;
+      if (now - user.at > 3_600_000 && full) this.users.delete(key);
     }
   }
 }

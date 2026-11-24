@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { shownCode } from '../../../shared/reference';
 import { ArrowDownUp, ChevronDown, History, Info } from 'lucide-react';
 import '../buy/buy.css';
 import './convert.css';
@@ -443,7 +444,7 @@ function ConvertCard({
       case 'refused': {
         const action = outcome.copy.action;
         setDialogMessage({
-          text: `${outcome.copy.title}. ${outcome.copy.body}${outcome.code ? ` (Ref ${outcome.code.trim().slice(0, 80)})` : ''}`,
+          text: `${outcome.copy.title}. ${outcome.copy.body}${shownCode(outcome.code) ? ` (Ref ${outcome.code!.trim().slice(0, 80)})` : ''}`,
           action,
           code: outcome.code,
         });
@@ -734,7 +735,7 @@ function ConvertCard({
               className="buy-state"
               title={state.copy.title}
               body={state.copy.body}
-              code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
+              code={state.copy.reference ?? (shownCode(state.code) ? `Ref ${state.code!.trim().slice(0, 80)}` : undefined)}
               action={state.copy.action}
             />
           ) : null}

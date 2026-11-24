@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Loading } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import { amount, bps, date, positiveMoney, type ActionSpec, useBankRecord } from './components';
 import { LOAN_ELIGIBILITY_KEYS, type LoanEligibility, type LoanFees, type LoanQuote } from './contracts';
 import { DepthPanel, DisabledAction } from './DepthParts';
@@ -42,6 +43,7 @@ export function applyRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message'>)
 
 function Refused({ failure, retry }: { failure: Failed; retry: () => void }) {
   const { t } = loanApplyCopy.useCopy();
+  if (isVerifyFirst(failure)) return <VerifyFirstNote code={failure.code} />;
   return (
     <div role="alert" className="error-text" data-code={failure.code ?? ''}>
       <p>{applyRefusal(t, failure)}</p>

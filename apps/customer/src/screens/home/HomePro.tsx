@@ -613,7 +613,9 @@ export function HomePro() {
       hero={<Summary portfolio={portfolio} hidden={hideBalances} launch={launch} />}
       // The label row, the figure and two lines under it (a unit note and today's change): one height while loading and
       // once loaded, so nothing below moves when the balance arrives.
-      heroReserve={2}
+      // A refused balance is a final answer with its own box and button, so it keeps only its own height: holding the
+      // figure's room under it left an empty band.
+      heroReserve={portfolio.status === 'refused' ? undefined : 2}
       actions={actions}
       pro={stats}
       sections={

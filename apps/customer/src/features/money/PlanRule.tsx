@@ -2,11 +2,12 @@ import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { formatAmount, parseAmount } from '../../shared/money';
 import { useSession } from '../session';
-import { funds, useBankRead } from './components';
+import { funds, useBankRecord } from './components';
 import type { AccountTerms } from './contracts';
 import { planRuleCopy } from './plan-rule-copy';
 import { RefusalCode } from '../../shared/RefusalCode';
 import { withCode } from '../../shared/reference';
+import { BANK_ACCOUNTS_FEATURES } from '@intafaced/contracts/bank-accounts-procedures';
 
 /**
  * The plan's rule for paying more than the balance holds (J-bank-02 #8), read from the owner's published terms
@@ -85,7 +86,7 @@ export function PlanRuleText({ resource, reload }: { resource: Resource<AccountT
 /** The plan's terms for the active profile, so a room can show the rule and use it in its own review. */
 export function usePlanTerms() {
   const { profiles } = useSession();
-  return useBankRead('accounts.features', { profile: profiles.active });
+  return useBankRecord(BANK_ACCOUNTS_FEATURES, { profile: profiles.active });
 }
 
 export function PlanRule({ plan }: { plan: ReturnType<typeof usePlanTerms> }) {

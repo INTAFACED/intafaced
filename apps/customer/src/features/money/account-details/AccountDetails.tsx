@@ -3,11 +3,12 @@ import { Select } from '@intafaced/ui/lit';
 import type { Resource } from '../../../shared/resource';
 import { ReadFailure, ReadLoading } from '../../../shared/read-state';
 import { useSession } from '../../session';
-import { useBankRead } from '../components';
+import { useBankRecord } from '../components';
 import type { AccountDetailSet, AccountDetailsRow } from '../contracts';
 import { accountDetailsCopy } from '../account-details-copy';
 import { CopyValue, DisabledAction, Panel } from './parts';
 import { RefusalCode } from '../../../shared/RefusalCode';
+import { BANK_ACCOUNT_DETAILS_LIST } from '@intafaced/contracts/bank-account-details-procedures';
 
 /**
  * The account numbers a bank transfer to the customer uses, one block per currency (BK-acct-03). Every value is the banking
@@ -99,7 +100,7 @@ export function AccountDetailsPanel({ framed = false }: { framed?: boolean }) {
   const { t } = accountDetailsCopy.useCopy();
   const { profiles } = useSession();
   // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  const read = useBankRecord(BANK_ACCOUNT_DETAILS_LIST, { profile: profiles.active });
   return (
     <Panel title={t('detailsTitle')} lead={t('detailsLead')} framed={framed}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />
@@ -114,7 +115,7 @@ export function AccountDetailsPanel({ framed = false }: { framed?: boolean }) {
 export function AccountDetailsByCurrency() {
   const { t } = accountDetailsCopy.useCopy();
   const { profiles } = useSession();
-  const read = useBankRead('accountDetails.list', { profile: profiles.active });
+  const read = useBankRecord(BANK_ACCOUNT_DETAILS_LIST, { profile: profiles.active });
   const [currency, setCurrency] = useState('');
   // Another profile has its own rows: the choice starts again.
   useEffect(() => setCurrency(''), [profiles.active]);

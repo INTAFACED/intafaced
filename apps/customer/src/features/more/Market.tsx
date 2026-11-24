@@ -1,4 +1,5 @@
 import { Tabs } from '@intafaced/ui/lit/templates';
+import { Store } from 'lucide-react';
 import { t as copyText, Text } from './copy';
 import { useRef, useState } from 'react';
 import {
@@ -247,6 +248,22 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               : category
                 ? marketListingCopy.t('categoryEmpty')
                 : copyText('market.no.listings.are.available')
+          }
+          first={
+            strategy || category
+              ? undefined
+              : {
+                  icon: <Store size={24} />,
+                  body: mine ? marketListingCopy.t('firstMineBody') : marketListingCopy.t('firstBody'),
+                  points: mine
+                    ? undefined
+                    : [
+                        marketListingCopy.t('firstPointOneTime'),
+                        marketListingCopy.t('firstPointSubscriptions'),
+                        marketListingCopy.t('firstPointSellers'),
+                      ],
+                  action: { label: marketListingCopy.t('firstAction'), href: '/market/strategy' },
+                }
           }
         >
           {(allRows) => {
