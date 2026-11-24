@@ -27,8 +27,8 @@
  * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
  * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
  * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
- * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml) builds it in CI with the workflow's own
- * read-only token and keeps it as an artifact; nothing pushes it to main.
+ * 7561-R1 #2). Main trust's `map` job (main-trust.yml) builds it in CI after each green journeys run on main, with the
+ * job's own read-only token, and keeps it as an artifact; nothing pushes it to main.
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
@@ -887,35 +887,48 @@ export function runsBehind(map, runs, repo = REPO) {
   ).length;
 }
 
-/** The workflow that builds the map after every green full run on main, and the artifact it uploads. */
-export const MAP_WORKFLOW = 'journey-reach-map.yml';
+/** The workflow that builds the map after every green full run on main (its `map` job), and the artifact it uploads only
+ *  once the build is verified. */
+export const MAP_WORKFLOW = 'main-trust.yml';
 export const MAP_ARTIFACT = 'journey-reach-map';
+/** The map's own workflow until 24 Nov 2026 (project-state#4001, step 4a): it uploaded the artifact even when verify
+ *  failed, so its builds count only from a run that succeeded. Read until the last of its artifacts expires (14 days). */
+export const OLD_MAP_WORKFLOW = 'journey-reach-map.yml';
 
 /**
- * Which build of the map speaks for main, from a list of MAP_WORKFLOW's runs: the newest one that succeeded (so its
- * verify step passed) and was started by main's own journeys run (`workflow_run`, which always runs the default
- * branch's workflow and skips its build for any other branch's run; a dispatch runs whatever ref it names, so it never
- * counts), in this repository, and was created no later than `before` (ms; the journeys run's own creation,
- * so its touch job and the seal pick the same build), or null. (Failure it prevents: on 9 Nov 2026 the committed map
+ * Which build of the map speaks for main, from a list of workflow runs that hold a MAP_ARTIFACT: the newest one started
+ * by main's own journeys run (`workflow_run`, which always runs the default branch's workflow; a dispatch runs whatever
+ * ref it names, so it never counts), in this repository, created no later than `before` (ms; the journeys run's own
+ * creation, so its touch job and the seal pick the same build), and verified: a MAP_WORKFLOW run uploads the artifact
+ * only after its verify step passed (its other jobs may still run, or fail, so its conclusion is not read), and an
+ * OLD_MAP_WORKFLOW run only counts when it succeeded. Or null. (Failure it prevents: on 9 Nov 2026 the committed map
  * was built from runs up to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's
  * journeys ran all 33 shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
  */
 export function mapBuild(runs, { before = Infinity, repo = REPO } = {}) {
+  const verified = (r) => {
+    const path = String(r?.path ?? '');
+    if (path.endsWith(`/${MAP_WORKFLOW}`)) return true;
+    return path.endsWith(`/${OLD_MAP_WORKFLOW}`) && r?.status === 'completed' && r?.conclusion === 'success';
+  };
   return (
     (runs ?? [])
       .filter(
         (r) =>
-          r?.status === 'completed' &&
-          r?.conclusion === 'success' &&
+          verified(r) &&
           r?.head_branch === 'main' &&
           r?.head_repository?.full_name === repo &&
           r?.event === 'workflow_run' &&
-          String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
           Date.parse(r?.created_at) <= before,
       )
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
   );
 }
+
+/** How long after its run's creation a build's artifact can appear: the build job's timeout, with a minute to spare. */
+const BUILD_MS = 31 * 60_000;
+/** How many runs builtMap reads at most to find the build `before` names (each is one GET). */
+const RUN_READS = 12;
 
 /** Whether a map holds what mapProblem needs before its age: version, reach mode, enough runs, journeys. Pure. */
 const usable = (m) =>
@@ -936,19 +949,32 @@ export function newerMap(built, committed) {
 }
 
 /**
- * The newest built map main's map workflow uploaded no later than `before` (mapBuild), or null when there is none or it
- * can't be read. `get(path)` returns the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
+ * The newest built map main's map job uploaded for a run created no later than `before` (mapBuild), or null when there is
+ * none or it can't be read. The repository's MAP_ARTIFACT artifacts are listed newest first; those whose run can have
+ * been created by `before` (the artifact is at most BUILD_MS younger than its run) have their run read, and mapBuild
+ * picks among them. `get(path)` returns the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
  */
 export async function builtMap({ get, raw, before = Date.now(), repo = REPO }) {
   try {
-    const runs = (await get(`/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&status=success&per_page=100`))
-      ?.workflow_runs;
+    const listed = (await get(`/repos/${repo}/actions/artifacts?name=${MAP_ARTIFACT}&per_page=100`))?.artifacts ?? [];
+    const arts = listed
+      .filter(
+        (a) =>
+          a?.name === MAP_ARTIFACT &&
+          !a?.expired &&
+          a?.workflow_run?.head_branch === 'main' &&
+          Date.parse(a?.created_at) <= before + BUILD_MS,
+      )
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      .slice(0, RUN_READS);
+    const runs = [];
+    for (const a of arts) {
+      const run = await get(`/repos/${repo}/actions/runs/${a.workflow_run.id}`);
+      if (run?.id === a.workflow_run.id) runs.push(run);
+    }
     const run = mapBuild(runs, { before, repo });
     if (!run) return null;
-    const art = ((await get(`/repos/${repo}/actions/runs/${run.id}/artifacts?name=${MAP_ARTIFACT}`))?.artifacts ?? []).find(
-      (a) => a?.name === MAP_ARTIFACT && !a?.expired,
-    );
-    if (!art) return null;
+    const art = arts.find((a) => a.workflow_run.id === run.id);
     const dir = mkdtempSync(join(tmpdir(), 'reach-map-'));
     try {
       const zip = join(dir, 'a.zip');

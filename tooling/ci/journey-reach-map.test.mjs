@@ -39,7 +39,7 @@ import {
 } from './journey-reach-map.mjs';
 import { checkoutHead, journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
@@ -1401,35 +1401,109 @@ if (args[0] === 'api') {
   }
 });
 
-// ---- The map main's map workflow built, instead of a committed copy nobody refreshes (the OG, project-state#1574, 23:51 UTC 9 Nov) ----
+// ---- The map main's map job built, instead of a committed copy nobody refreshes (the OG, project-state#1574, 23:51 UTC 9 Nov) ----
 
 const mapRun = (id, created, over = {}) => ({
   id,
-  status: 'completed',
-  conclusion: 'success',
+  status: 'in_progress', // Main trust's other jobs may still run: its map job uploaded the artifact only once verified
+  conclusion: null,
   head_branch: 'main',
   event: 'workflow_run',
-  path: '.github/workflows/journey-reach-map.yml',
+  path: '.github/workflows/main-trust.yml',
   created_at: created,
   head_repository: { full_name: REPO },
   ...over,
 });
+const oldRun = (id, created, over = {}) =>
+  mapRun(id, created, { status: 'completed', conclusion: 'success', path: '.github/workflows/journey-reach-map.yml', ...over });
 
 test('mapBuild: the newest verified build from main, created no later than the journeys run', () => {
   const runs = [
     mapRun(1, '2026-11-09T15:00:00Z'),
-    mapRun(2, '2026-11-09T18:00:00Z'),
+    oldRun(2, '2026-11-09T18:00:00Z'),
     mapRun(3, '2026-11-09T23:00:00Z'),
-    mapRun(4, '2026-11-09T19:00:00Z', { conclusion: 'failure' }), // its verify step failed
+    oldRun(4, '2026-11-09T19:00:00Z', { conclusion: 'failure' }), // the old workflow uploaded even when verify failed
     mapRun(5, '2026-11-09T20:00:00Z', { head_branch: 'u4/x', event: 'workflow_dispatch' }), // another branch's builder
     mapRun(8, '2026-11-09T23:30:00Z', { event: 'workflow_dispatch' }), // a dispatch runs whatever ref it names (a tag called main)
+    oldRun(9, '2026-11-09T23:40:00Z', { event: 'workflow_dispatch' }),
+    mapRun(10, '2026-11-09T23:50:00Z', { event: 'pull_request' }), // a fork's branch called main
     mapRun(6, '2026-11-09T21:00:00Z', { head_repository: { full_name: 'someone/fork' } }),
     mapRun(7, '2026-11-09T22:00:00Z', { path: '.github/workflows/other.yml' }),
   ];
   assert.equal(mapBuild(runs, { repo: REPO })?.id, 3);
   assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T22:30:00Z'), repo: REPO })?.id, 2);
+  assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T17:00:00Z'), repo: REPO })?.id, 1);
   assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T14:00:00Z'), repo: REPO }), null);
   assert.equal(mapBuild(null), null);
+});
+
+test('main-trust.yml builds the map only after a green journeys run on main, and keeps it under its name only once verified', () => {
+  const wf = readFileSync(join(ROOT_DIR, '.github/workflows/main-trust.yml'), 'utf8');
+  const job = wf.slice(wf.indexOf('\n  map:\n'));
+  assert.ok(wf.indexOf('\n  map:\n') > 0, 'a map job');
+  assert.match(wf, /workflows: \[[^\]]*\bReal-app journeys\b[^\]]*\]/);
+  for (const term of [
+    "github.event.workflow_run.name == 'Real-app journeys'",
+    "github.event.workflow_run.conclusion == 'success'",
+    "github.event.workflow_run.head_branch == 'main'",
+    'github.event.workflow_run.head_repository.full_name == github.repository',
+  ])
+    assert.ok(job.includes(term), term);
+  const kept = job.indexOf('name: journey-reach-map\n');
+  const upload = job.lastIndexOf('- uses: actions/upload-artifact@', kept);
+  assert.ok(job.indexOf('verify --map') > 0 && job.indexOf('verify --map') < upload, 'verify runs before the upload');
+  assert.doesNotMatch(job.slice(upload, kept), /\bif:/, 'the verified map is uploaded only when every step before passed');
+  assert.match(job, /name: journey-reach-map-unverified\n/);
+  assert.ok(!existsSync(join(ROOT_DIR, '.github/workflows/journey-reach-map.yml')), 'no second builder');
+});
+
+test('builtMap: reads the build’s artifact; any failed read is null, so the committed map stays', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'built-map-test-'));
+  try {
+    writeFileSync(join(dir, 'journey-reach-map.json'), mapText(MAP));
+    execFileSync('zip', ['-q', 'a.zip', 'journey-reach-map.json'], { cwd: dir });
+    const zip = readFileSync(join(dir, 'a.zip'));
+    const art = (id, run, created, over = {}) => ({
+      id,
+      name: 'journey-reach-map',
+      expired: false,
+      created_at: created,
+      workflow_run: { id: run, head_branch: 'main' },
+      ...over,
+    });
+    const runs = {
+      3: mapRun(3, '2026-11-09T23:00:00Z'),
+      4: mapRun(4, '2026-11-09T23:20:00Z', { event: 'workflow_dispatch' }),
+      5: oldRun(5, '2026-11-09T20:00:00Z'),
+    };
+    const artifacts = [
+      art(78, 4, '2026-11-09T23:25:00Z'), // a dispatch's build: never read
+      art(77, 3, '2026-11-09T23:05:00Z'),
+      art(76, 5, '2026-11-09T20:05:00Z'),
+      art(75, 9, '2026-11-09T23:06:00Z', { workflow_run: { id: 9, head_branch: 'u4/x' } }), // another branch's: its run not read
+    ];
+    const asked = [];
+    const get = async (path) => {
+      asked.push(path);
+      if (path.endsWith('/actions/artifacts?name=journey-reach-map&per_page=100')) return { artifacts };
+      const id = /\/actions\/runs\/(\d+)$/.exec(path)?.[1];
+      if (id && runs[id]) return runs[id];
+      throw new Error(`unexpected ${path}`);
+    };
+    const zips = (want) => async (path) => (path.endsWith(`/artifacts/${want}/zip`) ? zip : null);
+    assert.deepEqual(await builtMap({ get, raw: zips(77), repo: REPO }), MAP);
+    assert.ok(!asked.some((p) => p.endsWith('/runs/9')), 'a build from another branch has no run read');
+    // The journeys run created before build 3's run: build 5, the old workflow's green run.
+    assert.deepEqual(await builtMap({ get, raw: zips(76), before: Date.parse('2026-11-09T22:00:00Z'), repo: REPO }), MAP);
+    // No build of main by then (the dispatch's is never one): none.
+    assert.equal(await builtMap({ get, raw: zips(78), before: Date.parse('2026-11-09T19:00:00Z'), repo: REPO }), null);
+    assert.equal(await builtMap({ get: async () => Promise.reject(new Error('HTTP 502')), raw: zips(77), repo: REPO }), null);
+    const expired = async (path) =>
+      path.includes('/actions/artifacts?') ? { artifacts: artifacts.map((a) => ({ ...a, expired: true })) } : get(path);
+    assert.equal(await builtMap({ get: expired, raw: zips(77), repo: REPO }), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('newerMap: the built map when it is usable and newer than the committed one, else the committed one', () => {
@@ -1440,32 +1514,6 @@ test('newerMap: the built map when it is usable and newer than the committed one
   assert.equal(newerMap({ ...MAP, mode: 'full' }, older), older);
   assert.equal(newerMap({ ...MAP, v: 99 }, older), older);
   assert.equal(newerMap(MAP, null), MAP);
-});
-
-test('builtMap: reads the build’s artifact; any failed read is null, so the committed map stays', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'built-map-test-'));
-  try {
-    writeFileSync(join(dir, 'journey-reach-map.json'), mapText(MAP));
-    execFileSync('zip', ['-q', 'a.zip', 'journey-reach-map.json'], { cwd: dir });
-    const zip = readFileSync(join(dir, 'a.zip'));
-    const asked = [];
-    const get = async (path) => {
-      asked.push(path);
-      if (path.includes('/workflows/journey-reach-map.yml/runs')) return { workflow_runs: [mapRun(3, '2026-11-09T23:00:00Z')] };
-      if (path.endsWith('/runs/3/artifacts?name=journey-reach-map'))
-        return { artifacts: [{ id: 77, name: 'journey-reach-map', expired: false }] };
-      throw new Error(`unexpected ${path}`);
-    };
-    const got = await builtMap({ get, raw: async (path) => (path.endsWith('/artifacts/77/zip') ? zip : null), repo: REPO });
-    assert.deepEqual(got, MAP);
-    assert.match(asked[0], /branch=main&status=success/);
-    assert.equal(await builtMap({ get: async () => Promise.reject(new Error('HTTP 502')), raw: async () => zip, repo: REPO }), null);
-    const expired = async (path) =>
-      path.includes('/artifacts?') ? { artifacts: [{ id: 77, name: 'journey-reach-map', expired: true }] } : get(path);
-    assert.equal(await builtMap({ get: expired, raw: async () => zip, repo: REPO }), null);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test('planted: a committed map too old to read makes a one-service change full; the fresh build narrows it, and the seal picks the build the run chose', async () => {
