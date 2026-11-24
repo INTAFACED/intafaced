@@ -4,7 +4,8 @@
 //! (`crate::refines`). `tests/input_parity.rs` holds every schema to zod's own verdicts.
 //!
 //! The same tree holds each call's output schema (what tRPC parses a handler's answer with) and the row schemas the
-//! handlers check each row with as they read it (`BlueprintRow`, `MentorMatchRow` in `blueprint-service.ts`).
+//! handlers check each row with as they read it (`BlueprintRow`, `MentorMatchRow` in
+//! `services/svc-blueprint/src/rows.ts`).
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;

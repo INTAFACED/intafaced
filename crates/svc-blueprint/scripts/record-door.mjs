@@ -47,7 +47,8 @@ process.env.INTAFACED_SCREENING_FAIL_CLOSED = 'off';
 process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 const { createBlueprintRouter } = await import(`${SVC}router.ts`);
-const { BlueprintService, BlueprintError, BlueprintRow, MentorMatchRow } = await import(`${SVC}blueprint-service.ts`);
+const { BlueprintService, BlueprintError } = await import(`${SVC}blueprint-service.ts`);
+const { BlueprintRow, MentorMatchRow } = await import(`${SVC}rows.ts`);
 const zeroPii = await import(`${SVC}attestations/zero-pii.ts`);
 // The service's own packages, resolved from the service as its tests resolve them.
 const fromService = createRequire(`${SVC}index.ts`);
