@@ -1,3 +1,4 @@
+import { keccak256, toHex } from 'viem';
 import { add, compare, div, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   assertSignatureMatches,
@@ -51,6 +52,16 @@ import {
   type UserSignedPrimaryType,
 } from './signing.js';
 import { bpsToPercentString, bpsToTenths, priceProblem, rateToBps, sizeProblem, toWire } from './wire.js';
+
+/** "The expiration can be at most 180 days in the future." */
+const AGENT_EXPIRY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
+/** How long a revoke's keyless stand-in holds a named agent's slot before the venue prunes it. */
+const REVOKE_STAND_IN_MS = 24 * 60 * 60 * 1000;
+
+/** An address no one holds the key to (a hash, not a public key), new for each revoke: the agent that replaces a revoked one. */
+export function keylessStandIn(revoked: string, nonce: string): string {
+  return `0x${keccak256(toHex(`intafaced hyperliquid revoked agent ${revoked.toLowerCase()} ${nonce}`)).slice(-40)}`;
+}
 
 /**
  * THE HYPERLIQUID TESTNET `UserVenue` — the customer's own testnet account, signed by the customer's wallet.
@@ -440,15 +451,45 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         );
       }
       case 'approve_agent': {
+        const name = intent.agentName;
+        if (name.trim() === '') throw refusal(venueId, 'venue_rejected', 'an agent needs a name, so it can be listed and replaced');
+        // The venue reads an expiry out of the name, so a name never carries one of its own.
+        if (/valid_until/.test(name)) throw refusal(venueId, 'venue_rejected', 'an agent name cannot hold "valid_until"');
+        let wireName = name;
         if (intent.validUntil !== null) {
-          throw refusal(venueId, 'not_offered', 'an agent expiry is not offered by this adapter yet: approve without one');
+          // The venue takes an expiry only in the name: `<name> valid_until <ms>`, at most 180 days ahead
+          // (exchange endpoint, "Approve an API wallet"). Checked against the nonce, so a rebuild at submit agrees.
+          const until = intent.validUntil.getTime();
+          const at = Number(nonce);
+          if (!Number.isSafeInteger(until) || until <= at)
+            throw refusal(venueId, 'venue_rejected', 'an agent expiry must be ahead of the approval');
+          if (until - at > AGENT_EXPIRY_MAX_MS)
+            throw refusal(venueId, 'not_offered', 'an agent expiry is at most 180 days ahead on this venue');
+          wireName = `${name} valid_until ${until}`;
         }
-        if (intent.agentName.trim() === '')
-          throw refusal(venueId, 'venue_rejected', 'an agent needs a name, so it can be listed and replaced');
         return userSigned(
           'HyperliquidTransaction:ApproveAgent',
           'approveAgent',
-          { agentAddress: intent.agentAddress.toLowerCase(), agentName: intent.agentName },
+          { agentAddress: intent.agentAddress.toLowerCase(), agentName: wireName },
+          'nonce',
+        );
+      }
+      case 'revoke_agent': {
+        // The venue has no revoke. An agent is deregistered when another is approved under its name (the account's one
+        // unnamed agent by another unnamed one) ("Nonces and API wallets"). So a revoke approves, under the agent's own
+        // name, an address nobody holds a key for: derived from the revoked address and this nonce, so it is new every
+        // time and never approved again. A named stand-in lapses a day later and frees its slot.
+        const address = intent.agentAddress.toLowerCase();
+        const listed = (await this.agents(account)).value.find((a) => a.address === address);
+        if (!listed) throw refusal(venueId, 'venue_rejected', `${address} is not an agent on this account: there is nothing to revoke`);
+        const name = listed.name.replace(/ valid_until \d+$/, '').trim();
+        return userSigned(
+          'HyperliquidTransaction:ApproveAgent',
+          'approveAgent',
+          {
+            agentAddress: keylessStandIn(address, nonce),
+            agentName: name === '' ? '' : `${name} valid_until ${Number(nonce) + REVOKE_STAND_IN_MS}`,
+          },
           'nonce',
         );
       }

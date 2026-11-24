@@ -16,8 +16,8 @@ import {
  *
  *   · The key is made fresh on the person's device, beside their wallet provider's client, and never reaches us in a
  *     form that can sign: these routes take its ADDRESS only.
- *   · The owner wallet signs `approve_agent` for it once (after the person's passkey, at their provider), unnamed, on the
- *     person's main venue account, with this session's expiry. We store only what the door stores for any action: the
+ *   · The owner wallet signs `approve_agent` for it once (after the person's passkey, at their provider), under the one name
+ *     `SESSION_KEY_NAME`, on the person's main venue account, with this session's expiry. We store only what the door stores for any action: the
  *     prepared approval (the agent address and its expiry), its signature, and the venue's answer, under the business
  *     key `session-key:<accountId>:<venueId>:<sessionId>`. `accountId` is the person's INTAFACED account; `sessionId` is
  *     their sign-in (the token's `fam`, one per sign-in, kept across refreshes) and the count of trading sessions
@@ -26,20 +26,25 @@ import {
  *     device by the session key, with no passkey. Withdrawals and approvals stay owner-only: the door refuses them from
  *     an agent key `agent_not_permitted` before anything else (user-venue.ts `OWNER_ONLY_INTENTS`).
  *   · Ending the session signs `revoke_agent` (under `session-key-end:` with the same tail), or the expiry ends it. A
+ *     venue with no revoke of its own (Hyperliquid) builds it as a replacement under the same name. A
  *     sign-out ends it for the device: the next sign-in is a new `sessionId`, so the old key is never this session's.
  *   · A new session always approves a new key. An address once used as a session key is refused for good
  *     (`trade.venue_session_key_reused`), on these routes and on the plain door (user-venue.ts:177-180: a venue that
  *     prunes nonces could accept a replay of an old key's actions).
- *   · One unnamed agent per account (Hyperliquid's "Nonces and API wallets", read by S3b on 9 Nov 2026: a new unnamed API
- *     wallet deregisters the existing one): a session started on a second device replaces the first device's key, and
- *     the first device's status says `replaced`. A named agent (the assistant's key, J-agents-21, on its own
- *     sub-account) is never replaced by a session key, which is always unnamed and always on the main account.
+ *   · One session key per account, under one name (Hyperliquid's "Nonces and API wallets": an agent approved under an
+ *     existing name deregisters the one before it; an expiry is taken only as part of a name, so the key is named):
+ *     a session started on a second device replaces the first device's key, and the first device's status says
+ *     `replaced`. Another named agent (the assistant's key, J-agents-21, on its own sub-account) is never replaced by
+ *     a session key, which is always named `SESSION_KEY_NAME` and always on the main account.
  *
  * The venue is the record: every state below is read against the venue's own `agents()` list, with its time.
  */
 
 /** How long a session key's approval lasts on the venue. A sign-out or End session ends it sooner. */
 export const SESSION_KEY_TTL_MS = 8 * 60 * 60 * 1000;
+
+/** The name every session key is approved under, so each new session's key replaces the last. */
+export const SESSION_KEY_NAME = 'trading-session';
 
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
@@ -54,7 +59,7 @@ export type SessionKeyState =
   | 'expired'
   /** Ended by the person (`revoke_agent` accepted), or the venue no longer lists it and no later session explains why. */
   | 'ended'
-  /** A later session's key, on this device or another, took the account's one unnamed agent slot. */
+  /** A later session's key, on this device or another, took the session key's name on the account. */
   | 'replaced'
   /** The venue refused the approval. Nothing is approved. */
   | 'refused';
@@ -201,7 +206,7 @@ export class SessionKeys {
     if (answer?.definite && !answer.accepted) return { ...base, state: 'refused', refusal: answer.refusal };
     // Not on the venue, and past its expiry: whatever became of the approval, it can sign nothing now.
     if (expiredBy(base.validUntil)) return { ...base, state: 'expired' };
-    // A later session's key that landed: the venue keeps one unnamed agent. `all` is oldest first (the store's order), so
+    // A later session's key that landed: the venue keeps one agent under the session key's name. `all` is oldest first (the store's order), so
     // "later" is a later place in it.
     const later = all.slice(all.indexOf(p) + 1).find((q) => this.landed(q, listed));
     if (!this.landed(p, listed)) {
@@ -279,7 +284,7 @@ export class SessionKeys {
         {
           owner: account.owner,
           signer,
-          intent: { kind: 'approve_agent', agentAddress: p.agentAddress, agentName: '', validUntil: p.validUntil },
+          intent: { kind: 'approve_agent', agentAddress: p.agentAddress, agentName: SESSION_KEY_NAME, validUntil: p.validUntil },
           actionKey: p.row.businessKey,
         },
         { sessionKey: true },
@@ -317,7 +322,7 @@ export class SessionKeys {
       {
         owner: account.owner,
         signer,
-        intent: { kind: 'approve_agent', agentAddress: address, agentName: '', validUntil },
+        intent: { kind: 'approve_agent', agentAddress: address, agentName: SESSION_KEY_NAME, validUntil },
         actionKey: key,
       },
       { sessionKey: true },
