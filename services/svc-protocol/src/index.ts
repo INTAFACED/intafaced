@@ -152,13 +152,15 @@ const walletSessionSetting = walletSessionFromSetting(
 // Raw APP_ENV: a `TEST:` value refuses to boot anywhere but the local test stack.
 const venueConnectionTtl = venueConnectionTtlFromSetting(env.PROTOCOL_VENUE_CONNECTION_TTL_SECONDS, process.env.APP_ENV);
 const walletSanctions = walletSanctionsFromSetting(env.PROTOCOL_WALLET_SANCTIONS, process.env.APP_ENV);
-// The embedded-wallet provider (J-wallet-22): blank is unset; a TEST provider refuses to boot outside the local test stack.
+// The embedded-wallet provider (J-wallet-22): blank is unset; a TEST provider refuses to boot outside the local test stack;
+// `turnkey` refuses to boot without its organisation and API key settings.
 const embeddedWalletSetting = embeddedWalletFromSetting(
   env.PROTOCOL_EMBEDDED_WALLET_PROVIDER,
   env.PROTOCOL_EMBEDDED_WALLET_TEST_URL,
   process.env.APP_ENV,
   fetch,
   process.env.INTAFACED_BETA_POSTURE,
+  { organizationId: env.TURNKEY_ORGANIZATION_ID, apiPublicKey: env.TURNKEY_API_PUBLIC_KEY, apiPrivateKey: env.TURNKEY_API_PRIVATE_KEY },
 );
 // The gas-sponsor setting (J-wallet-24 #2): blank is unset, so no sponsored deposit; any value refuses to boot.
 const gasSponsor = gasSponsorFromSetting(env.PROTOCOL_GAS_SPONSOR);

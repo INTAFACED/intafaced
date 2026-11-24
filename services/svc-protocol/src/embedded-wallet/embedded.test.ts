@@ -36,7 +36,6 @@ function fakeProvider(over: Partial<EmbeddedWalletProviderAdapter> = {}) {
       byOwner.set(input.ownerRef, wallet);
       return wallet;
     },
-    getWallet: async () => null,
     ...over,
   };
   return { adapter, calls };
@@ -60,11 +59,13 @@ async function refusal(work: () => Promise<unknown>): Promise<{ code: string; me
 }
 
 describe('the owner’s provider setting', () => {
-  it('blank is unset; privy and turnkey are known but unwired; TEST:test is the TEST provider on the test stack only', () => {
+  it('blank is unset; privy is known but unwired; turnkey needs its key settings; TEST:test is the TEST provider on the test stack only', () => {
     expect(embeddedWalletFromSetting(undefined, undefined, 'production')).toEqual({ kind: 'unset' });
     expect(embeddedWalletFromSetting('  ', undefined, 'production')).toEqual({ kind: 'unset' });
     expect(embeddedWalletFromSetting('privy', undefined, 'production')).toEqual({ kind: 'unwired', id: 'privy' });
-    expect(embeddedWalletFromSetting('turnkey', undefined, 'production')).toEqual({ kind: 'unwired', id: 'turnkey' });
+    expect(() => embeddedWalletFromSetting('turnkey', undefined, 'production')).toThrow(
+      /needs TURNKEY_ORGANIZATION_ID, TURNKEY_API_PUBLIC_KEY, TURNKEY_API_PRIVATE_KEY, which is blank\. Refusing to boot/,
+    );
     const test = embeddedWalletFromSetting('TEST:test', URL, 'test');
     expect(test.kind === 'ready' && test.adapter.info).toEqual({
       id: 'test',
@@ -215,7 +216,6 @@ describe('the TEST provider adapter over HTTP', () => {
         providerName: 'TEST wallet provider',
       });
     }
-    expect(await testProviderAdapter(URL, answer(404, { error: 'not_found' })).getWallet('nope')).toBeNull();
   });
 });
 

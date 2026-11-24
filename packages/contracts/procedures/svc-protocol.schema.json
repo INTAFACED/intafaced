@@ -10383,6 +10383,35 @@
               "algorithm": {
                 "type": "number",
                 "const": -7
+              },
+              "registration": {
+                "type": "object",
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "clientDataJson": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "attestationObject": {
+                    "type": "string",
+                    "maxLength": 8000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "transports": {
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["ble", "internal", "nfc", "usb", "hybrid", "smart-card"]
+                    }
+                  }
+                },
+                "required": ["challenge", "clientDataJson", "attestationObject", "transports"]
               }
             },
             "required": ["credentialId", "publicKey", "algorithm"]

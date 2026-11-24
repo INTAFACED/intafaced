@@ -5,17 +5,18 @@ import type {
   ProtocolEmbeddedWalletProvider,
 } from '@intafaced/contracts/protocol-embedded-wallet';
 import { getAddress, isAddress, type Address } from 'viem';
+import { turnkeyAdapter, type TurnkeySettings } from './turnkey.js';
 
 /**
  * THE EMBEDDED-WALLET PROVIDER INTERFACE (J-wallet-22, OWNER 237). The owner's provider makes the person's wallet and
  * keeps its key; the key signs only after the person's own passkey. svc-protocol reaches the provider through one adapter
- * and only ever asks it two things: make (or return) the person's wallet bound to their passkey, and read a wallet back.
- * Neither answer carries key material, and no method here can sign: signing, export and recovery run between the
+ * and only ever asks it one thing: make (or return) the person's wallet bound to their passkey.
+ * The answer carries key material, and no method here can sign: signing, export and recovery run between the
  * person's browser and the provider, never through INTAFACED.
  *
  * Adapters: `test`, the labelled TEST provider (tooling/scripts/local-test-wallet-provider.mjs), refused outside APP_ENV
- * dev or test. The vendor the agents pick after the testnet trial (Turnkey or Privy) plugs in as one more adapter; until
- * then its id is known but unwired and refuses `wallet.embedded_provider_unwired`. No vendor SDK is in this build.
+ * dev or test; `turnkey`, the owner's provider (turnkey.ts). `privy` is known but unwired and refuses
+ * `wallet.embedded_provider_unwired`. No vendor SDK is in this build.
  */
 
 export interface ProviderWallet {
@@ -33,8 +34,6 @@ export interface EmbeddedWalletProviderAdapter {
    * reached or answers with an error.
    */
   createWallet(input: { ownerRef: string; idempotencyKey: string; passkey: EmbeddedWalletPasskey }): Promise<ProviderWallet>;
-  /** Reads one wallet back; null when the provider has no such wallet. */
-  getWallet(walletId: string): Promise<ProviderWallet | null>;
 }
 
 /** The provider answered, and refused to make the wallet with what it was given (a 4xx): not down, and retrying won't help. */
@@ -76,7 +75,9 @@ export const PROVIDER_TIMEOUT_MS = 8000;
  * `INTAFACED_BETA_POSTURE` `test-networks` beside APP_ENV `staging`), where it stays labelled TEST and never passes for a real
  * one; it needs
  * `PROTOCOL_EMBEDDED_WALLET_TEST_URL`, a loopback URL. `TEST:test-no-export` is the same TEST provider standing in for a
- * provider whose plan offers no key export (J-wallet-22 #5): it reports `export: false`, so the room says so. `privy` or `turnkey` are known and unwired in this build. Anything
+ * provider whose plan offers no key export (J-wallet-22 #5): it reports `export: false`, so the room says so. `turnkey` is the
+ * owner's provider (turnkey.ts), read with its API key settings, each refusing to boot when blank or malformed. `privy` is
+ * known and unwired in this build. Anything
  * else refuses to boot, so a mistyped provider never reads as unset.
  */
 export function embeddedWalletFromSetting(
@@ -85,6 +86,7 @@ export function embeddedWalletFromSetting(
   rawAppEnv: string | undefined,
   fetcher: typeof fetch = fetch,
   rawBetaPosture?: string,
+  turnkey: TurnkeySettings = { organizationId: undefined, apiPublicKey: undefined, apiPrivateKey: undefined },
 ): EmbeddedWalletSetting {
   const value = raw?.trim() ?? '';
   if (!value) return { kind: 'unset' };
@@ -101,7 +103,8 @@ export function embeddedWalletFromSetting(
       );
     return { kind: 'ready', adapter: testProviderAdapter(requireLoopbackUrl(testUrl), fetcher, { export: id === 'test' }) };
   }
-  if (value === 'privy' || value === 'turnkey') return { kind: 'unwired', id: value };
+  if (value === 'turnkey') return { kind: 'ready', adapter: turnkeyAdapter(turnkey, fetcher) };
+  if (value === 'privy') return { kind: 'unwired', id: value };
   if (value === 'test')
     throw new Error(
       'PROTOCOL_EMBEDDED_WALLET_PROVIDER=test must be written TEST:test, and only on the local test stack. Refusing to boot.',
@@ -176,13 +179,6 @@ export function testProviderAdapter(
       if (status >= 400) throw new ProviderRefusedError(info.displayName, status);
       const wallet = status === 200 ? readWallet(body) : null;
       if (!wallet) throw new ProviderUnavailableError(info.displayName, `answered ${status} with no wallet`);
-      return wallet;
-    },
-    async getWallet(walletId) {
-      const { status, body } = await call(`/server/wallets/${encodeURIComponent(walletId)}`);
-      if (status === 404) return null;
-      const wallet = status === 200 ? readWallet(body) : null;
-      if (!wallet) throw new ProviderUnavailableError(info.displayName, `answered ${status} for a wallet read`);
       return wallet;
     },
   };
