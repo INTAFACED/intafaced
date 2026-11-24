@@ -168,7 +168,7 @@ test(`${J} #2 opens the blocks list and a block: rows down from the finalized he
 }) => {
   const orphan = await reorgedBlock(page);
   // While anvil_reorg runs, anvil can answer eth_getCode with 0x for the long-deployed venue, so an indexer pass in
-  // that window records indexer.venue_not_deployed and the list refuses until a later pass (#10341). Wait for the
+  // that window records indexer.venue_not_deployed and the list refuses until a later pass. Wait for the
   // block mined after the reorg: a pass that read 0x failed before that block existed, and the indexer answers it
   // only once it is stored and a later pass has finished clean.
   await indexedTo(Number(orphan.height) + 1);
