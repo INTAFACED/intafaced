@@ -3,7 +3,6 @@ import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { VenueFrame, useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
-import { defaultDeskPair } from './deps';
 import { deskCopy } from './copy';
 import { KYC_REQUIRED } from './venue-access';
 import { VenueSpotDesk } from './VenueSpotDesk';
@@ -11,25 +10,6 @@ import { VenueVerifyDesk } from './VenueVerifyDesk';
 
 /** The desk's own symbol form ("BTC-USDC"), whichever way the address writes it. */
 const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
-
-/**
- * Pick the venue spot market for `symbol`: exact match first, and for the generic menu link (`defaultDeskPair`,
- * `/trade/spot/BTC-USDT`) fall back to the venue's own spot market on that base (e.g. `BTC-USDC`) or its first listed
- * spot market so Trade › Spot opens a live venue desk instead of falling back to the custodial desk.
- */
-export function pickVenueSpotMarket<M extends { readonly kind: string; readonly symbol: string; readonly baseAsset: string }>(
-  markets: readonly M[],
-  symbol: string,
-): M | undefined {
-  const spots = markets.filter((m) => m.kind === 'spot');
-  const exact = spots.find((m) => m.symbol === symbol);
-  if (exact) return exact;
-  if (symbol === defaultDeskPair) {
-    const base = defaultDeskPair.split('-')[0];
-    return spots.find((m) => m.baseAsset === base) ?? spots[0];
-  }
-  return undefined;
-}
 
 /**
  * The spot page in venue mode: loading, today's desk for a pair the venue doesn't list, the Verify desk, the venue's
@@ -61,7 +41,7 @@ export function VenueSpotGate({
   const markets = useResource((signal) => venue.markets(signal), 'venue-markets');
   const symbol = venueSymbolOf(pair);
   const r = markets.resource;
-  const market = r.status === 'ready' ? pickVenueSpotMarket(r.data.value, symbol) : undefined;
+  const market = r.status === 'ready' ? r.data.value.find((m) => m.kind === 'spot' && m.symbol === symbol) : undefined;
   const choice = spotGateChoice(
     mode.status.available,
     r.status === 'ready'

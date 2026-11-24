@@ -16,6 +16,7 @@ import { TopSearch } from './TopSearch';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
+import { useDefaultSpotPair } from '../features/trade/venue/default-spot-pair';
 
 // The merchant portal's chrome and menu load only when a merchant page or the Pay menu needs them.
 export const preloadMerchantChrome = () => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar }));
@@ -251,8 +252,9 @@ export function TopBar({
   const { t } = shellCopy.useCopy();
   const { language, layoutMode } = usePreferences();
   const { session } = useSession();
+  const spotPair = useDefaultSpotPair();
   useBannerOffset();
-  const tabs = tabSpecs(layoutMode, Boolean(session));
+  const tabs = tabSpecs(layoutMode, Boolean(session), spotPair);
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   if (isMerchantArea(path))
@@ -312,7 +314,8 @@ export function MobileTabs({ door, language }: { door: Door | undefined; languag
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
   const { session } = useSession();
-  const tabs = tabSpecs(layoutMode, Boolean(session));
+  const spotPair = useDefaultSpotPair();
+  const tabs = tabSpecs(layoutMode, Boolean(session), spotPair);
   return (
     <nav className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>

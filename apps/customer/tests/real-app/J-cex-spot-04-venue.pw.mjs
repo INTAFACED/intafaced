@@ -213,8 +213,13 @@ test(`${J} #2 reads the market's rules on the ticket and in the market list: tic
   await expect(panel).not.toContainText('Not published');
   await stepPicture();
 
-  // The market list the desk reads (our door's list of the markets INTAFACED shows) carries the venue's own figures.
-  const listed = (await (await api(c.account)).get('/api/v1/venue/markets')).body.value.find((m) => m.symbol === symbol);
+  // The market list the desk reads (our door's list of the markets INTAFACED shows) carries the venue's own figures,
+  // our door names the venue on `/api/v1/venue/status`, and the desk's market switcher lists the pair on screen.
+  await expect(page.locator(`option[value="${symbol}"]`)).toHaveCount(1);
+  const customerClient = await api(c.account);
+  const statusBody = (await customerClient.get('/api/v1/venue/status')).body;
+  expect(statusBody.venue?.displayName).toBe(venue.displayName);
+  const listed = (await customerClient.get('/api/v1/venue/markets')).body.value.find((m) => m.symbol === symbol);
   expect(listed, `${symbol} is on the customer's market list`).toBeTruthy();
   expect(sameDecimal(listed.tickSize, own.tickSize) && sameDecimal(listed.lotSize, own.lotSize)).toBe(true);
   expect(sameDecimal(listed.minOrderNotional, own.minOrderNotional)).toBe(true);
@@ -279,21 +284,38 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   await continueInWallet(page);
   await expect.poll(async () => (await venueOwn(c.owner, symbol)).open.length, { timeout: 20_000 }).toBe(0);
 
-  // On a pair with no published price band (like Hyperliquid spot), a refusal from the venue itself is shown in its own words.
+  // On a pair with no published price band (like Hyperliquid spot), the ticket still asks the venue rather than
+  // blocking locally, and shows the venue's own refusal verbatim when the venue refuses the order.
+  const tooSmall = limitBuy(c.owner, noBand, '1', '5', 'too-small-venue-refusal');
+  const directRefusal = await testVenue('/preview', {
+    account: { venueId: venue.id, owner: c.owner, subAccount: null },
+    intent: tooSmall,
+  });
+  expect(directRefusal.status, JSON.stringify(directRefusal.body)).toBeGreaterThanOrEqual(400);
+  const venueRefusalText = directRefusal.body.refusal?.detail ?? directRefusal.body.message ?? directRefusal.body.error;
+  expect(venueRefusalText, JSON.stringify(directRefusal.body)).toBeTruthy();
+
   const refusedPage = await (await browser.newContext()).newPage();
   try {
     await openVenueDesk(refusedPage, c.account, `/trade/spot/${noBand}`, c.walletKey);
     await expect(ruleRow(refusedPage, 'band').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
+    const previewWait = refusedPage.waitForResponse(
+      (res) => res.url().includes('/api/v1/venue/preview') && res.request().method() === 'POST',
+    );
     await buyForm(refusedPage).getByRole('textbox', { name: 'Price', exact: true }).fill('5');
     await buyForm(refusedPage).getByRole('textbox', { name: 'Amount', exact: true }).fill('1');
+    const previewRes = await previewWait;
+    expect(previewRes.status()).toBeGreaterThanOrEqual(400);
+    const previewBody = await previewRes.json();
+    expect(previewBody.intafacedCode).toBe('trade.venue.order_below_venue_min');
     const refusedNote = buyForm(refusedPage).getByTestId('venue-ticket-refused');
-    await expect(refusedNote).toContainText('below the smallest order', { timeout: 20_000 });
+    await expect(refusedNote).toContainText(venueRefusalText, { timeout: 20_000 });
     await expect(buyForm(refusedPage).getByRole('button', { name: `Buy ${noBandBase}`, exact: true })).toBeDisabled();
   } finally {
     await refusedPage.context().close();
   }
 
-  // The owner's branch: a market order is bounded by the owner's price protection, a band only the owner sets. Left
+  // The owner's branch: market orders are bounded by the owner's protections (slippage cap and spread limit). Left
   // blank, a market order on this step's fully ruled pair refuses by name, on the desk and at our door.
   const ruledBefore = await venueOwn(c.owner, ruled);
   try {
@@ -317,6 +339,15 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
     } finally {
       await desk.context().close();
     }
+
+    // A second blank owner protection (spread limit) also refuses by name at the door.
+    restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_TRADE_SPREAD_LIMIT: 'off' });
+    const spreadRefused = await client.post('/api/v1/venue/preview', {
+      owner: c.owner,
+      intent: { ...market, clientOrderKey: `${market.clientOrderKey}-spread` },
+    });
+    expect(spreadRefused.status, JSON.stringify(spreadRefused.body).slice(0, 300)).toBeGreaterThanOrEqual(400);
+    expect(spreadRefused.body.intafacedCode).toBe('trade.spread_limit_unset');
   } finally {
     restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
   }
