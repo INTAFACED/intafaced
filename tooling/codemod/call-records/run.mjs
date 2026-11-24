@@ -19,6 +19,8 @@
 //
 //   node tooling/codemod/call-records/run.mjs --module notify [--service svc-notify] [--paths a.,b.] [--refusals] [--summary out.json]
 // --summary writes the last line's summary (records, calls moved, each call left and why) to a file: report.mjs --deep reads it.
+// --skip-file leaves.json starts the run with those calls left ({ "<path>": { "why": "..." } }, index.mjs's own form): a
+// call whose schema edit would still break its service once it is left, since a left call keeps portable.mjs's edits.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, normalize, resolve } from 'node:path';
@@ -246,7 +248,10 @@ export function ownersOf(errors, moved, read = (f) => readFileSync(join(REPO, f)
 export function run(argv) {
   const refusals = argv.includes('--refusals');
   const summaryOut = argv.includes('--summary') ? argv[argv.indexOf('--summary') + 1] : undefined;
-  const pass = argv.filter((a, i) => a !== '--refusals' && a !== '--summary' && argv[i - 1] !== '--summary');
+  const seed = argv.includes('--skip-file') ? JSON.parse(readFileSync(argv[argv.indexOf('--skip-file') + 1], 'utf8')) : {};
+  const pass = argv.filter(
+    (a, i) => !['--refusals', '--summary', '--skip-file'].includes(a) && !['--summary', '--skip-file'].includes(argv[i - 1]),
+  );
   const service =
     pass[pass.indexOf('--service') + 1] && pass.includes('--service')
       ? pass[pass.indexOf('--service') + 1]
@@ -292,7 +297,8 @@ export function run(argv) {
   const kept = new Set();
   const patchFile = join(tmpdir(), `call-records-portable-${process.pid}.patch`);
   const skipFile = join(tmpdir(), `call-records-skip-${process.pid}.json`);
-  let skip = {};
+  let skip = { ...seed };
+  if (Object.keys(skip).length) writeFileSync(skipFile, JSON.stringify(skip));
   let result;
   // Step 8: the apps are typechecked against what they were before the run. A new error in a file a moved caller is in,
   // or in a file that imports one, leaves that call's path by name (the screen reads its answer, or sends its input, other
