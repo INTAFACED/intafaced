@@ -1,16 +1,24 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+// @vitest-environment happy-dom
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { renderPart } from '../../app/render-record/harness';
 import { publishedCopy } from '../../shared/copy';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+beforeAll(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+afterAll(() => void vi.useRealTimers());
 
 const body = publishedCopy('support.kb.account_access.body', 'en') ?? '';
 
 describe('the "Sign-in and account access" help article', () => {
-  it('points at the control that exists on the sign-in screen, by its real name', () => {
-    const signIn = readFileSync(new URL('../public/AuthForm.tsx', import.meta.url), 'utf8');
+  it('points at the control that exists on the sign-in screen, by its real name', { timeout: 120_000 }, async () => {
     const label = /“([^”]+)”/.exec(body)?.[1];
     expect(label).toBe('Recover account access');
-    expect(signIn).toContain(`p('${label}')`);
-    expect(signIn).toContain("'/findPwd'");
+    // The sign-in screen as a person sees it, signed out.
+    const page = document.createElement('div');
+    page.innerHTML = await renderPart({ name: '/login', route: '/login' });
+    const control = [...page.querySelectorAll('a')].find((link) => link.textContent === label);
+    expect(control, `the sign-in screen draws "${label}"`).toBeDefined();
+    expect(control!.getAttribute('href')?.split('?')[0]).toBe('/findPwd');
   });
 
   it('describes the reset page as it stands and promises nothing that is not built', () => {

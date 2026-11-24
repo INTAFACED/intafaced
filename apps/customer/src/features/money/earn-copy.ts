@@ -1,6 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 const messages = {
-  description: 'Your principal, maturity and configured pools. Accrued interest and complete position history are unavailable.',
+  description: 'Save in a pool and earn interest. Interest earned so far and closed savings aren’t shown on this page.',
   locked: 'Fixed-term principal cannot be withdrawn before maturity.',
   maturityMissing: 'Maturity date unavailable. Withdrawal stays unavailable until a valid date is shown.',
   noFixed: 'No fixed maturity supplied',
@@ -25,7 +25,7 @@ const messages = {
 
 const es = {
   description:
-    'Tu capital, vencimiento y fondos configurados. Los intereses devengados y el historial completo de posiciones no están disponibles.',
+    'Ahorra en un fondo y gana intereses. Los intereses ganados hasta ahora y los ahorros cerrados no se muestran en esta página.',
   locked: 'El capital a plazo fijo no puede retirarse antes del vencimiento.',
   maturityMissing: 'Fecha de vencimiento no disponible. El retiro sigue sin estar disponible hasta que se muestre una fecha válida.',
   noFixed: 'No se ha proporcionado vencimiento fijo',
@@ -53,7 +53,7 @@ const es = {
 } as const;
 const fr = {
   description:
-    'Ton capital, l’échéance et les fonds configurés. Les intérêts courus et l’historique complet des positions sont indisponibles.',
+    'Épargne dans une réserve et gagne des intérêts. Les intérêts déjà gagnés et l’épargne clôturée ne sont pas affichés sur cette page.',
   locked: 'Le capital à durée fixe ne peut pas être retiré avant l’échéance.',
   maturityMissing: 'Date d’échéance indisponible. Le retrait reste indisponible tant qu’une date valide n’est pas affichée.',
   noFixed: 'Aucune échéance fixe fournie',

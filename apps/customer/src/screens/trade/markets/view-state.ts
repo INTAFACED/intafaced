@@ -15,7 +15,8 @@ export interface ViewSort {
   direction: 'asc' | 'desc';
 }
 
-export const SORT_COLUMNS = ['name', 'last', 'change', 'bid', 'ask', 'spread', 'high', 'low', 'volume'] as const;
+// Pro's bid and ask share one column, as do the 24h high and low, sorted by bid and by high.
+export const SORT_COLUMNS = ['name', 'last', 'change', 'bid', 'spread', 'high', 'volume'] as const;
 export type SortColumnId = (typeof SORT_COLUMNS)[number];
 
 export const isSortColumn = (id: string): id is SortColumnId => (SORT_COLUMNS as readonly string[]).includes(id);

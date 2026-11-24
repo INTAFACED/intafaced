@@ -1,0 +1,20 @@
+{
+  "headers": [
+    [
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"]
+    ]
+  ],
+  "bodies": ["{\"message\":\"Route GET:/not-a-route not found\",\"error\":\"Not Found\",\"statusCode\":404}"],
+  "answers": {
+    "GET /not-a-route": {
+      "absent anon": [404, 0, 0],
+      "absent bad-token": [404, 0, 0],
+      "absent api-key": [404, 0, 0],
+      "absent no-scope": [404, 0, 0],
+      "absent all": [404, 0, 0]
+    }
+  }
+}

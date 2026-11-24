@@ -254,6 +254,12 @@ export class LeaderDirectory {
     return { leaderRef: row.leaderRef, state: row.state };
   }
 
+  /** The public ref and display name a leader user id is listed under, or null when no row exists. */
+  async listingName(leaderUserId: string): Promise<{ readonly leaderRef: string; readonly displayName: string } | null> {
+    const row = await this.backend.getByUser(leaderUserId, false);
+    return row ? { leaderRef: row.leaderRef, displayName: row.displayName } : null;
+  }
+
   /** The lead API's read (`copy/lead-api.ts`): a leader's listing state and the instruments it names, or null. */
   async leadListing(leaderUserId: string): Promise<{ readonly state: CopyLeaderListingState; readonly assets: readonly string[] } | null> {
     const row = await this.backend.getByUser(leaderUserId, false);
@@ -289,6 +295,8 @@ export class LeaderDirectory {
         }
       }
       const store = tx.boundSql && followStore instanceof SqlCopyFollowStore ? new SqlCopyFollowStore(tx.boundSql) : followStore;
+      // Before anything is written: a second new follow of this leader waits here for the first to commit.
+      await store.lockFollowerLeader(follow.followerId, follow.leaderId);
       await beforeSave?.(store, follow);
       await store.saveFollow(follow, 0n);
       return 'ok' as const;
@@ -647,7 +655,7 @@ class SqlLeaderBackend implements LeaderBackend {
   async transaction<T>(fn: (tx: LeaderBackend) => Promise<T>): Promise<T> {
     const begin = (this.sql as unknown as { begin?: (run: (tx: Sql) => Promise<T>) => Promise<T> }).begin;
     if (typeof begin !== 'function') return fn(this);
-    return begin(async (tx) => fn(new SqlLeaderBackend(tx as unknown as Sql)));
+    return begin(async (tx) => fn(new SqlLeaderBackend(tx)));
   }
 
   async getByRef(leaderRef: string, lock: boolean): Promise<StoredLeaderListing | null> {

@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { navigate } from '../../../app/location';
-import { Button, DataTable, Dialog } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { uiCopy } from '../../../shared/ui-copy';
 import { displayAmount, parseAmount } from '../../../shared/money';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import {
+  draftId,
   keys,
   leverageTimes,
   sumDecimals,
@@ -26,6 +29,7 @@ import {
   type RunAction,
 } from '../../../features/trade/venue/VenueKit';
 import { futuresRoutesCopy } from './routes-copy';
+import { approvalAtConfirm, approvalState } from './venue-routes-logic';
 
 /**
  * ROUTING OVER THE VENUES THE PERSON CAN SIGN FOR (J-derivatives-28). Shown only when the deployment has more than one
@@ -75,120 +79,131 @@ export function VenueRoutes({
   const health = useHealthText();
   const venues = read.data?.venues ?? [];
   return (
-    <section className="dk-panel form-stack" aria-label={t('Venues')} data-testid="venue-routes">
-      <h2 className="dk-tab-title">{t('Venues')}</h2>
-      <p className="muted">{t('Venues lead')}</p>
+    <section className="lt-panel" aria-label={t('Venues')} data-testid="venue-routes">
+      <h2 className="lt-panel-title">{t('Venues')}</h2>
+      <p className="lt-quiet">{t('Venues lead')}</p>
       {read.failure ? (
-        <p className="failure" role="alert" data-testid="venue-routes-error">
+        <p className="lt-callout lt-callout-bad" role="alert" data-testid="venue-routes-error">
           {t('Venues read failed', { detail: read.failure.message })}{' '}
-          <Button variant="secondary" onClick={read.reload}>
+          <Button tone="secondary" onClick={read.reload}>
             {t('Read again')}
           </Button>
         </p>
       ) : null}
-      {!read.data && !read.failure ? <p className="muted">{t('Reading venues')}</p> : null}
+      {!read.data && !read.failure ? <p className="lt-quiet">{t('Reading venues')}</p> : null}
       {read.data && venues.every((v) => v.listed === false) ? (
         <p data-testid="venue-routes-empty">{t('No venue lists', { symbol })}</p>
       ) : null}
       {venues.length > 0 ? (
-        <DataTable
-          label={t('Venues')}
-          headers={[
-            t('Venue'),
-            t('State'),
-            t('Best bid'),
-            t('Best ask'),
-            t('Depth shown'),
-            t('Venue fees'),
-            t('Our builder fee'),
-            t('Your account'),
-          ]}
-        >
-          {venues.map((v, i) => (
-            <tr key={v.venueId ?? `unreachable-${i}`} data-venue={v.venueId ?? ''} data-state={v.health.state} data-account={v.account}>
-              <td data-cell="venue">
-                {v.displayName ?? t('Venue not reached')} <TestMark test={v.test} />
-              </td>
-              <td data-cell="state">{health(v)}</td>
-              {v.listed === false ? (
-                <td colSpan={6} data-cell="not-listed">
-                  {t('Not listed here', { symbol })}
-                </td>
-              ) : (
-                <>
-                  <td className="numeric" data-cell="bid">
-                    {v.book?.value.bids[0]
-                      ? t('Level', { price: displayAmount(v.book.value.bids[0].price), amount: displayAmount(v.book.value.bids[0].amount) })
-                      : t('None')}
+        <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Venues')}>
+          <table className="lt-table lt-table-dense">
+            <thead>
+              <tr>
+                <th scope="col">{t('Venue')}</th>
+                <th scope="col">{t('State')}</th>
+                <th scope="col">{t('Best bid')}</th>
+                <th scope="col">{t('Best ask')}</th>
+                <th scope="col">{t('Depth shown')}</th>
+                <th scope="col">{t('Venue fees')}</th>
+                <th scope="col">{t('Our builder fee')}</th>
+                <th scope="col">{t('Your account')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {venues.map((v, i) => (
+                <tr key={v.venueId ?? `unreachable-${i}`} data-venue={v.venueId ?? ''} data-state={v.health.state} data-account={v.account}>
+                  <td data-cell="venue">
+                    {v.displayName ?? t('Venue not reached')} <TestMark test={v.test} />
                   </td>
-                  <td className="numeric" data-cell="ask">
-                    {v.book?.value.asks[0]
-                      ? t('Level', { price: displayAmount(v.book.value.asks[0].price), amount: displayAmount(v.book.value.asks[0].amount) })
-                      : t('None')}
-                  </td>
-                  <td className="numeric" data-cell="depth">
-                    {v.book
-                      ? t('Depth', {
-                          bids: displayAmount(depthOf(v.book.value.bids)),
-                          asks: displayAmount(depthOf(v.book.value.asks)),
-                          base: v.market?.baseAsset ?? '',
-                        })
-                      : t('None')}
-                  </td>
-                  <td data-cell="fees">
-                    {v.market ? (
-                      <>
-                        <span data-fee="maker">
-                          {t('Maker')} <Known value={v.market.makerFeeBps} render={(x) => t('Bps', { bps: displayAmount(x) })} />
-                        </span>
-                        {' · '}
-                        <span data-fee="taker">
-                          {t('Taker')} <Known value={v.market.takerFeeBps} render={(x) => t('Bps', { bps: displayAmount(x) })} />
-                        </span>
-                      </>
-                    ) : (
-                      t('None')
-                    )}
-                  </td>
-                  <td data-cell="builder-fee">
-                    {!v.builderFee
-                      ? t('None')
-                      : !v.builderFee.published
-                        ? t('Builder fee blank')
-                        : v.builderFee.carries
-                          ? t('Bps', { bps: displayAmount(v.builderFee.feeBps) })
-                          : t('Builder none spot buy')}
-                  </td>
-                  <td data-cell="account">
-                    {v.account === 'signable' ? (
-                      <>
-                        {t('You can sign here')}
-                        {v.venueId && v.market?.kind === 'perpetual' ? (
-                          <VenueLeverage venueId={v.venueId} symbol={symbol} owner={owner} run={run} leverage={leverage} />
-                        ) : null}
-                      </>
-                    ) : v.account === 'connect' ? (
-                      <>
-                        {t('Connect to use')}{' '}
-                        <a
-                          href="/wallet"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            navigate('/wallet');
-                          }}
-                        >
-                          {t('How to connect')}
-                        </a>
-                      </>
-                    ) : (
-                      t('Account not read')
-                    )}
-                  </td>
-                </>
-              )}
-            </tr>
-          ))}
-        </DataTable>
+                  <td data-cell="state">{health(v)}</td>
+                  {v.listed === false ? (
+                    <td colSpan={6} data-cell="not-listed">
+                      {t('Not listed here', { symbol })}
+                    </td>
+                  ) : (
+                    <>
+                      <td className="lt-num" data-cell="bid">
+                        {v.book?.value.bids[0]
+                          ? t('Level', {
+                              price: displayAmount(v.book.value.bids[0].price),
+                              amount: displayAmount(v.book.value.bids[0].amount),
+                            })
+                          : t('None')}
+                      </td>
+                      <td className="lt-num" data-cell="ask">
+                        {v.book?.value.asks[0]
+                          ? t('Level', {
+                              price: displayAmount(v.book.value.asks[0].price),
+                              amount: displayAmount(v.book.value.asks[0].amount),
+                            })
+                          : t('None')}
+                      </td>
+                      <td className="lt-num" data-cell="depth">
+                        {v.book
+                          ? t('Depth', {
+                              bids: displayAmount(depthOf(v.book.value.bids)),
+                              asks: displayAmount(depthOf(v.book.value.asks)),
+                              base: v.market?.baseAsset ?? '',
+                            })
+                          : t('None')}
+                      </td>
+                      <td data-cell="fees">
+                        {v.market ? (
+                          <>
+                            <span data-fee="maker">
+                              {t('Maker')} <Known value={v.market.makerFeeBps} render={(x) => t('Bps', { bps: displayAmount(x) })} />
+                            </span>
+                            {' · '}
+                            <span data-fee="taker">
+                              {t('Taker')} <Known value={v.market.takerFeeBps} render={(x) => t('Bps', { bps: displayAmount(x) })} />
+                            </span>
+                          </>
+                        ) : (
+                          t('None')
+                        )}
+                      </td>
+                      <td data-cell="builder-fee">
+                        {!v.builderFee
+                          ? t('None')
+                          : !v.builderFee.published
+                            ? t('Builder fee blank')
+                            : v.builderFee.carries
+                              ? t('Bps', { bps: displayAmount(v.builderFee.feeBps) })
+                              : t('Builder none spot buy')}
+                      </td>
+                      <td data-cell="account">
+                        {v.account === 'signable' ? (
+                          <>
+                            {t('You can sign here')}
+                            {v.venueId && v.market?.kind === 'perpetual' ? (
+                              <VenueLeverage venueId={v.venueId} symbol={symbol} owner={owner} run={run} leverage={leverage} />
+                            ) : null}
+                          </>
+                        ) : v.account === 'connect' ? (
+                          <>
+                            {t('Connect to use')}{' '}
+                            <a
+                              className="lt-link"
+                              href="/wallet"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                navigate('/wallet');
+                              }}
+                            >
+                              {t('How to connect')}
+                            </a>
+                          </>
+                        ) : (
+                          t('Account not read')
+                        )}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
       <AsOfLine asOf={read.data?.at ?? null} />
     </section>
@@ -236,7 +251,7 @@ function VenueLeverage({
       {!same && leverage ? (
         <>
           {' '}
-          <Button variant="secondary" onClick={() => void sign()}>
+          <Button tone="secondary" onClick={() => void sign()}>
             {t('Set leverage here', { times: String(leverageTimes(leverage.leverageBps)), mode: leverage.marginMode })}
           </Button>
         </>
@@ -300,6 +315,23 @@ export function routeWhy(t: RoutesT, route: RoutePreview): string {
 
 type Step = 'review' | 'approval' | 'declined';
 
+/**
+ * Brings a refusal into view inside the dialog as it appears, so the person who pressed Approve reads why it failed rather
+ * than a line cut off below the dialog's fold (J-derivatives-30 #5).
+ */
+const reveal = (el: HTMLElement | null) => el?.scrollIntoView?.({ block: 'nearest' });
+
+/**
+ * The venue's own reason when it refused our approval because the wallet already holds the most active builder approvals
+ * it allows (J-derivatives-30 #5), at prepare or at submit; null for any other answer.
+ */
+function approvalLimit(result: ActionResult | null): string | null {
+  if (result?.kind === 'refused' && result.code === 'trade.venue.builder_approval_limit') return result.message;
+  if (result?.kind === 'outcome' && !result.outcome.accepted && result.outcome.refusal.code === 'builder_approval_limit')
+    return result.outcome.refusal.detail;
+  return null;
+}
+
 /** The routed Review of one order: the venue chosen, why, and Confirm (approval first where needed, then the order). */
 export function RoutedReview({
   title,
@@ -337,10 +369,13 @@ export function RoutedReview({
   const [step, setStep] = useState<Step>('review');
   const [busy, setBusy] = useState(false);
   const [approving, setApproving] = useState<ActionResult | null>(null);
+  // The draft this review's builder approval is asked under: a new review after a revoke asks a new one (J-derivatives-30 #4).
+  const [approvalDraft] = useState(() => draftId());
   const [result, setResult] = useState<ActionResult | null>(null);
   const fee = status.builder?.feeBps ?? null;
   const approvedAmount = approval.data && 'value' in approval.data ? approval.data.value : null;
-  const approved = !carries || (fee !== null && approvedAmount !== null && parseAmount(approvedAmount) >= parseAmount(fee));
+  const approvalNow = approvalState(carries, fee, { approved: approvedAmount, failed: approval.failure !== null });
+  const approved = approvalNow === 'not_needed' || approvalNow === 'approved';
 
   async function order() {
     if (!chosen) return;
@@ -353,9 +388,15 @@ export function RoutedReview({
     if (!chosen || busy) return;
     setBusy(true);
     try {
+      // The poll's answer may be a read that failed or is older than an approval just signed: Confirm asks the venue once
+      // more before it asks the person to sign an approval they may already hold.
       if (!approved) {
-        setStep('approval');
-        return;
+        const now = await approvalAtConfirm(carries, fee, approvalNow, () => venue.builderFeeApproval(owner, undefined, chosen.venueId));
+        approval.reload();
+        if (now !== 'approved' && now !== 'not_needed') {
+          setStep('approval');
+          return;
+        }
       }
       await order();
     } finally {
@@ -369,7 +410,10 @@ export function RoutedReview({
     try {
       const answer = await run(
         { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-        { actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps, chosen.venueId), venueId: chosen.venueId },
+        {
+          actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps, chosen.venueId, approvalDraft),
+          venueId: chosen.venueId,
+        },
       );
       setApproving(answer);
       approval.reload();
@@ -395,12 +439,13 @@ export function RoutedReview({
   }
 
   const filled = result?.kind === 'outcome' && result.outcome.accepted ? result.outcome : null;
+  const { t: ui, languageFor: uiLanguage } = uiCopy.useCopy();
   return (
-    <Dialog title={title} onClose={onClose}>
-      <div data-testid="venue-route-review" className="form-stack">
+    <Sheet open title={title} onClose={onClose} closeLabel={ui('closeDialog')} closeLang={uiLanguage('closeDialog')}>
+      <div data-testid="venue-route-review" className="lt-stack">
         {!chosen ? (
           <div role="alert" data-testid="venue-route-none">
-            <p className="failure">{t('Why none')}</p>
+            <p className="lt-callout lt-callout-bad">{t('Why none')}</p>
             <ul>
               {route.excluded.map((e, i) => (
                 <li key={e.venueId ?? i} data-venue={e.venueId ?? ''} data-code={e.code}>
@@ -412,7 +457,7 @@ export function RoutedReview({
         ) : (
           <>
             <TestMark test={chosen.test} />
-            <dl className="protocol-facts">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('Routed to')}</dt>
                 <dd data-line="route-venue" data-venue={chosen.venueId}>
@@ -421,7 +466,7 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{t('Expected fill')}</dt>
-                <dd className="numeric" data-line="route-fill">
+                <dd className="lt-num" data-line="route-fill">
                   {chosen.cost.fillsNow === null
                     ? t('Not known')
                     : chosen.cost.averagePrice === null
@@ -435,14 +480,14 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{t('Venue fee')}</dt>
-                <dd className="numeric" data-line="venue-fee">
+                <dd className="lt-num" data-line="venue-fee">
                   <Known value={p!.venueFee.known ? { known: true, value: p!.venueFee.value.amount } : { known: false }} />{' '}
                   {p!.venueFee.known ? p!.venueFee.value.asset : ''}
                 </dd>
               </div>
               <div>
                 <dt>{t('Our builder fee')}</dt>
-                <dd className="numeric" data-line="builder-fee">
+                <dd className="lt-num" data-line="builder-fee">
                   {!carries ? (
                     t('Builder none spot buy')
                   ) : (
@@ -455,7 +500,7 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{route.side === 'buy' ? t('Expected cost') : t('Expected proceeds')}</dt>
-                <dd className="numeric" data-line="route-total">
+                <dd className="lt-num" data-line="route-total">
                   {displayAmount(chosen.cost.total)} {route.quoteAsset}
                   {chosen.cost.unknownFees.length > 0 ? ` (${t('Known fees only')})` : ''}
                 </dd>
@@ -466,7 +511,7 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{t('Client id held')}</dt>
-                <dd className="numeric" data-line="client-id">
+                <dd className="lt-num" data-line="client-id">
                   {intent.clientOrderKey}
                 </dd>
               </div>
@@ -494,16 +539,16 @@ export function RoutedReview({
           </>
         )}
         {step === 'approval' && chosen && status.builder ? (
-          <section role="dialog" aria-label={t('Approve builder fee')} data-testid="venue-route-approval" className="form-stack">
+          <section role="dialog" aria-label={t('Approve builder fee')} data-testid="venue-route-approval" className="lt-stack">
             <h3>{t('Approve builder fee')}</h3>
             <p data-line="approval-words">
               {t('Approval words', { venue: chosen.displayName, bps: displayAmount(status.builder.feeBps) })}
             </p>
-            <Button disabled={busy} onClick={() => void approve()}>
+            <Button tone="primary" disabled={busy} onClick={() => void approve()}>
               {t('Approve in wallet')}
             </Button>{' '}
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={busy}
               onClick={() => {
                 setStep('declined');
@@ -511,17 +556,29 @@ export function RoutedReview({
             >
               {t('Decline')}
             </Button>
-            <OutcomeLine result={approving} owner={owner} venueId={chosen.venueId} />
+            {approvalLimit(approving) ? (
+              <p className="lt-callout lt-callout-bad" role="alert" data-testid="venue-route-approval-limit" ref={reveal}>
+                {t('Approval limit words', { venue: chosen.displayName, detail: approvalLimit(approving) ?? '' })}
+              </p>
+            ) : (
+              <OutcomeLine result={approving} owner={owner} venueId={chosen.venueId} />
+            )}
           </section>
         ) : null}
         {step === 'declined' && chosen ? (
-          <p className="failure" role="alert" data-testid="venue-route-declined">
+          <p className="lt-callout lt-callout-bad" role="alert" data-testid="venue-route-declined">
             {t('Declined words', { venue: chosen.displayName })}
           </p>
         ) : null}
         {chosen ? (
           <Button
-            disabled={busy || step === 'approval' || (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')}
+            tone="primary"
+            disabled={
+              busy ||
+              step === 'approval' ||
+              approvalNow === 'reading' ||
+              (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')
+            }
             onClick={() => {
               setStep('review');
               void confirm();
@@ -531,11 +588,11 @@ export function RoutedReview({
           </Button>
         ) : null}{' '}
         {result?.kind === 'unknown' ? (
-          <Button variant="secondary" disabled={busy} onClick={() => void sendAgain()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void sendAgain()}>
             {t('Send again')}
           </Button>
         ) : null}{' '}
-        <Button variant="secondary" onClick={onClose}>
+        <Button tone="secondary" onClick={onClose}>
           {t('Close review')}
         </Button>
         <OutcomeLine result={result} owner={owner} {...(chosen ? { venueId: chosen.venueId } : {})} />
@@ -545,6 +602,6 @@ export function RoutedReview({
           </p>
         ) : null}
       </div>
-    </Dialog>
+    </Sheet>
   );
 }

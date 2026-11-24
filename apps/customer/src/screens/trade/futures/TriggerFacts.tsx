@@ -1,5 +1,5 @@
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import type { StatusKind } from '@intafaced/ui';
+import type { StatusKind } from '@intafaced/ui/lit';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { ConditionalOrder } from './api';
 import { failedOutcome } from './protection-logic';
@@ -92,7 +92,7 @@ export function TriggerFacts({ order, positions }: { order: ConditionalOrder; po
   return (
     <>
       {order.firedQuantity ? (
-        <span className="text-fg-2">
+        <span className="lt-hint">
           {order.status === 'failed'
             ? t('Fired failed', { qty: fmtAmount(order.firedQuantity, { places: 8 }) })
             : t('Fired', {
@@ -101,15 +101,15 @@ export function TriggerFacts({ order, positions }: { order: ConditionalOrder; po
               })}
         </span>
       ) : null}
-      {order.closeOrderId ? <span className="text-2xs text-fg-3">{t('Close order', { id: order.closeOrderId })}</span> : null}
-      {cancel ? <span className="text-fg-2">{cancel}</span> : null}
+      {order.closeOrderId ? <span className="lt-hint">{t('Close order', { id: order.closeOrderId })}</span> : null}
+      {cancel ? <span className="lt-hint">{cancel}</span> : null}
       {failure ? (
-        <span className="text-error-text" data-failure={order.failureReason ?? ''}>
+        <span className="lt-error" data-failure={order.failureReason ?? ''}>
           {failure}
         </span>
       ) : null}
       {outcome ? (
-        <span className="text-fg-2" data-outcome>
+        <span className="lt-hint" data-outcome>
           {outcomeWords(outcome, t, (side) => sides(side === 'long' ? 'Side long' : 'Side short'))}
         </span>
       ) : null}

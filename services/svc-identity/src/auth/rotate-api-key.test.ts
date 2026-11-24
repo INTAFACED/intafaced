@@ -64,6 +64,8 @@ describe('rotateApiKey', () => {
       prefix: 'ifk_live',
       mode: 'live',
       revokedKeyId: 'old',
+      // No overlap: the old key ends now.
+      endsAt: expect.any(Date),
       signingSecret: null,
     });
     expect(created).toHaveLength(1);
@@ -86,7 +88,7 @@ describe('rotateApiKey', () => {
       const rows = queue[i] ?? [];
       i += 1;
       return rows;
-    }) as unknown as Parameters<typeof rotateApiKey>[1];
+    }) as Parameters<typeof rotateApiKey>[1];
     await rotateApiKey(minter, sql, { userId: 'u', keyId: 'old', grantorScopes: ['identity:read'] });
     expect(writes).toEqual(['agent']);
   });

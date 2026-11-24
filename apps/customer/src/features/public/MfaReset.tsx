@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { mfaResetViewSchema, type MfaResetView } from '@intafaced/contracts/identity';
+import { type MfaResetView } from '@intafaced/contracts/identity';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { mfaResetCopy } from './mfa-reset-copy';
+import { IDENTITY_MFA_RESET_CONFIRM, IDENTITY_MFA_RESET_START } from '@intafaced/contracts/identity-mfa-reset-procedures';
 
 type View = MfaResetView;
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -54,19 +55,15 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
     };
   }, []);
 
-  async function send(
-    event: FormEvent<HTMLFormElement>,
-    procedure: 'mfaReset.start' | 'mfaReset.confirm',
-    read: (form: HTMLFormElement) => object,
-  ) {
+  async function send(event: FormEvent<HTMLFormElement>, read: (form: HTMLFormElement) => () => Promise<ApiResult<View>>) {
     event.preventDefault();
     if (busy) return;
     const form = event.currentTarget;
-    const input = read(form);
+    const ask = read(form);
     form.querySelectorAll<HTMLInputElement>('input[type=password], input[name=mfaResetCode]').forEach((field) => (field.value = ''));
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', procedure, input, mfaResetViewSchema);
+    const answer = await ask();
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setView(answer.data);
@@ -84,7 +81,7 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         {t('title')}
       </h2>
       {view?.state === 'waiting' ? (
-        <div className="stack">
+        <div className="lt-stack">
           <p className="notice" role="status" lang={languageFor('waiting')}>
             <strong>{t('waiting', { time: when(view.completesAt) })}</strong>
           </p>
@@ -96,9 +93,12 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         </div>
       ) : view?.state === 'code_sent' ? (
         <form
-          className="form-stack"
+          className="lt-stack"
           onSubmit={(event) =>
-            void send(event, 'mfaReset.confirm', (form) => ({ resetId: view.resetId, code: value(form, 'mfaResetCode') }))
+            void send(event, (form) => {
+              const input = { resetId: view.resetId, code: value(form, 'mfaResetCode') };
+              return () => api.call(IDENTITY_MFA_RESET_CONFIRM, input);
+            })
           }
         >
           <p role="status" lang={languageFor('mailed')}>
@@ -123,12 +123,12 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
         </form>
       ) : (
         <form
-          className="form-stack"
+          className="lt-stack"
           onSubmit={(event) =>
-            void send(event, 'mfaReset.start', (form) => ({
-              identifier: value(form, 'mfaResetIdentifier'),
-              password: value(form, 'mfaResetPassword'),
-            }))
+            void send(event, (form) => {
+              const input = { identifier: value(form, 'mfaResetIdentifier'), password: value(form, 'mfaResetPassword') };
+              return () => api.call(IDENTITY_MFA_RESET_START, input);
+            })
           }
         >
           <p lang={languageFor('intro')}>{t('intro')}</p>
@@ -148,10 +148,10 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
       )}
       {refusal &&
         (worded(code) && refusal.reason !== 'uncertain' ? (
-          <div data-testid="failure" className="failure" role="alert">
+          <div data-testid="failure" className="lt-refusal" role="alert">
             <p lang={languageFor(code)}>{t(code)}</p>
             {TO_SUPPORT.has(code) && (
-              <a className="text-link" href="/help" lang={languageFor('support')}>
+              <a className="lt-link" href="/help" lang={languageFor('support')}>
                 {t('support')}
               </a>
             )}

@@ -25,6 +25,9 @@ function row(market: string, last: string, extra: Partial<TickerRow> = {}): Tick
     low: '90',
     volume: '12',
     quoteVolume: '1200',
+    bid: '99',
+    ask: '101',
+    spread: '2',
     ...extra,
   };
 }
@@ -40,7 +43,8 @@ describe('TickerHub — the throttle', () => {
     h.attach(null, sink, 0);
     h.ingest([row('BTC', '100')], 0);
     expect(sink.frames).toHaveLength(1);
-    expect(sink.frames[0]).toMatchObject({ type: 'update', tickers: [{ market: 'BTC', last: '100' }] });
+    // Joined before anything was cached: its first rows still come as a snapshot (J-cex-spot-14 #8).
+    expect(sink.frames[0]).toMatchObject({ type: 'snapshot', tickers: [{ market: 'BTC', last: '100' }] });
 
     // Ten changes inside the window: nothing leaves.
     for (let t = 100; t <= 900; t += 100) h.ingest([row('BTC', String(100 + t))], t);
@@ -267,5 +271,53 @@ describe('TickerHub — resync', () => {
     h.attach(null, sink, 0);
     expect(h.resync(sink, 5)).toBe('absent');
     expect(sink.frames).toEqual([]);
+  });
+});
+
+// J-cex-spot-14 #8: the ticker channel is the live spread too: a move of the book's top alone sends the row again.
+describe('TickerHub — the top of the book', () => {
+  it('sends a row again when only its bid, ask and spread move', () => {
+    const h = hub();
+    const sink = new FakeSink();
+    h.attach(null, sink, 0);
+    h.ingest([row('BTC', '100')], 0);
+    expect(sink.frames).toHaveLength(1);
+    // The same last price and 24 h facts; only the book's top moved.
+    h.ingest([row('BTC', '100', { bid: '99.5', ask: '101', spread: '1.5' })], 2_000);
+    h.flush(2_000);
+    expect(sink.frames).toHaveLength(2);
+    const last = sink.frames[1];
+    expect(last.type).toBe('update');
+    expect(last.tickers).toEqual([expect.objectContaining({ market: 'BTC', bid: '99.5', ask: '101', spread: '1.5' })]);
+  });
+});
+
+// J-cex-spot-14 #8: a subscriber reads the stream as a snapshot, then updates, even when it joins a cold feed.
+describe('TickerHub — snapshot first', () => {
+  it('sends the first rows to a subscriber that joined before anything was cached as a snapshot, then updates', () => {
+    const h = hub();
+    const sink = new FakeSink();
+    h.attach(null, sink, 0);
+    expect(sink.frames).toHaveLength(0);
+    h.ingest([row('BTC', '100'), row('ETH', '10')], 0);
+    expect(sink.frames).toHaveLength(1);
+    expect(sink.frames[0].type).toBe('snapshot');
+    expect(sink.frames[0].tickers.map((r: TickerRow) => r.market).sort()).toEqual(['BTC', 'ETH']);
+    h.ingest([row('BTC', '101'), row('ETH', '10')], 2_000);
+    expect(sink.frames.map((f: { type: string }) => f.type)).toEqual(['snapshot', 'update']);
+    expect(sink.frames[1].tickers).toEqual([expect.objectContaining({ market: 'BTC', last: '101' })]);
+  });
+
+  it('sends a second, late subscriber its snapshot at once and never the first one twice', () => {
+    const h = hub();
+    const early = new FakeSink();
+    h.attach(null, early, 0);
+    h.ingest([row('BTC', '100')], 0);
+    const late = new FakeSink();
+    h.attach(null, late, 500);
+    expect(late.frames.map((f: { type: string }) => f.type)).toEqual(['snapshot']);
+    h.ingest([row('BTC', '100')], 600);
+    expect(early.frames).toHaveLength(1);
+    expect(late.frames).toHaveLength(1);
   });
 });

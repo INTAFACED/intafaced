@@ -100,7 +100,7 @@ describe('seeded share of open quantity (J-cex-spot-20 #4)', () => {
   it('is seeded remaining over all remaining, rounded down; nothing open has no entry; an unreadable quantity is null', async () => {
     const { seededQtyShares } = await import('./markets-model');
     const row = (symbol: string, remaining: string, seeded: boolean, status = 'open') =>
-      ({ symbol, remaining, seeded, status }) as unknown as Parameters<typeof seededQtyShares>[0][number];
+      ({ symbol, remaining, seeded, status }) as Parameters<typeof seededQtyShares>[0][number];
     const shares = seededQtyShares([
       row('A/USD', '0.003', true),
       row('A/USD', '0.006', false),

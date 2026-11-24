@@ -10,6 +10,8 @@ const en = {
   chooseTitle: 'Loan',
   chooseLabel: 'Which loan',
   chooseNone: 'No loan is offered to you right now.',
+  choosePlaceholder: 'Choose a loan',
+  chooseHint: 'Pick a loan to see its rate and limits, work out the collateral it needs, check what applies to you and see its fee.',
   limitsTitle: 'Limits and rate',
   rate: 'Interest a year',
   maxLtv: 'Most you can borrow against your collateral',
@@ -83,6 +85,9 @@ const es: Record<keyof typeof en, string> = {
   chooseTitle: 'Préstamo',
   chooseLabel: 'Qué préstamo',
   chooseNone: 'Ahora mismo no se te ofrece ningún préstamo.',
+  choosePlaceholder: 'Elige un préstamo',
+  chooseHint:
+    'Elige un préstamo para ver su interés y sus límites, calcular la garantía que necesita, comprobar qué se te aplica y ver su comisión.',
   limitsTitle: 'Límites y tipo',
   rate: 'Interés anual',
   maxLtv: 'Lo máximo que puedes pedir frente a tu garantía',
@@ -158,6 +163,9 @@ const fr: Record<keyof typeof en, string> = {
   chooseTitle: 'Prêt',
   chooseLabel: 'Quel prêt',
   chooseNone: 'Aucun prêt ne vous est proposé pour le moment.',
+  choosePlaceholder: 'Choisissez un prêt',
+  chooseHint:
+    'Choisissez un prêt pour voir son taux et ses limites, calculer la garantie nécessaire, vérifier ce qui s’applique à vous et voir ses frais.',
   limitsTitle: 'Limites et taux',
   rate: 'Intérêt par an',
   maxLtv: 'Le maximum que vous pouvez emprunter sur votre garantie',

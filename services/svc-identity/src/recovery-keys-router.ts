@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   RECOVERY_KEY_KINDS,
   RECOVERY_LABEL_MAX,
@@ -11,9 +11,16 @@ import { SecurityLockError } from './auth/security-lock.js';
 import { userCopy } from './user-copy.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc } from './auth/security-step-up.js';
 import { toTrpcError } from './router.js';
+import {
+  clientRequestId,
+  stepUpApprovalId,
+  IDENTITY_RECOVERY_KEYS_LIST,
+  IDENTITY_RECOVERY_PLAN_SET,
+  IDENTITY_RECOVERY_KEYS_REVOKE,
+} from '@intafaced/contracts/identity-recovery-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
-const clientRequestId = z.string().min(1).max(128);
-const stepUpApprovalId = z.string().min(1).max(128).nullish();
 const label = z
   .string()
   .trim()
@@ -51,17 +58,18 @@ export function createRecoveryKeysRouter(keys: RecoveryKeys) {
   return router({
     recovery: router({
       keys: router({
-        list: scopedProcedure('identity:read')
-          .input(z.object({}).strict().optional())
-          .output(recoveryViewSchema)
-          .query(async ({ ctx }) => {
+        list: mountRecord(
+          IDENTITY_RECOVERY_KEYS_LIST,
+          async ({ ctx }) => {
             try {
               keys.refuse(ctx.principal);
               return await keys.view(ctx.principal.userId);
             } catch (err) {
               return mapError(err);
             }
-          }),
+          },
+          codedRefusal,
+        ),
         add: scopedProcedure('identity:write')
           .input(
             z
@@ -82,37 +90,30 @@ export function createRecoveryKeysRouter(keys: RecoveryKeys) {
               return mapError(err);
             }
           }),
-        revoke: scopedProcedure('identity:write')
-          .input(z.object({ keyId: z.string().guid(), clientRequestId, stepUpApprovalId }).strict())
-          .output(recoveryViewSchema)
-          .mutation(async ({ ctx, input }) => {
+        revoke: mountRecord(
+          IDENTITY_RECOVERY_KEYS_REVOKE,
+          async ({ ctx, input }) => {
             try {
               return await keys.revoke(ctx.principal, input);
             } catch (err) {
               return mapError(err);
             }
-          }),
+          },
+          codedRefusal,
+        ),
       }),
       plan: router({
-        set: scopedProcedure('identity:write')
-          .input(
-            z
-              .object({
-                heirHandle: z.string().min(1).max(33),
-                threshold: z.number().int().min(1).max(1000),
-                clientRequestId,
-                stepUpApprovalId,
-              })
-              .strict(),
-          )
-          .output(recoveryViewSchema)
-          .mutation(async ({ ctx, input }) => {
+        set: mountRecord(
+          IDENTITY_RECOVERY_PLAN_SET,
+          async ({ ctx, input }) => {
             try {
               return await keys.setPlan(ctx.principal, input);
             } catch (err) {
               return mapError(err);
             }
-          }),
+          },
+          codedRefusal,
+        ),
       }),
     }),
   });

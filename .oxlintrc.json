@@ -1,0 +1,121 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react"],
+  "jsPlugins": ["./tooling/lint/oxlint-plugin-garden/index.js"],
+  "categories": {
+    "correctness": "warn"
+  },
+  "ignorePatterns": ["**/vendor/**", "**/dist/**", "**/build/**", "**/.next/**", "**/coverage/**", "**/out/**"],
+  "rules": {
+    "garden/use-shared-helper": "error",
+    "garden/no-double-cast": "error",
+    "garden/require-suppression-reason": "error",
+    "garden/no-real-clock-wait-in-tests": "error",
+    "garden/no-wait-for-timeout": "error",
+    "garden/count-zero-needs-shown": "error",
+    "garden/no-promise-copy": "error",
+    "garden/pay-portal-copy": "error",
+    "garden/no-hand-schema": "error",
+    "garden/no-screen-literal": "error",
+    "garden/own-gap-wording": "error",
+    "garden/no-unsealed-claim": "error",
+    "garden/no-number-money": "error",
+    "garden/no-random-request-key": "error",
+    "garden/no-shared-market-on-book": "error",
+    "garden/no-effect-in-product": "error",
+    "garden/no-hand-answer-reader": "error",
+    "garden/no-hand-typed-patch": "error",
+    "garden/no-either-state-match": "error",
+    "garden/no-made-up-principal": "error",
+    "garden/exact-locator": "error",
+    "garden/no-stale-read": "error",
+    "garden/no-action-in-retry": "error",
+    "garden/no-sign-in-retry": "error",
+    "garden/no-sign-in-in-step": "error",
+    "garden/step-picture-before-leaving": "error",
+    "garden/asset-id-schema": "error",
+    "garden/restart-through-helper": "error",
+    "garden/no-history-comment": "error",
+    "garden/no-copied-journey-function": "error",
+    "garden/no-class-selector": "error",
+    "garden/switch-needs-default": "error",
+    "garden/no-journey-sql-read": "error",
+    "garden/no-hand-row": "error",
+    "garden/no-hand-clock": "error",
+    "garden/no-deep-entry": "error",
+    "garden/test-postgres-helper": "error",
+    "garden/no-raw-stored-search": "error",
+    "garden/no-call-by-name": "error",
+    "garden/no-runtime-swap": "error",
+    "garden/no-switch-router": "error",
+    "garden/no-cross-feature-import": "error",
+    "garden/no-source-text-test": "error",
+    "garden/no-restyled-kit-part": "error",
+    "garden/no-raw-control": "error",
+    "garden/no-raw-type-class": "error",
+    "typescript/no-explicit-any": "error",
+    "react-hooks/exhaustive-deps": "error",
+    "react/refs": "off",
+    "react/jsx-key": "off",
+    "react/set-state-in-effect": "off",
+    "react/purity": "off",
+    "react/immutability": "off",
+    "react/globals": "off",
+    "react/use-memo": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/static-components": "off",
+    "react/incompatible-library": "off"
+  },
+  "overrides": [
+    {
+      "files": ["services/*/src/**", "packages/*/src/**"],
+      "excludeFiles": ["**/*.test.*", "**/*.spec.*", "**/test/**", "**/tests/**", "**/testing/**", "**/__tests__/**", "**/fixtures/**"],
+      "rules": {
+        "no-console": "error",
+        "max-params": ["error", { "max": 3 }],
+        "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
+        "typescript/no-non-null-assertion": "error",
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@intafaced/contracts",
+                "allowTypeImports": true,
+                "message": "The barrel runs all 210 contract files (40 MB in each service). Import the file that defines the name: @intafaced/contracts/<file>. node tooling/codemod/contracts-subpaths/rewrite.mjs rewrites it."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["apps/customer/src/screens/trade/desk/VenueSpotDesk.tsx"],
+      "rules": {
+        "max-lines": ["error", { "max": 600 }],
+        "react/no-multi-comp": "error"
+      }
+    },
+    {
+      "files": ["apps/customer/src/features/money/contracts.ts"],
+      "rules": {
+        "garden/compose-only": [
+          "error",
+          { "names": ["BankRead", "BankWrite", "bankWriteForReview"], "spreads": ["bankReads", "bankWrites"] }
+        ]
+      }
+    },
+    {
+      "files": ["apps/customer/src/screens/trade/desk/OrderForm.tsx", "apps/customer/src/screens/trade/desk/EditOrder.tsx"],
+      "rules": {
+        "garden/no-random-request-key": ["error", { "anyRandomUUID": true }]
+      }
+    },
+    {
+      "files": ["apps/customer/src/screens/trade/copybots/*.tsx"],
+      "rules": {
+        "garden/no-service-sentence": "error"
+      }
+    }
+  ]
+}

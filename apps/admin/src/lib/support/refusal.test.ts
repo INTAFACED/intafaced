@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FounderCallFailure } from '@/lib/desk/founder-call';
+import type { FounderCallFailure } from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, explainSupportFailure, supportCodeOf } from './refusal';
 
 const refusal = (message: string, status: number, code: string | null = null) => ({ code, message, status });

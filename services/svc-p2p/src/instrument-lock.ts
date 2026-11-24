@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 
 /**
  * THE ERASE/TAKE LOCK — one person's payment destinations, one writer at a time.
@@ -86,7 +86,7 @@ export const INSTRUMENT_OWNER_LOCK_CLASS = 8_140_703;
  * serialisation — never correctness, because a collision can only ever make
  * this more exclusive than it needs to be.
  */
-export async function lockInstrumentOwners(tx: Sql, ...ownerIds: string[]): Promise<void> {
+export async function lockInstrumentOwners(tx: Queryable, ...ownerIds: string[]): Promise<void> {
   for (const ownerId of [...new Set(ownerIds)].sort()) {
     await tx`SELECT pg_advisory_xact_lock(${INSTRUMENT_OWNER_LOCK_CLASS}, hashtext(${ownerId}))`;
   }

@@ -1,7 +1,8 @@
-// World: market, restart, gates
+// World: book, market, restart, gates
 // Market: live
 import { test, expect } from './journey.mjs';
-import { EDGE, tool } from './stack.mjs';
+import { signUp } from './desk.mjs';
+import { EDGE, api, otherTrader, tool } from './stack.mjs';
 
 // J-charts-desk-02, in the running app (docs/roadmap/journeys.json): a person tells whether the data on a chart is live,
 // delayed, stale, halted or test. One test per step, titled "J-charts-desk-02 #<n>". Expected values are worked from
@@ -9,19 +10,27 @@ import { EDGE, tool } from './stack.mjs';
 //
 // Which steps are real and which are intercepted:
 //   #1 real: BTC/USDT on the stack's own data class (real time), the newest trade inside the owner's boundary.
-//   #2 real: ETH/USDT is set to the delayed class through the gates' `chart-class` (two-person approval), and restored
-//      to real time afterwards. The chip's age is checked against the newest ETH trade on the public tape.
-//      Also real: ETH/USDT on the real-time class with no trade past the owner's boundary. The stack's TEST market maker is
+//   #2 real: ETH/USDT on the real-time class with no trade past the owner's delayed age. The stack's TEST market maker is
 //      restarted on BTC/USDT only, so no ETH trade happens for longer than the boundary, then restarted on every market.
+//      Also real: ETH/USDT set to the delayed class through the gates' `chart-class` (two-person approval), and restored
+//      to real time afterwards. The chip's age is checked against the newest ETH trade on the public tape. While #2 runs,
+//      the owner's stale age is widened through the gates' `chart-count` (the same owner-values door, a TEST value) so a
+//      stream past the delayed age is read before it turns stale; `charts` puts the stack's TEST values back afterwards.
 //   #3 real: BTC/USDT is halted with the gates' `halt` (matching's own book halt) and resumed afterwards. The chart reads
-//      that halt from /api/v1/market-halt. No interception.
-//   #4 real: ETH/USDT is kept quiet (the TEST maker trades BTC/USDT only) and read once on its chart; svc-trade, which serves
-//      every chart read, is then stopped on the stack and ETH/USDT opened again from the chart's market control, so the
-//      market opens with its feed already stopped. svc-trade is started again afterwards. No route is changed in the browser.
+//      that halt from /api/v1/market-halt. A person signs up in the step, since the chart offers its own order entry only
+//      to a signed-in person: the order button under the chart, the price-scale button and the order menu are all read
+//      off, and the page's own requests are watched for any order write. No interception.
+//   #4 real, both branches: ETH/USDT is kept quiet (the TEST maker trades BTC/USDT only). Stale: once its newest trade is
+//      older than the owner's stale age (the stack's TEST value), its chart reads Stale with the last trade time. Down:
+//      svc-trade, which serves every chart read, is then stopped on the stack and ETH/USDT opened again from the chart's
+//      market control, so the market opens with its feed already stopped. svc-trade is started again afterwards. No route
+//      is changed in the browser.
 //   #5 real: the TEST label follows the lifecycle's own local-test evidence marker (the stack marks BTC/USDT as TEST).
-//   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control), the bars move with trades, and
-//      the longest main-thread task over a 10 s stream window is at or under the owner's render budget (renderBudgetMs,
-//      a TEST value set by `local-test-gates.mjs charts`). No route is changed.
+//   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control, read once its 1m bars are drawn);
+//      the stack's TEST taker sends a small market buy or sell every 400 ms for the window, so trades stream fast; the
+//      newest bar reaches the newest trade's minute and what it shows changes, and the longest main-thread task over the
+//      10 s stream window is at or under the owner's render budget (renderBudgetMs, a TEST value set by
+//      `local-test-gates.mjs charts`). No route is changed.
 const J = 'J-charts-desk-02';
 const CHART = '/charts/BTC-USDT';
 const ETH_CHART = '/charts/ETH-USDT';
@@ -36,6 +45,24 @@ const host = (page) => page.getByTestId('cw').getByTestId('wc-host').first();
 const tradeButton = (page) => page.locator('button[data-testid="cw-link"]').first();
 /** The chart page's own market control, labelled "Market" in its header. */
 const marketControl = (page) => page.getByTestId('cw-market').first();
+
+/** A time as the chart writes it in its banner, in the viewer's clock. */
+const bannerTime = (page, ms) =>
+  page.evaluate(
+    (at) =>
+      new Intl.DateTimeFormat('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).format(at),
+    ms,
+  );
+
+/** The seconds the chip names ("Last trade 41 s ago"), or NaN. */
+const chipSeconds = async (page) => Number(((await chip(page).textContent()) ?? '').match(/Last trade (\d+) s ago/)?.[1]);
 
 /** The owner values for one market, from svc-trade's public read (the chart reads the same route). */
 async function ownerValues(symbol = BTC) {
@@ -68,104 +95,132 @@ async function openChart(page, path = CHART) {
   await expect.poll(async () => Number(await host(page).getAttribute('data-bars'))).toBeGreaterThan(0);
 }
 
-test(`${J} #1 opens a chart on a live market: a Real-time chip with its age, the source line and the feed connected`, async ({ page }) => {
+test(`${J} #1 opens a chart on a live market: a Real-time chip with its age, the source line and the feed connected`, async ({
+  page,
+  stepPicture,
+}) => {
   const owner = await ownerValues(BTC);
   expect(owner.dataClass).toBe('real_time');
   expect(owner.delayedBoundarySeconds).toBeGreaterThan(0);
   // A live market has traded inside the boundary; the test waits for that trade rather than changing the market. The
   // TEST maker crosses BTC/USDT every sixth loop cycle, about 96 s apart and more under load (run 701 saw a gap over
   // 136 s, which a 90 s wait missed; #6638), so the wait spans more than two such gaps.
+  // The chart is opened first and the wait is for a trade made after it is open: a trade seen before a cold open could
+  // age past the 30 s boundary while the page loaded, and the chip then rightly read Delayed. The chip reads the
+  // tape every 10 s, so it meets the new trade well inside the boundary.
   test.setTimeout(300_000);
-  await expect
-    .poll(async () => (Date.now() - (await newestTradeMs(BTC))) / 1000, { timeout: 240_000, intervals: [2_000] })
-    .toBeLessThanOrEqual(owner.delayedBoundarySeconds);
   await openChart(page);
+  const openedMs = await newestTradeMs(BTC);
+  await expect.poll(async () => (await newestTradeMs(BTC)) > openedMs, { timeout: 240_000, intervals: [2_000] }).toBe(true);
+  expect((Date.now() - (await newestTradeMs(BTC))) / 1000).toBeLessThanOrEqual(owner.delayedBoundarySeconds);
   await expect(chip(page)).toHaveAttribute('data-status', 'live', { timeout: 30_000 });
-  await expect(chip(page)).toContainText('Real-time');
+  await expect(chip(page)).toContainText(/Real-time · Last trade \d+ s ago/);
+  expect(await chipSeconds(page)).toBeLessThanOrEqual(owner.delayedBoundarySeconds);
   await expect(source(page)).toContainText('executed trades on this venue');
   await expect(feedLine(page)).toContainText('Feed connected');
+  await stepPicture();
 });
 
-test.describe(`${J} #2 on a real-time market whose newest trade is past the boundary`, () => {
-  let makerWasRunning = false;
+test.describe(`${J} #2 with the owner's stale age widened (TEST)`, () => {
+  // The stack's TEST stale age is only a few seconds past its delayed age; #2 reads a stream past the delayed age, so the
+  // stale age is widened through the owner-values door for these steps and the stack's TEST values are put back after.
+  const WIDE_STALE_AGE_SECONDS = 3600;
   test.beforeAll(() => {
-    // Stopping cancels every resting maker order and starting funds it again: each may take up to the tool's 120 s.
-    test.setTimeout(300_000);
-    makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
-    // No ETH trade from here: the TEST market maker quotes and trades BTC/USDT only.
-    tool('local-test-market.mjs', 'stop');
-    tool('local-test-market.mjs', 'start', '--markets', BTC);
+    tool('local-test-gates.mjs', 'chart-count', 'staleAgeSeconds', String(WIDE_STALE_AGE_SECONDS));
   });
   test.afterAll(() => {
-    test.setTimeout(300_000);
-    tool('local-test-market.mjs', 'stop');
-    // Put the maker back as the stack had it: on every market (as the run starts it), or off if it was off.
-    if (makerWasRunning) tool('local-test-market.mjs', 'start');
+    tool('local-test-gates.mjs', 'charts');
   });
 
-  test(`${J} #2 opens a real-time market with no trade inside the boundary: the chip reads Delayed with the age of its newest trade`, async ({
-    page,
-  }) => {
-    const owner = await ownerValues(ETH);
-    test.setTimeout((owner.delayedBoundarySeconds + 5) * 1000 + 150_000);
-    expect(owner.dataClass).toBe('real_time');
-    expect(owner.delayedBoundarySeconds).toBeGreaterThan(0);
-    // Wait on the public tape until the newest ETH trade is older than the boundary, then judge the chip by that trade.
-    const pastBoundaryMs = (owner.delayedBoundarySeconds + 5) * 1000;
-    await expect
-      .poll(async () => Date.now() - (await newestTradeMs(ETH)) > pastBoundaryMs, {
-        timeout: pastBoundaryMs + 60_000,
-        intervals: [2_000],
-      })
-      .toBe(true);
-    const newest = await newestTradeMs(ETH);
-    await openChart(page, ETH_CHART);
-    await expect(chip(page)).toHaveAttribute('data-status', 'delayed', { timeout: 30_000 });
-    await expect(chip(page)).toContainText('Delayed');
-    await expect
-      .poll(
-        async () => {
-          const text = (await chip(page).textContent()) ?? '';
-          const seconds = Number(text.match(/Last trade (\d+) s ago/)?.[1]);
-          return Math.abs(seconds - (Date.now() - newest) / 1000);
-        },
-        { timeout: 30_000, intervals: [1_000] },
-      )
-      .toBeLessThanOrEqual(15);
-    await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
-    await expect(banner(page)).toContainText(`past the ${owner.delayedBoundarySeconds} s boundary on a real-time market`);
-  });
-});
+  test.describe(`${J} #2 on a real-time market whose newest trade is past the boundary`, () => {
+    let makerWasRunning = false;
+    test.beforeAll(() => {
+      // Stopping cancels every resting maker order and starting funds it again: each may take up to the tool's 120 s.
+      test.setTimeout(300_000);
+      makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
+      // No ETH trade from here: the TEST market maker quotes and trades BTC/USDT only.
+      tool('local-test-market.mjs', 'stop');
+      tool('local-test-market.mjs', 'start', '--markets', BTC);
+    });
+    test.afterAll(() => {
+      test.setTimeout(300_000);
+      tool('local-test-market.mjs', 'stop');
+      // Put the maker back as the stack had it: on every market (as the run starts it), or off if it was off.
+      if (makerWasRunning) tool('local-test-market.mjs', 'start');
+    });
 
-test.describe(`${J} #2 on a delayed market`, () => {
-  test.beforeAll(() => {
-    // The owner's flow, on the local stack: ETH/USDT moves to the delayed class with a second operator's approval.
-    tool('local-test-gates.mjs', 'chart-class', ETH, 'delayed');
-  });
-  test.afterAll(() => {
-    tool('local-test-gates.mjs', 'chart-class', ETH, 'real_time');
+    test(`${J} #2 opens a real-time market with no trade inside the boundary: the chip reads Delayed with the age of its newest trade`, async ({
+      page,
+      stepPicture,
+    }) => {
+      const owner = await ownerValues(ETH);
+      expect(owner.staleAgeSeconds, 'the stale age is widened for #2').toBe(WIDE_STALE_AGE_SECONDS);
+      test.setTimeout((owner.delayedBoundarySeconds + 5) * 1000 + 150_000);
+      expect(owner.dataClass).toBe('real_time');
+      expect(owner.delayedBoundarySeconds).toBeGreaterThan(0);
+      // Wait on the public tape until the newest ETH trade is older than the boundary, then judge the chip by that trade.
+      const pastBoundaryMs = (owner.delayedBoundarySeconds + 5) * 1000;
+      await expect
+        .poll(async () => Date.now() - (await newestTradeMs(ETH)) > pastBoundaryMs, {
+          timeout: pastBoundaryMs + 60_000,
+          intervals: [2_000],
+        })
+        .toBe(true);
+      const newest = await newestTradeMs(ETH);
+      await openChart(page, ETH_CHART);
+      await expect(chip(page)).toHaveAttribute('data-status', 'delayed', { timeout: 30_000 });
+      await expect(chip(page)).toContainText('Delayed');
+      await expect
+        .poll(
+          async () => {
+            const text = (await chip(page).textContent()) ?? '';
+            const seconds = Number(text.match(/Last trade (\d+) s ago/)?.[1]);
+            return Math.abs(seconds - (Date.now() - newest) / 1000);
+          },
+          { timeout: 30_000, intervals: [1_000] },
+        )
+        .toBeLessThanOrEqual(15);
+      await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
+      await expect(banner(page)).toContainText(`past the ${owner.delayedBoundarySeconds} s boundary on a real-time market`);
+      await stepPicture();
+    });
   });
 
-  test(`${J} #2 opens a market whose data class is delayed: the chip reads Delayed with the age of its newest trade`, async ({ page }) => {
-    const owner = await ownerValues(ETH);
-    expect(owner.dataClass).toBe('delayed');
-    const newest = await newestTradeMs(ETH);
-    await openChart(page, ETH_CHART);
-    await expect(chip(page)).toHaveAttribute('data-status', 'delayed', { timeout: 30_000 });
-    await expect(chip(page)).toContainText('Delayed');
-    // The age on the chip is the age of the newest ETH trade now, within the poll that set the chip and the time it took to open.
-    await expect
-      .poll(
-        async () => {
-          const text = (await chip(page).textContent()) ?? '';
-          const seconds = Number(text.match(/Last trade (\d+) s ago/)?.[1]);
-          return Math.abs(seconds - (Date.now() - newest) / 1000);
-        },
-        { timeout: 30_000, intervals: [1_000] },
-      )
-      .toBeLessThanOrEqual(60);
-    await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
-    await expect(banner(page)).toContainText("This market's data class is delayed");
+  test.describe(`${J} #2 on a delayed market`, () => {
+    test.beforeAll(() => {
+      // The owner's flow, on the local stack: ETH/USDT moves to the delayed class with a second operator's approval.
+      tool('local-test-gates.mjs', 'chart-class', ETH, 'delayed');
+    });
+    test.afterAll(() => {
+      tool('local-test-gates.mjs', 'chart-class', ETH, 'real_time');
+    });
+
+    test(`${J} #2 opens a market whose data class is delayed: the chip reads Delayed with the age of its newest trade`, async ({
+      page,
+      stepPicture,
+    }) => {
+      const owner = await ownerValues(ETH);
+      expect(owner.dataClass).toBe('delayed');
+      expect(owner.staleAgeSeconds, 'the stale age is widened for #2').toBe(WIDE_STALE_AGE_SECONDS);
+      const newest = await newestTradeMs(ETH);
+      await openChart(page, ETH_CHART);
+      await expect(chip(page)).toHaveAttribute('data-status', 'delayed', { timeout: 30_000 });
+      await expect(chip(page)).toContainText('Delayed');
+      // The age on the chip is the age of the newest ETH trade now, within the poll that set the chip and the time it took to open.
+      await expect
+        .poll(
+          async () => {
+            const text = (await chip(page).textContent()) ?? '';
+            const seconds = Number(text.match(/Last trade (\d+) s ago/)?.[1]);
+            return Math.abs(seconds - (Date.now() - newest) / 1000);
+          },
+          { timeout: 30_000, intervals: [1_000] },
+        )
+        .toBeLessThanOrEqual(60);
+      await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
+      await expect(banner(page)).toContainText("This market's data class is delayed");
+      await stepPicture();
+    });
   });
 });
 
@@ -180,7 +235,17 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
 
   test(`${J} #3 opens a halted market: a banner that the market is halted, and chart order entry is off with the reason`, async ({
     page,
+    stepPicture,
   }) => {
+    test.setTimeout(180_000);
+    // A signed-in person: the chart offers its own order entry (the order button under the chart, the button on the price
+    // scale, the order menu) only to one, so only a signed-in person can be shown it switched off.
+    await signUp(page, 'jcd02');
+    // Every order write this page sends from here on. The halted chart must send none.
+    const orderWrites = [];
+    page.on('request', (req) => {
+      if (req.method() !== 'GET' && /\/api\/v1\/orders(?:[/?]|$)/.test(req.url())) orderWrites.push(`${req.method()} ${req.url()}`);
+    });
     await openChart(page);
     await expect(chip(page)).toHaveAttribute('data-status', 'halted', { timeout: 30_000 });
     await expect(banner(page)).toHaveAttribute('data-kind', 'halted');
@@ -203,10 +268,35 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
       halt.haltedSince,
     );
     await expect(banner(page)).toContainText(`Halted as of ${asOf}.`);
+    // The chart's way to the desk is off, with the reason.
     const trade = tradeButton(page);
     await expect(trade).toBeDisabled();
     await expect(page.locator('#cw-trade-refusal')).toHaveText('Order entry is off: this market is halted.');
     await expect(page.locator('a[data-testid="cw-link"]')).toHaveCount(0);
+    // Order entry on the chart itself is off: its bar is locked, the refusal there names the halt under the chart's own
+    // refusal code, the order button is disabled and no order ticket is open.
+    const trading = page.getByTestId('cw').first().getByTestId('chart-trading');
+    await expect(trading).toHaveAttribute('data-locked', 'true');
+    const refusal = trading.getByTestId('chart-trading-refusal');
+    await expect(refusal).toHaveText('Order entry is off: this market is halted.');
+    await expect(refusal).toHaveAttribute('data-code', 'trade.chart.order_entry_refused');
+    await expect(trading.getByRole('button', { name: 'Order on chart', exact: true })).toBeDisabled();
+    await expect(trading.getByRole('form', { name: 'Order from the chart', exact: true })).toHaveCount(0);
+    await stepPicture();
+    // The price scale offers no order button under the pointer, and a right click on the chart opens no order menu. Each
+    // is read once the chart has taken the pointer (it marks the price under it) and has drawn again.
+    const drawn = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const box = await host(page).boundingBox();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.35);
+    await expect(page.locator('[data-crosshair-price]').first()).toHaveAttribute('data-crosshair-price', /\d/);
+    await drawn();
+    await expect(page.getByTestId('chart-axis-plus')).toHaveCount(0);
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.35, { button: 'right' });
+    await drawn();
+    await expect(page.getByRole('menu', { name: 'Order at this price', exact: true })).toHaveCount(0);
+    // Nothing was sent: the halted chart placed, moved and cancelled no order.
+    expect(orderWrites).toEqual([]);
   });
 });
 
@@ -225,8 +315,42 @@ test.describe(`${J} #4 on our own outage, opened after svc-trade has stopped`, (
     if (makerWasRunning) tool('local-test-market.mjs', 'start');
   });
 
+  test(`${J} #4 opens a market whose stream is older than the owner's stale age: Stale with the last trade time, never shown as live`, async ({
+    page,
+    stepPicture,
+  }) => {
+    const owner = await ownerValues(ETH);
+    const staleAge = owner.staleAgeSeconds;
+    expect(
+      Number.isInteger(staleAge) && staleAge > owner.delayedBoundarySeconds,
+      `the stale age (${staleAge}) is set past the delayed age`,
+    ).toBe(true);
+    test.setTimeout((staleAge + 5) * 1000 + 180_000);
+    // Wait on the public tape until the newest ETH trade is older than the stale age, then judge the chart by that trade.
+    const pastStaleMs = (staleAge + 3) * 1000;
+    await expect
+      .poll(async () => Date.now() - (await newestTradeMs(ETH)) > pastStaleMs, { timeout: pastStaleMs + 150_000, intervals: [2_000] })
+      .toBe(true);
+    const lastTrade = await newestTradeMs(ETH);
+    await openChart(page, ETH_CHART);
+    await expect(chip(page)).toHaveAttribute('data-status', 'stale', { timeout: 30_000 });
+    await expect(chip(page)).toContainText(/^Stale · Last trade \d+ s ago$/);
+    // The age on the chip is the newest trade's, past the stale age.
+    await expect
+      .poll(async () => Math.abs((await chipSeconds(page)) - (Date.now() - lastTrade) / 1000), { timeout: 30_000 })
+      .toBeLessThanOrEqual(15);
+    expect(await chipSeconds(page)).toBeGreaterThan(staleAge);
+    await expect(banner(page)).toHaveAttribute('data-kind', 'stale');
+    await expect(banner(page)).toContainText(`past the ${staleAge} s stale age, so the candles shown are not live.`);
+    await expect(banner(page)).toContainText(`Last trade ${await bannerTime(page, lastTrade)}.`);
+    expect(await newestTradeMs(ETH), 'no ETH trade landed while the chart read it').toBe(lastTrade);
+    await expect(chip(page)).not.toContainText('Real-time');
+    await stepPicture();
+  });
+
   test(`${J} #4 opens a market whose feed has stopped: Down with the last trade time, never a frozen price shown as live`, async ({
     page,
+    stepPicture,
   }) => {
     test.setTimeout(300_000);
     // The newest ETH/USDT trade, which no longer moves. The person has seen this market earlier in the session.
@@ -246,31 +370,23 @@ test.describe(`${J} #4 on our own outage, opened after svc-trade has stopped`, (
       await expect(chip(page)).toHaveAttribute('data-status', 'down', { timeout: 60_000 });
       await expect(chip(page)).toContainText('Down');
       await expect(banner(page)).toHaveAttribute('data-kind', 'down');
-      const asOf = await page.evaluate(
-        (ms) =>
-          new Intl.DateTimeFormat('en-GB', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hourCycle: 'h23',
-          }).format(ms),
-        lastTrade,
-      );
-      await expect(banner(page)).toContainText(`Last trade ${asOf}.`);
+      await expect(banner(page)).toContainText(`Last trade ${await bannerTime(page, lastTrade)}.`);
       await expect(feedLine(page)).toContainText('Feed down');
       // Never shown as live while it stays stopped.
       await page.waitForTimeout(5_000);
       await expect(chip(page)).toHaveAttribute('data-status', 'down');
       await expect(chip(page)).not.toContainText('Real-time');
+      await stepPicture();
     } finally {
       tool('local-test-stack.mjs', 'start', '--only', 'trade');
     }
   });
 });
 
-test(`${J} #5 opens a TEST market: a TEST label on the chart title row, named by the lifecycle's own marker`, async ({ page }) => {
+test(`${J} #5 opens a TEST market: a TEST label on the chart title row and on the price header, named by the lifecycle's own marker`, async ({
+  page,
+  stepPicture,
+}) => {
   // The stack marks its markets with a local-test evidence marker. This step pins the branch: BTC/USDT is a TEST market
   // on the local stack, so the label must be there with its title.
   const res = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(BTC)}`);
@@ -301,10 +417,30 @@ test(`${J} #5 opens a TEST market: a TEST label on the chart title row, named by
   const header = page.getByTestId('dk-ticker');
   await expect(header.getByTestId('dk-last')).toBeVisible({ timeout: 30_000 });
   await expect(header.getByText('TEST', { exact: true })).toBeVisible();
+  // The picture shows the desk drawn: its chart's candles (the legend comes with the first bar, the canvas once sized)
+  // and both sides of the book.
+  const deskChart = page.getByTestId('dk-chart');
+  await expect(deskChart.getByTestId('pc-legend')).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(
+      () =>
+        deskChart
+          .getByTestId('pc-host')
+          .locator('canvas')
+          .first()
+          .evaluate((c) => c.width * c.height),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  for (const side of ['bid', 'ask'])
+    await expect(page.locator(`[data-testid="dk-bk-row"][data-side="${side}"]`).first()).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await stepPicture();
 });
 
 test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter advances, and no task holds the page past the render budget`, async ({
   page,
+  stepPicture,
 }) => {
   // The owner's render budget (renderBudgetMs). A blank value is a missing owner setting: the step fails by name.
   const owner = await ownerValues(BTC);
@@ -323,41 +459,99 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
       window.__longTasks = null;
     }
   });
+  test.setTimeout(180_000);
   await openChart(page);
-  // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar.
+  // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar. The bars are read only
+  // once the 1m candles have answered and been drawn, so the 15m bars the chart opened on never count as a move.
+  const oneMinute = page.waitForResponse((res) => {
+    if (!/\/ohlcv\/BTC%2FUSDT\?/.test(res.url()) || !res.ok()) return false;
+    const query = new URL(res.url()).searchParams;
+    // The recent bars the chart polls, not an older page of history (which carries `since`).
+    return query.get('timeframe') === '1m' && !query.has('since');
+  });
   await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  const first = await host(page).getAttribute('data-last');
-  await expect.poll(async () => host(page).getAttribute('data-last'), { timeout: 70_000, intervals: [2_000] }).not.toBe(first);
-  // The stream window: only the long tasks inside these 10 s count.
-  await page.evaluate(() => {
-    window.__longTasks = [];
-  });
-  await page.waitForTimeout(10_000);
-  const tasks = await page.evaluate(() => window.__longTasks);
-  expect(tasks, 'the browser reports long tasks (PerformanceObserver longtask)').not.toBeNull();
-  const worst = Math.max(0, ...tasks);
-  expect(worst, `longest main-thread task in the 10 s stream window, ms (budget ${budget} ms)`).toBeLessThanOrEqual(budget);
-  // The page is not frozen: the frame counter keeps advancing.
-  const frames = await page.evaluate(
-    () =>
-      new Promise((resolve) => {
-        let count = 0;
-        const end = performance.now() + 1_000;
-        const tick = () => {
-          count += 1;
-          if (performance.now() < end) requestAnimationFrame(tick);
-          else resolve(count);
-        };
-        requestAnimationFrame(tick);
-      }),
-  );
-  expect(frames).toBeGreaterThan(5);
-  // A key press moves the chart (the pan key) and the page keeps answering.
+  const oneMinuteRows = await (await oneMinute).json();
+  expect(oneMinuteRows.length, 'the 1m candle route answered with bars').toBeGreaterThan(0);
+  const newestRowMs = oneMinuteRows[oneMinuteRows.length - 1][0];
+  await expect.poll(async () => Number(await host(page).getAttribute('data-last'))).toBeGreaterThanOrEqual(newestRowMs);
+  // What the newest bar shows: its time and its open, high, low and close in the legend (no hover: the newest bar).
+  const legendText = page.getByTestId('chart-legend').first();
+  const drawnBar = async () => `${await host(page).getAttribute('data-last')} ${await legendText.innerText()}`;
+  const before = await drawnBar();
+  const lastTradeBefore = await newestTradeMs(BTC);
+
+  // Ticks stream fast: the stack's other TEST trader (its taker account) sends a small market buy, then a sell, against
+  // the TEST maker's book every 400 ms, through the same front door, so real trades land on the tape all through the
+  // window. The TEST maker alone crosses BTC/USDT only about every 96 s, which would leave the window idle.
+  const taker = await api(otherTrader());
+  let streaming = true;
+  const sent = [];
+  const stream = (async () => {
+    for (let i = 0; streaming; i += 1) {
+      const side = i % 2 === 0 ? 'buy' : 'sell';
+      const res = await taker.post('/api/v1/orders', {
+        symbol: BTC,
+        type: 'market',
+        side,
+        amount: '0.0002',
+        clientOrderId: `${J}-6-${side}-${Date.now()}-${i}`,
+      });
+      sent.push(res);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  })();
+  try {
+    // The stream window: only the long tasks inside these 10 s count.
+    await page.evaluate(() => {
+      window.__longTasks = [];
+    });
+    await page.waitForTimeout(10_000);
+    const tasks = await page.evaluate(() => window.__longTasks);
+    expect(tasks, 'the browser reports long tasks (PerformanceObserver longtask)').not.toBeNull();
+    const worst = Math.max(0, ...tasks);
+    expect(worst, `longest main-thread task in the 10 s stream window, ms (budget ${budget} ms)`).toBeLessThanOrEqual(budget);
+    // The page is not frozen while the ticks still stream: the frame counter keeps advancing.
+    const frames = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          let count = 0;
+          const end = performance.now() + 1_000;
+          const tick = () => {
+            count += 1;
+            if (performance.now() < end) requestAnimationFrame(tick);
+            else resolve(count);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    expect(frames).toBeGreaterThan(5);
+  } finally {
+    streaming = false;
+    await stream;
+  }
+  // The window really streamed: every order was taken, and the public tape holds the trades it made.
+  for (const res of sent) expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  expect(sent.length, 'orders sent in the stream window').toBeGreaterThanOrEqual(10);
+  const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(BTC)}?limit=200`);
+  expect(tape.status).toBe(200);
+  const streamed = (await tape.json()).filter((row) => row.timestamp > lastTradeBefore);
+  expect(streamed.length, 'BTC/USDT trades on the public tape during the stream window').toBeGreaterThanOrEqual(10);
+  // The bars moved with them: the newest bar is the newest trade's minute or later, and what it shows has changed.
+  const tradeBar = Math.floor(Math.max(...streamed.map((row) => row.timestamp)) / 60_000) * 60_000;
+  await expect.poll(async () => Number(await host(page).getAttribute('data-last')), { timeout: 30_000 }).toBeGreaterThanOrEqual(tradeBar);
+  await expect.poll(drawnBar, { timeout: 30_000 }).not.toBe(before);
+  // The chart as it drew the stream, before the pan below moves the view.
+  await stepPicture();
+  // The page keeps answering: the pan key moves the view (chart-keys.ts), read off the chart. Its exact size isn't
+  // asserted: a pan to the first loaded bar asks for older bars, which renumbers the view.
+  const viewFrom = async () => Number(await host(page).getAttribute('data-view-from'));
+  const fromBefore = await viewFrom();
+  expect(Number.isFinite(fromBefore), 'the chart reports the bars in view').toBe(true);
   await host(page).focus();
   await page.keyboard.press('ArrowLeft');
-  await expect(host(page)).toBeVisible();
+  await expect.poll(viewFrom, { timeout: 10_000 }).not.toBe(fromBefore);
 });

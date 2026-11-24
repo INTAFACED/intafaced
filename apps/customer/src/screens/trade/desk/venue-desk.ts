@@ -4,9 +4,14 @@ import {
   draftId,
   keys,
   onStep,
+  type KeptSignature,
   type OrderIntent,
+  type VenueBalance,
   type VenueBestPrices,
   type VenueMarket,
+  type VenuePreview,
+  type VenueSelfTradeMode,
+  type VenueTimeInForce,
 } from '../../../features/trade/venue-api';
 import { transferCalldata } from '../../../features/protocol/wallet/transfer';
 import { toTokenUnits } from '../../../features/protocol/venue-wallet/venue-account-api';
@@ -41,12 +46,89 @@ export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps
   return limit > 0n ? formatAmount(limit) : null;
 }
 
-/** What the ticket holds for one side. */
+/** What the ticket holds for one side. `tif` is a limit's time in force (good till cancelled when absent). */
 export interface TicketFields {
   side: VenueSide;
   type: VenueOrderType;
   price: string;
   amount: string;
+  tif?: VenueTimeInForce;
+}
+
+/**
+ * Every time in force the desk names (J-cex-spot-03 #4 to #7), in the order it lists them. The ones the venue offers on
+ * the market (`VenueMarket.timeInForce`) can be picked; the rest are listed disabled with "not offered by this venue".
+ */
+export const TIME_IN_FORCE_NAMES = ['GTC', 'IOC', 'FOK', 'ALO', 'GTD'] as const;
+export type TimeInForceName = (typeof TIME_IN_FORCE_NAMES)[number];
+
+/** The venue's own offer of `name` on `market`: the time in force it takes, or null when it offers none by that name. */
+export function offeredTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeInForceName): VenueTimeInForce | null {
+  return (market.timeInForce as readonly string[]).includes(name) ? (name as VenueTimeInForce) : null;
+}
+
+/**
+ * A time in force on the venue spot desk: the venue's own, or good-till-date, which the venue does not offer and our
+ * engine runs instead (J-cex-spot-03 #7, by the owner's choice): the order rests on the venue good
+ * till cancelled, and our engine cancels it at the expiry under the person's agent permission.
+ */
+export type DeskTif = VenueTimeInForce | 'GTD';
+
+/** What the desk lets the person pick for `name`: the venue's own offer, else good-till-date run by our engine, else null. */
+export function deskTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeInForceName): DeskTif | null {
+  return offeredTif(market, name) ?? (name === 'GTD' ? 'GTD' : null);
+}
+
+/** The venue's own time in force for a desk choice: a good-till-date order rests on the venue good till cancelled. */
+export const venueTifOf = (tif: DeskTif): VenueTimeInForce => (tif === 'GTD' ? 'GTC' : tif);
+
+/** A good-till-date order's client id for our engine, from the ticket's held order key: one id per drafted order. */
+export function gtdClientId(orderKey: string): string {
+  const tail = orderKey.replace(/[^A-Za-z0-9_-]+/g, '-').slice(-56);
+  return `gtd-${tail}`.replace(/-+/g, '-');
+}
+
+/** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
+export const OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
+
+/** Every self-trade mode the desk names (J-cex-spot-03 #8); only the venue's own published rule can be picked. */
+export const SELF_TRADE_MODES: readonly VenueSelfTradeMode[] = ['cancel_resting', 'cancel_new', 'cancel_both'];
+
+/** The venue's own self-trade rule on `market`, or null where it publishes none. */
+export function venueSelfTrade(market: Pick<VenueMarket, 'selfTrade'>): VenueSelfTradeMode | null {
+  return market.selfTrade?.known ? market.selfTrade.value : null;
+}
+
+/**
+ * The amount a typed value buys or sells at `price` (a limit's price, or a market order's worst price): rounded down to
+ * the market's lot, so what the venue locks for a buy (amount × price) never passes the value. Null when it sizes nothing.
+ */
+export function amountForValue(value: string, price: string | null, lot: string): string | null {
+  if (!price || !isDecimal(value) || !isDecimal(price) || !isDecimal(lot)) return null;
+  const v = parseAmount(value.trim());
+  const p = parseAmount(price.trim());
+  const step = parseAmount(lot.trim());
+  if (v <= 0n || p <= 0n || step <= 0n) return null;
+  const one = parseAmount('1');
+  // value / price in scaled units, then down to a whole number of lots.
+  const raw = (v * one) / p;
+  const lots = raw / step;
+  return lots > 0n ? formatAmount(lots * step) : null;
+}
+
+/** The value an amount comes to at `price`, for the field the person did not type. */
+export function valueOf(amount: string, price: string | null): string | null {
+  if (!price || !isDecimal(amount) || !isDecimal(price)) return null;
+  const a = parseAmount(amount.trim());
+  const p = parseAmount(price.trim());
+  if (a <= 0n || p <= 0n) return null;
+  return formatAmount((a * p) / parseAmount('1'));
+}
+
+/** A client tag: 1 to 32 letters, digits, spaces, dots, dashes or underscores. Blank is no tag. */
+export const TAG_PATTERN = /^[A-Za-z0-9 ._-]{1,32}$/;
+export function tagProblem(tag: string): boolean {
+  return tag.trim() !== '' && !TAG_PATTERN.test(tag.trim());
 }
 
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
@@ -93,7 +175,7 @@ function isDecimal(value: string): boolean {
   }
 }
 
-/** The ticket as the venue's intent: a limit GTC at its price, a market IOC at its worst price (none if `capSet` is false). */
+/** The ticket as the venue's intent: a limit at its price with its time in force (GTC when none), a market IOC at its worst price (none if `capSet` is false). */
 export function intentOf(
   fields: TicketFields,
   market: VenueMarket,
@@ -110,7 +192,7 @@ export function intentOf(
     type: fields.type,
     amount: canonicalDecimal(fields.amount),
     price: canonicalDecimal(limit ? fields.price : worst!),
-    timeInForce: limit ? 'GTC' : 'IOC',
+    timeInForce: limit ? (fields.tif ?? 'GTC') : 'IOC',
     reduceOnly: false,
     clientOrderKey,
     builderFee: null,
@@ -120,7 +202,8 @@ export function intentOf(
 /** The part of a ticket that names one order: the same order reviewed again keeps its client id. */
 export function draftSignature(fields: TicketFields): string {
   const tidy = (v: string) => (isDecimal(v) ? canonicalDecimal(v) : v.trim());
-  return [fields.side, fields.type, fields.type === 'limit' ? tidy(fields.price) : '', tidy(fields.amount)].join('|');
+  const limit = fields.type === 'limit';
+  return [fields.side, fields.type, limit ? tidy(fields.price) : '', tidy(fields.amount), limit ? (fields.tif ?? 'GTC') : ''].join('|');
 }
 
 /** The order key (and a market order's worst price) held until the order changes or gets a definite answer. */
@@ -170,8 +253,48 @@ export interface DepositRoute {
   asset: string;
 }
 
-/** The person's ERC-20 `transfer` to the venue's deposit address; null unless the amount is positive within the token's decimals. */
-export function depositTransfer(route: DepositRoute, amount: string): { to: string; data: string; units: bigint } | null {
+/** One row of the supported asset list (svc-bank `assets.list`), as far as the venue desk reads it. */
+export interface ListedAsset {
+  assetId: string;
+  precision: number;
+  state: string;
+  allowedActions: readonly string[];
+}
+
+/**
+ * The places the venue desk's Deposit or Withdraw allows for `asset` (J-wallet-01 #5): the supported asset list's own row
+ * and precision, the same rows Assets lists. Refused while the list is unread, for an asset it does not list, and for one
+ * not active or not open to the action. `'gated'`: the list is a bank read this person may not make (a person cleared for
+ * trading alone, who may still move their own USDC between their wallet and their venue account): the desk keeps the
+ * bound it had before the list, `unlisted` places, and names no list figure.
+ */
+export type ListedPlaces = { ok: true; places: number; from: 'list' | 'venue' } | { ok: false; why: 'unread' | 'unlisted' | 'closed' };
+export function listedPlaces(
+  rows: readonly ListedAsset[] | 'gated' | null,
+  asset: string,
+  action: 'deposit' | 'withdraw',
+  unlisted: number,
+): ListedPlaces {
+  if (rows === 'gated') return { ok: true, places: unlisted, from: 'venue' };
+  if (rows === null) return { ok: false, why: 'unread' };
+  const row = rows.find((r) => r.assetId === asset);
+  if (!row) return { ok: false, why: 'unlisted' };
+  if (row.state !== 'active' || !row.allowedActions.includes(action)) return { ok: false, why: 'closed' };
+  return { ok: true, places: row.precision, from: 'list' };
+}
+
+/** The places the venue withdrawal allowed before the list, and still allows where the list is not this person's to read. */
+export const WITHDRAW_UNLISTED_PLACES = 18;
+
+/** The places a deposit of `route` may carry: the list's precision, and never more than the token itself carries. */
+export const depositPlaces = (route: DepositRoute, places: number): number => Math.min(places, route.tokenDecimals);
+
+/**
+ * The person's ERC-20 `transfer` to the venue's deposit address; null unless the amount is positive within `places` (the
+ * asset list's precision) and the token's decimals.
+ */
+export function depositTransfer(route: DepositRoute, amount: string, places: number): { to: string; data: string; units: bigint } | null {
+  if (toTokenUnits(amount, depositPlaces(route, places)) === null) return null;
   const units = toTokenUnits(amount, route.tokenDecimals);
   if (units === null) return null;
   return { to: route.token, data: transferCalldata(route.address, units), units };
@@ -180,8 +303,76 @@ export function depositTransfer(route: DepositRoute, amount: string): { to: stri
 /** What the withdraw dialog does when its button is pressed: ask for the step-up first, and the wallet only after it. */
 export type WithdrawStep = { step: 'refuse'; why: 'amount' } | { step: 'step_up' } | { step: 'sign'; stepUpApprovalId: string | null };
 
-export function withdrawStep(amount: string, approval: { id: string | null } | null): WithdrawStep {
-  if (toTokenUnits(amount, 18) === null) return { step: 'refuse', why: 'amount' };
+/** `places`: the asset list's precision for the asset (listedPlaces); an amount finer than it is refused before the step-up. */
+export function withdrawStep(amount: string, approval: { id: string | null } | null, places: number): WithdrawStep {
+  if (toTokenUnits(amount, places) === null) return { step: 'refuse', why: 'amount' };
   if (approval === null) return { step: 'step_up' };
   return { step: 'sign', stepUpApprovalId: approval.id };
+}
+
+/**
+ * Whether the venue's preview of one order moved between Review and Confirm (J-cex-spot-02 #7): any figure the review
+ * showed (the lock, the role, either fee, what fills now). A moved preview is shown and asked again; nothing is sent.
+ */
+export function previewMoved(reviewed: VenuePreview, now: VenuePreview): boolean {
+  return JSON.stringify(reviewed) !== JSON.stringify(now);
+}
+
+/**
+ * What an order locks that the venue account does not have free (J-cex-spot-02 #6), from the venue's own figures: the
+ * preview's lock against the free balance of the asset it locks. Null when it is covered.
+ */
+export function lockShortfall(
+  preview: Pick<VenuePreview, 'lock'>,
+  balances: readonly Pick<VenueBalance, 'asset' | 'free'>[],
+): { asset: string; lock: string; free: string } | null {
+  const free = balances.find((b) => b.asset === preview.lock.asset)?.free ?? '0';
+  return parseAmount(preview.lock.amount) > parseAmount(free) ? { asset: preview.lock.asset, lock: preview.lock.amount, free } : null;
+}
+
+/** An order the venue gave no definite answer to: its client id, its business key and the intent sent under it. */
+export interface PendingOrder {
+  clientOrderId: string;
+  key: string;
+  intent: OrderIntent;
+  /**
+   * The signed bytes sent under the key, when this tab signed it: "Send the same order again" re-sends them, so a lost
+   * answer never asks the wallet a second time, even after a reload. A signed order, never a key.
+   */
+  signature?: KeptSignature;
+}
+
+/**
+ * This browser tab's orders with no definite answer yet, per owner (sessionStorage, so a reload keeps them; J-cex-spot-02
+ * #4): while one is listed, the desk sends no new order. Storage may be blocked; the page then keeps them in memory.
+ */
+export function pendingOrders(owner: string) {
+  const name = `if.venue.pending.${owner}`;
+  let memory: PendingOrder[] = [];
+  const read = (): PendingOrder[] => {
+    try {
+      const raw = sessionStorage.getItem(name);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? (parsed as PendingOrder[]) : [];
+    } catch {
+      return memory;
+    }
+  };
+  const write = (next: PendingOrder[]) => {
+    memory = next;
+    try {
+      sessionStorage.setItem(name, JSON.stringify(next));
+    } catch {
+      /* blocked storage: the page keeps them */
+    }
+  };
+  return {
+    list: read,
+    add(order: PendingOrder) {
+      write([...read().filter((p) => p.clientOrderId !== order.clientOrderId), order]);
+    },
+    remove(clientOrderId: string) {
+      write(read().filter((p) => p.clientOrderId !== clientOrderId));
+    },
+  };
 }

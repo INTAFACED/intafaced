@@ -145,8 +145,7 @@ export class MetricsProjector {
 
   /** Recompute one merchant-day from source and drop the marks that were read. Returns false when another worker had already done it. */
   async refreshKey(key: MetricsKey): Promise<boolean> {
-    return this.sql.begin(async (t) => {
-      const tx = t as unknown as Sql;
+    return this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${lockName(key)}, 0))`;
       const marks = await tx<Array<{ id: string }>>`
         SELECT id::text AS id FROM pay.metrics_dirty WHERE merchant_id = ${key.merchantId} AND day = ${key.day}::date`;
@@ -198,8 +197,7 @@ export class MetricsProjector {
    */
   async rebuild(options: { clear?: boolean; merchantId?: string } = {}): Promise<RebuildResult> {
     const { merchantId } = options;
-    const marked = await this.sql.begin(async (t) => {
-      const tx = t as unknown as Sql;
+    const marked = await this.sql.begin(async (tx) => {
       const keys = new Map<string, MetricsKey>();
       for (const k of [...(await listSourceKeys(tx, merchantId)), ...(await listProjectionKeys(tx, merchantId))])
         keys.set(`${k.merchantId}|${k.day}`, k);
@@ -229,8 +227,7 @@ export class MetricsProjector {
    * state. Keys with unprocessed marks are skipped and counted as pending.
    */
   async reconcile(options: { merchantId?: string } = {}): Promise<ReconcileReport> {
-    return (await this.sql.begin('isolation level repeatable read read only', async (t) => {
-      const tx = t as unknown as Sql;
+    return (await this.sql.begin('isolation level repeatable read read only', async (tx) => {
       const pendingRows = await tx<Array<{ merchant_id: string; day: string }>>`
         SELECT DISTINCT merchant_id, day::text AS day FROM pay.metrics_dirty
          ${options.merchantId ? tx`WHERE merchant_id = ${options.merchantId}` : tx``}`;

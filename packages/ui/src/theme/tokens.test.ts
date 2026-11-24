@@ -21,9 +21,8 @@ import {
 } from './tokens.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
-const read = (name: string) => readFileSync(join(here, name), 'utf8');
-const css = read('tokens.css');
-const themeCss = read('theme.css');
+const css = readFileSync(join(here, 'tokens.css'), 'utf8');
+const themeCss = readFileSync(join(here, 'theme.css'), 'utf8');
 
 const lum = (hex: string) => {
   const [r, g, b] = [1, 3, 5]
@@ -219,7 +218,7 @@ describe('theme.css (Tailwind @theme mapping)', () => {
   });
 
   it('customer-legacy.css is exactly what tokens.ts generates', () => {
-    expect(read('customer-legacy.css')).toBe(renderLegacyCss());
+    expect(readFileSync(join(here, 'customer-legacy.css'), 'utf8')).toBe(renderLegacyCss());
   });
 
   it("is the customer app's one token source: the old stylesheet is gone and nothing imports it", () => {
@@ -278,6 +277,6 @@ describe('no hex colour outside tokens.ts', () => {
 
   it('theme.css and base.css contain no hex either', () => {
     expect(hexPattern.test(themeCss)).toBe(false);
-    expect(hexPattern.test(read('base.css'))).toBe(false);
+    expect(hexPattern.test(readFileSync(join(here, 'base.css'), 'utf8'))).toBe(false);
   });
 });

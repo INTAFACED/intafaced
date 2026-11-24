@@ -1,19 +1,20 @@
 import type { Sql } from 'postgres';
 import {
-  checkoutMethodOfferSchema,
   checkoutMethodsGetInputSchema,
-  checkoutMethodsPreviewInputSchema,
   checkoutMethodsSaveInputSchema,
   checkoutMethodsSavedSchema,
   checkoutMethodsSchema,
-  router,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-checkout-methods';
+import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import type { MethodRails } from './catalogue.js';
 import { CheckoutMethodSettings } from './methods.js';
+import { PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW } from '@intafaced/contracts/pay-merchant-checkout-methods-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 export interface CheckoutMethodsMountDeps {
   readonly sql: Sql;
@@ -35,7 +36,8 @@ export function createCheckoutMethodsRouter(deps: CheckoutMethodsMountDeps | und
     return { settings, sql: deps.sql };
   };
   const read = ownMerchantRead();
-  const write = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return router({
@@ -44,10 +46,11 @@ export function createCheckoutMethodsRouter(deps: CheckoutMethodsMountDeps | und
         .input(checkoutMethodsGetInputSchema)
         .output(checkoutMethodsSchema)
         .query(({ ctx }) => wrapOps(async () => need().settings.get(await callerOf(ctx)))),
-      preview: read
-        .input(checkoutMethodsPreviewInputSchema)
-        .output(checkoutMethodOfferSchema)
-        .query(({ ctx, input }) => wrapOps(async () => need().settings.preview(await callerOf(ctx), input))),
+      preview: mountRecord(
+        PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW,
+        ({ ctx, input }) => wrapOps(async () => need().settings.preview(await callerOf(ctx), input)),
+        payRefusal,
+      ),
       save: write
         .input(checkoutMethodsSaveInputSchema)
         .output(checkoutMethodsSavedSchema)

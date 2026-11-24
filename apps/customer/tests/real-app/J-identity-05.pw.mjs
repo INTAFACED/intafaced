@@ -75,14 +75,14 @@ test(`${J} #1 a recovery code at the second step is accepted once and spent; the
   const { who, codes } = await withAuthenticator(page);
 
   const { context, page: other } = await atSecondStep(browser, who);
-  await other.getByRole('button', { name: 'Use a recovery code' }).click();
+  await other.getByRole('button', { name: 'Use a recovery code', exact: true }).click();
   await expect(other.getByLabel('Recovery code', { exact: true })).toBeVisible();
   await other.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
   await fillSignIn(other, who);
   const told = other.getByRole('status').filter({ hasText: 'Signed in with a recovery code' });
   await expect(told).toContainText('That recovery code is now spent');
   await expect(told).toContainText(`Recovery codes left: ${codes.length - 1}`);
-  await told.getByRole('button', { name: 'Continue' }).click();
+  await told.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(other).not.toHaveURL(/\/login/);
   // Security on the new browser counts the same.
   await other.goto('/uc/safe');
@@ -93,7 +93,7 @@ test(`${J} #1 a recovery code at the second step is accepted once and spent; the
 
   // The spent code is refused from another browser, the same way a wrong code is.
   const again = await atSecondStep(browser, who);
-  await again.page.getByRole('button', { name: 'Use a recovery code' }).click();
+  await again.page.getByRole('button', { name: 'Use a recovery code', exact: true }).click();
   await again.page.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
   await fillSignIn(again.page, who);
   await expect(again.page.getByRole('alert')).toContainText('That code did not work. Every code works only once');
@@ -114,16 +114,18 @@ test(`${J} #1, on a phone never used before: once the device is approved with th
   await other.goto('/login');
   await fillSignIn(other, who);
   await expect(other.getByRole('alert')).toContainText('Your password is right');
-  await other.getByRole('button', { name: 'Use a recovery code' }).click();
+  await other.getByRole('button', { name: 'Use a recovery code', exact: true }).click();
   await other.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
   const seen = mailedCodes(who.email, 'new-device-code').length;
   await fillSignIn(other, who);
-  await expect(other.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 10_000 });
-  await other.getByLabel('Device code from the email').fill(await nextMailedCode(who.email, seen, 20_000, 'new-device-code'));
-  await other.getByRole('button', { name: 'Approve this device' }).click();
+  await expect(other.getByRole('heading', { name: 'Authorise this device', exact: true })).toBeVisible({ timeout: 10_000 });
+  await other
+    .getByLabel('Device code from the email', { exact: true })
+    .fill(await nextMailedCode(who.email, seen, 20_000, 'new-device-code'));
+  await other.getByRole('button', { name: 'Approve this device', exact: true }).click();
   const told = other.getByRole('status').filter({ hasText: 'Signed in with a recovery code' });
   await expect(told).toContainText(`Recovery codes left: ${codes.length - 1}`);
-  await told.getByRole('button', { name: 'Continue' }).click();
+  await told.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(other).not.toHaveURL(/\/login/);
   await context.close();
 });
@@ -134,15 +136,15 @@ test(`${J} #1, on a phone never used before: once the device is approved with th
  */
 async function startLockedOutReset(browser, who) {
   const at = await atSecondStep(browser, who);
-  await at.page.getByRole('button', { name: 'I lost my authenticator' }).click();
-  await expect(at.page.getByRole('heading', { name: 'Reset your second step' })).toBeVisible();
-  await expect(at.page.getByLabel('Email or handle')).toHaveValue(who.email);
+  await at.page.getByRole('button', { name: /I lost my authenticator/i }).click();
+  await expect(at.page.getByRole('heading', { name: /Reset your second step/i })).toBeVisible();
+  await expect(at.page.getByLabel(/Email or handle/i)).toHaveValue(who.email);
   await at.page.getByLabel('Password', { exact: true }).fill(who.password);
   const seen = mailedCodes(who.email, 'mfa-reset-code').length;
-  await at.page.getByRole('button', { name: 'Email me a code' }).click();
+  await at.page.getByRole('button', { name: /Email me a code/i }).click();
   await expect(at.page.getByRole('status').filter({ hasText: 'We emailed a 6-digit code' })).toBeVisible();
-  await at.page.getByLabel('Code from the email').fill(await nextMailedCode(who.email, seen, 20_000, 'mfa-reset-code'));
-  await at.page.getByRole('button', { name: 'Start the reset' }).click();
+  await at.page.getByLabel(/Code from the email/i).fill(await nextMailedCode(who.email, seen, 20_000, 'mfa-reset-code'));
+  await at.page.getByRole('button', { name: /Start the reset/i }).click();
   await expect(at.page.getByRole('status').filter({ hasText: 'second step is being reset' })).toContainText('until');
   return at;
 }
@@ -186,8 +188,12 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
   const seenSecond = mailedLines(second, 'mfa-reset-started').length;
   const { context, page: other } = await startLockedOutReset(browser, who);
   // Every contact on file is told with the end of the wait: a notice to each address, and the page names both, masked.
-  await expect(other.getByText(`We told every contact on file: an email went to ${who.handle[0]}***@local-test.invalid.`)).toBeVisible();
-  await expect(other.getByText('An email also went to every other address you proved on Receive: s***@local-test.invalid.')).toBeVisible();
+  await expect(
+    other.getByText(`We told every contact on file: an email went to ${who.handle[0]}***@local-test.invalid.`, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    other.getByText('An email also went to every other address you proved on Receive: s***@local-test.invalid.', { exact: true }),
+  ).toBeVisible();
   await expect(other.getByText(second)).toHaveCount(0);
   await expect.poll(() => mailedLines(who.email, 'mfa-reset-started').length).toBeGreaterThan(seen);
   await expect.poll(() => mailedLines(second, 'mfa-reset-started').length).toBe(seenSecond + 1);
@@ -207,7 +213,7 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
     `Your second step is being reset. It waits until ${shown}.`,
   );
   // During the wait the password alone still does not get in.
-  await other.getByRole('button', { name: 'Back to sign in' }).click();
+  await other.getByRole('button', { name: 'Back to sign in', exact: true }).click();
   await fillSignIn(other, who);
   await expect(other.getByRole('alert')).toContainText('Your password is right');
   await context.close();
@@ -224,17 +230,17 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
     const codesBefore = mailedCodes(locked.who.email, 'mfa-reset-code').length;
     const toldBefore = mailedLines(locked.who.email, 'mfa-reset-started').length;
     const blank = await atSecondStep(browser, locked.who);
-    await blank.page.getByRole('button', { name: 'I lost my authenticator' }).click();
-    await expect(blank.page.getByRole('heading', { name: 'Reset your second step' })).toBeVisible();
-    await expect(blank.page.getByLabel('Email or handle')).toHaveValue(locked.who.email);
+    await blank.page.getByRole('button', { name: 'I lost my authenticator', exact: true }).click();
+    await expect(blank.page.getByRole('heading', { name: 'Reset your second step', exact: true })).toBeVisible();
+    await expect(blank.page.getByLabel('Email or handle', { exact: true })).toHaveValue(locked.who.email);
     await blank.page.getByLabel('Password', { exact: true }).fill(locked.who.password);
-    await blank.page.getByRole('button', { name: 'Email me a code' }).click();
+    await blank.page.getByRole('button', { name: 'Email me a code', exact: true }).click();
     const refused = blank.page.getByRole('alert').filter({ hasText: 'its waiting time is not set' });
     await expect(refused).toContainText(
       'Resetting the second step on your own is switched off: its waiting time is not set. Write to Support and a person will help you get back in.',
     );
-    await expect(refused.getByRole('link', { name: 'Write to Support' })).toHaveAttribute('href', '/help');
-    await expect(blank.page.getByLabel('Code from the email')).toHaveCount(0);
+    await expect(refused.getByRole('link', { name: 'Write to Support', exact: true })).toHaveAttribute('href', '/help');
+    await expect(blank.page.getByLabel(/Code from the email/i)).toHaveCount(0);
     expect(mailedCodes(locked.who.email, 'mfa-reset-code')).toHaveLength(codesBefore);
     expect(mailedLines(locked.who.email, 'mfa-reset-started')).toHaveLength(toldBefore);
     await blank.context.close();
@@ -249,13 +255,13 @@ test(`${J} #3 a reset stops when cancelled from a signed-in session; otherwise i
   const first = await startLockedOutReset(browser, who);
   // The phone is still signed in: Security names the waiting reset and stops it.
   await page.goto('/uc/safe');
-  await expect(page.getByRole('region', { name: 'Second step reset waiting' })).toContainText('removed after');
+  await expect(page.getByRole('region', { name: 'Second step reset waiting', exact: true })).toContainText('removed after');
   const cancelled = mailedLines(who.email, 'mfa-reset-cancelled').length;
-  await page.getByRole('button', { name: 'Stop this reset' }).click();
+  await page.getByRole('button', { name: 'Stop this reset', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'The reset was stopped' })).toBeVisible();
   await expect.poll(() => mailedLines(who.email, 'mfa-reset-cancelled').length).toBeGreaterThan(cancelled);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Stop this reset' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Stop this reset/i })).toHaveCount(0);
   await expect(page.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' })).toBeVisible();
   await first.context.close();
 
@@ -264,15 +270,15 @@ test(`${J} #3 a reset stops when cancelled from a signed-in session; otherwise i
   const second = await startLockedOutReset(browser, who);
   const done = mailedLines(who.email, 'mfa-reset-completed').length;
   await second.page.waitForTimeout(21_000);
-  await second.page.getByRole('button', { name: 'Back to sign in' }).click();
+  await second.page.getByRole('button', { name: 'Back to sign in', exact: true }).click();
   await fillSignIn(second.page, who);
   await expect(second.page).not.toHaveURL(/\/login/, { timeout: 15_000 });
   await expect.poll(() => mailedLines(who.email, 'mfa-reset-completed').length).toBeGreaterThan(done);
   await second.page.goto('/uc/safe');
-  await expect(second.page.getByRole('button', { name: 'Start authenticator setup' })).toBeVisible();
+  await expect(second.page.getByRole('button', { name: 'Start authenticator setup', exact: true })).toBeVisible();
   // The phone's session ended with the reset.
   await page.goto('/money');
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible({ timeout: 15_000 });
   await second.context.close();
 });
 
@@ -293,46 +299,46 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   // On the new phone: sign in with a recovery code, then replace the app from Security. The old app still works
   // until the new one is proved; recovery codes confirm it is them and each is spent.
   const { context, page: other } = await atSecondStep(browser, who);
-  await other.getByRole('button', { name: 'Use a recovery code' }).click();
+  await other.getByRole('button', { name: 'Use a recovery code', exact: true }).click();
   await other.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
   await fillSignIn(other, who);
   await other
     .getByRole('status')
     .filter({ hasText: 'Signed in with a recovery code' })
-    .getByRole('button', { name: 'Open Security' })
+    .getByRole('button', { name: 'Open Security', exact: true })
     .click();
   await expect(other).toHaveURL(/\/uc\/safe/);
   const card = other.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' });
   // Until the new app is proved, the old one still works: its code confirms the replace, and a wrong code from the new
   // app is refused, which leaves the old app in place (its next code still confirms a fresh replace) and the new key unused.
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
-  await card.getByLabel('6-digit code or a recovery code').fill(await oldCode());
+  await card.getByLabel('6-digit code or a recovery code', { exact: true }).fill(await oldCode());
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
   const firstKey = (await card.locator('code').innerText()).trim();
   const right = totp(firstKey);
-  await card.getByLabel('Code from the new app').fill(String((Number(right) + 1) % 1_000_000).padStart(6, '0'));
-  await card.getByLabel('Next code or a recovery code').fill(await oldCode());
+  await card.getByLabel('Code from the new app', { exact: true }).fill(String((Number(right) + 1) % 1_000_000).padStart(6, '0'));
+  await card.getByLabel('Next code or a recovery code', { exact: true }).fill(await oldCode());
   const refused = other.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/totpManage.replaceConfirm'));
-  await card.getByRole('button', { name: 'Replace authenticator app' }).click();
+  await card.getByRole('button', { name: 'Replace authenticator app', exact: true }).click();
   const wrong = await (await refused).json();
   expect(wrong.error.data.intafacedCode ?? wrong.error.data.cause?.code ?? wrong.error.data.code).toBe('auth.mfa_invalid');
-  await expect(card.getByText('Authenticator app replaced')).toHaveCount(0);
+  await expect(card.getByText(/Authenticator app replaced/i)).toHaveCount(0);
   await other.reload();
   // The old app's code still confirms it is them, so the refused attempt changed nothing; the fresh replace is then done
   // with recovery codes, as a person whose old phone is gone would.
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
-  await card.getByLabel('6-digit code or a recovery code').fill(await oldCode());
+  await card.getByLabel('6-digit code or a recovery code', { exact: true }).fill(await oldCode());
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await expect(card.getByLabel('Code from the new app')).toBeVisible();
+  await expect(card.getByLabel('Code from the new app', { exact: true })).toBeVisible();
   await expect((await card.locator('code').innerText()).trim()).not.toBe(firstKey);
   await other.reload();
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
-  await card.getByLabel('6-digit code or a recovery code').fill(codes[1]);
+  await card.getByLabel('6-digit code or a recovery code', { exact: true }).fill(codes[1]);
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
   const key = (await card.locator('code').innerText()).trim();
-  await card.getByLabel('Code from the new app').fill(totp(key));
-  await card.getByLabel('Next code or a recovery code').fill(codes[2]);
-  await card.getByRole('button', { name: 'Replace authenticator app' }).click();
+  await card.getByLabel('Code from the new app', { exact: true }).fill(totp(key));
+  await card.getByLabel('Next code or a recovery code', { exact: true }).fill(codes[2]);
+  await card.getByRole('button', { name: 'Replace authenticator app', exact: true }).click();
   const told = card.locator('[data-testid="notice"][role=status]');
   await expect(told).toContainText('Authenticator app replaced');
   await expect(told).toContainText('The recovery code you used is spent');
@@ -344,19 +350,19 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   );
   expect(fresh.length).toBeGreaterThan(1);
   for (const old of codes) expect(fresh).not.toContain(old);
-  await card.getByLabel('I saved these codes somewhere safe').check();
-  await card.getByRole('button', { name: 'I saved them' }).click();
+  await card.getByLabel('I saved these codes somewhere safe', { exact: true }).check();
+  await card.getByRole('button', { name: 'I saved them', exact: true }).click();
   await expect(card.getByTestId('security__recovery')).toHaveCount(0);
   await expect(card).toContainText(`Recovery codes left: ${fresh.length}`);
 
   // The old phone's session has ended.
   await page.goto('/money');
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible({ timeout: 15_000 });
 
   // The new app's next code signs in, and an old recovery code no longer does.
   await context.close();
   const next = await atSecondStep(browser, who);
-  await next.page.getByRole('button', { name: 'Use a recovery code' }).click();
+  await next.page.getByRole('button', { name: 'Use a recovery code', exact: true }).click();
   await next.page.getByLabel('Recovery code', { exact: true }).fill(codes[3]);
   await fillSignIn(next.page, who);
   await expect(next.page.getByRole('alert')).toContainText('That code did not work');
@@ -439,9 +445,9 @@ test(`${J} #5 support recovery: a case with a mailed one-time link, a second app
   const lost = await browser.newContext();
   const elsewhere = await lost.newPage();
   await elsewhere.goto('/login');
-  await elsewhere.getByRole('link', { name: 'I cannot sign in' }).click();
+  await elsewhere.getByRole('link', { name: 'I cannot sign in', exact: true }).click();
   await expect(elsewhere.getByRole('heading', { name: /a person answers/i })).toBeVisible();
-  await expect(elsewhere.getByText('A second member of Support must approve the case.')).toBeVisible();
+  await expect(elsewhere.getByText(/A second member of Support must approve the case\./)).toBeVisible();
 
   // Support finds the account and opens a case: the masked address and live sessions, no link yet.
   const found = await support('query', 'accountDirectory.search', { email: who.email });
@@ -482,28 +488,30 @@ test(`${J} #5 support recovery: a case with a mailed one-time link, a second app
   await elsewhere.goto(`/${link}`);
   await expect(elsewhere).toHaveURL(/\/recover-account$/);
   await elsewhere.getByRole('button', { name: 'Recover', exact: true }).click();
-  await expect(elsewhere.getByRole('heading', { name: 'Your account is recovered' })).toBeVisible();
+  await expect(elsewhere.getByRole('heading', { name: 'Your account is recovered', exact: true })).toBeVisible();
   // The old phone's sessions ended.
   await page.goto('/money');
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible({ timeout: 30_000 });
   expect((await support('query', 'supportRecovery.case', { caseId: opened.data.caseId })).data.state).toBe('used');
 
   // The link worked once.
   await elsewhere.goto(`/${link}`);
   await elsewhere.getByRole('button', { name: 'Recover', exact: true }).click();
-  await expect(elsewhere.getByRole('heading', { name: 'This recovery link does not work' })).toBeVisible();
+  await expect(elsewhere.getByRole('heading', { name: 'This recovery link does not work', exact: true })).toBeVisible();
 
   // The password alone signs in now, and Security offers a new authenticator app. Recovery un-trusted every device, so
   // this one is approved with the code mailed to the proved address first.
   await elsewhere.goto('/login');
   const seen = mailedCodes(who.email, 'new-device-code').length;
   await fillSignIn(elsewhere, who);
-  await expect(elsewhere.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 10_000 });
-  await elsewhere.getByLabel('Device code from the email').fill(await nextMailedCode(who.email, seen, 20_000, 'new-device-code'));
-  await elsewhere.getByRole('button', { name: 'Approve this device' }).click();
+  await expect(elsewhere.getByRole('heading', { name: 'Authorise this device', exact: true })).toBeVisible({ timeout: 10_000 });
+  await elsewhere
+    .getByLabel('Device code from the email', { exact: true })
+    .fill(await nextMailedCode(who.email, seen, 20_000, 'new-device-code'));
+  await elsewhere.getByRole('button', { name: 'Approve this device', exact: true }).click();
   await elsewhere.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   await elsewhere.goto('/uc/safe');
-  await expect(elsewhere.getByRole('button', { name: 'Start authenticator setup' }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(elsewhere.getByRole('button', { name: 'Start authenticator setup', exact: true }).first()).toBeVisible({ timeout: 30_000 });
   await lost.close();
 });
 
@@ -538,27 +546,27 @@ test.describe('factor notices', () => {
     /** Answers identity's "Confirm it is you" sheet with the next authenticator code. */
     const confirmSheet = async () => {
       const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
-      await sheet.getByLabel('Authenticator code or recovery code').fill(await code());
+      await sheet.getByLabel('Authenticator code or recovery code', { exact: true }).fill(await code());
       await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
       await expect(sheet).toBeHidden();
     };
     await notified('totp_added', 'Authenticator app turned on');
 
     // A passkey added, after "Confirm it is you" with the code.
-    await page.getByRole('button', { name: 'Add passkey' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
-    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
+    await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
+    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you', exact: true }).click();
     await confirmSheet();
-    await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toBeVisible();
+    await expect(page.getByTestId('security__checklist').getByText(/1 on this account/)).toBeVisible();
     await notified('passkey_added', 'Passkey added');
 
     // The passkey removed.
     await page.getByRole('button', { name: /^Remove passkey / }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey', exact: true }).click();
     // Removing a factor needs the second step first, as adding one did: confirm with the code, and the removal goes ahead.
-    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
+    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you', exact: true }).click();
     await confirmSheet();
-    await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toHaveCount(0);
+    await expect(page.getByTestId('security__checklist').getByText(/1 on this account/i)).toHaveCount(0);
     await notified('passkey_removed', 'Passkey removed');
 
     // The same session replaces the app: its "Confirm it is you" with the old app's code starts and finishes the replace.
@@ -568,16 +576,16 @@ test.describe('factor notices', () => {
     // The authenticator app replaced: the old app's code, the new app's code and the old app's next code.
     const card = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
     await card.getByRole('button', { name: 'Replace', exact: true }).click();
-    await card.getByLabel('6-digit code or a recovery code').fill(await code());
+    await card.getByLabel('6-digit code or a recovery code', { exact: true }).fill(await code());
     await card.getByRole('button', { name: 'Confirm', exact: true }).click();
     const setup = page
       .locator('[data-testid="security__authenticator"]')
       .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
     await expect(setup).toHaveCount(1);
     const newKey = (await setup.locator('code').innerText()).trim();
-    await setup.getByLabel('Code from the new app').fill(totp(newKey));
-    await setup.getByLabel('Next code or a recovery code').fill(await code());
-    await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
+    await setup.getByLabel('Code from the new app', { exact: true }).fill(totp(newKey));
+    await setup.getByLabel('Next code or a recovery code', { exact: true }).fill(await code());
+    await setup.getByRole('button', { name: 'Replace authenticator app', exact: true }).click();
     await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
     await notified('totp_replaced', 'Authenticator app replaced');
 
@@ -585,12 +593,12 @@ test.describe('factor notices', () => {
     secret = newKey;
     step = Math.floor(Date.now() / 30_000);
     await card.getByRole('button', { name: 'Turn off', exact: true }).click();
-    await card.getByLabel('6-digit code or a recovery code').fill(await code());
+    await card.getByLabel('6-digit code or a recovery code', { exact: true }).fill(await code());
     await card.getByRole('button', { name: 'Confirm', exact: true }).click();
     // Turning it off asks for the app's next code too.
-    await card.getByLabel('Next code or a recovery code').fill(await code());
-    await card.getByRole('button', { name: 'Turn off authenticator app' }).click();
-    await expect(page.getByRole('button', { name: 'Start authenticator setup' })).toBeVisible();
+    await card.getByLabel('Next code or a recovery code', { exact: true }).fill(await code());
+    await card.getByRole('button', { name: 'Turn off authenticator app', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Start authenticator setup', exact: true })).toBeVisible();
     await notified('totp_removed', 'Authenticator app turned off');
   });
 });
@@ -617,23 +625,23 @@ test.describe('recovery keys', () => {
     await addPasskey(page);
     await page.goto('/uc/safe');
     const card = page.getByTestId('security__recovery-keys');
-    await expect(page.getByRole('heading', { name: 'Recovery keys' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Recovery keys', exact: true })).toBeVisible();
     await expect(card).toContainText('No recovery keys set. If something happens to you, your balances stay frozen.');
     await expect(card).toContainText('Only keys you set can move your trading balances. Staff will not sell or transfer them.');
     const keys = [];
     for (const holder of ['Sister', 'Friend']) {
-      await card.getByLabel('Who will hold it').fill(holder);
-      await card.getByRole('button', { name: 'Make a key' }).click();
+      await card.getByLabel('Who will hold it', { exact: true }).fill(holder);
+      await card.getByRole('button', { name: 'Make a key', exact: true }).click();
       await expect(card).toContainText('Confirm to add this recovery key.');
-      await card.getByRole('button', { name: 'Confirm with a passkey' }).click();
-      await expect(card.getByRole('heading', { name: `Give this key to ${holder}` })).toBeVisible();
+      await card.getByRole('button', { name: 'Confirm with a passkey', exact: true }).click();
+      await expect(card.getByRole('heading', { name: `Give this key to ${holder}`, exact: true })).toBeVisible();
       keys.push(await card.locator('textarea').inputValue());
-      await card.getByRole('button', { name: 'I have saved it' }).click();
+      await card.getByRole('button', { name: 'I have saved it', exact: true }).click();
     }
-    await card.getByLabel('Their handle on INTAFACED').fill(`@${heir.handle}`);
-    await card.getByLabel('How many keys must sign').fill('2');
-    await card.getByRole('button', { name: 'Save who receives' }).click();
-    await card.getByRole('button', { name: 'Confirm with a passkey' }).click();
+    await card.getByLabel('Their handle on INTAFACED', { exact: true }).fill(`@${heir.handle}`);
+    await card.getByLabel('How many keys must sign', { exact: true }).fill('2');
+    await card.getByRole('button', { name: 'Save who receives', exact: true }).click();
+    await card.getByRole('button', { name: 'Confirm with a passkey', exact: true }).click();
     await expect(card).toContainText(`Ready: 2 of your 2 live keys together can move your balances to @${heir.handle}.`);
     return { owner, heir, keys, card };
   }
@@ -647,8 +655,8 @@ test.describe('recovery keys', () => {
     expect(keys).toHaveLength(2);
     for (const key of keys) expect(key).toMatch(/^INTAFACED-RECOVERY-KEY-1\.[A-Za-z0-9_-]+$/);
     // Revoking a key takes it out at once: the setup no longer reaches its threshold.
-    await card.getByRole('button', { name: 'Revoke the key for Friend' }).click();
-    await card.getByRole('button', { name: 'Confirm with a passkey' }).click();
+    await card.getByRole('button', { name: 'Revoke the key for Friend', exact: true }).click();
+    await card.getByRole('button', { name: 'Confirm with a passkey', exact: true }).click();
     await expect(card).toContainText('Not ready. Missing: enough live keys.');
     await page.reload();
     await expect(card).toContainText('Revoked');
@@ -724,9 +732,11 @@ test.describe('recovery keys', () => {
     const asked = `staff-${owner.handle}`;
     // A one-key plan: the number of keys that must sign, not a screenshot tolerance.
     const oneKey = 1;
+    // Where each service declares its recovery doors: the bank's door lists each call by its path, identity's router
+    // declares each as a procedure or mounts it from its record.
     const RECOVERY_ROUTERS = [
-      ['bank', 'services/svc-bank/src/recovery/recovery.router.ts'],
-      ['identity', 'services/svc-identity/src/recovery-keys-router.ts'],
+      ['bank', 'crates/svc-bank/src/door/calls.rs', /^\s+path: "recovery\./gm],
+      ['identity', 'services/svc-identity/src/recovery-keys-router.ts', /^\s+\w+:\s*(?:\w*[pP]rocedure\b|mountRecord\()/gm],
     ];
     const RECOVERY_DOORS = [
       ['bank', 'query', 'recovery.estates', undefined, 'bank.recovery_staff_forbidden'],
@@ -762,8 +772,8 @@ test.describe('recovery keys', () => {
       ],
     ];
     // Every door is on the list exactly once: the list matches the procedures the two recovery routers declare.
-    for (const [service, file] of RECOVERY_ROUTERS) {
-      const declared = (readFileSync(path.join(ROOT, file), 'utf8').match(/^\s+\w+:\s*\w*[pP]rocedure\b/gm) ?? []).length;
+    for (const [service, file, declares] of RECOVERY_ROUTERS) {
+      const declared = (readFileSync(path.join(ROOT, file), 'utf8').match(declares) ?? []).length;
       const listed = RECOVERY_DOORS.filter(([s]) => s === service).map(([, , procedure]) => procedure);
       expect(new Set(listed).size, `${service}: each recovery door once`).toBe(listed.length);
       expect(listed.length, `${service}: the list holds every door ${file} declares`).toBe(declared);
@@ -789,21 +799,21 @@ test.describe('recovery keys', () => {
     await expect(heirPage).not.toHaveURL(/\/login/);
     await heirPage.goto('/bank');
     await heirPage.getByRole('link', { name: /Recovery claim/ }).click();
-    await expect(heirPage.getByRole('heading', { name: 'Recovery claim', level: 1 })).toBeVisible();
-    await expect(heirPage.getByText(`Account of @${owner.handle}`)).toBeVisible();
-    await expect(heirPage.getByText('2 of their 2 live keys must sign.')).toBeVisible();
+    await expect(heirPage.getByRole('heading', { name: 'Recovery claim', level: 1, exact: true })).toBeVisible();
+    await expect(heirPage.getByText(`Account of @${owner.handle}`, { exact: true })).toBeVisible();
+    await expect(heirPage.getByText('2 of their 2 live keys must sign.', { exact: true })).toBeVisible();
     const moving = heirPage.getByTestId('recovery-sweepable');
     await expect(moving).toContainText('125 USDT');
     await expect(moving).toContainText('0.02 BTC');
-    await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
-    await heirPage.getByLabel('Recovery key 2').fill(keys[1]);
-    await heirPage.getByRole('button', { name: 'Sign and claim' }).click();
+    await heirPage.getByLabel('Recovery key 1', { exact: true }).fill(keys[0]);
+    await heirPage.getByLabel('Recovery key 2', { exact: true }).fill(keys[1]);
+    await heirPage.getByRole('button', { name: 'Sign and claim', exact: true }).click();
     const moved = heirPage.getByTestId('recovery-moved');
     await expect(moved).toContainText('Moved to your main account:', { timeout: 20_000 });
     await expect(moved).toContainText('125 USDT');
     await expect(moved).toContainText('0.02 BTC');
     await expect(moved).not.toContainText('Refused');
-    await expect(heirPage.getByText('Nothing is left to move.')).toBeVisible();
+    await expect(heirPage.getByText('Nothing is left to move.', { exact: true })).toBeVisible();
     await expect(heirPage.getByText(/^Claimed /)).toBeVisible();
     // Balances, not the page: the heir gained exactly 125 USDT and 0.02 BTC, read both from their own API and from the
     // ledger, and the ledger holds nothing free on the owner in any asset.
@@ -818,10 +828,12 @@ test.describe('recovery keys', () => {
     expect(ownerAfter, "the owner's BTC account is still read").toHaveProperty('BTC');
     for (const [asset, units] of Object.entries(ownerAfter)) expect(units, `owner's free ${asset}`).toBe(0n);
     // Claiming again moves nothing twice.
-    await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
-    await heirPage.getByLabel('Recovery key 2').fill(keys[1]);
-    await heirPage.getByRole('button', { name: 'Sign and claim' }).click();
-    await expect(heirPage.getByText('Nothing new to move. Everything free was moved already.')).toBeVisible({ timeout: 20_000 });
+    await heirPage.getByLabel('Recovery key 1', { exact: true }).fill(keys[0]);
+    await heirPage.getByLabel('Recovery key 2', { exact: true }).fill(keys[1]);
+    await heirPage.getByRole('button', { name: 'Sign and claim', exact: true }).click();
+    await expect(heirPage.getByText('Nothing new to move. Everything free was moved already.', { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
     // The second claim moved nothing, by balance: both sides read exactly what they read after the first.
     expect(await apiFree(heirApi)).toEqual(heirAfter);
     expect(await ledgerFree(heirApi.userId)).toEqual(heirLedgerAfter);

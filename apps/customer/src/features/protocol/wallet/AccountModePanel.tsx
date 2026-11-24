@@ -1,19 +1,13 @@
 import { useState } from 'react';
-import { z } from 'zod';
+import { marginModesSchema, type MarginModes } from '@intafaced/contracts/trade-margin-modes';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { Button, Failure, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure, Panel } from '../volt/parts';
 import { futuresRefusal } from '../../../screens/trade/futures/refusals';
-import { useApi } from '../../session/session';
-import { conventionPath } from './PortfolioPanel';
+import { useApi } from '../../session';
+import { conventionPath } from './portfolio-paths';
 import { portfolioCopy } from './portfolio-copy';
-
-/** svc-trade's `GET /api/v1/futures/margin-modes`: every named mode, whether it is offered, and its typed refusal. */
-// hand-declared-ok: svc-trade's REST answers are declared in its handlers, not in @intafaced/contracts.
-const marginModesSchema = z.object({
-  modes: z.array(z.object({ mode: z.string(), offered: z.boolean(), code: z.string().nullable(), reason: z.string().nullable() })),
-});
-type MarginModes = z.infer<typeof marginModesSchema>;
 
 /**
  * Accounts' account mode (D-portfolio-wallet-05, J-dex-protocol-06 #7): Standard is the one mode on our own book, with a
@@ -36,17 +30,17 @@ export function AccountModePanel() {
   const refusal = portfolio && !portfolio.offered && portfolio.code ? futuresRefusal({ code: portfolio.code }) : null;
   return (
     <Panel title={t('modeTitle')} aria-label={t('modeTitle')}>
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('modeTitle')}</dt>
           <dd data-account-mode="standard">{t('modeStandard')}</dd>
         </div>
       </dl>
-      <p className="muted">{t('modeNote')}</p>
+      <p className="lt-hint">{t('modeNote')}</p>
       <p>
         <a href={conventionPath('modes')}>{t('modeLink')}</a>
       </p>
-      <Button variant="secondary" disabled={asking} onClick={() => void ask()}>
+      <Button tone="secondary" disabled={asking} onClick={() => void ask()}>
         {t('modeAsk')}
       </Button>
       {answer && !answer.ok && <Failure result={answer} retry={() => void ask()} />}
@@ -54,7 +48,7 @@ export function AccountModePanel() {
         <div role="alert" data-code={portfolio.code}>
           <strong>{refusal.title}</strong>
           <p>{refusal.body}</p>
-          <p className="muted">{t('modeCode', { code: portfolio.code })}</p>
+          <p className="lt-hint">{t('modeCode', { code: portfolio.code })}</p>
         </div>
       )}
       {portfolio?.offered && (

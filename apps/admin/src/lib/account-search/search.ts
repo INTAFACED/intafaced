@@ -1,4 +1,6 @@
-import type { Column, ReadSpec } from '@/lib/ops-desk/types';
+import type { Column, ReadSpec } from '@/lib/ops-desk';
+import { readOf } from '@/lib/desk-read';
+import { IDENTITY_ACCOUNT_DIRECTORY_SEARCH } from '@intafaced/contracts/identity-account-directory-procedures';
 
 /**
  * Operator customer search (OPS-rules-monitoring-11, ops-console-rules-monitoring-056), over identity's own
@@ -40,9 +42,8 @@ export function accountSearchSpec(term: AccountSearchTerm, cursor: string | null
       term.kind === 'email'
         ? 'Matched on the whole email address. Identity shows the email masked and logs that you searched.'
         : 'Matched on the start of the handle, oldest account first. Identity logs that you searched.',
-    module: 'identity',
     plainName: 'identity’s account search',
-    procedure: 'accountDirectory.search',
+    ...readOf(IDENTITY_ACCOUNT_DIRECTORY_SEARCH),
     input: { [term.kind]: term.value, ...(cursor === null ? {} : { cursor }) },
     shape: 'list',
     rowsKey: 'rows',

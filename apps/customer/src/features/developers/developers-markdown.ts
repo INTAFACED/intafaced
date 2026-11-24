@@ -1,8 +1,7 @@
 /**
  * The markdown variant of each written developer page and the docs index for assistants (`/developers/llms.txt`),
- * served as static files beside the app from `apps/customer/public/developers/`. They are made from the same English
- * copy and route tables as the pages; `developers-reference.test.ts` checks the files against them and rewrites them
- * with `WRITE_DEVELOPER_DOCS=1`.
+ * served as static files beside the app under `/developers/`. They are made from the same English copy and route tables
+ * as the pages, at build time (`developers-files.ts`, written by vite.config.ts `developerDocs`), and never committed.
  */
 import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
@@ -12,6 +11,9 @@ import { deskCopy } from '../../screens/trade/desk/copy';
 import { acceptedCells, refusedName } from './trading/order-types-view';
 import { tradingApiCopy } from './trading/trading-api-copy';
 import { idempotencyCopy } from './idempotency/idempotency-copy';
+import { developerSupportCopy } from './support/support-copy';
+import { quantApiCopy } from './quant/quant-api-copy';
+import { QUANT_API_ENDPOINTS } from './quant/quant-api-endpoints';
 import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
 import { explorerCopy } from './explorer/explorer-copy';
@@ -33,6 +35,7 @@ import {
   scopeText,
   streamName,
 } from './developers-reference';
+import { PROTOCOL_GUIDE, STREAM_ENDPOINTS, STREAM_ENDPOINT_PATH } from './developers-streams';
 
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
@@ -42,16 +45,23 @@ const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const errorClass = errorClassCopy.forLocale('en').t;
 const trading = tradingApiCopy.forLocale('en').t;
 const idem = idempotencyCopy.forLocale('en').t;
+const devSupport = developerSupportCopy.forLocale('en').t;
+const quantApi = quantApiCopy.forLocale('en').t;
 const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
+const blockerLabel = (id: string) => (portal as (key: string) => string)(`blocker_${id.replace(/-/g, '_')}`);
 
 const table = (head: string[], rows: string[][]) =>
   [`| ${head.join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...rows.map((row) => `| ${row.join(' | ')} |`)].join('\n');
 const code = (text: string) => `\`${text}\``;
 
-/** Where a section's page is: its page in this portal, the page it is published at, or the slice it waits for. */
+/** Where a section's page is: its page in this portal, the page it is published at, or what it is waiting on. */
 const sectionTarget = (section: Section) =>
-  section.page ? `/developers/${section.id}` : section.published ? section.published.href : portal('waitsFor', { slice: section.waitsFor });
+  section.page
+    ? `/developers/${section.id}`
+    : section.published
+      ? section.published.href
+      : portal('waitsFor', { blocker: blockerLabel(section.id) });
 
 /** Pages of this portal that read live notices an operator publishes, so they have no static markdown variant. */
 const LIVE_PAGES = ['status', 'changelog'] as const;
@@ -374,6 +384,33 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
   },
   {
+    slug: 'websocket',
+    title: sectionTitle('websocket'),
+    summary: docs('wsLead'),
+    body: () =>
+      [
+        docs('wsLead'),
+        docs('wsStaticNote'),
+        `## ${docs('wsEndpointsTitle')}`,
+        table(
+          [docs('colEndpoint'), docs('colPath')],
+          STREAM_ENDPOINTS.map((endpoint) => [docs(`wsEndpoint_${endpoint}`), code(STREAM_ENDPOINT_PATH[endpoint])]),
+        ),
+        docs('wsFailover'),
+        `## ${docs('wsMessagesTitle')}`,
+        `${docs('wsUnknown')} ${docs('wsUnknownMore')}`,
+        `## ${docs('wsGuideTable')}`,
+        table(
+          [docs('colProtocolName'), docs('colUseFor'), docs('colOwner')],
+          PROTOCOL_GUIDE.map(({ protocol, module }) => [
+            docs(`guide_${protocol}`),
+            docs(`guide_${protocol}_use`),
+            docs('ownedBy', { module }),
+          ]),
+        ),
+      ].join('\n\n'),
+  },
+  {
     slug: 'idempotency',
     title: sectionTitle('idempotency'),
     summary: idem('lead'),
@@ -390,6 +427,52 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         `## ${idem('listTitle')}`,
         idem('listBody'),
         idem('listMax'),
+      ].join('\n\n'),
+  },
+  {
+    slug: 'support',
+    title: sectionTitle('support'),
+    summary: devSupport('lead'),
+    body: () =>
+      [
+        devSupport('lead'),
+        `## ${devSupport('sendTitle')}`,
+        [devSupport('sendRequestId'), devSupport('sendWhen'), devSupport('sendCall'), devSupport('sendAddress'), devSupport('sendHeaders')]
+          .map((line) => `- ${line}`)
+          .join('\n'),
+        `## ${devSupport('neverTitle')}`,
+        devSupport('neverKey'),
+        // The contacts are the owner's live settings: the page reads them, so the file names the page instead of a copy.
+        `## ${devSupport('contactsTitle')}`,
+        '[/developers/support](/developers/support)',
+        `## ${devSupport('ticketTitle')}`,
+        devSupport('ticketBody'),
+      ].join('\n\n'),
+  },
+  {
+    slug: 'quant',
+    title: sectionTitle('quant'),
+    summary: quantApi('lead'),
+    body: () =>
+      [
+        quantApi('lead'),
+        `## ${quantApi('keyTitle')}`,
+        quantApi('keyBody'),
+        `## ${quantApi('endpointsTitle')}`,
+        quantApi('endpointsLead'),
+        table(
+          [quantApi('colMethod'), quantApi('colPath'), quantApi('colScope'), quantApi('colWhat')],
+          QUANT_API_ENDPOINTS.map((row) => [row.method, code(row.path), code(row.scope), (quantApi as (key: string) => string)(row.what)]),
+        ),
+        `## ${quantApi('pyTitle')}`,
+        quantApi('pyBody'),
+        quantApi('pyInstall'),
+        `## ${quantApi('idemTitle')}`,
+        quantApi('idemBody'),
+        `## ${quantApi('noDeployTitle')}`,
+        quantApi('noDeployBody'),
+        `## ${quantApi('rulesTitle')}`,
+        quantApi('rulesBody'),
       ].join('\n\n'),
   },
 ];

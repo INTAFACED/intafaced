@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../shared/api';
-import { hasSupportEventGap, supportEventsSchema } from './SupportEvents';
+import { SUPPORT_EVENTS } from '@intafaced/contracts/support-customer-procedures';
+import { hasSupportEventGap, supportEventsAccepted } from './SupportEvents';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
 const ticketId = '22222222-2222-4222-8222-222222222222';
@@ -19,7 +20,7 @@ const event = {
 };
 async function read(rows: unknown) {
   const api = createApiClient({ fetch: async () => new Response(JSON.stringify({ result: { data: rows } })) });
-  return api.query('support', 'events', { ticketId, limit: 50 }, supportEventsSchema(ticketId, 50, ownerId));
+  return api.call(SUPPORT_EVENTS, { ticketId, limit: 50 }, { accept: supportEventsAccepted(ticketId, 50, ownerId) });
 }
 
 describe('Support event network ownership and recorded chronology', () => {

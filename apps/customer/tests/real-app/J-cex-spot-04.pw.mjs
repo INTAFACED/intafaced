@@ -8,6 +8,9 @@ import { awayBid, fundedTrader, held, openDesk, openOrders, placements, previewe
 // ledger. The band and cap are the stack's LOCAL TEST values, set through the operator pair's two-person door
 // (`local-test-gates.mjs limits`); the journey reads them from the public market list and never assumes a number.
 // Step 6 takes BTC/USDC's band and cap away through the same door, and puts them back after.
+// #2 and #6 are venue steps at launch (CUSTODY-DELTA): J-cex-spot-04-venue.pw.mjs alone carries their step titles and
+// checks them against the TEST venue's own record. Here they are titled "J-cex-spot-04, part of #<n>, checked on today's
+// custodial desk", so today's desk keeps its checks and the journeys verdict still judges them (#8327).
 const J = 'J-cex-spot-04';
 const SYMBOL = 'BTC/USDT';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -47,26 +50,91 @@ function amountFor(price, lot, cost = '10') {
 /** "0.1" as the desk writes it: "10%". */
 const percent = (fraction) => `${fromUnits(toUnits(fraction) * 100n)}%`;
 
-test(`${J} #1 opens the order-type menu: the types this market does not take are listed, disabled, with one reason`, async ({ page }) => {
-  const who = await fundedTrader(page, 'js4', FUNDED);
-  run.reset({ account: who });
-  await openDesk(page, who);
-  await expect(tab(page, 'Limit')).toHaveAttribute('aria-selected', 'true');
-  await expect(tab(page, 'Market')).toBeEnabled();
-  const sent = placements(page);
-  await page.getByRole('button', { name: 'Other order types (not available)' }).click();
+// The ticket's names for its types and the one reason for each type it does not offer here
+// (apps/customer/src/screens/trade/desk/copy.ts; which types each market refuses: order-type-access.ts, the rules svc-trade
+// refuses them by: spot/risk.ts assertOutsideOpeningWindow and assertZoneOrder).
+const TICKET_TYPES = ['Limit', 'Stop-limit', 'Stop-market', 'OCO', 'Bracket', 'OTO', 'Market'];
+const LIMIT_ONLY_REFUSED = ['Stop-limit', 'Stop-market', 'Market'];
+const REASON = {
+  trailing: 'Not offered: the exchange does not take trailing stops on any market.',
+  window: 'This market takes limit orders only until its opening window ends.',
+  zone: 'This market is in the higher-risk zone, which takes limit orders only.',
+};
+
+/** The public market list's row for `symbol` (state, opening window, zone), as the desk reads it. */
+async function listing(pick) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`, { headers: { origin: ORIGIN } });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  return (Array.isArray(body) ? body : (body.markets ?? body.items ?? [])).find(pick);
+}
+
+/** The type tabs the ticket offers, and each row of its "not available" menu as [name, reason, disabled]. */
+async function typesShown(page) {
+  const tabs = await page.locator('[data-testid="dk-order"] [role=tab]').allInnerTexts();
+  await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
-  const items = menu.getByRole('menuitem');
-  expect(await items.count()).toBeGreaterThan(0);
-  for (const item of await items.all()) await expect(item).toHaveAttribute('aria-disabled', 'true');
-  await expect(menu).toContainText(/\.\s*$|not take|not available|isn’t|isn't/);
+  const rows = [];
+  for (const item of await menu.getByRole('menuitem').all())
+    rows.push([
+      (await item.getByTestId('dk-type-name').innerText()).trim(),
+      (await item.getByTestId('dk-type-reason').innerText()).trim(),
+      await item.getAttribute('aria-disabled'),
+    ]);
+  return { tabs: tabs.map((x) => x.trim()), rows };
+}
+
+test(`${J} #1 opens the order-type menu: only the types this market and account take are selectable; each other type is listed disabled with its own reason`, async ({
+  page,
+  stepPicture,
+}) => {
+  const who = await fundedTrader(page, 'js4', FUNDED);
+  run.reset({ account: who });
+  const sent = placements(page);
+
+  // An open market, an ordinary account: every ticket type is a tab; trailing stop alone is listed, disabled, with its reason.
+  const plain = await listing((m) => m.symbol === SYMBOL);
+  expect(plain.lifecycle?.state ?? 'OPEN').toBe('OPEN');
+  expect(plain.zone ?? null).toBeNull();
+  expect(plain.openingWindowEndsAt ?? null).toBeNull();
+  await openDesk(page, who);
+  await expect(tab(page, 'Limit')).toHaveAttribute('aria-selected', 'true');
+  expect(await typesShown(page)).toEqual({ tabs: TICKET_TYPES, rows: [['Trailing stop', REASON.trailing, 'true']] });
+  await page.keyboard.press('Escape');
+
+  // A market inside its opening window takes limit orders only: market and both stops leave the tabs and are listed,
+  // disabled, each with the window's reason.
+  const windowed = await listing(
+    (m) => m.spot && !m.paper && m.orderable && m.openingWindowEndsAt && Date.parse(m.openingWindowEndsAt) > Date.now() + 60_000,
+  );
+  expect(windowed, 'a market inside its opening window').toBeTruthy();
+  await openDesk(page, who, windowed.symbol);
+  const offWindow = TICKET_TYPES.filter((x) => !LIMIT_ONLY_REFUSED.includes(x));
+  expect(await typesShown(page)).toEqual({
+    tabs: offWindow,
+    rows: [...LIMIT_ONLY_REFUSED.map((name) => [name, REASON.window, 'true']), ['Trailing stop', REASON.trailing, 'true']],
+  });
+  await page.keyboard.press('Escape');
+
+  // A market in the higher-risk zone: the same three, each with the zone's reason. The step's picture is this menu.
+  const zoned = await listing((m) => m.spot && !m.paper && m.orderable && m.zone === 'higher_risk');
+  expect(zoned, 'a market in the higher-risk zone').toBeTruthy();
+  await openDesk(page, who, zoned.symbol);
+  expect(await typesShown(page)).toEqual({
+    tabs: offWindow,
+    rows: [...LIMIT_ONLY_REFUSED.map((name) => [name, REASON.zone, 'true']), ['Trailing stop', REASON.trailing, 'true']],
+  });
+  // A disabled row picks nothing.
+  await page.getByTestId('dk-type-off-market').click({ force: true });
+  await expect(page.getByRole('menu')).toBeVisible();
+  await stepPicture();
   await page.keyboard.press('Escape');
   await expect(tab(page, 'Limit')).toHaveAttribute('aria-selected', 'true');
   expect(sent).toHaveLength(0);
 });
 
-test(`${J} #2 reads the pair's rules on the ticket and in the market's Info: tick, lot, minimums, price band, open-order cap`, async ({
+test(`${J}, part of #2, checked on today's custodial desk: reads the pair's rules on the ticket and in the market's Info: tick, lot, minimums, price band, open-order cap`, async ({
   page,
 }) => {
   const who = account();
@@ -119,7 +187,10 @@ test(`${J} #3 types an order below the smallest value, or finer than the lot or 
   expect(sent).toHaveLength(0);
 });
 
-test(`${J} #4 types a buy price above the band: refused before review with the band's edges named, nothing held`, async ({ page }) => {
+test(`${J} #4 types a buy price above the band: refused with the band named; choosing to amend moves it to the edge, flagged as adjusted`, async ({
+  page,
+  stepPicture,
+}) => {
   const who = account();
   const rules = await rulesOf();
   const before = held(await (await api(who)).balances(), 'USDT');
@@ -128,8 +199,13 @@ test(`${J} #4 types a buy price above the band: refused before review with the b
   await openDesk(page, who);
   const sent = placements(page);
   await tab(page, 'Limit').click();
-  await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(above);
-  await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amountFor(above, rules.lot)));
+  const priceBox = buyForm(page).getByRole('textbox', { name: 'Price', exact: true });
+  await priceBox.fill(above);
+  // Worth twice the smallest order at the typed price, so it still clears the smallest order at the band's edge.
+  const amount = amountFor(above, rules.lot, fromUnits(toUnits(rules.minNotional) * 2n));
+  await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill(amount));
+
+  // Refused, with the band named.
   const note = buyForm(page).getByTestId('dk-note--bad');
   await expect(note).toContainText('Price is outside the allowed range');
   await expect(note).toContainText(/takes buy prices up to [\d,.]+ and sell prices down to [\d,.]+ right now/);
@@ -138,7 +214,21 @@ test(`${J} #4 types a buy price above the band: refused before review with the b
   const high = /buy prices up to ([\d,.]+)/.exec(await note.innerText())[1].replaceAll(',', '');
   expect(toUnits(high)).toBeLessThan(toUnits(above));
   expect(toUnits(high)).toBeGreaterThan(toUnits(ask));
-  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+  expect(sent).toHaveLength(0);
+
+  // The person chooses to amend: the price moves to the band's buy edge, and the ticket flags it as adjusted.
+  const amend = buyForm(page).getByTestId('dk-band-edge');
+  await expect(amend).toHaveText(`Move my price to the band edge, ${high} USDT`);
+  await previewed(page, () => amend.click());
+  await expect(priceBox).toHaveValue(high);
+  await expect(buyForm(page).getByTestId('dk-adjusted')).toHaveText(
+    `Adjusted: your price ${above} was moved to the band edge, ${high} USDT.`,
+  );
+  await expect(buyForm(page).getByTestId('dk-note--bad')).toHaveCount(0);
+  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC', exact: true })).toBeEnabled();
+  await stepPicture();
+  // Amending sends nothing and holds nothing: the order goes only when the person reviews and confirms it.
   expect(sent).toHaveLength(0);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(before);
 });
@@ -200,7 +290,7 @@ test(`${J} #5 reaches the open-order cap: the next order is refused with the cap
   expect(await openOrders(who)).toHaveLength(0);
 });
 
-test(`${J} #6 trades a pair whose band or cap the owner has not published: a typed refusal names the missing rule, nothing held`, async ({
+test(`${J}, part of #6, checked on today's custodial desk: trades a pair whose band or cap the owner has not published: a typed refusal names the missing rule, nothing held`, async ({
   page,
 }) => {
   const who = account();

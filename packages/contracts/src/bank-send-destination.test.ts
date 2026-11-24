@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assetIdSchema } from './asset-id.js';
 import {
   BANK_SEND_DESTINATION_CALLERS,
   BANK_SEND_DESTINATION_PROCEDURE,
@@ -12,7 +13,12 @@ import { SERVICE_NAMES } from './service-keys.js';
 
 const SECRET = 'send-destination-secret-long-enough-0001';
 const DESTINATION = '11111111-1111-4111-8111-111111111111';
-const input = { userId: 'user-sender', assetId: 'USDT', network: 'ethereum', ref: '0x52908400098527886E0F7030069857D2E4169EE7' };
+const input = {
+  userId: 'user-sender',
+  assetId: assetIdSchema.parse('USDT'),
+  network: 'ethereum',
+  ref: '0x52908400098527886E0F7030069857D2E4169EE7',
+};
 const ready = { state: 'ready', destinationId: DESTINATION, coolingOffEndsAt: '2026-10-28T00:00:00.000Z' };
 
 const reply = (data: unknown, status = 200): Response =>
@@ -69,7 +75,7 @@ describe('bank send destination client', () => {
     ['a short secret', { bankUrl: 'http://bank.internal', secret: 'short' }],
   ])('answers unavailable without fetching for %s', async (_name, options) => {
     const fetcher = vi.fn();
-    const client = createBankSendDestinationClient({ ...options, fetcher: fetcher as unknown as typeof fetch });
+    const client = createBankSendDestinationClient({ ...options, fetcher: fetcher as typeof fetch });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable', code: 'bank.send_destination_unavailable' });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -79,7 +85,7 @@ describe('bank send destination client', () => {
     const client = createBankSendDestinationClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check({ ...input, network: '' })).resolves.toMatchObject({ state: 'unavailable' });
     expect(fetcher).not.toHaveBeenCalled();
@@ -94,7 +100,7 @@ describe('bank send destination client', () => {
     const client = createBankSendDestinationClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable', code: 'bank.send_destination_unavailable' });
   });
@@ -108,7 +114,7 @@ describe('bank send destination client', () => {
       bankUrl: 'http://bank.internal',
       secret: SECRET,
       timeoutMs: 20,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check(input)).resolves.toMatchObject({ state: 'unavailable' });
   });

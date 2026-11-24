@@ -9,20 +9,23 @@ import {
   type LedgerClient,
   type PostRequest,
 } from '@intafaced/ledger-client';
+import type {
+  StaffHold,
+  StaffHoldConfirmInput,
+  StaffHoldList,
+  StaffHoldPlaceInput,
+  StaffHoldReleaseInput,
+  StaffHoldResult,
+  StaffHoldState,
+} from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import {
   STAFF_HOLD_TARGET_SERVICE,
   normaliseStaffHoldAmount,
   staffHoldConfirmFields,
   staffHoldReleaseFields,
   staffHoldTargetId,
-  type StaffHold,
-  type StaffHoldConfirmInput,
-  type StaffHoldList,
-  type StaffHoldPlaceInput,
-  type StaffHoldReleaseInput,
-  type StaffHoldResult,
-  type StaffHoldState,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-staff-holds';
 import {
   OPS_IDEMPOTENCY_CONFLICT,
   OpsError,
@@ -107,7 +110,7 @@ function view(hold: HoldRow, movements: readonly MovementRow[]): StaffHold {
   return {
     holdNo: hold.holdNo,
     userId: hold.userId,
-    assetId: hold.assetId,
+    assetId: asAssetId(hold.assetId),
     amount: hold.amount,
     remaining: hold.remaining,
     state: hold.state,

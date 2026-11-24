@@ -7,12 +7,13 @@ import {
   type VerificationAnswer,
   type VerificationOwners,
 } from './verification-checks.js';
+import { MemoryReadGrantBook, ReadGrants } from './read-grants.js';
 import { SupportError } from './support-service.js';
 
 /**
- * J-support-public-20 #2 (RC-support-public-01): the customer's balance, fills or withdrawal destination is refused until
- * the request holds a matched email and a matched record id. Only the owning service's answer counts, only a digest is
- * kept, and the open gate still reads nothing.
+ * RC-support-public-01: checks the customer can confirm are recorded on a request. Only the owning service's answer counts
+ * and only a digest is kept. The checks open no read: a customer's balance, fills or withdrawal destination is refused
+ * until the customer's own grant (J-support-public-20 #2, `read-grants.test.ts`), whatever checks are matched.
  */
 
 const OPERATOR = '33333333-3333-4333-8333-333333333333';
@@ -42,19 +43,22 @@ function owner(answer?: boolean | null): VerificationAnswer & { asked: unknown[]
 function desk(owners: VerificationOwners = {}, attempts: number | null = 10) {
   const book = new MemoryCheckBook();
   const ticket = { status: 'open' as SupportTicket['status'] };
-  const checks = new VerificationChecks(
-    book,
-    {
-      getTicket: async (input) => {
-        if (input.ticketId !== TICKET) throw new SupportError('ticket not found', 'support.not_found');
-        return { id: TICKET, userId: CUSTOMER, status: ticket.status } as SupportTicket;
-      },
+  const tickets = {
+    getTicket: async (input: { ticketId: string }) => {
+      if (input.ticketId !== TICKET) throw new SupportError('ticket not found', 'support.not_found');
+      return { id: TICKET, userId: CUSTOMER, status: ticket.status } as SupportTicket;
     },
-    attempts,
-    owners,
-    () => AT,
-  );
-  return { checks, book, ticket };
+  };
+  const checks = new VerificationChecks(book, tickets, attempts, owners, () => AT);
+  // The desk's reads, with no grant from the customer; each ask lands on the same audit trail as the checks.
+  const reads = new ReadGrants({
+    book: new MemoryReadGrantBook(),
+    support: tickets,
+    linkedWithdrawals: async () => [],
+    audit: (row) => book.audit(row),
+    now: () => AT,
+  });
+  return { checks, reads, book, ticket };
 }
 
 const all = () => {
@@ -64,9 +68,9 @@ const all = () => {
 const check = (kind: SupportRecordVerificationCheckInput['kind'], value: string, ticketId = TICKET) =>
   ({ ticketId, kind, value }) as SupportRecordVerificationCheckInput;
 
-describe('the balance disclosure gate', () => {
-  it('as on main, no owner serves a door: every check refuses naming its owner, stores nothing, and every read refuses for want of checks', async () => {
-    const { checks, book } = desk();
+describe('the checks a customer can confirm', () => {
+  it("as on main, no owner serves a door: every check refuses naming its owner, stores nothing, and every read refuses for want of the customer's grant", async () => {
+    const { checks, reads, book } = desk();
     for (const [kind, value, ownerName] of [
       ['email', EMAIL, 'svc-identity'],
       ['client_order_id', 'my-order-7', 'svc-trade'],
@@ -78,9 +82,9 @@ describe('the balance disclosure gate', () => {
         missingKey: ownerName,
       });
     for (const kind of ['balance', 'fills', 'destination'] as const)
-      await expect(checks.disclose(OPERATOR, TICKET, kind)).rejects.toMatchObject({
-        code: 'support.verification_checks_required',
-        missingKey: '0 of 2 matched',
+      await expect(reads.read(OPERATOR, TICKET, kind)).rejects.toMatchObject({
+        code: 'support.read_grant_required',
+        missingKey: 'none',
       });
     expect(book.rows).toEqual([]);
     expect(await checks.list(OPERATOR, TICKET)).toEqual({ required: 2, matched: 0, attemptsAllowed: 10, attemptsUsed: 0, checks: [] });
@@ -98,39 +102,32 @@ describe('the balance disclosure gate', () => {
     expect(book.rows).toEqual([]);
   });
 
-  it('one matched email is not enough; the email and a record id open the gate, and the read still refuses naming its owner', async () => {
+  it("one matched email counts one; the email and a record id count two, and no read opens on them without the customer's grant", async () => {
     const { o, owners } = all();
-    const { checks } = desk(owners);
+    const { checks, reads } = desk(owners);
     const email = await checks.record(OPERATOR, check('email', ' Ann@Example.COM '));
     expect(email).toEqual({ ticketId: TICKET, kind: 'email', matched: true, checkedBy: OPERATOR, checkedAt: AT.toISOString() });
     expect(o.asked).toEqual([{ kind: 'email', value: EMAIL, userId: CUSTOMER }]);
-    await expect(checks.disclose(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({
-      code: 'support.verification_checks_required',
-      missingKey: '1 of 2 matched',
-    });
+    expect((await checks.list(OPERATOR, TICKET)).matched).toBe(1);
     await checks.record(OPERATOR, check('withdrawal_id', W1.toUpperCase()));
     expect((await checks.list(OPERATOR, TICKET)).matched).toBe(2);
-    for (const [kind, ownerName] of [
-      ['balance', 'svc-ledger'],
-      ['fills', 'svc-trade'],
-      ['destination', 'svc-pay'],
-    ] as const)
-      await expect(checks.disclose(OPERATOR, TICKET, kind)).rejects.toMatchObject({
-        code: 'support.disclosure_unwired',
-        missingKey: ownerName,
+    for (const kind of ['balance', 'fills', 'destination'] as const)
+      await expect(reads.read(OPERATOR, TICKET, kind)).rejects.toMatchObject({
+        code: 'support.read_grant_required',
+        missingKey: 'none',
       });
   });
 
-  it('two record ids are not the email: the gate stays shut', async () => {
+  it('two record ids are not the email: they count as one of the two', async () => {
     const { owners } = all();
     const { checks } = desk(owners);
     await checks.record(OPERATOR, check('withdrawal_id', W1));
     await checks.record(OPERATOR, check('deposit_id', D1));
     await checks.record(OPERATOR, check('client_order_id', 'my-order-7'));
-    await expect(checks.disclose(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({ missingKey: '1 of 2 matched' });
+    expect((await checks.list(OPERATOR, TICKET)).matched).toBe(1);
   });
 
-  it("another customer's id is stored unmatched, refuses without saying which part failed, and the read stays refused", async () => {
+  it("another customer's id is stored unmatched, refuses without saying which part failed, and does not count", async () => {
     const { owners } = all();
     const { checks, book } = desk(owners);
     await checks.record(OPERATOR, check('email', EMAIL));
@@ -141,7 +138,7 @@ describe('the balance disclosure gate', () => {
       ['email', true],
       ['withdrawal_id', false],
     ]);
-    await expect(checks.disclose(OPERATOR, TICKET, 'destination')).rejects.toMatchObject({ code: 'support.verification_checks_required' });
+    expect((await checks.list(OPERATOR, TICKET)).matched).toBe(1);
     // The store never holds the typed value: only a digest bound to the ticket and kind.
     expect(JSON.stringify(book.rows)).not.toContain(THEIRS);
     expect(JSON.stringify(book.rows)).not.toContain(EMAIL);
@@ -197,24 +194,24 @@ describe('the balance disclosure gate', () => {
     expect(book.trail.filter((r) => r.outcome === 'support.disclosure_unwired')).toHaveLength(6);
   });
 
-  it('a closed request takes no check and opens no read, even with the gate held before it closed', async () => {
+  it('a closed request takes no check and opens no read, even with both checks matched before it closed', async () => {
     const { owners } = all();
-    const { checks, ticket, book } = desk(owners);
+    const { checks, reads, ticket, book } = desk(owners);
     await checks.record(OPERATOR, check('email', EMAIL));
     await checks.record(OPERATOR, check('deposit_id', D1));
     ticket.status = 'closed';
     await expect(checks.record(OPERATOR, check('withdrawal_id', W1))).rejects.toMatchObject({ code: 'support.ticket_closed' });
-    await expect(checks.disclose(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({ code: 'support.ticket_closed' });
+    await expect(reads.read(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({ code: 'support.ticket_closed' });
     expect(book.trail.filter((r) => r.outcome === 'support.ticket_closed').map((r) => r.action)).toEqual(['record', 'disclosure']);
   });
 
   it('a ticket the operator may not see answers as not found on every door, before any owner is asked', async () => {
     const { o, owners } = all();
-    const { checks } = desk(owners);
+    const { checks, reads } = desk(owners);
     for (const call of [
       () => checks.record(OPERATOR, check('email', EMAIL, HIDDEN)),
       () => checks.list(OPERATOR, HIDDEN),
-      () => checks.disclose(OPERATOR, HIDDEN, 'balance'),
+      () => reads.read(OPERATOR, HIDDEN, 'balance'),
     ])
       await expect(call()).rejects.toMatchObject({ code: 'support.not_found' });
     expect(o.asked).toEqual([]);

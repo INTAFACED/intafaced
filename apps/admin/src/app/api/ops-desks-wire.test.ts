@@ -195,7 +195,7 @@ const ANSWERS: Record<string, unknown> = {
       { windowId: 'w-1', assetId: 'INTA', status: 'open', reward: null, feeBps: null, shareCount: 12, totalWeight: '36', paidAt: null },
     ],
   },
-  'ops.shares': { asOf: AT, windows: [{ windowId: 'w-1', acceptedCount: 2, rejectedCount: 1, acceptedWeight: '4' }] },
+  'ops.shares': { asOf: AT, windows: [{ windowId: 'w-1', acceptedCount: 2, rejectedCount: 1, soloCount: 0, acceptedWeight: '4' }] },
   'ops.workers': { asOf: AT, workers: [], nextCursor: null },
   'ops.sales': {
     rows: [

@@ -73,12 +73,18 @@ export const isSeparateFromSpot = (status: ListingStatusMap | null, symbol: stri
 
 export type RowStatus = { kind: 'open' } | { kind: 'paused' } | { kind: 'closed'; opensAt: number | null };
 
-/** What a row's status badge says. Only a market that is not orderable can read Closed: its session is shut. */
+/**
+ * What a row's status badge says. A market whose session is shut reads Closed, with when it opens, even though it is
+ * listed as orderable: an order there now is refused (`trade.market_closed`) and is not queued (J-cex-spot-14 #6).
+ */
 export function rowStatus(orderable: boolean, status: ListingStatus | undefined): RowStatus {
-  if (orderable) return { kind: 'open' };
   if (status && status.sessionOpen === false) return { kind: 'closed', opensAt: status.opensAt };
+  if (orderable) return { kind: 'open' };
   return { kind: 'paused' };
 }
+
+/** The market's session is shut now, as the listing read says. Unknown (no read) is not shut. */
+export const isSessionShut = (status: ListingStatusMap | null, symbol: string) => status?.[symbol]?.sessionOpen === false;
 
 /** "Mon 9:30 AM" in the person's zone (named when it is not the device's own). */
 export function opensLabel(at: number, zone: Preferences['timeZone']): string {

@@ -37,9 +37,25 @@ const imports = (text: string) =>
 const LEDGER_ALLOWED = new Set(['@intafaced/ledger-client/money']);
 const POSTS = [/ledger-client/, /\/ledger\b/, /events?(\.js)?$/, /nats/, /outbox/];
 
+/**
+ * What a builder reads when this fails: the file to edit and the rule. A venue path never posts to the ledger or
+ * publishes an event; code that does (a builder-fee posting, an operator event) lives in its own folder outside
+ * `services/svc-trade/src/venue/` and `packages/venue-sim/src/` (as `src/builder-fee/` does) and reaches the ledger only
+ * through `@intafaced/ledger-client` recipes. Move the import or the file; never widen LEDGER_ALLOWED or POSTS here.
+ */
+const FIX =
+  'A venue door or TEST venue file imports something that can post to the ledger or publish an event (J-wallet-09: the venue paths post nothing). ' +
+  'Edit the file named before the arrow: move the posting code to its own folder outside services/svc-trade/src/venue/ and packages/venue-sim/src/ ' +
+  '(as src/builder-fee/ does), or import only the type (`import type`) or `@intafaced/ledger-client/money`. Do not widen this test.';
+const MOVED =
+  'A guarded venue file was renamed or moved out of services/svc-trade/src/venue/ or packages/venue-sim/src/: keep it there, or add its new folder to `roots` above so it stays guarded.';
+
 describe('the venue door and the TEST venue post nothing to the ledger (J-wallet-09)', () => {
   it('reads every source it guards', () => {
-    expect(sources.map((s) => path.basename(s.file))).toEqual(
+    expect(
+      sources.map((s) => path.basename(s.file)),
+      MOVED,
+    ).toEqual(
       expect.arrayContaining(['user-venue-door.ts', 'user-venue-rest.ts', 'http-user-venue.ts', 'simulator.ts', 'chain-deposits.ts']),
     );
   });
@@ -50,7 +66,7 @@ describe('the venue door and the TEST venue post nothing to the ledger (J-wallet
         .filter((m) => !m.startsWith('node:') && !LEDGER_ALLOWED.has(m) && POSTS.some((re) => re.test(m)))
         .map((m) => `${path.basename(s.file)} → ${m}`),
     );
-    expect(reached).toEqual([]);
+    expect(reached, FIX).toEqual([]);
   });
 
   it('a planted ledger import is caught (the guard is not blind)', () => {

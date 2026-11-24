@@ -11,17 +11,19 @@ import type {
   ActionApprovalProposeInput,
 } from '@intafaced/contracts';
 import {
-  ACTION_APPROVAL_ALREADY_APPROVED,
-  ACTION_APPROVAL_AUDIENCE_MISMATCH,
-  ACTION_APPROVAL_POLICY_CHANGED,
-  ACTION_APPROVAL_POLICY_UNSET,
   SAME_PERSON_APPROVAL_TTL_SECONDS,
-  governedActionTypeOf,
   isConsumableApproval,
   isSamePersonActionType,
   namesAreNotActionApproval,
   samePersonTargetService,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/action-approval';
+import {
+  ACTION_APPROVAL_ALREADY_APPROVED,
+  ACTION_APPROVAL_AUDIENCE_MISMATCH,
+  ACTION_APPROVAL_POLICY_CHANGED,
+  ACTION_APPROVAL_POLICY_UNSET,
+  governedActionTypeOf,
+} from '@intafaced/contracts/action-approval-policy';
 import {
   type ActionAudience,
   type ApprovalSubject,
@@ -267,7 +269,7 @@ export class ActionApprovalService {
       throw this.terminal(again, 'action_approval.not_approved');
     }
     if (next.kind === 'same_person') await this.onSamePersonConsumed?.(next, consumedAt);
-    return { ...toActionApproval(next), ...approvalProvenance(next), ...(founderAttestation ?? {}) };
+    return { ...toActionApproval(next), ...approvalProvenance(next), ...founderAttestation };
   }
 
   /**

@@ -21,6 +21,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
+import { SIGNAL_ALERT_ORDER_FIELDS, signalAlertOrderSchema } from '@intafaced/contracts/trade-signal-alerts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PlaceUserOrderIntent } from '@intafaced/venue-contracts';
 import type { Principal } from '@intafaced/auth';
@@ -32,6 +33,12 @@ const TOKEN_BYTES = 24;
 const LIST_MAX = 100;
 const MAX_AGE_LIMIT_SECONDS = 3600;
 const WEBHOOK_DAYS_LIMIT = 366;
+/** What a refused order field says, by the field the contract's schema refused first. */
+const ORDER_FIELD_REFUSAL: Record<(typeof SIGNAL_ALERT_ORDER_FIELDS)[number], string> = {
+  side: 'side is required: buy or sell',
+  amount: 'amount is required: a decimal quantity, as a string',
+  price: 'price is required: the worst price the order accepts, as a decimal string',
+};
 
 export class SignalError extends Error {
   constructor(
@@ -117,6 +124,15 @@ export function parseSignalWebhookDays(raw: string | undefined): number | null {
     throw new Error(`TRADE_SIGNAL_WEBHOOK_DAYS must be whole days, 1 to ${WEBHOOK_DAYS_LIMIT}, or blank`);
   }
   return n;
+}
+
+/** A schema-valid decimal the ledger's column still cannot hold (too large) is refused by its field, never a 500. */
+function scaledOrRefuse(text: string, field: 'amount' | 'price'): Amount {
+  try {
+    return parseAmount(text);
+  } catch {
+    throw new SignalError(ORDER_FIELD_REFUSAL[field], 'trade.signal_format_invalid', 400, field);
+  }
 }
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -264,8 +280,10 @@ export class SignalDesk {
         (id, user_id, client_request_id, symbol, venue_owner, region, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
       VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${owner}, ${region}, ${sha256(token)}, ${token.slice(0, 6)},
         ${this.ports.sql.json(grant as never)}, ${expires.toISOString()}, 'active', ${now.toISOString()}, ${now.toISOString()})
-      ON CONFLICT (user_id, client_request_id) DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING *`;
+    // No conflict target: the id and (user_id, client_request_id) both name this one row (idFor), and Postgres absorbs a
+    // racing clash only on the key a target names, so a target would let the loser raise 23505 on the other key.
     if (!row) {
       const [raced] = await this.ports.sql<WebhookRow[]>`
         SELECT * FROM trade.signal_webhooks WHERE user_id = ${principal.userId} AND client_request_id = ${requestId}`;
@@ -331,42 +349,30 @@ export class SignalDesk {
     if (hook.state === 'paused') throw new SignalError('This webhook is paused', 'trade.signal_paused', 409);
     if (hook.state === 'ended') throw new SignalError('This webhook has ended', 'trade.signal_webhook_ended', 410);
 
-    const side = body.side;
-    if (side !== 'buy' && side !== 'sell')
-      throw new SignalError('side is required: buy or sell', 'trade.signal_format_invalid', 400, 'side');
-    // Money arrives as decimal strings only: a JSON number may already have lost digits before it reaches us.
-    const amountText = typeof body.amount === 'string' ? body.amount.trim() : '';
-    let qty: Amount;
-    try {
-      qty = parseAmount(amountText);
-    } catch {
-      throw new SignalError('amount is required: a decimal quantity, as a string', 'trade.signal_format_invalid', 400, 'amount');
+    // The order fields parse through the contract's schema: money is a decimal string only, never a JSON number.
+    const parsed = signalAlertOrderSchema.safeParse(body);
+    if (!parsed.success) {
+      const bad = new Set(parsed.error.issues.map((issue) => issue.path[0]));
+      const field = SIGNAL_ALERT_ORDER_FIELDS.find((name) => bad.has(name)) ?? 'side';
+      throw new SignalError(ORDER_FIELD_REFUSAL[field], 'trade.signal_format_invalid', 400, field);
     }
+    const { side } = parsed.data;
+    const qty = scaledOrRefuse(parsed.data.amount, 'amount');
     if (qty <= 0n) throw new SignalError('amount must be above zero', 'trade.signal_format_invalid', 400, 'amount');
-    // A market order on the venue carries the worst price it accepts: the alert names it, as TradingView's {{close}} can.
-    const priceText = typeof body.price === 'string' ? body.price.trim() : '';
-    let price: Amount;
-    try {
-      price = parseAmount(priceText);
-    } catch {
-      throw new SignalError(
-        'price is required: the worst price the order accepts, as a decimal string',
-        'trade.signal_format_invalid',
-        400,
-        'price',
-      );
-    }
+    const price = scaledOrRefuse(parsed.data.price, 'price');
     if (price <= 0n) throw new SignalError('price must be above zero', 'trade.signal_format_invalid', 400, 'price');
 
     const key = `signal.alert:${hook.id}:${alertId}:open`;
     const at = now.toISOString();
     // The intent row is written before the order is prepared; a crash after it leaves it pending under its key, and the
     // door's own store under the alert's order key means a later prepare of it returns the same action, never a second.
+    // The id is a hash of intent_key, so both unique keys name the same row: no conflict target, so a concurrent
+    // redelivery that loses the race on either key gets the row that won, never a 23505.
     await this.ports.sql`
       INSERT INTO trade.signal_intents (id, webhook_id, alert_id, action, intent_key, side, sizing, status, created_at, updated_at)
       VALUES (${idFor(key)}, ${hook.id}, ${alertId}, 'open', ${key}, ${side},
         ${this.ports.sql.json({ kind: 'quantity', value: formatAmount(qty) } as never)}, 'pending', ${at}, ${at})
-      ON CONFLICT (intent_key) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
     let status: SignalIntentView['status'];
     let actionKey: string | null = null;
     let venueClientOrderId: string | null = null;

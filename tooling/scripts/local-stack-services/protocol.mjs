@@ -24,7 +24,16 @@
 // factory at its zero default, so creating a pool refuses with the crypto network notice (rail.crypto).
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { chainRecordPath, RELAY_URL } from '../local-test-chain.mjs';
+import { fileURLToPath } from 'node:url';
+import {
+  BRIDGE_ATTESTER_URL,
+  BRIDGE_TOKEN,
+  chainRecordPath,
+  RELAY_URL,
+  SECOND_CHAIN_ID,
+  SECOND_GATE_URL,
+  TEST_CHAIN_ID,
+} from '../local-test-chain.mjs';
 
 /**
  * Router v2's TEST parts from the chain's own record (J-dex-protocol-03): the router, SovereignPermit and TEST Wrapped
@@ -35,6 +44,20 @@ function routerV2Parts() {
   if (!existsSync(file)) return null;
   const record = JSON.parse(readFileSync(file, 'utf8'));
   return record.routerV2 && record.sovereignPermit && record.wrappedNative ? record : null;
+}
+
+/** The TEST lending market from the chain's own record (J-dex-protocol-06 #4), read as routerV2Parts is; null with none. */
+function lendingMarket() {
+  const file = chainRecordPath();
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, 'utf8')).lendingMarket ?? null;
+}
+
+/** The TEST swap gas paymaster from the chain's own record (J-dex-protocol-02 #7), read only when switched on. */
+function swapPaymaster() {
+  const file = chainRecordPath();
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, 'utf8')).swapPaymaster ?? null;
 }
 
 export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
@@ -59,7 +82,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/protocol.json: the representation a
       // wallet signs once before its first signing action. Production stays blank and every signing action refuses
       // (compliance.representation_unset) until counsel's text and the owner's version are set.
-      PROTOCOL_REPRESENTATION_VERSION: 'TEST-1',
+      // `LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION=<TEST-n>` on a restart serves a newer TEST version, so a wallet that
+      // accepted TEST-1 is asked again (J-dex-protocol-01 #8). Only a TEST version is taken.
+      PROTOCOL_REPRESENTATION_VERSION: /^TEST-\d+$/.test(process.env.LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION ?? '')
+        ? process.env.LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION
+        : 'TEST-1',
       PROTOCOL_REPRESENTATION_TEXT:
         "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
       // LOCAL TEST swap settings, labelled in the same file: the slippage ceiling, the quote lifetime and the confirmations
@@ -91,13 +118,34 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only (same profile): the embedded self-custody wallet's provider (J-wallet-22) is the labelled TEST
       // provider this stack runs (local-test-wallet-provider.mjs), on loopback. Production stays blank and Create my wallet
       // refuses wallet.embedded_provider_unset. `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=off` on a restart leaves it blank, so
-      // that refusal can be seen too (J-wallet-22 #1).
+      // that refusal can be seen too (J-wallet-22 #1); `=no-export` sets TEST:test-no-export, the same TEST provider
+      // standing in for one whose plan offers no key export (J-wallet-22 #5).
       ...(process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'off'
         ? {}
         : {
-            PROTOCOL_EMBEDDED_WALLET_PROVIDER: 'TEST:test',
+            PROTOCOL_EMBEDDED_WALLET_PROVIDER:
+              process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'no-export' ? 'TEST:test-no-export' : 'TEST:test',
             PROTOCOL_EMBEDDED_WALLET_TEST_URL: `http://127.0.0.1:${PORTS['test-wallet-provider']}`,
           }),
+      // LOCAL TEST only: `LOCAL_STACK_PROTOCOL_NETWORKS=published` on a restart serves the TEST network registry beside this
+      // file (protocol-test-networks.json: a TEST RPC address, currency and faucet on .invalid hosts) instead of the owner's
+      // deployments/networks.json, so a journey sees what Add to wallet offers once a network is published
+      // (J-dex-protocol-01 #6, #7). svc-protocol refuses to boot with it outside APP_ENV dev or test.
+      ...(process.env.LOCAL_STACK_PROTOCOL_NETWORKS === 'published'
+        ? { PROTOCOL_TEST_NETWORKS_REGISTRY: `TEST:${fileURLToPath(new URL('./protocol-test-networks.json', import.meta.url))}` }
+        : {}),
+      // LOCAL TEST only, labelled in the same profile: `LOCAL_STACK_PROTOCOL_BRIDGE=on` on a restart (J-dex-protocol-05 #6)
+      // serves the TEST bridge route table and its TEST provider: the TEST bridge token on both TEST chains, read through
+      // their gates, and the TEST attester local-test-chain.mjs serves. Off (the default) the route table is the owner's
+      // blank one, as #5 reads it, and every transfer refuses bridge.provider_unset.
+      ...(chain && process.env.LOCAL_STACK_PROTOCOL_BRIDGE === 'on'
+        ? {
+            PROTOCOL_BRIDGE_ROUTES: 'TEST',
+            PROTOCOL_BRIDGE_TOKEN_ADDRESS: BRIDGE_TOKEN,
+            PROTOCOL_BRIDGE_RPC_URLS: JSON.stringify({ [TEST_CHAIN_ID]: chain.rpcUrl, [SECOND_CHAIN_ID]: SECOND_GATE_URL }),
+            PROTOCOL_BRIDGE_ATTESTER_URL: BRIDGE_ATTESTER_URL,
+          }
+        : {}),
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',
       // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
@@ -106,6 +154,13 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_GAS_PERCENTILES: '10,50,90',
       PROTOCOL_GAS_HISTORY_BLOCKS: '20',
       PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
+      // LOCAL TEST only (J-dex-protocol-02 #7): `LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER=on` points svc-protocol at the
+      // seeded funded ScopedPaymaster on the TEST chain so `amm.feeLevels` reports `sponsored: true`. Off (the default)
+      // and in production it stays blank, so `sponsored` is false ("You pay the network fee").
+      ...(() => {
+        const paymaster = chain && process.env.LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER === 'on' ? swapPaymaster() : null;
+        return paymaster ? { PROTOCOL_SWAP_PAYMASTER_ADDRESS: paymaster } : {};
+      })(),
       // LOCAL TEST only, labelled in the same file: the seeded fee relay, its TEST relayer and the gas a relayed swap is
       // priced for. Production stays blank and paying the fee in a token refuses protocol.fee_relay_unset.
       ...(chain?.feeRelay
@@ -125,6 +180,15 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only: the TEST chain's trading venue (seed-test-chain.ts ensureVenueParts), so a wallet's venue deposit
       // and withdraw build against a real SovereignVenue. Production stays blank and refuses protocol.venue_unset.
       ...(chain?.venue ? { PROTOCOL_VENUE_ADDRESS: chain.venue } : {}),
+      // LOCAL TEST only: the TEST chain's P2P escrow (seed-test-chain.ts ensureP2pEscrow), so a contract-escrow P2P order
+      // (J-p2p-21) opens a real SovereignEscrow deal. Production stays blank and refuses protocol.escrow_not_deployed.
+      ...(chain?.p2pEscrow ? { PROTOCOL_P2P_ESCROW_ADDRESS: chain.p2pEscrow } : {}),
+      // LOCAL TEST only: the TEST chain's lending market (seed-test-chain.ts ensureLendingParts), so a wallet's lending
+      // position is read from a real IsolatedLendingMarket. Production stays blank and refuses protocol.lending_market_unset.
+      ...(() => {
+        const market = chain ? lendingMarket() : null;
+        return market ? { PROTOCOL_LENDING_MARKET_ADDRESS: market } : {};
+      })(),
       // LOCAL TEST only: the TEST chain's smart account factory and implementation (seed-test-chain.ts ensureAccountParts),
       // so a wallet's smart account and its session keys are real on the TEST chain. With no chain both stay zero.
       ...(chain?.accountFactory && chain?.accountImplementation

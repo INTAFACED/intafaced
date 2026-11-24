@@ -17,6 +17,17 @@ vi.mock('../ui/PortalReview', async () => {
     ),
   };
 });
+// The same for a page on its Volt template, whose review opens in the kit's sheet.
+vi.mock('../volt/Review', async () => {
+  const { ExactMoneyScope } = await import('../ui/ExactMoneyScope');
+  return {
+    Review: ({ review, title }: { review?: ReactNode; title: string }) => (
+      <div data-review={title}>
+        <ExactMoneyScope>{review}</ExactMoneyScope>
+      </div>
+    ),
+  };
+});
 
 import type { Resource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
@@ -30,20 +41,24 @@ import { PayoutDetailView } from './Payouts';
 import { TierLadder } from './Limits';
 import { calculatorAssets, TierFeeTable } from './Pricing';
 import { EffectiveFeeView, EffectiveRatesList } from './fee-rate';
-import type { TierList } from './schemas';
+import {
+  merchantTierListSchema,
+  type MerchantTierList as TierList,
+  type MerchantTierSummary as TierSummary,
+} from '@intafaced/contracts/merchant-control';
 import { NoPayable } from './PayoutNew';
 import { RefundChip } from './Refunds';
 import { statementColumns } from './Statement';
 import { mc } from './copy';
 import type { Approval, HaltStatus, Settlement, Usage } from '../schemas';
-import type { Lifecycle, StatementLine } from './schemas';
+import type { PayPayoutLifecycle as Lifecycle, PayStatementLine as StatementLine } from '@intafaced/contracts/pay-portal-reads';
 
 // Everything below is TEST DATA written for these tests. None of it is a real merchant, customer or amount.
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 const ME = 'TEST-me';
 const ready = <T,>(data: T): Resource<T> => ({ status: 'ready', data });
 const noop = () => undefined;
-const portal = { userId: ME } as unknown as PortalApi;
+const portal = { userId: ME } as PortalApi;
 const DEST = { railId: 'crypto-native', destinationKind: 'crypto', destinationMasked: '0x7a3f…4421' };
 const approval = (patch: Partial<Approval>): Approval => ({
   approvalId: 'cc000001-0000-4000-8000-000000000001',
@@ -224,8 +239,9 @@ describe('approval review', () => {
     );
   it('warns before approving more than is left of today’s payout limit, with the exact amount left', () => {
     const out = decide('200').replace(/<!-- -->/g, '');
-    expect(out).toContain('more than you have left of today’s payout limit (<span class="numeric pp-money pp-nowrap">200.00 ');
-    expect(out).toContain('pp-callout--warn');
+    expect(out).toContain('more than you have left of today’s payout limit (<span>200.00 ');
+    // Drawn as the kit's warning line, not a plain note.
+    expect(out).toContain('class="lt-stale"');
   });
   it('shows every digit of the amount left inside the review, where the callout rounds it', () => {
     const out = decide('200.123456').replace(/<!-- -->/g, '');
@@ -242,6 +258,16 @@ describe('approval review', () => {
   });
 });
 
+/** What every statement line carries that these tests do not look at. TEST ids. */
+const lineBlanks = {
+  merchantId: '00000000-0000-4000-8000-0000000000aa',
+  windowNet: null,
+  runningReason: null,
+  paymentId: null,
+  settlementId: null,
+  ledgerTxId: '00000000-0000-4000-8000-0000000000bb',
+};
+
 describe('statement table', () => {
   const lines: StatementLine[] = [
     {
@@ -255,6 +281,7 @@ describe('statement table', () => {
       runningClearing: '20',
       runningProceeds: null,
       runningOrder: 'clear',
+      ...lineBlanks,
     },
   ];
   const t = mc.t;
@@ -282,6 +309,7 @@ describe('statement fee lines', () => {
     runningClearing: null,
     runningProceeds: null,
     runningOrder: 'clear',
+    ...lineBlanks,
   };
   const out = renderToString(
     <EntityList label="x" rows={[fee]} rowKey={(l) => l.id} columns={statementColumns(mc.t, false, false)} card={() => ({ title: 'x' })} />,
@@ -440,6 +468,7 @@ describe('who may take a request back', () => {
 });
 
 describe('a failed payout says where the money is, only as far as it is known', () => {
+  const eventBlanks = { approvalId: null, railId: null, destinationKind: null, destinationMasked: null, failure: null };
   const failed = settlement({
     status: 'failed',
     settledAt: null,
@@ -451,9 +480,15 @@ describe('a failed payout says where the money is, only as far as it is known', 
     ready({
       settlementId: failed.id,
       status: 'failed',
+      screening: 'not_recorded',
+      fee: null,
+      destination: null,
+      failure: null,
       events: [
-        { id: 'e1', at: '2026-10-05T09:30:00.000Z', timeKnown: true, kind: 'rail.sent' },
-        ...(reversed ? [{ id: 'e2', at: '2026-10-05T10:00:00.000Z', timeKnown: true, kind: 'payout.reversed' }] : []),
+        { ...eventBlanks, id: 'e1', at: '2026-10-05T09:30:00.000Z', timeKnown: true, kind: 'rail.sent' as const },
+        ...(reversed
+          ? [{ ...eventBlanks, id: 'e2', at: '2026-10-05T10:00:00.000Z', timeKnown: true, kind: 'payout.reversed' as const }]
+          : []),
       ],
     });
   const render = (lc: Resource<Lifecycle>) =>
@@ -486,6 +521,16 @@ describe('a failed payout says where the money is, only as far as it is known', 
   });
 });
 
+/** One tier as svc-pay sends it: what a test does not name is the service's blank (no reserve, fee or payout fee). */
+const tier = (t: Pick<TierSummary, 'id' | 'name' | 'caps'> & Partial<TierSummary>): TierSummary => ({
+  archetype: 'standard',
+  reserve: null,
+  fees: [],
+  payoutFee: null,
+  version: '1',
+  ...t,
+});
+
 describe('the tier ladder', () => {
   const caps = [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '5000' }];
   const list = (patch: Partial<Extract<TierList, { status: 'configured' }>> = {}): Resource<TierList> =>
@@ -493,8 +538,8 @@ describe('the tier ladder', () => {
       status: 'configured',
       ownTierId: 'a',
       tiers: [
-        { id: 'a', name: 'Standard (test)', caps, reserve: { rollingReserveBps: 500, holdDays: 7 } },
-        { id: 'b', name: 'Growth (test)', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '25000' }], reserve: null },
+        tier({ id: 'a', name: 'Standard (test)', caps, reserve: { rollingReserveBps: 500, holdDays: 7 } }),
+        tier({ id: 'b', name: 'Growth (test)', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '25000' }] }),
       ],
       ...patch,
     });
@@ -552,8 +597,10 @@ describe('the tier fee table (M-money-out-06)', () => {
       { fromAmount: '0', feeBps: 250, flatFee: null },
       { fromAmount: '10000', feeBps: 150, flatFee: '0.3' },
     ],
+    roundingBeneficiary: 'platform' as const,
     minFee: '0.5',
     maxFee: null,
+    version: '1',
   };
   const table = (tiers: Extract<TierList, { status: 'configured' }>['tiers'], ownTierId: string | null = 'a') =>
     renderToString(<TierFeeTable tiers={ready({ status: 'configured', ownTierId, tiers })} retry={noop} />).replace(/<!-- -->/g, '');
@@ -563,7 +610,7 @@ describe('the tier fee table (M-money-out-06)', () => {
   };
 
   it("shows a tier's own bands, minimum and published payout fee, and marks the merchant's tier", () => {
-    const out = table([{ id: 'a', name: 'TEST A', caps, fees: [fee], payoutFee: { kind: 'not_charged' } }]);
+    const out = table([tier({ id: 'a', name: 'TEST A', caps, fees: [fee], payoutFee: { kind: 'not_charged' } })]);
     const row = rowOf(out, 'a-USDT');
     expect(row).toContain('TEST A (your tier)');
     expect(row).toContain('2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.00 USDT · minimum 0.50 USDT');
@@ -573,7 +620,7 @@ describe('the tier fee table (M-money-out-06)', () => {
 
   it("shows a tier's conversion spread to full-pricing roles only, and gives each asset's row its own test id", () => {
     const tiers = [
-      {
+      tier({
         id: 'a',
         name: 'TEST A',
         caps,
@@ -581,8 +628,7 @@ describe('the tier fee table (M-money-out-06)', () => {
           { ...fee, spreadBps: 40 },
           { ...fee, assetCode: 'USD' },
         ],
-        payoutFee: null,
-      },
+      }),
     ];
     const full = renderToString(<TierFeeTable tiers={ready({ status: 'configured', ownTierId: 'a', tiers })} retry={noop} />).replace(
       /<!-- -->/g,
@@ -599,23 +645,24 @@ describe('the tier fee table (M-money-out-06)', () => {
 
   it('a single band from zero drops its "from"', () => {
     const out = table([
-      { id: 'a', name: 'TEST A', caps, fees: [{ assetCode: 'USDT', bands: [{ fromAmount: '0', feeBps: 99, flatFee: null }] }] },
+      tier({ id: 'a', name: 'TEST A', caps, fees: [{ ...fee, bands: [{ fromAmount: '0', feeBps: 99, flatFee: null }], minFee: null }] }),
     ]);
     expect(rowOf(out, 'a-USDT')).toContain('>0.99%<');
   });
 
-  it('a tier with no fee, an empty fee list or an unpublished payout fee reads "Not set" and never free', () => {
-    const out = table(
-      [
-        { id: 'a', name: 'TEST A', caps, fees: [], payoutFee: null },
-        { id: 'b', name: 'TEST B', caps },
-        { id: 'c', name: 'TEST C', caps, fees: [fee], payoutFee: { kind: 'charged_later' } },
-      ],
-      null,
-    );
+  it('a tier with an empty fee list or an unpublished payout fee reads "Not set" and never free', () => {
+    const out = table([tier({ id: 'a', name: 'TEST A', caps }), tier({ id: 'c', name: 'TEST C', caps, fees: [fee] })], null);
     expect(rowOf(out, 'a-none').match(/Not set/g)).toHaveLength(2);
-    expect(rowOf(out, 'b-none').match(/Not set/g)).toHaveLength(2);
     expect(rowOf(out, 'c-USDT').match(/Not set/g)).toHaveLength(1);
+    // A tier with no fee list, or a payout fee kind nothing pays out, is refused at the parse, never read as free.
+    const wire = (t: object) => ({
+      status: 'configured',
+      ownTierId: null,
+      tiers: [{ ...tier({ id: 'test-b', name: 'TEST B', caps }), ...t }],
+    });
+    expect(merchantTierListSchema.safeParse(wire({ fees: undefined })).success).toBe(false);
+    expect(merchantTierListSchema.safeParse(wire({ fees: [fee], payoutFee: { kind: 'charged_later' } })).success).toBe(false);
+    expect(merchantTierListSchema.safeParse(wire({ fees: [fee] })).success).toBe(true);
     expect(out).not.toContain('Not charged');
     expect(out).not.toContain('your tier');
     expect(out).not.toMatch(/0\.00%|Free/);
@@ -632,7 +679,7 @@ describe('the tier fee table (M-money-out-06)', () => {
   });
 
   it('the calculator offers the priced assets plus every asset the own tier names, so a blank tier asks the engine', () => {
-    const blank = { id: 'b', name: 'TEST B', caps, fees: [], payoutFee: null };
+    const blank = tier({ id: 'b', name: 'TEST B', caps });
     expect(calculatorAssets([], blank)).toEqual(['USDT']);
     expect(calculatorAssets(['USD'], { ...blank, fees: [{ ...fee, assetCode: 'EUR' }] })).toEqual(['EUR', 'USD', 'USDT']);
     expect(calculatorAssets(['USDT'], null)).toEqual(['USDT']);

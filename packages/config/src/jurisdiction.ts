@@ -39,7 +39,7 @@ import {
  * `reviewedAt` are required on any rule that ships to prod; `assertReviewed()`
  * is called by the DoD gate for launch markets.
  *
- * THE SANCTIONS LIST IS THE OWNER'S ROWS, UNSIGNED UNTIL HE SIGNS (OWNER 258 (1)).
+ * THE SANCTIONS LIST IS THE OWNER'S ROWS, UNSIGNED UNTIL HE SIGNS.
  * `SANCTIONED_LIST_ROWS` (screening.ts) screens dev and test stacks; a
  * production-like process screens with them only once every row is signed, or
  * with the operator's `INTAFACED_SANCTIONS_REGIONS` override. Every decision
@@ -59,14 +59,14 @@ import {
  * (counsel, per DIRECTION §8) and it lives in `screening.ts`, supplied as
  * configuration at deploy time.
  *
- * They used to be able to satisfy each other. A `blocked: true` entry here was
- * folded into a `ScreeningList` and merged with the counsel-supplied one, so
- * ONE region blocked for a commercial reason flipped `assertScreeningConfigured`
- * from "refuse to start" to "satisfied" while the sanctions list was still empty
- * and nobody in counsel had supplied anything. Two authorities sharing one
- * literal, and the weaker one silently vouching for the stronger.
+ * Neither may satisfy the other. Were a `blocked: true` entry here folded into a
+ * `ScreeningList` and merged with the counsel-supplied one, ONE region blocked
+ * for a commercial reason would flip `assertScreeningConfigured` from "refuse to
+ * start" to "satisfied" while the sanctions list was still empty and nobody in
+ * counsel had supplied anything: two authorities sharing one literal, and the
+ * weaker one silently vouching for the stronger.
  *
- * They are separated now, and the separation runs both ways:
+ * So they are separate, and the separation runs both ways:
  *
  *   · A `blocked: true` entry here STILL REFUSES THE REGION. Nothing about the
  *     existing refusal is weakened — see `businessBlockFor` and `checkAccess`.
@@ -126,7 +126,7 @@ export interface JurisdictionEntry {
    * satisfy `assertScreeningConfigured()`, and adding an entry here will not
    * make a production boot stop complaining that no screening list exists. That
    * is not an oversight — it is the point. This array is edited in ordinary PRs
-   * by ordinary contributors, and one commercially-blocked region used to be
+   * by ordinary contributors, and one commercially-blocked region must never be
    * enough to tell the whole platform that counsel had supplied a sanctions
    * list when counsel had supplied nothing.
    *
@@ -225,7 +225,7 @@ export const JURISDICTION_MATRIX: readonly JurisdictionEntry[] = [
       },
     },
   },
-  // The launch default for blocked places is Hyperliquid's own restricted list (OWNER 258 (1)). Its terms
+  // The launch default for blocked places is Hyperliquid's own restricted list. Its terms
   // (https://app.hyperliquid.xyz/terms, "Last updated on June 15, 2026", read 9 Nov 2026), clause 1.6: "Restricted
   // Persons include: (a) persons or entities who reside in, are located in, are incorporated in, or have a registered
   // office in the United States of America or Ontario, Canada; (b) ... jurisdictions subject to applicable economic
@@ -237,13 +237,13 @@ export const JURISDICTION_MATRIX: readonly JurisdictionEntry[] = [
   // operator's `INTAFACED_SANCTIONS_REGIONS` override, screening.ts), never this file: residence there refuses through `checkAccess`,
   // citizenship through `checkCitizenship`. A business block never satisfies the screening guard.
   //
-  // The US is not served at launch, on every module and plane (OWNER 237, 8 Nov 2026).
+  // The US is not served at launch, on every module and plane (8 Nov 2026).
   {
     region: 'US',
     blocked: true,
     reason: 'The United States is not served at launch.',
   },
-  // Ontario is not served at launch; the rest of Canada is (clause 1.6 (a), OWNER 258 (1)).
+  // Ontario is not served at launch; the rest of Canada is (clause 1.6 (a)).
   {
     region: 'CA-ON',
     blocked: true,
@@ -298,7 +298,7 @@ export interface BusinessBlock {
  *
  * Takes the entries rather than reading the module constant so the rule can be
  * tested against any staged matrix, not only whatever the shipped one happens to
- * hold (today the US alone, OWNER 237). A rule about the blocked case that can
+ * hold (today the US alone). A rule about the blocked case that can
  * only be exercised through the shipped entries is a rule with no test of its own.
  */
 export function businessBlocksFrom(entries: readonly JurisdictionEntry[]): readonly BusinessBlock[] {
@@ -308,11 +308,11 @@ export function businessBlocksFrom(entries: readonly JurisdictionEntry[]): reado
 }
 
 /**
- * The business blocks the shipped matrix actually declares. Currently one: the US (OWNER 237).
+ * The business blocks the shipped matrix actually declares. Currently one: the US.
  *
  * EXPORTED, AND THAT IS THE SEAM. Every function below that consults business
  * blocks takes them as a defaulted parameter defaulting to this — because the
- * shipped matrix had ZERO `blocked: true` entries until the US (OWNER 237), and a
+ * shipped matrix had ZERO `blocked: true` entries until the US, and a
  * rule that can only be exercised through whatever ships is a rule no test can
  * hold to account.
  *
@@ -608,7 +608,7 @@ export interface AccessQuery {
    * one does — with one difference that matters. `screening` could always be
    * pointed at a populated list, so the screened-region branches of this
    * function were genuinely exercised. The business branches were not: until
-   * the US (OWNER 237) the shipped matrix declared ZERO `blocked: true` entries, so
+   * the US the shipped matrix declared ZERO `blocked: true` entries, so
    * `businessBlockFor` returned `undefined` in every test that has ever run,
    * and `blockedBy: 'business'`, the business half of the region check, and the
    * §24 Lane A ordering for a commercially-blocked region were all unreachable.
@@ -727,7 +727,7 @@ export function ruleFor(module: ModuleId, region: RegionCode): JurisdictionRule 
  * Use `screeningStatus()` if you need to know whether anything was screened.
  *
  * `business` is the seam, for the same reason `screening` is one: until the US
- * (OWNER 237) the shipped matrix had no `blocked: true` entry, so the business
+ * the shipped matrix had no `blocked: true` entry, so the business
  * half of this OR could never return `true` under test without it.
  */
 export function isRegionBlocked(

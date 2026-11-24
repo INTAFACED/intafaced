@@ -1,5 +1,5 @@
 import type { EmbeddedWalletPasskey, ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
-import { base64url } from '../../session/webauthn';
+import { base64url } from '../../session';
 
 /**
  * The page's side of the embedded-wallet provider (J-wallet-22, OWNER 237). Signing, export and recovery run here,
@@ -20,7 +20,33 @@ export type ClientFailure =
   /** This browser cannot make or use a passkey here. */
   | 'unsupported'
   /** The provider gives the key out once and already did (J-dex-protocol-08 #9): this request got no key. */
-  | 'spent';
+  | 'spent'
+  /** The chain refused the transaction before it was sent (no gas, a failing call): nothing was sent (J-wallet-24 #4). */
+  | 'chain';
+
+/** The chain reads a room makes through the provider's own connection. None of them signs or sends. */
+export type ChainReadMethod =
+  | 'eth_chainId'
+  | 'eth_blockNumber'
+  | 'eth_getBlockByNumber'
+  | 'eth_getBalance'
+  | 'eth_call'
+  | 'eth_getTransactionReceipt'
+  | 'eth_getTransactionCount'
+  | 'eth_estimateGas'
+  | 'eth_gasPrice'
+  | 'eth_maxPriorityFeePerGas';
+
+/** A transaction from the wallet, as the person reviewed it: the provider prices it from the chain, signs and sends it once. */
+export interface WalletTransaction {
+  chainId: number;
+  to: string;
+  data: string;
+  /** Wei, as a 0x hex string. */
+  value: string;
+  /** The wallet's nonce read before signing: the provider sends one transaction per nonce, never a second. */
+  nonce: number;
+}
 
 export type ClientResult<T> = { ok: true; data: T } | { ok: false; failure: ClientFailure };
 
@@ -42,6 +68,13 @@ export interface EmbeddedWalletClient {
   exportKey(walletId: string): Promise<ClientResult<{ privateKey: string }>>;
   /** Adds a second passkey as a recovery method, approved with a passkey already bound to the wallet. */
   addRecoveryPasskey(walletId: string): Promise<ClientResult<{ passkeys: number }>>;
+  /**
+   * A transaction from the wallet, after the person's passkey (J-wallet-24 #4): the provider signs it with the wallet's
+   * key and sends it on the chain, once per nonce. Answers the chain's transaction hash.
+   */
+  sendTransaction(walletId: string, transaction: WalletTransaction): Promise<ClientResult<{ hash: string }>>;
+  /** A read-only chain call through the provider's own connection; null when it cannot answer. */
+  read(method: ChainReadMethod, params: unknown[]): Promise<unknown>;
 }
 
 const WEBAUTHN_TIMEOUT_MS = 60_000;
@@ -51,17 +84,21 @@ function bytes(value: string): ArrayBuffer {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
 }
 const random = (n: number) => crypto.getRandomValues(new Uint8Array(n));
+type Transport = NonNullable<EmbeddedWalletPasskey['registration']>['transports'][number];
+const TRANSPORTS: readonly string[] = ['ble', 'internal', 'nfc', 'usb', 'hybrid', 'smart-card'] satisfies readonly Transport[];
+const isTransport = (t: string): t is Transport => TRANSPORTS.includes(t);
 const supported = () => typeof window !== 'undefined' && window.isSecureContext && !!window.PublicKeyCredential && !!navigator.credentials;
 
 /** A new ES256 passkey on this device, for the wallet. The relying party is this page's own host. */
 export async function createWalletPasskey(): Promise<ClientResult<EmbeddedWalletPasskey>> {
   if (!supported()) return { ok: false, failure: 'unsupported' };
   try {
+    const challenge = random(32);
     const credential = await navigator.credentials.create({
       publicKey: {
         rp: { name: 'INTAFACED wallet' },
         user: { id: random(16), name: 'wallet', displayName: 'Your wallet' },
-        challenge: random(32),
+        challenge,
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
         attestation: 'none',
@@ -72,7 +109,22 @@ export async function createWalletPasskey(): Promise<ClientResult<EmbeddedWallet
       return { ok: false, failure: 'passkey' };
     const publicKey = credential.response.getPublicKey();
     if (!publicKey || credential.response.getPublicKeyAlgorithm() !== -7) return { ok: false, failure: 'unsupported' };
-    return { ok: true, data: { credentialId: base64url(credential.rawId), publicKey: base64url(publicKey), algorithm: -7 } };
+    // The registration travels too: a provider that binds a passkey only from its registration checks it there.
+    const transports = (credential.response.getTransports?.() ?? []).filter(isTransport);
+    return {
+      ok: true,
+      data: {
+        credentialId: base64url(credential.rawId),
+        publicKey: base64url(publicKey),
+        algorithm: -7,
+        registration: {
+          challenge: base64url(challenge.buffer),
+          clientDataJson: base64url(credential.response.clientDataJSON),
+          attestationObject: base64url(credential.response.attestationObject),
+          transports,
+        },
+      },
+    };
   } catch {
     return { ok: false, failure: 'passkey' };
   }
@@ -155,7 +207,7 @@ export function testProviderClient(
   const create = deps.create ?? createWalletPasskey;
   async function act<T>(
     walletId: string,
-    action: 'sign' | 'signtyped' | 'export' | 'recovery',
+    action: 'sign' | 'signtyped' | 'sendtx' | 'export' | 'recovery',
     payload: unknown,
   ): Promise<ClientResult<T>> {
     const issued = await call('challenge', { walletId, action, payload });
@@ -169,6 +221,7 @@ export function testProviderClient(
     const done = await call(action, { walletId, payload, challenge: ch.challenge, assertion: assertion.data });
     if (!done || done.status >= 500) return { ok: false, failure: 'down' };
     if (isSpent(done)) return { ok: false, failure: 'spent' };
+    if (done.status === 422) return { ok: false, failure: 'chain' };
     if (done.status !== 200) return { ok: false, failure: 'refused' };
     return { ok: true, data: done.body as T };
   }
@@ -182,11 +235,38 @@ export function testProviderClient(
       if (!passkey.ok) return passkey;
       return act(walletId, 'recovery', { passkey: passkey.data });
     },
+    sendTransaction: (walletId, transaction) => act(walletId, 'sendtx', { transaction }),
+    async read(method, params) {
+      const answer = await call('rpc', { method, params });
+      if (!answer || answer.status !== 200) return null;
+      const body = answer.body as { result?: unknown } | null;
+      return body && 'result' in body ? (body.result ?? null) : null;
+    },
+  };
+}
+
+/**
+ * The owner's provider's client (turnkey). This build carries only making the wallet: the person's passkey, registered
+ * with the provider by svc-protocol. Signing, sending, export and a second passkey run in the provider's own browser flow,
+ * which this page does not carry yet: each answers `unsupported`, so the room says so in words and nothing is signed or
+ * sent. The provider reports export and recovery as not offered, so the room shows no button for them.
+ */
+export function ownerProviderClient(deps: { create?: typeof createWalletPasskey } = {}): EmbeddedWalletClient {
+  const unsupported = async () => ({ ok: false as const, failure: 'unsupported' as const });
+  return {
+    createPasskey: deps.create ?? createWalletPasskey,
+    signMessage: unsupported,
+    signTypedData: unsupported,
+    exportKey: unsupported,
+    addRecoveryPasskey: unsupported,
+    sendTransaction: unsupported,
+    read: async () => null,
   };
 }
 
 /** The client for the provider svc-protocol names; null for a provider this build has no client for. */
 export function embeddedWalletClient(provider: ProtocolEmbeddedWalletProvider | null): EmbeddedWalletClient | null {
   if (provider?.id === 'test' && provider.test) return testProviderClient();
+  if (provider?.id === 'turnkey' && !provider.test) return ownerProviderClient();
   return null;
 }

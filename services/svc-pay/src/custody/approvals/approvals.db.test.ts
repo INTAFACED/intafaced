@@ -1,7 +1,8 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CustodyTaskExecutionError } from './errors.js';
@@ -18,7 +19,7 @@ const migrations = readdirSync(drizzleDir)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_custody_tasks_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -90,7 +91,7 @@ describe('custody approval tasks (real Postgres)', () => {
       await service.registerApprover('owner', { userId: id, label: id, role });
     }
   };
-  const start = (over: Partial<{ payload: Record<string, unknown>; clientRef: string }> = {}) =>
+  const start = (over: Partial<{ payload: Record<string, JsonValue>; clientRef: string }> = {}) =>
     service.initiate(FOUNDER, { title: 'Send 1 ETH', payload: PAYLOAD, clientRef: ref(), ...over });
 
   it('a blank quorum refuses, and nothing wired to run the task refuses too', async () => {

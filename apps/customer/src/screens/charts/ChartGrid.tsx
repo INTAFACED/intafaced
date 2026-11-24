@@ -48,7 +48,8 @@ import { MarketChartWidget, type AddonView, type WidgetProps } from './MarketCha
 import { joinedNonce, type GroupCommands } from './group-commands';
 import { StudiesBar } from './studies/StudiesBar';
 import type { StudyKind } from './studies/catalogue';
-import { OWNER_VALUE_UNSET, ownerValue, useChartOwnerValues } from './owner-values';
+import { OWNER_VALUE_UNSET, ownerValue, useChartOwnerCounts, useChartOwnerValues } from './owner-values';
+import { useChartSource } from '../trade/chart/chart-source';
 import { chartsHref, type WorkbenchSetting } from './workbench';
 
 const LAYOUT_LABEL = {
@@ -95,7 +96,10 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const [grid, setGrid] = useDeviceSetting<GridSetting>(gridKey(userId, workbench), DEFAULT_GRID, isGridSetting);
   // The object tree's indicator slot, filled by the main chart's studies bar.
   const [treeSlot, setTreeSlot] = useState<HTMLElement | null>(null);
-  const owner = useChartOwnerValues(market.symbol);
+  const source = useChartSource();
+  const engineOwner = useChartOwnerValues(market.symbol, source.kind === 'engine');
+  const venueOwner = useChartOwnerCounts(source.kind === 'venue');
+  const owner = source.kind === 'venue' ? venueOwner : engineOwner;
   const limit: LimitRead = ownerValue(owner, 'chartCountLimit');
   const limitKey = limit.ok ? String(limit.value) : limit.why;
   const [refused, setRefused] = useState<LayoutId | null>(null);
@@ -132,7 +136,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const cells = useMemo(
     () => cellsFor(layout, first, grid.cells),
     [layout, first.symbol, first.interval, first.mode, first.group, grid.cells],
-  ); // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // A slot that joins a group (or is shown in one for the first time) counts the group's current command as applied, so
   // it never replays a command issued before it joined. Layout effects run before any studies bar's effect in a commit.

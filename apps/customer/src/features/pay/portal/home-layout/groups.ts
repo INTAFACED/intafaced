@@ -9,6 +9,9 @@ export type NavOptions = { match?: string; when?: 'payfac' };
 export type NavItem = [href: string, label: Key, options?: NavOptions];
 export type NavGroup = { label: Key; items: NavItem[] };
 
+/** What a signed-in person with no business account sees instead: one way in, and none of the business pages. */
+export const noBusinessGroup: NavGroup = { label: 'openBusiness', items: [['/pay/onboarding', 'openBusiness']] };
+
 /** Five tabs, at most seven items under each. Developers live under Settings. */
 export const groups: NavGroup[] = [
   {

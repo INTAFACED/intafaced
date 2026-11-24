@@ -6,9 +6,19 @@ import {
   accountClosureStateSchema,
 } from '@intafaced/contracts';
 import { adminBffSession } from '@/lib/admin-bff-gate';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeRecordCall,
+  founderEdgeRecordRead,
+} from '@/lib/founder-session';
 import { closureExecute } from '@/lib/accounts/closure';
 import { handleStep } from '@/lib/desk/step-route';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+} from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Staff close and reopen of one account (J-ops-console-04 #7).
@@ -29,31 +39,29 @@ export async function GET(request: Request) {
     if ([...params.keys()].some((key) => !['id', 'history', 'limit'].includes(key)))
       throw new AdminSessionError('admin.accounts_input', 400);
     const userId = params.get('id')?.toLowerCase();
-    const history = params.get('history') === 'true';
-    const parsed = history
-      ? accountClosureHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) })
-      : accountClosureLookupInputSchema.safeParse({ userId });
-    if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
-    const data = await founderEdgeCall(
-      config,
-      'identity',
-      history ? 'accountControls.closureHistory' : 'accountControls.closureState',
-      'GET',
-      parsed.data,
-      session.accessToken,
-    );
-    const valid = history
-      ? Array.isArray(data) &&
+    if (params.get('history') === 'true') {
+      const parsed = accountClosureHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) });
+      if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
+      const data = await founderEdgeRecordRead(config, IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY, parsed.data, session.accessToken);
+      const valid =
+        Array.isArray(data) &&
         data.length <= Number(params.get('limit')) &&
         data.every((row) => {
           const parsedRow = accountClosureResultSchema.safeParse(row);
           return parsedRow.success && parsedRow.data.userId === parsed.data.userId;
-        })
-      : data === null ||
-        (() => {
-          const state = accountClosureStateSchema.safeParse(data);
-          return state.success && state.data.userId === parsed.data.userId;
-        })();
+        });
+      if (!valid) throw new AdminSessionError('admin.upstream_invalid', 502);
+      return Response.json(data, { headers: { 'cache-control': 'no-store' } });
+    }
+    const parsed = accountClosureLookupInputSchema.safeParse({ userId });
+    if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
+    const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE, parsed.data, session.accessToken);
+    const valid =
+      data === null ||
+      (() => {
+        const state = accountClosureStateSchema.safeParse(data);
+        return state.success && state.data.userId === parsed.data.userId;
+      })();
     if (!valid) throw new AdminSessionError('admin.upstream_invalid', 502);
     return Response.json(data, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {

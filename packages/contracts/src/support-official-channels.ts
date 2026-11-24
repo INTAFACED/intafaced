@@ -13,7 +13,7 @@ const domain = z
   .string()
   .min(3)
   .max(253)
-  .regex(/^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/, 'a lower-case domain name');
+  .regex(/^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+$/, 'a lower-case domain name');
 
 export const officialChannelListSchema = z
   .object({

@@ -1,0 +1,761 @@
+{
+  "callers": [
+    {
+      "path": "scanner.invokeDataTool",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "scanner.policy",
+      "type": "query",
+      "caller": "public"
+    },
+    {
+      "path": "scanner.rankFixtures",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "scanner.rankLive",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "scanner.runSession",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "scanner.stage2Guardrail",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "scanner.tierGate",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "scanner.invokeDataTool": {
+      "tool": "x",
+      "plane": "live"
+    },
+    "scanner.policy": null,
+    "scanner.rankFixtures": {
+      "fixtures": []
+    },
+    "scanner.rankLive": {
+      "plane": "live",
+      "tickers": []
+    },
+    "scanner.runSession": {
+      "plane": "live",
+      "tickers": []
+    },
+    "scanner.stage2Guardrail": null,
+    "scanner.tierGate": {}
+  },
+  "answers": {
+    "scanner.invokeDataTool valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.invokeDataTool valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.invokeDataTool valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.invokeDataTool valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.invokeDataTool absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.invokeDataTool extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.policy valid anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy absent anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy absent read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy absent execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy absent admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy absent key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy wrong-type anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy wrong-type read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy wrong-type execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy wrong-type admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy wrong-type key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy empty anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy extra-key anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.policy extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"boardId\":\"D26-P0-11\",\"productionDefaultPublished\":false,\"sealedRecipeId\":\"abs_change_x_log_volume\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"inventsRankings\":false,\"inventsLiveTickers\":false,\"liveTickersClassX\":true,\"fixtureRankOnlyWithoutLivePlane\":true}}}"
+    },
+    "scanner.rankFixtures valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankFixtures valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankFixtures valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankFixtures valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankFixtures absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"fixtures\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"fixtures\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"fixtures\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"fixtures\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankFixtures\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankFixtures extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankFixtures extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankFixtures extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankFixtures extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankLive valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankLive valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankLive valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankLive valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\"}}}"
+    },
+    "scanner.rankLive absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tickers\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tickers\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tickers\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tickers\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.rankLive extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.rankLive\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"signal_inputs_law_blank\",\"userMessageKey\":\"agents.scanner.signal_inputs_closed\",\"residual\":\"D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)\",\"tickersRefusedByTool\":0,\"tickersRefusedByGuardrail\":0,\"metering\":{\"sessionId\":null,\"billedAmount\":\"0\",\"assetId\":\"fixture-asset\",\"sessionClosed\":false,\"settlements\":[]}}}}"
+    },
+    "scanner.runSession valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tickers\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.runSession extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "scanner.runSession extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.execute_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"scanner.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.stage2Guardrail valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.stage2Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.stage2Guardrail valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.stage2Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.stage2Guardrail absent read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail absent execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail absent admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail absent key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.stage2Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.stage2Guardrail wrong-type read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail wrong-type execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail wrong-type admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail wrong-type key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.stage2Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.stage2Guardrail empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.stage2Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.stage2Guardrail extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.stage2Guardrail extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"scanner\",\"version\":1,\"tools\":[{\"name\":\"trade.ticker\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.book.top\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":80,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"agents\"],\"allowedTasks\":[\"scanner.rank\"]}}}}"
+    },
+    "scanner.tierGate valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.scanner.tier_closed\"}}}"
+    },
+    "scanner.tierGate extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "scanner.tierGate extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"scanner.tierGate\",\"requestId\":\"<request>\"}}}"
+    }
+  }
+}

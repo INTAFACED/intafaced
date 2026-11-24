@@ -353,6 +353,30 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
     expect((await take(p2p, offer.id)).status).toBe('escrowed');
   });
 
+  it('counts every cancellation in the window even above the threshold', async () => {
+    const p2p = service({ activeOrderCap: 5, pairLimits: PAIRS, buyerCancels: { limit: 2, windowHours: 24 } });
+    const ad = await sellOffer(p2p);
+    const first = await take(p2p, ad.id);
+    const second = await take(p2p, ad.id);
+    const third = await take(p2p, ad.id);
+
+    for (const trade of [first, second, third]) await p2p.cancelTrade(trade.id, TAKER, 'TEST');
+    // Spread them out so the earliest and the pause's end are different cancels.
+    await rewrite(first.id, { hoursAgo: 3 });
+    await rewrite(second.id, { hoursAgo: 2 });
+    await rewrite(third.id, { hoursAgo: 1 });
+
+    const until = async (id: string) =>
+      (await sql<{ until: Date }[]>`SELECT resolved_at + interval '24 hours' AS until FROM p2p.p2p_trades WHERE id = ${id}`)[0]!.until;
+    // The earliest of the three stops counting first; buying returns only once the second newest leaves too.
+    expect(await p2p.buyerCancelCount(TAKER)).toMatchObject({
+      used: 3,
+      cap: 2,
+      nextDropAt: await until(first.id),
+      restrictedUntil: await until(second.id),
+    });
+  });
+
   const takerSells = async () => {
     await instruments.createInstrument({
       ownerId: TAKER,

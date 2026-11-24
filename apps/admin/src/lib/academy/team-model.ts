@@ -1,6 +1,6 @@
 import type { AcademyCourseList } from '@intafaced/contracts/academy-courses';
 import type { AcademyCourseTeam, AcademyModerationQueue, AcademyRoles } from '@intafaced/contracts/academy-team';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The moderation desk and the course team desk (J-academy-18: AC-rooms-02, AC-roles-01). Pure, so the server loader,

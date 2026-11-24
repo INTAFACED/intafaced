@@ -1,6 +1,7 @@
 // World: book, stack
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
+import { HOUR, closedMinute, hourStart, minuteStart } from './clock.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
@@ -54,13 +55,17 @@ function dollars(text) {
   return m[1] === '−' || m[1] === '-' ? -units : units;
 }
 
-/** The market's last BTC/USDT price, the one the bank values holdings at. */
-async function lastPrice() {
+/**
+ * What one BTC would sell for now: the BTC/USDT best bid, the price Profit and loss values open coins at, so Unrealised is
+ * what selling them would make; the last price only when the book has no bid, as the page does.
+ */
+async function sellPrice() {
   const res = await fetch(`${EDGE}/api/v1/ticker/BTC%2FUSDT`, { headers: { origin: ORIGIN } });
   expect(res.status).toBe(200);
-  const { last } = await res.json();
-  expect(last, 'a last BTC/USDT price').toBeTruthy();
-  return String(last);
+  const { bid, last } = await res.json();
+  const price = bid ?? last;
+  expect(price, 'a BTC/USDT bid or last price').toBeTruthy();
+  return String(price);
 }
 
 const CENT = toUnits('0.01');
@@ -176,7 +181,7 @@ async function bank() {
  * one-minute read fails, svc-tax prices from the last hourly candle that ended before the moment (prices.ts, tested there),
  * so that close is a candidate too. */
 async function valuesAt(qty, [from, to]) {
-  const since = Math.floor(from / 60_000) * 60_000 - 3_600_000;
+  const since = minuteStart(from) - HOUR;
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`, {
     headers: { origin: ORIGIN },
   });
@@ -185,9 +190,8 @@ async function valuesAt(qty, [from, to]) {
   const before = candles.filter((c) => c[0] <= from).at(-1);
   const closes = [...(before ? [before] : []), ...candles.filter((c) => c[0] > from && c[0] <= to)].map((c) => c[4]);
   expect(closes.length).toBeGreaterThan(0);
-  const HOUR = 3_600_000;
   const hourly = await fetch(
-    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1h&since=${Math.floor(from / HOUR) * HOUR - 24 * HOUR}&limit=48`,
+    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1h&since=${hourStart(from) - 24 * HOUR}&limit=48`,
     { headers: { origin: ORIGIN } },
   );
   expect(hourly.status).toBe(200);
@@ -316,9 +320,8 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   // The withdrawal is valued at the close of the minute it left in, worked out from the fills on every read. While that
   // minute is open, any trade on this shared market moves the close between the hand count and the screen (main run
   // 42943158075: the screen's $65.11 was a close the hand count, read moments before, had seen as $65.15). So both read
-  // it once the minute has ended (at most a minute's wait, plus time for a fill stamped in it to be stored).
-  const minuteOver = Math.floor(left[1] / 60_000) * 60_000 + 60_000;
-  await page.waitForTimeout(Math.max(0, minuteOver + 5_000 - Date.now()));
+  // it once the minute has ended.
+  await closedMinute(page, left[1]);
 
   // The book, read by hand: the sale is what arrived less what the buy cost; the withdrawal moved out 0.001 of the
   // deposit (FIFO: the bought lot was used up) at its value when it left, less the price entered for it.
@@ -341,11 +344,11 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   expect(realised.view).toBe(realised.realised);
   await expect(page).toHaveURL(/view=realised/);
 
-  // Unrealised, by hand: the 0.002 BTC still open from the deposit at the market's last price (read on each side of the
+  // Unrealised, by hand: the 0.002 BTC still open from the deposit at what it would sell for now (read on each side of the
   // screen read, as it can move), less 0.002 at the price entered. Money's worth is the same figure.
-  const lastBefore = await lastPrice();
+  const lastBefore = await sellPrice();
   const unrealised = await snapshot(page, 'Unrealised');
-  const lasts = [lastBefore, await lastPrice()];
+  const lasts = [lastBefore, await sellPrice()];
   const openAt = (last) => times(toUnits('0.002'), toUnits(last)) - hand.openCost;
   expect(
     lasts.some((last) => near(dollars(unrealised.view), openAt(last))),
@@ -356,9 +359,9 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
 
   // All time is realised plus unrealised, on the same price, and each part is the hand count's. The page may still hold
   // the price it drew Unrealised from, so the prices read around that view count too.
-  const allBefore = await lastPrice();
+  const allBefore = await sellPrice();
   const all = await snapshot(page, 'All time');
-  const allLasts = [...lasts, allBefore, await lastPrice()];
+  const allLasts = [...lasts, allBefore, await sellPrice()];
   expect(near(dollars(all.view), dollars(all.realised) + dollars(all.unrealised))).toBe(true);
   expect(hand.realised.map((r) => usd(r, true))).toContain(all.realised);
   expect(
@@ -373,9 +376,9 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   expect(last.last).toMatch(/^Sale of BTC on /);
 
   // 24 hours: everything open arrived inside the 24 hours, so it counts from its cost: the same as unrealised now.
-  const dayBefore = await lastPrice();
+  const dayBefore = await sellPrice();
   const day = await snapshot(page, '24 hours');
-  const dayLasts = [dayBefore, await lastPrice()];
+  const dayLasts = [dayBefore, await sellPrice()];
   expect(
     dayLasts.some((last) => near(dollars(day.view), openAt(last))),
     `${day.view} at ${dayLasts}`,
@@ -495,7 +498,7 @@ test(`${J} #3 reads a sale's fee: inside the realised result, and on its own lin
   await expect(fees).toContainText(
     'Already inside the results: a buy’s fee is part of its cost, and a sale’s fee comes off what it received.',
   );
-  expect(near(dollars(await fees.innerText()), saleFee + buyFeeUsd)).toBe(true);
+  await expect.poll(async () => near(dollars(await fees.innerText()), saleFee + buyFeeUsd)).toBe(true);
   await expect(page.locator('[data-figure="realised"]')).toHaveText(realised.view);
 });
 

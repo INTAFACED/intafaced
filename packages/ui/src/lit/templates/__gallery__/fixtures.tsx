@@ -4,7 +4,8 @@
  * (`fixtures.test.ts` parses the holdings with the ledger's schema). Dev tool only.
  */
 import * as React from 'react';
-import { AreaChart, Bars, LineChart, Parts } from '../../components/b2-charts.js';
+import { AreaChart, Bars, Candles, LineChart, Parts, type Candle } from '../../components/b2-charts.js';
+import { TimeLine, type TimePoint } from '../../components/b2-time-chart.js';
 import { EqualChoice, KeyValue, Segmented, StatusChip, Tabs } from '../../components/b2-basics.js';
 import { Table } from '../../components/b2-table.js';
 import { Receipt } from '../frame.js';
@@ -340,6 +341,30 @@ const series = (base: number, n = 24, amp = 0.04) =>
     value: (base * (1 + amp * Math.sin(i / 2.3) + (amp / 2) * Math.cos(i / 1.1) + (i * amp) / n)).toFixed(2),
   }));
 
+/** TEST result by the hour, from zero: hours 9 to 12 have no figure, so the line breaks and the gap keeps its width. */
+const hourly: TimePoint[] = series(100, 24, 0.5).map((p, i) => ({
+  at: new Date(Date.UTC(2026, 10, 2, i)).toISOString(),
+  value: i >= 9 && i <= 12 ? null : i === 0 ? '0.00' : (parseFloat(p.value) - 100).toFixed(2),
+}));
+
+/** TEST hourly candles from the same fixed curve: each opens at the last close, so shots repeat. */
+const candles = (base: number, n = 24): Candle[] => {
+  const closes = series(base, n + 1, 0.03).map((p) => p.value);
+  return closes.slice(1).map((close, i) => {
+    const open = closes[i] ?? close;
+    const hi = Math.max(parseFloat(open), parseFloat(close));
+    const lo = Math.min(parseFloat(open), parseFloat(close));
+    return {
+      key: String(i),
+      open,
+      close,
+      high: (hi * 1.004).toFixed(2),
+      low: (lo * 0.996).toFixed(2),
+      title: `${String(i).padStart(2, '0')}:00, open ${open}, close ${close}, TEST`,
+    };
+  });
+};
+
 /** Drawing only: a line's colour says which way it went over the period it shows. */
 const toneOf = (points: readonly { value: string }[]) =>
   parseFloat(points[points.length - 1]!.value) >= parseFloat(points[0]!.value) ? ('up' as const) : ('down' as const);
@@ -643,6 +668,16 @@ function Monitor(c: Ctx) {
             {t('Price, last 24 days')} <Test />
           </p>
           <LineChart label="Bitcoin price, last 24 days, TEST" points={price} asset="GBP" tone={toneOf(price)} live={c.state === 'ready'} />
+          <p className="gallery-label">
+            {t('Result over time, by the hour')} <Test />
+          </p>
+          <TimeLine
+            label="Result over time, TEST"
+            keys={t('Use the left and right arrow keys to read each point')}
+            points={c.state === 'empty' ? [] : hourly}
+            readout={(p) => `${p.at.slice(11, 16)} UTC: ${p.value ?? t('no figure at this time')} GBP, TEST`}
+            empty={t('No points in this range, so there is no line to draw.')}
+          />
         </>
       }
       pro={
@@ -651,6 +686,14 @@ function Monitor(c: Ctx) {
             {t('Daily volume, last 14 days')} <Test />
           </p>
           <Bars label="Daily volume, TEST" asset="GBP" bars={series(1.4e9, 14, 0.3).map((p) => ({ label: p.at, value: p.value }))} />
+          <p className="gallery-label">
+            {t('Hourly candles, last 24 hours')} <Test />
+          </p>
+          <Candles
+            label="Bitcoin hourly candles, last 24 hours, TEST"
+            candles={c.state === 'empty' ? [] : candles(81000)}
+            empty={t('No trades in the last 24 hours, so there is no price to draw.')}
+          />
         </>
       }
       panels={

@@ -1,27 +1,39 @@
-// World: none
+// World: restart
 import { randomBytes } from 'node:crypto';
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn } from './desk.mjs';
-import { EDGE, api, journeyState, signUpInBrowser } from './stack.mjs';
+import { TOKEN_USD, fundOnTestChain } from './dex.mjs';
+import { api, EDGE, journeyState, restartService, signUpInBrowser, stackUrl } from './stack.mjs';
+import { chainBalance, venueForThisFile } from './venue.mjs';
+import { chainReceipt, rewardFunds } from './reward-funds.mjs';
+import { campaignLauncher, connectWallet, myRewards, usdUnits, verifyBasic } from './campaign-desk.mjs';
 
 /** The public invitation site on the stack (apps/invitation), where the waitlist lives at /waitlist. */
-const JOIN = process.env.JOURNEY_JOIN_URL ?? 'http://127.0.0.1:3220';
+const JOIN = process.env.JOURNEY_JOIN_URL ?? stackUrl('invitation');
 
 // J-campaigns-20, in the running app (docs/roadmap/journeys.json): join the waitlist, climb by inviting, and claim a drop.
 // One test per step, titled "J-campaigns-20 #<n>", run in order. Every visitor is signed out on a browser of their own.
 // #3's operators are the stack's two LOCAL TEST founders on the founder console's Waitlist waves room
 // (/more-ops/campaigns/waves): A asks for the release, B approves the same packet on their own console, A runs it. The wave size is the stack's labelled TEST value
-// (IDENTITY_WAITLIST_WAVE_SIZE, two, in tooling/profiles/test-owner-values/identity.json); the blank-size refusal
-// (drop.wave_unset, nobody released) is proved in svc-identity's waitlist and router tests, since the stack runs one value.
+// (IDENTITY_WAITLIST_WAVE_SIZE, two, in tooling/profiles/test-owner-values/identity.json). For the blank size, #3 first
+// restarts identity with it left blank (LOCAL_STACK_IDENTITY_WAVE_SIZE=off): a release refuses drop.wave_unset and nobody
+// is released; a plain restart puts the TEST value back.
 // #4-#6 are the drop room on the Customer app (/campaigns/drops): I sign up with the email I joined the waitlist with, the
 // two TEST founders make a TEST season and a TEST drop of three (A creates, B publishes, through svc-campaigns' operator
-// doors), and four friends claim alongside me. The TGE schedule is the stack's blank owner value, so its claim refuses.
+// doors), and four friends claim alongside me. The drop has value: it names this run's TEST drop campaign, whose reward
+// (0.01 TEST USDC) is what each claim is worth and whose budget pays it, funded from INTAFACED's TEST reward pot, which the
+// founders fund from builder fees the TEST venue credited us on this file's own sells (reward-funds.mjs). My claim is
+// owed once and paid once to my own connected TEST wallet on the stack's TEST chain, read back from the chain itself.
+// The TGE schedule is the stack's blank owner value, so its claim refuses.
 const J = 'J-campaigns-20';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
 
 function state(...keys) {
   const s = run.read();
@@ -83,7 +95,7 @@ const data = (res, what) => {
   return row;
 };
 
-test(`${J} #1 joins the waitlist signed out and sees a queue position`, async ({ browser }) => {
+test(`${J} #1 joins the waitlist signed out and sees a queue position`, async ({ browser, stepPicture }) => {
   run.reset({});
   const page = await visitor(browser);
   await page.goto('/join');
@@ -101,10 +113,11 @@ test(`${J} #1 joins the waitlist signed out and sees a queue position`, async ({
   // Coming back to the link shows the same place, read again, not remembered.
   await page.goto(`/waitlist?code=${code}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Your place in the queue' })).toBeVisible();
+  await stepPicture(page);
   run.write({ code, email });
 });
 
-test(`${J} #2 each friend who joins with my link moves me up; ties go by join order`, async ({ browser }) => {
+test(`${J} #2 each friend who joins with my link moves me up; ties go by join order`, async ({ browser, stepPicture }) => {
   const { code } = state('code');
   const bring = async (refCode, who) => {
     const p = await visitor(browser);
@@ -112,23 +125,25 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
     await joinAs(p, `jc20-${who}-${tag}@local-test.invalid`);
     await p.context().close();
   };
-  // A rival joins after me and brings three friends, so they are ahead of me and my friends have someone to move me past
-  // (on a fresh stack I would otherwise be first already).
-  const rival = await visitor(browser);
-  await rival.goto('/waitlist');
-  const rivalCode = await joinAs(rival, `jc20-rival-${tag}@local-test.invalid`);
-  await rival.context().close();
-  for (const n of [1, 2, 3]) await bring(rivalCode, `rivalfriend${n}`);
-  expect((await standing(rivalCode)).rank).toBeLessThan((await standing(code)).rank);
+  // Three rivals join after me and bring one, two and three friends, so all three are ahead of me. Each friend of mine
+  // then ties the next rival up, and I joined first, so each one moves me past exactly that rival.
+  const rivals = [];
+  for (const k of [1, 2, 3]) {
+    const rival = await visitor(browser);
+    await rival.goto('/waitlist');
+    const rivalCode = await joinAs(rival, `jc20-rival${k}-${tag}@local-test.invalid`);
+    await rival.context().close();
+    for (let n = 1; n <= k; n++) await bring(rivalCode, `rival${k}friend${n}`);
+    rivals.push(rivalCode);
+  }
+  for (const rivalCode of rivals) expect((await standing(rivalCode)).rank).toBeLessThan((await standing(code)).rank);
 
   const page = await visitor(browser);
   await page.goto(`/waitlist?code=${code}`);
   let before = await shownRank(page);
   const start = before.rank;
   expect(start).toBeGreaterThan(1);
-  // Two friends at least; on a long-lived stack an earlier run may have left people waiting with friends of their own, so
-  // keep inviting (twenty-five at most) until I am first in the queue, which #3's wave then reaches.
-  for (let n = 1; n <= 2 || (before.rank > 1 && n <= 25); n++) {
+  const inviteOne = async (n) => {
     const friend = await visitor(browser);
     await friend.goto(`/waitlist?ref=${code}`);
     await expect(friend.getByTestId('waitlist-invited-by')).toContainText(code);
@@ -136,9 +151,19 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
     await friend.context().close();
     const after = await shownRank(page);
     await expect(page.getByTestId('waitlist-referred')).toHaveText(String(n));
-    expect(after.rank).toBeLessThanOrEqual(before.rank);
+    return after;
+  };
+  // Each of my first three friends moves me up: past the rival with one, then two, then three friends.
+  for (const n of [1, 2, 3]) {
+    const after = await inviteOne(n);
+    expect(after.rank, `friend ${n} moves me up`).toBeLessThan(before.rank);
+    expect(after.rank).toBe((await standing(code)).rank);
     before = after;
   }
+  expect((await standing(rivals[2])).rank).toBeGreaterThan(before.rank);
+  // On a long-lived stack an earlier run may have left people waiting with more friends; keep inviting (twenty-five at
+  // most) until I am first in the queue, which #3's wave then reaches. On a fresh stack I already am.
+  for (let n = 4; before.rank > 1 && n <= 25; n++) before = await inviteOne(n);
   expect(before.rank).toBeLessThan(start);
   expect(before.rank).toBe(1);
 
@@ -156,10 +181,13 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
   await bring(xCode, 'xfriend');
   expect((await standing(xCode)).rank).toBeLessThan((await standing(yCode)).rank);
   expect((await shownRank(x)).rank).toBe((await standing(xCode)).rank);
+  // On my own page: first in the queue, with every friend I brought.
+  expect((await shownRank(page)).rank).toBe(1);
+  await stepPicture(page);
   run.write({ ...run.read(), xCode, yCode });
 });
 
-test(`${J} #3 an operator releases a wave: the top N are invited once, the rest wait`, async ({ browser }) => {
+test(`${J} #3 an operator releases a wave: the top N are invited once, the rest wait`, async ({ browser, stepPicture }) => {
   const { code, xCode } = state('code', 'xCode');
   const { ctx, pair } = await operators();
   const waves = data(
@@ -170,6 +198,30 @@ test(`${J} #3 an operator releases a wave: the top N are invited once, the rest 
   const mine = await standing(code);
   // #2 brought friends until I was first in the queue, so this wave reaches me.
   expect(mine.rank).toBe(1);
+
+  // A blank wave size releases nobody: identity restarted with the size left blank refuses the release by name, before any
+  // approval is asked for, and nobody waiting is invited. A plain restart puts the TEST size back.
+  await restartService('identity', { LOCAL_STACK_IDENTITY_WAVE_SIZE: 'off' });
+  try {
+    const blank = data(
+      await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()),
+      'waitlist.waves.list',
+    );
+    expect(blank.waveSize).toBeNull();
+    const unset = await ctx.edge.mutate('identity', 'waitlist.waves.release', { waveNumber: waves.nextWave }, await pair.a.tradeOpsToken());
+    expect(unset.json?.error?.message ?? '').toContain('drop.wave_unset');
+    const still = data(
+      await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()),
+      'waitlist.waves.list',
+    );
+    expect(still).toMatchObject({ nextWave: waves.nextWave, waiting: waves.waiting, waves: waves.waves });
+    expect((await standing(code)).release).toBeNull();
+  } finally {
+    await restartService('identity', { LOCAL_STACK_IDENTITY_WAVE_SIZE: undefined });
+  }
+  expect(
+    data(await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()), 'waitlist.waves.list').waveSize,
+  ).toBe(2);
 
   // A release without a second person's approval refuses and invites nobody.
   const bare = await ctx.edge.mutate('identity', 'waitlist.waves.release', { waveNumber: waves.nextWave }, await pair.a.tradeOpsToken());
@@ -249,15 +301,28 @@ test(`${J} #3 an operator releases a wave: the top N are invited once, the rest 
   const xPage = await visitor(browser);
   await xPage.goto(`/waitlist?code=${xCode}`);
   await expect(xPage.getByRole('heading', { level: 1, name: 'Your place in the queue' })).toBeVisible();
+  // My own page, invited in this wave.
+  await expect(page.getByRole('heading', { level: 1, name: `You are invited: wave ${waves.nextWave}`, exact: true })).toBeVisible();
+  await stepPicture(page);
   run.write({ ...run.read(), waveNumber: waves.nextWave });
 });
 
 const DROP_COUNT = 3;
+/** What one claim of this run's drop is worth, in TEST USDC: its drop campaign's reward. */
+const DROP_VALUE = '0.01';
+const DROP_BUDGET = '0.03';
+const ASSET = 'USDC';
+const DAY = 86_400_000;
 const person = (handle, email = `${handle}@local-test.invalid`) => ({
   handle,
   email,
   password: `TEST-${randomBytes(9).toString('base64url')}-9a`,
 });
+
+/** My own TEST wallet, made in #4 from this run's name and kept in the run's state: it holds nothing real. */
+const walletOf = (key) => privateKeyToAccount(key).address.toLowerCase();
+const funds = rewardFunds({ J, RUN: `${process.env.JOURNEY_RUN_ID ?? 'local'}-${tag}`, operators });
+const liveCampaign = campaignLauncher(operators);
 
 /** A signed-in customer on a device of its own. */
 async function customer(browser) {
@@ -267,17 +332,40 @@ async function customer(browser) {
 
 async function openRoom(page) {
   await page.goto('/campaigns/drops');
-  await expect(page.getByRole('heading', { level: 1, name: 'Drop room' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Drop room', exact: true })).toBeVisible();
   await expect(page.getByTestId('drop-tge')).toBeVisible({ timeout: 30_000 });
 }
 
 const dropRow = (page, dropId) => page.locator(`[data-testid="drop-row"][data-drop-id="${dropId}"]`);
 
-test(`${J} #4 the drop room shows my rank, wave, season points and each limited drop`, async ({ browser }) => {
+test(`${J} #4 the drop room shows my rank, wave, season points and each limited drop`, async ({ browser, stepPicture }) => {
+  test.setTimeout(900_000);
   const { email } = state('code', 'email');
   const { ctx, pair } = await operators();
-  // The founders make this run's TEST season and TEST drop of three: A creates, B publishes. The creator cannot publish.
+  // INTAFACED's TEST reward pot and rewards wallet: builder fees this file's own TEST sells earned us.
+  // The house trader is verified (Basic) before it trades through our door, as any trader must be.
+  const house = person(`jc20h${tag}`.slice(0, 20));
+  const housePage = await customer(browser);
+  await signUpInBrowser(housePage, house);
+  await verifyBasic(housePage);
+  await housePage.context().close();
+  const fees = await funds.earnBuilderFees(house, 4);
+  await funds.fundPotFromFees(`TEST-${J}-${tag}`, fees);
+  await funds.claimOurBuilderFees();
+  // The drop's value: this run's TEST drop campaign, its reward what one claim is worth and its budget the drop count's.
   const now = Date.now();
+  const campaign = await liveCampaign({
+    name: `TEST drop campaign ${tag}`,
+    type: 'drop',
+    rules: `TEST rules: each claim of TEST drop ${tag} is worth ${DROP_VALUE} ${ASSET}, paid once to your connected wallet.`,
+    startsAt: new Date(now - 60_000).toISOString(),
+    endsAt: new Date(now + 7 * DAY).toISOString(),
+    participation: { exclusions: [], regionScope: 'platform' },
+    budget: { asset: ASSET, limit: DROP_BUDGET },
+    limits: { perCustomer: { count: 1, periodSeconds: 86_400 }, totalRedemptions: null },
+    reward: { asset: ASSET, amount: DROP_VALUE },
+  });
+  // The founders make this run's TEST season and TEST drop of three: A creates, B publishes. The creator cannot publish.
   const season = data(
     await ctx.edge.mutate(
       'campaigns',
@@ -297,17 +385,32 @@ test(`${J} #4 the drop room shows my rank, wave, season points and each limited 
     await ctx.edge.mutate(
       'campaigns',
       'ops.drops.create',
-      { title: `TEST drop ${tag}`, seasonId: season.id, count: String(DROP_COUNT), opensAt: new Date(now - 60_000).toISOString() },
+      {
+        title: `TEST drop ${tag}`,
+        seasonId: season.id,
+        count: String(DROP_COUNT),
+        opensAt: new Date(now - 60_000).toISOString(),
+        campaignId: campaign.id,
+      },
       await pair.a.campaignsOpsToken(),
     ),
     'ops.drops.create',
   );
+  expect(drop).toMatchObject({ kind: 'value', value: { campaignId: campaign.id, asset: ASSET, amount: DROP_VALUE } });
   data(await ctx.edge.mutate('campaigns', 'ops.drops.publish', { id: drop.id }, await pair.b.campaignsOpsToken()), 'ops.drops.publish');
 
-  // My wave was released in #3: I open my account with the email I joined with, and the room finds my place by it.
+  // My wave was released in #3: I open my account with the email I joined with, and the room finds my place by it. I am
+  // verified and connect my own TEST wallet, which a drop with value is paid to.
   const me = person(`jc20me${tag}`.slice(0, 20), email);
+  const myWalletKey = keccak256(toHex(`intafaced TEST drop wallet ${J} ${process.env.JOURNEY_RUN_ID ?? 'local'} ${tag}`));
+  const myWallet = walletOf(myWalletKey);
   const page = await customer(browser);
   await signUpInBrowser(page, me);
+  await verifyBasic(page);
+  fundOnTestChain(myWallet, 'venue');
+  const connecting = await customer(browser);
+  await connectWallet(connecting, me, myWalletKey);
+  await connecting.context().close();
   await openRoom(page);
   const mine = data(
     await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()),
@@ -316,19 +419,43 @@ test(`${J} #4 the drop room shows my rank, wave, season points and each limited 
   expect(mine.waves.length).toBeGreaterThan(0);
   // The wave #3 released, by its number.
   await expect(page.getByTestId('drop-wave')).toHaveText(`Wave ${state('waveNumber').waveNumber}, released`);
+  // My rank: my wave was released, so I hold no place in the queue. The room shows what identity holds for me, read here
+  // the way the room reads it: no rank, and the released wave's number.
+  const myPlace = await (await api(me)).get('/api/identity/trpc/waitlist.mine');
+  expect(myPlace.body?.result?.data).toMatchObject({ rank: null, release: { waveNumber: state('waveNumber').waveNumber } });
   await expect(page.getByTestId('drop-rank')).toHaveText('—');
   await expect(page.getByTestId('drop-season-name')).toHaveText(`TEST season ${tag}`);
-  await expect(page.getByTestId('drop-season-points')).toHaveText('0');
-  await expect(page.getByTestId('drop-season')).toContainText('From 0 task campaigns in this season');
+  // Season points read "not running" with the blocker J-campaigns-15 names: the owner's points decision.
+  const points = page.getByTestId('drop-season-points');
+  await expect(points).toHaveAttribute('data-state', 'not_running');
+  await expect(points).toHaveAttribute('data-code', 'owner.decision');
+  await expect(points).toContainText('Not running');
+  await expect(page.getByTestId('drop-season')).toContainText(
+    'Waits for the owner to decide whether INTAFACED runs a points programme whose points have value.',
+  );
+  const roomRead = await (await api(me)).get('/api/campaigns/trpc/drops.room');
+  expect(roomRead.body?.result?.data?.season).toMatchObject({ id: season.id, pointsBlocker: 'owner.decision' });
   const row = dropRow(page, drop.id);
+  await expect(row.getByTestId('drop-value')).toHaveText(`${DROP_VALUE} ${ASSET}`);
   await expect(row.getByTestId('drop-left')).toHaveText(`${DROP_COUNT} of ${DROP_COUNT}`);
   await expect(row.getByTestId('drop-state')).toHaveText('Open');
   await expect(row.getByRole('button', { name: `Claim TEST drop ${tag}` })).toBeEnabled();
-  run.write({ ...run.read(), me, dropId: drop.id });
+  await stepPicture(page);
+  // What my connected wallet holds on the TEST chain while the drop is open and unclaimed, read from the chain itself: #5
+  // proves its value reaches the wallet only when I claim.
+  const walletHeld = await chainBalance(TOKEN_USD.address, myWallet);
+  run.write({ ...run.read(), me, myWalletKey, dropId: drop.id, campaignId: campaign.id, walletHeld: String(walletHeld) });
 });
 
-test(`${J} #5 a limited drop claimed together: exactly the count succeed, the rest see sold out`, async ({ browser }) => {
-  const { me, dropId } = state('me', 'dropId');
+test(`${J} #5 a limited drop claimed together: exactly the count succeed, the rest see sold out`, async ({ browser, stepPicture }) => {
+  test.setTimeout(600_000);
+  const { me, dropId, myWalletKey } = state('me', 'dropId', 'myWalletKey');
+  const myWallet = walletOf(myWalletKey);
+  const claimKey = `drop:${dropId}:`;
+  // What my own wallet holds on the TEST chain before I claim, read from the chain itself.
+  const before = await chainBalance(TOKEN_USD.address, myWallet);
+  // Nothing reached my wallet between opening the room in #4 and claiming.
+  expect(before).toBe(BigInt(state('walletHeld').walletHeld));
   const page = await customer(browser);
   await signIn(page, me);
   await openRoom(page);
@@ -364,32 +491,101 @@ test(`${J} #5 a limited drop claimed together: exactly the count succeed, the re
   await expect(dropRow(theirs, dropId).getByTestId('drop-refusal')).toHaveText('This drop is sold out.');
 
   // My second claim returns my first: one claim, the same key.
-  const mine = await api(me);
-  const again = await mine.post('/api/campaigns/trpc/drops.claim', { dropId });
-  expect(again.body?.result?.data).toMatchObject({ created: false, remaining: 0, claim: { dropId } });
-  const room = await mine.get('/api/campaigns/trpc/drops.room');
+  const mineApi = await api(me);
+  const again = await mineApi.post('/api/campaigns/trpc/drops.claim', { dropId });
+  expect(again.body?.result?.data).toMatchObject({ created: false, remaining: 0, claim: { dropId, kind: 'value' } });
+  const myKey = again.body.result.data.claim.claimKey;
+  expect(myKey.startsWith(claimKey)).toBe(true);
+
+  // The money: each claim that succeeded is owed once, and only those; nobody who saw sold out is owed anything.
+  const dropRewards = async (who) => (await myRewards(who)).filter((r) => r.rewardKey.startsWith(claimKey));
+  for (const [i, f] of friends.entries()) {
+    const theirsOwed = await dropRewards(f.who);
+    if (answers[i].body?.result?.data?.created === true) {
+      expect(theirsOwed).toHaveLength(1);
+      expect(theirsOwed[0]).toMatchObject({ asset: ASSET, amount: DROP_VALUE });
+    } else {
+      expect(theirsOwed).toEqual([]);
+    }
+  }
+  // Mine is paid once to my connected wallet: owed once, paid once, and the TEST chain's own receipt shows one transfer
+  // of exactly the drop's value to my wallet, and my wallet's balance on the chain rose by exactly that.
+  await expect.poll(async () => (await dropRewards(me)).map((r) => r.state), { timeout: 240_000 }).toEqual(['paid']);
+  const [paid] = await dropRewards(me);
+  expect(paid).toMatchObject({ rewardKey: myKey, asset: ASSET, amount: DROP_VALUE, state: 'paid' });
+  expect(paid.attempts.filter((a) => a.outcome === 'owed')).toHaveLength(1);
+  expect(paid.attempts.filter((a) => a.outcome === 'paid')).toHaveLength(1);
+  expect(paid.payout?.toWallet).toBe(myWallet);
+  expect(paid.payout.chainTx).toMatch(/^0x[0-9a-f]{64}$/);
+  const receipt = await chainReceipt(paid.payout.chainTx);
+  expect(receipt.transfers).toEqual([{ token: TOKEN_USD.address, from: receipt.from, to: myWallet, value: usdUnits(DROP_VALUE) }]);
+  expect(await chainBalance(TOKEN_USD.address, myWallet)).toBe(before + usdUnits(DROP_VALUE));
+  // Claimed again after it was paid: still the one claim, and nothing more is paid.
+  const third = await mineApi.post('/api/campaigns/trpc/drops.claim', { dropId });
+  expect(third.body?.result?.data).toMatchObject({
+    created: false,
+    claim: { claimKey: myKey, reward: { state: 'paid', chainTx: paid.payout.chainTx } },
+  });
+  expect((await dropRewards(me)).map((r) => r.state)).toEqual(['paid']);
+  expect(await chainBalance(TOKEN_USD.address, myWallet)).toBe(before + usdUnits(DROP_VALUE));
+
+  const room = await mineApi.get('/api/campaigns/trpc/drops.room');
   const seen = room.body?.result?.data?.drops?.find((d) => d.id === dropId);
-  expect(seen).toMatchObject({ remaining: 0, state: 'sold_out', mine: { claimKey: again.body.result.data.claim.claimKey } });
+  expect(seen).toMatchObject({ remaining: 0, state: 'sold_out', mine: { claimKey: myKey } });
+  // On screen: my claim, paid to my wallet on the chain with its chain reference.
+  await openRoom(page);
+  const reward = dropRow(page, dropId).getByTestId('drop-reward');
+  await expect(reward).toHaveAttribute('data-state', 'paid', { timeout: 30_000 });
+  await expect(reward).toHaveAttribute('data-tx', paid.payout.chainTx);
+  await expect(reward).toContainText(`Paid ${DROP_VALUE} ${ASSET} to ${myWallet} on the chain`);
+  await expect(dropRow(page, dropId).getByTestId('drop-state')).toHaveText('Sold out');
+  await stepPicture(page);
 });
 
-test(`${J} #6 the TGE claim with a blank schedule refuses; mainnet shows the audit refusal`, async ({ browser }) => {
+test(`${J} #6 the TGE claim with a blank schedule refuses; mainnet shows the audit refusal`, async ({ browser, stepPicture }) => {
   const { me } = state('me');
   const page = await customer(browser);
   await signIn(page, me);
   await openRoom(page);
+  // What is stored before the presses: my claims and my rewards.
+  const mineApi = await api(me);
+  const stored = async () => {
+    const room = await mineApi.get('/api/campaigns/trpc/drops.room');
+    return {
+      drops: room.body?.result?.data?.drops?.map((d) => ({ id: d.id, remaining: d.remaining, mine: d.mine })),
+      rewards: await myRewards(me),
+    };
+  };
+  const storedBefore = await stored();
+  const myWallet = walletOf(state('myWalletKey').myWalletKey);
+  const walletBefore = await chainBalance(TOKEN_USD.address, myWallet);
+  expect(storedBefore.drops?.length).toBeGreaterThan(0);
+  // Every write the page sends to campaigns while I press: only the two TGE claims, each refused.
+  const writes = [];
+  const onRequest = (req) => {
+    if (req.method() !== 'GET' && /\/api\/campaigns\//.test(req.url())) writes.push(req);
+  };
+  page.on('request', onRequest);
   const tge = page.getByTestId('drop-tge');
   await expect(page.getByTestId('tge-schedule')).toHaveText('Not set');
   await expect(page.getByTestId('tge-testnet-label')).toHaveText('Testnet');
-  await page.getByTestId('tge-testnet').getByRole('button', { name: 'Claim on Testnet' }).click();
+  await page.getByTestId('tge-testnet').getByRole('button', { name: 'Claim on Testnet', exact: true }).click();
   await expect(page.getByTestId('tge-testnet-refusal')).toHaveAttribute('data-code', 'launch.schedule_unset');
   await expect(page.getByTestId('tge-testnet-refusal')).toContainText('The token schedule is not set');
-  await page.getByTestId('tge-mainnet').getByRole('button', { name: 'Claim on Mainnet' }).click();
+  await page.getByTestId('tge-mainnet').getByRole('button', { name: 'Claim on Mainnet', exact: true }).click();
   await expect(page.getByTestId('tge-mainnet-refusal')).toHaveAttribute('data-code', 'audit.external');
   await expect(page.getByTestId('tge-mainnet-refusal')).toContainText('external security audit');
   // Never "audited", never Base called the INTACHAIN mainnet.
   await expect(tge).not.toContainText(/audited/i);
   await expect(page.locator('body')).not.toContainText(/INTACHAIN mainnet/i);
-  // Nothing posted: the stored room reads the same after both presses.
-  const read = await (await api(me)).get('/api/campaigns/trpc/drops.room');
+  page.off('request', onRequest);
+  // Nothing posted: the only writes were the two refused TGE claims, and my claims, rewards and the schedule read the same.
+  expect(writes.map((r) => new URL(r.url()).pathname.split('/').pop())).toEqual(['tge.claim', 'tge.claim']);
+  for (const w of writes) expect((await w.response())?.status()).toBeGreaterThanOrEqual(400);
+  expect(await stored()).toEqual(storedBefore);
+  // And nothing reached my wallet on the TEST chain: its own balance reads the same.
+  expect(await chainBalance(TOKEN_USD.address, myWallet)).toBe(walletBefore);
+  const read = await mineApi.get('/api/campaigns/trpc/drops.room');
   expect(read.body?.result?.data?.tge?.schedule).toBeNull();
+  await stepPicture(page);
 });

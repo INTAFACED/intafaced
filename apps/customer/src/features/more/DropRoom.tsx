@@ -1,23 +1,19 @@
+// volt-room: /campaigns/drops
 import { useState } from 'react';
-import { z } from 'zod';
-import { dropClaimResultSchema, dropRoomSchema, type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
-import { useApi } from '../session/session';
+import { type DropReward, type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
-import { StatRow } from './depth-kit';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { CatalogueTemplate, FirstState, KeyValue } from '@intafaced/ui/lit/templates';
+import { t as copyText } from './copy';
 import { dropRoomCopy } from './drop-room-copy';
-
-/** identity `waitlist.mine`: the signed-in account's own place, or null when its email never joined. */
-const waitlistMineSchema = z
-  .object({
-    position: z.number().int().positive(),
-    referredCount: z.number().int().min(0),
-    rank: z.number().int().positive().nullable(),
-    waiting: z.number().int().min(0),
-    release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
-  })
-  .nullable();
+import { EmptyNote, FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
+import { Sparkles } from 'lucide-react';
+import { IDENTITY_WAITLIST_MINE } from '@intafaced/contracts/identity-waitlist-procedures';
+import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from '@intafaced/contracts/campaigns-drops-procedures';
+import { CAMPAIGNS_TGE_CLAIM } from '@intafaced/contracts/campaigns-tge-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 /** Refusals this room puts into its own words; any other failure goes to the shared Failure. */
 const ROOM_CODES = ['drop.sold_out', 'drop.not_open', 'drop.unknown', 'launch.schedule_unset', 'audit.external', 'chain.go'] as const;
@@ -38,106 +34,129 @@ type Outcome = { ok: true } | { ok: false; failure: Extract<ApiResult<unknown>, 
 export function DropRoom() {
   const api = useApi();
   const { t } = dropRoomCopy.useCopy();
-  const waitlist = useResource(
-    (signal) => api.query('identity', 'waitlist.mine', undefined, waitlistMineSchema, { signal }),
-    'drops-waitlist',
-  );
-  const room = useResource((signal) => api.query('campaigns', 'drops.room', undefined, dropRoomSchema, { signal }), 'drops-room');
+  const waitlist = useResource((signal) => api.call(IDENTITY_WAITLIST_MINE, undefined, { signal }), 'drops-waitlist');
+  const room = useResource((signal) => api.call(CAMPAIGNS_DROPS_ROOM, undefined, { signal }), 'drops-room');
   // Kept here, not in the row: the room reads its state again after every claim, which remounts the rows.
   const [outcomes, setOutcomes] = useState<Readonly<Record<string, Outcome>>>({});
 
   return (
-    <div className="more-grid" data-testid="drop-room">
-      <Panel title={t('waitlistTitle')}>
-        <div data-testid="drop-waitlist">
-          {waitlist.resource.status === 'loading' ? (
-            <Loading label={t('waitlistLoading')} />
-          ) : waitlist.resource.status === 'failed' ? (
-            waitlist.resource.failure.code === 'waitlist.email_unverified' ? (
-              <p role="status">{t('waitlistUnverified')}</p>
-            ) : (
-              <Failure result={waitlist.resource.failure} retry={waitlist.reload} />
-            )
-          ) : waitlist.resource.data === null ? (
-            <EmptyState title={t('waitlistNone')} />
+    <CatalogueTemplate
+      title={copyText('moreroutes.drop.room')}
+      description={copyText('moreroutes.drop.room.description')}
+      state={{ kind: 'ready' }}
+      items={
+        <div data-testid="drop-room">
+          <Section title={t('waitlistTitle')}>
+            <div data-testid="drop-waitlist">
+              {waitlist.resource.status === 'loading' ? (
+                <Waiting label={t('waitlistLoading')} />
+              ) : waitlist.resource.status === 'failed' ? (
+                waitlist.resource.failure.code === 'waitlist.email_unverified' ? (
+                  <p role="status">{t('waitlistUnverified')}</p>
+                ) : (
+                  <FailureNote result={waitlist.resource.failure} retry={waitlist.reload} />
+                )
+              ) : waitlist.resource.data === null ? (
+                <EmptyNote title={t('waitlistNone')}>{t('waitlistNoneBody')}</EmptyNote>
+              ) : (
+                <KeyValue
+                  rows={[
+                    {
+                      label: t('rank'),
+                      value: (
+                        <span data-testid="drop-rank">
+                          {waitlist.resource.data.rank === null
+                            ? '—'
+                            : t('rankValue', {
+                                rank: String(waitlist.resource.data.rank),
+                                waiting: String(waitlist.resource.data.waiting),
+                              })}
+                        </span>
+                      ),
+                    },
+                    {
+                      label: t('wave'),
+                      value: (
+                        <span data-testid="drop-wave">
+                          {waitlist.resource.data.release
+                            ? t('waveReleased', { wave: String(waitlist.resource.data.release.waveNumber) })
+                            : t('waveWaiting')}
+                        </span>
+                      ),
+                    },
+                    { label: t('friends'), value: <span data-testid="drop-referred">{waitlist.resource.data.referredCount}</span> },
+                  ]}
+                />
+              )}
+            </div>
+          </Section>
+          {room.resource.status === 'loading' ? (
+            <Section title={t('seasonTitle')}>
+              <Waiting label={t('seasonLoading')} />
+            </Section>
+          ) : room.resource.status === 'failed' ? (
+            <Section title={t('seasonTitle')}>
+              <FailureNote result={room.resource.failure} retry={room.reload} />
+            </Section>
           ) : (
-            <StatRow
-              items={[
-                {
-                  label: t('rank'),
-                  value: (
-                    <span data-testid="drop-rank">
-                      {waitlist.resource.data.rank === null
-                        ? '—'
-                        : t('rankValue', { rank: String(waitlist.resource.data.rank), waiting: String(waitlist.resource.data.waiting) })}
-                    </span>
-                  ),
-                },
-                {
-                  label: t('wave'),
-                  value: (
-                    <span data-testid="drop-wave">
-                      {waitlist.resource.data.release
-                        ? t('waveReleased', { wave: String(waitlist.resource.data.release.waveNumber) })
-                        : t('waveWaiting')}
-                    </span>
-                  ),
-                },
-                { label: t('friends'), value: <span data-testid="drop-referred">{waitlist.resource.data.referredCount}</span> },
-              ]}
-            />
+            <>
+              <Season season={room.resource.data.season} />
+              <Drops
+                drops={room.resource.data.drops}
+                outcomes={outcomes}
+                settle={(dropId, outcome) => {
+                  setOutcomes((all) => ({ ...all, [dropId]: outcome }));
+                  room.reload();
+                }}
+              />
+              <Tge tge={room.resource.data.tge} />
+            </>
           )}
         </div>
-      </Panel>
-      {room.resource.status === 'loading' ? (
-        <Panel title={t('seasonTitle')}>
-          <Loading label={t('seasonLoading')} />
-        </Panel>
-      ) : room.resource.status === 'failed' ? (
-        <Panel title={t('seasonTitle')}>
-          <Failure result={room.resource.failure} retry={room.reload} />
-        </Panel>
-      ) : (
-        <>
-          <Season season={room.resource.data.season} />
-          <Drops
-            drops={room.resource.data.drops}
-            outcomes={outcomes}
-            settle={(dropId, outcome) => {
-              setOutcomes((all) => ({ ...all, [dropId]: outcome }));
-              room.reload();
-            }}
-          />
-          <Tge tge={room.resource.data.tge} />
-        </>
-      )}
-    </div>
+      }
+    />
   );
 }
 
-function Season({ season }: { season: z.infer<typeof dropRoomSchema>['season'] }) {
+function Season({ season }: { season: ProcedureOutput<typeof CAMPAIGNS_DROPS_ROOM>['season'] }) {
   const { t } = dropRoomCopy.useCopy();
   return (
-    <Panel title={t('seasonTitle')}>
+    <Section title={t('seasonTitle')}>
       <div data-testid="drop-season">
         {season === null ? (
-          <EmptyState title={t('seasonNone')} />
+          <FirstState
+            icon={<Sparkles size={24} />}
+            title={t('seasonNone')}
+            body={t('seasonNoneBody')}
+            points={[t('firstPointPoints'), t('firstPointDrops'), t('firstPointMoney')]}
+            action={{ label: t('firstAction'), href: '/campaigns' }}
+          />
         ) : (
-          <StatRow
-            items={[
+          <KeyValue
+            rows={[
               { label: t('seasonName'), value: <span data-testid="drop-season-name">{season.name}</span> },
               { label: t('seasonWindow'), value: t('seasonWindowValue', { start: when(season.startsAt), end: when(season.endsAt) }) },
               { label: t('seasonState'), value: t(season.state) },
-              {
-                label: t('points'),
-                value: <span data-testid="drop-season-points">{season.points}</span>,
-                note: t('pointsNote', { count: String(season.taskCampaigns) }),
-              },
+              season.pointsBlocker
+                ? {
+                    label: t('points'),
+                    value: (
+                      <span data-testid="drop-season-points" data-state="not_running" data-code={season.pointsBlocker}>
+                        {t('pointsNotRunning')} <code lang="zxx">{season.pointsBlocker}</code>
+                      </span>
+                    ),
+                    note: t('pointsBlocked'),
+                  }
+                : {
+                    label: t('points'),
+                    value: <span data-testid="drop-season-points">{season.points}</span>,
+                    note: t('pointsNote', { count: String(season.taskCampaigns) }),
+                  },
             ]}
           />
         )}
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -146,18 +165,18 @@ type Settle = (dropId: string, outcome: Outcome) => void;
 function Drops({ drops, outcomes, settle }: { drops: readonly DropView[]; outcomes: Readonly<Record<string, Outcome>>; settle: Settle }) {
   const { t } = dropRoomCopy.useCopy();
   return (
-    <Panel title={t('dropsTitle')}>
+    <Section title={t('dropsTitle')}>
       {drops.length === 0 ? (
-        <EmptyState title={t('dropsNone')} />
+        <EmptyNote title={t('dropsNone')} />
       ) : (
-        <DataTable label={t('dropsLabel')} headers={[t('dropName'), t('dropLeft'), t('dropState'), t('dropAction')]}>
+        <ScrollTable label={t('dropsLabel')} headers={[t('dropName'), t('dropValue'), t('dropLeft'), t('dropState'), t('dropAction')]}>
           {drops.map((drop) => (
             <DropRow key={drop.id} drop={drop} outcome={outcomes[drop.id] ?? null} settle={settle} />
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
-      <p className="muted">{t('entitlement')}</p>
-    </Panel>
+      <p className="lt-hint">{t('entitlement')}</p>
+    </Section>
   );
 }
 
@@ -167,14 +186,17 @@ function DropRow({ drop, outcome, settle }: { drop: DropView; outcome: Outcome |
   const [busy, setBusy] = useState(false);
   const claim = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'drops.claim', { dropId: drop.id }, dropClaimResultSchema);
+    const result = await api.call(CAMPAIGNS_DROPS_CLAIM, { dropId: drop.id });
     setBusy(false);
     settle(drop.id, result.ok ? { ok: true } : { ok: false, failure: result });
   };
   return (
     <tr data-testid="drop-row" data-drop-id={drop.id}>
       <th scope="row">{drop.title}</th>
-      <td className="numeric" data-testid="drop-left">
+      <td data-align="end" data-testid="drop-value">
+        {drop.value ? t('valueAmount', { amount: drop.value.amount, asset: drop.value.asset }) : t('valueNone')}
+      </td>
+      <td data-align="end" data-testid="drop-left">
         {t('dropLeftValue', { remaining: String(drop.remaining), count: String(drop.count) })}
       </td>
       <td data-testid="drop-state">{t(drop.state)}</td>
@@ -182,9 +204,10 @@ function DropRow({ drop, outcome, settle }: { drop: DropView; outcome: Outcome |
         {drop.mine ? (
           <span data-testid="drop-claimed">
             {t('claimed')} · {when(drop.mine.claimedAt)}
+            {drop.mine.reward ? <RewardLine reward={drop.mine.reward} /> : null}
           </span>
         ) : (
-          <Button onClick={() => void claim()} disabled={busy} aria-label={t('claim', { title: drop.title })}>
+          <Button tone="primary" onClick={() => void claim()} disabled={busy} aria-label={t('claim', { title: drop.title })}>
             {busy ? t('claiming') : t('dropAction')}
           </Button>
         )}
@@ -193,6 +216,27 @@ function DropRow({ drop, outcome, settle }: { drop: DropView; outcome: Outcome |
         ) : null}
       </td>
     </tr>
+  );
+}
+
+/** States in which a claimed drop's reward will not be paid. */
+const NOT_PAID: readonly DropReward['state'][] = ['failed', 'forfeited', 'withheld', 'cancelled'];
+
+/** A claimed drop's reward: owed until its payment is booked, then the wallet and the chain transaction that paid it. */
+function RewardLine({ reward }: { reward: DropReward }) {
+  const { t } = dropRoomCopy.useCopy();
+  const amount = { amount: reward.amount, asset: reward.asset };
+  return (
+    <span data-testid="drop-reward" data-state={reward.state} data-tx={reward.chainTx ?? undefined} data-pay-to={reward.payTo ?? undefined}>
+      {' · '}
+      {reward.chainTx && reward.payTo
+        ? t('rewardPaid', { ...amount, wallet: reward.payTo })
+        : NOT_PAID.includes(reward.state)
+          ? t('rewardNotPaid', { state: reward.state })
+          : reward.payTo
+            ? t('rewardOwed', amount)
+            : t('rewardNoWallet', amount)}
+    </span>
   );
 }
 
@@ -207,10 +251,10 @@ function stillTrue(code: string | undefined, drop: DropView): boolean {
 function Tge({ tge }: { tge: TgeView }) {
   const { t } = dropRoomCopy.useCopy();
   return (
-    <Panel title={t('tgeTitle')}>
+    <Section title={t('tgeTitle')}>
       <div data-testid="drop-tge">
-        <StatRow
-          items={[
+        <KeyValue
+          rows={[
             {
               label: t('tgeSchedule'),
               value: <span data-testid="tge-schedule">{tge.schedule ? when(tge.schedule.claimOpensAt) : t('tgeScheduleUnset')}</span>,
@@ -220,9 +264,9 @@ function Tge({ tge }: { tge: TgeView }) {
         {tge.networks.map((n) => (
           <TgeClaim key={n.network} network={n.network} label={n.network === 'testnet' ? t('testnetLabel') : t('mainnetLabel')} />
         ))}
-        <p className="muted">{t('tgeStanding')}</p>
+        <p className="lt-hint">{t('tgeStanding')}</p>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -233,16 +277,16 @@ function TgeClaim({ network, label }: { network: TgeNetwork; label: string }) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const claim = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'tge.claim', { network }, z.never());
+    const result = await api.call(CAMPAIGNS_TGE_CLAIM, { network });
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
   };
   return (
-    <div className="depth-disabled" data-testid={`tge-${network}`}>
-      <span className="badge" data-testid={`tge-${network}-label`}>
+    <div data-testid={`tge-${network}`}>
+      <Tag tone="neutral" data-testid={`tge-${network}-label`}>
         {label}
-      </span>
-      <Button variant="secondary" onClick={() => void claim()} disabled={busy}>
+      </Tag>
+      <Button tone="secondary" onClick={() => void claim()} disabled={busy}>
         {t('tgeClaim', { network: label })}
       </Button>
       {outcome && !outcome.ok ? <Refusal failure={outcome.failure} testId={`tge-${network}-refusal`} /> : null}
@@ -253,9 +297,9 @@ function TgeClaim({ network, label }: { network: TgeNetwork; label: string }) {
 function Refusal({ failure, testId }: { failure: Extract<ApiResult<unknown>, { ok: false }>; testId: string }) {
   const { t } = dropRoomCopy.useCopy();
   const code = roomCode(failure.code);
-  if (!code) return <Failure result={failure} />;
+  if (!code) return <FailureNote result={failure} />;
   return (
-    <p role="status" className="muted" data-testid={testId} data-code={code}>
+    <p role="status" className="lt-hint" data-testid={testId} data-code={code}>
       {t(code)}
     </p>
   );

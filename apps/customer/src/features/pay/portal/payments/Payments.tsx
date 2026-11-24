@@ -124,7 +124,7 @@ export function PaymentsView({
       cell: (p) => (
         <>
           <strong>{paymentLabel(p)}</strong>
-          {p.customerRef && p.description && <small className="pay-cell-note">{p.description}</small>}
+          {p.customerRef && p.description && <small className="lt-hint">{p.description}</small>}
         </>
       ),
     },
@@ -133,7 +133,7 @@ export function PaymentsView({
     method: { header: t('pay_colMethod'), cell: (p) => plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_')) },
     created: { header: t('colCreated'), cell: (p) => <DateTime value={p.createdAt} /> },
     customerEmail: { header: t('pay_colEmail'), cell: (p) => <PayerEmailCell portal={portal} payment={p} /> },
-    railRef: { header: t('railReference'), cell: (p) => p.railRef ?? <span className="muted">{t('notGiven')}</span> },
+    railRef: { header: t('railReference'), cell: (p) => p.railRef ?? <span className="lt-muted">{t('notGiven')}</span> },
   };
   return (
     <div className="stack">
@@ -189,7 +189,7 @@ export function PaymentsView({
                 status: <StatusChip entity="payment" value={p.status} />,
               })}
             />
-            <div className="pp-actions">
+            <div className="lt-actions">
               {list.hasMore && (
                 <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
                   {list.more === 'loading' ? t('pay_loadingMore') : t('pay_loadMore')}
@@ -246,7 +246,7 @@ function Totals({
   const refundsHref = `/pay/refunds?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString()}`;
   const list = (extra: Record<string, string>) => `/pay/payments?${new URLSearchParams({ ...extra, date: period }).toString()}`;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <KpiStrip
         label={t('pay_totalsLabel', { period: label })}
         tiles={[
@@ -366,7 +366,7 @@ export function PaymentDetailView({
 }) {
   const { t } = c.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Gate resource={payment} retry={retry} rows={5}>
         {(p) => {
           const events = history.status === 'ready' ? history.data : [];
@@ -424,7 +424,7 @@ export function PaymentDetailView({
                                   <>
                                     <Money value={formatAmount(parseAmount(fee.net) - parseAmount(p.refundedAmount))} asset={fee.assetId} />
                                     {parseAmount(fee.net) - parseAmount(p.refundedAmount) < 0n && (
-                                      <small className="pay-cell-note">{t('pay_netNegativeWhy')}</small>
+                                      <small className="lt-hint">{t('pay_netNegativeWhy')}</small>
                                     )}
                                   </>,
                                 ],
@@ -477,7 +477,7 @@ export function PaymentDetailView({
                     [
                       t('payerReference'),
                       customerRef ? (
-                        <a className="text-link" href={`/pay/customers/${encodeURIComponent(customerRef)}`}>
+                        <a className="lt-link" href={`/pay/customers/${encodeURIComponent(customerRef)}`}>
                           {customerRef}
                         </a>
                       ) : (
@@ -555,7 +555,7 @@ function RefundsList({
         status: t(`pay_refund_${r.status}`),
         at: r.createdAt,
       }));
-  if (rows.length === 0) return <p className="muted">{t('refundsEmptyBody')}</p>;
+  if (rows.length === 0) return <p className="lt-muted">{t('refundsEmptyBody')}</p>;
   return (
     <ul className="pp-links">
       {rows.map((r) => (
@@ -564,7 +564,7 @@ function RefundsList({
           {r.href && (
             <>
               {' '}
-              <a className="text-link" href={r.href}>
+              <a className="lt-link" href={r.href}>
                 {shortId(r.key)}
               </a>
             </>
@@ -582,7 +582,7 @@ function ActivityList({ activity }: { activity: Loaded<ActivityItem[]> }) {
     if (activity.status === 'failed') return <PortalFailure result={activity.failure} />;
     return null;
   }
-  if (activity.length === 0) return <p className="muted">{t('pay_activityEmpty')}</p>;
+  if (activity.length === 0) return <p className="lt-muted">{t('pay_activityEmpty')}</p>;
   return (
     <Timeline
       label={t('pay_activity')}
@@ -598,7 +598,7 @@ function ActivityList({ activity }: { activity: Loaded<ActivityItem[]> }) {
 function PaymentTimeline({ events, currency }: { events: PaymentEvent[]; currency: string }) {
   const { t } = c.useCopy();
   const steps = paymentSteps(events);
-  if (steps.length === 0) return <p className="muted">{t('timelineEmpty')}</p>;
+  if (steps.length === 0) return <p className="lt-muted">{t('timelineEmpty')}</p>;
   return (
     <Timeline
       label={t('timelineTitle')}
@@ -613,11 +613,11 @@ function PaymentTimeline({ events, currency }: { events: PaymentEvent[]; currenc
 
 function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDetail | null> | null; status: string; retry: () => void }) {
   const { t } = c.useCopy();
-  if (dispute === null) return <p className="muted">{status === 'disputed' ? t('disputeCardMissing') : t('disputeCardNone')}</p>;
+  if (dispute === null) return <p className="lt-muted">{status === 'disputed' ? t('disputeCardMissing') : t('disputeCardNone')}</p>;
   if (dispute.status === 'loading') return <PortalLoading rows={2} />;
   if (dispute.status === 'failed') return <PortalFailure result={dispute.failure} retry={retry} />;
   const d = dispute.data;
-  if (!d) return <p className="muted">{t('disputeCardNone')}</p>;
+  if (!d) return <p className="lt-muted">{t('disputeCardNone')}</p>;
   return (
     <>
       <Facts
@@ -628,7 +628,7 @@ function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDeta
           [t('colDue'), d.responseDueAt ? <DateTime value={d.responseDueAt} /> : <NotConfigured>{t('noDeadline')}</NotConfigured>],
         ]}
       />
-      <a className="text-link" href={`/pay/disputes/${encodeURIComponent(d.disputeId)}`}>
+      <a className="lt-link" href={`/pay/disputes/${encodeURIComponent(d.disputeId)}`}>
         {t('openDisputeLink')}
       </a>
     </>

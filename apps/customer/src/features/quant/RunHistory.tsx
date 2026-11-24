@@ -1,25 +1,22 @@
 import {
   QUANT_RUN_LABEL_MAX,
-  quantBacktestHistorySchema,
-  quantBacktestResultSchema,
   type QuantBacktestHistoryRow,
   type QuantBacktestMetrics,
   type QuantBacktestResult,
   type QuantMetric,
 } from '@intafaced/contracts/quant-algo';
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
+import { QUANT_BACKTEST_HISTORY, QUANT_BACKTEST_RENAME, QUANT_BACKTEST_RESULT } from '@intafaced/contracts/quant-backtest-procedures';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
-import { Read } from '../more/common';
-import { useApi } from '../session/session';
+import { Read } from '../more';
+import { useApi } from '../session';
 import './algo.css';
 import { backtestCopy } from './backtest-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const HISTORY_PAGE = 20;
-const renamed = z.object({ runId: z.string(), label: z.string() });
 
 /** The figures a comparison shows, in a fixed order. Runs are never sorted by return. */
 type Figure = keyof QuantBacktestMetrics['returns'] | keyof QuantBacktestMetrics['risk'] | keyof QuantBacktestMetrics['trades'];
@@ -47,7 +44,7 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
   const { t } = backtestCopy.useCopy();
   const [cursor, setCursor] = useState<string | null>(null);
   const list = useResource(
-    (signal) => api.query('quant', 'backtest.history', { limit: HISTORY_PAGE, cursor }, quantBacktestHistorySchema, { signal }),
+    (signal) => api.call(QUANT_BACKTEST_HISTORY, { limit: HISTORY_PAGE, cursor }, { signal }),
     `quant-backtest-history:${refresh}:${cursor ?? ''}`,
   );
   const [editing, setEditing] = useState<{ runId: string; label: string } | null>(null);
@@ -60,7 +57,7 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
 
   async function open(runId: string) {
     setOpenFailure(null);
-    const res = await api.query('quant', 'backtest.result', { runId }, quantBacktestResultSchema);
+    const res = await api.call(QUANT_BACKTEST_RESULT, { runId });
     if (res.ok) onOpen(res.data);
     else setOpenFailure(res);
   }
@@ -68,7 +65,7 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
   async function rename() {
     if (!editing) return;
     setRenameFailure(null);
-    const res = await api.mutate('quant', 'backtest.rename', editing, renamed);
+    const res = await api.call(QUANT_BACKTEST_RENAME, editing);
     if (!res.ok) {
       setRenameFailure(res);
       return;
@@ -87,7 +84,7 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
   return (
     <Panel title={t('historyTitle')}>
       <div data-testid="quant-run-history">
-        <p className="muted">{t('historyIntro')}</p>
+        <p className="lt-muted">{t('historyIntro')}</p>
         <Read resource={list.resource} retry={list.reload}>
           {(data) => {
             if (!data.runs.length) return <EmptyState title={t('historyNone')}>{t('historyNoneBody')}</EmptyState>;
@@ -127,7 +124,7 @@ export function RunHistory({ refresh, onOpen }: { refresh: string; onOpen: (resu
                 )}
                 {renameFailure && <Failure result={renameFailure} retry={() => void rename()} />}
                 {openFailure && <Failure result={openFailure} />}
-                {ordered.length === 2 ? <Compare runs={ordered} /> : <p className="muted">{t('compareHint')}</p>}
+                {ordered.length === 2 ? <Compare runs={ordered} /> : <p className="lt-muted">{t('compareHint')}</p>}
               </>
             );
           }}
@@ -214,9 +211,7 @@ function Compare({ runs }: { runs: readonly QuantBacktestHistoryRow[] }) {
   const { t } = backtestCopy.useCopy();
   const [first, second] = runs as [QuantBacktestHistoryRow, QuantBacktestHistoryRow];
   const read = useResource(async (signal) => {
-    const [a, b] = await Promise.all(
-      [first, second].map((row) => api.query('quant', 'backtest.result', { runId: row.runId }, quantBacktestResultSchema, { signal })),
-    );
+    const [a, b] = await Promise.all([first, second].map((row) => api.call(QUANT_BACKTEST_RESULT, { runId: row.runId }, { signal })));
     if (!a!.ok) return a!;
     if (!b!.ok) return b!;
     return { ok: true as const, data: [a!.data, b!.data] as const };
@@ -226,7 +221,7 @@ function Compare({ runs }: { runs: readonly QuantBacktestHistoryRow[] }) {
   return (
     <section aria-label={t('compareTitle')} data-testid="quant-run-compare">
       <h4>{t('compareTitle')}</h4>
-      <p className="muted">{t('compareIntro')}</p>
+      <p className="lt-muted">{t('compareIntro')}</p>
       {read.resource.status === 'loading' && <Loading />}
       {read.resource.status === 'failed' && <Failure result={read.resource.failure} retry={read.reload} />}
       {read.resource.status === 'ready' && (

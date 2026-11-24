@@ -15,6 +15,7 @@ const entry = (over: Record<string, unknown> = {}) => ({
   score: 10,
   ageMs: 3 * 3_600_000,
   createdAt: '2026-10-17T00:00:00.000Z',
+  responseDue: null as { dueAt: string; targetMinutes: number } | null,
   ...over,
 });
 const queue = (entries = [entry()], limit = 100): SupportQueueView => ({
@@ -138,6 +139,19 @@ describe('the queue', () => {
   });
   it('a full page is flagged as not totals', () => {
     expect(render({ queue: queue([entry()], 1) })).toContain('there may be more');
+  });
+  it('shows no due time until a row carries one from an active response target, then that due time', () => {
+    expect(render()).not.toContain('<th>Due</th>');
+    const T2 = '66666666-6666-4666-8666-666666666666';
+    const html = render({
+      queue: queue([
+        entry({ responseDue: { dueAt: '2026-10-17T00:30:00.000Z', targetMinutes: 30 } }),
+        entry({ ticketId: T2, subject: 'older' }),
+      ]),
+    });
+    expect(html).toContain('<th>Due</th>');
+    expect(html).toContain('17 Oct 2026, 00:30:00 UTC (first reply within 30 min)');
+    expect(html).toContain('No target');
   });
   it('an empty queue is reported only because the service said empty', () => {
     expect(render({ queue: queue([]) })).toContain('svc-support says the queue is empty');

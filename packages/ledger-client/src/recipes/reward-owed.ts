@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Amount } from '../money.js';
 import { formatAmount } from '../money.js';
 import type { AccountRef, EntryInput, PostRequest } from '../types.js';
@@ -126,6 +127,16 @@ function requireKey(key: string): string {
   return key;
 }
 
+/**
+ * A post key named by a reward: the whole reward id when it fits, so every key already posted stays; else `h-` and
+ * the SHA-256 of the whole id, still one per reward and the same on every retry. A reward id `rewardOwe` accepts can be up to
+ * 4 characters too long for `campaigns:reclaim:`.
+ */
+function rewardKey(prefix: string, rewardId: string): string {
+  const whole = `${prefix}${rewardId}`;
+  return whole.length <= KEY_MAX ? whole : `${prefix}h-${createHash('sha256').update(rewardId).digest('hex')}`;
+}
+
 function requireRunningTotal(name: string, value: unknown): Amount {
   if (typeof value !== 'bigint' || value < 0n) throw new InvalidEntryError(`${name} must be what is owed so far, zero or more`);
   return value;
@@ -244,12 +255,48 @@ export function rewardPayOut(input: RewardPayOutInput): PostRequest {
   requirePositive('reward payment amount', input.amount);
   const place = ownFundsPlaceAccount(input.from, assetId);
   return {
-    idempotencyKey: requireKey(`campaigns:reward-paid:${input.rewardId}:${chainTx}`),
+    // Keyed by the chain transaction alone (the money model's "keyed by the chain transaction"): one transfer books one
+    // payment, so the same transaction can never be booked against a second reward (the ledger refuses the same key with
+    // another body). The reward is in the entries and the meta. A reward id with the transaction would pass the key's
+    // 200 characters for a campaign task reward (`campaign:<uuid>:task-<uuid>-<uuid>-once`).
+    idempotencyKey: requireKey(`campaigns:reward-paid:${chainTx}`),
     module: MODULE,
     reason: 'campaigns.reward.paid_out',
     meta: { rewardId: input.rewardId, from: place.ownerId, toWallet: input.toWallet, chainTx },
     // What we owe comes down; the paying place's balance comes back toward zero (less of ours there). Both are refused
     // by the ledger if they would show less than nothing.
     entries: [credit(owed, input.amount), debit(place, input.amount)],
+  };
+}
+
+export interface RewardReclaimInput {
+  readonly campaignId: string;
+  /** The owed reward's decision record key, as it was owed. */
+  readonly rewardId: string;
+  /** The risk case's decision to cancel it (no spaces or colons). */
+  readonly caseId: string;
+  readonly assetId: string;
+  /** What is still owed for this reward, never more: the owed pot is a `module` account and cannot go below zero. */
+  readonly amount: Amount;
+}
+
+/**
+ * Cancel a reward we owe and have not paid (J-campaigns-18 #4, a risk decision): `campaigns:owed:<rewardId>` → the rewards
+ * engine, where its budget came from, under `campaigns:reclaim:<rewardId>` (hashed when too long), so one reward is reclaimed once. Our own
+ * accounts only: nothing is taken from a customer, and a reward already paid to the customer's own wallet is never pulled
+ * back (there is no recipe for it). More than is still owed is refused by the ledger (`ledger.insufficient_funds`).
+ */
+export function rewardReclaim(input: RewardReclaimInput): PostRequest {
+  const campaignId = requireCampaignId(input.campaignId);
+  const rewardId = requireRewardId(input.rewardId, campaignId);
+  const caseId = requireReference('caseId', input.caseId);
+  const assetId = requireUsdc(input.assetId);
+  requirePositive('reward reclaim amount', input.amount);
+  return {
+    idempotencyKey: rewardKey('campaigns:reclaim:', rewardId),
+    module: MODULE,
+    reason: 'campaigns.reward.reclaimed',
+    meta: { campaignId, rewardId, caseId },
+    entries: [credit(rewardOwedAccount(rewardId), input.amount), debit(rewardsEngine(assetId), input.amount)],
   };
 }

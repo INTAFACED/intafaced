@@ -33,7 +33,7 @@ import {
   type CampaignDeskReply,
   type CampaignDetailView,
 } from '@/lib/campaigns-ops/builder-model';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { PartFailed, StateChip } from '@/components/campaigns-desk';
 import { RuleBuilder } from '@/components/campaigns-rule-builder';
 import { EarningRules } from '@/components/campaigns-earning-rules';
@@ -64,6 +64,7 @@ const TYPE_LABEL: Record<(typeof CAMPAIGN_TYPES)[number], string> = {
   gift_card: 'Gift card',
   points: 'Points programme',
   welcome: 'Welcome checklist',
+  drop: 'Limited drop',
 };
 
 const EXCLUSIONS: { value: ParticipationRules['exclusions'][number]; label: string }[] = [
@@ -691,6 +692,7 @@ export function CampaignBuilder({
           )}
           {step === 'earning' && campaign && (
             <EarningRules
+              campaignId={campaign.id}
               rules={editedView(campaign).earning}
               asset={editedView(campaign).reward?.asset ?? editedView(campaign).budget?.asset ?? null}
               disabled={!editable}

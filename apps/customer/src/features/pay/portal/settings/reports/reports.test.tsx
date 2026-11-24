@@ -27,7 +27,7 @@ import {
 import { exportKinds, type ExportJob } from './schemas';
 
 // TEST DATA only.
-const api = {} as unknown as SettingsBApi;
+const api = {} as SettingsBApi;
 const job = (patch: Partial<ExportJob> = {}): ExportJob => ({
   jobId: 'f1000000-0000-4000-8000-000000000001',
   kind: 'payments',

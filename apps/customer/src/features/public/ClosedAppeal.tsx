@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
-import { appealSchema } from '@intafaced/contracts/identity-appeals';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button } from '../../shared/ui';
 import { publicAuthCopy } from './public-auth-copy';
+import { IDENTITY_ACCOUNT_APPEAL_SUBMIT_SIGNED_OUT } from '@intafaced/contracts/identity-account-appeal-procedures';
 
 type Proof = { identifier: string; password: string };
 
@@ -25,12 +25,11 @@ export function ClosedAppeal({ take }: { take: () => Proof | null }) {
     const proof = take();
     if (!proof) return setAnswer('failed');
     setAnswer('sending');
-    const sent = await api.mutate(
-      'identity',
-      'accountAppeal.submitSignedOut',
-      { ...proof, text: t('appealClosedText'), clientRequestId: requestKey.current },
-      appealSchema,
-    );
+    const sent = await api.call(IDENTITY_ACCOUNT_APPEAL_SUBMIT_SIGNED_OUT, {
+      ...proof,
+      text: t('appealClosedText'),
+      clientRequestId: requestKey.current,
+    });
     setAnswer(sent.ok ? 'sent' : sent.code === 'identity.appeal_not_allowed' ? 'not_allowed' : 'failed');
   }
 

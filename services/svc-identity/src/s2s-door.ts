@@ -1,12 +1,8 @@
 import type { FastifyRequest } from 'fastify';
-import {
-  rawBodyOf,
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceBodyBindMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceBodyBindMode, ServiceVerifier } from '@intafaced/contracts';
+import { rawBodyOf } from '@intafaced/contracts/raw-body';
+import { verifyServiceHeaders } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 /** Per-service keys (S2S v3) for an inbound door. Absent: the door keeps the shared secret alone. */
 export interface IdentityS2s {

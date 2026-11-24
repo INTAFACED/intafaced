@@ -1,4 +1,4 @@
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
 import { DualControlError } from '../dual-control.js';
 import { guardRefusalToTrpc, PayGuardRefusal } from '../seams/guards.js';

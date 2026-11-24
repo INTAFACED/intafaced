@@ -1,0 +1,36 @@
+{
+  "headers": [
+    [
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["vary", "origin"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"]
+    ],
+    [
+      ["access-control-allow-credentials", "true"],
+      ["access-control-allow-origin", "https://app.example.test"],
+      [
+        "access-control-expose-headers",
+        "x-request-id, x-server-received, x-server-sent, intafaced-version, intafaced-version-source, intafaced-advisories, deprecation, link"
+      ],
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["vary", "origin"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"]
+    ]
+  ],
+  "bodies": [
+    "{\"ready\":true,\"routes\":[\"/api/identity\",\"/api/trade\",\"/api/v1\",\"/api/v1/stream/token\",\"/api/token\",\"/api/agents\",\"/api/bank\",\"/api/p2p\",\"/api/pay\",\"/api/blueprint\",\"/api/protocol\",\"/api/dex\",\"/api/indexer\",\"/api/notify\",\"/api/academy\",\"/api/mining\",\"/api/support\",\"/api/market\",\"/api/execution\",\"/api/tax\",\"/api/quant\",\"/api/campaigns\",\"/api/ops\"],\"upstreamConfiguration\":{\"configured\":[\"/api/identity\",\"/api/trade\",\"/api/v1\",\"/api/v1/stream/token\",\"/api/token\",\"/api/agents\",\"/api/bank\",\"/api/p2p\",\"/api/pay\",\"/api/blueprint\",\"/api/protocol\",\"/api/dex\",\"/api/indexer\",\"/api/notify\",\"/api/academy\",\"/api/mining\",\"/api/support\",\"/api/market\",\"/api/execution\",\"/api/tax\",\"/api/quant\",\"/api/campaigns\",\"/api/ops\"],\"absent\":[],\"probe\":\"unprobed\",\"code\":\"edge.upstream_unprobed\"},\"screening\":{\"configured\":true,\"declaration\":\"listed\",\"blockedRegions\":1},\"cors\":{\"configured\":true,\"allowedOrigins\":1},\"rateLimit\":{\"enabled\":true,\"max\":1000000,\"windowMs\":60000,\"trustProxy\":false,\"multiReplicaShared\":false,\"note\":\"Per-replica in-process counters; EDGE_TRUST_PROXY unset — behind a balancer every caller may share ONE bucket.\"},\"bodyLimitBytes\":1048576}"
+  ],
+  "answers": {
+    "GET /ready": {
+      "absent anon": [200, 0, 0],
+      "absent bad-token": [200, 0, 0],
+      "absent api-key": [200, 0, 0],
+      "absent no-scope": [200, 0, 0],
+      "absent all": [200, 1, 0]
+    }
+  }
+}

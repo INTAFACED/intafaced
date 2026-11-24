@@ -6,6 +6,9 @@
 import { add, dec, str } from '../../data/decimal';
 import type { Decimal } from '../../data';
 import type { LockSplit } from './portfolio-source';
+import type { moneyCopy } from './copy';
+
+type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
 export type SetAsideWhat =
   | { kind: 'order'; id: string }
@@ -58,4 +61,34 @@ export function setAsideSum(split: LockSplit, total: Decimal): { setAside: Decim
   if (available === null || whole === null || claims.some((amount) => amount === null)) return null;
   const setAside = claims.reduce<bigint>((sum, amount) => add(sum, amount!), 0n);
   return { setAside: str(setAside), adds: add(available, setAside) === whole };
+}
+
+/**
+ * One claim in plain words: an order or a withdrawal by its short id, anything else by what kind of lock it is. The
+ * bank's own purpose is an internal reference, so it goes in the title, not in the words.
+ */
+export function setAsideLabel(what: SetAsideWhat, copy: Copy): string {
+  switch (what.kind) {
+    case 'order':
+      return copy.t('Set aside order', { id: shortId(what.id) });
+    case 'withdrawal':
+      return copy.t('Set aside withdrawal', { id: shortId(what.id) });
+    case 'hold':
+      return copy.t('Set aside hold');
+    case 'escrow':
+      return copy.t('Set aside escrow');
+    case 'stake':
+      return copy.t('Set aside stake');
+    case 'collateral':
+      return copy.t('Set aside collateral');
+    case 'other':
+      return copy.t('Set aside other');
+  }
+}
+
+/** The full reference behind a line, for its title: an order's or withdrawal's whole id, or the bank's purpose. */
+export function setAsideRef(what: SetAsideWhat): string | undefined {
+  if (what.kind === 'order' || what.kind === 'withdrawal') return what.id;
+  const ref = what.kind === 'other' ? `${what.lock} ${what.purpose}`.trim() : what.purpose;
+  return ref === '' ? undefined : ref;
 }

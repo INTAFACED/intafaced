@@ -1,4 +1,10 @@
 import type { StaffMemberView } from './staff';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type {
+  SUPPORT_DESK_GROUPS_LOG,
+  SUPPORT_DESK_ROUTING_SET_MODE,
+  SUPPORT_DESK_TICKET_SET_SKILL,
+} from '@intafaced/contracts/support-desk-procedures';
 
 /**
  * Who gets which request (SP-routing-01), and the logs the agent directory and the group settings read (SP-agents-01,
@@ -13,6 +19,9 @@ import type { StaffMemberView } from './staff';
 export const ROUTING_MODES = ['off', 'round_robin', 'load_balanced'] as const;
 export type RoutingMode = (typeof ROUTING_MODES)[number];
 export const NO_AGENT_AVAILABLE = 'support.no_agent_available' as const;
+type SupportGroupLog = ProcedureOutput<typeof SUPPORT_DESK_GROUPS_LOG>;
+type SupportRoutingSetModeReply = ProcedureOutput<typeof SUPPORT_DESK_ROUTING_SET_MODE>;
+type SupportRequiredSkillReply = ProcedureOutput<typeof SUPPORT_DESK_TICKET_SET_SKILL>;
 /** The same rule svc-support binds an agent's skills and a request's need with. */
 export const SKILL_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 export const SKILLS_MAX = 20;
@@ -90,92 +99,17 @@ export interface GroupLogRow {
   readonly at: string;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
-const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
-const isTime = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
-const nullableText = (v: unknown): v is string | null => v === null || isText(v);
-const nullableTime = (v: unknown): v is string | null => v === null || isTime(v);
 const isMode = (v: unknown): v is RoutingMode => typeof v === 'string' && (ROUTING_MODES as readonly string[]).includes(v);
-const isCapacity = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v) && v >= 0);
-const isSkills = (v: unknown): v is string[] => Array.isArray(v) && v.every(isText);
-
-/** Every row must read, or the whole answer is null: never a shorter list. */
-function every<T>(raw: unknown, read: (row: unknown) => T | null): T[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out: T[] = [];
-  for (const row of raw) {
-    const r = read(row);
-    if (!r) return null;
-    out.push(r);
-  }
-  return out;
-}
-
-export function readStaffRouting(raw: unknown): StaffRoutingRow | null {
-  if (!isRecord(raw)) return null;
-  const { userId, capacity, skills } = raw;
-  if (!isText(userId) || !isCapacity(capacity) || !isSkills(skills)) return null;
-  return { userId, capacity, skills: [...skills] };
-}
-
-function readGroupRoutingRow(raw: unknown): GroupRoutingRow | null {
-  if (!isRecord(raw)) return null;
-  const { groupId, name, mode, cursorUserId, setBy, setAt } = raw;
-  if (!isText(groupId) || !isText(name) || !(mode === null || isMode(mode))) return null;
-  if (!nullableText(cursorUserId) || !nullableText(setBy) || !nullableTime(setAt)) return null;
-  return { groupId, name, mode, cursorUserId, setBy, setAt };
-}
-
-/** `routingOverview`. */
-export function readRoutingOverview(raw: unknown): RoutingOverview | null {
-  if (!isRecord(raw)) return null;
-  const groups = every(raw.groups, readGroupRoutingRow);
-  const staff = every(raw.staff, readStaffRouting);
-  const { sweepSeconds } = raw;
-  if (!groups || !staff) return null;
-  if (sweepSeconds !== null && !(typeof sweepSeconds === 'number' && Number.isInteger(sweepSeconds) && sweepSeconds > 0)) return null;
-  return { groups, staff, sweepSeconds };
-}
-
-/** `ticketRouting`. The code is present exactly when no agent could take the request. */
-export function readTicketRouting(raw: unknown): TicketRoutingView | null {
-  if (!isRecord(raw)) return null;
-  const { ticketId, requiredSkill, state, code, stateAt } = raw;
-  if (!isText(ticketId) || !nullableText(requiredSkill) || !nullableTime(stateAt)) return null;
-  if (state !== null && state !== 'assigned' && state !== 'no_agent') return null;
-  if (code !== null && code !== NO_AGENT_AVAILABLE) return null;
-  if ((state === 'no_agent') !== (code === NO_AGENT_AVAILABLE)) return null;
-  return { ticketId, requiredSkill, state, code, stateAt };
-}
-
-/** `routingWaiting`. */
-export function readRoutingWaiting(raw: unknown): WaitingRow[] | null {
-  return every(raw, (row) => {
-    if (!isRecord(row) || !isText(row.ticketId) || row.code !== NO_AGENT_AVAILABLE || !nullableTime(row.since)) return null;
-    return { ticketId: row.ticketId, code: NO_AGENT_AVAILABLE, since: row.since };
-  });
-}
-
-/** `staffAvailabilityLog`, oldest first as svc-support keeps it. */
-export function readAvailabilityLog(raw: unknown): AvailabilityLogRow[] | null {
-  return every(raw, (row) => {
-    if (!isRecord(row)) return null;
-    const { userId, availability, by, reason, at } = row;
-    if (!isText(userId) || !isText(by) || !isTime(at) || !nullableText(reason)) return null;
-    if (availability !== 'online' && availability !== 'busy' && availability !== 'offline') return null;
-    return { userId, availability, by, reason, at };
-  });
-}
+const isGroupLogAction = (v: string): v is GroupLogAction => (GROUP_LOG_ACTIONS as readonly string[]).includes(v);
 
 /** `groupsLog`, oldest first. An action this console has no words for is not guessed at: the whole log is unread. */
-export function readGroupLog(raw: unknown): GroupLogRow[] | null {
-  return every(raw, (row) => {
-    if (!isRecord(row)) return null;
-    const { groupId, action, subject, by, at } = row;
-    if (!isText(groupId) || !isText(by) || !isTime(at) || !nullableText(subject)) return null;
-    if (typeof action !== 'string' || !(GROUP_LOG_ACTIONS as readonly string[]).includes(action)) return null;
-    return { groupId, action: action as GroupLogAction, subject, by, at };
-  });
+export function groupLogRows(rows: SupportGroupLog): GroupLogRow[] | null {
+  const out: GroupLogRow[] = [];
+  for (const row of rows) {
+    if (!isGroupLogAction(row.action)) return null;
+    out.push({ ...row, action: row.action });
+  }
+  return out;
 }
 
 export type RouteOutcome =
@@ -189,33 +123,15 @@ export type RouteOutcome =
   | { readonly status: 'queued'; readonly ticketId: string; readonly groupId: string; readonly code: typeof NO_AGENT_AVAILABLE }
   | { readonly status: 'skipped'; readonly ticketId: string; readonly reason: string };
 
-const SKIP_REASONS = ['not_found', 'not_queueable', 'already_assigned', 'ungrouped', 'routing_unset', 'routing_off'];
-
-function readOutcome(raw: unknown): RouteOutcome | null {
-  if (!isRecord(raw) || !isText(raw.ticketId)) return null;
-  if (raw.status === 'assigned' && isText(raw.assigneeId) && isText(raw.groupId) && isMode(raw.mode))
-    return { status: 'assigned', ticketId: raw.ticketId, assigneeId: raw.assigneeId, groupId: raw.groupId, mode: raw.mode };
-  if (raw.status === 'queued' && isText(raw.groupId) && raw.code === NO_AGENT_AVAILABLE)
-    return { status: 'queued', ticketId: raw.ticketId, groupId: raw.groupId, code: NO_AGENT_AVAILABLE };
-  if (raw.status === 'skipped' && typeof raw.reason === 'string' && SKIP_REASONS.includes(raw.reason))
-    return { status: 'skipped', ticketId: raw.ticketId, reason: raw.reason };
-  return null;
-}
-
 export interface SetModeResult {
   readonly routing: { readonly groupId: string; readonly mode: RoutingMode; readonly cursorUserId: string | null };
   readonly routed: readonly RouteOutcome[];
 }
 
-/** `routingSetMode`'s answer. */
-export function readSetModeResult(raw: unknown): SetModeResult | null {
-  if (!isRecord(raw) || !isRecord(raw.routing)) return null;
-  const { groupId, mode, cursorUserId, revision, setBy, setAt } = raw.routing;
-  if (!isText(groupId) || !isMode(mode) || !nullableText(cursorUserId) || !isText(setBy) || !isTime(setAt)) return null;
-  if (typeof revision !== 'number' || !Number.isInteger(revision)) return null;
-  const routed = every(raw.routed, readOutcome);
-  if (!routed) return null;
-  return { routing: { groupId, mode, cursorUserId }, routed };
+/** `routingSetMode`'s answer, as the desk shows it. */
+export function setModeResult(reply: SupportRoutingSetModeReply): SetModeResult {
+  const { groupId, mode, cursorUserId } = reply.routing;
+  return { routing: { groupId, mode, cursorUserId }, routed: reply.routed };
 }
 
 export interface RequiredSkillResult {
@@ -223,15 +139,9 @@ export interface RequiredSkillResult {
   readonly outcome: RouteOutcome;
 }
 
-/** `ticketSetRequiredSkill`'s answer. */
-export function readRequiredSkillResult(raw: unknown): RequiredSkillResult | null {
-  if (!isRecord(raw) || !isRecord(raw.routing)) return null;
-  const { ticketId, requiredSkill, state, stateAt } = raw.routing;
-  if (!isText(ticketId) || !nullableText(requiredSkill) || !nullableTime(stateAt)) return null;
-  if (state !== null && state !== 'assigned' && state !== 'no_agent') return null;
-  const outcome = readOutcome(raw.outcome);
-  if (!outcome) return null;
-  return { requiredSkill, outcome };
+/** `ticketSetRequiredSkill`'s answer, as the desk shows it. */
+export function requiredSkillResult(reply: SupportRequiredSkillReply): RequiredSkillResult {
+  return { requiredSkill: reply.routing.requiredSkill, outcome: reply.outcome };
 }
 
 /** What one routing pass did, in a sentence, from svc-support's answer. */

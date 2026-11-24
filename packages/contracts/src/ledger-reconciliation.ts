@@ -24,8 +24,32 @@ export const LEDGER_RECONCILE_ITEMS_NOW_ONLY = 'ledger.reconcile_items_now_only'
 /** The open items read before and after the ledger snapshot differ: one moved while the run read, so it is ERROR. Run it again. */
 export const LEDGER_RECONCILE_ITEMS_MOVED = 'ledger.reconcile_items_moved' as const;
 
+/**
+ * A venue's or partner's report for the instant a run asks about has not been published: its side reads "not reported",
+ * never a match, so the run is UNSET.
+ */
+export const LEDGER_RECONCILE_NOT_REPORTED = 'ledger.reconcile_not_reported' as const;
+
 /** A rail id as the ledger's boundary accounts carry it (`rail:<id>`), and as its statement env name is derived from. */
 export const reconciliationRailSchema = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
+
+/**
+ * The outside parties that report their side of INTAFACED's own obligations: the venue (builder fees it owes us, and our
+ * builder account there) and the partner (our reserve it holds, and the fees it owes us). Each reporter's address is an
+ * owner value (`LEDGER_RECONCILE_REPORT_<REPORTER>_URL`); a blank one leaves that side unset.
+ */
+export const RECONCILIATION_REPORTERS = ['venue', 'partner'] as const;
+export type ReconciliationReporter = (typeof RECONCILIATION_REPORTERS)[number];
+/** A venue's or partner's id, as our own-funds places name it (`venue-builder-fee:<id>`, `partner-reserve:<id>`). */
+export const reconciliationPlaceSchema = z.string().regex(/^[a-z0-9][a-z0-9:_-]{0,63}$/);
+/**
+ * The ledger's own records each reporter answers for: treasury accounts whose owner id is one of these prefixes followed by
+ * the place's id. Disjoint, so no account is compared with two reports.
+ */
+export const RECONCILIATION_REPORT_ACCOUNTS: Readonly<Record<ReconciliationReporter, readonly string[]>> = {
+  venue: ['venue-builder-fee:', 'venue-builder-account:'],
+  partner: ['partner-reserve:', 'partner-fee-receivable:'],
+};
 
 export const RECONCILIATION_TEMPLATES = ['ledger_invariant', 'outside_balance', 'threshold', 'source_parity'] as const;
 export const RECONCILIATION_SEVERITIES = ['info', 'warning', 'critical'] as const;
@@ -116,6 +140,11 @@ const queryAccountSetSchema = z
      * and a kind other than `available` (a boundary account is always `available`).
      */
     rail: reconciliationRailSchema.optional(),
+    /**
+     * INTAFACED's own records at one venue and one partner (`RECONCILIATION_REPORT_ACCOUNTS`), compared with each one's own
+     * report for the same instant. Excludes rail, ownerType and ownerIdPrefix, and a kind other than `available`.
+     */
+    reports: z.object({ venue: reconciliationPlaceSchema.optional(), partner: reconciliationPlaceSchema.optional() }).strict().optional(),
     kind: accountKindSchema.optional(),
     purpose: z.string().max(128).optional(),
     assetId: assetIdSchema.optional(),
@@ -128,7 +157,18 @@ const queryAccountSetSchema = z
     ) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_POLICY_UNSET, path: ['rail'] });
     }
+    if (
+      value.reports !== undefined &&
+      ((value.reports.venue === undefined && value.reports.partner === undefined) ||
+        value.rail !== undefined ||
+        value.ownerType !== undefined ||
+        value.ownerIdPrefix !== undefined ||
+        (value.kind !== undefined && value.kind !== 'available'))
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_POLICY_UNSET, path: ['reports'] });
+    }
     const predicated =
+      value.reports !== undefined ||
       value.rail !== undefined ||
       value.ownerType !== undefined ||
       value.ownerIdPrefix !== undefined ||
@@ -296,7 +336,7 @@ export const reconciliationAssetEvidenceSchema = z
     reconcilingItems: reconciliationSignedDecimalSchema.optional(),
     residual: reconciliationSignedDecimalSchema.optional(),
     /**
-     * The side that holds no record for this asset (OWNER 288, the honest reconcile): a break named "missing", never read
+     * The side that holds no record for this asset (the honest reconcile): a break named "missing", never read
      * as a zero. A row that names a missing side always fails its run.
      */
     missing: z.enum(['ledger', 'outside']).optional(),
@@ -321,6 +361,21 @@ export const reconciliationReconcilingItemSchema = z
   })
   .strict();
 export type ReconciliationReconcilingItem = z.infer<typeof reconciliationReconcilingItemSchema>;
+
+/**
+ * One reporter's side of a run over `reports`: its report's own as-of for the instant asked, `not_reported` when it had
+ * published none by then, or `unset` when its address is blank; and its accounts compared with its report alone, so two
+ * reporters' differences never cancel in the run's per-asset rows.
+ */
+export const reconciliationReportSideSchema = z
+  .object({
+    reporter: z.enum(RECONCILIATION_REPORTERS),
+    place: reconciliationPlaceSchema,
+    asOf: z.union([z.string().datetime({ offset: true }), z.literal('not_reported'), z.literal('unset')]),
+    assets: z.array(reconciliationAssetEvidenceSchema),
+  })
+  .strict();
+export type ReconciliationReportSide = z.infer<typeof reconciliationReportSideSchema>;
 
 export const reconciliationControlRunSchema = z
   .object({
@@ -352,6 +407,8 @@ export const reconciliationControlRunSchema = z
     assets: z.array(reconciliationAssetEvidenceSchema),
     /** A rail control whose rail has an open-items source: every item the run took out of the difference, by name. */
     reconcilingItems: z.array(reconciliationReconcilingItemSchema).max(RECONCILIATION_ITEMS_MAX).optional(),
+    /** A control over `reports`: each reporter's as-of and its own comparison, in `RECONCILIATION_REPORTERS` order. */
+    reports: z.array(reconciliationReportSideSchema).max(RECONCILIATION_REPORTERS.length).optional(),
   })
   .strict();
 export type ReconciliationControlRunView = z.infer<typeof reconciliationControlRunSchema>;
@@ -470,3 +527,36 @@ export const railStatementSchema = z
   })
   .strict();
 export type RailStatement = z.infer<typeof railStatementSchema>;
+
+/**
+ * A venue's or partner's report of INTAFACED's own records with it, for one instant (`GET <url>?reporter=&place=&asOf=`):
+ * the latest report it had published by then, with that report's own as-of, or `reported: false` when it had published
+ * none. Amounts are in the ledger's signed form for each account (`<prefix><place>`), never flipped by the reader.
+ */
+export const outsideReportSchema = z.union([
+  z
+    .object({
+      source: z.literal('report'),
+      reporter: z.enum(RECONCILIATION_REPORTERS),
+      place: reconciliationPlaceSchema,
+      asOf: z.string().datetime({ offset: true }),
+      balances: z.array(
+        z
+          .object({
+            assetId: assetIdSchema,
+            amount: reconciliationSignedDecimalSchema,
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
+  z
+    .object({
+      source: z.literal('report'),
+      reporter: z.enum(RECONCILIATION_REPORTERS),
+      place: reconciliationPlaceSchema,
+      reported: z.literal(false),
+    })
+    .strict(),
+]);
+export type OutsideReport = z.infer<typeof outsideReportSchema>;

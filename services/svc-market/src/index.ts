@@ -2,7 +2,9 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { SignalPublisher, createTrackRecordClient, providerCriteriaFromEnv } from './signals/signal-publisher.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
 import { VendorService } from './vendor-service.js';
@@ -98,7 +100,18 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 const reviews = new ReviewsService(sql);
-const appRouter = createMarketRouter(vendors, commerce, perpProposals, actionApprovals, reviews);
+// Signals (J-copy-bots-otc-22): the owner's provider criteria and the provider's own fills in svc-trade. Blank criteria
+// refuse every publish; a blank TRADE_URL refuses the vetting (market.provider_record_unavailable).
+// The same record is a listing's performance (J-more-catalogue-02 #2); blank TRADE_URL: unreported.
+const trackRecord = env.TRADE_URL ? createTrackRecordClient(env.TRADE_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
+const signals = new SignalPublisher({
+  sql,
+  commerce,
+  myVendor: (userId) => vendors.myVendor(userId),
+  criteria: providerCriteriaFromEnv(env),
+  trackRecord,
+});
+const appRouter = createMarketRouter(vendors, commerce, perpProposals, actionApprovals, reviews, signals, trackRecord);
 
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 

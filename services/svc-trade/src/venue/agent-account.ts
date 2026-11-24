@@ -3,6 +3,8 @@ import { AuthError, isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
   AgentCapError,
+  agentPermissionReach,
+  type AgentPermissionReach,
   assertAgentCapWithinCeiling,
   agentFundingRoom,
   assertAgentFundingWithinCap,
@@ -30,6 +32,8 @@ import {
   type AgentMoveRecord,
 } from './agent-account-store.js';
 import type { UserVenueDoor } from './user-venue-door.js';
+import type { AccountFreezeRead } from '../quant/live-run/ports.js';
+import { assertNotSelfFrozen } from './self-freeze.js';
 
 /**
  * THE AGENT ACCOUNT (J-agents-21 #1 #3 #4 #5 #13 #14; spec AG-outside-01, the venue form of OWNER 183 (1)).
@@ -95,9 +99,16 @@ export type AgentAccountCode =
   | 'agents.key_scope_not_trade'
   | 'agents.key_read_unavailable'
   | 'agents.key_already_connected'
+  | 'agents.key_expiry_above_venue_max'
+  | 'agents.venue_agent_expiry_max_unknown'
   | 'agents.key_not_connected'
+  // The connection's Activity (agent-order-calls.ts, #11): identity's call log of the key could not be read just now.
+  | 'agents.activity_read_unavailable'
   // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
   | 'agents.agent_revoked'
+  // The founder's desk over every outside connection (agent-desk.ts, #15).
+  | 'agents.desk_reason_required'
+  | 'agents.desk_request_invalid'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
   | 'agents.order_leverage_unknown'
@@ -108,7 +119,10 @@ export type AgentAccountCode =
   | 'agents.markets_unset'
   | 'agents.order_above_bound'
   | 'agents.price_past_bound'
-  | 'agents.market_not_allowed';
+  | 'agents.market_not_allowed'
+  // The owner's own freeze (self-freeze.ts, J-wallet-13 #2): no agent permission is made or changed while it is on.
+  | 'trade.account_frozen_self'
+  | 'trade.freeze_unavailable';
 
 export class AgentAccountError extends Error {
   constructor(
@@ -150,6 +164,8 @@ export interface AgentAccountsDeps {
   readonly store: AgentAccountStore;
   readonly stepUp: StepUpCheck;
   readonly values: AgentAccountValues;
+  /** The owner's own freeze, read from identity on each call that makes or changes an agent permission (null refuses). */
+  readonly freeze: AccountFreezeRead | null;
   readonly now: () => Date;
 }
 
@@ -192,6 +208,22 @@ export interface AgentAccountView {
   /** Why the account could not open (the venue's own refusal), when it was abandoned for one. */
   readonly refusal: VenueRefusal | null;
   readonly test: boolean;
+  /** How far the agent permission the wallet signs reaches, as the venue declares it (#3); shown before any signature. */
+  readonly agentPermission: AgentPermissionView;
+}
+
+/**
+ * The agent permission's reach on this venue (#3, the journey's money line): `own_account_only`, the venue lets the
+ * agent trade the agent account and nothing else, so the venue holds the cap; `owner_accounts`, it can act for the
+ * person's other accounts too, so our policy check is the only limit, and the app says so before the wallet signs.
+ */
+export interface AgentPermissionView {
+  readonly venue: string;
+  readonly reach: AgentPermissionReach;
+}
+
+function permissionOf(venue: UserVenue): AgentPermissionView {
+  return { venue: venue.venue.displayName, reach: agentPermissionReach(venue.venue) };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -247,10 +279,15 @@ function positive(value: unknown, label: string): Amount {
 export class AgentAccounts {
   constructor(private readonly deps: AgentAccountsDeps) {}
 
-  /** The owner's terms every agent account is held to, and whether they are set. */
-  terms() {
+  /**
+   * The owner's terms every agent account is held to, and whether they are set, with the agent permission's reach on
+   * the venue (#3), read before anything is created or signed; `null` when the venue can't be reached to read it.
+   */
+  async terms() {
     const v = this.deps.values;
+    const agentPermission = await this.deps.door.venue().then(permissionOf, () => null);
     return {
+      agentPermission,
       ceiling: v.ceiling === null ? null : formatAmount(v.ceiling),
       asset: v.asset,
       bounds: {
@@ -363,6 +400,7 @@ export class AgentAccounts {
     } catch (error) {
       capErrorAs(error);
     }
+    await assertNotSelfFrozen(this.deps.freeze, principal.userId, 'making an agent account');
     const existing = await this.deps.store.find(principal.userId, accountId);
     if (existing) {
       if (existing.owner !== owner || existing.cap !== cap || existing.fundAmount !== fund || existing.asset !== v.asset) {
@@ -407,7 +445,10 @@ export class AgentAccounts {
   async list(principal: Principal): Promise<readonly AgentAccountView[]> {
     assertPerson(principal);
     const rows = await this.deps.store.list(principal.userId);
-    return Promise.all(rows.map((a) => this.advance(principal, a.accountId)));
+    const views = await Promise.all(rows.map((a) => this.advance(principal, a.accountId)));
+    // An ask that ended before the venue opened anything is no account (#3: "a rejected signature ... makes no
+    // account"): it is not listed. One the venue opened a sub-account for stays listed, so the person sees it.
+    return views.filter((v) => !(v.status === 'abandoned' && v.subAccount === null));
   }
 
   /** Prepare (or re-use) one of this account's actions through the door. */
@@ -550,7 +591,7 @@ export class AgentAccounts {
         (await this.refusalOf(principal, approveKey(a.accountId))) ??
         (await this.refusalOf(principal, moveKey(a.accountId)));
     }
-    return this.view(a, moves, next, refusal, isTestVenue(venue.venue), a.subAccount ? await venue.balances(this.subOf(a)) : null);
+    return this.view(a, moves, next, refusal, venue, a.subAccount ? await venue.balances(this.subOf(a)) : null);
   }
 
   private async refusalOf(principal: Principal, key: string): Promise<VenueRefusal | null> {
@@ -581,7 +622,7 @@ export class AgentAccounts {
     moves: readonly AgentMoveRecord[],
     next: NextSignature | null,
     refusal: VenueRefusal | null,
-    test: boolean,
+    venue: UserVenue,
     balances: AsOf<readonly UserVenueBalance[]> | null,
   ): AgentAccountView {
     const { movedIn, movedOut } = netFunding(moves);
@@ -612,7 +653,8 @@ export class AgentAccounts {
       balances,
       next,
       refusal,
-      test,
+      test: isTestVenue(venue.venue),
+      agentPermission: permissionOf(venue),
     };
   }
 
@@ -643,6 +685,10 @@ export class AgentAccounts {
     if (move && move.state !== 'pending') {
       throw new AgentAccountError('agents.account_not_open', `move ${move.moveId} is already ${move.state}`, 409);
     }
+    // J-wallet-13 #2: opening the account, approving its agent and moving money in give an agent more to act with: none
+    // is sent while the owner's own freeze is on. A move back out is the person's own and still passes.
+    if (!move || move.direction === 'into_sub_account')
+      await assertNotSelfFrozen(this.deps.freeze, a.userId, "signing an agent account's permission or funding");
     await this.deps.door.submit(principal, key, signature, { agentAccount: true });
     return this.advance(principal, accountId);
   }
@@ -691,6 +737,7 @@ export class AgentAccounts {
     const a = await this.account(principal, accountId);
     const moveId = uuid(req.moveId, 'moveId');
     const amount = positive(req.amount, 'amount');
+    if (direction === 'into_sub_account') await assertNotSelfFrozen(this.deps.freeze, a.userId, 'funding an agent account');
     if (await this.deps.store.find(principal.userId, moveId)) {
       throw new AgentAccountError('agents.account_key_reused', `${moveId} is an agent account's id; a move needs its own id`, 409);
     }
@@ -737,6 +784,7 @@ export class AgentAccounts {
     assertPerson(principal);
     const a = await this.account(principal, accountId);
     const cap = positive(req.cap, 'cap');
+    await assertNotSelfFrozen(this.deps.freeze, a.userId, "changing an agent account's cap");
     if (this.deps.values.ceiling === null) {
       throw new AgentAccountError('agents.account_ceiling_unset', 'the owner has published no ceiling for agent accounts', 422);
     }
@@ -767,6 +815,7 @@ export class AgentAccounts {
   ): Promise<AgentAccountView> {
     assertPerson(principal);
     const a = await this.account(principal, accountId);
+    await assertNotSelfFrozen(this.deps.freeze, a.userId, "changing an agent account's limits");
     const v = this.deps.values;
     const given = (['maxOrderNotional', 'maxLeverage', 'maxDailyLoss'] as const).filter((k) => req[k] !== undefined);
     if (given.length === 0) invalid('name at least one of maxOrderNotional, maxLeverage and maxDailyLoss');

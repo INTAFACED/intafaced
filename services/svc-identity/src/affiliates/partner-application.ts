@@ -19,8 +19,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { AffiliateProgrammeDepthUnsetError } from './programme-depth.js';
+import { PARTNER_REJECT_CATEGORIES } from '@intafaced/contracts/identity-call-schemas';
 
-export const PARTNER_REJECT_CATEGORIES = ['not_enough_activity', 'incomplete_application', 'compliance', 'other'] as const;
 export type PartnerRejectCategory = (typeof PARTNER_REJECT_CATEGORIES)[number];
 
 export type PartnerState = 'submitted' | 'approved' | 'rejected';
@@ -302,3 +302,4 @@ export class PartnerApplicationService {
     return { depth, members, beyondDepth: rows.length - members.length };
   }
 }
+export { PARTNER_REJECT_CATEGORIES };

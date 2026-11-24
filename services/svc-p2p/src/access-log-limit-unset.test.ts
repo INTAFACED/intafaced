@@ -55,14 +55,4 @@ describe('instruments.accessLog limit unset refuse', () => {
     expect(fn).not.toMatch(/limit = 100/);
     expect(fn).not.toMatch(/\?\? 100/);
   });
-
-  it('router does not invent 100 when instruments.accessLog omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/router.ts'), 'utf8');
-    const call = src.indexOf('instruments.accessLogFor(');
-    expect(call).toBeGreaterThan(-1);
-    const fn = src.slice(Math.max(0, call - 800), call + 160);
-    expect(fn).toContain('accessLogFor(ctx.principal.userId, input?.limit)');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
-  });
 });

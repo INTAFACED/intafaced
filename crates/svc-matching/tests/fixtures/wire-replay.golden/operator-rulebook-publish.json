@@ -1,0 +1,812 @@
+{
+  "blank POST /operator/rulebook/publish valid anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish valid founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish same-again founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish other-text founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish absent founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish null founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish wrong-type founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish empty founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish extra-key founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null anon": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null svc-trade": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null svc-execution": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null svc-ledger": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null svc-trade-unbound": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null svc-trade-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null founder": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null reader": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "blank POST /operator/rulebook/publish all-null founder-wrong-secret": {
+    "status": 503,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.operator_auth_unconfigured\",\"message\":\"EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.\"}"
+  },
+  "set POST /operator/rulebook/publish valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish valid svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish valid svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish valid svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"version\":\"TEST-v1\",\"alreadyPublished\":false,\"published\":{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]},\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish valid reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish same-again anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish same-again svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish same-again svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish same-again svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish same-again svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish same-again svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish same-again founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"version\":\"TEST-v1\",\"alreadyPublished\":true,\"published\":{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]},\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish same-again reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish same-again founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish other-text anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish other-text svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish other-text svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish other-text svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish other-text svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish other-text svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish other-text founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":false,\"version\":\"TEST-v1\",\"rejected\":{\"code\":\"matching.rulebook_immutable\",\"message\":\"TEST-v1 is published and never changes; publish the change as a new version\"}}"
+  },
+  "set POST /operator/rulebook/publish other-text reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish other-text founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish absent svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish absent svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish absent svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish absent founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"approvalId: Invalid input: expected string, received undefined\",\"operationId: Invalid input: expected string, received undefined\"]}"
+  },
+  "set POST /operator/rulebook/publish absent reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish null svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish null svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish null svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish null founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"approvalId: Invalid input: expected string, received undefined\",\"operationId: Invalid input: expected string, received undefined\"]}"
+  },
+  "set POST /operator/rulebook/publish null reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish wrong-type svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish wrong-type svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish wrong-type svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish wrong-type founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "set POST /operator/rulebook/publish wrong-type reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish empty svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish empty svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish empty svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish empty founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"approvalId: Invalid input: expected string, received undefined\",\"operationId: Invalid input: expected string, received undefined\"]}"
+  },
+  "set POST /operator/rulebook/publish empty reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish extra-key svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish extra-key svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish extra-key svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish extra-key founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"version\":\"TEST-v1\",\"alreadyPublished\":true,\"published\":{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]},\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish extra-key reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /operator/rulebook/publish all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish all-null svc-trade": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish all-null svc-execution": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish all-null svc-ledger": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"An edge-signed principal is required.\",\"rejected\":null}"
+  },
+  "set POST /operator/rulebook/publish all-null founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"version: Invalid input: expected string, received null\",\"effectiveAt: Invalid input: expected string, received null\",\"sections: Invalid input: expected record, received null\",\"approvalId: Invalid input: expected string, received null\",\"operationId: Invalid input: expected string, received null\"]}"
+  },
+  "set POST /operator/rulebook/publish all-null reader": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"scope.denied\",\"message\":\"Scope \\\"admin:write\\\" is required\"}"
+  },
+  "set POST /operator/rulebook/publish all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"token.invalid\",\"message\":\"Edge principal refused (bad-signature).\",\"rejected\":\"bad-signature\"}"
+  }
+}

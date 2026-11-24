@@ -194,7 +194,7 @@ describe('desk groups and visibility (SP-desk-04)', () => {
       { action: 'required_skill_set', subject: inTwo.id, value: 'fx', by: LEAD, at: '2026-11-09T00:00:01.000Z' },
       { action: 'capacity_set', subject: AGENT_B, value: '2', by: LEAD, at: '2026-11-09T00:00:02.000Z' },
     ];
-    const book = { log: async () => rows } as unknown as RoutingBook;
+    const book = { log: async () => rows } as RoutingBook;
     const routing = new DeskRouting(book, staff, groups, support);
     expect((await routing.log(AGENT_A)).map((r) => r.subject)).toEqual([inOne.id, AGENT_B]);
     expect((await routing.log(AGENT_B)).map((r) => r.subject)).toEqual([inTwo.id, AGENT_B]);

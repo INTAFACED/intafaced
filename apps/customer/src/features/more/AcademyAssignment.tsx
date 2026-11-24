@@ -1,21 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  academyAssignmentViewSchema,
-  academySubmissionFileSchema,
-  type AcademyAnswerMode,
-  type AcademyAssignmentView,
-  type AcademySubmissionState,
-} from '@intafaced/contracts/academy-courses';
+import { type AcademyAnswerMode, type AcademyAssignmentView, type AcademySubmissionState } from '@intafaced/contracts/academy-courses';
+import { Button } from '@intafaced/ui/lit';
+import { FileField, TextAreaField } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button, Loading, Panel } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref } from './academy-lms';
-import { AcademyRefusal } from './AcademyLmsParts';
+import { AcademyRefusal } from './academy-refusal';
 import { AcademyPeerReview } from './AcademyPeerReview';
+import { Section, Waiting } from './volt-parts';
+import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from '@intafaced/contracts/academy-upload-assignment-file-procedures';
+import { ACADEMY_ASSIGNMENT } from '@intafaced/contracts/academy-assignment-procedures';
+import { ACADEMY_SUBMIT_ASSIGNMENT } from '@intafaced/contracts/academy-submit-assignment-procedures';
+import { ACADEMY_MARK_FEEDBACK_READ } from '@intafaced/contracts/academy-mark-feedback-read-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -80,7 +80,7 @@ function OutcomeLine({ outcome, retry }: { outcome: Outcome; retry?: () => void 
     );
   if (outcome.kind === 'uncertain')
     return (
-      <p role="status" className="failure" data-testid="assignment-outcome">
+      <p role="status" className="lt-refusal" data-testid="assignment-outcome">
         {t('asgUncertain')}
       </p>
     );
@@ -88,7 +88,7 @@ function OutcomeLine({ outcome, retry }: { outcome: Outcome; retry?: () => void 
   const words =
     academyCodeOf(outcome.failure) === 'academy.video_storage_unconfigured' ? t('asgStorageUnset') : academyRefusalText(outcome.failure, t);
   return (
-    <div role="status" className="failure" data-testid="assignment-outcome" data-code={academyCodeOf(outcome.failure) ?? undefined}>
+    <div role="status" className="lt-refusal" data-testid="assignment-outcome" data-code={academyCodeOf(outcome.failure) ?? undefined}>
       {words === null ? <AcademyRefusal failure={outcome.failure} retry={retry} /> : <p>{words}</p>}
     </div>
   );
@@ -121,22 +121,22 @@ export function AssignmentSubmissions({ data }: { data: AcademyAssignmentView })
   const { language } = usePreferences();
   if (data.submissions.length === 0)
     return (
-      <p className="muted" data-testid="assignment-submissions">
+      <p className="lt-muted" data-testid="assignment-submissions">
         {t('asgNothingYet')}
       </p>
     );
   return (
-    <ol className="academy-lms-stack" data-testid="assignment-submissions">
+    <ol className="lt-stack" data-testid="assignment-submissions">
       {data.submissions.map((s) => (
-        <li key={s.version} className="academy-lms-card">
+        <li key={s.version} className="lt-stack">
           <strong>{t('asgVersion', { version: s.version })}</strong>
-          <span data-testid="academy-lms-meta" className="academy-lms-meta">
+          <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
             <span>{t(STATE_KEYS[s.state])}</span>
             <span>{s.late ? t('asgLate') : data.dueAt ? t('asgOnTime') : null}</span>
             <span>{t('asgSubmittedAt', { date: when(s.submittedAt, language) })}</span>
           </span>
           {s.text && (
-            <p className="muted" lang="und">
+            <p className="lt-muted" lang="und">
               {s.text}
             </p>
           )}
@@ -168,25 +168,25 @@ export function AssignmentGrade({
   const { language } = usePreferences();
   if (!grade)
     return (
-      <p className="muted" data-testid="assignment-grade">
+      <p className="lt-muted" data-testid="assignment-grade">
         {t('grdNone')}
       </p>
     );
   return (
-    <section className="academy-lms-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
+    <section className="lt-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
       <h3>{t('grdTitle')}</h3>
       <strong>{t('grdScore', { score: grade.score, points: grade.points })}</strong>
       {grade.entered !== null && <p data-testid="assignment-grade-late">{t('grdLate', { entered: grade.entered })}</p>}
-      <span data-testid="academy-lms-meta" className="academy-lms-meta">
+      <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
         {t('grdForVersion', { version: grade.version, date: when(grade.gradedAt, language) })}
       </span>
-      <p lang="und" style={{ whiteSpace: 'pre-wrap' }}>
+      <p lang="und" className="lt-pre-wrap">
         {grade.comment ?? t('grdNoComment')}
       </p>
       {grade.readAt ? (
         <p role="status">{t('grdRead')}</p>
       ) : (
-        <Button type="button" variant="secondary" disabled={marking} onClick={() => onMarkRead(grade.version, grade.n)}>
+        <Button type="button" tone="secondary" disabled={marking} onClick={() => onMarkRead(grade.version, grade.n)}>
           {marking ? t('grdMarking') : t('grdMarkRead')}
         </Button>
       )}
@@ -199,24 +199,24 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   return (
-    <div className="academy-lms-stack">
-      <nav className="academy-lms-crumbs" aria-label={t('breadcrumb')}>
-        <a className="text-link" href={academyCourseHref(data.courseSlug)} lang="und">
+    <div className="lt-stack">
+      <nav className="lt-toolbar" aria-label={t('breadcrumb')}>
+        <a className="lt-link" href={academyCourseHref(data.courseSlug)} lang="und">
           {t('asgBack')}
         </a>
       </nav>
-      <p data-testid="academy-lms-meta" className="academy-lms-meta">
+      <p data-testid="academy-lms-meta" className="lt-actions lt-hint">
         <span data-testid="assignment-due">{data.dueAt ? t('asgDue', { date: when(data.dueAt, language) }) : t('asgNoDue')}</span>
         <span data-testid="assignment-points">{t('asgPoints', { points: data.points })}</span>
       </p>
       {data.extension && (
-        <p className="academy-lms-meta" data-testid="assignment-extension">
+        <p className="lt-actions lt-hint" data-testid="assignment-extension">
           <span lang="und">{t('asgExtended', { date: when(data.extension.dueAt, language), reason: data.extension.reason })}</span>
         </p>
       )}
       <section aria-label={t('asgBrief')}>
         <h3>{t('asgBrief')}</h3>
-        <p lang="und" style={{ whiteSpace: 'pre-wrap' }}>
+        <p lang="und" className="lt-pre-wrap">
           {data.instructions}
         </p>
       </section>
@@ -239,10 +239,7 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
 export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: string }) {
   const api = useApi();
   const { t } = copy.useCopy();
-  const view = useResource(
-    (signal) => api.query('academy', 'assignment', { itemId }, academyAssignmentViewSchema, { signal }),
-    `assignment:${itemId}`,
-  );
+  const view = useResource((signal) => api.call(ACADEMY_ASSIGNMENT, { itemId }, { signal }), `assignment:${itemId}`);
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
@@ -265,20 +262,20 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
     const failure = wrongAddress ? refusalOf('academy.assignment_not_found') : (view.resource as { failure: Failure }).failure;
     const notEnrolled = academyCodeOf(failure) === 'academy.enrolment_required';
     return (
-      <Panel title={t('asgBrief')}>
-        <div className="academy-lms-stack" data-academy-assignment={itemId}>
+      <Section title={t('asgBrief')}>
+        <div className="lt-stack" data-academy-assignment={itemId}>
           <OutcomeLine outcome={{ kind: 'refused', failure }} retry={notEnrolled ? undefined : view.reload} />
           {notEnrolled && (
-            <a className="button button--primary" href={academyCourseHref(slug)}>
+            <a className="lt-button lt-button-primary" href={academyCourseHref(slug)}>
               {t('linkedOpenPublic')}
             </a>
           )}
         </div>
-      </Panel>
+      </Section>
     );
   }
   const data = ready ?? last;
-  if (!data) return <Loading />;
+  if (!data) return <Waiting />;
 
   const handIn = async () => {
     if (inFlight.current) return;
@@ -291,23 +288,18 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
       if (file && data.fileLimits.maxBytes !== null && file.size > data.fileLimits.maxBytes)
         return setOutcome({ kind: 'refused', failure: refusalOf('academy.upload_too_large') });
       if (file) {
-        const uploaded = await api.mutate(
-          'academy',
-          'uploadAssignmentFile',
-          { itemId, fileName: file.name, contentType: file.type || 'application/octet-stream', contentBase64: await base64Of(file) },
-          academySubmissionFileSchema,
-        );
+        const uploaded = await api.call(ACADEMY_UPLOAD_ASSIGNMENT_FILE, {
+          itemId,
+          fileName: file.name,
+          contentType: file.type || 'application/octet-stream',
+          contentBase64: await base64Of(file),
+        });
         // The same file again is the same stored row, so a lost upload reply is safe to send again from here.
         if (!uploaded.ok)
           return setOutcome(uploaded.reason === 'uncertain' ? { kind: 'uncertain' } : { kind: 'refused', failure: uploaded });
         fileId = uploaded.data.id;
       }
-      const sent = await api.mutate(
-        'academy',
-        'submitAssignment',
-        { itemId, version, text: text.trim() ? text : null, fileId },
-        academyAssignmentViewSchema,
-      );
+      const sent = await api.call(ACADEMY_SUBMIT_ASSIGNMENT, { itemId, version, text: text.trim() ? text : null, fileId });
       setRetryVersion(!sent.ok && sent.reason === 'uncertain' ? version : null);
       if (sent.ok) {
         setOutcome({ kind: 'done', version });
@@ -326,7 +318,7 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
   const markRead = async (version: number, n: number) => {
     setMarking(true);
     setReadRefused(null);
-    const marked = await api.mutate('academy', 'markFeedbackRead', { itemId, version, n }, academyAssignmentViewSchema);
+    const marked = await api.call(ACADEMY_MARK_FEEDBACK_READ, { itemId, version, n });
     setMarking(false);
     if (marked.ok) setLast(marked.data);
     else if (marked.reason !== 'uncertain') setReadRefused(marked);
@@ -335,41 +327,30 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
 
   const closed = data.withdrawnAt !== null;
   return (
-    <div className="more-columns" data-academy-assignment={data.itemId}>
-      <Panel title={data.title}>
+    <div className="lt-stack" data-academy-assignment={data.itemId}>
+      <Section title={data.title}>
         <AssignmentBrief data={data} />
-      </Panel>
-      <Panel title={t('asgSubmissions')}>
-        <div className="academy-lms-stack">
+      </Section>
+      <Section title={t('asgSubmissions')}>
+        <div className="lt-stack">
           {closed ? (
-            <p className="muted">{t('asgWithdrawn')}</p>
+            <p className="lt-muted">{t('asgWithdrawn')}</p>
           ) : (
             <form
-              className="academy-lms-stack"
+              className="lt-stack"
               onSubmit={(event) => {
                 event.preventDefault();
                 void handIn();
               }}
             >
               {data.text !== 'off' && (
-                <label>
-                  {t('asgYourAnswer')}
-                  <textarea value={text} rows={6} maxLength={20_000} onChange={(event) => setText(event.target.value)} />
-                </label>
+                <TextAreaField label={t('asgYourAnswer')} value={text} rows={6} maxLength={20_000} onChange={setText} />
               )}
               {data.file !== 'off' && (
-                <label>
-                  {t('asgFileField')}
-                  <input
-                    ref={fileInput}
-                    type="file"
-                    accept={data.fileLimits.types?.join(',')}
-                    onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                  />
-                </label>
+                <FileField ref={fileInput} label={t('asgFileField')} accept={data.fileLimits.types?.join(',')} onChange={setFile} />
               )}
               {file && <p data-testid="assignment-file">{t('asgFileChosen', { name: file.name, size: byteSize(file.size) })}</p>}
-              <Button type="submit" variant="primary" disabled={sending}>
+              <Button type="submit" tone="primary" disabled={sending}>
                 {sending ? t('asgSending') : t('asgHandIn')}
               </Button>
             </form>
@@ -380,7 +361,7 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
           <AssignmentGrade grade={data.grade} marking={marking} onMarkRead={(version, n) => void markRead(version, n)} />
           {readRefused && <AcademyRefusal failure={readRefused} />}
         </div>
-      </Panel>
+      </Section>
     </div>
   );
 }

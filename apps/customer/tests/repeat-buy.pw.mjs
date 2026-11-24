@@ -247,7 +247,7 @@ test('failed setup source still permits stopping a returned owned instruction', 
   const state = await setup(page);
   state.balanceFail = true;
   await signIn(page);
-  await expect(page.locator('.money-repeat-lanes > section').first().locator('.failure')).toBeVisible();
+  await expect(page.locator('.money-repeat-lanes > section').first().locator(':is(.failure, .lt-refusal)')).toBeVisible();
   await page.locator('.money-repeat-rule').first().getByRole('button', { name: 'Pause', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Confirmed by the service');

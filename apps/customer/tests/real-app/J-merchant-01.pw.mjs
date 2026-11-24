@@ -33,7 +33,9 @@ test(`${J} #1 More opens Business Pay at /pay/merchant from the registry row bus
   expect(rows.map((r) => r.id)).toEqual(['business-pay']);
   const [row] = rows;
   expect(row.status).toBe('live');
-  const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Money and pay', level: 2 }) });
+  // The section named by its own heading: the room's template wraps its sections in a region of its own, which also
+  // holds this heading, so a filter on any section with it would take that region (and the All services index) too.
+  const section = page.getByRole('region', { name: 'Money and pay', exact: true });
   const tile = section.getByRole('link', { name: /^Merchant\b/ });
   await expect(tile).toHaveCount(1);
   await expect(tile).toHaveAttribute('href', '/pay/merchant');
@@ -67,6 +69,7 @@ test(`${J} #1 More opens Business Pay at /pay/merchant from the registry row bus
 
 test(`${J} #3 a new business reads its KPI area: one explanation with a link to create a payment link, no tile shows 0 as if measured, and each unmeasured figure says so with its own as-of`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = await businessReadyPerson(page, 'mk', '/pay/onboarding');
@@ -91,6 +94,18 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   };
   page.on('response', (r) => void reads.push(store(r)));
   const stored = () => Promise.all(reads);
+  // The Refunds issued tile asks for the refunds list only once it is drawn, so its read can begin after the snapshots
+  // and the series are stored (issue 9180: the list was not yet asked for when it was counted). Its answer is held until
+  // the tiles are read, so that order happens on every run and the count waits for the list rather than racing it.
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  await page.route(
+    (url) => url.pathname.endsWith('/api/pay/trpc/payment.refunds.list'),
+    async (route) => {
+      await released;
+      await route.continue();
+    },
+  );
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page).toHaveURL(/\/pay\/merchant$/);
   await expect(page.getByText('TEST First Ltd').first()).toBeVisible();
@@ -125,8 +140,13 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   // Each period's tiles: a money figure the service has no rows for reads "—" with "No payments in this period", never
   // 0.00; the payment count is the service's own measured count; refunds issued reads None while the refunds list is
   // empty; and the strip carries that period's own as-of.
-  await stored();
-  expect(refundLists.length).toBeGreaterThan(0);
+  release();
+  await expect
+    .poll(async () => {
+      await stored();
+      return refundLists.length;
+    })
+    .toBeGreaterThan(0);
   const metrics = page.getByRole('region', { name: 'Reporting period' });
   for (const [preset, button] of [
     ['today', /^Today \(UTC\)/],
@@ -143,7 +163,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
         as.map((a) => ({
           label: a.querySelector('span')?.textContent?.split(' · ')[0],
           value: a.querySelector('strong')?.textContent?.trim(),
-          none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
+          none: a.querySelector('strong [data-testid="pp-none"]')?.getAttribute('title') ?? null,
         })),
       );
     const expected = [
@@ -163,7 +183,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   for (const list of refundLists) expect(list.items).toEqual([]);
 
   // Pending settlement draws no figure for a business with no balance, with today's as-of.
-  const pending = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Pending settlement', level: 2 }) });
+  const pending = page.getByRole('heading', { name: 'Pending settlement', level: 2 }).locator('xpath=ancestor::section[1]');
   const pendingText = await pending.evaluate((el) => {
     const copy = el.cloneNode(true);
     copy.querySelectorAll('[role="status"]').forEach((n) => n.remove());
@@ -177,6 +197,13 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   await expect(volume.getByRole('heading', { name: 'No captured payments in this period' })).toBeVisible();
   await expect(volume.getByRole('img')).toHaveCount(0);
   await asOfSays(volume, series.freshness);
+  // The picture, before More insights opens and folds the volume chart away: from the top with nothing focused, so the
+  // header and the skip link draw over no figure.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
 
   // More insights holds one explanation with its link, not a wall of zero tiles.
   await page.getByRole('button', { name: 'More payment insights' }).click();
@@ -187,7 +214,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   expect(refused).toEqual([]);
 });
 
-test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, Pay out and Refund leading to pages that say there is nothing to move yet, and no call to the founder console`, async ({
+test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, each money room's Pay out or Issue a refund leading to a page that explains what is blocked with nothing that moves money, and no call to the founder console`, async ({
   page,
 }) => {
   test.setTimeout(420_000);
@@ -227,8 +254,7 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   await expect(account).toContainText('Your role');
   await expect(account).toContainText('Owner');
 
-  // The home page has no money action of its own; the money rooms' Pay out and Issue a refund are checked room by room
-  // below.
+  // The money-moving controls are checked room by room below, where each money room's own action leads.
 
   // The checklist: the setup steps, each in the state the service's own onboarding progress gives it.
   await page.getByRole('link', { name: /Set up your account/ }).click();
@@ -267,19 +293,36 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   await test
     .info()
     .attach('rooms-and-states.json', { body: JSON.stringify(Object.fromEntries(rooms), null, 2), contentType: 'application/json' });
-  // svc-pay does not hold back a payout or a refund for verification on test money: the payout door refuses KYB that is
-  // not approved only under live acquiring (`merchant-kyb-money-gate.ts`), and refunds are never KYB-gated. So each
-  // money room's action is on, and it leads to a page that says plainly there is nothing to move yet.
+  // A money room's own header action (Pay out, Issue a refund) is a live link: svc-pay does not hold back a payout or a
+  // refund for verification on test money (the payout door refuses KYB that is not approved only under live acquiring,
+  // `merchant-kyb-money-gate.ts`, and refunds are never KYB-gated). So each one, followed from its own room, leads to a
+  // page that explains what is blocked, nothing to move yet and why, and offers no control that moves money.
+  const explained = {
+    '/pay/payouts/new': [
+      'Pay out',
+      'Nothing is ready to pay out',
+      'A settlement becomes payable once its statement is finalised.',
+      /^(Ask|Pay out|Send)/,
+    ],
+    '/pay/refunds/new': [
+      'Issue a refund',
+      'No refundable payments',
+      'No payment matches, or everything has been refunded already.',
+      /^Refund/,
+    ],
+  };
   const target = (room) => (room === '/pay/refunds' ? '/pay/refunds/new' : '/pay/payouts/new');
-  for (const room of MONEY_ROOMS) expect(rooms.get(room).action, room).toEqual({ on: [target(room)] });
-  await page.goto('/pay/payouts/new');
-  await expect(page.getByText('Nothing is ready to pay out')).toBeVisible();
-  await expect(page.getByText('A settlement becomes payable once its statement is finalised.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^(Ask|Pay out|Send)/ })).toHaveCount(0);
-  await page.goto('/pay/refunds/new');
-  await expect(page.getByText('No refundable payments')).toBeVisible();
-  await expect(page.getByText('No payment matches, or everything has been refunded already.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Refund/ })).toHaveCount(0);
+  for (const room of MONEY_ROOMS) {
+    expect(rooms.get(room).action, room).toEqual({ on: [target(room)] });
+    const [label, title, why, move] = explained[target(room)];
+    await page.goto(room);
+    await page.getByTestId('plo-heading').getByRole('link', { name: label, exact: true }).click();
+    await expect(page, room).toHaveURL(new RegExp(`${target(room)}$`));
+    const content = page.getByTestId('pp');
+    await expect(content.getByText(title, { exact: true }), room).toBeVisible();
+    await expect(content.getByText(why, { exact: true }), room).toBeVisible();
+    await expect(content.getByRole('button', { name: move }), `${room}: nothing here moves money`).toHaveCount(0);
+  }
   // The portal never asks the founder's console for anything.
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 });
@@ -305,13 +348,22 @@ test(`${J} #5 the team page lists the five built-in roles and every permission e
   // Each permission row, in the service's order: the five cells say Yes exactly where its heldBy names the role.
   const order = ['owner', 'admin', 'finance', 'developer', 'viewer'];
   const expected = catalogue.areas.flatMap((g) => g.permissions.map((p) => order.map((r) => (p.heldBy.includes(r) ? 'Yes' : 'No'))));
-  const matrix = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Every permission, by role' }) });
+  // The section the heading titles, its nearest one: the settings template wraps every section in a region section of its own.
+  const matrix = page.getByRole('heading', { name: 'Every permission, by role' }).locator('xpath=ancestor::section[1]');
   await expect(matrix.locator('tbody tr')).toHaveCount(expected.length);
   const shown = await matrix
     .locator('tbody tr')
     .evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent)));
   expect(shown).toEqual(expected);
   expect(expected.length).toBeGreaterThan(20);
+  // Each row is the permission the service sent in that place, so the Yes and No cells above sit on the right row: its
+  // key, in the service's order, and a name of its own (never the unknown-key fallback, never another row's).
+  const rows = await matrix
+    .locator('tbody tr')
+    .evaluateAll((trs) => trs.map((tr) => ({ key: tr.dataset.permission, name: tr.querySelector('th')?.firstChild?.textContent ?? '' })));
+  expect(rows.map((r) => r.key)).toEqual(catalogue.areas.flatMap((g) => g.permissions.map((p) => p.key)));
+  for (const r of rows) expect(r.name, r.key).not.toMatch(/^$|has no name for yet/);
+  expect(new Set(rows.map((r) => r.name)).size).toBe(rows.length);
   await expect(matrix.getByText(/has no name for yet/)).toHaveCount(0);
   expect(refused).toEqual([]);
 });

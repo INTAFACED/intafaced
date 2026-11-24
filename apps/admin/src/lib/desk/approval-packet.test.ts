@@ -114,9 +114,12 @@ describe('request reading is strict', () => {
       reason: 'LOCAL TEST run the USDT floor control',
     };
     expect(readDeskRequest(run)).toEqual(run);
-    // A run now carries no margin; a past run names one; an instant is only the exact ISO text svc-ledger hashes.
+    // A run now carries no margin; a past run names one or leaves it blank for svc-ledger to answer; an instant is only the
+    // exact ISO text svc-ledger hashes.
     expect(readDeskRequest({ ...run, margin: '30' })).toBeNull();
-    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z' })).toEqual({ ...run, asOf: '2026-10-23T06:30:00.000Z' });
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z', margin: '-1' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z', margin: '' })).toBeNull();
     expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00Z', margin: '0' })).toBeNull();
     expect(readDeskRequest({ ...run, version: '0' })).toBeNull();
     expect(readDeskRequest(null)).toBeNull();
@@ -414,5 +417,30 @@ describe('identity account limit override requests', () => {
     expect(describeRequest(raise)).toContain('per transaction 2000, over 24 hours the base figure');
     expect(describeRequest(raise)).toContain('until 2026-10-25T12:00:00.000Z');
     expect(requestReason(raise)).toBe(raise.reason);
+  });
+});
+
+describe('academy certificate revoke and exception requests (J-academy-17 #5 #6)', () => {
+  const publicId = '0123456789abcdef0123456789abcdef';
+  const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+  const reason = 'TEST issued in error, revoke it';
+  it('are read strictly: exact keys, a 32-hex code or a uuid learner, a certificate id, and a real reason', () => {
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId, reason })).toEqual({ kind: 'academy.cert.revoke', publicId, reason });
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId: 'ABC', reason })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId, reason, note: 'extra' })).toBeNull();
+    const exception = { kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason };
+    expect(readDeskRequest(exception)).toEqual(exception);
+    expect(readDeskRequest({ ...exception, userId: 'x' })).toBeNull();
+    expect(readDeskRequest({ ...exception, certId: 'Not A Cert' })).toBeNull();
+    expect(readDeskRequest({ ...exception, reason: '' })).toBeNull();
+  });
+  it('name the code or learner in the phrase, say what happens, and carry the reason', () => {
+    expect(confirmPhrase({ kind: 'academy.cert.revoke', publicId, reason })).toBe('REVOKE CERTIFICATE 01234567');
+    expect(confirmPhrase({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toBe('ISSUE CERTIFICATE 9f8e7d6c');
+    expect(describeRequest({ kind: 'academy.cert.revoke', publicId, reason })).toContain('public check says revoked');
+    expect(describeRequest({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toContain('as an exception');
+    expect(requestReason({ kind: 'academy.cert.revoke', publicId, reason })).toBe(reason);
+    expect(requestReason({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toBe(reason);
   });
 });

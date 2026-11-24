@@ -1,0 +1,66 @@
+import { z } from 'zod';
+import { replyAccepted, routePath, type HttpTransport, type ProcedureRecord } from './procedure.js';
+
+type HttpRecord = ProcedureRecord & HttpTransport;
+
+/**
+ * Calls a plain HTTP door through its record: the route, method and body come from the record, the
+ * input is checked against it before sending, and the reply is parsed by it. The caller supplies only where the service
+ * is, how it signs, and how it reads that service's error body: one each per caller, never per call.
+ */
+export async function callHttpRecord<R extends HttpRecord>(
+  record: R,
+  options: {
+    baseUrl: string;
+    input: z.input<R['input']>;
+    params?: Readonly<Record<string, string>>;
+    sign: (payload: string, request: { method: string; url: URL; contentType: string }) => Record<string, string>;
+    errorOf: (path: string, status: number, detail: string) => Error;
+    fetcher?: typeof fetch;
+  },
+): Promise<z.output<R['output']>> {
+  const path = routePath(record, options.params ?? {});
+  const target = `${options.baseUrl.replace(/\/$/, '')}${path}`;
+  const parsed: unknown = record.input.parse(options.input);
+  // A GET carries no body, so its signature binds the empty one and no content type. Its input would go in the query,
+  // which no GET record takes yet: one that does is refused here rather than sent without it.
+  if (record.method === 'GET' && parsed !== undefined) throw new Error(`${record.name}: a GET record's input is not sent yet`);
+  const payload = record.method === 'GET' ? '' : JSON.stringify(parsed);
+  const contentType = record.method === 'GET' ? '' : 'application/json';
+  const response = await (options.fetcher ?? fetch)(target, {
+    method: record.method,
+    headers: {
+      ...(contentType ? { 'content-type': contentType } : {}),
+      ...options.sign(payload, { method: record.method, url: new URL(target), contentType }),
+    },
+    ...(record.method === 'GET' ? {} : { body: payload }),
+  });
+  if (!response.ok) throw options.errorOf(path, response.status, await response.text().catch(() => ''));
+  const reply = z.parse<R['output']>(record.output, await response.json());
+  // The callers' own checks the record names: a reply one of them refuses is never handed on as data.
+  if (!replyAccepted(record, reply))
+    throw options.errorOf(path, response.status, `${record.name}: the reply fails the record's accept checks`);
+  return reply;
+}
+
+/** The serving side of a plain HTTP door: parse the body by the record, answer what the record says comes back. */
+export function httpRecordHandler<R extends HttpRecord, S>(
+  record: R,
+  handle: (service: S, input: z.output<R['input']>) => Promise<z.input<R['output']>>,
+): (service: S, body: unknown) => Promise<z.output<R['output']>> {
+  return async (service, body) => {
+    const reply = await handle(service, z.parse<R['input']>(record.input, body));
+    const checked = z.safeParse<R['output']>(record.output, reply);
+    // The server's own reply breaking its record is the server's fault: never a 400 that blames the caller.
+    if (!checked.success) throw new OutputBreaksRecordError(record.name, checked.error.message);
+    return checked.data;
+  };
+}
+
+/** A reply that does not match the record it is served from. Not a ZodError, so no door maps it to the caller's 400. */
+export class OutputBreaksRecordError extends Error {
+  constructor(record: string, detail: string) {
+    super(`${record}: the reply does not match its record: ${detail}`);
+    this.name = 'OutputBreaksRecordError';
+  }
+}

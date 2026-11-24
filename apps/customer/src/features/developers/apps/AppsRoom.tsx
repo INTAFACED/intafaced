@@ -4,7 +4,7 @@ import { Button } from '@intafaced/ui';
 import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { appsCopy, refusalCopyKey } from './apps-copy';
 import { firstBadRedirect, parseRedirectInput, parseScopeInput } from './oauth-model';
 import { readApps, readLifetimes, registerApp, rollSecret } from './oauth-api';
@@ -24,7 +24,7 @@ export function Refused({ failure, t }: { failure: Refusal; t: T }) {
       <strong>{t('refusedHeading')}</strong>
       <p>{known}</p>
       {code ? (
-        <p className="muted">
+        <p className="lt-muted">
           {t('codeLabel')}: <code>{code}</code>
         </p>
       ) : null}
@@ -92,10 +92,10 @@ function AppRow({ app, onRolled, t }: { app: OAuthApp; onRolled: (shown: Shown) 
         <dt />
         <dd>{app.confidential ? t('kindConfidential') : t('kindPublic')}</dd>
       </dl>
-      {app.secretRolledAt ? <p className="muted">{t('secretRolledAt', { when: app.secretRolledAt })}</p> : null}
+      {app.secretRolledAt ? <p className="lt-muted">{t('secretRolledAt', { when: app.secretRolledAt })}</p> : null}
       {app.confidential ? (
         <>
-          <p className="muted">{t('rollNote')}</p>
+          <p className="lt-muted">{t('rollNote')}</p>
           <Button variant="secondary" size={40} disabled={busy} onClick={roll}>
             {busy ? t('rolling') : t('rollSecret')}
           </Button>
@@ -160,21 +160,21 @@ function RegisterForm({ onDone, t }: { onDone: (shown: Shown) => void; t: T }) {
   return (
     <form className="apps-form" onSubmit={submit} noValidate>
       <h2>{t('formHeading')}</h2>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('name')}</span>
         <input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} autoComplete="off" />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('description')}</span>
         <input value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} autoComplete="off" />
         <small>{t('descriptionHint')}</small>
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('redirectsField')}</span>
         <textarea value={redirects} rows={3} onChange={(event) => setRedirects(event.target.value)} spellCheck={false} />
         <small>{t('redirectsHint')}</small>
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('scopesField')}</span>
         <textarea value={scopes} rows={3} onChange={(event) => setScopes(event.target.value)} spellCheck={false} />
         <small>{t('scopesHint')}</small>
@@ -230,7 +230,7 @@ export function AppsRoom() {
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href="/login?redirect=%2Fdevelopers%2Fapps">
+            <a className="lt-button lt-button-primary" href="/login?redirect=%2Fdevelopers%2Fapps">
               {t('signIn')}
             </a>
           }

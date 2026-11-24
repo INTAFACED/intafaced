@@ -1,9 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  publicProcedure,
-  scopedProcedure,
-  TRPCError,
   statusChallengeSchema,
   statusLinkInputSchema,
   statusSubscribeInputSchema,
@@ -11,9 +7,20 @@ import {
   statusSubscriptionPolicySchema,
   statusSubscriptionSchema,
   statusSubscriptionUpdateInputSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/status-subscriptions';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { NoticeBoard } from '../notices/board.js';
-import { STATUS_IMPORT_MAX, StatusSubscriptionError, type StatusSubscriptions } from './subscriptions.js';
+import { StatusSubscriptionError, type StatusSubscriptions } from './subscriptions.js';
+import {
+  delivery,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_CHANNELS,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_LIST,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_DELIVERIES,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_RESEND,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT,
+} from '@intafaced/contracts/notify-status-page-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { notifyRefusal } from '../record-refusal.js';
 
 const REFUSED = new Set(['status.challenge_failed', 'status.webhook_target_refused', 'status.component_unknown', 'status.import_invalid']);
 
@@ -45,17 +52,7 @@ export function statusSubscriptionsRouter(subscriptions?: StatusSubscriptions, n
     }
   }
   const linked = statusSubscriptionSchema.extend({ manageToken: z.string() });
-  const delivery = z.object({
-    key: z.string(),
-    subscriberId: z.string(),
-    event: z.string(),
-    channel: z.enum(['email', 'webhook']),
-    status: z.enum(['pending', 'accepted', 'failed', 'refused']),
-    refusalCode: z.string().nullable(),
-    attempts: z.number().int(),
-  });
   const founder = scopedProcedure('admin:write', { module: 'notify' });
-  const eventRows = z.object({ rows: z.array(delivery.extend({ email: z.string() })), more: z.boolean() });
   const rowsOf = (found: Awaited<ReturnType<StatusSubscriptions['eventDeliveries']>>) => ({ rows: [...found.rows], more: found.more });
   return router({
     policy: publicProcedure.output(statusSubscriptionPolicySchema).query(() => call((s) => s.policy())),
@@ -91,39 +88,12 @@ export function statusSubscriptionsRouter(subscriptions?: StatusSubscriptions, n
       ),
 
     /** How each channel leaves this deployment: a channel with no sender is named by its code. */
-    channels: founder
-      .output(
-        z.object({
-          email: z.object({ sender: z.enum(['gateway', 'local-outbox']).nullable(), notConnected: z.literal('vendor.email').nullable() }),
-          sms: z.literal('vendor.sms'),
-          push: z.literal('vendor.push'),
-        }),
-      )
-      .query(() => call(async (s) => s.channels())),
+    channels: mountRecord(NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_CHANNELS, () => call(async (s) => s.channels()), notifyRefusal),
 
     /** Subscribers newest first, in one state or all, with how their deliveries stand. */
-    list: founder
-      .input(z.object({ state: z.enum(['unconfirmed', 'active', 'unsubscribed']).nullable(), limit: z.number().int().min(1).max(200) }))
-      .output(
-        z.array(
-          z.object({
-            id: z.string(),
-            email: z.string(),
-            state: z.enum(['unconfirmed', 'active', 'unsubscribed']),
-            componentIds: z.array(z.string()).nullable(),
-            source: z.string().nullable(),
-            webhook: z.boolean(),
-            createdAt: z.string(),
-            deliveries: z.object({
-              pending: z.number().int(),
-              accepted: z.number().int(),
-              failed: z.number().int(),
-              refused: z.number().int(),
-            }),
-          }),
-        ),
-      )
-      .query(({ input }) =>
+    list: mountRecord(
+      NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_LIST,
+      ({ input }) =>
         call(async (s) =>
           (await s.list(input)).map((row) => ({
             ...row,
@@ -131,48 +101,41 @@ export function statusSubscriptionsRouter(subscriptions?: StatusSubscriptions, n
             deliveries: { ...row.deliveries },
           })),
         ),
-      ),
+      notifyRefusal,
+    ),
 
     /** The delivery rows of one published notice: one per subscriber and channel; `more` when there are more than shown. */
-    deliveries: founder
-      .input(z.object({ noticeId: z.string().guid() }))
-      .output(eventRows)
-      .query(({ input }) => call(async (s) => rowsOf(await s.eventDeliveries(input.noticeId)))),
+    deliveries: mountRecord(
+      NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_DELIVERIES,
+      ({ input }) => call(async (s) => rowsOf(await s.eventDeliveries(input.noticeId))),
+      notifyRefusal,
+    ),
 
     /**
      * Tries a published notice's pending and failed rows once more, for subscribers still active. Accepted and refused
      * rows are left, and no row is made for anyone the notice did not reach when it was published.
      */
-    resend: founder
-      .input(z.object({ noticeId: z.string().guid() }))
-      .output(eventRows)
-      .mutation(({ input }) =>
+    resend: mountRecord(
+      NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_RESEND,
+      ({ input }) =>
         call(async (s) => {
           const row = notices ? await notices.publishedForFanOut(input.noticeId) : null;
           if (!row) throw new StatusSubscriptionError('status.notice_unknown');
           await s.retry(row);
           return rowsOf(await s.eventDeliveries(input.noticeId));
         }),
-      ),
+      notifyRefusal,
+    ),
 
     /** Founder import: addresses from another list, keyed by address and source; a duplicate makes one record. */
-    import: founder
-      .input(z.object({ source: z.string().min(1).max(40), emails: z.array(z.string().max(1000)).min(1).max(STATUS_IMPORT_MAX) }))
-      .output(
-        z.object({
-          received: z.number().int(),
-          distinct: z.number().int(),
-          added: z.number().int(),
-          alreadyKnown: z.number().int(),
-          invalid: z.array(z.string()),
-          limited: z.number().int(),
-        }),
-      )
-      .mutation(({ input }) =>
+    import: mountRecord(
+      NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT,
+      ({ input }) =>
         call(async (s) => {
           const result = await s.importSubscribers(input);
           return { ...result, invalid: [...result.invalid] };
         }),
-      ),
+      notifyRefusal,
+    ),
   });
 }

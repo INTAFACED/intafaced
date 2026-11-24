@@ -37,7 +37,7 @@ export function notifyDoorsInRouterSource(): readonly NotifyMountedDoor[] {
 export function notifyHealthDoorMounted(): boolean {
   const here = dirname(fileURLToPath(import.meta.url));
   const src = readFileSync(join(here, 'router.ts'), 'utf8');
-  return /\bhealth:\s*publicProcedure/.test(src);
+  return /\bhealth:\s*(?:publicProcedure|mountRecord\()/.test(src);
 }
 
 export function notifyMountMatrixComplete(): boolean {

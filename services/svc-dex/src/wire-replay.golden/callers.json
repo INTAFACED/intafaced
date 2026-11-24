@@ -1,0 +1,72 @@
+[
+  {
+    "path": "auth.challenge",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "auth.logout",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "auth.logoutAll",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "auth.refresh",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "auth.verify",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "health",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "limitOrder",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "order.attempts",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "order.createTrigger",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "order.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "order.validate",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "orders.count",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "quote",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "routePreview",
+    "type": "query",
+    "caller": "jurisdiction"
+  }
+]

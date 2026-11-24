@@ -7,7 +7,8 @@
  */
 import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
-import type { ApiClient } from '../shared/api';
+import { callAs, type ApiClient } from '../shared/api';
+import { BANK_ACTIVITY_LIST } from '@intafaced/contracts/bank-activity-procedures';
 import { useSession } from '../features/session/session';
 import { classifyFailure } from './poll';
 import type { Source } from './source';
@@ -65,6 +66,16 @@ export interface ActivityItem {
   purchase?: true;
   /** The signed-in person's own wording for this line on the statements and reports they download. Never shown to anyone else. */
   reportDescription?: string;
+  /**
+   * Whose record the line is, when the partner bank holds the person's money and the line is the partner's own record of
+   * a move it made (svc-bank `partner-activity.ts`). Absent on a line of our own ledger.
+   */
+  heldAt?: { label: string };
+  /**
+   * A payment between two people: its fees as the bank recorded them when it was made. `fee` is ours, `networkFee` what
+   * the book that moved it stated; null is "not known". Absent on every other line.
+   */
+  fees?: { fee: Decimal | null; networkFee: Decimal | null };
 }
 
 const itemSchema = z
@@ -105,6 +116,14 @@ const itemSchema = z
       .string()
       .nullish()
       .transform((value) => (value ? value : undefined)),
+    heldAt: z
+      .object({ label: z.string().min(1) })
+      .nullish()
+      .transform((value) => (value ? { label: value.label } : undefined)),
+    fees: z
+      .object({ fee: z.string().nullable(), networkFee: z.string().nullable() })
+      .nullish()
+      .transform((value) => (value ? { fee: value.fee, networkFee: value.networkFee } : undefined)),
   })
   .transform(({ note, ...item }) => (note ? { ...item, paymentNote: note } : item));
 
@@ -237,7 +256,7 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
       ...(options.year !== undefined ? { year: options.year } : {}),
       ...(options.address ? { address: options.address } : {}),
     };
-    const result = await api.query('bank', 'activity.list', input, activityPageSchema, { signal: controller.signal });
+    const result = await callAs(api, BANK_ACTIVITY_LIST, input, activityPageSchema, { signal: controller.signal });
     if (inflight !== controller || controller.signal.aborted) return;
     inflight = null;
     if (result.ok) {

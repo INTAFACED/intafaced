@@ -121,6 +121,17 @@ export function shownInNeedsYou(notice: { kind: string; params: Readonly<Record<
   return shown !== null && notice.kind === NEW_DEVICE_NOTICE_KIND && typeof key === 'string' && shown.noticeKeys.has(key);
 }
 
+/**
+ * The rows "Needs you" draws: every item, except that new-device sign-ins ask once, by the newest. Each one reads the
+ * same ("a new device signed in; if this wasn't you, open Security") and leads to the same room, where every device is
+ * listed to confirm or remove, so a second row only repeats the first. The inbox still leaves every one of their notices
+ * to this list (`needsYouShown` reads all the items).
+ */
+export function rowsShown(items: readonly WorkItem[]): WorkItem[] {
+  const first = items.findIndex((item) => item.kind === 'new_device');
+  return items.filter((item, at) => item.kind !== 'new_device' || at === first);
+}
+
 /** A ratio from the owner's record ("0.8512", where 1 is 100%) as the percent it reads as ("85.12%"), without a float. */
 export function ratioPercent(ratio: string): string {
   const [whole = '0', frac = ''] = ratio.split('.');

@@ -25,7 +25,7 @@ function recorder(handler: (url: string) => Response) {
     const url = String(input);
     calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
     return handler(url);
-  }) as unknown as typeof globalThis.fetch;
+  }) as typeof globalThis.fetch;
   return { calls, fetchImpl };
 }
 
@@ -115,14 +115,41 @@ const indexerVenue = (handler: (url: string) => Response, region?: string) => {
 };
 
 const trpc = (data: unknown) => ok({ result: { data } });
-const liveStatus = { halted: null, indexedHeight: 42, finalizedHeight: 42 };
+/** svc-indexer's `status` and `book` replies whole, as their records publish them, with the fields a case is about set. */
+const indexerStatus = (facts: Record<string, unknown>) => ({
+  chainId: 84532,
+  chainSource: 'evm',
+  indexedHeight: null,
+  indexedHash: null,
+  earliestHeight: null,
+  finalityDepth: 0,
+  finalizedHeight: null,
+  ingestEnabled: true,
+  halted: null,
+  chain: null,
+  behindBy: null,
+  lastError: null,
+  clob: { live: true, kind: 'sovereign-venue', reserves: false },
+  ...facts,
+});
+const indexerBook = (facts: Record<string, unknown>) => ({
+  market: 'IFC-USD',
+  chainId: 84532,
+  asOfHeight: null,
+  asOfHash: null,
+  bids: [],
+  asks: [],
+  clob: { live: true, kind: 'sovereign-venue', reserves: false },
+  ...facts,
+});
+const liveStatus = indexerStatus({ indexedHeight: 42, finalizedHeight: 42 });
 
 describe('svc-indexer — the sovereign venue', () => {
   it('reads a projected book and pins it to the block height', async () => {
     const { venue } = indexerVenue((url) =>
       url.includes('/trpc/status')
         ? trpc(liveStatus)
-        : trpc({ market: 'IFC-USD', asOfHeight: 42, asOfHash: '0x' + 'a'.repeat(64), bids: [['99', '5']], asks: [['101', '2']] }),
+        : trpc(indexerBook({ asOfHeight: 42, asOfHash: '0x' + 'a'.repeat(64), bids: [['99', '5']], asks: [['101', '2']] })),
     );
 
     const book = await venue.depth('IFC-USD', 50);
@@ -136,8 +163,8 @@ describe('svc-indexer — the sovereign venue', () => {
   it('REFUSES a projected book with no finalizedHeight — inclusion is not settlement', async () => {
     const { venue } = indexerVenue((url) =>
       url.includes('/trpc/status')
-        ? trpc({ halted: null, indexedHeight: 42 })
-        : trpc({ market: 'IFC-USD', asOfHeight: 42, bids: [['99', '5']], asks: [['101', '2']] }),
+        ? trpc(indexerStatus({ indexedHeight: 42 }))
+        : trpc(indexerBook({ asOfHeight: 42, bids: [['99', '5']], asks: [['101', '2']] })),
     );
 
     const err = await refusal(venue.depth('IFC-USD', 50));
@@ -148,8 +175,8 @@ describe('svc-indexer — the sovereign venue', () => {
   it('REFUSES a book above finalizedHeight — MEV/reorg can still revert it', async () => {
     const { venue } = indexerVenue((url) =>
       url.includes('/trpc/status')
-        ? trpc({ halted: null, indexedHeight: 50, finalizedHeight: 40 })
-        : trpc({ market: 'IFC-USD', asOfHeight: 50, bids: [['99', '5']], asks: [['101', '2']] }),
+        ? trpc(indexerStatus({ indexedHeight: 50, finalizedHeight: 40 }))
+        : trpc(indexerBook({ asOfHeight: 50, bids: [['99', '5']], asks: [['101', '2']] })),
     );
 
     const err = await refusal(venue.depth('IFC-USD', 50));
@@ -166,11 +193,7 @@ describe('svc-indexer — the sovereign venue', () => {
    * no buyers, and the DEX would quote a sovereign price that does not exist.
    */
   it('REFUSES an empty index rather than reporting no-liquidity on a chain that is not there', async () => {
-    const { venue } = indexerVenue((url) =>
-      url.includes('/trpc/status')
-        ? trpc({ halted: null, indexedHeight: null })
-        : trpc({ asOfHeight: null, asOfHash: null, bids: [], asks: [] }),
-    );
+    const { venue } = indexerVenue((url) => (url.includes('/trpc/status') ? trpc(indexerStatus({})) : trpc(indexerBook({}))));
 
     const err = await refusal(venue.depth('IFC-USD', 50));
 
@@ -181,14 +204,25 @@ describe('svc-indexer — the sovereign venue', () => {
   it('refuses a halted projection — it knows its own book is wrong', async () => {
     const { venue } = indexerVenue((url) =>
       url.includes('/trpc/status')
-        ? trpc({ halted: { reason: 'reorg deeper than retained history', at: '2026-07-29T00:00:00.000Z' }, indexedHeight: 10 })
-        : trpc({ asOfHeight: 10, bids: [['99', '5']], asks: [['101', '5']] }),
+        ? trpc(
+            indexerStatus({ halted: { reason: 'reorg deeper than retained history', at: '2026-07-29T00:00:00.000Z' }, indexedHeight: 10 }),
+          )
+        : trpc(indexerBook({ asOfHeight: 10, bids: [['99', '5']], asks: [['101', '5']] })),
     );
 
     const err = await refusal(venue.depth('IFC-USD', 50));
 
     expect(err.reason).toBe('not_ready');
     expect(err.message).toContain('reorg deeper than retained history');
+  });
+
+  it('refuses a reply that is not the shape svc-indexer publishes — never reads a guess', async () => {
+    const { venue } = indexerVenue((url) =>
+      url.includes('/trpc/status') ? trpc(liveStatus) : trpc({ asOfHeight: 42, bids: [['99', '5']], asks: [] }),
+    );
+    const err = await refusal(venue.depth('IFC-USD', 50));
+    expect(err.reason).toBe('malformed');
+    expect(err.message).toContain('book reply');
   });
 
   it('treats a 500 as unreachable, not as an empty market', async () => {
@@ -198,8 +232,7 @@ describe('svc-indexer — the sovereign venue', () => {
 
   it('forwards the screened region so the upstream screens the same caller', async () => {
     const { venue, calls } = indexerVenue(
-      (url) =>
-        url.includes('/trpc/status') ? trpc(liveStatus) : trpc({ asOfHeight: 1, finalizedHeight: 42, bids: [], asks: [['100', '1']] }),
+      (url) => (url.includes('/trpc/status') ? trpc(liveStatus) : trpc(indexerBook({ asOfHeight: 1, asks: [['100', '1']] }))),
       'DE',
     );
 

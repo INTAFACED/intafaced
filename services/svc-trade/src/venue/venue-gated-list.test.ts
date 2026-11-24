@@ -15,7 +15,7 @@ import { venueGatedList } from './venue-gated-list.js';
 
 // J-derivatives-01 #2: the venue desk's gated list, each perpetual open or blocked for this account with every reason.
 
-const USER = { userId: '11111111-1111-4111-8111-1111111111d2', sid: 's-1', scopes: ['trade:read'] } as unknown as Principal;
+const USER = { userId: '11111111-1111-4111-8111-1111111111d2', sid: 's-1', scopes: ['trade:read'] } as Principal;
 const BUILDER: BuilderFeeValue = { address: '0x00000000000000000000000000000000000000b1', feeBps: parseAmount('1') };
 const PERPS = ['BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP'];
 
@@ -127,7 +127,7 @@ describe('venueGatedList: our listing', () => {
     ...over,
   });
   const market = (symbol: string, l: Partial<ShownListing>, status: ListedVenueMarket['status'] = 'trading') =>
-    ({ symbol, kind: 'perpetual', status, listing: listing(l) }) as unknown as ListedVenueMarket;
+    ({ symbol, kind: 'perpetual', status, listing: listing(l) }) as ListedVenueMarket;
   const codes = (m: ListedVenueMarket) =>
     venueGatedList({ markets: [m], account: null, builderFeePublished: () => true, venueName: 'TEST venue' })[0]!.blockers.map(
       (b) => b.code,

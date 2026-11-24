@@ -54,6 +54,7 @@ export const SUBNAV: Record<Slug, readonly SubTab[]> = {
     { id: 'pools', actions: ['createPool'] },
     { id: 'positions', actions: ['addLiquidity', 'removeLiquidity'] },
     { id: 'venue', actions: [] },
+    { id: 'lend', actions: [] },
   ],
   protocol: [
     { id: 'overview', actions: ['smartAccount', 'sessionKey'] },

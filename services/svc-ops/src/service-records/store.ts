@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
-import { SERVICE_RECORD_STALE, unsetServiceRecord, type ServiceRecord, type ServiceRecordValues } from '@intafaced/contracts';
+import type { ServiceRecord, ServiceRecordValues } from '@intafaced/contracts';
+import { SERVICE_RECORD_STALE, unsetServiceRecord } from '@intafaced/contracts/ops-console-services';
 import { isModuleId, type ModuleId } from '@intafaced/config';
 import { OpsError } from '../codes.js';
 

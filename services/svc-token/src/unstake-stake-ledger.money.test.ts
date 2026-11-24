@@ -65,7 +65,7 @@ function unstakeSql(row: StakeRow): { sql: Sql; statusWrites: string[] } {
 
   const fn = (strings: TemplateStringsArray, ..._values: unknown[]) => query(strings);
   const begin = async (_isolation: string, cb: (tx: typeof fn) => Promise<unknown>) => cb(fn);
-  return { sql: Object.assign(fn, { begin, json: (v: unknown) => v }) as unknown as Sql, statusWrites };
+  return { sql: Object.assign(fn, { begin, json: (v: unknown) => v }) as Sql, statusWrites };
 }
 
 async function fundStake(ledger: MemoryLedger, amount: string): Promise<void> {

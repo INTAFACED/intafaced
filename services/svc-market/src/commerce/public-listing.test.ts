@@ -3,16 +3,19 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { CommerceService } from './commerce-service.js';
 import { decimalPriceFromDriver } from './commerce-price.js';
-import { createMarketRouter, listingDetailOut } from '../router.js';
-import { ReviewsService, REVIEW_MEAN_ROUNDING } from '../reviews/reviews-service.js';
+import { createMarketRouter } from '../router.js';
+import { marketListingDetailSchema, REVIEW_MEAN_ROUNDING } from '@intafaced/contracts/market-procedures';
+import { ReviewsService } from '../reviews/reviews-service.js';
 import { userCopy } from '../user-copy.js';
 import { MarketError } from '../vendor-service.js';
 
 /**
  * MC-market-01 — public listing by id.
  * The shopfront read carries terms, the seller's public profile, the active
- * listing count and the review summary. It carries no seller user id and no
- * performance figure. Blank commission refuses before any read.
+ * listing count and the review summary. It carries no seller user id. Its
+ * performance is the seller's track record from stored fills (svc-trade), or
+ * unreported with no figure when that can't be read. Blank commission refuses
+ * before any read.
  */
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -210,10 +213,60 @@ describe('market.listing on the router', () => {
     return createMarketRouter({} as never, svc, undefined, undefined, reviews).createCaller(anonymous());
   }
 
+  /** The router with a track record source; the vendor service answers the seller's user id for it, server side. */
+  function withRecord(
+    recordOf: (userId: string) => Promise<{ fills: number; firstFillAt: string | null }>,
+    seller: string | null = SELLER,
+  ) {
+    const svc = commerce(scripted([[listingRow()], [{ id: 'slot' }], [{ n: '1' }]]), vendors(), 250);
+    const reviews = new ReviewsService(scripted([[]]) as never);
+    const userIdOf = vi.fn(async () => seller);
+    const source = { recordOf: vi.fn(recordOf) };
+    const caller = createMarketRouter({ userIdOf } as never, svc, undefined, undefined, reviews, undefined, source).createCaller(
+      anonymous(),
+    );
+    return { caller, userIdOf, source };
+  }
+
+  it("reports the seller's fills from the track record, with its basis, and still no seller user id", async () => {
+    const { caller, userIdOf, source } = withRecord(async () => ({ fills: 3, firstFillAt: '2026-03-01T10:00:00.000Z' }));
+    const reply = await caller.listing({ listingId: LISTING });
+    expect(marketListingDetailSchema.parse(reply)).toEqual(reply);
+    expect(reply.performance).toEqual({ reported: true, basis: 'seller_own_fills', fills: 3, firstFillAt: '2026-03-01T10:00:00.000Z' });
+    expect(userIdOf).toHaveBeenCalledWith(VENDOR);
+    expect(source.recordOf).toHaveBeenCalledWith(SELLER);
+    expect(JSON.stringify(reply)).not.toContain(SELLER);
+  });
+
+  it('reports a seller with no fill as zero fills and no first fill, read from the record', async () => {
+    const { caller } = withRecord(async () => ({ fills: 0, firstFillAt: null }));
+    expect((await caller.listing({ listingId: LISTING })).performance).toEqual({
+      reported: true,
+      basis: 'seller_own_fills',
+      fills: 0,
+      firstFillAt: null,
+    });
+  });
+
+  it('labels performance unreported, with no figure, when the track record cannot be read', async () => {
+    const { caller } = withRecord(async () => {
+      throw new MarketError('The provider’s trading record cannot be read', 'market.provider_record_unavailable');
+    });
+    const reply = await caller.listing({ listingId: LISTING });
+    expect(reply.performance).toEqual({ reported: false });
+    expect(reply.listing.id).toBe(LISTING);
+  });
+
+  it('labels performance unreported when the vendor has no user to read', async () => {
+    const { caller, source } = withRecord(async () => ({ fills: 9, firstFillAt: null }), null);
+    expect((await caller.listing({ listingId: LISTING })).performance).toEqual({ reported: false });
+    expect(source.recordOf).not.toHaveBeenCalled();
+  });
+
   it('serves the detail to an anonymous caller and labels performance unreported', async () => {
     const caller = mount(scripted([[listingRow()], [{ id: 'slot' }], [{ n: '1' }]]), scripted([[{ score: 5 }]]));
     const reply = await caller.listing({ listingId: LISTING });
-    expect(listingDetailOut.parse(reply)).toEqual(reply);
+    expect(marketListingDetailSchema.parse(reply)).toEqual(reply);
     expect(reply.terms).toEqual({
       offerType: reply.listing.offerType,
       assetId: reply.listing.assetId,

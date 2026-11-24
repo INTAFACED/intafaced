@@ -233,7 +233,7 @@ export const SUITES = [
      * The local stack's TEST tokens (tooling/scripts/local-test-chain.mjs): name, symbol and decimals as immutables,
      * EIP-2612 + EIP-5267. Own suite so it stales nothing else. Not a product token: anyone may mint.
      */
-    sources: ['test/TestToken.sol', 'test/TestPlainToken.sol', 'test/TestWrappedNative.sol'],
+    sources: ['test/TestToken.sol', 'test/TestPlainToken.sol', 'test/TestResetToken.sol', 'test/TestWrappedNative.sol'],
   },
   {
     name: 'privacy',
@@ -336,6 +336,15 @@ export const SUITES = [
      * only the sender takes them back after expiry. Own suite so no other suite's change stales this bytecode.
      */
     sources: ['escrow/ClaimLinkEscrow.sol'],
+  },
+  {
+    name: 'test-bridge',
+    expect: 'compiles',
+    /**
+     * D-bridge-chain-03 — the local stack's TEST burn-and-mint bridge token, on both TEST chains: burn once per intent,
+     * mint once per intent on the TEST attester's signature. Not a product contract. Own suite so it stales nothing else.
+     */
+    sources: ['test/TestBridgeToken.sol'],
   },
   {
     name: 'rwa',

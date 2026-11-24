@@ -1,14 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
-import {
-  createEdgeContext,
-  retainRawBody,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-  type EdgeRequest,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier, EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { outcomeMarketMoveInputSchema } from '@intafaced/contracts/outcome-markets';
 import { createOrderRequestSchema } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';

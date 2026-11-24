@@ -17,6 +17,8 @@ export const OWNER_CRITERION_FORMAT: Record<QuantOwnerCriterion, RegExp> = {
   'oos.minReturnPercent': /^-?\d{1,6}(\.\d{1,4})?$/,
   'oos.maxDrawdownPercent': /^\d{1,3}(\.\d{1,4})?$/,
   'oos.maxShortfallPercent': /^\d{1,6}(\.\d{1,4})?$/,
+  'live.enabled': /^on$/,
+  'library.queuePageSize': /^[1-9]\d{0,2}$/,
 };
 
 /** What each gate criterion is called on a refusal. */

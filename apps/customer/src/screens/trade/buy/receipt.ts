@@ -7,6 +7,7 @@
  */
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from './deps';
+import { feeUsd } from './cost';
 import { dec, divDown, str } from './trade-math';
 
 export interface Receipt {
@@ -19,7 +20,8 @@ export interface Receipt {
   cost: string | null;
   /** Cost per coin; null when unknown. */
   average: string | null;
-  fee: { cost: string; currency: string } | null;
+  /** `usd`: what the fee is worth in dollars, at the fills' average price for a fee in the coin; null when unknown. */
+  fee: { cost: string; currency: string; usd: string | null } | null;
   orderId: string;
 }
 
@@ -45,7 +47,8 @@ export function receiptFrom(order: Order, fills: readonly Trade[] | null = null)
     if (amount !== filled) mine = null;
   }
   let cost: bigint | null = null;
-  let fee: Receipt['fee'] = order.fee && dec(order.fee.cost) !== null ? { cost: order.fee.cost, currency: order.fee.currency } : null;
+  let fee: Omit<NonNullable<Receipt['fee']>, 'usd'> | null =
+    order.fee && dec(order.fee.cost) !== null ? { cost: order.fee.cost, currency: order.fee.currency } : null;
   if (mine) {
     let sum = 0n;
     let known = true;
@@ -62,6 +65,7 @@ export function receiptFrom(order: Order, fills: readonly Trade[] | null = null)
       fee = { cost: str(charged.reduce((total, trade) => total + (dec(trade.fee?.cost) ?? 0n), 0n)), currency: currency! };
   }
   const average = cost !== null && filled > 0n ? divDown(cost, filled) : null;
+  const [baseAsset = '', quoteAsset = ''] = order.symbol.split('/');
   const status: Receipt['status'] = order.status === 'open' ? 'open' : filled === 0n ? 'none' : filled < total ? 'partial' : 'filled';
   return {
     side: order.side,
@@ -70,7 +74,8 @@ export function receiptFrom(order: Order, fills: readonly Trade[] | null = null)
     amount: str(total),
     cost: cost === null ? null : str(cost),
     average: average === null ? null : str(average),
-    fee,
+    fee:
+      fee === null ? null : { ...fee, usd: feeUsd(fee.cost, fee.currency, baseAsset, quoteAsset, average === null ? null : str(average)) },
     orderId: order.id,
   };
 }

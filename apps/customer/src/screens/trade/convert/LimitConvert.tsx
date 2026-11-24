@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { shownCode } from '../../../shared/reference';
 import { AmountInput, Button, CoinIcon, fmtAmount, refusalCopy, type MarketRow } from '../buy/deps';
 import { dec } from '../buy/trade-math';
 import type { LimitConvert as LimitRow, createToolApi } from '../../../features/trade/tool-api';
@@ -93,7 +94,7 @@ export function LimitConvert({
     } else {
       requestId.current = null;
       const copy = refusalCopy(result.code ?? '', { asset: from, available: available ?? '' });
-      setMessage(`${copy.title}. ${copy.body}${result.code ? ` (Ref ${result.code})` : ''}`);
+      setMessage(`${copy.title}. ${copy.body}${shownCode(result.code) ? ` (Ref ${result.code})` : ''}`);
     }
   }
 
@@ -117,10 +118,10 @@ export function LimitConvert({
     });
 
   return (
-    <div className="cvt-limit" data-testid="cvt-limit">
+    <div className="lt-stack" data-testid="cvt-limit">
       <div className="cvt-fields">
         <div className="cvt-field" data-testid="limit-from-field">
-          <span className="cvt-field__label">{t('From')}</span>
+          <span className="lt-hint">{t('From')}</span>
           <div className="cvt-field__main">
             <span className="cvt-asset">
               <CoinIcon asset={from} size={28} />
@@ -145,7 +146,7 @@ export function LimitConvert({
           </div>
         </div>
         <div className="cvt-field" data-testid="limit-target-field">
-          <span className="cvt-field__label">{t('Target rate')}</span>
+          <span className="lt-hint">{t('Target rate')}</span>
           <div className="cvt-field__main">
             <span className="cvt-asset">
               <CoinIcon asset={market.quote} size={28} />
@@ -171,7 +172,7 @@ export function LimitConvert({
       {short ? (
         <div className="cvt-note" role="alert">
           <p>{refusalCopy('ledger.insufficient_funds', { asset: from, available: available ?? '' }).title}.</p>
-          <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+          <a className="lt-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
             {t('Deposit {asset}', { asset: from })}
           </a>
         </div>

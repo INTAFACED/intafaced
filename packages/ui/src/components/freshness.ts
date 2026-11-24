@@ -121,3 +121,51 @@ export function asOfIso(asOf: AsOf): string | null {
   const ms = parseAsOf(asOf);
   return ms == null ? null : new Date(ms).toISOString();
 }
+
+/**
+ * How a figure from one holder (a partner bank, a card partner, a venue, a chain, our own books) is shown:
+ * known (fresh, with its as-of time), stale (older than its limit, still shown with its time), not known (never an
+ * empty or zero figure), or in transit (money that has left one holder and not yet reached the next).
+ */
+export type HeldState = 'known' | 'stale' | 'unknown' | 'transit';
+
+export interface HeldStateInput {
+  asOf: AsOf;
+  now: number;
+  staleAfterMs: number | null | undefined;
+  /** The holder did not answer, or answered with no figure. */
+  unknown?: boolean;
+  /** The money has left one holder and not yet reached the next. */
+  transit?: boolean;
+}
+
+/** not known wins (no figure is not money moving); then in transit; then live is known, stale is stale, else not known. */
+export function heldStateOf({ asOf, now, staleAfterMs, unknown, transit }: HeldStateInput): HeldState {
+  if (unknown) return 'unknown';
+  if (transit) return parseAsOf(asOf) == null ? 'unknown' : 'transit';
+  const freshness = freshnessOf({ asOf, now, staleAfterMs });
+  return freshness === 'live' ? 'known' : freshness === 'stale' ? 'stale' : 'unknown';
+}
+
+/** A total across holders: its state and its as-of time, from the parts it adds up. */
+export interface TotalFreshness {
+  state: Exclude<HeldState, 'transit'>;
+  /** The oldest as-of time among the parts, as that part gave it; null when any part has none. */
+  asOf: string | null;
+}
+
+/**
+ * A total carries the oldest as-of time among its parts and reads "not known" when any part is unknown or there are
+ * no parts at all; it is stale when any part is stale. A part in transit counts with its own time.
+ */
+export function totalFreshness(parts: ReadonlyArray<{ state: HeldState; asOf: string | null }>): TotalFreshness {
+  if (parts.length === 0 || parts.some((part) => part.state === 'unknown')) return { state: 'unknown', asOf: null };
+  let oldest: { asOf: string; ms: number } | null = null;
+  for (const part of parts) {
+    const ms = parseAsOf(part.asOf);
+    if (ms == null || part.asOf == null) return { state: 'unknown', asOf: null };
+    if (oldest == null || ms < oldest.ms) oldest = { asOf: part.asOf, ms };
+  }
+  if (oldest == null) return { state: 'unknown', asOf: null };
+  return { state: parts.some((part) => part.state === 'stale') ? 'stale' : 'known', asOf: oldest.asOf };
+}

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * svc-identity guided verification (I-kyc-compliance-08, J-identity-08 #2). A person fills six steps; each save keeps
@@ -16,34 +17,42 @@ export const kycProfileStepNumberSchema = z.number().int().min(1).max(KYC_PROFIL
 
 const alpha2 = z.string().regex(/^[A-Z]{2}$/);
 const text = (max: number) => z.string().trim().min(1).max(max);
-/** A real calendar date, not in the future and not before 1900. */
-const dateOfBirth = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .refine((value) => {
-    const at = new Date(`${value}T00:00:00Z`);
-    return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === value && value >= '1900-01-01' && at.getTime() <= Date.now();
-  }, 'not a valid date of birth');
+/** A date of birth as it travels: `YYYY-MM-DD`. */
+const dateOfBirthShape = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** True for a real calendar date, not in the future and not before 1900. */
+export function isDateOfBirth(value: string): boolean {
+  const at = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === value && value >= '1900-01-01' && at.getTime() <= Date.now();
+}
+const dateOfBirth = dateOfBirthShape.refine(isDateOfBirth, 'not a valid date of birth');
 export const kycDocumentTypeCodeSchema = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/);
 
 /** Everything a draft holds. Null is not entered yet. */
-export const kycProfileFieldsSchema = z
-  .object({
-    residence: alpha2.nullable(),
-    nationality: alpha2.nullable(),
-    legalName: text(200).nullable(),
-    /** Optional: the legal name in the local script. */
-    localName: text(200).nullable(),
-    dateOfBirth: dateOfBirth.nullable(),
-    documentType: kycDocumentTypeCodeSchema.nullable(),
-    documentNumber: text(64).nullable(),
-    addressLine: text(200).nullable(),
-    city: text(100).nullable(),
-    postalCode: text(20).nullable(),
-    /** Set by the upload step: the vault's opaque id for the ID photo. */
-    documentId: z.string().uuid().nullable(),
-  })
-  .strict();
+const fieldsOf = <D extends z.ZodType<string>>(dateOfBirth: D) =>
+  z
+    .object({
+      residence: alpha2.nullable(),
+      nationality: alpha2.nullable(),
+      legalName: text(200).nullable(),
+      /** Optional: the legal name in the local script. */
+      localName: text(200).nullable(),
+      dateOfBirth: dateOfBirth.nullable(),
+      documentType: kycDocumentTypeCodeSchema.nullable(),
+      documentNumber: text(64).nullable(),
+      addressLine: text(200).nullable(),
+      city: text(100).nullable(),
+      postalCode: text(20).nullable(),
+      /** Set by the upload step: the vault's opaque id for the ID photo. */
+      documentId: z.string().uuid().nullable(),
+    })
+    .strict();
+/**
+ * The fields as identity seals and opens them: the date of birth a real calendar date. Every draft a reply carries was
+ * opened through this schema.
+ */
+export const kycProfileFieldsSchema = fieldsOf(dateOfBirth);
+/** The fields as a reply carries them; the calendar rule is the records' `accept` check (`identity-kyc-profile-procedures.ts`). */
+const kycProfileFieldsShape = fieldsOf(dateOfBirthShape);
 export type KycProfileFields = z.infer<typeof kycProfileFieldsSchema>;
 
 /** What each step asks for (the upload step takes a file, the review step sends). */
@@ -66,12 +75,17 @@ export const kycProfileDraftSchema = z.object({
   /** The step to resume at. */
   step: kycProfileStepNumberSchema,
   version: z.number().int().min(1),
-  fields: kycProfileFieldsSchema,
+  fields: kycProfileFieldsShape,
   /** Set once sent: the verification request it opened. */
   recordId: z.string().uuid().nullable(),
   updatedAt: z.string().datetime({ offset: true }),
 });
 export type KycProfileDraft = z.infer<typeof kycProfileDraftSchema>;
+/** True when a draft's date of birth, if entered, is a real calendar date. */
+export const draftBirthDateReal = (draft: KycProfileDraft | null): boolean =>
+  draft?.fields.dateOfBirth == null || isDateOfBirth(draft.fields.dateOfBirth);
+/** A draft with its date of birth checked, for `kyc.profile.saveStep`, which is not a record yet. */
+export const kycProfileDraftExactSchema = kycProfileDraftSchema.refine(draftBirthDateReal, 'not a valid date of birth');
 
 export const kycProfileSchema = z.object({
   draft: kycProfileDraftSchema.nullable(),
@@ -90,7 +104,7 @@ export const kycProfileSaveStepInputSchema = z
     step: z.enum(['residence', 'identity', 'document', 'address']),
     /** The draft version this save was made from; a stale one refuses `kyc.profile_version`. */
     version: z.number().int().min(1),
-    fields: z.record(z.string(), z.unknown()),
+    fields: z.record(z.string(), jsonValueSchema),
   })
   .strict();
 export const kycProfileUploadInputSchema = z

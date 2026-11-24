@@ -1,0 +1,272 @@
+{
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"accountId\":\"acct-1\",\"qty\":\"0\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/acct-1 valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"NOPE-USD\",\"accountId\":\"acct-1\",\"qty\":\"0\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/positions/acct-1 unknown-market founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account anon": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-trade": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-execution": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-ledger": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-trade-unbound": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-trade-wrong-secret": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account founder": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account reader": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "blank GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account founder-wrong-secret": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"accountId\":\"acct-1\",\"qty\":\"0\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/acct-1 valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"NOPE-USD\",\"accountId\":\"acct-1\",\"qty\":\"0\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/positions/acct-1 unknown-market founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account anon": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-trade": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-execution": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-ledger": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-trade-unbound": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account svc-trade-wrong-secret": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account founder": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account reader": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  },
+  "set GET /markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa long-account founder-wrong-secret": {
+    "status": 414,
+    "type": "application/json",
+    "body": "{\"error\":\"Bad Request\",\"code\":\"FST_ERR_MAX_PARAM_LENGTH\",\"message\":\"'/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is exceeding the max param length\",\"statusCode\":414}"
+  }
+}

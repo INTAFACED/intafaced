@@ -1,22 +1,48 @@
 import { copy, t as copyText, Text } from './copy';
+import { agentConnectCopy } from './agent-connect-copy';
 import { agentSessionCopy as sessionCopy } from './agents-session-copy';
 import { usePreferences } from '../../shared/preferences';
-import './agents-session.css';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel, Tabs } from '../../shared/ui';
-import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
+import { Button, Field, Select, TextArea } from '@intafaced/ui/lit';
+import { SectionTabs } from '@intafaced/ui/lit/templates';
+import { FailureNote, KitRead as Read, ScrollTable, Section } from './volt-parts';
+import { Details, Limit } from './catalogue-parts';
+import { useKitAction as useAction } from './volt-action';
+import { presentActionFailure } from './action-state';
 import { Campaigns } from './Campaigns';
 import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
-import { navigatorAskResultSchema, type NavigatorOrder } from '@intafaced/contracts/agents-onchain';
+import { type NavigatorOrder } from '@intafaced/contracts/agents-onchain';
+import { BackgroundRunStart } from './AgentRun';
+import { ResearchProvenance, ResearchReply } from './ResearchProvenance';
+import { researchProvenanceSchema, type ResearchProvenance as ResearchProvenanceShape } from '@intafaced/contracts/agents-research';
 import { NavigatorCapLine, NavigatorOrderView, NavigatorOrders, NavigatorTradeRefusalView, useNavigatorTrading } from './NavigatorOrders';
+import { AgentsActivity, AgentsDashboard, AgentsUsage, RunTraces } from './AgentsReview';
+import { agentsReviewCopy } from './agents-review-copy';
+import { callAs } from '../../shared/api';
+import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
+import { AGENTS_RUN_COMPLETE } from '@intafaced/contracts/agents-run-procedures';
+import {
+  AGENTS_SESSION_SELECT,
+  AGENTS_SESSION_SELECTED,
+  AGENTS_SESSION_LOG,
+  AGENTS_SESSION_DETAIL,
+  AGENTS_SESSION_CLOSE,
+  AGENTS_SESSION_OPEN,
+} from '@intafaced/contracts/agents-session-procedures';
+import { AGENTS_AGENT_GET } from '@intafaced/contracts/agents-agent-procedures';
+import { AGENTS_LOG_MINE } from '@intafaced/contracts/agents-log-procedures';
+import { AGENTS_USAGE_CURRENT } from '@intafaced/contracts/agents-usage-procedures';
+import { AGENTS_COACH_SESSION } from '@intafaced/contracts/agents-coach-procedures';
+import { AGENTS_NAVIGATOR_ASK } from '@intafaced/contracts/agents-navigator-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 const uuid = z.string().guid();
 const routeSchema = z.object({
   task: z.string(),
@@ -49,22 +75,7 @@ const definition = z.object({
     allowedTasks: z.array(z.string()),
   }),
 });
-const sessionDetailSchema = z
-  .object({
-    session: z.object({ id: uuid, agentId: z.string(), status: z.enum(['open', 'closed']) }).passthrough(),
-    assetId: z.string().min(1),
-    windows: z.array(
-      z.object({
-        windowId: z.string(),
-        openedAt: z.string(),
-        state: z.enum(['open', 'unpaid', 'settled']),
-        amount: decimalSchema.nullable(),
-        chargeKey: z.string().nullable(),
-      }),
-    ),
-  })
-  .nullable();
-type SessionDetail = NonNullable<z.infer<typeof sessionDetailSchema>>;
+type SessionDetail = NonNullable<ProcedureOutput<typeof AGENTS_SESSION_DETAIL>>;
 const sessionSchema = z.object({
   id: uuid,
   agentId: z.string(),
@@ -93,7 +104,6 @@ const actionSchema = z.object({
   occurredAt: z.string().datetime({ offset: true }),
 });
 type AgentAction = z.infer<typeof actionSchema>;
-const selectedSchema = z.object({ sessionId: uuid, agentId: z.string().min(1) });
 type Inspection = { owner: string; id: string; agentId: string };
 const inspectionSchema = z.object({ owner: uuid, id: uuid, agentId: z.string().min(1) });
 function readInspection(owner: string | null): Inspection | null {
@@ -129,17 +139,49 @@ function actionList(limit: number, selected?: Inspection | null) {
       }
     });
 }
-export function Agents({ paper = false }: { paper?: boolean }) {
+/** The room's sections: each is a view of this one room, not an address of its own. */
+export type AgentTab = 'Catalogue' | 'Sessions' | 'Activity' | 'Dashboard' | 'Usage' | 'Coach' | 'Product boundaries' | 'Campaigns';
+const TABS: readonly AgentTab[] = ['Catalogue', 'Sessions', 'Activity', 'Dashboard', 'Usage', 'Coach', 'Product boundaries', 'Campaigns'];
+
+/** The room's "Agent sections" row: one button per section, the open one pressed. */
+export function AgentSectionTabs({ tab, onTab }: { tab: AgentTab; onTab: (tab: AgentTab) => void }) {
+  const labels: Readonly<Record<AgentTab, string>> = {
+    Catalogue: agentsCatalogueCopy.t('tabCatalogue'),
+    Sessions: copyText('agents.sessions'),
+    Activity: copyText('agents.activity'),
+    Dashboard: agentsReviewCopy.t('tabDashboard'),
+    Usage: agentsReviewCopy.t('tabUsage'),
+    Coach: copyText('agents.coach'),
+    'Product boundaries': copyText('agents.product.boundaries'),
+    Campaigns: copyText('agents.campaigns'),
+  };
+  return (
+    <SectionTabs<AgentTab>
+      items={TABS.map((value) => ({ value, label: labels[value] }))}
+      value={tab}
+      onChange={onTab}
+      label={copyText('agents.agent.sections')}
+    />
+  );
+}
+
+/** The open section of the Agents room, with every read, session and run it holds. */
+export function AgentsSections({ paper = false, tab, onTab: setTab }: { paper?: boolean; tab: AgentTab; onTab: (tab: AgentTab) => void }) {
   const api = useApi(),
     { userId } = useSession(),
     preferences = usePreferences(),
     action = useAction('agents');
-  const [tab, setTab] = useState('Catalogue'),
-    [agent, setAgent] = useState('navigator'),
+  const [agent, setAgent] = useState('navigator'),
     [activeRecord, setActive] = useState<z.infer<typeof sessionSchema> | null>(null),
     [task, setTask] = useState(''),
     [ask, setAsk] = useState(''),
-    [reply, setReply] = useState<{ text: string; cost: string; assetId: string; metered: boolean } | null>(null),
+    [reply, setReply] = useState<{
+      text: string;
+      cost: string;
+      assetId: string;
+      metered: boolean;
+      provenance: ResearchProvenanceShape | null;
+    } | null>(null),
     [limit, setLimit] = useState(50),
     [coachAsk, setCoachAsk] = useState(''),
     [coachQuery, setCoachQuery] = useState(''),
@@ -155,7 +197,8 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     // nothing and signs nothing.
     [placed, setPlaced] = useState<NavigatorOrder | null>(null),
     [askFailure, setAskFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
-    [ordersRevision, setOrdersRevision] = useState(0);
+    [ordersRevision, setOrdersRevision] = useState(0),
+    [background, setBackground] = useState(false);
   const navigatorTrading = useNavigatorTrading(ordersRevision);
   const trading = navigatorTrading.resource.status === 'ready' ? navigatorTrading.resource.data : null;
   const [selectNotKept, setSelectNotKept] = useState(false);
@@ -176,8 +219,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     } catch {
       /* Inspection remains available in this view. */
     }
-    if (remember)
-      void api.mutate('agents', 'session.select', { sessionId: row.sessionId }, selectedSchema).then((res) => setSelectNotKept(!res.ok));
+    if (remember) void api.call(AGENTS_SESSION_SELECT, { sessionId: row.sessionId }).then((res) => setSelectNotKept(!res.ok));
   }
   function contextMatches(expected: typeof currentContext.current) {
     const current = currentContext.current;
@@ -211,34 +253,28 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     });
   }
   const routes = useResource(
-      (signal) => api.query('agents', 'routes.list', undefined, z.array(routeSchema), { signal }),
+      (signal) => callAs(api, AGENTS_ROUTES_LIST, undefined, z.array(routeSchema), { signal }),
       `agent-routes:${userId}`,
     ),
     guard = useResource(
       (signal) =>
-        api.query(
-          'agents',
-          'agent.get',
+        callAs(
+          api,
+          AGENTS_AGENT_GET,
           { agentId: agent },
           definition.nullable().refine((row) => row === null || row.agentId === agent),
           { signal },
         ),
       `agent:${userId}:${agent}`,
     ),
-    stored = useResource(
-      (signal) => api.query('agents', 'session.selected', undefined, selectedSchema.nullable(), { signal }),
-      `agent-selected:${userId}`,
-    ),
-    log = useResource(
-      (signal) => api.query('agents', 'log.mine', { limit }, actionList(limit), { signal }),
-      `agent-log:${userId}:${limit}`,
-    ),
+    stored = useResource((signal) => api.call(AGENTS_SESSION_SELECTED, undefined, { signal }), `agent-selected:${userId}`),
+    log = useResource((signal) => callAs(api, AGENTS_LOG_MINE, { limit }, actionList(limit), { signal }), `agent-log:${userId}:${limit}`),
     sessionLog = useResource(
       (signal) =>
         active
-          ? api.query(
-              'agents',
-              'session.log',
+          ? callAs(
+              api,
+              AGENTS_SESSION_LOG,
               { sessionId: active.id, limit },
               actionList(limit, { owner: userId!, id: active.id, agentId: active.agentId }),
               { signal },
@@ -248,71 +284,31 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     ),
     usage = useResource(
       (signal) =>
-        active
-          ? api.query(
-              'agents',
-              'usage.current',
-              { sessionId: active.id },
-              z.object({ windowId: z.string(), pending: decimalSchema, sessionTotal: decimalSchema, assetId: z.string().min(1) }),
-              { signal },
-            )
-          : Promise.resolve({ ok: true as const, data: null }),
+        active ? api.call(AGENTS_USAGE_CURRENT, { sessionId: active.id }, { signal }) : Promise.resolve({ ok: true as const, data: null }),
       `agent-usage:${userId}:${active?.id}`,
     ),
     selectedHistory = useResource(
       (signal) =>
         selectedSession
-          ? api.query('agents', 'session.log', { sessionId: selectedSession.id, limit }, actionList(limit, selectedSession), { signal })
+          ? callAs(api, AGENTS_SESSION_LOG, { sessionId: selectedSession.id, limit }, actionList(limit, selectedSession), { signal })
           : Promise.resolve({ ok: true as const, data: [] as AgentAction[] }),
       `agent-inspect-log:${userId}:${selectedSession?.id}:${limit}`,
     ),
     selectedUsage = useResource(
       (signal) =>
         selectedSession
-          ? api.query(
-              'agents',
-              'usage.current',
-              { sessionId: selectedSession.id },
-              z.object({ windowId: z.string().min(1), pending: decimalSchema, sessionTotal: decimalSchema, assetId: z.string().min(1) }),
-              { signal },
-            )
+          ? api.call(AGENTS_USAGE_CURRENT, { sessionId: selectedSession.id }, { signal })
           : Promise.resolve({ ok: true as const, data: null }),
       `agent-inspect-usage:${userId}:${selectedSession?.id}`,
     ),
     selectedDetail = useResource(
       (signal) =>
         selectedSession
-          ? api.query('agents', 'session.detail', { sessionId: selectedSession.id }, sessionDetailSchema, { signal })
+          ? api.call(AGENTS_SESSION_DETAIL, { sessionId: selectedSession.id }, { signal })
           : Promise.resolve({ ok: true as const, data: null }),
       `agent-inspect-detail:${userId}:${selectedSession?.id}`,
     ),
-    coach = useResource(
-      (signal) =>
-        api.query(
-          'agents',
-          'coach.session',
-          { ask: coachQuery },
-          z.discriminatedUnion('status', [
-            z.object({
-              status: z.literal('refuse'),
-              reason: z.string(),
-              isAdvice: z.literal(false),
-              positionsReferenced: z.literal(false),
-              citedCount: z.literal(0),
-            }),
-            z.object({
-              status: z.literal('grounded'),
-              kind: z.literal('citation'),
-              isAdvice: z.literal(false),
-              positionsReferenced: z.literal(false),
-              citedCount: z.number().int(),
-              citations: z.array(z.object({ slug: z.string(), title: z.string() })),
-            }),
-          ]),
-          { signal },
-        ),
-      `coach:${userId}:${coachQuery}`,
-    );
+    coach = useResource((signal) => api.call(AGENTS_COACH_SESSION, { ask: coachQuery }, { signal }), `coach:${userId}:${coachQuery}`);
   useEffect(() => {
     setInspection(readInspection(userId));
     setSessionFilter('');
@@ -403,8 +399,8 @@ export function Agents({ paper = false }: { paper?: boolean }) {
       run: async (canDispatch) => {
         if (!contextMatches(expected)) return changed();
         const [freshGuard, freshRoutes] = await Promise.all([
-          api.query('agents', 'agent.get', { agentId: agent }, definition.nullable()),
-          api.query('agents', 'routes.list', undefined, z.array(routeSchema)),
+          api.call(AGENTS_AGENT_GET, { agentId: agent }),
+          callAs(api, AGENTS_ROUTES_LIST, undefined, z.array(routeSchema)),
         ]);
         if (!freshGuard.ok) return freshGuard;
         if (!freshRoutes.ok) return freshRoutes;
@@ -438,9 +434,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         };
         setRunNote(null);
         setRuns((current) => [row, ...current]);
-        const res = await api.mutate(
-          'agents',
-          'run.complete',
+        const res = await callAs(
+          api,
+          AGENTS_RUN_COMPLETE,
           {
             sessionId: active.id,
             requestId,
@@ -457,6 +453,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               assetId: z.string(),
               metered: z.boolean(),
               action: actionSchema,
+              provenance: researchProvenanceSchema.nullable(),
             })
             .refine(
               (row) =>
@@ -502,21 +499,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     });
   }
   return (
-    <div className="more-grid agents-room">
-      <Tabs
-        items={['Catalogue', 'Sessions', 'Activity', 'Coach', 'Product boundaries', 'Campaigns']}
-        labels={{
-          Catalogue: agentsCatalogueCopy.t('tabCatalogue'),
-          Sessions: copyText('agents.sessions'),
-          Activity: copyText('agents.activity'),
-          Coach: copyText('agents.coach'),
-          'Product boundaries': copyText('agents.product.boundaries'),
-          Campaigns: copyText('agents.campaigns'),
-        }}
-        value={tab}
-        onChange={setTab}
-        label={copyText('agents.agent.sections')}
-      />
+    <div className="lt-stack">
       {tab === 'Catalogue' ? (
         <AgentsCatalogue
           log={log.resource}
@@ -529,10 +512,10 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         />
       ) : tab === 'Sessions' ? (
         <>
-          <div className="agent-session-journey">
-            <Panel title={sessionCopy.t('records')} role="region" aria-label={sessionCopy.t('records')}>
-              <p className="muted">{sessionCopy.t('intro')}</p>
-              <Button variant="secondary" onClick={log.reload}>
+          <div className="lt-grid">
+            <Section className="lt-region" title={sessionCopy.t('records')} role="region" aria-label={sessionCopy.t('records')}>
+              <p className="lt-muted">{sessionCopy.t('intro')}</p>
+              <Button tone="secondary" onClick={log.reload}>
                 {sessionCopy.t('refreshRecords')}
               </Button>
               <Read resource={log.resource} retry={log.reload} empty={copyText('agents.no.agent.actions.have.been.recorded')}>
@@ -543,7 +526,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   const visible = sessions.filter((row) => !sessionFilter || row.agentId === sessionFilter);
                   return (
                     <>
-                      <label className="field">
+                      <label className="lt-field">
                         <span>{sessionCopy.t('filter')}</span>
                         <select value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)}>
                           <option value="">{sessionCopy.t('allAgents')}</option>
@@ -555,7 +538,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         </select>
                       </label>
                       {visible.length ? (
-                        <DataTable
+                        <ScrollTable
                           headers={[
                             copyText('agents.agent'),
                             sessionCopy.t('lastAction'),
@@ -574,17 +557,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                               <td lang="zxx">{row.sessionId}</td>
                               <td>{sessionTime(row.occurredAt, preferences)}</td>
                               <td>
-                                <Button
-                                  variant="secondary"
-                                  aria-pressed={selectedSession?.id === row.sessionId}
-                                  onClick={() => inspect(row)}
-                                >
+                                <Button tone="secondary" aria-pressed={selectedSession?.id === row.sessionId} onClick={() => inspect(row)}>
                                   {sessionCopy.t('inspect')}
                                 </Button>
                               </td>
                             </tr>
                           ))}
-                        </DataTable>
+                        </ScrollTable>
                       ) : (
                         <p role="status">{sessionCopy.t('noMatch')}</p>
                       )}
@@ -593,9 +572,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   );
                 }}
               </Read>
-              <p className="muted">{sessionCopy.t('coverage')}</p>
-            </Panel>
-            <Panel title={sessionCopy.t('selected')} role="region" aria-label={sessionCopy.t('selected')}>
+              <p className="lt-muted">{sessionCopy.t('coverage')}</p>
+            </Section>
+            <Section className="lt-region" title={sessionCopy.t('selected')} role="region" aria-label={sessionCopy.t('selected')}>
               {selectedSession ? (
                 <>
                   <p>
@@ -603,13 +582,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     <br />
                     <code lang="zxx">{selectedSession.id}</code>
                   </p>
-                  <p className="muted">{sessionCopy.t('readOnly')}</p>
+                  <p className="lt-muted">{sessionCopy.t('readOnly')}</p>
                   {selectedSession.agentId === 'navigator' ? (
                     <NavigatorOrders sessionId={selectedSession.id} revision={ordersRevision} />
                   ) : null}
                   {selectNotKept ? <p role="status">{sessionCopy.t('selectionLocal')}</p> : null}
                   <Button
-                    variant="secondary"
+                    tone="secondary"
                     onClick={() => {
                       selectedHistory.reload();
                       selectedUsage.reload();
@@ -625,7 +604,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             [
                               copyText('agents.pending.window.charge'),
                               <span
-                                className="agent-exact"
+                                className="lt-num lt-wrap"
                                 lang={preferences.hideBalances ? sessionCopy.forLocale(preferences.language).languageFor('hidden') : 'zxx'}
                               >
                                 {preferences.hideBalances ? sessionCopy.t('hidden') : `${displayAmount(usage.pending)} ${usage.assetId}`}
@@ -634,7 +613,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             [
                               sessionCopy.t('accrued'),
                               <span
-                                className="agent-exact"
+                                className="lt-num lt-wrap"
                                 lang={preferences.hideBalances ? sessionCopy.forLocale(preferences.language).languageFor('hidden') : 'zxx'}
                               >
                                 {preferences.hideBalances
@@ -647,33 +626,36 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       )
                     }
                   </Read>
-                  <p className="muted">{sessionCopy.t('usageBoundary')}</p>
+                  <p className="lt-muted">{sessionCopy.t('usageBoundary')}</p>
                   <Read resource={steadyDetail} retry={selectedDetail.reload}>
                     {(detail) =>
                       detail ? (
-                        <SessionWindows
-                          detail={detail}
-                          closing={closing}
-                          closed={closedNote === detail.session.id}
-                          onClose={async () => {
-                            setClosing(true);
-                            setCloseFailure(null);
-                            const res = await api.mutate('agents', 'session.close', { sessionId: detail.session.id }, sessionSchema);
-                            setClosing(false);
-                            if (res.ok) {
-                              setClosedNote(detail.session.id);
+                        <>
+                          <SessionWindows
+                            detail={detail}
+                            closing={closing}
+                            closed={closedNote === detail.session.id}
+                            onClose={async () => {
+                              setClosing(true);
                               setCloseFailure(null);
-                            } else setCloseFailure(res);
-                            selectedDetail.reload();
-                            selectedUsage.reload();
-                            selectedHistory.reload();
-                            log.reload();
-                          }}
-                        />
+                              const res = await api.call(AGENTS_SESSION_CLOSE, { sessionId: detail.session.id });
+                              setClosing(false);
+                              if (res.ok) {
+                                setClosedNote(detail.session.id);
+                                setCloseFailure(null);
+                              } else setCloseFailure(res);
+                              selectedDetail.reload();
+                              selectedUsage.reload();
+                              selectedHistory.reload();
+                              log.reload();
+                            }}
+                          />
+                          <RunTraces sessionId={detail.session.id} runs={detail.runs ?? []} />
+                        </>
                       ) : null
                     }
                   </Read>
-                  {closeFailure ? <Failure result={closeFailure} /> : null}
+                  {closeFailure ? <FailureNote result={closeFailure} /> : null}
                   <Read resource={steadyHistory} retry={selectedHistory.reload} empty={copyText('agents.no.actions.in.this.session')}>
                     {(rows) => (
                       <>
@@ -682,19 +664,19 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       </>
                     )}
                   </Read>
-                  <p className="muted">{sessionCopy.t('original')}</p>
-                  <p className="muted">{sessionCopy.t('resultBoundary')}</p>
+                  <p className="lt-muted">{sessionCopy.t('original')}</p>
+                  <p className="lt-muted">{sessionCopy.t('resultBoundary')}</p>
                 </>
               ) : (
-                <p className="muted">{sessionCopy.t('choose')}</p>
+                <p className="lt-muted">{sessionCopy.t('choose')}</p>
               )}
               {action.feedback}
-            </Panel>
+            </Section>
           </div>
-          <p className="muted">{sessionCopy.t('permission')}</p>
-          <div className="more-columns">
+          <p className="lt-muted">{sessionCopy.t('permission')}</p>
+          <div className="lt-grid">
             <div>
-              <Panel title={copyText('agents.agent.permissions')}>
+              <Section className="lt-region" title={copyText('agents.agent.permissions')}>
                 <Select label={copyText('agents.product.agent')} value={agent} onChange={setAgent} options={SESSION_AGENT_IDS} />
                 <Read resource={guard.resource} retry={guard.reload} empty={copyText('agents.this.agent.is.not.registered.in.the')}>
                   {(g) =>
@@ -715,7 +697,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             ],
                           ]}
                         />
-                        <DataTable
+                        <ScrollTable
                           headers={[copyText('agents.tool'), copyText('agents.access'), copyText('agents.approval')]}
                           label={copyText('agents.agent.tool.permissions')}
                         >
@@ -726,11 +708,12 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                               <td>{t.requiresApproval ? copyText('agents.required') : copyText('agents.no.additional.approval')}</td>
                             </tr>
                           ))}
-                        </DataTable>
-                        <p className="muted">
+                        </ScrollTable>
+                        <p className="lt-muted">
                           <Text k="agents.opening.a.session.permits.engine.tasks.within" />
                         </p>
                         <Button
+                          tone="primary"
                           disabled={
                             action.disabled ||
                             Boolean(active && active.status === 'open') ||
@@ -778,7 +761,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                               ),
                               run: async (canDispatch) => {
                                 if (!contextMatches(expected)) return changed();
-                                const fresh = await api.query('agents', 'agent.get', { agentId: agent }, definition.nullable());
+                                const fresh = await api.call(AGENTS_AGENT_GET, { agentId: agent });
                                 if (!fresh.ok) return fresh;
                                 if (
                                   !fresh.data ||
@@ -790,9 +773,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                                   return preflightFailure('error', 'agents.the.agent.guardrails.changed.reload.and.review');
                                 if (!canDispatch() || !contextMatches(expected))
                                   return preflightFailure('aborted', 'agents.the.account.changed.review.this.session.again');
-                                const res = await api.mutate(
-                                  'agents',
-                                  'session.open',
+                                const res = await callAs(
+                                  api,
+                                  AGENTS_SESSION_OPEN,
                                   { agentId: agent },
                                   sessionSchema.refine(
                                     (s) =>
@@ -816,7 +799,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         >
                           <Text k="agents.review.session" />
                         </Button>
-                        <Button variant="secondary" aria-expanded={estimating} onClick={() => setEstimating((open) => !open)}>
+                        <Button tone="secondary" aria-expanded={estimating} onClick={() => setEstimating((open) => !open)}>
                           {agentsCatalogueCopy.t('estimateButton')}
                         </Button>
                         {estimating ? (
@@ -837,11 +820,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     ) : null
                   }
                 </Read>
-              </Panel>
-              <Panel title={copyText('agents.published.routing.prices')}>
+              </Section>
+              <Section className="lt-region" title={copyText('agents.published.routing.prices')}>
                 <Read resource={routes.resource} retry={routes.reload} empty={copyText('agents.no.engine.routes.are.published')}>
                   {(rows) => (
-                    <DataTable
+                    <ScrollTable
                       headers={[
                         copyText('agents.task'),
                         copyText('agents.capability'),
@@ -866,12 +849,17 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                           </td>
                         </tr>
                       ))}
-                    </DataTable>
+                    </ScrollTable>
                   )}
                 </Read>
-              </Panel>
+              </Section>
             </div>
-            <Panel title={copyText('agents.session.workspace')} role="region" aria-label={copyText('agents.session.workspace')}>
+            <Section
+              className="lt-region"
+              title={copyText('agents.session.workspace')}
+              role="region"
+              aria-label={copyText('agents.session.workspace')}
+            >
               {active ? (
                 <>
                   <p>
@@ -899,23 +887,32 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     options={available.map((r) => r.task)}
                   />
                   {agent === 'navigator' ? <NavigatorCapLine trading={trading} /> : null}
-                  <TextArea label={agentsCatalogueCopy.t('askAgent')} value={ask} onChange={setAsk} maxLength={200000} />
-                  <Button
-                    disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
-                    onClick={() => {
-                      if (!selectedRoute || !defs) return;
-                      const requestId = crypto.randomUUID();
-                      setPlaced(null);
-                      setAskFailure(null);
-                      if (agent !== 'navigator') return stageRun(requestId, selectedRoute, defs, active);
-                      // The service first sees whether the ask names a trade. Inside the cap the person signed it places
-                      // the order with no approval asked; above it, or to move money out, it refuses by name and signs
-                      // nothing. Neither calls the engine or charges. Any other ask goes on to the ordinary run.
-                      const expectedAsk = { ...currentContext.current };
-                      const session = active;
-                      void api
-                        .mutate('agents', 'navigator.ask', { sessionId: session.id, requestId, text: ask }, navigatorAskResultSchema)
-                        .then((res) => {
+                  <TextArea label={agentsCatalogueCopy.t('askAgent')} value={ask} onChange={setAsk} maxLength={200000} rows={5} />
+                  <BackgroundRunStart
+                    key={active.id}
+                    sessionId={active.id}
+                    task={selectedRoute?.task}
+                    ask={ask}
+                    disabled={action.disabled || active.status !== 'open'}
+                    background={background}
+                    onBackground={setBackground}
+                  />
+                  {background ? null : (
+                    <Button
+                      tone="primary"
+                      disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
+                      onClick={() => {
+                        if (!selectedRoute || !defs) return;
+                        const requestId = crypto.randomUUID();
+                        setPlaced(null);
+                        setAskFailure(null);
+                        if (agent !== 'navigator') return stageRun(requestId, selectedRoute, defs, active);
+                        // The service first sees whether the ask names a trade. Inside the cap the person signed it places
+                        // the order with no approval asked; above it, or to move money out, it refuses by name and signs
+                        // nothing. Neither calls the engine or charges. Any other ask goes on to the ordinary run.
+                        const expectedAsk = { ...currentContext.current };
+                        const session = active;
+                        void api.call(AGENTS_NAVIGATOR_ASK, { sessionId: session.id, requestId, text: ask }).then((res) => {
                           if (!contextMatches(expectedAsk)) return;
                           if (!res.ok) {
                             setOrdersRevision((n) => n + 1);
@@ -928,15 +925,16 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                           }
                           stageRun(requestId, selectedRoute, defs, session);
                         });
-                    }}
-                  >
-                    {agentsCatalogueCopy.t('run')}
-                  </Button>
+                      }}
+                    >
+                      {agentsCatalogueCopy.t('run')}
+                    </Button>
+                  )}
                   {askFailure ? (
                     agent === 'navigator' ? (
                       <NavigatorTradeRefusalView failure={askFailure} trading={trading} />
                     ) : (
-                      <Failure result={askFailure} />
+                      <FailureNote result={askFailure} />
                     )
                   ) : null}
                   {placed ? <NavigatorOrderView order={placed} /> : null}
@@ -945,12 +943,12 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     rows={runs}
                     onSendAgain={async (row) => {
                       // The same request id is the same run: the service returns it or names it, and charges once.
-                      const res = await api.mutate(
-                        'agents',
-                        'run.complete',
-                        { sessionId: active.id, requestId: row.requestId, task: row.task, messages: [{ role: 'user', content: row.ask }] },
-                        z.object({ cost: decimalSchema, text: z.string(), assetId: z.string(), metered: z.boolean() }).passthrough(),
-                      );
+                      const res = await api.call(AGENTS_RUN_COMPLETE, {
+                        sessionId: active.id,
+                        requestId: row.requestId,
+                        task: row.task,
+                        messages: [{ role: 'user', content: row.ask }],
+                      });
                       // Answered: the first try never reached the engine, so this is the run and its own cost.
                       if (res.ok) {
                         setRunNote(null);
@@ -959,7 +957,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             entry.requestId === row.requestId ? { ...entry, status: 'completed', cost: res.data.cost, code: null } : entry,
                           ),
                         );
-                        setReply({ text: res.data.text, cost: res.data.cost, assetId: res.data.assetId, metered: res.data.metered });
+                        setReply({
+                          text: res.data.text,
+                          cost: res.data.cost,
+                          assetId: res.data.assetId,
+                          metered: res.data.metered,
+                          provenance: res.data.provenance,
+                        });
                       } else if (res.code === 'agents.request_id_replay') setRunNote('same');
                       else
                         setRuns((current) =>
@@ -972,11 +976,16 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     <>
                       <section role="region" aria-label={agentsCatalogueCopy.t('reply')}>
                         <h3>{agentsCatalogueCopy.t('reply')}</h3>
-                        <p data-testid="more-body" className="more-body" lang="und">
-                          {reply.text}
-                        </p>
+                        {reply.provenance ? (
+                          <ResearchReply text={reply.text} provenance={reply.provenance} />
+                        ) : (
+                          <p data-testid="more-body" className="lt-pre-wrap" lang="und">
+                            {reply.text}
+                          </p>
+                        )}
                       </section>
-                      <p className="muted">
+                      {reply.provenance ? <ResearchProvenance provenance={reply.provenance} /> : null}
+                      <p className="lt-muted">
                         {reply.metered
                           ? copyText('agents.metered.cost', { value1: reply.cost, value2: reply.assetId })
                           : copyText('agents.the.service.labeled.this.response.unmetered')}{' '}
@@ -985,7 +994,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     </>
                   )}
                   <Button
-                    variant="secondary"
+                    tone="secondary"
                     disabled={action.disabled || active.status !== 'open'}
                     onClick={() => {
                       const expected = { ...currentContext.current };
@@ -1001,9 +1010,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         reference: active.id,
                         run: async (canDispatch) => {
                           if (!canDispatch() || !contextMatches(expected)) return changed();
-                          const res = await api.mutate(
-                            'agents',
-                            'session.close',
+                          const res = await callAs(
+                            api,
+                            AGENTS_SESSION_CLOSE,
                             { sessionId: active.id },
                             sessionSchema.refine(
                               (row) =>
@@ -1034,29 +1043,25 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   </Read>
                 </>
               ) : (
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k="agents.review.a.registered.agent.and.open.its" />
                 </p>
               )}
-            </Panel>
+            </Section>
           </div>
         </>
       ) : tab === 'Activity' ? (
-        <Panel title={copyText('agents.your.agent.action.log')}>
-          <Read resource={log.resource} retry={log.reload} empty={copyText('agents.no.agent.actions.have.been.recorded')}>
-            {(rows) => (
-              <>
-                <Activity rows={rows} />
-                <Limit count={rows.length} limit={limit} cap={500} onChange={setLimit} />
-              </>
-            )}
-          </Read>
-          <p className="muted">
-            <Text k="agents.the.log.reports.exact.costs.but.does" />
-          </p>
-        </Panel>
+        <AgentsActivity
+          title={copyText('agents.your.agent.action.log')}
+          note={<Text k="agents.the.log.reports.exact.costs.but.does" />}
+          empty={copyText('agents.no.agent.actions.have.been.recorded')}
+        />
+      ) : tab === 'Dashboard' ? (
+        <AgentsDashboard />
+      ) : tab === 'Usage' ? (
+        <AgentsUsage />
       ) : tab === 'Coach' ? (
-        <Panel title={copyText('agents.curriculum.coach')}>
+        <Section className="lt-region" title={copyText('agents.curriculum.coach')}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1069,7 +1074,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               onChange={(e) => setCoachAsk(e.target.value)}
               maxLength={2000}
             />
-            <Button type="submit" variant="secondary">
+            <Button type="submit" tone="secondary">
               <Text k="agents.find.grounded.lessons" />
             </Button>
           </form>
@@ -1090,7 +1095,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   <ul>
                     {c.citations.map((r) => (
                       <li key={r.slug}>
-                        <a className="text-link" href={`/academy/${encodeURIComponent(r.slug)}`}>
+                        <a className="lt-link" href={`/academy/${encodeURIComponent(r.slug)}`}>
                           {r.title}
                         </a>
                       </li>
@@ -1100,11 +1105,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               )
             }
           </Read>
-        </Panel>
+        </Section>
       ) : tab === 'Campaigns' ? (
         <Campaigns />
       ) : (
-        <Panel title={copyText('agents.product.agent.boundaries')}>
+        <Section className="lt-region" title={copyText('agents.product.agent.boundaries')}>
           <Details
             items={[
               [
@@ -1118,13 +1123,16 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               [copyText('agents.launch.and.risk.drafts'), copyText('agents.draft.assessment.is.not.issuance.screening.list')],
             ]}
           />
-          <a className="text-link" href={preservePaperHref('/trade/copy', paper)}>
+          <a className="lt-link" href={preservePaperHref('/trade/copy', paper)}>
             <Text k="agents.open.copy" />
           </a>
-          <a className="text-link" href="/support">
+          <a className="lt-link" href="/support">
             <Text k="agents.open.support" />
           </a>
-        </Panel>
+          <a className="lt-link" href="/agents/connect">
+            <agentConnectCopy.Copy k="title" />
+          </a>
+        </Section>
       )}
       {action.dialog}
     </div>
@@ -1132,7 +1140,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
 }
 function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
   return (
-    <DataTable
+    <ScrollTable
       headers={[
         copyText('agents.time'),
         copyText('agents.agent.session'),
@@ -1147,7 +1155,7 @@ function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
           <td>{r.occurredAt}</td>
           <td>
             {r.agentId}
-            <small className="more-receipt">{r.sessionId}</small>
+            <small className="lt-mono lt-muted">{r.sessionId}</small>
           </td>
           <td>
             {r.sequence}. {r.kind}
@@ -1163,7 +1171,7 @@ function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
           </td>
         </tr>
       ))}
-    </DataTable>
+    </ScrollTable>
   );
 }
 
@@ -1178,7 +1186,7 @@ function SessionHistory({ rows }: { rows: AgentAction[] }) {
   const preferences = usePreferences();
   const authored = sessionCopy.forLocale(preferences.language);
   return (
-    <ol className="agent-session-history" aria-label={copyText('agents.agent.audit.activity')}>
+    <ol className="lt-rows" aria-label={copyText('agents.agent.audit.activity')}>
       {rows.map((row) => (
         <li key={row.id}>
           <strong>
@@ -1246,7 +1254,7 @@ function CostEstimate({
       <p data-testid="worst-case">
         {cap && assetId && parseAmount(cap) > 0n ? t('worstCase', { amount: displayAmount(cap), asset: assetId }) : t('worstCaseNoCap')}
       </p>
-      <p className="muted">{t('worstCaseBasis')}</p>
+      <p className="lt-muted">{t('worstCaseBasis')}</p>
       <p>
         {history === undefined
           ? t('historyUnloaded')
@@ -1278,14 +1286,27 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
   const { t } = agentsCatalogueCopy.useCopy();
   const preferences = usePreferences();
   return (
-    <DataTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost'), '']} label={t('runs')}>
+    <ScrollTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost')]} label={t('runs')}>
       {rows.map((row) => (
         <tr key={row.requestId}>
-          <td lang="zxx">{row.requestId}</td>
-          <td lang="zxx">{row.task}</td>
+          {/* Four columns, long ids wrapping and "Send again" under the status: the row fits the session workspace's
+              column, so its request, status and cost stay in view (J-agents-01 #5). */}
+          <td lang="zxx" className="lt-wrap">
+            {row.requestId}
+          </td>
+          <td lang="zxx" className="lt-wrap">
+            {row.task}
+          </td>
           <td>
             {t(`run_${row.status}`)}
             {row.code ? <small lang="zxx"> {row.code}</small> : null}
+            {row.status === 'completed' ? (
+              <div>
+                <Button tone="secondary" onClick={() => onSendAgain(row)}>
+                  {t('sendAgain')}
+                </Button>
+              </div>
+            ) : null}
           </td>
           <td data-testid="run-cost">
             {row.cost === null
@@ -1296,16 +1317,9 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
                 ? '••••'
                 : `${displayAmount(row.cost)} ${row.assetId}`}
           </td>
-          <td>
-            {row.status === 'completed' ? (
-              <Button variant="secondary" onClick={() => onSendAgain(row)}>
-                {t('sendAgain')}
-              </Button>
-            ) : null}
-          </td>
         </tr>
       ))}
-    </DataTable>
+    </ScrollTable>
   );
 }
 
@@ -1325,7 +1339,7 @@ function SessionWindows({
   const preferences = usePreferences();
   return (
     <>
-      <DataTable headers={[t('windowId'), t('windowState'), t('windowCost'), t('chargeKey')]} label={t('usageWindows')}>
+      <ScrollTable headers={[t('windowId'), t('windowState'), t('windowCost'), t('chargeKey'), t('paidFrom')]} label={t('usageWindows')}>
         {detail.windows.map((window) => (
           <tr key={window.windowId}>
             <td lang="zxx">{window.windowId}</td>
@@ -1336,11 +1350,20 @@ function SessionWindows({
             <td data-testid="charge-key" lang="zxx">
               {window.chargeKey ?? '—'}
             </td>
+            <td data-testid="paid-from">
+              {window.payment
+                ? t('paidByPartner', { label: window.payment.label, ref: window.payment.ref })
+                : window.paidBy === 'ledger'
+                  ? t('paidByLedger')
+                  : window.state === 'unpaid'
+                    ? t('paidOwed')
+                    : '—'}
+            </td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
       {detail.session.status === 'open' ? (
-        <Button variant="secondary" disabled={closing} onClick={onClose}>
+        <Button tone="secondary" disabled={closing} onClick={onClose}>
           {t('closeSession')}
         </Button>
       ) : (

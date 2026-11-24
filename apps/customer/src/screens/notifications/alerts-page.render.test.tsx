@@ -23,13 +23,13 @@ vi.mock('../../features/session/session', async (original) => {
 });
 
 import { SessionProvider } from '../../features/session/session';
-import AlertsPage from './AlertsPage';
+import NotificationsScreen from './index';
 import type { PriceAlert } from './notify-api';
 
 const render = () =>
   renderToString(
     <SessionProvider>
-      <AlertsPage />
+      <NotificationsScreen path="/notifications" search="?view=alerts" params={{}} />
     </SessionProvider>,
   );
 const alert = (patch: Partial<PriceAlert> = {}): PriceAlert => ({
