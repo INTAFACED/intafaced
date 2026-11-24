@@ -306,8 +306,12 @@ test(`${J} #4 the drop room shows my rank, wave, season points and each limited 
   const { email } = state('code', 'email');
   const { ctx, pair } = await operators();
   // INTAFACED's TEST reward pot and rewards wallet: builder fees this file's own TEST sells earned us.
+  // The house trader is verified (Basic) before it trades through our door, as any trader must be.
   const house = person(`jc20h${tag}`.slice(0, 20));
-  await signUpInBrowser(await customer(browser), house);
+  const housePage = await customer(browser);
+  await signUpInBrowser(housePage, house);
+  await verifyBasic(housePage);
+  await housePage.context().close();
   const fees = await funds.earnBuilderFees(house, 4);
   await funds.fundPotFromFees(`TEST-${J}-${tag}`, fees);
   await funds.claimOurBuilderFees();
