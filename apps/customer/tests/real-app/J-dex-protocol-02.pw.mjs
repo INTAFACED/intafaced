@@ -5,6 +5,7 @@ import { createPublicClient, decodeEventLog, http, parseAbi, parseUnits } from '
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { chainBalance } from './venue.mjs';
 
 // J-dex-protocol-02, in the running app (docs/roadmap/journeys.json): swap one token for another. One test per step,
 // titled "J-dex-protocol-02 #<n>", run in order with one TEST wallet on Base Sepolia holding TEST token A and no
@@ -323,6 +324,12 @@ test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the c
   await expect(fact('You paid')).toHaveText(`${shown(paidIn, TOKEN_A.decimals, TOKEN_A.decimals)} TEST Token A`);
   await expect(fact('You received')).toHaveText(`${shown(gotOut, TOKEN_B.decimals)} TEST Token B`);
   await expect(fact('Network fee')).toHaveText(`${shown(receipt.gasUsed * receipt.effectiveGasPrice, 18, 9)} ETH`);
+  // The chain's own record of the wallet agrees with the event: across the swap's block, token A fell by exactly what the
+  // card says was paid and token B rose by exactly what it says was received.
+  const owner = privateKeyToAccount(dex.key()).address;
+  const [before, after] = [receipt.blockNumber - 1n, receipt.blockNumber];
+  expect((await chainBalance(TOKEN_A.address, owner, before)) - (await chainBalance(TOKEN_A.address, owner, after))).toBe(paidIn);
+  expect((await chainBalance(TOKEN_B.address, owner, after)) - (await chainBalance(TOKEN_B.address, owner, before))).toBe(gotOut);
   // The swap was sent by the wallet itself (the TEST wallet keeps sent transactions in `sends`, signatures in `requests`).
   expect(wallet.sends.length).toBeGreaterThan(0);
 });

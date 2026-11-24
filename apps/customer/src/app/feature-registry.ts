@@ -829,9 +829,16 @@ export function betaOffFeatureFor(path: string, access = betaAccess()): Feature 
       feature.paths.some((pattern) => patternMatches(pattern, path)),
   );
 }
-/** Hidden by a feature row, or, in the beta's build only, a room not yet in Volt, switched off, or not the account's (beta-volt.ts). */
+/**
+ * In the beta's build only, whether the beta leaves `path` out: a room not yet in Volt, switched off, or not the account's.
+ * The one test for the menus (isHiddenPath), every drawn link (beta-links.ts) and every move in code (location.ts).
+ */
+export function betaHidden(path: string): boolean {
+  return betaHides(path) || betaOffFeatureFor(path) !== undefined;
+}
+/** Hidden by a feature row, or, in the beta's build only, by betaHidden. */
 export function isHiddenPath(path: string): boolean {
-  return hiddenFeatureFor(path) !== undefined || betaHides(path) || betaOffFeatureFor(path) !== undefined;
+  return hiddenFeatureFor(path) !== undefined || betaHidden(path);
 }
 
 const tabHomes: Record<FeatureTab, string> = {

@@ -43,16 +43,21 @@ export function betaHides(path: string, list: BetaRooms | undefined = betaRooms(
 /**
  * Where a press that navigates in code lands in this build: `href` itself, unless it opens a room the beta hides; then the
  * nearest parent room the beta shows (`/dex/pools` to `/dex`, if `/dex` is shown), else Home. So a Back button never ends
- * on "Not in this beta". With the switch off it is always `href`. location.ts's navigate() and leaveTo() call it.
+ * on "Not in this beta". With the switch off it is always `href`. location.ts's navigate() and leaveTo() call it with
+ * feature-registry's betaHidden, so a switched-off room is passed over like one not in Volt.
  */
-export function betaShownHref(href: string, list: BetaRooms | undefined = betaRooms()): string {
+export function betaShownHref(
+  href: string,
+  list: BetaRooms | undefined = betaRooms(),
+  hides: (path: string) => boolean = (path) => betaHides(path, list),
+): string {
   if (!list || !href.startsWith('/') || href.startsWith('//')) return href;
   const path = href.split(/[?#]/)[0] || '/';
-  if (!betaHides(path, list)) return href;
+  if (!hides(path)) return href;
   const shown = new Set(list.filter(([route, volt]) => volt && !hasPattern(route)).map(([route]) => route));
   for (let parent = path.slice(0, path.lastIndexOf('/')); parent; parent = parent.slice(0, parent.lastIndexOf('/')))
-    if (shown.has(parent)) return parent;
-  return betaHides('/home', list) ? '/' : '/home';
+    if (shown.has(parent) && !hides(parent)) return parent;
+  return hides('/home') ? '/' : '/home';
 }
 
 /**
