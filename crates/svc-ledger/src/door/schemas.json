@@ -606,7 +606,7 @@
     },
     { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
     { "t": "nullable", "in": 150 },
-    { "t": "string", "definedMsg": "JS number refused \u2014 amounts are decimal strings" },
+    { "t": "string", "definedMsg": "JS number refused — amounts are decimal strings" },
     { "t": "nullable", "in": 150 },
     { "t": "array", "el": 153 },
     {
@@ -1066,210 +1066,26 @@
       ],
       "catchall": "strict"
     },
-    {
-      "t": "object",
-      "shape": [
-        ["id", 308],
-        ["controlId", 309],
-        ["status", 310],
-        ["compared", 311],
-        ["phase", 312],
-        ["errorCode", 318],
-        ["asOf", 322],
-        ["readAt", 323],
-        ["margin", 324],
-        ["sources", 328],
-        ["outsideSide", 336],
-        ["periodStart", 337],
-        ["periodEnd", 338],
-        ["accounts", 339],
-        ["assets", 341],
-        ["reconcilingItems", 357]
-      ],
-      "catchall": "strict"
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "uuid",
-          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
-        }
-      ]
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "uuid",
-          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
-        }
-      ]
-    },
     { "t": "enum", "values": ["started", "PASS", "FAIL", "ERROR", "UNSET", "NOTHING_TO_COMPARE"] },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
-    { "t": "union", "options": [313, 315] },
-    { "t": "object", "shape": [["status", 314]], "catchall": "strict" },
+    { "t": "object", "shape": [["status", 310]], "catchall": "strict" },
     { "t": "literal", "values": ["unset"] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 316],
-        ["value", 317]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
-    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
-    { "t": "union", "options": [313, 319] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 320],
-        ["value", 321]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
-    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    { "t": "union", "options": [313, 325] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 326],
-        ["value", 327]
-      ],
-      "catchall": "strict"
-    },
     { "t": "literal", "values": ["set"] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^(0|[1-9]\\d*)(\\.\\d{1,18})?$/" }] },
-    {
-      "t": "object",
-      "shape": [
-        ["ledger", 329],
-        ["outside", 331],
-        ["parity", 331]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "object", "shape": [["asOf", 330]], "catchall": "strict" },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    { "t": "union", "options": [332, 334] },
-    { "t": "object", "shape": [["asOf", 333]], "catchall": "strict" },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    { "t": "object", "shape": [["asOf", 335]], "catchall": "strict" },
-    { "t": "literal", "values": ["unset"] },
     { "t": "enum", "values": ["unset", "snapshot", "unavailable", "not_applicable"] },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    { "t": "array", "el": 340 },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "uuid",
-          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
-        }
-      ]
-    },
-    { "t": "array", "el": 342 },
-    {
-      "t": "object",
-      "shape": [
-        ["assetId", 343],
-        ["observed", 344],
-        ["expected", 347],
-        ["difference", 349],
-        ["tolerance", 351],
-        ["reconcilingItems", 353],
-        ["residual", 354],
-        ["missing", 355]
-      ],
-      "catchall": "strict"
-    },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9]{2,16}$/" }] },
-    { "t": "union", "options": [345, 346] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^-?(0|[1-9]\\d*)(\\.\\d{1,18})?$/" }] },
-    { "t": "literal", "values": ["unset"] },
-    { "t": "union", "options": [345, 348] },
-    { "t": "literal", "values": ["unset"] },
-    { "t": "union", "options": [345, 350] },
-    { "t": "literal", "values": ["unset"] },
-    { "t": "union", "options": [327, 352] },
-    { "t": "literal", "values": ["unset"] },
-    { "t": "optional", "in": 345 },
-    { "t": "optional", "in": 345 },
-    { "t": "optional", "in": 356 },
+    { "t": "optional", "in": 315 },
+    { "t": "optional", "in": 318 },
     { "t": "enum", "values": ["ledger", "outside"] },
-    { "t": "optional", "in": 358 },
-    { "t": "array", "el": 359, "checks": [{ "k": "max_length", "n": 2000 }] },
     {
       "t": "object",
       "shape": [
-        ["source", 360],
-        ["id", 361],
-        ["kind", 362],
-        ["assetId", 343],
-        ["amount", 345]
+        ["source", 320],
+        ["id", 321],
+        ["kind", 322],
+        ["assetId", 314],
+        ["amount", 315]
       ],
       "catchall": "strict"
     },
@@ -1282,131 +1098,16 @@
       ]
     },
     { "t": "enum", "values": ["held", "reversal_unfunded"] },
-    {
-      "t": "object",
-      "shape": [
-        ["evaluations", 364],
-        ["next", 372]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "array", "el": 365 },
-    {
-      "t": "object",
-      "shape": [
-        ["run", 366],
-        ["finishedAt", 367],
-        ["severity", 368]
-      ],
-      "catchall": "strict"
-    },
-    {
-      "t": "object",
-      "shape": [
-        ["id", 308],
-        ["controlId", 309],
-        ["status", 310],
-        ["compared", 311],
-        ["phase", 312],
-        ["errorCode", 318],
-        ["asOf", 322],
-        ["readAt", 323],
-        ["margin", 324],
-        ["sources", 328],
-        ["outsideSide", 336],
-        ["periodStart", 337],
-        ["periodEnd", 338],
-        ["assets", 341],
-        ["reconcilingItems", 357]
-      ],
-      "catchall": "strict"
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    { "t": "union", "options": [313, 369] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 370],
-        ["value", 371]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
     { "t": "enum", "values": ["info", "warning", "critical"] },
-    { "t": "nullable", "in": 264 },
-    {
-      "t": "object",
-      "shape": [
-        ["id", 374],
-        ["builtin", 375],
-        ["template", 376],
-        ["checkKind", 377],
-        ["state", 381],
-        ["explanation", 382],
-        ["labels", 383],
-        ["schedule", 385],
-        ["severity", 368],
-        ["tolerance", 407],
-        ["margin", 411],
-        ["accountSet", 414],
-        ["threshold", 435],
-        ["version", 440]
-      ],
-      "catchall": "strict"
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "uuid",
-          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
-        }
-      ]
-    },
-    { "t": "boolean" },
     { "t": "enum", "values": ["ledger_invariant", "outside_balance", "threshold", "source_parity"] },
-    { "t": "union", "options": [313, 378] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 379],
-        ["value", 380]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
     { "t": "enum", "values": ["replay", "chain", "netting", "replay_and_netting"] },
     { "t": "enum", "values": ["draft", "active", "paused", "retired"] },
-    { "t": "string" },
-    { "t": "array", "el": 384 },
-    { "t": "string" },
-    { "t": "union", "options": [313, 386] },
+    { "t": "dunion", "disc": "cadence", "options": [328, 331, 335, 340] },
     {
       "t": "object",
       "shape": [
-        ["status", 387],
-        ["value", 388],
-        ["period", 406]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
-    { "t": "dunion", "disc": "cadence", "options": [389, 392, 396, 401] },
-    {
-      "t": "object",
-      "shape": [
-        ["cadence", 390],
-        ["minute", 391]
+        ["cadence", 329],
+        ["minute", 330]
       ],
       "catchall": "strict"
     },
@@ -1415,9 +1116,9 @@
     {
       "t": "object",
       "shape": [
-        ["cadence", 393],
-        ["hour", 394],
-        ["minute", 395]
+        ["cadence", 332],
+        ["hour", 333],
+        ["minute", 334]
       ],
       "catchall": "strict"
     },
@@ -1427,10 +1128,10 @@
     {
       "t": "object",
       "shape": [
-        ["cadence", 397],
-        ["isoWeekday", 398],
-        ["hour", 399],
-        ["minute", 400]
+        ["cadence", 336],
+        ["isoWeekday", 337],
+        ["hour", 338],
+        ["minute", 339]
       ],
       "catchall": "strict"
     },
@@ -1441,10 +1142,10 @@
     {
       "t": "object",
       "shape": [
-        ["cadence", 402],
-        ["day", 403],
-        ["hour", 404],
-        ["minute", 405]
+        ["cadence", 341],
+        ["day", 342],
+        ["hour", 343],
+        ["minute", 344]
       ],
       "catchall": "strict"
     },
@@ -1453,178 +1154,44 @@
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 23, "incl": true }] },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 59, "incl": true }] },
     { "t": "enum", "values": ["hour", "day", "iso_week", "month"] },
-    { "t": "union", "options": [313, 408] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 409],
-        ["default", 327],
-        ["byAsset", 410]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
-    { "t": "record", "key": 343, "value": 327 },
-    { "t": "union", "options": [313, 412] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 413],
-        ["value", 327]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
-    { "t": "union", "options": [415, 433] },
-    { "t": "union", "options": [416, 420] },
-    {
-      "t": "object",
-      "shape": [
-        ["mode", 417],
-        ["accountIds", 418]
-      ],
-      "catchall": "strict"
-    },
+    { "t": "record", "key": 314, "value": 312 },
     { "t": "literal", "values": ["explicit"] },
-    {
-      "t": "array",
-      "el": 419,
-      "checks": [
-        { "k": "min_length", "n": 1 },
-        { "k": "max_length", "n": 500 }
-      ]
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "uuid",
-          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
-        }
-      ]
-    },
-    {
-      "t": "object",
-      "shape": [
-        ["mode", 421],
-        ["ownerType", 422],
-        ["ownerIdPrefix", 424],
-        ["rail", 426],
-        ["kind", 428],
-        ["purpose", 430],
-        ["assetId", 432]
-      ],
-      "catchall": "strict",
-      "checks": [{ "k": "super", "id": "rail_boundary" }]
-    },
     { "t": "literal", "values": ["query"] },
-    { "t": "optional", "in": 423 },
-    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
-    { "t": "optional", "in": 425 },
-    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 427 },
+    { "t": "optional", "in": 350 },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z][a-z0-9-]{0,62}$/" }] },
-    { "t": "optional", "in": 429 },
-    { "t": "enum", "values": ["available", "hold", "escrow", "stake", "collateral"] },
-    { "t": "optional", "in": 431 },
-    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 343 },
-    { "t": "object", "shape": [["mode", 434]], "catchall": "strict" },
+    { "t": "optional", "in": 314 },
+    { "t": "object", "shape": [["mode", 353]], "catchall": "strict" },
     { "t": "literal", "values": ["all"] },
-    { "t": "union", "options": [313, 436] },
-    {
-      "t": "object",
-      "shape": [
-        ["status", 437],
-        ["bound", 438],
-        ["byAsset", 439]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["set"] },
     { "t": "enum", "values": ["min", "max"] },
-    { "t": "record", "key": 343, "value": 327 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
     {
       "t": "object",
       "shape": [
-        ["controlId", 442],
-        ["total", 443],
-        ["runs", 444]
-      ],
-      "catchall": "strict"
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "uuid",
-          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
-        }
-      ]
-    },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
-    { "t": "array", "el": 307 },
-    {
-      "t": "object",
-      "shape": [
-        ["bound", 446],
-        ["byAsset", 447]
+        ["bound", 357],
+        ["byAsset", 358]
       ],
       "catchall": "strict",
       "checks": [{ "k": "refine", "id": "threshold_has_assets", "msg": "ops.control_policy_unset" }]
     },
     { "t": "enum", "values": ["min", "max"] },
-    { "t": "record", "key": 343, "value": 327 },
+    { "t": "record", "key": 314, "value": 312 },
     {
       "t": "object",
       "shape": [
-        ["default", 449],
-        ["byAsset", 450]
+        ["default", 360],
+        ["byAsset", 361]
       ],
       "catchall": "strict"
     },
-    { "t": "optional", "in": 327 },
-    { "t": "optional", "in": 451 },
-    { "t": "record", "key": 343, "value": 327 },
+    { "t": "optional", "in": 312 },
+    { "t": "optional", "in": 362 },
+    { "t": "record", "key": 314, "value": 312 },
     {
       "t": "object",
       "shape": [
-        ["source", 453],
-        ["asOf", 454],
-        ["balances", 455]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "literal", "values": ["rail"] },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
-      ]
-    },
-    { "t": "array", "el": 456 },
-    {
-      "t": "object",
-      "shape": [
-        ["assetId", 343],
-        ["amount", 345]
-      ],
-      "catchall": "strict"
-    },
-    {
-      "t": "object",
-      "shape": [
-        ["source", 458],
-        ["rail", 427],
-        ["asOf", 459],
-        ["balances", 460]
+        ["source", 364],
+        ["asOf", 365],
+        ["balances", 366]
       ],
       "catchall": "strict"
     },
@@ -1639,57 +1206,87 @@
         }
       ]
     },
-    { "t": "array", "el": 461 },
+    { "t": "array", "el": 367 },
     {
       "t": "object",
       "shape": [
-        ["assetId", 343],
-        ["amount", 345]
+        ["assetId", 314],
+        ["amount", 315]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["rail", 463],
-        ["assetId", 464],
-        ["offset", 466],
-        ["limit", 468]
+        ["source", 369],
+        ["rail", 350],
+        ["asOf", 370],
+        ["balances", 371]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["rail"] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "array", "el": 372 },
+    {
+      "t": "object",
+      "shape": [
+        ["assetId", 314],
+        ["amount", 315]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["rail", 374],
+        ["assetId", 375],
+        ["offset", 377],
+        ["limit", 379]
       ],
       "catchall": "strict"
     },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z0-9][a-z0-9-]{0,63}$/" }] },
-    { "t": "optional", "in": 465 },
+    { "t": "optional", "in": 376 },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9]{1,16}$/" }] },
-    { "t": "default", "in": 467, "value": 0 },
+    { "t": "default", "in": 378, "value": 0 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 1000000, "incl": true }] },
-    { "t": "default", "in": 469, "value": 200 },
+    { "t": "default", "in": 380, "value": 200 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["items", 471],
-        ["total", 485],
-        ["sums", 486]
+        ["items", 382],
+        ["total", 396],
+        ["sums", 397]
       ],
       "catchall": "strict"
     },
-    { "t": "array", "el": 472, "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "array", "el": 383, "checks": [{ "k": "max_length", "n": 200 }] },
     {
       "t": "object",
       "shape": [
-        ["depositId", 473],
-        ["kind", 474],
-        ["userId", 475],
-        ["assetId", 465],
-        ["networkId", 476],
-        ["txHash", 477],
-        ["outputIndex", 478],
-        ["amount", 479],
-        ["signedAmount", 480],
-        ["status", 481],
-        ["reason", 482],
-        ["detectedAt", 484]
+        ["depositId", 384],
+        ["kind", 385],
+        ["userId", 386],
+        ["assetId", 376],
+        ["networkId", 387],
+        ["txHash", 388],
+        ["outputIndex", 389],
+        ["amount", 390],
+        ["signedAmount", 391],
+        ["status", 392],
+        ["reason", 393],
+        ["detectedAt", 395]
       ],
       "catchall": "strict"
     },
@@ -1742,7 +1339,7 @@
         "needs_review"
       ]
     },
-    { "t": "nullable", "in": 483 },
+    { "t": "nullable", "in": 394 },
     {
       "t": "enum",
       "values": [
@@ -1773,52 +1370,28 @@
       ]
     },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
-    { "t": "array", "el": 487 },
+    { "t": "array", "el": 398 },
     {
       "t": "object",
       "shape": [
-        ["networkId", 476],
-        ["assetId", 465],
-        ["held", 479],
-        ["heldCount", 488],
-        ["reversalUnfunded", 479],
-        ["reversalUnfundedCount", 489],
-        ["net", 480]
+        ["networkId", 387],
+        ["assetId", 376],
+        ["held", 390],
+        ["heldCount", 399],
+        ["reversalUnfunded", 390],
+        ["reversalUnfundedCount", 400],
+        ["net", 391]
       ],
       "catchall": "strict"
     },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
-    {
-      "t": "object",
-      "shape": [
-        ["template", 491],
-        ["explanation", 492],
-        ["labels", 494],
-        ["schedule", 497],
-        ["severity", 498],
-        ["tolerance", 500],
-        ["margin", 501],
-        ["accountSet", 415],
-        ["threshold", 502],
-        ["reason", 503],
-        ["activate", 506]
-      ],
-      "catchall": "strict"
-    },
-    { "t": "enum", "values": ["ledger_invariant", "outside_balance", "threshold", "source_parity"] },
-    { "t": "optional", "in": 493 },
+    { "t": "optional", "in": 402 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 2000 }] },
-    { "t": "optional", "in": 495 },
-    { "t": "array", "el": 496, "checks": [{ "k": "max_length", "n": 16 }] },
+    { "t": "optional", "in": 404 },
+    { "t": "array", "el": 405, "checks": [{ "k": "max_length", "n": 16 }] },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 64 }] },
-    { "t": "optional", "in": 388 },
-    { "t": "optional", "in": 499 },
-    { "t": "enum", "values": ["info", "warning", "critical"] },
-    { "t": "optional", "in": 448 },
-    { "t": "optional", "in": 327 },
-    { "t": "optional", "in": 445 },
-    { "t": "pipe", "in": 504, "out": 505 },
+    { "t": "pipe", "in": 407, "out": 408 },
     { "t": "string", "checks": [{ "k": "trim" }] },
     {
       "t": "string",
@@ -1827,80 +1400,17 @@
         { "k": "max_length", "n": 500 }
       ]
     },
-    { "t": "optional", "in": 507 },
-    { "t": "boolean" },
-    {
-      "t": "object",
-      "shape": [
-        ["controlId", 509],
-        ["explanation", 510],
-        ["labels", 512],
-        ["schedule", 515],
-        ["severity", 516],
-        ["tolerance", 518],
-        ["margin", 519],
-        ["accountSet", 520],
-        ["threshold", 521],
-        ["reason", 503],
-        ["activate", 522],
-        ["lifecycle", 524],
-        ["approvalId", 526],
-        ["operationId", 528]
-      ],
-      "catchall": "strict",
-      "checks": [{ "k": "super", "id": "lifecycle_alone" }]
-    },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "uuid",
-          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
-        }
-      ]
-    },
-    { "t": "optional", "in": 511 },
-    { "t": "string", "checks": [{ "k": "max_length", "n": 2000 }] },
-    { "t": "optional", "in": 513 },
-    { "t": "array", "el": 514, "checks": [{ "k": "max_length", "n": 16 }] },
-    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 64 }] },
-    { "t": "optional", "in": 388 },
-    { "t": "optional", "in": 517 },
-    { "t": "enum", "values": ["info", "warning", "critical"] },
-    { "t": "optional", "in": 448 },
-    { "t": "optional", "in": 327 },
-    { "t": "optional", "in": 415 },
-    { "t": "optional", "in": 445 },
-    { "t": "optional", "in": 523 },
-    { "t": "boolean" },
-    { "t": "optional", "in": 525 },
+    { "t": "optional", "in": 410 },
     { "t": "enum", "values": ["pause", "resume", "retire"] },
-    { "t": "optional", "in": 527 },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "min_length", "n": 1 },
-        { "k": "max_length", "n": 128 }
-      ]
-    },
-    { "t": "optional", "in": 529 },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "min_length", "n": 1 },
-        { "k": "max_length", "n": 128 }
-      ]
-    },
     {
       "t": "object",
       "shape": [
-        ["controlId", 531],
-        ["asOf", 532],
-        ["margin", 534],
-        ["reason", 503],
-        ["approvalId", 535],
-        ["operationId", 536]
+        ["controlId", 412],
+        ["asOf", 413],
+        ["margin", 415],
+        ["reason", 406],
+        ["approvalId", 416],
+        ["operationId", 417]
       ],
       "catchall": "strict"
     },
@@ -1914,7 +1424,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 533 },
+    { "t": "optional", "in": 414 },
     {
       "t": "string",
       "checks": [
@@ -1925,7 +1435,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 327 },
+    { "t": "optional", "in": 312 },
     {
       "t": "string",
       "checks": [
@@ -1943,8 +1453,8 @@
     {
       "t": "object",
       "shape": [
-        ["controlId", 538],
-        ["limit", 539]
+        ["controlId", 419],
+        ["limit", 420]
       ],
       "catchall": "strict"
     },
@@ -1958,7 +1468,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 540 },
+    { "t": "optional", "in": 421 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
     { "t": "literal", "values": ["bankTransfer"] },
     {
@@ -1984,8 +1494,8 @@
       "shape": [
         ["ownerType", 49],
         ["ownerId", 274],
-        ["assetId", 544],
-        ["kind", 545]
+        ["assetId", 425],
+        ["kind", 426]
       ],
       "catchall": "strict"
     },
@@ -2000,34 +1510,34 @@
     {
       "t": "object",
       "shape": [
-        ["ownerType", 547],
-        ["ownerId", 548],
-        ["assetId", 544],
-        ["kind", 545]
+        ["ownerType", 428],
+        ["ownerId", 429],
+        ["assetId", 425],
+        ["kind", 426]
       ],
       "catchall": "strict"
     },
-    { "t": "dunion", "disc": "ownerType", "options": [546, 549] },
+    { "t": "dunion", "disc": "ownerType", "options": [427, 430] },
     { "t": "enum", "values": ["manual", "scheduled"] },
     { "t": "enum", "values": ["own", "p2p", "sched", "rail", "recovery"] },
     {
       "t": "object",
       "shape": [
-        ["transferId", 542],
-        ["occurrence", 543],
-        ["from", 550],
-        ["to", 550],
+        ["transferId", 423],
+        ["occurrence", 424],
+        ["from", 431],
+        ["to", 431],
         ["amount", 277],
-        ["kind", 551],
-        ["keySpace", 552]
+        ["kind", 432],
+        ["keySpace", 433]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["recipe", 541],
-        ["input", 553]
+        ["recipe", 422],
+        ["input", 434]
       ],
       "catchall": "strict"
     },
@@ -2043,9 +1553,9 @@
     {
       "t": "object",
       "shape": [
-        ["holdId", 556],
+        ["holdId", 437],
         ["userId", 274],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277]
       ],
       "catchall": "strict"
@@ -2053,8 +1563,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 555],
-        ["input", 557]
+        ["recipe", 436],
+        ["input", 438]
       ],
       "catchall": "strict"
     },
@@ -2062,9 +1572,9 @@
     {
       "t": "object",
       "shape": [
-        ["holdId", 556],
+        ["holdId", 437],
         ["userId", 274],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277],
         ["heldAmount", 277]
       ],
@@ -2073,8 +1583,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 559],
-        ["input", 560]
+        ["recipe", 440],
+        ["input", 441]
       ],
       "catchall": "strict"
     },
@@ -2082,9 +1592,9 @@
     {
       "t": "object",
       "shape": [
-        ["holdId", 556],
+        ["holdId", 437],
         ["userId", 274],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277],
         ["heldAmount", 277],
         ["payerUserId", 274]
@@ -2094,8 +1604,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 562],
-        ["input", 563]
+        ["recipe", 443],
+        ["input", 444]
       ],
       "catchall": "strict"
     },
@@ -2111,7 +1621,7 @@
         ["balanceAfter", 17]
       ]
     },
-    { "t": "array", "el": 565 },
+    { "t": "array", "el": 446 },
     {
       "t": "object",
       "shape": [
@@ -2121,7 +1631,7 @@
         ["reason", 17],
         ["hash", 2],
         ["postedAt", 17],
-        ["entries", 566]
+        ["entries", 447]
       ]
     },
     { "t": "literal", "values": ["earnDeposit"] },
@@ -2131,7 +1641,7 @@
         ["positionId", 274],
         ["poolId", 274],
         ["userId", 274],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277]
       ],
       "catchall": "strict"
@@ -2139,8 +1649,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 568],
-        ["input", 569]
+        ["recipe", 449],
+        ["input", 450]
       ],
       "catchall": "strict"
     },
@@ -2148,8 +1658,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 571],
-        ["input", 569]
+        ["recipe", 452],
+        ["input", 450]
       ],
       "catchall": "strict"
     },
@@ -2159,7 +1669,7 @@
       "shape": [
         ["poolId", 274],
         ["fundingId", 50],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277]
       ],
       "catchall": "strict"
@@ -2167,8 +1677,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 573],
-        ["input", 574]
+        ["recipe", 454],
+        ["input", 455]
       ],
       "catchall": "strict"
     },
@@ -2182,22 +1692,22 @@
       ],
       "catchall": "strict"
     },
-    { "t": "array", "el": 578 },
+    { "t": "array", "el": 459 },
     {
       "t": "object",
       "shape": [
         ["poolId", 274],
-        ["date", 577],
-        ["assetId", 544],
-        ["payouts", 579]
+        ["date", 458],
+        ["assetId", 425],
+        ["payouts", 460]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["recipe", 576],
-        ["input", 580]
+        ["recipe", 457],
+        ["input", 461]
       ],
       "catchall": "strict"
     },
@@ -2207,17 +1717,17 @@
       "shape": [
         ["loanId", 274],
         ["userId", 274],
-        ["collateralAssetId", 544],
+        ["collateralAssetId", 425],
         ["amount", 277],
-        ["sequence", 543]
+        ["sequence", 424]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["recipe", 582],
-        ["input", 583]
+        ["recipe", 463],
+        ["input", 464]
       ],
       "catchall": "strict"
     },
@@ -2225,8 +1735,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 585],
-        ["input", 583]
+        ["recipe", 466],
+        ["input", 464]
       ],
       "catchall": "strict"
     },
@@ -2236,7 +1746,7 @@
       "shape": [
         ["loanId", 274],
         ["userId", 274],
-        ["debtAssetId", 544],
+        ["debtAssetId", 425],
         ["principal", 277]
       ],
       "catchall": "strict"
@@ -2244,8 +1754,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 587],
-        ["input", 588]
+        ["recipe", 468],
+        ["input", 469]
       ],
       "catchall": "strict"
     },
@@ -2255,18 +1765,18 @@
       "shape": [
         ["loanId", 274],
         ["userId", 274],
-        ["debtAssetId", 544],
+        ["debtAssetId", 425],
         ["principal", 277],
         ["interest", 277],
-        ["sequence", 543]
+        ["sequence", 424]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["recipe", 590],
-        ["input", 591]
+        ["recipe", 471],
+        ["input", 472]
       ],
       "catchall": "strict"
     },
@@ -2275,7 +1785,7 @@
       "t": "object",
       "shape": [
         ["fundingId", 50],
-        ["debtAssetId", 544],
+        ["debtAssetId", 425],
         ["amount", 277]
       ],
       "catchall": "strict"
@@ -2283,8 +1793,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 593],
-        ["input", 594]
+        ["recipe", 474],
+        ["input", 475]
       ],
       "catchall": "strict"
     },
@@ -2294,18 +1804,18 @@
     {
       "t": "object",
       "shape": [
-        ["ownerType", 597],
-        ["ownerId", 598],
-        ["assetId", 544],
-        ["kind", 545]
+        ["ownerType", 478],
+        ["ownerId", 479],
+        ["assetId", 425],
+        ["kind", 426]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["collateralTo", 599],
-        ["proceedsFrom", 599]
+        ["collateralTo", 480],
+        ["proceedsFrom", 480]
       ],
       "catchall": "strict"
     },
@@ -2314,16 +1824,16 @@
       "shape": [
         ["loanId", 274],
         ["userId", 274],
-        ["tranche", 543],
-        ["collateralAssetId", 544],
+        ["tranche", 424],
+        ["collateralAssetId", 425],
         ["collateralSold", 277],
-        ["debtAssetId", 544],
+        ["debtAssetId", 425],
         ["proceeds", 277],
         ["principalRepaid", 277],
         ["interestRepaid", 277],
         ["penalty", 277],
         ["surplusToBorrower", 277],
-        ["buyer", 600],
+        ["buyer", 481],
         ["markPrice", 277]
       ],
       "catchall": "strict"
@@ -2331,8 +1841,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 596],
-        ["input", 601]
+        ["recipe", 477],
+        ["input", 482]
       ],
       "catchall": "strict"
     },
@@ -2341,7 +1851,7 @@
       "t": "object",
       "shape": [
         ["loanId", 274],
-        ["debtAssetId", 544],
+        ["debtAssetId", 425],
         ["shortfall", 277]
       ],
       "catchall": "strict"
@@ -2349,8 +1859,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 603],
-        ["input", 604]
+        ["recipe", 484],
+        ["input", 485]
       ],
       "catchall": "strict"
     },
@@ -2359,7 +1869,7 @@
       "t": "object",
       "shape": [
         ["approvalId", 274],
-        ["from", 546],
+        ["from", 427],
         ["amount", 277]
       ],
       "catchall": "strict"
@@ -2367,8 +1877,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 606],
-        ["input", 607]
+        ["recipe", 487],
+        ["input", 488]
       ],
       "catchall": "strict"
     },
@@ -2376,8 +1886,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 609],
-        ["input", 607]
+        ["recipe", 490],
+        ["input", 488]
       ],
       "catchall": "strict"
     },
@@ -2386,8 +1896,8 @@
       "t": "object",
       "shape": [
         ["approvalId", 274],
-        ["from", 546],
-        ["to", 546],
+        ["from", 427],
+        ["to", 427],
         ["amount", 277]
       ],
       "catchall": "strict"
@@ -2395,8 +1905,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 611],
-        ["input", 612]
+        ["recipe", 492],
+        ["input", 493]
       ],
       "catchall": "strict"
     },
@@ -2408,26 +1918,26 @@
     {
       "t": "object",
       "shape": [
-        ["to", 546],
+        ["to", 427],
         ["amount", 277]
       ],
       "catchall": "strict"
     },
-    { "t": "array", "el": 616 },
+    { "t": "array", "el": 497 },
     {
       "t": "object",
       "shape": [
-        ["payrollId", 615],
-        ["from", 546],
-        ["recipients", 617]
+        ["payrollId", 496],
+        ["from", 427],
+        ["recipients", 498]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["recipe", 614],
-        ["input", 618]
+        ["recipe", 495],
+        ["input", 499]
       ],
       "catchall": "strict"
     },
@@ -2443,9 +1953,9 @@
       "t": "object",
       "shape": [
         ["userId", 274],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277],
-        ["rail", 621],
+        ["rail", 502],
         ["railRef", 47]
       ],
       "catchall": "strict"
@@ -2453,8 +1963,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 620],
-        ["input", 622]
+        ["recipe", 501],
+        ["input", 503]
       ],
       "catchall": "strict"
     },
@@ -2463,18 +1973,18 @@
       "t": "object",
       "shape": [
         ["userId", 274],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277],
-        ["rail", 621],
-        ["withdrawalId", 556]
+        ["rail", 502],
+        ["withdrawalId", 437]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["recipe", 624],
-        ["input", 625]
+        ["recipe", 505],
+        ["input", 506]
       ],
       "catchall": "strict"
     },
@@ -2482,8 +1992,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 627],
-        ["input", 625]
+        ["recipe", 508],
+        ["input", 506]
       ],
       "catchall": "strict"
     },
@@ -2491,8 +2001,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 629],
-        ["input", 625]
+        ["recipe", 510],
+        ["input", 506]
       ],
       "catchall": "strict"
     },
@@ -2500,9 +2010,9 @@
     {
       "t": "object",
       "shape": [
-        ["rewardId", 542],
+        ["rewardId", 423],
         ["userId", 274],
-        ["assetId", 544],
+        ["assetId", 425],
         ["amount", 277],
         ["reason", 297]
       ],
@@ -2511,8 +2021,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 631],
-        ["input", 632]
+        ["recipe", 512],
+        ["input", 513]
       ],
       "catchall": "strict"
     },
@@ -2529,9 +2039,9 @@
     {
       "t": "object",
       "shape": [
-        ["windowId", 635],
-        ["sourceModule", 636],
-        ["assetId", 544],
+        ["windowId", 516],
+        ["sourceModule", 517],
+        ["assetId", 425],
         ["amount", 277]
       ],
       "catchall": "strict"
@@ -2539,8 +2049,8 @@
     {
       "t": "object",
       "shape": [
-        ["recipe", 634],
-        ["input", 637]
+        ["recipe", 515],
+        ["input", 518]
       ],
       "catchall": "strict"
     },
@@ -2548,8 +2058,8 @@
       "t": "dunion",
       "disc": "recipe",
       "options": [
-        270, 287, 290, 298, 304, 554, 558, 561, 564, 570, 572, 575, 581, 584, 586, 589, 592, 595, 602, 605, 608, 610, 613, 619, 623, 626,
-        628, 630, 633, 638
+        270, 287, 290, 298, 304, 435, 439, 442, 445, 451, 453, 456, 462, 465, 467, 470, 473, 476, 483, 486, 489, 491, 494, 500, 504, 507,
+        509, 511, 514, 519
       ]
     },
     {
@@ -2571,10 +2081,10 @@
     {
       "t": "object",
       "shape": [
-        ["originalTxId", 615],
+        ["originalTxId", 496],
         ["ordinal", 275],
-        ["reason", 640],
-        ["caseRef", 641]
+        ["reason", 521],
+        ["caseRef", 522]
       ],
       "catchall": "strict"
     },
@@ -2583,7 +2093,7 @@
       "t": "object",
       "shape": [
         ["txId", 274],
-        ["idempotencyKey", 643],
+        ["idempotencyKey", 524],
         ["postedAt", 17],
         ["reverses", 274]
       ]
@@ -2593,116 +2103,116 @@
       "shape": [
         ["id", 90],
         ["controlId", 90],
-        ["status", 310],
-        ["compared", 311],
-        ["phase", 646],
-        ["errorCode", 646],
+        ["status", 307],
+        ["compared", 308],
+        ["phase", 527],
+        ["errorCode", 527],
         ["asOf", 39],
         ["readAt", 39],
-        ["margin", 648],
-        ["sources", 650],
-        ["outsideSide", 336],
+        ["margin", 529],
+        ["sources", 531],
+        ["outsideSide", 313],
         ["periodStart", 39],
         ["periodEnd", 39],
-        ["accounts", 654],
-        ["assets", 655],
-        ["reconcilingItems", 659],
-        ["reports", 662]
+        ["accounts", 535],
+        ["assets", 536],
+        ["reconcilingItems", 540],
+        ["reports", 543]
       ],
       "catchall": "strict"
     },
-    { "t": "union", "options": [313, 647] },
+    { "t": "union", "options": [309, 528] },
     {
       "t": "object",
       "shape": [
-        ["status", 316],
+        ["status", 311],
         ["value", 2]
       ],
       "catchall": "strict"
     },
-    { "t": "union", "options": [313, 649] },
+    { "t": "union", "options": [309, 530] },
     {
       "t": "object",
       "shape": [
-        ["status", 316],
-        ["value", 327]
+        ["status", 311],
+        ["value", 312]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["ledger", 651],
-        ["outside", 652],
-        ["parity", 652]
+        ["ledger", 532],
+        ["outside", 533],
+        ["parity", 533]
       ],
       "catchall": "strict"
     },
     { "t": "object", "shape": [["asOf", 39]], "catchall": "strict" },
-    { "t": "union", "options": [651, 653] },
-    { "t": "object", "shape": [["asOf", 314]], "catchall": "strict" },
+    { "t": "union", "options": [532, 534] },
+    { "t": "object", "shape": [["asOf", 310]], "catchall": "strict" },
     { "t": "array", "el": 90 },
-    { "t": "array", "el": 656 },
+    { "t": "array", "el": 537 },
     {
       "t": "object",
       "shape": [
-        ["assetId", 343],
-        ["observed", 657],
-        ["expected", 657],
-        ["difference", 657],
-        ["tolerance", 658],
-        ["reconcilingItems", 353],
-        ["residual", 353],
-        ["missing", 355]
+        ["assetId", 314],
+        ["observed", 538],
+        ["expected", 538],
+        ["difference", 538],
+        ["tolerance", 539],
+        ["reconcilingItems", 316],
+        ["residual", 316],
+        ["missing", 317]
       ],
       "catchall": "strict"
     },
-    { "t": "union", "options": [345, 314] },
-    { "t": "union", "options": [327, 314] },
-    { "t": "optional", "in": 660 },
-    { "t": "array", "el": 661, "checks": [{ "k": "max_length", "n": 2000 }] },
+    { "t": "union", "options": [315, 310] },
+    { "t": "union", "options": [312, 310] },
+    { "t": "optional", "in": 541 },
+    { "t": "array", "el": 542, "checks": [{ "k": "max_length", "n": 2000 }] },
     {
       "t": "object",
       "shape": [
-        ["source", 360],
+        ["source", 320],
         ["id", 50],
-        ["kind", 362],
-        ["assetId", 343],
-        ["amount", 345]
+        ["kind", 322],
+        ["assetId", 314],
+        ["amount", 315]
       ],
       "catchall": "strict"
     },
-    { "t": "optional", "in": 663 },
-    { "t": "array", "el": 664, "checks": [{ "k": "max_length", "n": 2 }] },
+    { "t": "optional", "in": 544 },
+    { "t": "array", "el": 545, "checks": [{ "k": "max_length", "n": 2 }] },
     {
       "t": "object",
       "shape": [
-        ["reporter", 665],
-        ["place", 666],
-        ["asOf", 667],
-        ["assets", 655]
+        ["reporter", 546],
+        ["place", 547],
+        ["asOf", 548],
+        ["assets", 536]
       ],
       "catchall": "strict"
     },
     { "t": "enum", "values": ["venue", "partner"] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z0-9][a-z0-9:_-]{0,63}$/" }] },
-    { "t": "union", "options": [39, 668, 314] },
+    { "t": "union", "options": [39, 549, 310] },
     { "t": "literal", "values": ["not_reported"] },
     {
       "t": "object",
       "shape": [
-        ["evaluations", 670],
-        ["next", 675]
+        ["evaluations", 551],
+        ["next", 556]
       ],
       "catchall": "strict"
     },
-    { "t": "array", "el": 671 },
+    { "t": "array", "el": 552 },
     {
       "t": "object",
       "shape": [
-        ["run", 672],
+        ["run", 553],
         ["finishedAt", 39],
-        ["severity", 673]
+        ["severity", 554]
       ],
       "catchall": "strict"
     },
@@ -2711,33 +2221,33 @@
       "shape": [
         ["id", 90],
         ["controlId", 90],
-        ["status", 310],
-        ["compared", 311],
-        ["phase", 646],
-        ["errorCode", 646],
+        ["status", 307],
+        ["compared", 308],
+        ["phase", 527],
+        ["errorCode", 527],
         ["asOf", 39],
         ["readAt", 39],
-        ["margin", 648],
-        ["sources", 650],
-        ["outsideSide", 336],
+        ["margin", 529],
+        ["sources", 531],
+        ["outsideSide", 313],
         ["periodStart", 39],
         ["periodEnd", 39],
-        ["assets", 655],
-        ["reconcilingItems", 659],
-        ["reports", 662]
+        ["assets", 536],
+        ["reconcilingItems", 540],
+        ["reports", 543]
       ],
       "catchall": "strict"
     },
-    { "t": "union", "options": [313, 674] },
+    { "t": "union", "options": [309, 555] },
     {
       "t": "object",
       "shape": [
-        ["status", 316],
-        ["value", 371]
+        ["status", 311],
+        ["value", 323]
       ],
       "catchall": "strict"
     },
-    { "t": "nullable", "in": 676 },
+    { "t": "nullable", "in": 557 },
     {
       "t": "object",
       "shape": [
@@ -2751,88 +2261,88 @@
       "shape": [
         ["id", 90],
         ["builtin", 138],
-        ["template", 376],
-        ["checkKind", 678],
-        ["state", 381],
+        ["template", 324],
+        ["checkKind", 559],
+        ["state", 326],
         ["explanation", 17],
-        ["labels", 680],
-        ["schedule", 681],
-        ["severity", 673],
-        ["tolerance", 687],
-        ["margin", 648],
-        ["accountSet", 689],
-        ["threshold", 699],
-        ["version", 440]
+        ["labels", 561],
+        ["schedule", 562],
+        ["severity", 554],
+        ["tolerance", 568],
+        ["margin", 529],
+        ["accountSet", 570],
+        ["threshold", 580],
+        ["version", 355]
       ],
       "catchall": "strict"
     },
-    { "t": "union", "options": [313, 679] },
+    { "t": "union", "options": [309, 560] },
     {
       "t": "object",
       "shape": [
-        ["status", 316],
-        ["value", 380]
+        ["status", 311],
+        ["value", 325]
       ],
       "catchall": "strict"
     },
     { "t": "array", "el": 17 },
-    { "t": "union", "options": [313, 682] },
+    { "t": "union", "options": [309, 563] },
     {
       "t": "object",
       "shape": [
-        ["status", 316],
-        ["value", 683],
-        ["period", 406]
+        ["status", 311],
+        ["value", 564],
+        ["period", 345]
       ],
       "catchall": "strict"
     },
-    { "t": "dunion", "disc": "cadence", "options": [389, 684, 685, 686] },
+    { "t": "dunion", "disc": "cadence", "options": [328, 565, 566, 567] },
     {
       "t": "object",
       "shape": [
-        ["cadence", 393],
-        ["hour", 394],
-        ["minute", 391]
-      ],
-      "catchall": "strict"
-    },
-    {
-      "t": "object",
-      "shape": [
-        ["cadence", 397],
-        ["isoWeekday", 398],
-        ["hour", 394],
-        ["minute", 391]
+        ["cadence", 332],
+        ["hour", 333],
+        ["minute", 330]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["cadence", 402],
-        ["day", 403],
-        ["hour", 394],
-        ["minute", 391]
+        ["cadence", 336],
+        ["isoWeekday", 337],
+        ["hour", 333],
+        ["minute", 330]
       ],
       "catchall": "strict"
     },
-    { "t": "union", "options": [313, 688] },
     {
       "t": "object",
       "shape": [
-        ["status", 316],
-        ["default", 327],
-        ["byAsset", 410]
+        ["cadence", 341],
+        ["day", 342],
+        ["hour", 333],
+        ["minute", 330]
       ],
       "catchall": "strict"
     },
-    { "t": "union", "options": [690, 433] },
-    { "t": "union", "options": [691, 693] },
+    { "t": "union", "options": [309, 569] },
     {
       "t": "object",
       "shape": [
-        ["mode", 417],
-        ["accountIds", 692]
+        ["status", 311],
+        ["default", 312],
+        ["byAsset", 346]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "union", "options": [571, 352] },
+    { "t": "union", "options": [572, 574] },
+    {
+      "t": "object",
+      "shape": [
+        ["mode", 347],
+        ["accountIds", 573]
       ],
       "catchall": "strict"
     },
@@ -2847,37 +2357,37 @@
     {
       "t": "object",
       "shape": [
-        ["mode", 421],
-        ["ownerType", 694],
+        ["mode", 348],
+        ["ownerType", 575],
         ["ownerIdPrefix", 111],
-        ["rail", 426],
-        ["reports", 695],
-        ["kind", 698],
+        ["rail", 349],
+        ["reports", 576],
+        ["kind", 579],
         ["purpose", 11],
-        ["assetId", 432]
+        ["assetId", 351]
       ],
       "catchall": "strict",
       "checks": [{ "k": "super", "id": "rail_boundary" }]
     },
     { "t": "optional", "in": 7 },
-    { "t": "optional", "in": 696 },
+    { "t": "optional", "in": 577 },
     {
       "t": "object",
       "shape": [
-        ["venue", 697],
-        ["partner", 697]
+        ["venue", 578],
+        ["partner", 578]
       ],
       "catchall": "strict"
     },
-    { "t": "optional", "in": 666 },
+    { "t": "optional", "in": 547 },
     { "t": "optional", "in": 10 },
-    { "t": "union", "options": [313, 700] },
+    { "t": "union", "options": [309, 581] },
     {
       "t": "object",
       "shape": [
-        ["status", 316],
-        ["bound", 438],
-        ["byAsset", 410]
+        ["status", 311],
+        ["bound", 354],
+        ["byAsset", 346]
       ],
       "catchall": "strict"
     },
@@ -2885,21 +2395,21 @@
       "t": "object",
       "shape": [
         ["controlId", 90],
-        ["total", 311],
-        ["runs", 702]
+        ["total", 308],
+        ["runs", 583]
       ],
       "catchall": "strict"
     },
-    { "t": "array", "el": 645 },
-    { "t": "union", "options": [704, 706] },
+    { "t": "array", "el": 526 },
+    { "t": "union", "options": [585, 587] },
     {
       "t": "object",
       "shape": [
-        ["source", 705],
-        ["reporter", 665],
-        ["place", 666],
+        ["source", 586],
+        ["reporter", 546],
+        ["place", 547],
         ["asOf", 39],
-        ["balances", 455]
+        ["balances", 366]
       ],
       "catchall": "strict"
     },
@@ -2907,10 +2417,10 @@
     {
       "t": "object",
       "shape": [
-        ["source", 705],
-        ["reporter", 665],
-        ["place", 666],
-        ["reported", 707]
+        ["source", 586],
+        ["reporter", 546],
+        ["place", 547],
+        ["reported", 588]
       ],
       "catchall": "strict"
     },
@@ -2918,38 +2428,38 @@
     {
       "t": "object",
       "shape": [
-        ["template", 376],
-        ["explanation", 492],
-        ["labels", 494],
-        ["schedule", 709],
-        ["severity", 710],
-        ["tolerance", 711],
-        ["margin", 449],
-        ["accountSet", 690],
-        ["threshold", 714],
+        ["template", 324],
+        ["explanation", 401],
+        ["labels", 403],
+        ["schedule", 590],
+        ["severity", 591],
+        ["tolerance", 592],
+        ["margin", 360],
+        ["accountSet", 571],
+        ["threshold", 595],
         ["reason", 54],
         ["activate", 137]
       ],
       "catchall": "strict"
     },
-    { "t": "optional", "in": 683 },
-    { "t": "optional", "in": 371 },
-    { "t": "optional", "in": 712 },
+    { "t": "optional", "in": 564 },
+    { "t": "optional", "in": 323 },
+    { "t": "optional", "in": 593 },
     {
       "t": "object",
       "shape": [
-        ["default", 449],
-        ["byAsset", 713]
+        ["default", 360],
+        ["byAsset", 594]
       ],
       "catchall": "strict"
     },
-    { "t": "optional", "in": 410 },
-    { "t": "optional", "in": 715 },
+    { "t": "optional", "in": 346 },
+    { "t": "optional", "in": 596 },
     {
       "t": "object",
       "shape": [
-        ["bound", 438],
-        ["byAsset", 410]
+        ["bound", 354],
+        ["byAsset", 346]
       ],
       "catchall": "strict",
       "checks": [{ "k": "refine", "id": "threshold_has_assets", "msg": "ops.control_policy_unset" }]
@@ -2958,24 +2468,24 @@
       "t": "object",
       "shape": [
         ["controlId", 90],
-        ["explanation", 492],
-        ["labels", 494],
-        ["schedule", 709],
-        ["severity", 710],
-        ["tolerance", 711],
-        ["margin", 449],
-        ["accountSet", 717],
-        ["threshold", 714],
+        ["explanation", 401],
+        ["labels", 403],
+        ["schedule", 590],
+        ["severity", 591],
+        ["tolerance", 592],
+        ["margin", 360],
+        ["accountSet", 598],
+        ["threshold", 595],
         ["reason", 54],
         ["activate", 137],
-        ["lifecycle", 524],
-        ["approvalId", 718],
-        ["operationId", 718]
+        ["lifecycle", 409],
+        ["approvalId", 599],
+        ["operationId", 599]
       ],
       "catchall": "strict",
       "checks": [{ "k": "super", "id": "lifecycle_alone" }]
     },
-    { "t": "optional", "in": 690 },
+    { "t": "optional", "in": 571 },
     { "t": "optional", "in": 50 }
   ],
   "inputs": {
@@ -3014,27 +2524,27 @@
     "transactionsExist": 259,
     "reconciliationEvaluations": 262,
     "restoreWatermark": 268,
-    "postRecipe": 639,
-    "controlRun": 645,
-    "evaluationFeed": 669,
-    "postRecipeReply": 567,
-    "controlView": 677,
-    "controlRunList": 701,
-    "controlAccountSet": 689,
-    "controlSchedule": 388,
-    "controlThreshold": 445,
-    "controlTolerance": 448,
-    "railSnapshot": 452,
-    "railStatement": 457,
-    "reconcilingItem": 359,
-    "openItemsInput": 462,
-    "openItemsPage": 470,
-    "controlDefine": 708,
-    "controlUpdate": 716,
-    "controlRunInput": 530,
-    "controlRuns": 537,
-    "operatorReverse": 642,
-    "operatorReverseReply": 644,
-    "outsideReport": 703
+    "postRecipe": 520,
+    "controlRun": 526,
+    "evaluationFeed": 550,
+    "postRecipeReply": 448,
+    "controlView": 558,
+    "controlRunList": 582,
+    "controlAccountSet": 570,
+    "controlSchedule": 327,
+    "controlThreshold": 356,
+    "controlTolerance": 359,
+    "railSnapshot": 363,
+    "railStatement": 368,
+    "reconcilingItem": 319,
+    "openItemsInput": 373,
+    "openItemsPage": 381,
+    "controlDefine": 589,
+    "controlUpdate": 597,
+    "controlRunInput": 411,
+    "controlRuns": 418,
+    "operatorReverse": 523,
+    "operatorReverseReply": 525,
+    "outsideReport": 584
   }
 }
