@@ -14,11 +14,13 @@
  *     judged), since a broken review can't judge its own repair; that is the deadlock the admin merge was for.
  *   - the factory switch says `run` (read here, so a broken factory-switch.mjs can be repaired too);
  *   - the pull request is open, in this repository, into main, and its head is still HEAD_SHA.
- * It imports nothing from the scripts it can repair, so a bug in them never stops it. Any error here passes nothing: the
+ * It imports none of the scripts it can repair (only run-jobs.mjs, the one way to read a run's jobs), so a bug in them
+ * never stops it. Any error here passes nothing: the
  * step is continue-on-error, prints why, and the seal's other steps judge the change as before.
  */
 import { appendFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { runJobs } from './run-jobs.mjs';
 
 /** The CI review's own code: a change here alone may pass while the review gives no verdict. Its briefs are not here. */
 export const REVIEW_FILES = [
@@ -166,7 +168,9 @@ export async function readAndJudge({ repo, sha, review, ...opts }) {
     .filter((r) => r?.path === REVIEW_WORKFLOW && r?.event === 'pull_request_target' && r?.head_sha === sha)
     .sort((a, b) => Number(b.id) - Number(a.id));
   for (const r of reviews) {
-    reviewJob = reviewJobOf((await api(`repos/${repo}/actions/runs/${r.id}/jobs?filter=latest&per_page=100`, opts))?.jobs);
+    const jobs = await runJobs(`repos/${repo}/actions/runs/${r.id}/jobs?filter=latest`, (page) => api(page, opts));
+    if (!jobs) throw new Error(`run ${r.id}: no jobs list`);
+    reviewJob = reviewJobOf(jobs);
     if (reviewJob) break;
   }
   const first = judge({ sha, runs, reviewJob, review, factory: 'run' });

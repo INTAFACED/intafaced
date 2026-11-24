@@ -168,7 +168,7 @@ function github({
         return { state: 'open', draft: false, base: { ref: 'main' }, head: { sha: SHA, repo: { full_name: 'o/r' } }, ...pull };
       if (path.startsWith('repos/o/r/pulls/5/files')) return prFiles;
       if (path.startsWith(`repos/o/r/actions/runs?head_sha=${SHA}`)) return { workflow_runs: typeof runs === 'function' ? runs() : runs };
-      if (path.startsWith('repos/o/r/actions/runs/4/jobs')) return { jobs };
+      if (path.startsWith('repos/o/r/actions/runs/4/jobs?filter=latest&per_page=30&page=1')) return { jobs };
       if (path === 'repos/o/r/contents/FACTORY?ref=factory-switch') return factory;
       return undefined;
     })();
