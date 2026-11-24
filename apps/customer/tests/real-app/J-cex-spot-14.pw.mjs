@@ -273,6 +273,7 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     // A market order: the ticket offers no Market tab here; it lists Market, disabled, with the limit-only reason (the
     // desk's order-type list, J-cex-spot-04 #1), so nothing can be sent or held.
     await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
+    await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
     await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
     const marketRow = page.getByTestId('dk-type-off-market');
     await expect(marketRow).toHaveAttribute('aria-disabled', 'true');
@@ -485,6 +486,7 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   // A market order: the ticket offers no Market tab inside the window; it lists Market, disabled, with the window reason
   // (the desk's order-type list, J-cex-spot-04 #1), so nothing can be sent or held.
   await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
+  await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
   await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
   await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByTestId('dk-type-off-market')).toHaveText(
@@ -538,6 +540,7 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   const zoneSent = placements(page);
   // A market order: no Market tab in the zone; Market is listed, disabled, with the zone reason (J-cex-spot-04 #1).
   await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
+  await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
   await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
   await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByTestId('dk-type-off-market')).toHaveText(
