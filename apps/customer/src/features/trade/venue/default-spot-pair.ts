@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { defaultDeskPair } from '../../../app/navigation';
-import { useSession } from '../../session';
+import { useOptionalSession } from '../../session';
+import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useVenueMode } from '../use-venue-mode';
 import { venueApi, type VenueMarket } from '../venue-api';
 
 /**
@@ -18,15 +18,25 @@ export function pickDefaultVenueSpotPair(markets: readonly Pick<VenueMarket, 'ki
   return (spot.find((m) => m.baseAsset === base) ?? spot[0])?.symbol ?? defaultDeskPair;
 }
 
-/** The spot desk pair for menu links: the venue's default spot market when venue mode is on, else `defaultDeskPair`. */
+/**
+ * The spot desk pair for menu links: the venue's default spot market when signed in and venue mode is on, else
+ * `defaultDeskPair`. Safe to call outside `SessionProvider` (returns `defaultDeskPair` without fetching).
+ */
 export function useDefaultSpotPair(): string {
-  const mode = useVenueMode();
-  const { api } = useSession();
-  const client = useMemo(() => venueApi(api), [api]);
-  const read = useResource(
-    (signal) => (mode.mode === 'on' ? client.markets(signal) : Promise.resolve({ ok: true as const, data: null })),
-    `default-spot-pair:${mode.mode === 'on' ? 'on' : 'off'}`,
+  const ctx = useOptionalSession();
+  const api = ctx?.api ?? null;
+  const userId = ctx?.userId ?? null;
+  const client = useMemo(() => (api ? venueApi(api) : null), [api]);
+  const read = useResource<readonly VenueMarket[] | null>(
+    async (signal): Promise<ApiResult<readonly VenueMarket[] | null>> => {
+      if (!client || !userId) return { ok: true, data: null };
+      const status = await client.status(signal);
+      if (!status.ok || !status.data.enabled) return { ok: true, data: null };
+      const markets = await client.markets(signal);
+      return markets.ok ? { ok: true, data: markets.data.value } : markets;
+    },
+    `default-spot-pair:${userId ?? 'guest'}`,
   );
-  if (mode.mode !== 'on' || read.resource.status !== 'ready' || !read.resource.data) return defaultDeskPair;
-  return pickDefaultVenueSpotPair(read.resource.data.value);
+  if (read.resource.status !== 'ready' || !read.resource.data) return defaultDeskPair;
+  return pickDefaultVenueSpotPair(read.resource.data);
 }

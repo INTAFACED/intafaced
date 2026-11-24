@@ -84,6 +84,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     </Context.Provider>
   );
 }
+export function useOptionalSession() {
+  return useContext(Context);
+}
 export function useSession() {
   const context = useContext(Context);
   if (!context) throw new Error('SessionProvider is required');
