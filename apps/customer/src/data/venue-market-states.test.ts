@@ -92,23 +92,74 @@ const states = (markets: VenueMarketState[]) =>
 const own: Loadable<MarketRow[]> = { status: 'ready', asOf: 1, data: [] };
 
 describe('pickSource (the markets list)', () => {
-  it("lists the venue's spot markets with no prices of our own book while the venue answers", () => {
-    const picked = pickSource(states([market(), market({ symbol: 'BTC-PERP', kind: 'perpetual' })]), own, {
-      status: 'ready',
-      asOf: 1,
-      data: {},
-    });
+  const noPrices = { status: 'empty' } as const;
+  const venuePrices = {
+    status: 'ready',
+    asOf: 2,
+    data: {
+      venueId: 'test-venue-sim',
+      asOf: '2026-11-24T10:00:00.000Z',
+      test: true,
+      value: {
+        'BTC-USDC': {
+          symbol: 'BTC-USDC',
+          last: '97000.5',
+          high: '98000',
+          low: '96000',
+          baseVolume: '12.5',
+          quoteVolume: '1212500',
+          bid: '97000',
+          ask: '97001',
+          spread: '1',
+        },
+      },
+    },
+  } as const;
+  it("lists the venue's spot markets with the venue's own prices, never our own book's", () => {
+    const ownPrices = { status: 'ready', asOf: 1, data: { 'BTC-USDC': { symbol: 'BTC-USDC' } as never } } as const;
+    const picked = pickSource(states([market(), market({ symbol: 'BTC-PERP', kind: 'perpetual' })]), own, ownPrices, venuePrices);
     expect(picked.markets.status === 'ready' && picked.markets.data.map((m) => m.symbol)).toEqual(['BTC-USDC']);
-    expect(picked.tickers.status).toBe('empty');
+    expect(picked.tickers).toEqual({
+      status: 'ready',
+      asOf: 2,
+      data: {
+        'BTC-USDC': {
+          symbol: 'BTC-USDC',
+          last: '97000.5',
+          bid: '97000',
+          ask: '97001',
+          open24h: null,
+          high24h: '98000',
+          low24h: '96000',
+          change24h: null,
+          changePct24h: null,
+          baseVolume24h: '12.5',
+          quoteVolume24h: '1212500',
+          windowStart: null,
+          source: 'server',
+        },
+      },
+    });
   });
-  it('keeps the own read where the venue door is off, and shows the venue read otherwise', () => {
-    const tickers = { status: 'ready', asOf: 1, data: {} } as const;
-    expect(pickSource({ status: 'refused', code: 'trade.user_venue_off' }, own, tickers)).toEqual({ markets: own, tickers });
-    expect(pickSource({ status: 'refused', code: 'trade.venue.venue_down' }, own, tickers).markets).toEqual({
+  it("shows no prices while the venue's price read loads, refuses or fails", () => {
+    const listed = states([market()]);
+    expect(pickSource(listed, own, { status: 'ready', asOf: 1, data: {} }, noPrices).tickers.status).toBe('empty');
+    expect(pickSource(listed, own, { status: 'ready', asOf: 1, data: {} }, { status: 'loading' }).tickers.status).toBe('loading');
+    expect(
+      pickSource(listed, own, { status: 'ready', asOf: 1, data: {} }, { status: 'refused', code: 'trade.venue.venue_down' }).tickers,
+    ).toEqual({
       status: 'refused',
       code: 'trade.venue.venue_down',
     });
-    expect(pickSource({ status: 'loading' }, own, tickers).markets.status).toBe('loading');
+  });
+  it('keeps the own read where the venue door is off, and shows the venue read otherwise', () => {
+    const tickers = { status: 'ready', asOf: 1, data: {} } as const;
+    expect(pickSource({ status: 'refused', code: 'trade.user_venue_off' }, own, tickers, venuePrices)).toEqual({ markets: own, tickers });
+    expect(pickSource({ status: 'refused', code: 'trade.venue.venue_down' }, own, tickers, venuePrices).markets).toEqual({
+      status: 'refused',
+      code: 'trade.venue.venue_down',
+    });
+    expect(pickSource({ status: 'loading' }, own, tickers, venuePrices).markets.status).toBe('loading');
   });
 });
 

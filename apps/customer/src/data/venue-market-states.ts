@@ -1,11 +1,18 @@
 import { useMemo } from 'react';
-import { venueMarketStatesSchema, type VenueMarketState, type VenueMarketStates } from '@intafaced/contracts/trade-venue-door';
+import {
+  venueMarketStatesSchema,
+  venueTickersReadSchema,
+  type VenueMarketState,
+  type VenueMarketStates,
+  type VenueTickerRow,
+  type VenueTickersRead,
+} from '@intafaced/contracts/trade-venue-door';
 import { maintenanceOf, type MaintenanceWindowSoon } from '../shared/market-maintenance';
 import { useDataEnv, useSource } from './hooks';
 import type { Fetcher } from './poll';
-import type { ListingState, Loadable, MarketRow } from './types';
+import type { ListingState, Loadable, MarketRow, TickerRow } from './types';
 
-export type { VenueMarketState, VenueMarketStates };
+export type { VenueMarketState, VenueMarketStates, VenueTickersRead };
 
 /**
  * The venue's own market states (J-cex-spot-14 #1 #2 #5 #6 #7): svc-trade's public `GET /api/v1/venue/market-states`,
@@ -26,6 +33,40 @@ export function useVenueMarketStates(): Loadable<VenueMarketStates> {
       return env.poller.source('venue-market-states', fetcher, { intervalMs: INTERVAL_MS });
     }, [env]),
   );
+}
+
+/**
+ * The venue's own prices on each spot market it lists (J-cex-spot-14 #8): svc-trade's public `GET /api/v1/venue/tickers`,
+ * the last print, best bid and ask and the 24h range and volume from the venue's own book and tape. Re-read on the same
+ * 30 seconds as the market states.
+ */
+export function useVenueTickers(): Loadable<VenueTickersRead> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(() => {
+      const fetcher: Fetcher<VenueTickersRead> = (signal) => env.api.rest('/venue/tickers', venueTickersReadSchema, { signal });
+      return env.poller.source('venue-tickers', fetcher, { intervalMs: INTERVAL_MS });
+    }, [env]),
+  );
+}
+
+/** A venue ticker as a markets-list price row: what the venue publishes, and null (never zero) for what it does not. */
+export function venueTickerRow(t: VenueTickerRow): TickerRow {
+  return {
+    symbol: t.symbol,
+    last: t.last,
+    bid: t.bid,
+    ask: t.ask,
+    open24h: null,
+    high24h: t.high,
+    low24h: t.low,
+    change24h: null,
+    changePct24h: null,
+    baseVolume24h: t.baseVolume,
+    quoteVolume24h: t.quoteVolume,
+    windowStart: null,
+    source: 'server',
+  };
 }
 
 /** True when the read says the venue door is off here: the own-engine reads stand. */
