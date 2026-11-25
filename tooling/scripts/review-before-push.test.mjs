@@ -100,7 +100,8 @@ test('a change under the caps: the diff bytes the review counts, one part, no re
 });
 
 test("a hunk over the review's part size: the review's own refusal, as its job writes it", async () => {
-  const p = planted({}, { 'src/big.ts': `${'x'.repeat(99)}\n`.repeat(MAX_DIFF_BYTES / 100 + 100) });
+  // It replaces a line, so its one hunk is not only added lines, which the review would split between them.
+  const p = planted({ 'src/big.ts': 'old\n' }, { 'src/big.ts': `${'x'.repeat(99)}\n`.repeat(MAX_DIFF_BYTES / 100 + 100) });
   const v = await size(p);
   assert.ok(v.bytes > MAX_DIFF_BYTES);
   assert.match(

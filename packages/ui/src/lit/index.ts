@@ -31,6 +31,7 @@ export {
   MarketTable,
   MarketName,
   MoverTile,
+  MarketTile,
   StatStrip,
   MarketHeader,
   type StatCell,
@@ -39,6 +40,7 @@ export {
   type MarketTableLabels,
   type MarketTableProps,
   type MoverTileProps,
+  type MarketTileProps,
 } from './components/market-parts.js';
 export {
   ActionRow,

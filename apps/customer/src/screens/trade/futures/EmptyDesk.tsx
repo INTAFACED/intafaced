@@ -54,9 +54,10 @@ export function EmptyBook() {
   );
 }
 
-export function EmptyTicket() {
+/** `why`: the one real reason the ticket is off; with none, that no contract is listed. */
+export function EmptyTicket({ why: reason }: { why?: string } = {}) {
   const { t } = deskCopy.useCopy();
-  const why = t('Empty desk reason');
+  const why = reason ?? t('Empty desk reason');
   return (
     <aside aria-label={t('Ticket')} className="lt-panel">
       <div className="lt-cols-2">
