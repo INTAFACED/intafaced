@@ -40,25 +40,33 @@
 <span class="lt-display-line lt-display-second">One account.</span>
 </h1>
 <p class="ld-lead">Spot and perpetuals on a live order book, next to your own wallet and agents you can switch off. Every fee shown before you confirm.</p>
+<form class="ld-signup" action="/register" method="get">
+<div class="lit-field-control">
+<label for="_r_1_">Email address</label>
+<div data-part="box">
+<input autocomplete="email" placeholder="you@example.com" maxlength="320" id="_r_1_" type="email" name="email">
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg">Create account</button>
+</div>
+</div>
+</form>
 <div class="ld-actions">
-<a href="/register" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg">Create your account</a>
-<a href="/trade/markets" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="lg">See every market</a>
+<a href="/trade/markets" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">See every market</a>
 </div>
 <p class="ld-note">Two minutes to open. Crypto is volatile; you can lose money.</p>
 <div class="lt-tile-row ld-stats" data-min="narrow">
-<div role="group" aria-labelledby="_r_1_-label" class="lt-stat" data-label-below="true">
-<span id="_r_1_-label" class="lt-hint">markets open now</span>
+<div role="group" aria-labelledby="_r_2_-label" class="lt-stat" data-label-below="true">
+<span id="_r_2_-label" class="lt-hint">markets open now</span>
 <span class="lt-figure">7</span>
 </div>
-<div role="group" aria-labelledby="_r_2_-label" class="lt-stat" data-label-below="true">
-<span id="_r_2_-label" class="lt-hint">traded in 24h</span>
+<div role="group" aria-labelledby="_r_3_-label" class="lt-stat" data-label-below="true">
+<span id="_r_3_-label" class="lt-hint">traded in 24h</span>
 <span class="lt-figure">
 <span aria-hidden="true">—</span>
 <span class="lt-sr">unknown</span>
 </span>
 </div>
-<div role="group" aria-labelledby="_r_3_-label" class="lt-stat" data-label-below="true">
-<span id="_r_3_-label" class="lt-hint">our fee schedule is not set</span>
+<div role="group" aria-labelledby="_r_4_-label" class="lt-stat" data-label-below="true">
+<span id="_r_4_-label" class="lt-hint">our fee schedule is not set</span>
 <span class="lt-figure">
 <span aria-hidden="true">—</span>
 <span class="lt-sr">unknown</span>
@@ -106,14 +114,14 @@
 <figure class="lt-chart" data-tone="up" data-fit="true" dir="ltr">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="BTC, last 24 hours">
 <defs>
-<linearGradient id="lt-chart-soft-_r_4_" x1="0" y1="0" x2="0" y2="1">
+<linearGradient id="lt-chart-soft-_r_5_" x1="0" y1="0" x2="0" y2="1">
 <stop offset="0" class="lt-chart-soft-top">
 </stop>
 <stop offset="1" class="lt-chart-soft-bottom">
 </stop>
 </linearGradient>
 </defs>
-<path class="lt-chart-area" data-soft="true" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5 L592.0,192 L8.0,192 Z" style="fill: url(#lt-chart-soft-_r_4_);">
+<path class="lt-chart-area" data-soft="true" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5 L592.0,192 L8.0,192 Z" style="fill: url(#lt-chart-soft-_r_5_);">
 </path>
 <path class="lt-chart-line" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5" vector-effect="non-scaling-stroke">
 </path>
@@ -577,9 +585,21 @@
 </li>
 <li>
 <span class="lt-strip-head">
+<span class="lt-strip-title">Passkeys, no passwords to leak</span>
+</span>
+<span class="lt-strip-body">Sign in with your face or fingerprint, on the devices you choose.</span>
+</li>
+<li>
+<span class="lt-strip-head">
 <span class="lt-strip-title">Fees before you confirm</span>
 </span>
 <span class="lt-strip-body">Every order shows its full cost, ours and the venue’s, before you press the button.</span>
+</li>
+<li>
+<span class="lt-strip-head">
+<span class="lt-strip-title">Agents you can switch off</span>
+</span>
+<span class="lt-strip-body">Give an agent an allowance and a limit. Revoke it in one tap.</span>
 </li>
 </ul>
 <section class="ld-slab-section" aria-labelledby="ld-slab-title">
@@ -662,22 +682,20 @@
 <span class="ld-slab-label">You get, about</span>
 <span data-slot="amount" class="lt-num ld-ticket-get" dir="ltr" data-ltr="">0.014747 BTC</span>
 <div class="ld-ticket-chart">
-<figure class="lt-chart" data-tone="neutral" data-fit="true" dir="ltr">
+<figure class="lt-chart" data-tone="ink" data-fit="true" dir="ltr">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="BTC, last 24 hours">
 <defs>
-<linearGradient id="lt-chart-soft-_r_5_" x1="0" y1="0" x2="0" y2="1">
+<linearGradient id="lt-chart-soft-_r_6_" x1="0" y1="0" x2="0" y2="1">
 <stop offset="0" class="lt-chart-soft-top">
 </stop>
 <stop offset="1" class="lt-chart-soft-bottom">
 </stop>
 </linearGradient>
 </defs>
-<path class="lt-chart-area" data-soft="true" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5 L592.0,192 L8.0,192 Z" style="fill: url(#lt-chart-soft-_r_5_);">
+<path class="lt-chart-area" data-soft="true" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5 L592.0,192 L8.0,192 Z" style="fill: url(#lt-chart-soft-_r_6_);">
 </path>
 <path class="lt-chart-line" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5" vector-effect="non-scaling-stroke">
 </path>
-<circle class="lt-chart-live" data-live="" cx="592" cy="10.46656134354106" r="4">
-</circle>
 </svg>
 <div class="lt-sr">
 <table>
@@ -813,7 +831,7 @@
 <h2 class="lt-section-title ld-closing-title">
 <span id="ld-closing-title">Open an account in two minutes.</span>
 </h2>
-<a href="/register" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="lg">Open your account</a>
+<a href="/register" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="lg">Create your account</a>
 </section>
 </div>
 </div>
