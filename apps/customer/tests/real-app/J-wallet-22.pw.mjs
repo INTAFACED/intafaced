@@ -493,7 +493,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
 }) => {
   test.setTimeout(600_000);
   const s0 = walletState();
-  const { who, address, credential } = s0;
+  const { who, address, walletId, credential } = s0;
   // Trading on the venue needs a verified account (the trade jurisdiction's tier); the journey's person verifies once.
   if (!s0.verified) {
     // verify() acts as the signed-in person, so this fresh page signs in first (it signs out again after).
@@ -512,7 +512,14 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     depositRef: `j-wallet-22:${runId}:${client.userId}:usdc`,
   });
 
-  await device(page, [credential]);
+  const phone = await device(page, [credential]);
+  const signCount = async () => (await phone.held()).find((c) => c.credentialId === credential.credentialId).signCount;
+  // The device reports its credential id in base64, the page sends it in base64url.
+  const bound = Buffer.from(credential.credentialId, 'base64').toString('base64url');
+  const signedTyped = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/__test-wallet-provider/client/signtyped') signedTyped.push(r.postDataJSON());
+  });
   const prompts = walletPrompts(page);
   const prepares = [];
   const submits = [];
@@ -544,10 +551,18 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
 
   // ── One approval, after the passkey, for a fresh key with its expiry ────────────────────────────────────────────
   prompts.length = 0;
+  signedTyped.length = 0;
+  const passkeysBefore = await signCount();
   const startedAt = Date.now();
   const first = await startSession(page);
   expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
   expect(first).toMatch(/^0x[0-9a-f]{40}$/);
+  // After the passkey: the device answered one assertion, and the one approval the page sent the provider carried
+  // that assertion, from the wallet's bound passkey, over typed data that approves this session key.
+  expect(await signCount()).toBe(passkeysBefore + 1);
+  expect(signedTyped).toHaveLength(1);
+  expect(signedTyped[0]).toMatchObject({ walletId, assertion: { credentialId: bound } });
+  expect(JSON.stringify(signedTyped[0].payload).toLowerCase()).toContain(first.slice(2));
   expect(first).not.toBe(address.toLowerCase());
   await expect(panel.getByText(`Session on. Your session key can trade on ${VENUE_NAME} and can never withdraw.`)).toBeVisible();
   const expiresAt = Date.parse(await panel.getByTestId('session-expires').getAttribute('datetime'));
