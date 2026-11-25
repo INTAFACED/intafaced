@@ -26,7 +26,7 @@ export const DEMO_ROOMS = [
 ];
 
 /** The venue's network, which the seeded trader's browser wallet is on (null when the recording names none). */
-export const DEMO_CHAIN_ID = demoAnswer('http://x/api/v1/venue/status', 'GET', null, { signedIn: true })?.json?.chainId ?? null;
+const DEMO_CHAIN_ID = demoAnswer('http://x/api/v1/venue/status', 'GET', null, { signedIn: true })?.json?.chainId ?? null;
 
 const NO_SESSION = { error: { message: 'No session.', code: -32001, data: { code: 'UNAUTHORIZED', httpStatus: 401 } } };
 
