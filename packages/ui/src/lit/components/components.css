@@ -213,11 +213,11 @@
   padding-inline: 12px;
   text-align: center;
 }
-/* A word longer than its share (a long translation) breaks inside the segment rather than spilling over the next. The
-   cap is the segment's own width, which a percentage can't lower when the track is sized: the track still asks for the
-   longest word, so a label that fits today is never cut apart. */
+/* A word longer than its whole segment (a long translation) breaks inside it rather than spilling over the next. The cap
+   is the segment's full width, side padding included: a word that reaches into the padding today, as "snapshots" does,
+   reads as it did, and the segment's own width is what it was. */
 .lit-segmented-label {
-  max-inline-size: 100%;
+  max-inline-size: calc(100% + 24px);
   overflow-wrap: break-word;
 }
 /* The chosen segment is lifted in the raised material, never lime: lime is only the screen's one main action. */
