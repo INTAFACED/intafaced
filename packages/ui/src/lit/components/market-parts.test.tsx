@@ -115,3 +115,15 @@ describe('MoverTile quote', () => {
     expect(html).toContain('<span class="lt-market-symbol">BTC</span><span class="lt-market-full">/USDT</span>');
   });
 });
+
+describe('big figures draw their cents as the look sets them', () => {
+  it('splits two-place cents on a tile price, keeps a coin price whole, and leaves a table price full', () => {
+    expect(renderToStaticMarkup(<MoverTile symbol="BTC" price="$64,827.55" change="+0.47%" />)).toContain(
+      '$64,827<span class="lt-cents">.55</span>',
+    );
+    expect(renderToStaticMarkup(<MoverTile symbol="PURR" price="0.21840" change="+12.46%" />)).toContain('>0.21840</span>');
+    const table = renderToStaticMarkup(<MarketTable labels={labels} rows={[btc]} />);
+    expect(table).toContain('$97,240.12');
+    expect(table).not.toContain('lt-cents');
+  });
+});
