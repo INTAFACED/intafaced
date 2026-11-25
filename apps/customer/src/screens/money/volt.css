@@ -109,13 +109,6 @@
  * Assets with the venue door on (owner's pick A, "Ledger"): layout only. Every figure, face, panel and the one lit key
  * come from the kit's parts (lt-panel, Tag, HeroFigure, lt-button, Shares); this sheet only places them.
  */
-/* The template's regions hold the room's own kit panels, so the regions themselves are only places, not panels. */
-:root .money-where :is([data-region='hero'], [data-region='sections'], [data-region='watching']) {
-  background: none;
-  border: 0;
-  box-shadow: none;
-  padding: 0;
-}
 /* The total on the start side, the action keys on the end side of the same row. */
 :root .money-where__head {
   display: flex;
@@ -166,6 +159,19 @@
 }
 :root .money-where__alloc-legend .lt-parts-swatch {
   display: none;
+}
+/* Lime is Deposit's alone: the split's parts step down the kit's text and line roles instead, largest part brightest. */
+:root .money-where__alloc-legend .lt-parts-bar > span[data-part='0'] {
+  background: var(--lit-text-1);
+}
+:root .money-where__alloc-legend .lt-parts-bar > span[data-part='1'] {
+  background: var(--lit-text-2);
+}
+:root .money-where__alloc-legend .lt-parts-bar > span[data-part='2'] {
+  background: var(--lit-text-3);
+}
+:root .money-where__alloc-legend .lt-parts-bar > span:is([data-part='3'], [data-part='4'], [data-part='5']) {
+  background: var(--lit-line-strong);
 }
 :root .money-where__alloc-note {
   grid-column: 1;

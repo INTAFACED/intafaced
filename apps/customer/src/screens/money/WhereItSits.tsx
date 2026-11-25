@@ -24,7 +24,7 @@ import { clockTime } from './time';
 import { WhereAllocation } from './WhereAllocation';
 import { WhereHoldingsChange } from './WhereHoldingsChange';
 import { isHiddenPath, navigate } from './deps';
-import { MoneyOverview, MoneyRoomLinks } from './MoneyRoom';
+import { AssetsPage, MoneyRoomLinks } from './MoneyRoom';
 import { buyHref } from './links';
 import { balanceEntriesHref } from './balance-entries-model';
 import { SourceActivity } from './SourceActivity';
@@ -94,7 +94,7 @@ function BeforeWallet({ t, onWithdraw }: { t: T; onWithdraw: () => void }) {
   const { partner, standing, pricesFailed, valued } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
   const held = partner.state === 'read' || partner.state === 'unread';
   return (
-    <MoneyOverview
+    <AssetsPage
       title={t('Title')}
       description={t('Lede')}
       roomAction={<MoneyRoomLinks />}
@@ -158,7 +158,7 @@ function Read({
       ? money.t('Movers since {time}', { time: clockTime(valuation.windowStart, timeZone) })
       : money.t('Today');
   return (
-    <MoneyOverview
+    <AssetsPage
       title={t('Title')}
       roomAction={<MoneyRoomLinks />}
       hero={

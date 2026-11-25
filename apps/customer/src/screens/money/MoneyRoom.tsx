@@ -1,5 +1,6 @@
 // volt-room: /money
 import type { ReactNode } from 'react';
+import { PageColumn, PageGrid } from '@intafaced/ui/lit';
 import { OverviewTemplate, type OverviewProps } from '@intafaced/ui/lit/templates';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { usePreferences } from '../../shared/preferences';
@@ -44,4 +45,44 @@ export function MoneyRoomLinks() {
 export function MoneyOverview({ state = { kind: 'ready' }, ...props }: MoneyOverviewProps) {
   const { layoutMode } = usePreferences();
   return <OverviewTemplate {...props} state={state} mode={layoutMode === 'pro' ? 'pro' : 'simple'} />;
+}
+
+/**
+ * Assets with the venue door on, on the kit's page grid as the owner's pick A draws it: the page fills the screen with the
+ * kit's gutter, the title row across, then the main column (the total, the split, each source, recent activity) and the
+ * side column (moving now, where a withdrawal goes, the level), 8 to 4; one column under 64rem.
+ */
+export function AssetsPage({
+  title,
+  description,
+  roomAction,
+  hero,
+  sections,
+  watching,
+}: {
+  title: string;
+  description?: ReactNode;
+  roomAction?: ReactNode;
+  hero: ReactNode;
+  sections?: ReactNode;
+  watching?: ReactNode;
+}) {
+  return (
+    <PageGrid layout="split" data-template="assets">
+      <PageColumn span="all">
+        <header className="lt-title-row">
+          <div>
+            <h1 className="lt-title">{title}</h1>
+            {description ? <p className="lt-description">{description}</p> : null}
+          </div>
+          {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
+        </header>
+      </PageColumn>
+      <PageColumn>
+        {hero}
+        {sections}
+      </PageColumn>
+      <PageColumn>{watching}</PageColumn>
+    </PageGrid>
+  );
 }
