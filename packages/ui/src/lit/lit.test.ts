@@ -394,6 +394,9 @@ describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
     expect(lit.page).toBe('#000000');
     expect(lit['primary-bg']).toBe('#E0F83A');
     expect(lit['solid-bg']).toBe('#000000');
+    // An unpainted panel keeps one even hairline, as the picked samples draw it, so a panel still has an edge on black.
+    expect(lit['solid-rim']).toBe(lit['solid-rim-dim']);
+    expect(lit['solid-rim']).not.toMatch(/,\s*0\)$/);
   });
   it("draws every big figure at the figure weight (the owner's pick: Manrope 300), never a fixed bold", () => {
     const css = readFileSync(join(here, 'components/components.css'), 'utf8');
@@ -407,5 +410,6 @@ describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
     expect(css).toMatch(/\[data-panels='tiles'\] \{\n {2}--lit-solid-bg: #0d0e0e;/i);
     expect(pro['solid-bg']).toBe('#0D0E0E');
     expect(pro['radius-panel']).toBe('6px');
+    expect(pro['solid-rim']).toMatch(/,\s*0\)$/);
   });
 });

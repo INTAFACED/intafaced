@@ -159,8 +159,8 @@
   --lit-solid-bg-raised: #1a1a1a;
   --lit-solid-bg-sunken: #0a0a0a;
   --lit-solid-lip: none;
-  --lit-solid-rim: rgba(255, 255, 255, 0);
-  --lit-solid-rim-dim: rgba(255, 255, 255, 0);
+  --lit-solid-rim: rgba(243, 242, 236, 0.1);
+  --lit-solid-rim-dim: rgba(243, 242, 236, 0.1);
   --lit-solid-wall: #050505;
   --lit-solid-shadow: none;
   --lit-sheen: linear-gradient(transparent, transparent);
@@ -379,6 +379,8 @@
   --lit-solid-bg-raised: #151616;
   --lit-radius-panel: 6px;
   --lit-radius-tile: 6px;
+  --lit-solid-rim: rgba(255, 255, 255, 0);
+  --lit-solid-rim-dim: rgba(255, 255, 255, 0);
   --lit-gap-section: 16px;
   --lit-gap-item: 8px;
   --lit-pad-panel: 14px;
@@ -392,6 +394,8 @@
   --lit-solid-bg-raised: #151616;
   --lit-radius-panel: 6px;
   --lit-radius-tile: 6px;
+  --lit-solid-rim: rgba(255, 255, 255, 0);
+  --lit-solid-rim-dim: rgba(255, 255, 255, 0);
 }
 
 /* Today's names in the look's roles (todayInLookRoles). */
