@@ -254,6 +254,7 @@ async function savedToAccount(page, act) {
 test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, and the choice is the same on another device after sign-in`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   await withWallet(page);
@@ -272,9 +273,12 @@ test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, an
     // Prices are not amounts: the price source line and Home's market prices still show, none of them masked.
     await expect(standing.getByTestId('standing-prices')).toContainText('Valued at the prices TEST price list states.');
     const markets = page.locator('section[aria-labelledby="home-markets-title"], [data-testid="hp-markets"]').first();
-    await expect(markets).toContainText(/\d/);
+    // A market row's own price, never a count in the panel's header ("All 1 markets"): row 0 is the column heads.
+    await expect(markets.getByRole('row').nth(1)).toContainText(/\d[\d,]*\.\d+/);
     await expect(markets.locator('[data-hidden]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
+    // The step's picture: Home with every amount masked and the prices showing, before the second device and the reset.
+    await stepPicture();
 
     // A second device: a fresh browser with nothing stored, the same person signed in with the same wallet.
     const other = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
