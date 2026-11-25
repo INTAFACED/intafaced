@@ -1,8 +1,7 @@
 import type { VenueIntent } from '@intafaced/venue-contracts';
 
 /** The intents this adapter builds and signs (`HyperliquidTestnetUserVenue.buildOwn` in `venue.ts`). */
-export type BuiltIntentKind =
-  'place_order' | 'cancel_order' | 'update_leverage' | 'withdraw' | 'approve_builder_fee' | 'approve_agent' | 'revoke_agent';
+export type BuiltIntentKind = 'place_order' | 'cancel_order' | 'update_leverage' | 'withdraw' | 'approve_builder_fee' | 'approve_agent';
 
 export type BuiltIntent = Extract<VenueIntent, { kind: BuiltIntentKind }>;
 
@@ -12,6 +11,7 @@ export type BuiltIntent = Extract<VenueIntent, { kind: BuiltIntentKind }>;
  * kind, move it into `BuiltIntentKind` and build it in `venue.ts`.
  */
 export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltIntentKind>, string>> = {
+  revoke_agent: 'revoking an agent is not offered by this adapter yet',
   amend_order: 'amend is not offered by this adapter yet: cancel and place a new order',
   replace_order: 'a cancel-and-replace signed once is not offered by this adapter yet: cancel, then place',
   cancel_orders: 'cancelling several orders in one signed action is not offered by this adapter yet',
