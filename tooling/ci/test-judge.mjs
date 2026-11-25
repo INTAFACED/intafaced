@@ -31,7 +31,7 @@ import { pathToFileURL } from 'node:url';
 // request's, so the money rule below is main's.
 import { moneyRule, manifestsAt } from './journey-verdict.mjs';
 import { JOURNEY_FILE, JUDGE_PATHS, judgedFile } from './judged-paths.mjs';
-import { countCall } from './api-count.mjs';
+import { countCall, fetchFailure } from './api-count.mjs';
 
 export { JOURNEY_FILE, JUDGE_PATHS, judgedFile };
 
@@ -1009,6 +1009,8 @@ async function getText(path, accept, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
+  }).catch((e) => {
+    throw new Error(fetchFailure(path, e));
   });
   countCall(res);
   const text = await res.text();

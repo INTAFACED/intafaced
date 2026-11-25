@@ -55,7 +55,7 @@ import { reachesLook } from './ci-affected.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
-import { countCall } from './api-count.mjs';
+import { countCall, fetchFailure } from './api-count.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -1016,6 +1016,8 @@ async function getText(path, accept, token = process.env.GH_TOKEN) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
+  }).catch((e) => {
+    throw new Error(fetchFailure(path, e));
   });
   countCall(res);
   const text = await res.text();

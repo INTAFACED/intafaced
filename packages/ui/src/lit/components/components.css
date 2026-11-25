@@ -121,7 +121,7 @@
    unfilled, so the desk still shows where the action is; its words stay in the second text colour for contrast. */
 .lit-button[data-tone='primary']:disabled {
   background: none;
-  box-shadow: inset 0 0 0 1px var(--lit-accent);
+  box-shadow: inset 0 0 0 1px var(--lit-accent-fill);
 }
 .lit-button[data-size='lg'] {
   min-height: calc(var(--lit-control-h) + 6px);
@@ -2206,6 +2206,9 @@ a.lt-mover:hover {
 .lt-chart[data-tone='ink'] {
   --lt-chart-soft: var(--lit-text-1);
 }
+.lt-chart[data-tone='ink'] .lt-chart-live {
+  fill: var(--lit-text-1);
+}
 .lt-chart[data-tone='ink'] .lt-chart-soft-top {
   stop-opacity: 0.14;
 }
@@ -2278,7 +2281,8 @@ a.lit-button {
 }
 /* Beside a live panel (the hero layout) the headline follows the page's width, so each line stays one line in its 5/12 column. */
 @container lt-page (min-width: 64rem) {
-  .lt-page-grid[data-layout='hero'] .lt-display {
+  .lt-page-grid[data-layout='hero'] .lt-display,
+  .lt-page-grid[data-stage='start'] .lt-display {
     font-size: clamp(2.75rem, 4.2cqi, 8.5rem);
   }
 }
@@ -2497,6 +2501,275 @@ a.lit-button {
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
 }
+
+/* Board parts (board-parts.tsx): a markets screen's board, a toolbar's end slot, footnote lines, and GridTable's
+   phone one-line rows and hover-revealed cells. */
+.lt-market-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--lit-gap-section);
+}
+.lt-market-board > section + section {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+/* The board's panels sit on the page: the template region it fills draws none of its own. */
+.lt-region[data-region='featured']:has(> .lt-market-board),
+.lt-region[data-region='featured']:has(> * > .lt-market-board) {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.lt-market-hero-dim {
+  color: var(--lit-text-3);
+  font-weight: 400;
+}
+.lt-market-hero {
+  display: grid;
+  grid-template-columns: minmax(20rem, 32rem) 1fr;
+  gap: 2rem;
+  padding: 1.75rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+}
+.lt-market-hero-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-inline-size: 0;
+}
+.lt-market-hero-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-block-end: 0.5rem;
+}
+.lt-market-hero-name {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.lt-market-hero-pair {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.lt-market-hero-price {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-size: clamp(2.5rem, 3.4vw, 4.5rem);
+  white-space: nowrap;
+  font-weight: var(--lit-type-figure-weight);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: var(--lit-text-1);
+  font-variant-numeric: tabular-nums;
+}
+.lt-market-hero-change {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+}
+.lt-market-hero-go {
+  align-self: flex-start;
+  margin-block: 0.5rem;
+}
+.lt-market-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--lit-line);
+}
+.lt-market-hero-stats dt {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-market-hero-stats dd {
+  margin: 0.25rem 0 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.lt-market-hero-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-inline-size: 0;
+  min-block-size: 16rem;
+}
+.lt-market-hero-chart .lt-chart {
+  flex: 1;
+  margin: 0;
+}
+.lt-market-hero-chart .lt-chart svg {
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 15rem;
+}
+.lt-market-hero-chart > p {
+  margin: auto;
+}
+.lt-market-bone-block {
+  animation: lt-market-pulse 1.6s var(--lit-ease) infinite;
+}
+.lt-market-bone-block[data-size='hero'] {
+  min-block-size: 22rem;
+}
+.lt-market-bone-block[data-size='tile'] {
+  min-block-size: 8.5rem;
+}
+@keyframes lt-market-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lt-market-bone-block {
+    animation: none;
+  }
+}
+@media (max-width: 56rem) {
+  .lt-market-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 1.25rem;
+    gap: 1.25rem;
+  }
+  .lt-market-hero-chart {
+    min-block-size: 8rem;
+  }
+  .lt-market-hero-chart .lt-chart svg {
+    min-block-size: 7rem;
+    max-block-size: 9rem;
+  }
+}
+
+/* A favourite star: quiet text when off, the text colour when on; the accent is the main action's alone. */
+.lt-star {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 1.5rem;
+  min-block-size: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-3);
+  cursor: pointer;
+  transition: color var(--lit-t-quick) var(--lit-ease);
+}
+.lt-star:hover,
+.lt-star[aria-pressed='true'] {
+  color: var(--lit-text-1);
+}
+.lt-star:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lt-toolbar[hidden] {
+  display: none;
+}
+.lt-toolbar-end {
+  margin-inline-start: auto;
+  min-inline-size: min(100%, 16rem);
+}
+.lt-footnotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-footnotes strong {
+  color: var(--lit-text-2);
+  font-weight: 600;
+}
+
+/* A cell marked `reveal` shows on the row pointed at or moved to; a phone row opens on a tap. */
+@media (hover: hover) {
+  .lt-table tr[data-row] td[data-reveal] > * {
+    opacity: 0;
+    transition: opacity var(--lit-t-quick) var(--lit-ease);
+  }
+  .lt-table tr[data-row]:is(:hover, :focus-within) td[data-reveal] > * {
+    opacity: 1;
+  }
+}
+
+/* On a phone the board is the market and its day in one glance, so the list is near; a market row is one tappable
+   line (name, then the top figure over the bottom one), as on every exchange app. */
+@container room (max-width: 599px) {
+  .lt-market-hero {
+    gap: 0.75rem;
+  }
+  /* The price fits the phone's width whatever the text size: a share of the room's width, never more than the big
+     figure's size. */
+  .lt-market-hero-price {
+    font-size: min(2.5rem, 11cqi);
+  }
+  .lt-market-hero-stats,
+  .lt-market-hero-chart > [data-part='chart-title'] {
+    display: none;
+  }
+  .lt-market-hero-chart,
+  .lt-market-hero-chart .lt-chart svg {
+    min-block-size: 5.5rem;
+    max-block-size: 6.5rem;
+  }
+  /* A mover's price is the big figure: one and a half tiles show, so a six-figure price is never cut. */
+  .lt-market-board .lt-tile-row[data-min='card'] {
+    grid-auto-columns: 64%;
+  }
+  .lt-toolbar-end {
+    inline-size: 100%;
+    margin-inline-start: 0;
+  }
+  .lt-table[data-phone='line'] thead {
+    display: none;
+  }
+  .lt-table[data-phone='line'] tr[data-row] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'name top' 'name bottom';
+    align-items: center;
+    column-gap: 0.75rem;
+    padding-block: 0.75rem;
+  }
+  .lt-table[data-phone='line'] tr[data-row] :is(td, th)::before {
+    content: none;
+  }
+  .lt-table[data-phone='line'] tr[data-row] :is(td, th) {
+    min-block-size: 0;
+  }
+  .lt-table[data-phone='line'] :is(td, th)[data-phone='name'] {
+    grid-area: name;
+    min-inline-size: 0;
+    /* The name takes what the figures leave, wrapping inside it at large text sizes rather than widening the row. */
+    overflow-wrap: anywhere;
+  }
+  /* A tag beside the name (Spot, 40x) waits for a wider screen: the line keeps the name whole. */
+  .lt-table[data-phone='line'] :is(td, th)[data-phone='name'] .lit-tag {
+    display: none;
+  }
+  .lt-table[data-phone='line'] td[data-phone='top'] {
+    grid-area: top;
+    justify-content: flex-end;
+    font-weight: 600;
+  }
+  .lt-table[data-phone='line'] td[data-phone='bottom'] {
+    grid-area: bottom;
+    justify-content: flex-end;
+  }
+  .lt-table[data-phone='line'] td[data-phone='hide'] {
+    display: none;
+  }
+}
+
 /* Sign-up, sign-in and verification parts (auth-parts.tsx). */
 .lt-choice-tile {
   position: relative;
@@ -2610,9 +2883,15 @@ a.lit-button {
 .lt-wallet-card__value {
   grid-row: 4;
   color: var(--lit-text-1);
-  font-size: var(--lit-type-title-size);
-  font-weight: var(--lit-type-title-weight);
+  font-size: var(--lit-type-heading-size);
+  font-weight: var(--lit-type-heading-weight);
   font-variant-numeric: tabular-nums;
+}
+@container lt-page (min-width: 64rem) {
+  .lt-wallet-card__value {
+    font-size: var(--lit-type-title-size);
+    font-weight: var(--lit-type-title-weight);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .lt-wallet-card__card {
@@ -2641,11 +2920,41 @@ a.lit-button {
     grid-template-columns: 1fr;
   }
 }
-.lt-hero-line {
+/* An auth page whose stage comes first on a computer; on a phone the form stays first (it is first in the page). */
+@container lt-page (min-width: 64rem) {
+  .lt-page-grid[data-stage='start'] {
+    align-items: stretch;
+  }
+  .lt-page-grid[data-stage='start'] > .lt-page-col {
+    align-content: stretch;
+  }
+  .lt-page-grid[data-stage='start'] > .lt-page-col:last-child {
+    order: -1;
+  }
+  .lt-page-grid[data-stage='start'] .lt-auth-panel {
+    max-inline-size: none;
+  }
+  .lt-page-grid[data-stage='start'] .lt-auth-stage {
+    position: relative;
+    inset-block-start: 0;
+  }
+}
+/* "or" between a form's own button and its other ways in: a hairline each side of the word. */
+.lt-auth-or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   margin: 0;
-  font-size: var(--lit-type-hero-size);
-  line-height: var(--lit-type-hero-line);
-  font-weight: var(--lit-type-hero-weight);
-  letter-spacing: var(--lit-type-hero-tracking);
-  text-wrap: balance;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.lt-auth-or::before,
+.lt-auth-or::after {
+  content: '';
+  flex: 1;
+  border-block-start: 1px solid var(--lit-line);
+}
+.lt-auth-foot {
+  margin: 0;
+  text-align: center;
 }

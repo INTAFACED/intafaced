@@ -335,6 +335,40 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     expect((await w.sim.agents(w.account)).value.map((x) => x.address)).toEqual([fresh.key.address.toLowerCase()]);
   });
 
+  it('a sign-out ends the session key: an order it signs is refused on the next sign-in, before any new session, while the venue still lists it', async () => {
+    const w = world();
+    await approveBuilderFee(w);
+    const { key, p } = await startSession(w, SIGN_IN_A);
+    // Prepared in the sign-in, signed after it ended: refused at the send too.
+    const intent = order();
+    const before = await w.door.prepare(p, { owner, signer: { role: 'agent', address: key.address.toLowerCase() }, intent });
+    // Sign out: the next sign-in (SIGN_IN_B) has started no session, and the venue still lists the old key.
+    const next = person(SIGN_IN_B);
+    expect((await w.sim.agents(w.account)).value.map((x) => x.address)).toEqual([key.address.toLowerCase()]);
+    const ordersBefore = (await w.store.listByPrefix(USER, '')).length;
+    expect(await refusal(placeWithSessionKey(w, next, key))).toBe('trade.venue_session_signed_out');
+    expect(await refusal(w.door.submit(next, before.actionKey, await signWith(key, before.prepared)))).toBe(
+      'trade.venue_session_signed_out',
+    );
+    expect((await w.store.listByPrefix(USER, '')).length).toBe(ordersBefore);
+    expect(await w.store.find(USER, before.actionKey)).toMatchObject({ signature: null });
+    // A token with no sign-in (an API key) cannot use a session key either.
+    expect(await refusal(placeWithSessionKey(w, person(undefined), key))).toBe('trade.venue_session_signed_out');
+    // A named agent approved by the owner is not a session key: it signs from any sign-in.
+    const assistant = privateKeyToAccount(generatePrivateKey());
+    const named = await w.door.prepare(p, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_agent', agentAddress: assistant.address.toLowerCase(), agentName: 'assistant', validUntil: null },
+      actionKey: `agent-approve:${USER}:assistant-signed-out`,
+    });
+    await w.door.submit(p, named.actionKey, await signWith(ownerKey, named.prepared));
+    expect((await placeWithSessionKey(w, next, assistant)).outcome).toMatchObject({ accepted: true });
+    // The next session's key trades in the new sign-in.
+    const fresh = await startSession(w, SIGN_IN_B);
+    expect((await placeWithSessionKey(w, fresh.p, fresh.key)).outcome).toMatchObject({ accepted: true });
+  });
+
   it('a second device’s session replaces the first device’s key; the first says replaced; a named agent is never replaced', async () => {
     const w = world();
     await approveBuilderFee(w);

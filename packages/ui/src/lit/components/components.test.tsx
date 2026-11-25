@@ -800,6 +800,6 @@ describe('a disabled main action', () => {
     expect(at).toBeGreaterThan(all);
     const body = css.slice(at, css.indexOf('}', at));
     expect(body).toContain('background: none;');
-    expect(body).toContain('box-shadow: inset 0 0 0 1px var(--lit-accent);');
+    expect(body).toContain('box-shadow: inset 0 0 0 1px var(--lit-accent-fill);');
   });
 });
