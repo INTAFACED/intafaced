@@ -227,6 +227,7 @@ function MarketBoard({
         </table>
       )}
       <footer className="ld-board-foot">
+        <span>{t('boardFootNote')}</span>
         <a href="/trade/markets">{t('boardAll', { count: String(lines.length) })} →</a>
       </footer>
     </section>

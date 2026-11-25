@@ -26,6 +26,7 @@ export const landingCopy = defineCopy('public-landing', {
   colTrend: 'Last 24h',
   colVolume: 'Volume',
   boardLive: 'Live prices',
+  boardFootNote: 'Prices refresh every 10 seconds.',
   boardAll: 'All {count} markets',
   boardLoading: 'Loading markets…',
   boardEmpty: 'No market is open right now.',
