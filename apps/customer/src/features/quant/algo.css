@@ -185,7 +185,8 @@ table.preview-passes {
   padding-inline-end: 0;
 }
 
-/* The save state sits clear of the save button above it, never on its edge (look gate, #10890). */
-.quant-save > p {
+/* What follows a button sits clear of it, never on its edge: the save state, an engine's sample log (look gate, #10890). */
+.quant-save > p,
+.more-columns .button + * {
   margin-block-start: var(--lit-gap-item);
 }
