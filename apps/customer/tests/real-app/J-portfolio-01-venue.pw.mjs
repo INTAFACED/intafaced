@@ -453,14 +453,17 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
     [...new Set(valued.filter((r) => r.price === null).map((r) => r.asset))].join(','),
   );
 
-  // Quick actions beside the total, each going to a real room.
+  // Quick actions beside the total, each going to a real room; the full activity is the Activity section's own link.
   const actions = page.getByTestId('assets-actions');
   for (const [name, href] of [
     ['Trade', /^\/trade\/spot\//],
     ['Deposit', /^\/wallet\/venue$/],
-    ['Activity', /^\/money\/activity$/],
   ])
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${name}$`) })).toHaveAttribute('href', href);
+  await expect(page.getByTestId('assets-recent').getByRole('link', { name: 'All activity', exact: true })).toHaveAttribute(
+    'href',
+    /^\/money\/activity$/,
+  );
   await stepPicture();
   await actions
     .locator('a')
