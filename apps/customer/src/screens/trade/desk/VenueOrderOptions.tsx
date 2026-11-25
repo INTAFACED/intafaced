@@ -20,14 +20,19 @@ import {
 // disabled choice signs and sends nothing: it can't be picked. Good till date, which the venue lacks, is run by
 // INTAFACED instead, by the owner's choice, and says so.
 
-/** The order types beside limit and market that the venue does not list, each a disabled button saying so. */
-export function NotOfferedTypes({ market }: { market: VenueMarket }) {
+/** The order types beside limit and market (plus market itself when limited) that the venue does not offer, disabled. */
+export function NotOfferedTypes({ market, marketDisabledReason = null }: { market: VenueMarket; marketDisabledReason?: string | null }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const missing = OTHER_ORDER_TYPES.filter((x) => !market.orderTypes.includes(x));
-  if (missing.length === 0) return null;
+  if (missing.length === 0 && !marketDisabledReason) return null;
   return (
     <div role="group" aria-label={t('Order types more')} data-testid="venue-order-types" className="lt-row">
+      {marketDisabledReason ? (
+        <Button tone="secondary" size="sm" disabled aria-disabled="true" data-testid="dk-type-off-market" data-not-offered="market">
+          {t('Market')}: {marketDisabledReason}
+        </Button>
+      ) : null}
       {missing.map((x) => (
         <Button key={x} tone="secondary" size="sm" disabled aria-disabled="true" data-not-offered={x}>
           {word(v, 'type', x)}: {v('Not offered')}
