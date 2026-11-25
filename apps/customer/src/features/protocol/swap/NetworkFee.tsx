@@ -82,7 +82,8 @@ export function NetworkFee({
           return (
             <label key={entry} className="field field--check">
               <input type="radio" name="swap-fee" value={entry} checked={choice === entry} onChange={() => onChoice(entry)} />
-              <span>{t(`fee_${entry}`)}</span> <small className="lt-muted lt-num">{hint}</small>
+              {/* A sentence with figures in it, so it wraps on a phone: the kit's lt-num never wraps. */}
+              <span>{t(`fee_${entry}`)}</span> <small className="lt-muted">{hint}</small>
             </label>
           );
         })}

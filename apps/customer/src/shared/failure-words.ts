@@ -21,6 +21,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'protectionUnset',
   'priceBandUnset',
   'openOrdersCapUnset',
+  'minNotionalUnset',
   'noBook',
   'marketNotOpen',
   'marketHalted',

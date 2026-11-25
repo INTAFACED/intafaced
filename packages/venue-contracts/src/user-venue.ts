@@ -2040,6 +2040,20 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * (`move_position`, J-derivatives-05 #7). A venue that declares nothing moves none: the room refuses the move in words.
    */
   readonly positionMoves?: boolean;
+  /**
+   * Who signs this venue's trading actions (orders, cancels, changes, leverage): `owner_wallet` when the owner's wallet
+   * signs them on the network it is on; `session_key` when their EIP-712 domain names a chain no wallet signs on
+   * (Hyperliquid's L1 actions name chain 1337), so they are signed by an agent key the owner approved once (the trading
+   * session, svc-trade src/venue/session-key.ts). A venue that declares none is read as `owner_wallet` (`tradesSignedByOf`).
+   */
+  readonly tradesSignedBy?: VenueTradeSigner;
+}
+
+export type VenueTradeSigner = 'owner_wallet' | 'session_key';
+
+/** Who signs `venue`'s trading actions: what it declares, or the owner's wallet when it declares none. */
+export function tradesSignedByOf(venue: Pick<UserVenueDescriptor, 'tradesSignedBy'>): VenueTradeSigner {
+  return venue.tradesSignedBy === 'session_key' ? 'session_key' : 'owner_wallet';
 }
 
 /** How a venue holds positions on one contract: one net position, or a long and a short side by side. */
