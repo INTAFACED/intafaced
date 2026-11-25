@@ -2214,6 +2214,8 @@ a.lit-button {
 /* Front pages' type: the wide face, large and tight. */
 .lt-display {
   margin: 0;
+  /* At 200% text on a phone a word wider than its column breaks rather than pushing the page sideways. */
+  overflow-wrap: break-word;
   font-family: var(--lit-font-figure);
   font-size: clamp(2.75rem, 5.4vw, 8.5rem);
   line-height: 0.95;
@@ -2326,6 +2328,7 @@ a.lit-button {
 }
 .lt-featured-figure {
   display: grid;
+  min-inline-size: 0;
   align-content: center;
   gap: 0.25rem;
 }
@@ -2336,6 +2339,9 @@ a.lit-button {
   font-size: var(--lit-type-label-size);
 }
 .lt-featured-price {
+  /* At 200% text on a phone the price wraps inside its tile instead of pushing the page sideways. */
+  overflow-wrap: anywhere;
+  white-space: normal;
   font-size: clamp(2rem, 2.6vw, 2.75rem);
   line-height: 1.05;
   font-weight: 600;
