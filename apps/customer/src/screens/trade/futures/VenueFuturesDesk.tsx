@@ -1274,19 +1274,15 @@ function Ticket({
         label={t('Ticket')}
       />
       <div role="group" aria-label={t('Order types')} data-testid="venue-order-types">
-        {offered.map((x) => (
-          <Button
-            key={x}
-            tone={type === x ? 'secondary' : 'quiet'}
-            aria-pressed={type === x}
-            onClick={() => {
-              setType(x);
-              clearChecks();
-            }}
-          >
-            {word(v, 'type', x)}
-          </Button>
-        ))}
+        <Segmented
+          options={offered.map((x) => ({ value: x, label: word(v, 'type', x) }))}
+          value={type}
+          onChange={(x) => {
+            setType(x);
+            clearChecks();
+          }}
+          label={t('Order types')}
+        />
         <NotOfferedChips types={RESTING_TYPES.filter((x) => !market.orderTypes.includes(x))} />
       </div>
       <div className="xd-switch-row">
