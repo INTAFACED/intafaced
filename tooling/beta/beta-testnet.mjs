@@ -222,15 +222,26 @@ const lastLine = (r) =>
     .split('\n')
     .at(-1);
 
-async function info(body, fetchImpl) {
-  const res = await fetchImpl(TESTNET_INFO_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`testnet info ${body.type}: HTTP ${res.status}`);
-  return res.json();
+/**
+ * A testnet read. The box's one address shares the testnet's per-address limit with every local stack on it, and the
+ * limit answers 429 for seconds at a time; a read is safe to repeat, so a 429 is tried again after 2, 4 and 8 s before
+ * the pass stops (it stopped on the first 429 for ten minutes on 2026-11-25, and a tester got no TEST USDC).
+ */
+export async function info(body, fetchImpl, wait = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchImpl(TESTNET_INFO_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 429 && attempt < 3) {
+      await wait(2000 * 2 ** attempt);
+      continue;
+    }
+    if (!res.ok) throw new Error(`testnet info ${body.type}: HTTP ${res.status}`);
+    return res.json();
+  }
 }
 const fmt = (u) => `${u / 10n ** BigInt(SCALE)}.${String(u % 10n ** BigInt(SCALE)).padStart(SCALE, '0')}`.replace(/\.?0+$/, '');
 

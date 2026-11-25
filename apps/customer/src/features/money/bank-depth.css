@@ -409,6 +409,8 @@
 }
 .bd-filter {
   display: flex;
+  /* A row too narrow for every field (a phone) wraps it whole, never squeezing a label into broken letters. */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--if-space-3);

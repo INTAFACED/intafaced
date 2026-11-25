@@ -55,7 +55,8 @@
   line-height: 1.2857rem;
 }
 .ld-board {
-  padding: 1.2857rem 0.5714rem 0.5714rem;
+  min-inline-size: 0;
+  padding-block-start: 1.2857rem;
 }
 .ld-board-note {
   padding: 2.2857rem 1.1429rem;
@@ -164,7 +165,11 @@
   min-block-size: 12rem;
 }
 .ld-card-levels {
+  /* The last row whether or not the plot draws, and each tag its own height: with no trend points the plot is hidden,
+     and the tags must not stretch into the row it leaves. */
+  grid-row: 3;
   display: flex;
+  align-items: start;
   justify-content: space-between;
   gap: 0.5714rem;
   flex-wrap: wrap;
@@ -219,4 +224,14 @@
 .ld-big-title {
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+/* The board's head: its tabs and the live mark on one row, on the page (the board has no panel of its own). */
+.ld-board-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5714rem;
+  padding-block-end: 0.8571rem;
 }

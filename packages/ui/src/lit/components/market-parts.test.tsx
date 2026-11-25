@@ -22,6 +22,10 @@ describe('MarketTable', () => {
     );
     expect(html).toContain('class="lt-market-symbol">BTC</span>');
     expect(html).toContain('class="lt-market-full">Bitcoin</span>');
+    // The symbol stands over its name, in one stacked block beside the coin.
+    expect(html).toContain(
+      '<span class="lt-market-text"><span class="lt-market-symbol">BTC</span><span class="lt-market-full">Bitcoin</span></span>',
+    );
     expect(html).toContain('href="/trade/spot/BTC-USD"');
     expect(html).toMatch(/data-label="Price" data-align="end">.*\$97,240\.12/);
     expect(html).toContain('data-direction="up"');
@@ -53,6 +57,14 @@ describe('MoverTile', () => {
     const html = renderToStaticMarkup(<MoverTile symbol="DOGE" price="0.38120" change="−4.94%" trend={['2', '1']} href="/m/DOGE" />);
     expect(html).toContain('<a class="lt-mover" href="/m/DOGE">');
     expect(html).toContain('data-direction="down"');
+  });
+
+  it('draws the coin’s mark from `asset` when the symbol is a whole pair, keeping the pair’s words', () => {
+    const pair = renderToStaticMarkup(<MoverTile symbol="BTC/USDT" asset="BTC" price="1" change="+1%" />);
+    expect(pair).toContain('<svg');
+    expect(pair).toContain('BTC/USDT');
+    // Without `asset`, the pair's name has no art: the lettered disc, never a guessed logo.
+    expect(renderToStaticMarkup(<MoverTile symbol="BTC/USDT" price="1" change="+1%" />)).not.toContain('<svg');
   });
 });
 

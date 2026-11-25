@@ -1401,6 +1401,22 @@ button.lt-tab:focus-visible {
   font-size: var(--lit-type-label-size);
 }
 
+/* Soft tabs (Tabs soft): small pills with no rim; only the shown one is filled. */
+.lt-tabs-soft {
+  gap: 0.2857rem;
+}
+.lt-tabs-soft .lt-tab {
+  min-block-size: 2.2857rem;
+  padding-inline: 0.8571rem;
+  border-color: transparent;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.lt-tabs-soft .lt-tab[aria-selected='true'] {
+  background: var(--lit-secondary-bg);
+  border-color: transparent;
+}
+
 .lt-tab-panel {
   display: flex;
   flex-direction: column;
