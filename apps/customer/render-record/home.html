@@ -578,9 +578,11 @@
 <h2 id="home-activity-title">Recent activity</h2>
 <a class="lt-link" href="/money/activity">See all</a>
 </div>
-<ul data-testid="home-activity" class="lt-rows">
-<li>
-<a data-testid="home-activity__row" class="lt-row-link" href="/money/activity/a1" data-dir="in">
+<div data-testid="home-activity">
+<ul class="lt-activity-list" aria-label="Recent activity">
+<li class="lt-activity">
+<a data-testid="home-activity__row" data-dir="in" href="/money/activity/a1">
+<span class="lt-activity-face" aria-hidden="true">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="USDT" data-size="md">
 <span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -591,15 +593,19 @@
 </svg>
 </span>
 </span>
-<span class="lt-lines">
-<span data-testid="home-activity__kind">Received</span>
-<span data-testid="home-activity__when" class="lt-hint">14 Oct, 09:15</span>
 </span>
-<span data-slot="amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">+50 USDT</span>
+<span class="lt-activity-what">
+<span data-testid="home-activity__kind" class="lt-activity-title">Received</span>
+<span data-testid="home-activity__when" class="lt-activity-time">14 Oct, 09:15</span>
+</span>
+<span class="lt-activity-amount">
+<span data-testid="home-activity__amount" class="lt-num" data-direction="in" dir="ltr">+50 USDT</span>
+</span>
 </a>
 </li>
-<li>
-<a data-testid="home-activity__row" class="lt-row-link" href="/money/activity/order%3Aord-1" data-dir="in">
+<li class="lt-activity">
+<a data-testid="home-activity__row" data-dir="in" href="/money/activity/order%3Aord-1">
+<span class="lt-activity-face" aria-hidden="true">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="md">
 <span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -610,15 +616,19 @@
 </svg>
 </span>
 </span>
-<span class="lt-lines">
-<span data-testid="home-activity__kind">Trade</span>
-<span data-testid="home-activity__when" class="lt-hint">14 Oct, 08:02</span>
 </span>
-<span data-slot="amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">+0.01 BTC</span>
+<span class="lt-activity-what">
+<span data-testid="home-activity__kind" class="lt-activity-title">Trade</span>
+<span data-testid="home-activity__when" class="lt-activity-time">14 Oct, 08:02</span>
+</span>
+<span class="lt-activity-amount">
+<span data-testid="home-activity__amount" class="lt-num" data-direction="in" dir="ltr">+0.01 BTC</span>
+</span>
 </a>
 </li>
-<li>
-<a data-testid="home-activity__row" class="lt-row-link" href="/money/activity/a5" data-dir="out">
+<li class="lt-activity">
+<a data-testid="home-activity__row" data-dir="out" href="/money/activity/a5">
+<span class="lt-activity-face" aria-hidden="true">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="USDT" data-size="md">
 <span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -629,14 +639,18 @@
 </svg>
 </span>
 </span>
-<span class="lt-lines">
-<span data-testid="home-activity__kind">Sent</span>
-<span data-testid="home-activity__when" class="lt-hint">13 Oct, 17:40</span>
 </span>
-<span data-slot="amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">−20 USDT</span>
+<span class="lt-activity-what">
+<span data-testid="home-activity__kind" class="lt-activity-title">Sent</span>
+<span data-testid="home-activity__when" class="lt-activity-time">13 Oct, 17:40</span>
+</span>
+<span class="lt-activity-amount">
+<span data-testid="home-activity__amount" class="lt-num" data-direction="out" dir="ltr">−20 USDT</span>
+</span>
 </a>
 </li>
 </ul>
+</div>
 </section>
 </div>
 <div class="lit-surface hm-side-panel" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
