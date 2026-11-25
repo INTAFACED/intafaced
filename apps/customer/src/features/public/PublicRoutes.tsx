@@ -44,7 +44,7 @@ const FOOTER = [
   ['/partner', 'Partners'],
 ] as const;
 
-/** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
+/** The public header carries the horizontal lockup (mark 24 pixels, as the app bar, small drawing); the footer line the wordmark alone. */
 function Brand({ footer }: { footer?: boolean }) {
   return (
     <a href="/" className="brand" aria-label="INTAFACED">
@@ -52,9 +52,9 @@ function Brand({ footer }: { footer?: boolean }) {
         <BrandWordmark width={150} />
       ) : (
         <>
-          <BrandLockup size={28} title="" className="brand-full" />
+          <BrandLockup size={24} title="" className="brand-full" />
           {/* A phone's bar holds the mark alone, so Menu and the account link fit beside it. */}
-          <BrandMark size={28} className="brand-compact" />
+          <BrandMark size={24} className="brand-compact" />
         </>
       )}
     </a>

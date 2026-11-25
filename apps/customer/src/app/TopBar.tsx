@@ -266,7 +266,7 @@ export function TopBar({
 }) {
   const { t } = shellCopy.useCopy();
   const { language, layoutMode } = usePreferences();
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   useBannerOffset();
   const tabs = tabSpecs(layoutMode, Boolean(session));
   const here = typeof location === 'undefined' ? path : path + location.search;
@@ -301,7 +301,8 @@ export function TopBar({
               <ProfileChip />
               <AccountButton onSignOut={onSignOut} />
             </>
-          ) : (
+          ) : restoring ? null : (
+            // While the boot refresh answers, the bar does not yet know who this is: neither Log in nor the account shows.
             <>
               <a className="tb-login" href={signIn}>
                 {t('Log in')}
