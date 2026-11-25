@@ -40,7 +40,8 @@ function DataTable({ caption, rows, asset }: { caption: string; rows: readonly {
     // still stretch the page by their full height.
     <div className="lt-sr">
       <table>
-        <caption>{caption}</caption>
+        {/* Hidden on its own too: inside the hidden box its text would still have a box of its own, cut by that box. */}
+        <caption className="lt-sr">{caption}</caption>
         <tbody>
           {rows.map((r) => (
             <tr key={r.label}>

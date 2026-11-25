@@ -78,7 +78,7 @@ export function MarketHero({
         <div className="lt-market-hero-name">
           <AssetIcon asset={asset} size="md" />
           <span className="lt-market-hero-pair">
-            <span className="lt-cell-name">
+            <span className="lt-market-name">
               <strong>{symbol}</strong>
               {tag}
             </span>

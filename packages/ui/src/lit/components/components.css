@@ -2632,6 +2632,11 @@ a.lit-button {
   .lt-market-hero {
     gap: 0.75rem;
   }
+  /* The price fits the phone's width whatever the text size: a share of the room's width, never more than the big
+     figure's size. */
+  .lt-market-hero-price {
+    font-size: min(2.5rem, 11cqi);
+  }
   .lt-market-hero-stats,
   .lt-market-hero-chart > [data-part='chart-title'] {
     display: none;
@@ -2668,6 +2673,12 @@ a.lit-button {
   }
   .lt-table[data-phone='line'] :is(td, th)[data-phone='name'] {
     grid-area: name;
+    min-inline-size: 0;
+    white-space: nowrap;
+  }
+  /* A tag beside the name (Spot, 40x) waits for a wider screen: the line keeps the name whole. */
+  .lt-table[data-phone='line'] :is(td, th)[data-phone='name'] .lit-tag {
+    display: none;
   }
   .lt-table[data-phone='line'] td[data-phone='top'] {
     grid-area: top;
