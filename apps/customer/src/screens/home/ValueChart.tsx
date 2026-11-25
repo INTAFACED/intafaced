@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react';
-import { AreaChart, Segmented, Skeleton } from '@intafaced/ui/lit/templates';
+import { AreaChart, Parts, Segmented, Skeleton, sumDecimals } from '@intafaced/ui/lit/templates';
 import { useValueOverTime } from '../money/pnl-source';
 import { commandCopy } from './command-copy';
 import { compareDecimal, dec, type HomeHolding } from './deps';
-import { MaskedMoney } from './MaskedMoney';
 
 /**
  * Home's value over time (the owner's Home A): the bank's own replay of what the account was worth
@@ -83,40 +82,31 @@ export function ValueChart({ range }: { range: RangeKey }) {
   );
 }
 
-/** Where the total sits, by coin: one bar in shares of the total and a legend with each part's value. */
+/**
+ * Where the total sits, by coin: the kit's parts bar with its legend on one row. The four largest coins by value, the
+ * rest as Other; every amount stays a decimal string (the kit draws the bar and reconciles the parts to the total).
+ */
 export function Allocation({ holdings, hidden }: { holdings: readonly HomeHolding[]; hidden: boolean }) {
   const { t } = commandCopy.useCopy();
-  const parts = useMemo(() => {
-    const priced = holdings
-      .map((h) => ({ asset: h.asset, usd: h.usdValue, cents: dec(h.usdValue) ?? 0n }))
-      .filter((h) => h.cents > 0n)
-      .sort((a, b) => (b.cents > a.cents ? 1 : b.cents < a.cents ? -1 : 0));
-    const total = priced.reduce((sum, h) => sum + h.cents, 0n);
-    if (total === 0n) return [];
-    const top = priced.slice(0, 4);
-    const rest = priced.slice(4);
-    const restCents = rest.reduce((sum, h) => sum + h.cents, 0n);
-    const shown = restCents > 0n ? [...top, { asset: t('Other'), usd: null as string | null, cents: restCents }] : top;
-    // Shares for drawing only (the kit's rule: floats place pixels, never money).
-    return shown.map((h) => ({ ...h, share: Number((h.cents * 10_000n) / total) / 100 }));
-  }, [holdings, t]);
-  if (parts.length === 0) return null;
+  const priced = useMemo(
+    () =>
+      holdings
+        .flatMap((h) => (h.usdValue !== null && (compareDecimal(h.usdValue, '0') ?? 0) > 0 ? [{ label: h.asset, value: h.usdValue }] : []))
+        .sort((a, b) => compareDecimal(b.value, a.value) ?? 0),
+    [holdings],
+  );
+  if (priced.length === 0) return null;
   return (
-    <div className="hm-mix" data-testid="home-mix">
-      <div className="hm-mix-bar" role="img" aria-label={t('Where it sits')}>
-        {parts.map((p, i) => (
-          <i key={p.asset} data-tier={i} style={{ flexGrow: Math.max(p.share, 1.5) }} />
-        ))}
-      </div>
-      <ul className="hm-mix-legend">
-        {parts.map((p, i) => (
-          <li key={p.asset}>
-            <i data-tier={i} aria-hidden="true" />
-            <span>{p.asset}</span>
-            <b>{p.usd === null ? `${p.share.toFixed(0)}%` : <MaskedMoney usd={p.usd} hidden={hidden} />}</b>
-          </li>
-        ))}
-      </ul>
+    <div data-testid="home-mix">
+      <Parts
+        label={t('Where it sits')}
+        total={sumDecimals(priced.map((p) => p.value))}
+        parts={priced.slice(0, 4)}
+        asset="USD"
+        otherLabel={t('Other')}
+        hidden={hidden}
+        legend="row"
+      />
     </div>
   );
 }
