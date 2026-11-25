@@ -107,7 +107,6 @@ const PARKED = [
   '/chain/blocks',
   '/protocol',
   '/protocol/rails',
-  '/help/official-channels',
   '/help/mule-policy',
 ];
 const VENUE = ['/uc/trading-permissions', '/trade/positions', '/trade/account', '/trade/staking', '/trade/vaults', '/fees'];
@@ -129,6 +128,19 @@ describe("the beta's parked rooms", () => {
       return PARKED.includes(at.split(/[?#]/)[0]!) ? [`${path} -> ${at}`] : [];
     });
     expect(landed).toEqual([]);
+  });
+
+  it('keeps Official channels (/help/official-channels) in menus, drawn links and navigation (J-identity-13 #1)', () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
+    let at = '';
+    vi.stubGlobal('history', { pushState: (_s: unknown, _t: string, to: string) => void (at = to) });
+    vi.stubGlobal('window', { dispatchEvent: () => true, scrollTo: () => undefined });
+    vi.stubGlobal('PopStateEvent', class {});
+    expect(isHiddenPath('/help/official-channels')).toBe(false);
+    expect(betaDropsLink('/help/official-channels')).toBe(false);
+    expect(jsx('a', { href: '/help/official-channels', children: 'Official channels' }).type).toBe('a');
+    navigate('/help/official-channels');
+    expect(at).toBe('/help/official-channels');
   });
 
   it('come back in links once the account has the venue door, and stay in every other build', () => {

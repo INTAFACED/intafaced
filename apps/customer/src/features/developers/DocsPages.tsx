@@ -153,20 +153,22 @@ export function PermissionsPage({ title }: { title: string }) {
             <thead>
               <tr>
                 <th scope="col">{t('colScope')}</th>
-                <th scope="col">{t('colEndpoints')}</th>
+                <th scope="col" data-align="start">
+                  {t('colEndpoints')}
+                </th>
               </tr>
             </thead>
             <tbody>
               {permissionTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope}>
-                  <th scope="row">
-                    <code>{row.scope}</code>
+                  <th scope="row" data-valign="top">
+                    <code className="lt-mono lt-nowrap">{row.scope}</code>
                   </th>
-                  <td>
+                  <td data-align="start" data-valign="top">
                     <ul>
                       {row.routes.map((route) => (
                         <li key={routeLine(route)}>
-                          <code>{routeLine(route)}</code>
+                          <code className="lt-mono">{routeLine(route)}</code>
                         </li>
                       ))}
                     </ul>
@@ -175,16 +177,16 @@ export function PermissionsPage({ title }: { title: string }) {
               ))}
               {neverOnAKeyTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope} data-never-on-key="">
-                  <th scope="row">
-                    <code>{row.scope}</code>
+                  <th scope="row" data-valign="top">
+                    <code className="lt-mono lt-nowrap">{row.scope}</code>
                   </th>
-                  <td>
+                  <td data-align="start" data-valign="top">
                     {row.routes.length > 0 ? t('neverOnKeyStaff') : t('neverOnKey')}
                     {row.routes.length > 0 ? (
                       <ul>
                         {row.routes.map((route) => (
                           <li key={routeLine(route)}>
-                            <code>{routeLine(route)}</code>
+                            <code className="lt-mono">{routeLine(route)}</code>
                           </li>
                         ))}
                       </ul>

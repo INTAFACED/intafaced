@@ -1383,6 +1383,38 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'Each market we list on the venue, signed in or not: the venue’s own trading state and session beside our listing (when it opens, when it is delisted, our routing), as of the venue read',
   },
   {
+    name: 'venuePublicBook',
+    method: 'GET',
+    path: '/api/v1/venue/public-book',
+    product: 'accounts',
+
+    summary: 'Public order book and sequence for a listed venue market, signed in or out',
+  },
+  {
+    name: 'venueTickers',
+    method: 'GET',
+    path: '/api/v1/venue/tickers',
+    product: 'accounts',
+
+    summary: 'Public 24 h tickers and spreads for every listed venue spot market, derived from the venue’s book and trade tape',
+  },
+  {
+    name: 'venueSpreads',
+    method: 'GET',
+    path: '/api/v1/venue/spreads',
+    product: 'accounts',
+
+    summary: 'Public best bid, best ask and exact spread for every listed venue spot market',
+  },
+  {
+    name: 'venueAnalytics',
+    method: 'GET',
+    path: '/api/v1/venue/analytics',
+    product: 'accounts',
+
+    summary: 'Public aggressor differential and window stats for a listed venue market; a blank window refuses',
+  },
+  {
     name: 'venueMarketVenues',
     method: 'GET',
     path: '/api/v1/venue/markets/:symbol/venues',

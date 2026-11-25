@@ -82,7 +82,7 @@ export function modesFrom(venue: Loadable<VenueMarketStates>, own: Loadable<Mark
       state: venueModeOf(m),
       reasonCode: null,
       observedAt,
-      maintenance: null,
+      maintenance: maintenanceOf(m.upcomingMaintenance),
     })),
   };
 }
