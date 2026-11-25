@@ -1685,9 +1685,12 @@ test('15 Nov: a run by hand that names one file of a journey runs every file of 
   assert.equal(dispatchTarget('J-derivatives-02.pw.mjs', head), 'J-derivatives-02.pw.mjs', 'a one-file journey stays one file');
   assert.equal(dispatchTarget('nope.txt', head), 'nope.txt', 'a name that is no journey file stays, so the run refuses it');
   assert.equal(dispatchTarget('', head), '');
-  // At this checkout: the real derivatives-01 pair.
+  // At this checkout: the real derivatives-01 files, its Hyperliquid file included.
   const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
-  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(
+    dispatchTarget('J-derivatives-01.pw.mjs', real),
+    'J-derivatives-01-hl-venue.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+  );
 });
 
 test('20 Nov: a run by hand given a bare journey id runs every file of that journey (run 44808167679, #9286)', () => {
