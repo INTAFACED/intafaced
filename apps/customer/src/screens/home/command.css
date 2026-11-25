@@ -42,6 +42,9 @@
   grid-column: 2;
   order: 1;
   align-self: center;
+  /* Never wider than the panel: at large text the kit's tabs scroll inside it instead of widening the page. */
+  min-inline-size: 0;
+  max-inline-size: 100%;
 }
 /* A narrow column gives the label its whole line; the range chips follow on their own. */
 @container (max-width: 30rem) {
