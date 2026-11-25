@@ -6,7 +6,6 @@ export {
   fmtAmount,
   fmtChangeLine,
   fmtPct,
-  fmtPrice,
   fmtUsd,
   classifyRefusal,
   refusalCopy,
