@@ -763,6 +763,7 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
   expect(toUnits(order.price)).toBe(toUnits(price));
   expect(toUnits(order.locked)).toBe(mul(toUnits(price), toUnits('0.002')));
   expect(toUnits((await venueBalance(owner, 'USDC')).locked) - toUnits(before.locked)).toBe(toUnits(order.locked));
+  await openFold(page, 'spot-conditional-fold');
   const row = page.getByTestId('spot-conditional-pending').locator(`tr[data-kind="gtd"][data-client-order-id]`).last();
   await expect(row).toHaveAttribute('data-status', 'entry', { timeout: 20_000 });
 
