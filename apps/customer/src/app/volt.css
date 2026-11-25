@@ -45,7 +45,7 @@
 }
 :root .tb-tab[aria-current='page'] {
   color: var(--lit-text-1);
-  background: var(--lit-control-bg);
+  background: var(--lit-solid-bg-raised);
 }
 :root .tb-tab[aria-current='page']::after {
   content: none;
@@ -53,11 +53,53 @@
 :root .tb-search {
   block-size: 2.25rem;
   background: var(--lit-control-bg);
-  box-shadow: inset 0 0 0 1px var(--lit-control-rim);
+  box-shadow: inset 0 0 0 1px var(--lit-line);
   border-radius: var(--lit-radius-key);
 }
+:root .tb-login,
 :root .tb-signup {
+  display: inline-flex;
+  align-items: center;
+  block-size: 2.25rem;
+  padding-inline: 1rem;
+  border: 0;
   border-radius: var(--lit-radius-key);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+:root .tb-login {
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
+}
+:root .tb-signup {
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+}
+/* Simple or Pro: a sunken pill, the chosen side raised. */
+:root .tb-mode [data-slot='segmented-control'] {
+  block-size: 2.5rem;
+  padding: 0.25rem;
+  background: var(--lit-solid-bg-sunken);
+}
+:root .tb-mode [data-slot='segmented-control'] > span {
+  inset-block: 0.25rem;
+  background: var(--lit-solid-bg-raised);
+  box-shadow: none;
+}
+:root .tb-mode [data-slot='segmented-control'] button {
+  padding-inline: 1rem;
+  font-size: 0.875rem;
+}
+/* The account: a stone disc. */
+:root .tb-account > .tb-icon-button {
+  inline-size: 2.125rem;
+  block-size: 2.125rem;
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+}
+:root .tb-account > .tb-icon-button:hover,
+:root .tb-account > .tb-icon-button[aria-expanded='true'] {
+  background: var(--lit-text-2);
+  color: var(--lit-page);
 }
 
 /* Every money figure in the wide grotesk. */
