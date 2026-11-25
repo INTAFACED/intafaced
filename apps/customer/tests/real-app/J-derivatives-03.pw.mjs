@@ -686,7 +686,7 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
   const opened = await openLong(page, '1');
   await opened.getByRole('button', { name: 'Back', exact: true }).click();
   await rowAction(row(page), `Reverse ${SYMBOL}`, false);
-  const review = page.getByRole('dialog', { name: `Reverse ${SYMBOL}` });
+  const review = page.getByRole('dialog', { name: new RegExp(`Reverse ${SYMBOL}`, 'i') });
   // Reviewed: the close and the open, in the opposite direction, before anything is signed.
   await expect(review).toContainText('Close 1 ETH long, then open 1 ETH short');
   await expect(review).toContainText('This venue takes the close and the open together: you sign once.');
@@ -703,7 +703,7 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
     if (r.request().method() === 'POST' && r.url().endsWith('/api/v1/venue/submit')) answers.push(await r.json().catch(() => null));
   });
   // Two presses in the same moment: one reverse.
-  await review.getByRole('button', { name: 'Sign the reverse' }).evaluate((b) => {
+  await review.getByRole('button', { name: /sign the reverse/i }).evaluate((b) => {
     b.click();
     b.click();
   });
