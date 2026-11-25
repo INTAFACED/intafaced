@@ -312,8 +312,10 @@ const TILES: Partial<RoleMap> = {
   'solid-bg-raised': '#151616',
   'radius-panel': '6px',
   'radius-tile': '6px',
+  'solid-rim': 'rgba(255, 255, 255, 0)',
+  'solid-rim-dim': 'rgba(255, 255, 255, 0)',
 };
-/** No panel paint: a panel is the black page itself, grouped by hairlines (the owner's batch2/15). */
+/** No panel paint: a panel is the black page itself, edged by one even hairline (the solid rim, set in voltDark) as the picked samples draw it (the owner's batch2/15). */
 const NO_PANELS: Partial<RoleMap> = {
   'solid-bg': '#000000',
   'solid-bg-raised': '#1A1A1A',
@@ -356,8 +358,8 @@ const voltDark: Partial<RoleMap> = {
   'down-text': '#FF7A73',
   'solid-bg-sunken': '#0A0A0A',
   'solid-lip': 'none',
-  'solid-rim': 'rgba(255, 255, 255, 0)',
-  'solid-rim-dim': 'rgba(255, 255, 255, 0)',
+  'solid-rim': 'rgba(243, 242, 236, 0.1)',
+  'solid-rim-dim': 'rgba(243, 242, 236, 0.1)',
   'solid-wall': '#050505',
   'solid-shadow': 'none',
   sheen: 'linear-gradient(transparent, transparent)',

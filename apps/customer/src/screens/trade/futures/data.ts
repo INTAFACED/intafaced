@@ -14,6 +14,7 @@ import { constantSource, type Source } from '../../../data/source';
 import type { Loadable } from '../../../data/types';
 import { useSession } from '../../../features/session/session';
 import type { Position } from '@intafaced/exchange-contract/schemas';
+import { venueBookReadSchema, type VenueBookRead } from '@intafaced/contracts/trade-venue-door';
 import {
   createFuturesApi,
   isFuturesListing,
@@ -420,5 +421,23 @@ export function useFuturesRefresh(): () => void {
         env.poller.refresh(`${key}:${env.userId}`);
     },
     [env],
+  );
+}
+
+/** The venue's public depth book on one contract (svc-trade `GET /api/v1/venue/public-book`), signed in or not. */
+export function useVenuePublicBook(symbol: string | null, depth = 10): Loadable<VenueBookRead> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        symbol
+          ? env.poller.source<VenueBookRead>(
+              `venue-public-book:${symbol}:${depth}`,
+              (signal) => env.api.rest('/venue/public-book', venueBookReadSchema, { query: { symbol, depth }, signal }),
+              { intervalMs: FUTURES_INTERVALS.strip },
+            )
+          : constantSource<VenueBookRead>(OFF),
+      [env, symbol, depth],
+    ),
   );
 }

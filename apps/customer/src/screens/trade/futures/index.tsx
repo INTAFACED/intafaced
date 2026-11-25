@@ -50,6 +50,8 @@ import { deskCopy } from './desk-copy';
 import { isPlaneOff } from './refusals';
 import { useVenueMode } from '../../../features/trade/use-venue-mode';
 import { VenueFuturesDesk } from './VenueFuturesDesk';
+import { PublicVenueDesk } from './PublicVenueDesk';
+import { useVenueMarketStates } from '../../../data/venue-market-states';
 import { RegionNote } from './notes';
 
 type Tab = 'positions' | 'orders' | 'history' | 'funding' | 'adl' | 'calls' | 'tiers' | 'calculator' | 'collateral';
@@ -69,6 +71,29 @@ export default function FuturesScreen(props: ScreenProps) {
     );
   }
   if (venue.mode === 'on') return <VenueFuturesDesk mode={venue} symbol={new URLSearchParams(props.search).get('symbol')} />;
+  return <OffFuturesScreen {...props} />;
+}
+
+/**
+ * Venue mode off. Signed out, it is off whatever the deployment's door says (the door's status is a private read), so the
+ * public market states decide: where they answer, the venue's own perpetuals; where the door is off here, or
+ * the read refuses or fails, today's desk as before.
+ */
+function OffFuturesScreen(props: ScreenProps) {
+  const { userId } = useSession();
+  return userId ? <TodayFuturesScreen {...props} /> : <SignedOutFuturesScreen {...props} />;
+}
+
+function SignedOutFuturesScreen(props: ScreenProps) {
+  const states = useVenueMarketStates();
+  if (states.status === 'loading')
+    return (
+      <div role="status" aria-busy="true">
+        <Skeleton shape="chart" />
+      </div>
+    );
+  if (states.status === 'ready')
+    return <PublicVenueDesk states={states.data} requested={new URLSearchParams(props.search).get('symbol')} />;
   return <TodayFuturesScreen {...props} />;
 }
 

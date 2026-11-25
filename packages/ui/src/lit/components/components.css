@@ -117,6 +117,12 @@
 .lit-button[data-tone='quiet']:disabled {
   background: none;
 }
+/* The one main action, while it can't be pressed yet (an order with no size): it keeps its place and a lime rim,
+   unfilled, so the desk still shows where the action is; its words stay in the second text colour for contrast. */
+.lit-button[data-tone='primary']:disabled {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--lit-accent);
+}
 .lit-button[data-size='lg'] {
   min-height: calc(var(--lit-control-h) + 6px);
   font-size: var(--lit-type-heading-size);
@@ -1341,7 +1347,7 @@ button.lt-menu-item:focus-visible {
 }
 .lit-stack__card[data-card='front'] [data-part='figure'] {
   font-family: var(--lit-font-figure);
-  font-weight: 600;
+  font-weight: var(--lit-type-figure-weight);
   font-size: 2rem;
   line-height: 1;
   letter-spacing: -0.035em;
@@ -1716,6 +1722,10 @@ button.lt-menu-item:focus-visible {
     zoom: 1.2;
   }
 }
+/* A board of tiles (the desks, the markets board) keeps the owner's desk frame: a 1.5rem edge, the tiles 1rem apart. */
+.lt-page[data-panels='tiles'] {
+  padding-inline: clamp(1rem, 1.6667vw, 1.5rem);
+}
 .lt-page-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1851,7 +1861,42 @@ a.lt-mover:hover {
 .lt-mover-price {
   font-size: var(--lit-type-figure-size);
   line-height: var(--lit-type-figure-line);
-  font-weight: 600;
+  font-weight: var(--lit-type-figure-weight);
+  letter-spacing: -0.02em;
+}
+/* A desk's pair (market-parts.tsx MarketTile): a flat tile, the symbol and change on top, the last price under them;
+   the market the desk is on carries the strong rim. */
+.lt-market-tile {
+  display: grid;
+  align-content: start;
+  gap: 0.125rem;
+  min-inline-size: 8rem;
+  padding: 0.625rem 0.875rem;
+  border: 0;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip);
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.lt-market-tile:hover {
+  background: var(--lit-solid-bg-raised);
+}
+.lt-market-tile[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
+}
+.lt-market-tile-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: var(--lit-type-label-size);
+}
+.lt-market-tile-price {
+  font-size: var(--lit-type-heading-size);
+  font-weight: var(--lit-type-figure-weight);
   letter-spacing: -0.02em;
 }
 .lt-mover .lt-spark[data-size='row'] {
@@ -2351,7 +2396,7 @@ a.lit-button {
   white-space: normal;
   font-size: clamp(2rem, 2.6vw, 2.75rem);
   line-height: 1.05;
-  font-weight: 600;
+  font-weight: var(--lit-type-figure-weight);
   letter-spacing: -0.02em;
 }
 .lt-featured-chart {

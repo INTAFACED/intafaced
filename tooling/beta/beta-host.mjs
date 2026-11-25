@@ -119,12 +119,16 @@ const BETA_USER_VENUE = 'hl-testnet';
  * `valuation.prices` unpublished (`valuation.prices_unset`), so Home and Money show "No total" even after an invited
  * tester's 1,000 TEST USDT sits in their TEST partner account (#10632); with it, svc-ops publishes the ops profile's
  * labelled TEST price list (`test: true`, refused outside dev/test) so Home and Money total the partner balance.
+ * `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey` makes each new tester's wallet at the owner's wallet provider, with the
+ * owner's keys from the box's sealed vendors.local.json (a start without that file refuses, naming it); a tester who
+ * already has a TEST wallet keeps it and signs at the TEST provider, which svc-protocol's status names for that wallet.
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
   LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
+  LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey',
 });
 const settingsLine = () =>
   Object.entries(BETA_STACK_SETTINGS)
