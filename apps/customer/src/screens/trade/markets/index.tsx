@@ -10,6 +10,7 @@ import {
   useMarkets,
   useTickers,
   useVenueMarketStates,
+  useVenueTickers,
   venueListingStatuses,
   type Loadable,
   type MarketData,
@@ -58,7 +59,11 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   // Where the venue door is on, the list is the venue's markets we show, each in the venue's own state with our listing
   // beside it (J-cex-spot-14 #1), and never our own book's; where it is off, today's read stands.
   const venueStates = useVenueMarketStates();
-  const { markets, tickers } = useMemo(() => pickSource(venueStates, ownMarkets, ownTickers), [venueStates, ownMarkets, ownTickers]);
+  const venueTickers = useVenueTickers();
+  const { markets, tickers } = useMemo(
+    () => pickSource(venueStates, ownMarkets, ownTickers, venueTickers),
+    [venueStates, ownMarkets, ownTickers, venueTickers],
+  );
   // Which listed markets are their own group (FX) and which are shut for the session; null if that read fails.
   const ownStatuses = useListingStatus();
   const statuses = useMemo(
