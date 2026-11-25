@@ -190,6 +190,8 @@
   flex: 1;
   min-height: calc(var(--lit-control-h) - 16px);
   min-width: 24px;
+  /* A label too long for its share folds onto a second line with room above and below it, clear of the track's rim. */
+  padding-block: 4px;
   border: 0;
   border-radius: calc(var(--lit-radius-control) - 4px);
   background: none;
@@ -205,11 +207,12 @@
   padding-inline: 12px;
   text-align: center;
 }
+/* The chosen segment is lifted in the raised material, never lime: lime is only the screen's one main action. */
 .lit-segmented button[aria-pressed='true'],
 .lit-segmented button[aria-selected='true'] {
-  color: var(--lit-on-accent);
-  background: linear-gradient(180deg, var(--lit-accent-fill), var(--lit-accent-fill-2));
-  box-shadow: var(--lit-fill-shadow);
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
 }
 
 /* Toggle chips: a list's filters, one on at a time; they wrap rather than scroll. */
@@ -354,6 +357,15 @@
 }
 .lit-figure__minor {
   color: var(--lit-text-3);
+}
+/* A big figure's cents, as the look sets them (smaller and dimmed on the line, or raised and small); tables keep full
+   cents. Both the decimal mark and the digits after it take them. */
+.lit-figure:not([data-size='body']) .lit-figure__minor,
+.lt-cents {
+  font-size: var(--lit-cents-size);
+  color: var(--lit-cents-tone);
+  transform: translateY(calc(-1 * var(--lit-cents-shift)));
+  display: inline-block;
 }
 .lit-figure__marks {
   display: inline-flex;
@@ -765,7 +777,6 @@
 .lt-num {
   font-variant-numeric: tabular-nums;
   /* Volt's figure cut, so every column of prices across the beta's screens lines up the same way. */
-  font-stretch: 112%;
   white-space: nowrap;
   unicode-bidi: isolate;
 }
@@ -1304,7 +1315,6 @@ button.lt-menu-item:focus-visible {
 .lit-stack__card[data-card='back'] [data-part='peek'] {
   margin-inline-start: auto;
   font-family: var(--lit-font-figure);
-  font-stretch: 125%;
 }
 .lit-stack__card[data-card='front'] {
   position: relative;
@@ -1331,7 +1341,6 @@ button.lt-menu-item:focus-visible {
 }
 .lit-stack__card[data-card='front'] [data-part='figure'] {
   font-family: var(--lit-font-figure);
-  font-stretch: 125%;
   font-weight: 600;
   font-size: 2rem;
   line-height: 1;
@@ -1843,7 +1852,6 @@ a.lt-mover:hover {
   font-size: var(--lit-type-figure-size);
   line-height: var(--lit-type-figure-line);
   font-weight: 600;
-  font-stretch: 125%;
   letter-spacing: -0.02em;
 }
 .lt-mover .lt-spark[data-size='row'] {
@@ -2220,7 +2228,6 @@ a.lit-button {
   font-size: clamp(2.75rem, 5.4vw, 8.5rem);
   line-height: 0.95;
   font-weight: 700;
-  font-stretch: 125%;
   letter-spacing: -0.035em;
   color: var(--lit-text-1);
 }
@@ -2242,7 +2249,6 @@ a.lit-button {
   font-size: clamp(1.5rem, 2.4vw, 2.5rem);
   line-height: 1.1;
   font-weight: 600;
-  font-stretch: 118%;
   letter-spacing: -0.02em;
   color: var(--lit-text-1);
 }
@@ -2345,7 +2351,6 @@ a.lit-button {
   font-size: clamp(2rem, 2.6vw, 2.75rem);
   line-height: 1.05;
   font-weight: 600;
-  font-stretch: 125%;
   letter-spacing: -0.02em;
 }
 .lt-featured-chart {
