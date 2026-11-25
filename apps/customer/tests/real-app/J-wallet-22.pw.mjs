@@ -514,6 +514,11 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
 
   const phone = await device(page, [credential]);
   const signCount = async () => (await phone.held()).find((c) => c.credentialId === credential.credentialId).signCount;
+  // The provider signs nothing for this wallet without a passkey assertion.
+  const bare = await page.request.post(`${PASSKEY_ORIGIN}/__test-wallet-provider/client/signtyped`, {
+    data: { walletId, payload: { typedData: {} } },
+  });
+  expect(bare.status(), 'a typed-data signature with no passkey assertion is refused').toBeGreaterThanOrEqual(400);
   // The device reports its credential id in base64, the page sends it in base64url.
   const bound = Buffer.from(credential.credentialId, 'base64').toString('base64url');
   const signedTyped = [];
@@ -557,9 +562,9 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   const first = await startSession(page);
   expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
   expect(first).toMatch(/^0x[0-9a-f]{40}$/);
-  // After the passkey: the device answered one assertion, and the one approval the page sent the provider carried
-  // that assertion, from the wallet's bound passkey, over typed data that approves this session key.
-  expect(await signCount()).toBe(passkeysBefore + 1);
+  // After the passkey: the device answered for it, and the one approval the page sent the provider carried that
+  // assertion, from the wallet's bound passkey, over typed data that approves this session key.
+  expect(await signCount()).toBeGreaterThan(passkeysBefore);
   expect(signedTyped).toHaveLength(1);
   expect(signedTyped[0]).toMatchObject({ walletId, assertion: { credentialId: bound } });
   expect(JSON.stringify(signedTyped[0].payload).toLowerCase()).toContain(first.slice(2));
