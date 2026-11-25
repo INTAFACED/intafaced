@@ -281,7 +281,7 @@ function HomeSimple() {
         </div>
         {portfolio.status === 'refused' ? null : <ValueRanges range={range} onRange={setRange} />}
       </div>
-      {portfolio.status === 'refused' ? null : <ValueChart range={range} />}
+      {portfolio.status === 'refused' ? null : <ValueChart range={range} hidden={hideBalances} />}
       {portfolio.status === 'ready' && !launch ? <Allocation holdings={portfolio.data.holdings} hidden={hideBalances} /> : null}
       <ActionKeys loading={portfolio.status === 'loading'} mode={actionMode} />
     </Surface>

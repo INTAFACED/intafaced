@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { AreaChart, Parts, Segmented, Skeleton, sumDecimals } from '@intafaced/ui/lit/templates';
 import { useValueOverTime } from '../money/pnl-source';
 import { commandCopy } from './command-copy';
-import { compareDecimal, dec, type HomeHolding } from './deps';
+import { HIDDEN_MASK } from '@intafaced/ui/lit';
+import { compareDecimal, dec, fmtUsd, type HomeHolding } from './deps';
 
 /**
  * Home's value over time (the owner's Home A): the bank's own replay of what the account was worth
@@ -36,7 +37,7 @@ export function useValueRange() {
   return useState<RangeKey>('1D');
 }
 
-export function ValueChart({ range }: { range: RangeKey }) {
+export function ValueChart({ range, hidden }: { range: RangeKey; hidden: boolean }) {
   const { t } = commandCopy.useCopy();
   const hours = RANGES.find((r) => r.key === range)!.hours;
   const from = useMemo(() => fromOf(hours), [hours]);
@@ -65,18 +66,17 @@ export function ValueChart({ range }: { range: RangeKey }) {
         <p>{t('Value chart empty')}</p>
       </div>
     );
-  const first = points[0]!.value;
-  const last = points.at(-1)!.value;
-  const cmp = compareDecimal(last, first) ?? 0;
   return (
     <div className="hm-chart" data-testid="home-value-chart">
       <AreaChart
         soft
         live
+        grid
+        tone="ink"
+        marker={hidden ? HIDDEN_MASK : fmtUsd(points.at(-1)!.value)}
         label={t('Your value over time, {range}', { range: t(range) })}
         points={points}
         asset="USD"
-        tone={cmp > 0 ? 'up' : cmp < 0 ? 'down' : 'neutral'}
       />
     </div>
   );
