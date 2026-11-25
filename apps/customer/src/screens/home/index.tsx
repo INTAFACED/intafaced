@@ -6,7 +6,6 @@ import { Skeleton } from '@intafaced/ui/lit/templates';
 import { commandCopy } from './command-copy';
 import { Allocation, ValueChart, ValueRanges, useValueRange } from './ValueChart';
 import { HomeMarkets } from './HomeMarkets';
-import './command.css';
 import { clockTime } from './clock';
 import { homeCopy } from './copy';
 import {
@@ -28,10 +27,7 @@ import {
 import { InfoTip } from './InfoTip';
 import { balanceRefusal } from './balance-refusal';
 import { ChangeText, HeroFigure, StateBlock } from './volt-parts';
-import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
-import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
-import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
@@ -43,7 +39,6 @@ import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
-import { VoltStack } from './VoltStack';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
@@ -88,7 +83,7 @@ function ActionKeys({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   return (
     <nav data-testid="home-actions" className="hm-keys" aria-label={t('Trade')} data-count={live.length}>
       {loading ? (
-        <Skeleton shape="keys" count={live.length} />
+        <Skeleton shape="keys" count={4} />
       ) : (
         live.map((action, index) => {
           const Icon = action.icon;
@@ -185,7 +180,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
 /** Simple Home (UI-SPEC 5.1). Pro mode draws `HomePro` instead; see `Home` below. */
 function HomeSimple() {
   const { t } = homeCopy.useCopy();
-  const { hideBalances, timeZone, displayCurrency } = usePreferences();
+  const { hideBalances, displayCurrency } = usePreferences();
   const portfolio = useHomePortfolio(moneyUnitOf(displayCurrency));
   const markets = useMarkets();
   const tickers = useTickers();
@@ -195,8 +190,7 @@ function HomeSimple() {
   const activityLimit = useRecentActivityLimit();
   // The launch model (OWNER 226): with the user-venue door on, the total is where the person stands, as Assets shows it.
   const launch = launchStanding(useLaunchVenue(), portfolio);
-  const { favorites, isFavorite, toggle } = useFavorites(userId);
-  const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
+  const { favorites } = useFavorites(userId);
 
   const all = useMemo(() => (markets.status === 'ready' ? listings(markets.data) : []), [markets]);
   const tickerData = tickers.status === 'ready' ? tickers.data : undefined;
@@ -235,8 +229,6 @@ function HomeSimple() {
   const marketsLoading = markets.status === 'loading';
   const marketsBroken = markets.status === 'error' || markets.status === 'refused';
   const showMarkets = !noMarkets;
-  // With four markets or fewer the movers are the cards again, so the section would only repeat them (critic M1).
-  const showMovers = showMarkets && (marketsLoading || (all.length > 4 && moverItems.length > 0));
 
   const accountEmpty = portfolio.status === 'empty' || (portfolio.status === 'ready' && portfolio.data.holdings.length === 0);
   const actionMode: ActionMode =
@@ -249,7 +241,6 @@ function HomeSimple() {
         : noMarkets && portfolio.status === 'ready'
           ? 'noMarkets'
           : 'normal';
-  const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
   const home = useHomeLayout();
   const main = shownTiles(home.layout, 'simple', 'main');
@@ -329,12 +320,6 @@ function HomeSimple() {
         return isHiddenPath(HOME_LINKS.academy) ? null : (
           <Surface key={id} className="hm-side-panel">
             <LearnStrip />
-          </Surface>
-        );
-      case 'your-crypto':
-        return launch || portfolio.status !== 'ready' || portfolio.data.holdings.length === 0 ? null : (
-          <Surface key={id} className="hm-side-panel">
-            <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} />
           </Surface>
         );
       default:

@@ -38,7 +38,7 @@ export function HomeMarkets({
   const home = homeCopy.useCopy();
   const [view, setView] = useState<View>('watch');
   const shown = view === 'movers' && movers.length > 0 ? movers : watch;
-  const points = sparklines.status === 'ready' ? sparklines.data : {};
+  const points = useMemo(() => (sparklines.status === 'ready' ? sparklines.data : {}), [sparklines]);
   const rows = useMemo<MarketRow[]>(
     () =>
       shown.map((item) => {
