@@ -137,6 +137,27 @@ describe('TWAP random sizes and trigger in the parent store (shared test postgre
     expect((await store.load('p-random-trigger'))?.parent.triggeredAt?.toISOString()).toBe(reached.toISOString());
   });
 
+  it('an amend reads back: the lower quantity, its new plan and slice count, and the moved trigger (J-cex-spot-15 #6)', async () => {
+    const store = new SqlTwapParentStore(sql);
+    await store.save({ parent: parent(), plan });
+    const lower = planTwapSlices({ totalQty: parseAmount('0.002'), durationMs: 300_000, sliceIntervalMs: 30_000, lotSize: LOT }).slices;
+    await store.save({
+      parent: parent({
+        totalQty: parseAmount('0.002'),
+        slicesPlanned: lower.length,
+        triggerPrice: parseAmount('140000'),
+        triggerAbove: false,
+      }),
+      plan: lower,
+    });
+    const back = await new SqlTwapParentStore(sql).load('p-random-trigger');
+    expect(back?.parent.totalQty).toBe(parseAmount('0.002'));
+    expect(back?.parent.slicesPlanned).toBe(lower.length);
+    expect(back?.parent.triggerPrice).toBe(parseAmount('140000'));
+    expect(back?.parent.triggerAbove).toBe(false);
+    expect(back?.plan).toEqual(lower);
+  });
+
   it('a parent without the options reads back without them', async () => {
     const store = new SqlTwapParentStore(sql);
     await store.save({ parent: parent({ randomSeed: null, triggerPrice: null, triggerAbove: null }), plan });
