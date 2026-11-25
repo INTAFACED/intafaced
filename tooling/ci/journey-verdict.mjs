@@ -28,8 +28,8 @@
  *     tests work not built yet and stays out until it first passes. No set-aside excuses one;
  *   - an input could not be read: this run's report, the named run's report, the pass history since it, or an issue.
  *     Every unreadable input is red (fail closed), never green.
- * Not red on a run that is not main's: a failing step on a screen the hosted beta hides that is neither money nor on the
- * tester path (the beta gate, BETA_GATE and offBetaSteps below); it is listed apart. Main's own runs judge every step.
+ * Not red on a beta pull request's run: a red step outside the beta's own journeys, money and sign-in (the beta lane,
+ * BETA_GATE and betaLane below); it is listed apart. Every other run, main's included, judges every step.
  * The workflow adds the rest: a shard with no report, and a shard job red for any reason other than its journeys failing
  * (setup, the stack, the time limit, the Content-Security-Policy check), are red too.
  *
@@ -241,40 +241,54 @@ export function notOnBeta(screens, hidden) {
 export const BETA_RULE = fileURLToPath(new URL('./beta-hides.mjs', import.meta.url));
 
 /**
- * THE BETA GATE: what a beta screen's pull request waits on (project-state decision PR #4060: the owner's "yes", 25 Nov
- * 2026 13:02 WITA, to "a beta screen's pull request waits only on what it can break: the tester path; the Order 1 screens
- * the beta shows; every money step those screens reach", "for today's beta push"; "The money tests keep running before
- * every merge"). On a run that is not main's, a failing step whose test showed a screen the hosted beta hides (notOnBeta)
- * holds neither this verdict nor the merge seal when it is not money by the set-aside's guard (setAsideGuard: a step it
- * doesn't know is money) and its journey is a known one outside the tester path (TESTER_PATH). It is listed apart
- * (`offBeta`), never dropped. Main runs every journey after the merge, and a red there is reverted (journeys-revert.mjs).
- * Proof is unchanged: a step on a hidden screen is never proven (notOnBeta, owner decision 24 Nov 2026).
- * The beta rule unread, a run with no list, or a run created at or after BETA_GATE_UNTIL (the end of 25 Nov 2026 in
- * Bali: "today's beta push"): nothing is set apart, and everything gates as before.
+ * THE BETA LANE: what a beta pull request waits on (project-state decision PR #4060, the owner's "yes", 25 Nov 2026
+ * 13:02 WITA, to "a beta screen's pull request waits only on what it can break: the tester path; the Order 1 screens the
+ * beta shows; every money step those screens reach"; widened by project-state decision PR #4061, his 13:25 and 13:30
+ * words, to "Only what protects testers blocks a beta change": "the tests for the beta's own screens; every money, wallet
+ * and sign-in test"). A beta pull request is one whose head branch starts `beta/` (BETA_BRANCH) in this repository. On
+ * its run, a red journey step holds neither this verdict nor the merge seal unless it is one of the beta's own: money by
+ * the set-aside's guard (setAsideGuard: a step it doesn't know is money, and every wallet, bank, pay and p2p step is),
+ * on the tester path (TESTER_PATH: sign-up and sign-in, the wallet, Home and the menus, the desks, the charts, the
+ * portfolio), or an Order 1 step its test didn't show on a screen the beta hides (notOnBeta). A test with no step title
+ * holds it unless its journey is outside the tester path, not Order 1, and has no step the guard calls money. Every
+ * other red is listed apart (`offBeta`), never dropped. Every other pull request, and main, is judged as before; main
+ * runs every journey after the merge, and a red there is reverted (journeys-revert.mjs). Proof is unchanged: a step on a
+ * hidden screen is never proven (notOnBeta, owner decision 24 Nov 2026). The beta rule unread, or a run with no list:
+ * nothing is set apart, and everything gates as before.
  * Switch it back here, in one place: BETA_GATE = 'full'.
  */
-export const BETA_GATE = 'narrow';
-export const BETA_GATE_UNTIL = '2026-11-25T16:00:00Z';
-/** The tester path's modules (docs/roadmap/journeys.json `module`): sign-up, the funded wallet, the menus and Home, the
- *  spot and futures desks, the charts and the portfolio, through to an order on the venue. Their steps always gate. */
+export const BETA_GATE = 'lane';
+export const BETA_BRANCH = /^beta\//;
+/** The tester path's modules (docs/roadmap/journeys.json `module`): sign-up and sign-in, the funded wallet, Home and
+ *  the menus, the spot and futures desks, the charts and the portfolio, through to an order on the venue. */
 export const TESTER_PATH = new Set(['identity', 'wallet', 'home-ia', 'cex-spot', 'derivatives', 'charts-desk', 'portfolio']);
+/** Whether a pull request is a beta one: its head branch starts `beta/`, and (when `repo` is given) it is this repository's. */
+export const isBetaPull = ({ headRef, headRepo, repo = null }) =>
+  BETA_BRANCH.test(String(headRef ?? '')) && (repo === null || headRepo === repo);
+export const NO_LANE = { on: false, has: () => false };
 /**
- * The steps whose failure holds no pull request (the beta gate above): `beta` is notOnBeta()'s answer for the run (or
- * { unread }), `guard` the set-aside's money guard, `modules` each journey id's module, `at` the run's creation time.
- * Returns a Set; empty whenever anything can't be read.
+ * The beta lane's advisory reds for a beta pull request's run: { on, has(key) }, `has` true for a step or test key whose
+ * red holds nothing (BETA_GATE above). `beta` is notOnBeta()'s answer for the run (or { unread }), `guard` the
+ * set-aside's money guard, `modules` and `orders` each journey id's module and order. Nothing is advisory whenever the
+ * lane is off or the beta rule can't be read.
  */
-export function offBetaSteps({ beta, guard, modules, at, mode = BETA_GATE, until = BETA_GATE_UNTIL }) {
-  if (mode !== 'narrow' || !(Date.parse(at) < Date.parse(until))) return new Set();
-  if (!beta || beta.unread || !Array.isArray(beta.steps)) return new Set();
-  return new Set(
-    beta.steps
-      .map((r) => r?.step)
-      .filter((step) => {
-        if (typeof step !== 'string') return false;
-        const module = modules?.[step.split('#')[0]];
-        return guard?.[step] === false && typeof module === 'string' && !TESTER_PATH.has(module);
-      }),
-  );
+export function betaLane({ beta, guard, modules, orders, mode = BETA_GATE }) {
+  if (mode !== 'lane' || !beta || beta.unread || !Array.isArray(beta.steps)) return NO_LANE;
+  const hidden = new Set(beta.steps.map((r) => r?.step));
+  const journeyOf = (k) => String(k).split('#')[0];
+  // A journey it knows, off the tester path; an unknown one is the beta's.
+  const outside = (id) => typeof modules?.[id] === 'string' && !TESTER_PATH.has(modules[id]);
+  const stepOff = (k) => {
+    const id = journeyOf(k);
+    return guard?.[k] === false && outside(id) && (orders?.[id] !== 1 || hidden.has(k));
+  };
+  const testOff = (k) => {
+    const id = journeyOf(k);
+    if (!outside(id) || orders?.[id] === 1) return false;
+    const steps = Object.keys(guard ?? {}).filter((s) => journeyOf(s) === id);
+    return steps.length > 0 && steps.every((s) => guard[s] === false);
+  };
+  return { on: true, has: (k) => (isTestKey(k) ? testOff(k) : stepOff(k)) };
 }
 /** The beta rule (`rule`, BETA_RULE unless --beta-rule names a stand-in), run as its own process: it loads the app's
  *  TypeScript through tsx. */
@@ -479,7 +493,7 @@ export function judge({
   onMain = false,
   headMoney = null,
   headBaseline = null,
-  offBeta = new Set(),
+  offBeta = NO_LANE,
 }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
@@ -518,7 +532,7 @@ export function judge({
   const notBaselined = new Set((baseline?.notBaselined ?? []).map((e) => e.step));
   const runNo = baseline?.run?.number;
   const red = [];
-  // The beta gate (offBetaSteps): a red that is not money, of a step it names, is listed here instead of `red`.
+  // The beta lane (betaLane): a red that is not money, of a step or test it calls advisory, is listed here instead of `red`.
   const hiddenRed = [];
   const kept = [];
   const moneyByHead = [];
@@ -591,7 +605,8 @@ export function judge({
     const when = PASSED_BEFORE.has(named?.tests?.[k]) ? runNo : passedSince[k];
     if (when === undefined) continue;
     testsFailing++;
-    red.push({ step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) });
+    const r = { step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) };
+    (offBeta.has(k) && !r.money ? hiddenRed : red).push(r);
   }
   return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead, retired, offBeta: hiddenRed };
 }
@@ -982,6 +997,8 @@ export function rootInputs(root, baselineFile) {
     // The set-aside's own money guard and each journey's owner (its module area).
     guard: setAsideGuard({ journeys, slices, money }),
     owners: Object.fromEntries(journeys.map((j) => [j.id, j.module])),
+    // Each journey's order (1, 2, 3), for the beta lane.
+    orders: Object.fromEntries(journeys.map((j) => [j.id, j.order])),
   };
 }
 
@@ -1106,7 +1123,7 @@ function main() {
   const red = [];
   const problem = (why) => red.push({ step: '(input)', why, money: true });
   const reportFile = arg('--report');
-  const { baseline, money, guard, owners } = rootInputs(root, arg('--baseline'));
+  const { baseline, money, guard, owners, orders } = rootInputs(root, arg('--baseline'));
   const targetText = arg('--target') ?? process.env.JOURNEYS_TARGET ?? '';
   const target = targetText.trim()
     ? new Set(
@@ -1221,11 +1238,15 @@ function main() {
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
-  // The steps whose test showed a screen the hosted beta hides (notOnBeta), and, on a run that is not main's, those of
-  // them whose failure holds no pull request (offBetaSteps, the beta gate). Main's own runs judge every step as before.
+  // The steps whose test showed a screen the hosted beta hides (notOnBeta), and, on a beta pull request's run, the reds
+  // that hold nothing (betaLane). Every other run, main's included, judges every step as before.
   const beta = newest ? notOnBeta(newest.screens, (paths) => betaHidden(paths, { rule: arg('--beta-rule') ?? BETA_RULE })) : { steps: [] };
-  const offBeta =
-    onMain || process.env.GITHUB_REF === MAIN_REF ? new Set() : offBetaSteps({ beta, guard, modules: owners, at: thisRun.at });
+  const betaPull =
+    !onMain &&
+    process.env.GITHUB_REF !== MAIN_REF &&
+    process.env.GITHUB_EVENT_NAME === 'pull_request' &&
+    isBetaPull({ headRef: process.env.GITHUB_HEAD_REF });
+  const offBeta = betaPull ? betaLane({ beta, guard, modules: owners, orders }) : NO_LANE;
   const verdict =
     newest && named
       ? judge({
@@ -1318,9 +1339,9 @@ function main() {
         )
       : ['None.']),
     '',
-    `### Failing on a screen the hosted beta hides, not holding this pull request: ${verdict.offBeta.length}`,
+    `### Outside the beta's own journeys, not holding this beta pull request: ${verdict.offBeta.length}`,
     '',
-    `The beta gate (journey-verdict.mjs BETA_GATE, ${BETA_GATE}, until ${BETA_GATE_UNTIL}): on a run that is not main's, a failing step whose test showed a screen the hosted beta hides, that is not money and not on the tester path, doesn't turn this verdict red. Main runs every journey after the merge, and a red there is reverted. A money step, a tester-path step and every step on main's own runs still count.`,
+    `The beta lane (journey-verdict.mjs BETA_GATE, ${BETA_GATE}${offBeta.on ? '' : '; off for this run: not a beta pull request, or the beta rule unread'}): on a beta pull request (a \`beta/\` branch), a red step holds it only when it is money, on the tester path, or an Order 1 step on a screen the beta shows. The rest are listed here and don't turn this verdict red. Main runs every journey after the merge, and a red there is reverted. Every other pull request, and main, is judged as before.`,
     '',
     ...(verdict.offBeta.length ? verdict.offBeta.map((r) => `- ${r.step}: ${r.why}`) : ['None.']),
     '',
@@ -1328,7 +1349,7 @@ function main() {
       ? [
           `### On a screen the hosted beta hides: ${beta.unread ? 'unknown' : beta.steps.length}`,
           '',
-          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt, or switched off) still runs, but it is not proven from this run (set-aside.json `notOnBeta`). Being on a hidden screen doesn't turn this verdict red; its failure still does on main, and on a pull request when it is money or on the tester path (the beta gate above).",
+          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt, or switched off) still runs, but it is not proven from this run (set-aside.json `notOnBeta`). Being on a hidden screen doesn't turn this verdict red; its failure still does, except on a beta pull request (the beta lane above).",
           '',
           ...(beta.unread
             ? [

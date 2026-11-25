@@ -3690,7 +3690,7 @@ test('a pure revert of a merge on main passes the seal and is not waited on; one
   }
 });
 
-// The beta gate (journey-verdict.mjs offBetaSteps, project-state decision PR #4060), as the merge seal reads it.
+// The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061), as the merge seal reads it.
 test("betaOfArtifact: the run's own notOnBeta list, or unread for a missing, unread or listless set-aside.json", () => {
   const ex = (text) => () => {
     if (text instanceof Error) throw text;
@@ -3705,7 +3705,7 @@ test("betaOfArtifact: the run's own notOnBeta list, or unread for a missing, unr
   assert.match(betaOfArtifact('z', ex('not json')).unread, /no readable set-aside.json/);
 });
 
-test("fullVerdict and the beta gate: a pull request's hidden non-money red holds nothing; money, tester path, main's runs and an unread list do", () => {
+test("fullVerdict and the beta lane: a pull request's hidden non-money red holds nothing; money, tester path, main's runs and an unread list do", () => {
   const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
   const files = { 'J-algo-dev-01': 'J-algo-dev-01.pw.mjs', 'J-identity-01': 'J-identity-01.pw.mjs', 'J-bank-05': 'J-bank-05.pw.mjs' };
   const rep = (failing, beta) => ({
@@ -3723,6 +3723,7 @@ test("fullVerdict and the beta gate: a pull request's hidden non-money red holds
     money: { 'J-algo-dev-01#1': false, 'J-identity-01#1': false, 'J-bank-05#1': true },
     guard: { 'J-algo-dev-01#1': false, 'J-identity-01#1': false, 'J-bank-05#1': true },
     owners: { 'J-algo-dev-01': 'algo-dev', 'J-identity-01': 'identity', 'J-bank-05': 'bank' },
+    orders: { 'J-algo-dev-01': 1, 'J-identity-01': 1, 'J-bank-05': 1 },
     reports: new Map(),
   };
   const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
@@ -3752,6 +3753,18 @@ test("fullVerdict and the beta gate: a pull request's hidden non-money red holds
     ['J-algo-dev-01#1'],
     "main's runs keep every step",
   );
+  const other = run(3, { head_branch: 'fix/10883', event: 'pull_request', created_at: '2026-11-25T06:00:00Z' });
+  assert.deepEqual(
+    v('J-algo-dev-01#1', other).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'a pull request off a beta branch keeps every step',
+  );
+  const fork = run(4, { head_branch: 'beta/home', event: 'pull_request', head_repository: { full_name: 'someone/fork' } });
+  assert.deepEqual(
+    v('J-algo-dev-01#1', fork).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    "a fork's beta branch keeps every step",
+  );
   assert.deepEqual(
     v('J-algo-dev-01#1', pr, { unread: 'no dist' }).red.map((x) => x.step),
     ['J-algo-dev-01#1'],
@@ -3764,7 +3777,7 @@ test("fullVerdict and the beta gate: a pull request's hidden non-money red holds
   );
 });
 
-test('judgeTouchedRun: a run whose only red is a hidden non-money step passes the touched journeys, and says so', async () => {
+test('judgeTouchedRun: a beta run whose only red is outside the beta passes the touched journeys, and says so', async () => {
   const r = run(1, { head_branch: 'beta/home', event: 'pull_request' });
   const got = await judgeTouchedRun({
     sha: HEAD,
@@ -3777,6 +3790,6 @@ test('judgeTouchedRun: a run whose only red is a hidden non-money step passes th
   assert.equal(got.ok, true);
   assert.match(
     got.lines.join('\n'),
-    /1 failing step\(s\) on a screen the hosted beta hides, neither money nor on the tester path, hold no pull request[^\n]*J-algo-dev-01#1/,
+    /1 red step\(s\) outside the beta's own journeys, money and sign-in hold no beta pull request[^\n]*J-algo-dev-01#1/,
   );
 });

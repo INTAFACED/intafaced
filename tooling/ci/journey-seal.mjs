@@ -83,7 +83,9 @@ import {
   judge,
   manifestsAt,
   moneyRule,
-  offBetaSteps,
+  NO_LANE,
+  betaLane,
+  isBetaPull,
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
@@ -603,7 +605,7 @@ export async function judgeTouchedRun({
       );
     if (v.offBeta?.length)
       read.push(
-        `${where}: ${v.offBeta.length} failing step(s) on a screen the hosted beta hides, neither money nor on the tester path, hold no pull request (the beta gate; main's run after the merge judges them): ${v.offBeta
+        `${where}: ${v.offBeta.length} red step(s) outside the beta's own journeys, money and sign-in hold no beta pull request (the beta lane; main's run after the merge judges them): ${v.offBeta
           .slice(0, 10)
           .map((x) => x.step)
           .join(', ')}${v.offBeta.length > 10 ? `, ${v.offBeta.length - 10} more` : ''}`,
@@ -736,7 +738,7 @@ async function listWhole(path, key, token, what) {
 /**
  * The steps on a screen the hosted beta hides, as the run's own verdict wrote them beside its report (set-aside.json
  * `notOnBeta`, `betaUnread`): { steps } or { unread }. No file, no list or an unreadable one is unread, so the beta gate
- * (journey-verdict.mjs offBetaSteps) sets nothing apart and every step gates.
+ * (journey-verdict.mjs betaLane) sets nothing apart and every step gates.
  */
 export function betaOfArtifact(zip, exec = execFileSync) {
   let list;
@@ -966,12 +968,14 @@ export function journeyFilesAt(root) {
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
 export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
   const { baseline, money, reports, memo } = inputs;
-  // The beta gate (journey-verdict.mjs offBetaSteps, project-state decision PR #4060): on a run that is not main's, a
-  // failing step on a screen the hosted beta hides that is neither money nor on the tester path holds no pull request.
-  // Main's runs, read for inherited reds, keep every step.
-  const offBeta = isMainRun(run, repo)
-    ? new Set()
-    : offBetaSteps({ beta: report?.beta, guard: inputs.guard, modules: inputs.owners, at: run?.created_at });
+  // The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061): on a beta pull request's
+  // run (a `beta/` branch of this repository), a red outside the beta's own journeys, money and sign-in holds nothing.
+  // Every other run, main's runs read for inherited reds included, keeps every step.
+  const betaPull =
+    run?.event === 'pull_request' &&
+    !isMainRun(run, repo) &&
+    isBetaPull({ headRef: run?.head_branch, headRepo: run?.head_repository?.full_name, repo });
+  const offBeta = betaPull ? betaLane({ beta: report?.beta, guard: inputs.guard, modules: inputs.owners, orders: inputs.orders }) : NO_LANE;
   const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
