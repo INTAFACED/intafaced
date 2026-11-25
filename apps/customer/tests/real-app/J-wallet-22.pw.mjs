@@ -748,6 +748,30 @@ test(`${J} outside: the wallet is a browser wallet for the rest of the app: Mone
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('venue-wallet-address').first()).toHaveText(owner, { timeout: 20_000 });
   const before = (await testVenue('/open-orders', { account: await venueAccount(address) })).value.length;
+  // The contract's leverage is a signed setting on the venue, before the first order: the wallet signs it, after the passkey.
+  const margin = page.getByTestId('venue-margin');
+  const sign = () =>
+    page
+      .getByRole('dialog', { name: 'Check before you sign', exact: true })
+      .getByRole('button', { name: 'Continue in wallet', exact: true })
+      .click();
+  await page
+    .getByRole('button', { name: /^BTC-PERP · / })
+    .first()
+    .click();
+  const leverage = margin.getByTestId('venue-leverage-current');
+  await expect(leverage).toHaveText(/^(None set on the venue|Set on the venue)/, { timeout: 20_000 });
+  if ((await leverage.textContent()).startsWith('None set')) {
+    await margin.locator('[data-mode="isolated"] input').check();
+    await margin.getByRole('textbox', { name: 'Leverage (times)', exact: true }).fill('10');
+    await margin.getByRole('button', { name: 'Sign this leverage setting', exact: true }).click();
+    await sign();
+    await expect(margin.getByTestId('venue-outcome')).toContainText('The venue accepted it.', { timeout: 20_000 });
+    await expect(leverage).toHaveText('Set on the venue: 10x, Isolated', { timeout: 20_000 });
+    expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+    expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+    prompts.length = 0;
+  }
   const ticket = page.getByTestId('venue-ticket');
   await page
     .getByRole('button', { name: /^BTC-PERP · / })
@@ -757,17 +781,23 @@ test(`${J} outside: the wallet is a browser wallet for the rest of the app: Mone
   await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
   await ticket.getByRole('textbox', { name: 'Size (BTC)', exact: true }).fill('0.001');
   await ticket.getByRole('textbox', { name: 'Price', exact: true }).fill('59000');
-  const margin = ticket.getByRole('combobox', { name: 'Margin asset', exact: true });
-  if (await margin.isVisible()) await margin.selectOption('USDC');
+  const asset = ticket.getByRole('combobox', { name: 'Margin asset', exact: true });
+  if (await asset.isVisible()) await asset.selectOption('USDC');
   await ticket.getByRole('button', { name: 'Review long', exact: true }).click();
-  await page
-    .getByTestId('venue-review')
-    .getByRole('button', { name: /^(Open|Place) long/ })
-    .click();
-  await page
-    .getByRole('dialog', { name: 'Check before you sign', exact: true })
-    .getByRole('button', { name: 'Continue in wallet', exact: true })
-    .click();
+  const review = page.getByTestId('venue-review');
+  // Our builder fee, when this account has not approved it yet: the wallet signs that approval too, after the passkey.
+  const approve = review.getByRole('button', { name: 'Approve in wallet', exact: true });
+  await expect(review.getByRole('button', { name: /^(Open|Place) long/ })).toBeVisible();
+  if (await approve.isVisible()) {
+    await approve.click();
+    await sign();
+    await expect(approve).toHaveCount(0, { timeout: 20_000 });
+    expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+    expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+    prompts.length = 0;
+  }
+  await review.getByRole('button', { name: /^(Open|Place) long/ }).click();
+  await sign();
   // The person's only BTC-PERP order (#8's two rest on the spot market).
   const rows = page.getByTestId('venue-open-orders').locator('tbody tr').filter({ hasText: 'BTC-PERP' });
   await expect(rows).toHaveCount(1, { timeout: 30_000 });
@@ -777,10 +807,7 @@ test(`${J} outside: the wallet is a browser wallet for the rest of the app: Mone
 
   // Cancel: one more signature by the wallet, after the passkey, and the venue holds the order no more.
   await rows.first().getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page
-    .getByRole('dialog', { name: 'Check before you sign', exact: true })
-    .getByRole('button', { name: 'Continue in wallet', exact: true })
-    .click();
+  await sign();
   await expect(rows).toHaveCount(0, { timeout: 30_000 });
   expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped', '/__test-wallet-provider/client/signtyped']);
   expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(before);
