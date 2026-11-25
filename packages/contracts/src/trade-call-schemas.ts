@@ -759,6 +759,14 @@ export const algoPolicyAnswer = z.object({
 /** The kinds an engine runs. */
 export const ALGO_KINDS = ['twap', 'vwap', 'pov', 'chase'] as const;
 
+/**
+ * The algo order API's states (SP-conditional-algo-04), one set for every kind, in the order the developer page lists
+ * them: live (running or waiting), effective (finished, filled whole), partially_effective (finished, part filled),
+ * canceled, order_failed (halted, or finished with nothing filled). svc-trade maps each parent to one of them.
+ */
+export const ALGO_API_STATES = ['live', 'effective', 'partially_effective', 'canceled', 'order_failed'] as const;
+export type AlgoApiState = (typeof ALGO_API_STATES)[number];
+
 /** One algo create, as the web's `trade.algo.createTwap` and the public `POST /api/v1/algo` take it. */
 export const algoCreateInputSchema = z.object({
   symbol: z.string().min(3),

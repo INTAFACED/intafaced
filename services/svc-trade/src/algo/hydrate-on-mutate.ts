@@ -56,6 +56,13 @@ export async function persistAlgoMutation(engine: AlgoHydrateTarget, store: Twap
   return parent;
 }
 
+/** Await the durable write of an amend: the store's amend write, never read as a second create. */
+export async function persistAlgoAmend(engine: AlgoHydrateTarget, store: TwapParentStore, parent: TwapParent): Promise<TwapParent> {
+  const plan = engine.planOf(parent.id) ?? [];
+  await store.saveAmend({ parent, plan });
+  return parent;
+}
+
 export interface AlgoCancelTarget extends AlgoHydrateTarget {
   cancel(userId: string, parentId: string): Promise<TwapParent>;
 }

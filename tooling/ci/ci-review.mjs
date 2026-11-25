@@ -1689,6 +1689,47 @@ export function clearedLines(cleared) {
   return ['', '### Checked and cleared', '', ...cleared.map((c) => `  * ${String(c).replace(/\s+/g, ' ')}`)];
 }
 
+/** The first line of the comment that carries a review's notes to its pull request (#9357). */
+export const NOTES_MARK = '<!-- ci-review-notes -->';
+
+/** A review's non-blocking notes: each finding that starts `note:`, as the reviewer wrote it. */
+export const notesOf = (findings) => (findings ?? []).filter((f) => typeof f === 'string' && /^note:/i.test(f.trim()));
+
+/**
+ * The comment that carries a head's notes to its pull request (#9357): a note written only into the run's summary
+ * reached nobody once the review PASSed, so the problems it named merged (#8823's, #8712's and #8940's notes, now
+ * #9352 to #9355). Posted where the builder's watch wakes; the builder answers each in the PR body, as findings are
+ * (AGENTS.md, How work flows 5). A mention in a note is broken, so it notifies nobody.
+ */
+export function notesComment({ head, notes, run }) {
+  const quiet = (n) =>
+    String(n)
+      .replace(/\s+/g, ' ')
+      .replace(/@(?=[A-Za-z0-9])/g, '@\u200b');
+  return [
+    NOTES_MARK,
+    `**CI review notes on ${head}**: not blocking, and not read by any check. Answer each in the PR body before merge, fixed, or why not, as you answer findings (AGENTS.md, How work flows 5). A real product problem a note names that this PR doesn't fix gets its own \`bug\` issue.`,
+    '',
+    ...notes.map((n) => `- ${quiet(n)}`),
+    ...(run ? ['', `From the CI review run ${run}.`] : []),
+  ].join('\n');
+}
+
+/** The notes job: post the review's notes (env NOTES, a JSON list) on pull request PR_NUMBER, once per head. */
+function cmdNotes() {
+  const { REPO, PR_NUMBER, HEAD_SHA, RUN_URL } = process.env;
+  const notes = notesOf(JSON.parse(process.env.NOTES || '[]'));
+  if (notes.length === 0) return console.log('no notes on this head: nothing to post');
+  const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+  const mine = `${NOTES_MARK}\n**CI review notes on ${HEAD_SHA}**`;
+  const posted = gh(['api', '--paginate', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--jq', '.[].body']);
+  // A re-run of the same head's review posts nothing new: the head's notes are already on the pull request.
+  if (posted.includes(mine)) return console.log(`notes on ${HEAD_SHA} are already on #${PR_NUMBER}`);
+  const body = notesComment({ head: HEAD_SHA, notes, run: RUN_URL });
+  gh(['api', '-X', 'POST', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--input', '-'], JSON.stringify({ body }));
+  console.log(`posted ${notes.length} note(s) on #${PR_NUMBER}`);
+}
+
 /** The FAILs in a row at which the judge says to stop fixing (pstack principle-attack-the-premise: two fixes failed). */
 export const PREMISE_AT = 3;
 
@@ -1800,6 +1841,9 @@ async function cmdJudge(dir) {
   lines.push(...premise);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
+  // The notes leave the run for the notes job, which posts them on the pull request (#9357). One JSON line.
+  const notes = notesOf(v.findings);
+  if (notes.length && process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `notes=${JSON.stringify(notes)}\n`);
   if (v.verdict !== 'PASS') {
     // The classes only: no finding's text, so nothing in it can change how the census reads this run (its classOf).
     console.error(`::error title=${CLASSES_TITLE}::${findingClasses(v.findings).join(' ') || 'other'}`);
@@ -1848,7 +1892,8 @@ async function main() {
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
   if (cmd === 'premise') return cmdPremise(dir, process.argv[4]);
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head]');
+  if (cmd === 'notes') return cmdNotes();
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head] | notes');
   process.exit(2);
 }
 

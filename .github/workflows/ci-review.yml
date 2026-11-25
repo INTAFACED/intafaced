@@ -63,6 +63,7 @@ jobs:
       judge-closed: ${{ steps.judge-back.outputs.closed }} # true only when this run closed the judge-down issue
       verdict: ${{ steps.verdict.outcome }} # success or failure when the review answered; read by Start the seal's fix issue
       tests: ${{ steps.tests.outcome }}
+      notes: ${{ steps.verdict.outputs.notes }} # the review's non-blocking notes, one JSON list, for the notes job
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
       actions: read # read this run's tree index, and CI's look gate pictures on the head
@@ -654,6 +655,39 @@ jobs:
           TESTS: ${{ needs.review.outputs.tests }}
         run: node tooling/ci/judge-down.mjs merged "CI review" issue
 
+  # The review's non-blocking notes on the pull request (#9357): written only into the run's summary, they reached nobody
+  # once the review PASSed, so the product problems they named merged (#9352 to #9355). One comment per head, where the
+  # builder's watch wakes; the builder answers each in the PR body, fixed or why not, as findings are (AGENTS.md, How
+  # work flows 5). Before Start the seal, so the notes are on the pull request before it can merge. Its own job, so the
+  # review keeps no write and its failure can't void a PASS; it fails nothing the seal reads. The notes reach the script
+  # through env as data and are never run.
+  notes:
+    name: CI review notes
+    needs: review
+    if: ${{ !cancelled() && needs.review.outputs.notes != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write # the notes comment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Post the notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTES: ${{ needs.review.outputs.notes }}
+        run: node tooling/ci/ci-review.mjs notes
+
   # The CI review ends here: whatever its verdict, the seal reads it (review-marker.mjs).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
   # review, and the journeys run the change needs (journey-seal.mjs --recheck, START_JOB). It needs every other job
@@ -663,7 +697,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [review, read, after-merge]
+    needs: [review, read, after-merge, notes]
     if: ${{ !cancelled() && needs.review.result != 'skipped' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

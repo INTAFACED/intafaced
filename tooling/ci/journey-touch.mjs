@@ -108,6 +108,8 @@ import { reachesLook } from './look-paths.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
+/** A venue journey's Hyperliquid recording, by its journey file's name (hl-venue-daily.mjs optIn). */
+export const HL_RECORDING = /^packages\/venue-hyperliquid\/recordings\/(J-[A-Za-z0-9._-]+-venue)\.json$/;
 
 /** A changed path as printed in a log line: a pull request names its own paths, so a control character (a newline that
  *  would start a workflow command) is shown as `?`, never written. */
@@ -492,6 +494,12 @@ function kindOf(p) {
       kind: 'full',
       why: 'a run file that holds no journey steps (a look sweep), which no report lists, so only a clean full run shows it broke nothing',
     };
+  // A venue journey's Hyperliquid recording is read only by the journey file named after it (hl-venue-daily.mjs optIn
+  // holds the name), so a change to it runs that file. (Failure it prevents: #10910, the daily run's recordings, ran
+  // only the CANARY, since a product path no recorded run narrows, and never the two files that replay them.)
+  const recording = HL_RECORDING.exec(p);
+  if (recording && JOURNEY_TEST.test(`apps/customer/tests/real-app/${recording[1]}.pw.mjs`))
+    return { kind: 'file', file: `${recording[1]}.pw.mjs` };
   if (JOURNEY_CI.includes(p)) return { kind: 'full', why: 'a check the journeys run uses (JOURNEY_CI)' };
   if (FACTORY_SCRIPTS.includes(p)) return { kind: 'none' };
   for (const [re, why] of FULL_RULES) if (re.test(p)) return { kind: 'full', why };

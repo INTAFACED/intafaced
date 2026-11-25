@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   analyse,
   buildIndex,
@@ -28,6 +30,7 @@ import {
   progress,
   queue,
   untangle,
+  PROGRESS_LOG_MAX_BYTES,
 } from './roadmap.mjs';
 
 test('a slice heading and its table rows are read', () => {
@@ -740,4 +743,24 @@ test('--check fails when the words of a journey change and the list does not fol
   // A missing list is behind, not empty-and-fine.
   const none = { journeysFile: join(dir, 'none.json'), slicesFile: files.slicesFile };
   assert.equal(listDrift(dir, none).behind, true);
+});
+
+test("--progress reads main's whole 120-day log, past node's 1 MiB default", () => {
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const log = execFileSync('git', ['log', 'HEAD', '--since=120 days ago', '--format=%cI%x09%s'], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: PROGRESS_LOG_MAX_BYTES,
+  });
+  assert.ok(
+    Buffer.byteLength(log) < PROGRESS_LOG_MAX_BYTES / 4,
+    `the log is ${Buffer.byteLength(log)} bytes: raise PROGRESS_LOG_MAX_BYTES`,
+  );
+  const run = spawnSync(process.execPath, ['tooling/scripts/roadmap.mjs', '--progress', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  assert.doesNotMatch(run.stderr, /ENOBUFS/);
+  assert.equal(run.status, 0, run.stderr.slice(0, 500));
 });
