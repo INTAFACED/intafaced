@@ -32,7 +32,7 @@ export const ROOMS = [
   { path: '/home', signedIn: true },
   { path: '/trade', signedIn: false },
   { path: '/trade', signedIn: true },
-  { path: '/trade/spot/BTC-USDC', signedIn: true },
+  { path: '/trade/spot/PURR-USDC', signedIn: true },
   { path: '/trade/futures', signedIn: true },
   { path: '/money', signedIn: true },
   { path: '/uc/recharge', signedIn: true },
