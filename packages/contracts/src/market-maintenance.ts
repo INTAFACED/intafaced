@@ -14,10 +14,12 @@ export const MARKET_MAINTENANCE_PROCEDURE = 'notify.marketMaintenance' as const;
 /** `market-<base>-<quote>`: the shape svc-notify accepts as a market component without a status page defining it. */
 export const MARKET_COMPONENT_PATTERN = /^market-[a-z0-9]{1,15}-[a-z0-9]{1,15}$/;
 
-/** The status component that names one spot market, or null for a symbol that has no such component. */
+/** The status component that names one spot market (`BTC/USDC` or venue `BTC-USDC`), or null for a symbol with none. */
 export function marketComponentId(symbol: string): string | null {
-  const [base, quote, ...rest] = symbol.split('/');
-  if (!base || !quote || rest.length > 0) return null;
+  const parts = symbol.includes('/') ? symbol.split('/') : symbol.split('-');
+  if (parts.length !== 2) return null;
+  const [base, quote] = parts;
+  if (!base || !quote) return null;
   const id = `market-${base.toLowerCase()}-${quote.toLowerCase()}`;
   return MARKET_COMPONENT_PATTERN.test(id) ? id : null;
 }

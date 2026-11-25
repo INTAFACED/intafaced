@@ -1,28 +1,29 @@
+// volt-room: /pay/products/new
+// volt-room: portal:product-new
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { PRODUCT_TYPES, type ProductImageRules } from '@intafaced/contracts/merchant-catalog';
-import { EmptyState, Field } from '../../ui-kit';
 import { navigate } from '../../../../app/location';
 import { useResource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
-import { Gate, SelectField } from '../components';
-import { base64Of } from '../settings/onboarding/Application';
+import { base64Of } from '../settings/onboarding/files';
 import { useBodyRequestId } from '../payments/invoice-model';
+import { FlowRoom } from '../volt/FlowRoom';
+import { Empty, Gate, Section, SelectField } from '../volt/parts';
 import { useMayAddProducts } from './access';
 import { useCatalogMode } from './mode';
-import { ProductImport } from './ProductImport';
 import { catalogCopy as c } from './copy';
 import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText, type ProductDraft } from './model';
 
 export { ProductList } from './ProductList';
 
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
+const IMAGE_NOTE_OK = 'lt-note-good';
+const IMAGE_NOTE_BAD = 'lt-callout lt-callout-bad';
 
-/** `/pay/products/new` and `/pay/products/import`. The list and one product are `./ProductList`. */
-export function Products({ portal, route }: { portal: PortalApi; route: { room: string; param?: string } }) {
-  if (route.room === 'product-import') return <ProductImport portal={portal} />;
-  return <ProductCreate portal={portal} />;
+/** `/pay/products/new` on the flow template (J-merchant-03): every role reads; the page gates adding. */
+export function ProductNewRoom({ portal }: { portal: PortalApi }) {
+  return <FlowRoom need="products.read">{() => <ProductCreate portal={portal} />}</FlowRoom>;
 }
 
 export function ProductCreate({ portal }: { portal: PortalApi }) {
@@ -61,12 +62,12 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
     }
   }
 
-  if (!may.allowed) return <EmptyState title={t('newTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</EmptyState>;
+  if (!may.allowed) return <Empty title={t('newTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</Empty>;
   return (
-    <PaySection title={t('newTitle')} description={t('newPurpose')}>
+    <Section title={t('newTitle')} description={t('newPurpose')}>
       <div data-testid="form-stack" className="lt-stack">
         {mode === 'test' && (
-          <p className="pp-callout" role="note">
+          <p className="lt-callout" role="note">
             {t('testCatalogueNote')}
           </p>
         )}
@@ -139,17 +140,17 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
           )}
         </Gate>
         {refused && (
-          <p className="pp-callout" role="alert">
+          <p className="lt-callout lt-callout-bad" role="alert">
             {refused}
           </p>
         )}
         <div className="lt-actions">
-          <Button variant="primary" disabled={!draft.name.trim() || busy || uploading} onClick={() => void save()}>
+          <Button tone="primary" disabled={!draft.name.trim() || busy || uploading} onClick={() => void save()}>
             {busy ? t('saving') : t('save')}
           </Button>
         </div>
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -242,15 +243,15 @@ function ImagePicker({
       />
       {busy && <p className="lt-muted">{t('imageUploading')}</p>}
       {note && (
-        <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
+        <p className={note.ok ? IMAGE_NOTE_OK : IMAGE_NOTE_BAD} role={note.ok ? 'status' : 'alert'}>
           {note.text}
         </p>
       )}
       {imageId && (
         <>
-          {preview && <img className="pp-product-image" src={preview} alt={t('imagePreviewAlt')} width={160} />}
+          {preview && <img className="lt-media" src={preview} alt={t('imagePreviewAlt')} width={160} />}
           <Button
-            variant="secondary"
+            tone="secondary"
             onClick={() => {
               onChange(null);
               setPreview(null);

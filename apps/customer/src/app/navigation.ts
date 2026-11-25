@@ -107,6 +107,7 @@ export function doorLabel(door: Door, locale: UiLocale = currentPreferences().la
 }
 const publicSearchable = new Set([
   '/help',
+  '/help/official-channels',
   '/status',
   '/notice',
   '/lab',

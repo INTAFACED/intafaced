@@ -69,7 +69,7 @@ async function terms(order: Trade) {
     ),
   );
   await act(async () => undefined);
-  return host.querySelector('.p2p-order-facts')!;
+  return host.querySelector('[data-testid="p2p-order-facts"]')!;
 }
 
 describe('P2P order page terms (J-p2p-01 #5)', () => {

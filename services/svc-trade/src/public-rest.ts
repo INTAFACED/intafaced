@@ -26,6 +26,8 @@ import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js
 import type { CandleGate } from './admin/chart-feed-controls.js';
 import { publicRead } from './route-inventory.js';
 import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
+import type { HistoryDatasetsPort } from './spot/history-datasets.js';
+import { registerHistoryRestRoutes } from './spot/history-rest.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -149,6 +151,8 @@ export interface PublicRestDeps {
   ): Promise<Map<string, TickerStats24h>>;
   /** Injectable clock for tests. */
   now?: () => number;
+  /** Historical tick, book and trade datasets (RC-cex-spot-05; J-cex-spot-15 #10). */
+  history?: HistoryDatasetsPort;
   /**
    * Published funding rate for a futures market. Null → not served (never invent zero).
    * Spot markets never call this.
@@ -1298,6 +1302,9 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     publicTape: (marketId, limit, sinceMs) => deps.publicTape(marketId, limit, sinceMs),
     now: () => new Date(now()),
   });
+
+  // Historical tick, book and trade data downloads (RC-cex-spot-05; J-cex-spot-15 #10).
+  registerHistoryRestRoutes(app, deps.history);
 }
 
 /** Test helper — build a minimal Market without a DB. */

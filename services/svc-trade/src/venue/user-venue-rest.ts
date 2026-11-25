@@ -95,6 +95,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
+import { refuseRetailPriceImprovement } from '../spot/rpi.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
@@ -503,10 +504,26 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
   });
 
-  // J-cex-spot-14 #1 #2: each market we show with the venue's own trading state and session and our listing beside them,
-  // signed in or not: the markets list and /status read the venue, never our own book.
+  // J-cex-spot-14 #1 #2 #5 #6 #7: each market we show with the venue's own trading state, session, opening window, zone,
+  // our listing and upcoming maintenance beside them, signed in or not.
   app.get<{ Querystring: Query }>('/api/v1/venue/market-states', publicRead, async (req, reply) => {
     return answer(reply, async (d) => d.marketStates(), req.query.venueId);
+  });
+
+  // J-cex-spot-14 #8: public venue depth book, tickers and spreads, signed in or not.
+  app.get<{ Querystring: MarketQuery & { depth?: string } }>('/api/v1/venue/public-book', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)), req.query.venueId);
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/tickers', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicTickers(), req.query.venueId);
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/spreads', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicSpreads(), req.query.venueId);
+  });
+
+  // J-cex-spot-14 #9: public market analytics from the venue's own trade tape; blank window refuses trade.analytics_window_unset.
+  app.get<{ Querystring: Query & { window?: string } }>('/api/v1/venue/analytics', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicAnalytics(symbolOf(req.query.symbol), req.query.window), req.query.venueId);
   });
 
   // J-derivatives-31 #1: the vaults the venue lists, signed in or not, each with its lock-up, leader profit share, value and
@@ -1091,9 +1108,24 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     }
   }
 
+  /** Refuse the retail price improvement flag on any venue preview or prepare (J-cex-spot-14 #11). */
+  function checkNoRpi(req: FastifyRequest, reply: FastifyReply): boolean {
+    try {
+      refuseRetailPriceImprovement(req.body);
+      if (typeof req.body === 'object' && req.body !== null && 'intent' in req.body) {
+        refuseRetailPriceImprovement(req.body.intent);
+      }
+      return true;
+    } catch (err) {
+      void venueRefusalReply(reply, err);
+      return false;
+    }
+  }
+
   app.post('/api/v1/venue/preview', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
+    if (!checkNoRpi(req, reply)) return;
     const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
     return answer(
@@ -1220,6 +1252,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/prepare', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
+    if (!checkNoRpi(req, reply)) return;
     const b = bodyOr<{
       owner?: string;
       subAccount?: string | null;

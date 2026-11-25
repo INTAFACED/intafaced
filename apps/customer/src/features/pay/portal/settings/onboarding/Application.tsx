@@ -1,14 +1,12 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui/lit';
-import { Field } from '../../../ui-kit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
-import { PaySection } from '../../../components';
-import { Facts, Gate, SelectField } from '../../components';
 import type { PortalApi } from '../../api';
 import type { MerchantRecord } from '../../schemas';
-import { PortalReview } from '../../ui/PortalReview';
 import { DateTime } from '../../ui/DateTime';
+import { Facts, Gate, Section, SelectField } from '../../volt/parts';
+import { Review } from '../../volt/Review';
 import { Blocker } from '../account/ui';
 import { formatBytes } from '../reports/model';
 import { useUnsavedForm } from '../../useUnsavedForm';
@@ -17,7 +15,7 @@ import { applicationCopy, keyWords } from './application-copy';
 import type { Answers, Application, ApplicationSection, Checklist, DocumentRow, EntityType } from './application-api';
 
 type T = ReturnType<typeof applicationCopy.useCopy>['t'];
-type Section = Application['sections'][number];
+type SectionRow = Application['sections'][number];
 
 /** The most people one application holds: five answers each, inside the service's 100 answers a section. */
 export const MAX_PEOPLE = 18;
@@ -158,7 +156,7 @@ type Inner = Omit<ApplicationViewProps, 'types' | 'application'> & { types: Enti
 export function ApplicationView(props: ApplicationViewProps) {
   const { t } = applicationCopy.useCopy();
   return (
-    <PaySection title={t('appTitle')} description={t('appBody')}>
+    <Section title={t('appTitle')} description={t('appBody')}>
       <Gate resource={props.types} retry={props.retry} rows={2}>
         {(types) => (
           <Gate resource={props.application} retry={props.retry} rows={3}>
@@ -177,14 +175,14 @@ export function ApplicationView(props: ApplicationViewProps) {
                 return (
                   <div className="lt-stack">
                     <Started {...props} types={types} application={application} />
-                    <h3 className="pp-sub">{t('againTitle')}</h3>
+                    <h3>{t('againTitle')}</h3>
                     {start}
                   </div>
                 );
               // Verified or under review another way (a verification reference): nothing to apply for here.
               if (props.kybStatus === 'pending' || props.kybStatus === 'approved')
                 return (
-                  <p className="pp-callout" role="note">
+                  <p className="lt-callout" role="note">
                     {props.kybStatus === 'approved' ? t('otherApproved') : t('otherPending')}
                   </p>
                 );
@@ -193,7 +191,7 @@ export function ApplicationView(props: ApplicationViewProps) {
           </Gate>
         )}
       </Gate>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -213,7 +211,7 @@ function TypeAndCountry({
   const [chosenType, chosenCountry] = offered(types, entityType, country);
   const chosen = types.find((type) => type.entityType === chosenType)!;
   return (
-    <div className="form-row">
+    <div className="lt-field-row">
       <SelectField
         label={`${t('fEntityType')} *`}
         value={chosen.entityType}
@@ -257,7 +255,7 @@ function StartForm({ portal, merchant, types, onChanged }: Omit<ApplicationViewP
           setCountry(code);
         }}
       />
-      <p className="muted pp-note">{t('startBody')}</p>
+      <p className="lt-hint">{t('startBody')}</p>
       <div className="lt-actions">
         <Button
           tone="primary"
@@ -308,12 +306,12 @@ function Started(props: Inner) {
         ]}
       />
       {draft ? (
-        <div>
-          <h3 className="pp-sub">{t('neededTitle')}</h3>
+        <div className="lt-stack-tight">
+          <h3>{t('neededTitle')}</h3>
           {needed.length === 0 ? (
             <p>{t('neededNone')}</p>
           ) : (
-            <ul className="sa-list" aria-label={t('neededTitle')}>
+            <ul className="lt-list" aria-label={t('neededTitle')}>
               {needed.map((line) => (
                 <li key={line}>{line}</li>
               ))}
@@ -321,7 +319,7 @@ function Started(props: Inner) {
           )}
         </div>
       ) : (
-        <p className="pp-callout" role="note">
+        <p className="lt-callout" role="note">
           {outcome === 'approved'
             ? t('approvedNote')
             : outcome === 'rejected'
@@ -342,7 +340,7 @@ function Started(props: Inner) {
   );
 }
 
-function SectionPanel(props: Inner & { section: Section; published: EntityType | undefined }) {
+function SectionPanel(props: Inner & { section: SectionRow; published: EntityType | undefined }) {
   const { t } = applicationCopy.useCopy();
   const { section } = props;
   const state = section.state === 'complete' ? t('sectionDone') : section.state === 'draft' ? t('sectionDraft') : t('sectionEmpty');
@@ -353,8 +351,8 @@ function SectionPanel(props: Inner & { section: Section; published: EntityType |
   else if (section.section === 'questionnaires') body = <Questions {...props} keys={props.published?.questionnaireKeys ?? []} />;
   else if (section.section === 'documents') body = <Documents {...props} />;
   return (
-    <section className="sa-group" aria-label={title}>
-      <h3 className="pp-sub">
+    <section className="lt-group lt-stack" aria-label={title}>
+      <h3>
         {title} · <span className="lt-muted">{state}</span>
       </h3>
       {body}
@@ -371,7 +369,7 @@ const rolesIn = (data: Answers) => [
 ];
 
 /** One save of one section, at the version this page read. Complete when every required answer is in. */
-function useSectionSave(props: Inner & { section: Section }) {
+function useSectionSave(props: Inner & { section: SectionRow }) {
   const saver = useSaver();
   const save = (complete: boolean, data: Answers) =>
     saver.run(
@@ -382,7 +380,7 @@ function useSectionSave(props: Inner & { section: Section }) {
   return { saver, save };
 }
 
-function CompanyDetails(props: Inner & { section: Section }) {
+function CompanyDetails(props: Inner & { section: SectionRow }) {
   const { t } = applicationCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
   const draft = props.application.state === 'draft';
@@ -414,7 +412,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
         disabled={!draft}
         required
       />
-      <div className="form-row">
+      <div className="lt-field-row">
         <Field
           label={t('fRegistrationNumber')}
           value={form.registration_number}
@@ -446,7 +444,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
   );
 }
 
-function People(props: Inner & { section: Section; roles: string[] }) {
+function People(props: Inner & { section: SectionRow; roles: string[] }) {
   const { t } = applicationCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
   const { roles } = props;
@@ -473,12 +471,12 @@ function People(props: Inner & { section: Section; roles: string[] }) {
     >
       <p className="lt-muted">{t('peopleBody')}</p>
       {missingRoles.length > 0 && (
-        <p className="pp-callout" role="note">
+        <p className="lt-callout" role="note">
           {t('peopleRolesNeeded', { roles: missingRoles.map(keyWords).join(', ') })}
         </p>
       )}
       {people.map((person, i) => (
-        <fieldset key={i} className="sa-group" disabled={!draft}>
+        <fieldset key={i} className="lt-group lt-stack" disabled={!draft}>
           <legend>{t('personN', { n: i + 1 })}</legend>
           <SelectField
             label={`${t('fRole')} *`}
@@ -487,7 +485,7 @@ function People(props: Inner & { section: Section; roles: string[] }) {
             options={roles.map((role) => [role, keyWords(role)] as const)}
           />
           <Field label={`${t('fPersonName')} *`} value={person.name} onChange={update(i, 'name')} maxLength={200} required />
-          <div className="form-row">
+          <div className="lt-field-row">
             <Field label={`${t('fBirthDate')} *`} type="date" value={person.birth_date} onChange={update(i, 'birth_date')} required />
             <Field label={`${t('fNationality')} *`} value={person.nationality} onChange={update(i, 'nationality')} maxLength={2} required />
           </div>
@@ -514,14 +512,14 @@ function People(props: Inner & { section: Section; roles: string[] }) {
             </Button>
           </div>
         ) : (
-          <p className="muted pp-note">{t('peopleFull')}</p>
+          <p className="lt-hint">{t('peopleFull')}</p>
         ))}
       {draft && <SaveRow saver={saver} done={done} />}
     </form>
   );
 }
 
-function Questions(props: Inner & { section: Section; keys: string[] }) {
+function Questions(props: Inner & { section: SectionRow; keys: string[] }) {
   const { t } = applicationCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
   const draft = props.application.state === 'draft';
@@ -561,7 +559,7 @@ function Questions(props: Inner & { section: Section; keys: string[] }) {
 
 const usable = (row: DocumentRow) => row.state === 'provided' || row.state === 'accepted';
 
-function Documents(props: Inner & { section: Section }) {
+function Documents(props: Inner & { section: SectionRow }) {
   const { t } = applicationCopy.useCopy();
   const draft = props.application.state === 'draft';
   // Sent and not yet decided: a document marked Invalid takes a new file, nothing else changes.
@@ -582,7 +580,7 @@ function Documents(props: Inner & { section: Section }) {
               </Blocker>
             )}
             {rules ? (
-              <p className="muted pp-note">
+              <p className="lt-hint">
                 {t('docsLimits', { size: formatBytes(String(rules.maxBytes)), types: kindsOf(rules.contentTypes) })}
               </p>
             ) : (
@@ -590,7 +588,7 @@ function Documents(props: Inner & { section: Section }) {
                 {t('docsRulesBody')}
               </Blocker>
             )}
-            <table>
+            <table className="lt-table">
               <thead>
                 <tr>
                   <th scope="col">{t('docName')}</th>
@@ -616,7 +614,7 @@ function Documents(props: Inner & { section: Section }) {
                     {t('docsConfirm')}
                   </Button>
                 </div>
-                {!allSent && <p className="muted pp-note">{t('docsConfirmNeeded')}</p>}
+                {!allSent && <p className="lt-hint">{t('docsConfirmNeeded')}</p>}
               </>
             )}
             <SaverNote saver={saver} />
@@ -646,24 +644,18 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
       <td>
         {rules && (
           <div data-testid="form-stack" className="lt-stack">
-            <label className="lt-field">
-              <span className="lt-sr">{t('chooseFile', { name })}</span>
-              <input
-                type="file"
-                aria-label={t('chooseFile', { name })}
-                accept={rules.contentTypes.join(',')}
-                onChange={(event) => {
-                  const picked = event.target.files?.[0] ?? null;
-                  setFile(picked);
-                  setProblem(picked ? fileProblem(picked, rules, t) : null);
-                }}
-              />
-            </label>
-            {problem && (
-              <small className="text-down-text" role="alert">
-                {problem}
-              </small>
-            )}
+            <Field
+              label={t('chooseFile', { name })}
+              type="file"
+              aria-label={t('chooseFile', { name })}
+              accept={rules.contentTypes.join(',')}
+              error={problem ?? undefined}
+              onChange={(event) => {
+                const picked = event.target.files?.[0] ?? null;
+                setFile(picked);
+                setProblem(picked ? fileProblem(picked, rules, t) : null);
+              }}
+            />
             <Button
               tone="secondary"
               disabled={!file || Boolean(problem) || saver.busy}
@@ -694,7 +686,7 @@ function Submit({ portal, application, onChanged, onSubmitted }: Inner) {
   const { t } = applicationCopy.useCopy();
   return (
     <div className="lt-actions">
-      <PortalReview
+      <Review
         title={t('submit')}
         variant="primary"
         description={t('submitBody')}
@@ -718,8 +710,8 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
   const [changed, setChanged] = useState(false);
   const same = entityType === application.entityType && country === application.country;
   return (
-    <section className="sa-group" aria-label={t('changeTitle')}>
-      <h3 className="pp-sub">{t('changeTitle')}</h3>
+    <section className="lt-group lt-stack" aria-label={t('changeTitle')}>
+      <h3>{t('changeTitle')}</h3>
       <p className="lt-muted">{t('changeBody')}</p>
       {types.length > 0 && (
         <TypeAndCountry
@@ -734,7 +726,7 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
         />
       )}
       <div className="lt-actions">
-        <PortalReview
+        <Review
           title={t('changeButton')}
           variant="secondary"
           description={t('changeBody')}
@@ -746,7 +738,7 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
           disabled={same}
           disabledReason={t('changeSame')}
         />
-        <PortalReview
+        <Review
           title={t('restart')}
           variant="secondary"
           description={t('restartBody')}
@@ -755,7 +747,7 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
         />
       </div>
       {changed && (
-        <p className="pp-confirmed" role="status">
+        <p className="lt-note-good" role="status">
           {t('changed')}
         </p>
       )}
@@ -791,11 +783,11 @@ function useSaver() {
 function SaverNote({ saver }: { saver: Saver }) {
   if (!saver.note) return null;
   return saver.note.ok ? (
-    <p className="pp-confirmed" role="status">
+    <p className="lt-note-good" role="status">
       {saver.note.text}
     </p>
   ) : (
-    <p className="pp-callout" role="alert">
+    <p className="lt-callout lt-callout-bad" role="alert">
       {saver.note.text}
     </p>
   );
@@ -810,7 +802,7 @@ function SaveRow({ saver, done }: { saver: Saver; done: boolean }) {
           {t('save')}
         </Button>
       </div>
-      {!done && <p className="muted pp-note">{t('saveFixFirst')}</p>}
+      {!done && <p className="lt-hint">{t('saveFixFirst')}</p>}
       <SaverNote saver={saver} />
     </>
   );

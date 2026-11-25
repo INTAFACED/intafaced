@@ -1,16 +1,13 @@
+// volt-room: /pay/subscriptions/new
+// volt-room: portal:subscription-new
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
+import { Button } from '@intafaced/ui/lit';
 import { useSession } from '../../../session';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button } from '@intafaced/ui';
-import { EmptyState } from '../../ui-kit';
-import { PayDetails, PaySection } from '../../components';
-import { PortalReview } from '../ui/PortalReview';
-import { CreateMandate } from '../../MerchantBilling';
+import { CreateMandate } from '../../volt/CreateMandate';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import { mandateSchema, subscriptionSchema, subscriptionPostureSchema } from '../../schemas';
-import { PortalBack } from '../ExtensionTools';
-import { Gate, Money, SelectField } from '../components';
 import { DateTime } from '../ui/DateTime';
 import { useUrlParam } from '../hooks';
 import { useUnsavedForm } from '../useUnsavedForm';
@@ -18,6 +15,9 @@ import { extensionCopy as c } from './copy';
 import type { PortalApi } from '../api';
 import type { PortalRoute } from '../routes';
 import type { ApiResult } from '../../../../shared/api';
+import { FlowRoom } from '../volt/FlowRoom';
+import { BackLink, Details, Empty, Gate, LinkButton, MoneyText, Section, SelectField } from '../volt/parts';
+import { Review } from '../volt/Review';
 import { createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
 import { cadenceLabel, pathLabel } from './subscription-words';
 import { SubscriptionPriceFact, SubscriptionPricePicker, subscriptionPriceLabel } from '../catalog/SubscriptionPrice';
@@ -26,6 +26,7 @@ export { NextRun, SubscriptionDetailView, SubscriptionsView } from './Subscripti
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
+
 export function subscriptionHeader(route: PortalRoute) {
   return {
     title: c.t(
@@ -33,19 +34,22 @@ export function subscriptionHeader(route: PortalRoute) {
     ),
     purpose: c.t(route.room === 'subscription-new' ? 'createSubscriptionPurpose' : 'subscriptionsPurpose'),
     action: (
-      <Button
-        variant="primary"
-        nativeButton={false}
-        role="link"
-        render={<a href={route.room === 'subscription-new' ? '/pay/subscriptions' : '/pay/subscriptions/new'} />}
-      >
+      <LinkButton href={route.room === 'subscription-new' ? '/pay/subscriptions' : '/pay/subscriptions/new'} tone="primary">
         {c.t(route.room === 'subscription-new' ? 'subscriptionsTitle' : 'createSubscription')}
-      </Button>
+      </LinkButton>
     ),
   };
 }
+
+/** `/pay/subscriptions/new` on the flow template: the owner alone starts subscriptions. */
+export function SubscriptionNewRoom({ portal, authority }: { portal: PortalApi; authority: PayBusinessAuthority | null }) {
+  return (
+    <FlowRoom need="owner">{({ merchantId }) => <Subscriptions portal={portal} merchantId={merchantId} authority={authority} />}</FlowRoom>
+  );
+}
+
 /** `/pay/subscriptions/new`: the way back to the list and the create form. The list and one schedule are `./SubscriptionList`. */
-export function Subscriptions({
+function Subscriptions({
   portal,
   merchantId,
   authority,
@@ -58,11 +62,12 @@ export function Subscriptions({
   const pay = useMemo(() => (authority ? createBusinessPayApi(api, userId, authority) : null), [api, userId, authority]);
   return (
     <div className="lt-stack">
-      <PortalBack href="/pay/subscriptions">{c.t('subscriptionsTitle')}</PortalBack>
+      <BackLink href="/pay/subscriptions">{c.t('subscriptionsTitle')}</BackLink>
       <CreateSubscription portal={portal} merchantId={merchantId} pay={pay} />
     </div>
   );
 }
+
 function SubscriptionRecovery({
   check,
   onKnown,
@@ -89,11 +94,12 @@ function SubscriptionRecovery({
     <div className="lt-stack">
       {/* One message about the unconfirmed request: the latest check's answer replaces the general notice. */}
       {(message || !outcomeShown) && (
-        <p className="pp-callout" role="status">
+        <p className="lt-callout" role="status">
           {message || c.t('unresolvedSubscription')}
         </p>
       )}
       <Button
+        tone="primary"
         disabled={busy}
         onClick={async () => {
           if (busyRef.current) return;
@@ -119,21 +125,23 @@ function SubscriptionRecovery({
     </div>
   );
 }
+
 export function SubscriptionTerms({ mandate: m, path }: { mandate: Mandate; path: string }) {
   return (
-    <PayDetails
+    <Details
       values={[
         [c.t('customer'), m.customerId],
         [c.t('chargePath'), path ? pathLabel(path) : c.t('unavailable')],
-        [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
+        [c.t('amount'), <MoneyText value={m.amount} asset={m.assetId} />],
         [c.t('cadence'), cadenceLabel(m.cadence)],
         [c.t('mandateStart'), <DateTime value={m.startsAt} />],
         [c.t('mandateEnd'), m.endsAt ? <DateTime value={m.endsAt} /> : c.t('openEnded')],
-        [c.t('authorizedCeiling'), m.ceiling !== null ? <Money value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
+        [c.t('authorizedCeiling'), m.ceiling !== null ? <MoneyText value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
       ]}
     />
   );
 }
+
 function CreateSubscription({ portal, merchantId, pay }: { portal: PortalApi; merchantId: string; pay: BusinessPayApi | null }) {
   const mandates = useResource((signal) => portal.mandates(merchantId, signal), `portal:mandates:${merchantId}`);
   const posture = useResource((signal) => portal.subscriptionPosture(signal), 'portal:subscription-posture');
@@ -154,6 +162,7 @@ function CreateSubscription({ portal, merchantId, pay }: { portal: PortalApi; me
     />
   );
 }
+
 export function CreateSubscriptionView({
   mandates,
   subscriptions,
@@ -202,12 +211,12 @@ export function CreateSubscriptionView({
   const allowed = posture.status === 'ready' && posture.data.paths.some((p) => p.path === path && p.charge !== 'refuse');
   return (
     <div className="lt-stack">
-      <PaySection title={c.t('railPosture')}>
+      <Section title={c.t('railPosture')}>
         <Gate resource={posture} retry={reload}>
-          {() => <p className="pp-callout">{c.t('railPostureBody')}</p>}
+          {() => <p className="lt-callout">{c.t('railPostureBody')}</p>}
         </Gate>
-      </PaySection>
-      <PaySection title={c.t('createSubscription')}>
+      </Section>
+      <Section title={c.t('createSubscription')}>
         <Gate resource={mandates} retry={reload}>
           {() =>
             choices.length ? (
@@ -287,7 +296,7 @@ export function CreateSubscriptionView({
                             : undefined
                     }
                   >
-                    <PortalReview
+                    <Review
                       key={`${mandateId}:${revision}`}
                       title={c.t('createSubscription')}
                       description={c.t('subscriptionCreateReview')}
@@ -326,17 +335,17 @@ export function CreateSubscriptionView({
                     />
                   </span>
                 ) : (
-                  <p className="pp-callout" role="status">
+                  <p className="lt-callout" role="status">
                     {c.t('subscriptionAuthority')}
                   </p>
                 )}
               </div>
             ) : (
-              <EmptyState title={c.t('chooseMandate')}>
+              <Empty title={c.t('chooseMandate')}>
                 {mandates.status === 'ready' && mandates.data.some((m) => m.status === 'active')
                   ? c.t('allMandatesTaken')
                   : c.t('noMandates')}
-              </EmptyState>
+              </Empty>
             )
           }
         </Gate>
@@ -345,7 +354,7 @@ export function CreateSubscriptionView({
             {c.t('openNewSubscription')}
           </a>
         )}
-      </PaySection>
+      </Section>
       {pay && <CreateMandate pay={pay} refresh={reload} portal={portal} />}
     </div>
   );

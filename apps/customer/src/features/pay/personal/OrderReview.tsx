@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { PayFailure, PaySection, PayState, PayTime } from '../components';
+import { PayFailure, PaySection, PayState, PayTime } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { OrderReview as Review, Trade } from '../schemas';
 import { orderReviewCopy } from './order-review-copy';
@@ -91,7 +91,7 @@ function MyReview({ pay, trade, review, onChanged }: { pay: PersonalPayApi; trad
       ) : fixed ? (
         <p className="lt-muted">{t(review.hidden ? 'editHidden' : 'editReplied')}</p>
       ) : (
-        <Button variant="secondary" onClick={() => setEditing(true)}>
+        <Button tone="secondary" onClick={() => setEditing(true)}>
           {t('edit')}
         </Button>
       )}
@@ -128,7 +128,7 @@ function ReplyForm({ pay, trade, onDone }: { pay: PersonalPayApi; trade: Trade; 
         <textarea value={text} maxLength={2000} onChange={(event) => setText(event.target.value)} />
       </label>
       <p className="lt-muted">{t('replyOnce')}</p>
-      <Button type="submit" variant="secondary" disabled={!text.trim() || busy}>
+      <Button type="submit" tone="secondary" disabled={!text.trim() || busy}>
         {t('reply')}
       </Button>
       {failure ? <PayFailure result={failure} retry={send} /> : null}
@@ -167,10 +167,10 @@ function ReviewForm({ pay, trade, existing, onDone }: { pay: PersonalPayApi; tra
         void leave();
       }}
     >
-      <div role="group" aria-label={t('ratingLabel')} className="row">
+      <div role="group" aria-label={t('ratingLabel')} className="lt-actions">
         <Button
           type="button"
-          variant={rating === 'good' ? 'primary' : 'secondary'}
+          tone={rating === 'good' ? 'primary' : 'secondary'}
           aria-pressed={rating === 'good'}
           onClick={() => setRating('good')}
         >
@@ -178,7 +178,7 @@ function ReviewForm({ pay, trade, existing, onDone }: { pay: PersonalPayApi; tra
         </Button>
         <Button
           type="button"
-          variant={rating === 'bad' ? 'primary' : 'secondary'}
+          tone={rating === 'bad' ? 'primary' : 'secondary'}
           aria-pressed={rating === 'bad'}
           onClick={() => setRating('bad')}
         >

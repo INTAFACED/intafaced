@@ -1574,6 +1574,12 @@ button.lt-tab:focus-visible {
   text-align: start;
 }
 
+/* Tall rows (a label beside a long list): align cells to the top of the row instead of centring the label off-screen. */
+.lt-table [data-valign='top'] {
+  vertical-align: top;
+  padding-block: var(--lit-gap-item);
+}
+
 .lt-table tr[data-selected] td {
   background: var(--lit-solid-bg-raised);
 }

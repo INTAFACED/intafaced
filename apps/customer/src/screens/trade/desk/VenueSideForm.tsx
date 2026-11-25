@@ -228,7 +228,11 @@ export function VenueSideForm({
   // A buy that spot can't pay in standard mode, or in a mode not known: the move from perps is offered, or refused.
   const spotOffer = side === 'buy' && market.kind === 'spot' && (spotRows !== null || accountMode.state === 'unknown');
   const tagBad = tagProblem(tag);
+  const cancelOnly = market.status === 'cancel_only';
+  const sessionClosed = market.session.known && market.session.value.state === 'closed';
   const canSend =
+    !cancelOnly &&
+    !sessionClosed &&
     access === 'verified' &&
     owner !== null &&
     intent !== null &&
@@ -280,6 +284,7 @@ export function VenueSideForm({
       const f: TicketFields = { side, type: kind, price: kind === 'limit' ? at : '', amount: size, tif: venueTifOf(tif) };
       // A good-till-date order is never placed at once: its expiry and our engine's cancel are reviewed first.
       if (kind === 'limit' && tif === 'GTD' && expireAt === null) return;
+      if (cancelOnly || sessionClosed) return;
       if (!draft || !owner || access !== 'verified' || waiting || ticketProblem(f, market, worstNow, capSet) !== null) return;
       const hold = draft.hold(f, worstNow);
       const order = intentOf(f, market, hold.worst, hold.key, capSet);
@@ -519,7 +524,15 @@ export function VenueSideForm({
         {verb}
       </Button>
       <div className="lt-stack-tight lt-tight" id={`dk-reason-${side}`} aria-live="polite">
-        {access === 'verify' ? (
+        {cancelOnly ? (
+          <p className="lt-note lt-note-bad" role="alert">
+            {t('Mode cancel only ticket')}
+          </p>
+        ) : sessionClosed ? (
+          <p className="lt-note lt-note-bad" role="alert">
+            {t('Session closed note')}
+          </p>
+        ) : access === 'verify' ? (
           <VerifyNote />
         ) : access === 'loading' ? (
           <p className="lt-note">{t('Checking verification')}</p>

@@ -18,7 +18,7 @@ import type { MoneyKind } from '../portal/access/money-step';
 import { StepUpNote } from '../portal/access/step-up';
 import { useReviewedAction } from '../reviewed-action';
 
-export { PayTime } from '../pay-time';
+export { PayTime, payTimeText } from '../pay-time';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -57,7 +57,7 @@ export function PayFailure({ result, retry }: { result: Failed; retry?: () => vo
 }
 
 /** Nothing here yet, said honestly, with a caller-owned action (`EmptyState` in `../ui-kit`). */
-function EmptyState({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
+export function EmptyState({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
   return (
     <div data-slot="empty-state" className="lt-empty">
       <h3 className="lt-empty-title">{title}</h3>
@@ -70,7 +70,7 @@ function EmptyState({ title, children, action }: { title: ReactNode; children?: 
 /** The shape of what is coming, announced once to assistive tech. */
 function PayLoading({ rows = 3 }: { rows?: number }) {
   return (
-    <div role="status" aria-busy="true" aria-label={uiCopy.t('loading')}>
+    <div data-slot="state-block" data-kind="loading" role="status" aria-busy="true" aria-label={uiCopy.t('loading')}>
       <Skeleton shape="rows" count={rows} />
     </div>
   );
@@ -259,6 +259,7 @@ export function ReviewedAction<T>({
   review,
   perform,
   onConfirmed,
+  onOpen,
   disabled = false,
   disabledReason,
   variant = 'secondary',
@@ -271,6 +272,7 @@ export function ReviewedAction<T>({
   review?: ReactNode;
   perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
   onConfirmed?: (data: T) => void;
+  onOpen?: () => void;
   disabled?: boolean;
   disabledReason?: string;
   variant?: 'primary' | 'secondary' | 'sell';
@@ -281,7 +283,14 @@ export function ReviewedAction<T>({
   const { opened, busy, result, unknown, open, close, confirm } = useReviewedAction({ perform, onConfirmed, disabled, stepUp, ready });
   return (
     <div className="lt-actions" title={disabled ? disabledReason : undefined}>
-      <Button tone={TONE[variant]} disabled={disabled || busy || unknown} onClick={open}>
+      <Button
+        tone={TONE[variant]}
+        disabled={disabled || busy || unknown}
+        onClick={() => {
+          onOpen?.();
+          open();
+        }}
+      >
         {title}
       </Button>
       <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />

@@ -565,6 +565,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * 400 so a bot does not retry a missing price.
    */
   'trade.circuit_breaker_reference_unset': { ccxt: 'ExchangeError', status: 400 },
+  /** Historical book snapshot interval is blank (RC-cex-spot-05); no book dataset is built until set. */
+  'trade.history_book_interval_unset': { ccxt: 'NotSupported', status: 400 },
+  /** Requested historical dataset id does not exist (RC-cex-spot-05). */
+  'trade.history_dataset_not_found': { ccxt: 'OrderNotFound', status: 404 },
 };
 
 /**

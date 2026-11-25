@@ -290,6 +290,11 @@
       "service": "trade",
       "value": "15000",
       "note": "How long a venue Convert price may be accepted before a fresh one must be (J-cex-spot-11 #4); the venue holds no price."
+    },
+    "TRADE_HISTORY_BOOK_INTERVAL_MS": {
+      "service": "trade",
+      "value": "5000",
+      "note": "LOCAL TEST ONLY, not an owner decision: captures order book snapshots every 5 seconds for downloadable historical book datasets (RC-cex-spot-05; J-cex-spot-15 #10). Blank refuses trade.history_book_interval_unset and makes no book dataset."
     }
   }
 }

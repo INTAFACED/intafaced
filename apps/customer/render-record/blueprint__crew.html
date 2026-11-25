@@ -97,17 +97,20 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Blueprint crew</h1>
-<p class="lt-muted">A profile you can keep private, share, export and erase.</p>
+<h1 class="lt-title">Blueprint crew</h1>
+<p class="lt-description">A profile you can keep private, share, export and erase.</p>
 </div>
 </header>
-<div class="more-columns">
-<div>
+<div class="lt-body">
+<div class="lt-toolbar">
+</div>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
 <section id="blueprint-crew" aria-label="Your crew" lang="en">
 <h2>Your crew</h2>
 <p class="lt-hint">Read your recorded placement and member roles. This request also prepares your Blueprint export; it won’t download a file.</p>
@@ -131,111 +134,85 @@
 <button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Open card</button>
 </form>
 </section>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Identity Blueprint</h2>
-</header>
-<div class="if-panel__body">
-<div lang="und" style="display: contents;">
+<section>
+<h2>Identity Blueprint</h2>
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Share card</h2>
-</header>
-<div class="if-panel__body">
+<section>
+<h2>Share card</h2>
 <label class="lt-field">
-<span>Card size</span>
-<select>
+<span id="_r_5_-label">Card size</span>
+<select aria-labelledby="_r_5_-label">
 <option value="portrait">Portrait</option>
 <option value="landscape">Landscape</option>
 </select>
 </label>
-<div lang="und" style="display: contents;">
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Mentor shortlist</h2>
-</header>
-<div class="if-panel__body">
-<div lang="und" style="display: contents;">
+<section>
+<h2>Mentor shortlist</h2>
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-<p class="lt-muted">Accepting or declining a mentor match is not available on this page.</p>
-</div>
+<p class="lt-hint">Accepting or declining a mentor match is not available on this page.</p>
 </section>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Your data</h2>
-</header>
-<div class="if-panel__body">
-<button type="button" class="button button--secondary ">
+<section>
+<h2>Your data</h2>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.export.blueprint.json">Download your Blueprint data</span>
 </button>
-<div class="more-danger">
+</div>
+<div class="lt-stack">
 <h3>
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.erase.your.blueprint">Erase your Blueprint</span>
 </h3>
 <p>
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.hard.delete.the.profile.crew.membership.match">Permanently delete your Blueprint profile, crew membership, matches and mentor links. Your financial account stays separate.</span>
 </p>
-<label class="lt-field" for="field-_r_5_">
-<span id="field-_r_5_-label">Type ERASE BLUEPRINT</span>
-<input id="field-_r_5_" aria-labelledby="field-_r_5_-label" aria-invalid="false" value="">
-</label>
-<button type="button" class="button button--danger " disabled="">
+<div class="lit-field-control">
+<label for="_r_6_">Type ERASE BLUEPRINT</label>
+<input id="_r_6_" value="">
+</div>
+<div class="lt-actions">
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.review.permanent.erasure">Review permanent erasure</span>
 </button>
 </div>
 </div>
 </section>
 </div>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Guided Blueprint session</h2>
-</header>
-<div class="if-panel__body">
-<p class="lt-muted" id="blueprint-session-reason">Blueprint questions are not published, so a Blueprint cannot be created from here. The form below is switched off for that reason.</p>
+<div class="lt-col-side">
+<section>
+<h2>Guided Blueprint session</h2>
+<p class="lt-hint" id="blueprint-session-reason">Blueprint questions are not published, so a Blueprint cannot be created from here. The form below is switched off for that reason.</p>
 <form aria-describedby="blueprint-session-reason">
-<fieldset disabled="">
+<fieldset disabled="" class="lt-stack">
 <label class="lt-field">
-<span>Initial visibility</span>
-<select>
+<span id="_r_7_-label">Initial visibility</span>
+<select aria-labelledby="_r_7_-label">
 <option value="private">Only me</option>
 <option value="crew">My crew</option>
 <option value="public">Any signed-in account</option>
 </select>
 </label>
-<label class="blueprint-opt-in">
+<label class="lt-field">
 <input type="checkbox">
 <span>Opt in to mentor availability</span>
 </label>
@@ -243,11 +220,13 @@
 <summary>
 <span lang="en" dir="ltr" data-i18n="customer.more.blueprint.optional.birth.data">Optional birth data</span>
 </summary>
-<fieldset>
+<div class="lt-stack">
+<fieldset class="lt-stack">
 <legend>Birth date (optional)</legend>
+<div class="lt-toolbar">
 <label class="lt-field">
-<span>Day</span>
-<select>
+<span id="_r_8_-label">Day</span>
+<select aria-labelledby="_r_8_-label">
 <option value="">Not given</option>
 <option value="1">1</option>
 <option value="2">2</option>
@@ -283,8 +262,8 @@
 </select>
 </label>
 <label class="lt-field">
-<span>Month</span>
-<select>
+<span id="_r_9_-label">Month</span>
+<select aria-labelledby="_r_9_-label">
 <option value="">Not given</option>
 <option value="1">January</option>
 <option value="2">February</option>
@@ -301,8 +280,8 @@
 </select>
 </label>
 <label class="lt-field">
-<span>Year</span>
-<select>
+<span id="_r_10_-label">Year</span>
+<select aria-labelledby="_r_10_-label">
 <option value="">Not given</option>
 <option value="2026">2026</option>
 <option value="2025">2025</option>
@@ -427,19 +406,25 @@
 <option value="1906">1906</option>
 </select>
 </label>
+</div>
 </fieldset>
-<label class="lt-field" for="field-_r_6_">
-<span id="field-_r_6_-label">Birth time (optional)</span>
-<input id="field-_r_6_" aria-labelledby="field-_r_6_-label" aria-invalid="false" type="time" value="">
-</label>
-<label class="lt-field" for="field-_r_7_">
-<span id="field-_r_7_-label">Birth place (optional)</span>
-<input maxlength="200" id="field-_r_7_" aria-labelledby="field-_r_7_-label" aria-invalid="false" value="">
-</label>
+<div class="lit-field-control">
+<label for="_r_11_">Birth time (optional)</label>
+<input id="_r_11_" type="time" value="">
+</div>
+<div class="lit-field-control">
+<label for="_r_12_">Birth place (optional)</label>
+<input maxlength="200" id="_r_12_" value="">
+</div>
+</div>
 </details>
 </fieldset>
-<button type="submit" class="button button--primary " disabled="" aria-describedby="blueprint-session-reason">Create your Blueprint</button>
+<div class="lt-actions">
+<button disabled="" aria-describedby="blueprint-session-reason" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Create your Blueprint</button>
+</div>
 </form>
+</section>
+</div>
 </div>
 </section>
 </div>

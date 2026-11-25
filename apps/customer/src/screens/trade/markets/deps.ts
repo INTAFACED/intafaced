@@ -12,6 +12,7 @@ export {
   useTickers,
   useVenueMarketStates,
   venueDoorOff,
+  venueListingStatuses,
   venueMarketRow,
 } from '../../../data';
 export type { Decimal, Loadable, MarketRow as MarketData, TickerRow, VenueMarketStates } from '../../../data';
