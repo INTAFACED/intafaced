@@ -2712,7 +2712,6 @@ button.lt-tab:focus-visible {
   color: var(--lit-text-2);
   font-size: var(--lit-type-micro-size);
   letter-spacing: var(--lit-type-micro-tracking);
-  text-transform: uppercase;
 }
 .lt-strong {
   font-weight: 600;

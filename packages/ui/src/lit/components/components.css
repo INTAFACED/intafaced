@@ -398,7 +398,6 @@
   font-size: var(--lit-type-micro-size);
   line-height: var(--lit-type-micro-line);
   letter-spacing: var(--lit-type-micro-tracking);
-  text-transform: uppercase;
   color: var(--lit-text-3);
 }
 .lit-tag {
