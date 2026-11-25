@@ -56,7 +56,9 @@ export function announcedWallet(
   const key = `${provider.id}:${provider.test}:${wallet.providerWalletId}:${wallet.address.toLowerCase()}:${name}`;
   const kept = providers.get(key);
   if (kept) return kept;
-  const client = makeClient(provider);
+  // The owner's provider signs only for the wallet it is given (its sub-organisation and address): without it, every
+  // signature the page asks for is refused.
+  const client = makeClient(provider, { address: wallet.address, providerWalletId: wallet.providerWalletId });
   if (!client) return null;
   const walletId = wallet.providerWalletId;
   const made: Announced = {

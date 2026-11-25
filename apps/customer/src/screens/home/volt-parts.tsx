@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 
-export const UNKNOWN = '—';
+const UNKNOWN = '—';
 const HIDDEN_MASK = '••••';
 /** The accessible name of a masked figure, as the old kit's number parts gave it; journeys find a hidden total by it. */
 const HIDDEN_NAME = 'Hidden'; // literal-text-ok: a fixed accessible name the app's tests read, not a sentence

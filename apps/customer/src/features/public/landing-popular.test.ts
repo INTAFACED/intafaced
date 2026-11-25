@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dec, str } from '../../data/decimal';
-import { exampleLong, popularOf } from './HomePage';
+import { venueMarketRow, venueTickerRow } from '../../data';
+import { exampleLong, linesOf, popularOf } from './HomePage';
 
 const line = (symbol: string, last: string | undefined, volume: string) => ({
   symbol,
@@ -37,5 +38,50 @@ describe('the landing’s example long', () => {
     expect(ex.fee).toBeNull();
     expect(ex.ifStopped).toBeNull();
     expect(ex.ifTarget).toBeNull();
+  });
+});
+
+describe('the landing board on the one markets catalogue', () => {
+  type VenueMarket = Parameters<typeof venueMarketRow>[0];
+  const market = (symbol: string, kind: VenueMarket['kind']): VenueMarket => ({
+    symbol,
+    kind,
+    baseAsset: symbol.split(/[-/]/)[0] ?? symbol,
+    quoteAsset: 'USDC',
+    tickSize: '0.01',
+    lotSize: '0.001',
+    status: 'trading',
+    session: { known: false },
+    listing: { opensAt: '2026-01-01T00:00:00.000Z', delistsAt: null, routing: 'show', open: true, delisted: false },
+  });
+  const ticker = (symbol: string, last: string | null) => ({
+    symbol,
+    last,
+    high: null,
+    low: null,
+    baseVolume: '1',
+    quoteVolume: '100',
+    bid: null,
+    ask: null,
+    spread: null,
+  });
+
+  it('lists the open markets, then the open perpetuals, each priced only under its own symbol, and marks the perpetuals', () => {
+    const rows = (...ms: VenueMarket[]) => ({ status: 'ready' as const, asOf: 1, data: ms.map(venueMarketRow) });
+    const closed = { ...market('ETH/USDC', 'spot'), status: 'halted' as const };
+    const lines = linesOf({
+      markets: rows(market('BTC/USDC', 'spot'), closed),
+      perpetuals: rows(market('XAU-PERP', 'perpetual')),
+      tickers: { status: 'ready', asOf: 1, data: { 'XAU-PERP': venueTickerRow(ticker('XAU-PERP', '2400.5')) } },
+    });
+    expect(lines.map((l) => [l.market.symbol, l.ticker?.last ?? null, !!l.perp])).toEqual([
+      ['BTC/USDC', null, false],
+      ['XAU-PERP', '2400.5', true],
+    ]);
+  });
+
+  it('lists no perpetuals where the catalogue has none (the venue door off)', () => {
+    const lines = linesOf({ markets: { status: 'empty' }, perpetuals: { status: 'empty' }, tickers: { status: 'empty' } });
+    expect(lines).toEqual([]);
   });
 });

@@ -17,12 +17,11 @@ import {
   sub,
   useActivity,
   useFavorites,
-  useMarkets,
+  useMarketCatalogue,
   moneyUnitOf,
   useHomePortfolio,
   DerivedTotalTag,
   useSparklines,
-  useTickers,
   type HomeHolding,
   type Loadable,
   type HomePortfolio,
@@ -457,15 +456,25 @@ function MarketsPanel() {
   const { timeZone } = usePreferences();
   const { userId } = useSession();
   const { favorites, isFavorite, toggle } = useFavorites(userId);
-  const markets = useMarkets();
-  const tickers = useTickers();
+  // The one markets catalogue, as Markets reads it.
+  const { markets, tickers } = useMarketCatalogue();
   const [tab, setTab] = useState<MarketTab>('all');
   const [sort, setSort] = useState<Sort | null>(null);
   const [onScreen, setOnScreen] = useState<readonly string[]>([]);
   const sparklines = useSparklines(onScreen);
 
   const tickerMap = tickers.status === 'ready' ? tickers.data : undefined;
-  const entries = useMemo(() => (markets.status === 'ready' ? entriesFor(markets.data, tickerMap) : []), [markets, tickerMap]);
+  // Home lists the markets open to an order now; Markets lists the rest too.
+  const entries = useMemo(
+    () =>
+      markets.status === 'ready'
+        ? entriesFor(
+            markets.data.filter((market) => market.orderable),
+            tickerMap,
+          )
+        : [],
+    [markets, tickerMap],
+  );
   const showNew = useMemo(() => anyListed(entries), [entries]);
   const rows = useMemo(() => {
     const { tab: kind, chip } = FILTER[tab];
@@ -567,7 +576,7 @@ export function HomePro() {
   const { hideBalances, displayCurrency } = usePreferences();
   const portfolio = useHomePortfolio(moneyUnitOf(displayCurrency));
   const orders = useOpenOrders();
-  const markets = useMarkets();
+  const { markets } = useMarketCatalogue();
   const activity = useActivity();
   const activityLimit = useRecentActivityLimit();
   const launch = launchStanding(useLaunchVenue(), portfolio);

@@ -5,7 +5,8 @@ const messages = {
   title: 'Open your account',
   intro: 'About a minute. Then a code to your email.',
   codeIntro: 'Enter the 6-digit code we sent.',
-  codeHelp: 'Not there? Check spam, or wait and send a new code.',
+  codeHelp:
+    'Not there? Check spam, or wait and send a new code. If this email already has an account, its owner gets a notice instead: sign in.',
   nextTitle: 'Next: your wallet.',
   nextBody: 'After the code, your passkey makes your own wallet on this device. No seed phrase to write down.',
   stepsLabel: 'Sign-up steps',

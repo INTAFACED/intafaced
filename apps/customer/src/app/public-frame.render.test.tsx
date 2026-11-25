@@ -106,7 +106,7 @@ describe('a signed-in person keeps the app header on public pages (#10314)', () 
     expect(host.querySelector('.if-app')).toBeNull();
     const menu = host.querySelector('.public-header details.public-menu');
     expect(menu?.querySelector('summary')?.textContent).toBe('Menu');
-    expect([...(menu?.querySelectorAll('a') ?? [])].map((a) => a.getAttribute('href'))).toEqual(['/exchange', '/help', '/about-us']);
+    expect([...(menu?.querySelectorAll('a') ?? [])].map((a) => a.getAttribute('href'))).toEqual(['/trade/markets', '/fees', '/help']);
     expect(host.querySelectorAll('main')).toHaveLength(1);
   });
 });

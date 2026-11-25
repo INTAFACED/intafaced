@@ -42,6 +42,7 @@ const FOOTER = [
   ['/fees', 'Fees'],
   ['/notice', 'Notices'],
   ['/partner', 'Partners'],
+  ['/about-us', 'About'],
 ] as const;
 
 /** The public header carries the horizontal lockup (mark 24 pixels, as the app bar, small drawing); the footer line the wordmark alone. */
@@ -65,17 +66,17 @@ export function PublicHeader({ path }: { path: string }) {
     <header className="public-header" data-layer="nav">
       <Brand />
       <nav aria-label={t('Public navigation')}>
-        <a href="/exchange">{t('Trade')}</a>
+        <a href="/trade/markets">{t('Markets')}</a>
+        <a href="/fees">{t('Fees')}</a>
         <a href="/help">{t('Help')}</a>
-        <a href="/about-us">{t('About')}</a>
       </nav>
       {/* On a phone the links above are hidden; the same three sit behind Menu. */}
       <details className="public-menu">
         <summary>{t('Menu')}</summary>
         <nav aria-label={t('Public navigation')}>
-          <a href="/exchange">{t('Trade')}</a>
+          <a href="/trade/markets">{t('Markets')}</a>
+          <a href="/fees">{t('Fees')}</a>
           <a href="/help">{t('Help')}</a>
-          <a href="/about-us">{t('About')}</a>
         </nav>
       </details>
       {session || restoreFailed ? (
