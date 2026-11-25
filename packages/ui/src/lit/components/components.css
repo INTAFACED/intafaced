@@ -2281,9 +2281,11 @@ a.lit-button {
 }
 /* Beside a live panel (the hero layout) the headline follows the page's width, so each line stays one line in its 5/12 column. */
 @container lt-page (min-width: 64rem) {
-  .lt-page-grid[data-layout='hero'] .lt-display,
   .lt-page-grid[data-stage='start'] .lt-display {
     font-size: clamp(2.75rem, 4.2cqi, 8.5rem);
+  }
+  .lt-page-grid[data-layout='hero'] .lt-display {
+    font-size: clamp(2.75rem, 5.2cqi, 8.5rem);
   }
 }
 .lt-display-line {
