@@ -307,7 +307,7 @@ const CENTS_LOOK = {
   dim: { 'cents-size': '0.6em', 'cents-shift': '0', 'cents-tone': 'var(--lit-text-3)' },
 } as const;
 /** Flat near-black tiles with no lip, shadow or rim (Robinhood Legend's): Pro's panels and the markets board's. */
-export const TILES: Partial<RoleMap> = {
+const TILES: Partial<RoleMap> = {
   'solid-bg': '#0D0E0E',
   'solid-bg-raised': '#151616',
   'radius-panel': '6px',
