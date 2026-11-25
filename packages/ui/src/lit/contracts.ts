@@ -357,6 +357,12 @@ export const components = {
   MarketTable:
     'Markets as a table: mark, symbol and name; price, 24h change, 7-day line and volume end-aligned in tabular digits; a row action shown on hover; placeholder rows while loading',
   MoverTile: 'One market as a tile: symbol and change, the price large, its line',
+  ActionRow: 'A row of equal action keys: wide bars beside their words, square keys with the word under on a phone',
+  ActionButton: 'One action key of an ActionRow; `primary` for the one lit key',
+  PanelSection: "A panel's section under a hairline: its title and an aside on one row, then its body",
+  ProgressSegments: 'Progress as N segments, the done ones lit, said in words',
+  ActivityRow: 'One line of activity: a circle, what and when, the signed amount at the end (in reads up), masked with hide-balances',
+  ActivityList: 'The named list ActivityRows sit in',
 } as const;
 export type ComponentName = keyof typeof components;
 

@@ -1715,6 +1715,8 @@ button.lt-menu-item:focus-visible {
 }
 .lt-page-col {
   display: grid;
+  /* One track that may shrink below its content, so a wide figure never widens the page past a phone's screen. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   min-inline-size: 0;
   align-content: start;
@@ -1771,7 +1773,6 @@ button.lt-menu-item:focus-visible {
   color: var(--lit-text-3);
   font-size: var(--lit-type-label-size);
 }
-
 
 /* Market parts (market-parts.tsx): one market drawn the same way on landing, home, markets and the movers row. */
 .lt-market-name {
@@ -1861,7 +1862,6 @@ a.lt-mover:hover {
   inline-size: 100%;
 }
 
-
 /* On a phone a market stays one row, the way exchanges list them: name, then price and 24h at the end; the line,
    volume and row action step aside (the row itself opens the market). */
 @container room (max-width: 599px) {
@@ -1909,4 +1909,233 @@ a.lt-mover:hover {
   .lt-tile-row[data-min='card'] > * {
     scroll-snap-align: start;
   }
+}
+
+/* Hero chart extras (b2-charts.tsx): guide lines, and the last point's value in a pill over a dot with a dashed drop. */
+.lt-chart[data-marked] {
+  position: relative;
+}
+.lt-chart-grid {
+  stroke: var(--lit-line);
+  stroke-width: 1;
+}
+.lt-chart-drop {
+  stroke: var(--lit-line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.lt-chart-marker {
+  position: absolute;
+  inline-size: 0;
+  block-size: 0;
+  pointer-events: none;
+}
+.lt-chart-marker-dot {
+  position: absolute;
+  inset-inline-start: -0.3125rem;
+  inset-block-start: -0.3125rem;
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: 999px;
+  background: var(--lit-text-1);
+  box-shadow: 0 0 0 0.25rem var(--lit-page);
+}
+.lt-chart-marker-pill {
+  position: absolute;
+  inset-inline-end: 0.75rem;
+  inset-block-end: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  font-size: var(--lit-type-micro-size);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Account parts (account-parts.tsx). */
+.lt-action-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: 0.625rem;
+}
+.lt-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  block-size: 4rem;
+  padding-inline: 1rem;
+  border: 0;
+  border-radius: calc(var(--lit-radius-tile) - 0.125rem);
+  background: var(--lit-secondary-bg);
+  box-shadow: var(--lit-secondary-shadow);
+  color: var(--lit-secondary-fg);
+  font: 600 var(--lit-type-body-size) / 1 var(--lit-font-ui);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform var(--lit-t-quick) var(--lit-ease),
+    filter var(--lit-t-quick) var(--lit-ease);
+}
+.lt-action:hover {
+  filter: brightness(1.15);
+}
+.lt-action:active {
+  transform: scale(0.98);
+}
+.lt-action:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+.lt-action[data-primary] {
+  background: var(--lit-primary-bg);
+  box-shadow: var(--lit-primary-shadow);
+  color: var(--lit-primary-fg);
+}
+.lt-action-icon {
+  display: inline-flex;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+.lt-action-icon svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+@container room (max-width: 599px) {
+  .lt-action {
+    flex-direction: column;
+    gap: 0.5rem;
+    block-size: auto;
+    padding-block: 0.875rem;
+    padding-inline: 0.25rem;
+    font-size: var(--lit-type-label-size);
+  }
+}
+
+.lt-panel-section {
+  display: grid;
+  gap: 0.625rem;
+  padding-block: 1rem;
+  padding-inline: 1.25rem;
+  border-block-start: 1px solid var(--lit-line);
+}
+.lt-panel-section:first-child {
+  border-block-start: 0;
+}
+.lt-panel-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--lit-text-3);
+}
+.lt-panel-section-title {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  font-weight: 600;
+  color: var(--lit-text-1);
+}
+
+.lt-progress-segments {
+  display: flex;
+  gap: 0.25rem;
+}
+.lt-progress-segments > span {
+  flex: 1;
+  block-size: 0.25rem;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
+}
+.lt-progress-segments > span[data-done] {
+  background: var(--lit-text-1);
+}
+
+.lt-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lt-activity > :is(a, div) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-block-size: 3.75rem;
+  padding-block: 0.5rem;
+  border-block-end: 1px solid var(--lit-line);
+  color: inherit;
+  text-decoration: none;
+}
+.lt-activity:last-child > :is(a, div) {
+  border-block-end: 0;
+}
+.lt-activity-face {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  font-weight: 600;
+}
+.lt-activity-what,
+.lt-activity-amount {
+  display: grid;
+  gap: 0.125rem;
+  min-inline-size: 0;
+}
+.lt-activity-amount {
+  justify-items: end;
+}
+.lt-activity-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lt-activity-time,
+.lt-activity-detail {
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-3);
+}
+.lt-activity-amount .lt-num[data-direction='in'] {
+  color: var(--lit-up-text);
+}
+
+/* A balance's hero line in the text colour, its fill fading from it (home's net worth). */
+.lt-chart[data-tone='ink'] .lt-chart-line {
+  stroke: var(--lit-text-1);
+}
+.lt-chart[data-tone='ink'] {
+  --lt-chart-soft: var(--lit-text-1);
+}
+.lt-chart[data-tone='ink'] .lt-chart-soft-top {
+  stop-opacity: 0.14;
+}
+
+/* Parts with the legend on one wrapping line: swatch, word, amount. */
+.lt-parts[data-legend='row'] .lt-parts-bar {
+  block-size: 0.5rem;
+}
+.lt-parts[data-legend='row'] .lt-parts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1.375rem;
+}
+.lt-parts[data-legend='row'] .lt-parts-list li {
+  display: inline-flex;
+  gap: 0.5rem;
+  min-block-size: 0;
+  border: 0;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+}
+.lt-parts[data-legend='row'] .lt-parts-value {
+  color: var(--lit-text-1);
+  font-weight: 600;
 }
