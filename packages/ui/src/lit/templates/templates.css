@@ -2351,7 +2351,7 @@ button.lt-tab:focus-visible {
 
 :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):is(:checked, :indeterminate) {
   border-color: transparent;
-  background: var(--lit-accent-fill);
+  background: var(--lit-accent);
 }
 
 :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
