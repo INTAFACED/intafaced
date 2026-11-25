@@ -4,8 +4,10 @@
  *   1. tooling/shots/recording/: every market read the beta's rooms made, signed out and signed in, recorded from the beta by
  *      tooling/shots/record-demo.mjs (TEST figures from the test network; nothing about the recording's tester kept);
  *   2. the seeded trader (seed.mjs): their venue balances, positions, orders and fills, priced from the recording;
- *   3. the look gate's TEST account (../look-fixtures.mjs) for everything else: the signed-in person, their balances,
- *      bank, identity and notices, and their venue wallet.
+ *   3. the look gate's TEST account (../look-fixtures.mjs): the signed-in person, their balances, bank, identity and
+ *      notices, and their venue wallet;
+ *   4. last, a module's own read the recording's tester made (verification levels, deposit assets, notices) where the
+ *      TEST account has no fixture; never a sign-in, session or key call.
  * A read the recording has under the same path with another query (a desk polled at another depth) answers from it, so
  * a room asking a little differently still gets the venue's figures. A call neither layer answers is refused, so a room
  * with no data says so honestly.
@@ -30,7 +32,7 @@ function load() {
     Object.assign(calls.signedOut, feed.calls);
     Object.assign(calls.signedIn, feed.calls);
   }
-  return { label: beta.label, at: beta.at, source: beta.source, calls };
+  return { label: beta.label, at: beta.at, source: beta.source, calls, trpc: beta.calls.trpc ?? {} };
 }
 
 export const RECORDING = load();
@@ -48,7 +50,8 @@ export function callKey(method, href) {
 /** The recorded answer for one read, signed in or out: exact, else the same read at another depth or length. */
 export function recordedAnswer(href, method, { signedIn }) {
   if (method !== 'GET') return null;
-  const calls = RECORDING.calls[signedIn ? 'signedIn' : 'signedOut'] ?? {};
+  // Signed in, a public read the recording made only signed out (the fee page) answers too.
+  const calls = signedIn ? { ...RECORDING.calls.signedOut, ...RECORDING.calls.signedIn } : RECORDING.calls.signedOut;
   const key = callKey(method, href);
   if (Object.hasOwn(calls, key)) return calls[key];
   const u = new URL(href, 'http://x');
@@ -75,5 +78,19 @@ export function demoAnswer(href, method, body, { signedIn, now = DEMO_NOW }) {
     const seeded = SEEDED[url.pathname];
     return typeof seeded === 'function' ? seeded(url) : seeded;
   }
-  return recordedAnswer(href, method, { signedIn }) ?? fixtureAnswer(href, method, body, { signedIn, now });
+  return (
+    recordedAnswer(href, method, { signedIn }) ??
+    fixtureAnswer(href, method, body, { signedIn, now }) ??
+    (signedIn ? recordedTrpc(href, method) : null)
+  );
+}
+
+/** The last layer: a tRPC read the recording's tester made, exact or the same procedure with other input. */
+function recordedTrpc(href, method) {
+  if (method !== 'GET') return null;
+  const key = callKey(method, href);
+  if (Object.hasOwn(RECORDING.trpc, key)) return RECORDING.trpc[key];
+  const path = new URL(href, 'http://x').pathname;
+  const near = Object.keys(RECORDING.trpc).find((k) => new URL(k.slice(k.indexOf(' ') + 1), 'http://x').pathname === path);
+  return near ? RECORDING.trpc[near] : null;
 }

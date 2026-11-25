@@ -1,6 +1,6 @@
 {
   "label": "TEST",
-  "at": "2026-11-25T02:38:29.512Z",
+  "at": "2026-11-25T02:41:11.845Z",
   "source": "the venue's public feed for BTC-USDC (TEST venue: testnet)",
   "calls": {
     "GET /api/v1/venue/book?depth=10&symbol=BTC-USDC": {
@@ -16,8 +16,8 @@
             { "price": "6200", "amount": "2" }
           ]
         },
-        "asOf": "2026-11-25T02:38:27.614Z",
-        "reportedAt": "2026-11-25T02:38:27.614Z",
+        "asOf": "2026-11-25T02:41:09.973Z",
+        "reportedAt": "2026-11-25T02:41:09.973Z",
         "test": true
       }
     },
@@ -34,8 +34,8 @@
             { "price": "6200", "amount": "2" }
           ]
         },
-        "asOf": "2026-11-25T02:38:27.614Z",
-        "reportedAt": "2026-11-25T02:38:27.614Z",
+        "asOf": "2026-11-25T02:41:09.973Z",
+        "reportedAt": "2026-11-25T02:41:09.973Z",
         "test": true
       }
     },
@@ -52,8 +52,8 @@
             { "price": "6200", "amount": "2" }
           ]
         },
-        "asOf": "2026-11-25T02:38:27.614Z",
-        "reportedAt": "2026-11-25T02:38:27.614Z",
+        "asOf": "2026-11-25T02:41:09.973Z",
+        "reportedAt": "2026-11-25T02:41:09.973Z",
         "test": true
       }
     },
@@ -70,8 +70,8 @@
             { "price": "6200", "amount": "2" }
           ]
         },
-        "asOf": "2026-11-25T02:38:27.614Z",
-        "reportedAt": "2026-11-25T02:38:27.614Z",
+        "asOf": "2026-11-25T02:41:10.487Z",
+        "reportedAt": "2026-11-25T02:41:10.487Z",
         "test": true
       }
     },
@@ -80,8 +80,8 @@
       "json": {
         "venueId": "hyperliquid-testnet",
         "value": { "symbol": "BTC-USDC", "bid": null, "ask": "6100" },
-        "asOf": "2026-11-25T02:38:28.203Z",
-        "reportedAt": "2026-11-25T02:38:28.203Z",
+        "asOf": "2026-11-25T02:41:10.487Z",
+        "reportedAt": "2026-11-25T02:41:10.487Z",
         "test": true,
         "slippageCapBps": { "known": false },
         "spreadLimitBps": { "known": false }
@@ -271,11 +271,11 @@
     },
     "GET /api/v1/venue/candles?interval=15m&limit=240&symbol=BTC-USDC": {
       "status": 200,
-      "json": { "venueId": "hyperliquid-testnet", "value": [], "asOf": "2026-11-25T02:38:28.990Z", "reportedAt": null, "test": true }
+      "json": { "venueId": "hyperliquid-testnet", "value": [], "asOf": "2026-11-25T02:41:11.324Z", "reportedAt": null, "test": true }
     },
     "GET /api/v1/venue/candles?interval=1h&limit=240&symbol=BTC-USDC": {
       "status": 200,
-      "json": { "venueId": "hyperliquid-testnet", "value": [], "asOf": "2026-11-25T02:38:29.111Z", "reportedAt": null, "test": true }
+      "json": { "venueId": "hyperliquid-testnet", "value": [], "asOf": "2026-11-25T02:41:11.441Z", "reportedAt": null, "test": true }
     },
     "GET /api/v1/venue/candles?interval=4h&limit=240&symbol=BTC-USDC": {
       "status": 200,
@@ -299,7 +299,7 @@
             "baseVolume": "1"
           }
         ],
-        "asOf": "2026-11-25T02:38:29.309Z",
+        "asOf": "2026-11-25T02:41:11.642Z",
         "reportedAt": null,
         "test": true
       }
@@ -326,7 +326,7 @@
             "baseVolume": "1"
           }
         ],
-        "asOf": "2026-11-25T02:38:29.511Z",
+        "asOf": "2026-11-25T02:41:11.845Z",
         "reportedAt": null,
         "test": true
       }

@@ -50,6 +50,15 @@ export const WALK = [
 /** The reads kept: market and venue reads under /api/v1. Every other call (identity, bank, notify...) is the TEST account's. */
 export const KEPT = /^\/api\/v1\//;
 
+/**
+ * The tRPC reads also kept signed in, as the last layer under the look gate's TEST account: a module's reads (verification
+ * levels, deposit assets, notices) where that account has no fixture. Never sign-in, session, key or device calls, and
+ * never an answer carrying a token.
+ */
+export const KEPT_TRPC = /^\/api\/[a-z0-9-]+\/trpc\/[A-Za-z0-9.]+$/;
+export const NEVER_TRPC = /auth\.|session|apikey|webauthn|passkey|token|secret|recover|device|2fa|totp|password/i;
+const CARRIES_TOKEN = /eyJ[A-Za-z0-9_-]{10,}|bearer\s/i;
+
 /** The public feed recorded per venue market: each read as the desks ask it, and every chart interval they offer. */
 export const FEED = { bookDepth: [10, 20], tradeLimit: [30, 50], candleIntervals: ['15m', '1h', '4h', '1d'], candleLimit: 240 };
 
@@ -122,15 +131,19 @@ async function main() {
     }
   });
   await ctx.routeWebSocket(/^wss:\/\/beta\.intafaced\.com\//, (ws) => ws.close());
-  const calls = { signedOut: {}, signedIn: {} };
+  const calls = { signedOut: {}, signedIn: {}, trpc: {} };
   let phase = 'signedOut';
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   page.on('response', async (r) => {
     const u = new URL(r.url());
-    if (r.request().method() !== 'GET' || !KEPT.test(u.pathname)) return;
+    if (r.request().method() !== 'GET') return;
+    const trpc = phase === 'signedIn' && KEPT_TRPC.test(u.pathname) && !NEVER_TRPC.test(u.pathname);
+    if (!KEPT.test(u.pathname) && !trpc) return;
     try {
-      calls[phase][callKey('GET', u.pathname + u.search)] = { status: r.status(), json: await r.json() };
+      const json = await r.json();
+      if (CARRIES_TOKEN.test(JSON.stringify(json))) return;
+      (trpc ? calls.trpc : calls[phase])[callKey('GET', u.pathname + u.search)] = { status: r.status(), json };
     } catch {
       // An answer with no JSON body (a redirect, a dropped read) is not kept.
     }
@@ -265,7 +278,9 @@ async function main() {
   }
   execFileSync('pnpm', ['exec', 'prettier', '--write', OUT], { cwd: ROOT, stdio: 'ignore' }); // the format check's own layout
   const n = (p) => Object.keys(calls[p]).length;
-  console.log(`recorded ${n('signedOut')} signed-out and ${n('signedIn')} signed-in reads and ${symbols.length} market feeds to ${OUT}`);
+  console.log(
+    `recorded ${n('signedOut')} signed-out, ${n('signedIn')} signed-in and ${n('trpc')} module reads and ${symbols.length} market feeds to ${OUT}`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) await main();

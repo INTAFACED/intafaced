@@ -76,5 +76,10 @@ describe('the demo world', () => {
     const text = JSON.stringify(RECORDING);
     expect(text).not.toMatch(/local-test\.invalid|zenyoda/i);
     expect(Object.keys(RECORDING.calls.signedIn).every((k) => k.startsWith('GET /api/v1/'))).toBe(true);
+    // A module read is kept only when it is no sign-in, session, key or device call, and carries no token.
+    const trpc = Object.keys(RECORDING.trpc);
+    expect(trpc.length).toBeGreaterThan(0);
+    for (const k of trpc) expect(k).not.toMatch(/auth\.|session|apikey|webauthn|passkey|token|secret|recover|device|password/i);
+    expect(JSON.stringify(RECORDING.trpc)).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/);
   });
 });
