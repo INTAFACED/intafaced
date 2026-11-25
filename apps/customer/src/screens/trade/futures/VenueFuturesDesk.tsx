@@ -81,7 +81,7 @@ import { VenueCalculator } from './VenueCalculator';
 import { NotOfferedChips } from '../desk/VenueOrderOptions';
 import { ticketSummary } from './ticket-summary';
 import { RiskStrip } from './RiskStrip';
-import { positionLines, sizeFromRisk, type PositionLine } from './risk-strip';
+import { positionLines, rMultiple, rOver, sizeFromRisk, type PositionLine } from './risk-strip';
 import type { ChartOrderLine } from '../chart/PriceChart';
 import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
 import { VenueTierConfirm } from './VenueTierConfirm';
@@ -317,11 +317,12 @@ function Contracts({
               chartLines={positionLines(
                 account.positions.data?.value.find((p) => p.symbol === market.symbol),
                 account.openOrders.data?.value ?? [],
-              ).map((line) =>
+              ).map((line, _i, all) =>
                 chartLineOf(
                   line,
                   t,
                   account.positions.data?.value.find((p) => p.symbol === market.symbol),
+                  all.find((l) => l.kind === 'stop')?.result ?? null,
                 ),
               )}
             />
@@ -1782,6 +1783,7 @@ function Blotter({
       {tab === 'positions' ? (
         <PositionsTable
           positions={positions}
+          orders={account.openOrders.data?.value ?? []}
           market={market}
           owner={owner}
           run={run}
@@ -1865,8 +1867,31 @@ function Blotter({
   );
 }
 
+const signOf = (value: string) => (value.startsWith('-') ? 'down' : /^[0.]*$/.test(value) ? undefined : 'up');
+
+/** A position's R now, and its resting stop and target as the venue holds them; a dash where none rests. */
+function PositionGuards({ position, orders }: { position: VenuePosition; orders: readonly VenueOrder[] }) {
+  const lines = positionLines(position, orders);
+  const at = (kind: PositionLine['kind']) => lines.find((l) => l.kind === kind)?.price ?? null;
+  const r = rMultiple(position, orders);
+  return (
+    <>
+      <td className="lt-num" data-cell="r">
+        {r ? <span className="lt-signed" data-direction={signOf(r)}>{`${r.startsWith('-') ? '' : '+'}${displayAmount(r, 2)}R`}</span> : '—'}
+      </td>
+      <td className="lt-num" data-cell="stop">
+        {at('stop') ?? '—'}
+      </td>
+      <td className="lt-num" data-cell="target">
+        {at('target') ?? '—'}
+      </td>
+    </>
+  );
+}
+
 function PositionsTable({
   positions,
+  orders,
   market,
   owner,
   run,
@@ -1876,6 +1901,8 @@ function PositionsTable({
   onDone,
 }: {
   positions: AsOf<VenuePosition[]> | null;
+  /** The venue's open orders: a position's resting stop and target are read from them. */
+  orders: readonly VenueOrder[];
   market: VenueMarket;
   owner: string;
   run: RunAction;
@@ -1904,22 +1931,32 @@ function PositionsTable({
             <thead>
               <tr>
                 <th scope="col">{v('Market')}</th>
-                <th scope="col">{v('Side')}</th>
                 <th scope="col">{t('Size', { asset: market.baseAsset })}</th>
                 <th scope="col">{t('Entry')}</th>
                 <th scope="col">{t('Mark')}</th>
-                <th scope="col">{t('Unrealised')}</th>
+                <th scope="col">{t('Result before fees')}</th>
+                <th scope="col">{t('R now')}</th>
+                <th scope="col">{t('Stop')}</th>
+                <th scope="col">{t('Target')}</th>
                 <th scope="col">{t('Margin')}</th>
-                <th scope="col">{t('Leverage')}</th>
-                <th scope="col">{t('Liquidation price')}</th>
+                <th scope="col">{t('Liquidation est')}</th>
                 <th scope="col">{''}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.symbol} data-symbol={row.symbol}>
-                  <td>{row.symbol}</td>
-                  <td>{word(v, 'side', row.side)}</td>
+                  {/* Desk A's market cell: the contract, its side in its colour and its leverage, as one line. */}
+                  <td data-cell="market">
+                    <strong>{row.symbol}</strong>{' '}
+                    <span className="lt-signed" data-direction={row.side === 'long' ? 'up' : 'down'}>
+                      {word(v, 'side', row.side)}
+                    </span>{' '}
+                    <span
+                      className="lt-num"
+                      data-cell="leverage"
+                    >{`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}</span>
+                  </td>
                   <td className="lt-num" data-cell="size">
                     {row.size}
                   </td>
@@ -1930,13 +1967,13 @@ function PositionsTable({
                     {row.markPrice}
                   </td>
                   <td className="lt-num" data-cell="unrealised">
-                    {row.unrealisedPnl}
+                    <span className="lt-signed" data-direction={signOf(row.unrealisedPnl)}>
+                      {row.unrealisedPnl}
+                    </span>
                   </td>
+                  <PositionGuards position={row} orders={orders} />
                   <td className="lt-num" data-cell="margin">
                     {row.margin}
-                  </td>
-                  <td className="lt-num" data-cell="leverage">
-                    {`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}
                   </td>
                   <td className="lt-num" data-cell="liquidation">
                     <Known value={row.liquidationPrice} render={(x) => x} />
@@ -2318,13 +2355,19 @@ export function FlattenHold({
   );
 }
 
-/** A position line in the chart's words: "Long 0.25 · +285.00", "Stop −260.00", "Target +890.00", "Liquidation, est.". */
+/** A position line in the chart's words: "Long 0.25 · +285.00 +1.10R", "Stop −260.00 −1.00R", "Target +890.00 +3.42R", "Liquidation, est.". */
 function chartLineOf(
   line: PositionLine,
   t: ReturnType<typeof futuresVenueCopy.useCopy>['t'],
   position: VenuePosition | undefined,
+  /** What the resting stop would make or lose: each line's result also reads in R against it. */
+  atStop: string | null,
 ): ChartOrderLine {
   const signed = (v: string | null) => (v === null ? '' : `${v.startsWith('-') ? '' : '+'}${displayAmount(v, 2)}`);
+  const inR = (v: string | null) => {
+    const r = v === null || atStop === null ? null : rOver(v, atStop);
+    return r === null ? '' : ` ${r.startsWith('-') ? '' : '+'}${displayAmount(r, 2)}R`;
+  };
   const side = position?.side === 'short' ? 'sell' : 'buy';
   if (line.kind === 'entry')
     return {
@@ -2335,7 +2378,7 @@ function chartLineOf(
       title: t('Line entry', {
         side: t(position?.side === 'short' ? 'side_short' : 'side_long'),
         size: position?.size ?? '',
-        result: signed(line.result),
+        result: signed(line.result) + inR(line.result),
       }),
     };
   if (line.kind === 'liquidation') return { price: line.price, side, tone: 'neutral', title: t('Line liquidation') };
@@ -2344,6 +2387,6 @@ function chartLineOf(
     side,
     tone: line.kind === 'stop' ? 'down' : 'up',
     dashed: false,
-    title: t(line.kind === 'stop' ? 'Line stop' : 'Line target', { result: signed(line.result) }),
+    title: t(line.kind === 'stop' ? 'Line stop' : 'Line target', { result: signed(line.result) + inR(line.result) }),
   };
 }

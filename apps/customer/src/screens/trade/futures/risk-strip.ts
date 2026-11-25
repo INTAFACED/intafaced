@@ -107,3 +107,22 @@ export function positionLines(position: VenuePosition | undefined, orders: reado
   if (position.liquidationPrice.known) lines.push({ kind: 'liquidation', price: position.liquidationPrice.value, result: null });
   return lines;
 }
+
+/**
+ * A position's result now in units of what its stop would lose (R): +1.00 R made as much as the stop risks. Null with no
+ * stop resting, or a stop that would not lose (moved past entry), since then there is no risk to measure against.
+ */
+export function rMultiple(position: VenuePosition, orders: readonly VenueOrder[]): string | null {
+  const stop = orders.filter((o) => closes(o, position)).find(isStop)?.trigger;
+  if (!stop) return null;
+  return rOver(position.unrealisedPnl, str(resultAt(position, num(stop.price))));
+}
+
+/** `result` in units of `atStop` (what the stop would make or lose); null when the stop would not lose. */
+export function rOver(result: string, atStop: string): string | null {
+  const risk = num(atStop);
+  if (risk >= ZERO) return null;
+  const value = num(result);
+  const r = div(value < ZERO ? -value : value, -risk, 'floor');
+  return str(value < ZERO ? -r : r);
+}

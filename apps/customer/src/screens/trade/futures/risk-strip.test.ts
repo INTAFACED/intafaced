@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VenueOrder, VenuePosition } from '../../../features/trade/venue-api';
-import { positionLines, riskOf, sizeFromRisk } from './risk-strip';
+import { positionLines, riskOf, rMultiple, sizeFromRisk } from './risk-strip';
 
 const position = (over: Partial<VenuePosition>): VenuePosition =>
   ({
@@ -82,5 +82,17 @@ describe('positionLines', () => {
     expect(positionLines(position({ liquidationPrice: { known: false } } as Partial<VenuePosition>), []).map((l) => l.kind)).toEqual([
       'entry',
     ]);
+  });
+});
+
+describe('rMultiple', () => {
+  it('is the open result over what the stop would lose: +500 against a 500 risk is 1 R, a loss is negative', () => {
+    const stop = [trigger({ at: '95000', role: 'stop_loss' })];
+    expect(rMultiple(position({}), stop)).toBe('1');
+    expect(rMultiple(position({ unrealisedPnl: '-250' }), stop)).toBe('-0.5');
+  });
+  it('is null with no stop resting, or a stop past entry that would not lose', () => {
+    expect(rMultiple(position({}), [])).toBeNull();
+    expect(rMultiple(position({}), [trigger({ at: '96500', role: 'stop_loss' })])).toBeNull();
   });
 });
