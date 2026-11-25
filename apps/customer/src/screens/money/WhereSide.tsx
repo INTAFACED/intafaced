@@ -113,7 +113,7 @@ function WithdrawTo({ owner, t }: { owner: string; t: T }) {
 function OwnWallet({ owner, t }: { owner: string; t: T }) {
   const wallet = useWallet();
   return (
-    <section className="lt-stack" aria-labelledby="where-own-wallet-title" data-testid="assets-own-wallet">
+    <section className="lt-stack" aria-labelledby="where-own-wallet-title" data-testid="venue-wallet">
       <PanelHead title={<span id="where-own-wallet-title">{t('Own wallet title')}</span>} />
       <div className="lt-row lt-row-between lt-row-nowrap">
         <span className="lt-stack lt-stack-tight money-where__address">
