@@ -418,7 +418,6 @@ export function PriceChart({
             <span className="lt-signed" data-direction={legend.direction}>
               {labels.change} {legend.change}
             </span>
-            {mode === 'thin' && thinNote ? <span data-testid="pc-thin">{thinNote}</span> : null}
             {mode === 'candles' ? (
               <span className="lt-line-key">
                 {MA_PERIODS.map((p, i) => (
@@ -429,6 +428,12 @@ export function PriceChart({
               </span>
             ) : null}
           </div>
+        ) : null}
+        {/* The thin-market note is a sentence, so it gets its own line that wraps, outside the legend's no-wrap figures. */}
+        {legend && focus && mode === 'thin' && thinNote ? (
+          <p data-testid="pc-thin" className="lt-note" aria-hidden="true">
+            {thinNote}
+          </p>
         ) : null}
       </div>
       {/* The plot's own positioned box: the order marks drawn over it (VenueChartOrders, portalled into the host's parent)
