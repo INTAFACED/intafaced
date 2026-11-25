@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { PanelHead, Tag } from '@intafaced/ui/lit';
 import { KeyValue, Stepper } from '@intafaced/ui/lit/templates';
 import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 import type { VenueDeposit } from '@intafaced/contracts/protocol-venue-account';
@@ -37,8 +38,11 @@ function MovingNow({ owner, t }: { owner: string; t: T }) {
   const recent = resource.status === 'ready' ? resource.data.value.filter((d) => d.status !== 'confirming').slice(0, 2) : [];
   const steps = [t('Moving signed'), t('Moving on chain'), t('Moving credited')];
   return (
-    <section className="lt-stack" aria-labelledby="where-moving-title" data-testid="assets-moving">
-      <h2 id="where-moving-title">{t('Moving title')}</h2>
+    <section className="lt-panel" aria-labelledby="where-moving-title" data-testid="assets-moving">
+      <PanelHead
+        title={<span id="where-moving-title">{t('Moving title')}</span>}
+        aside={moving.length > 0 ? String(moving.length) : undefined}
+      />
       {resource.status === 'loading' ? <p className="lt-hint">{t('Moving reading')}</p> : null}
       {resource.status === 'failed' ? <p className="lt-hint">{t('Moving unread')}</p> : null}
       {resource.status === 'ready' && moving.length === 0 ? <p className="lt-hint">{t('Moving none')}</p> : null}
@@ -69,12 +73,29 @@ function MovingNow({ owner, t }: { owner: string; t: T }) {
   );
 }
 
-/** Where a withdrawal from the venue account goes: the connected wallet, unless the person edits it at the withdrawal. */
+/** "0x71C2…9A4F": the start and end of an address, the way a person checks it against their wallet. */
+function shortAddress(address: string): string {
+  return address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
+}
+
+/**
+ * Where a withdrawal from the venue account goes: the connected wallet, unless the person edits it at the withdrawal.
+ * The face shows the address short; the full address is its title and is read out in full.
+ */
 function WithdrawTo({ owner, t }: { owner: string; t: T }) {
   return (
-    <section className="lt-stack" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
-      <h2 id="where-withdraw-title">{t('Withdraw to title')}</h2>
-      <KeyValue rows={[{ label: t('Withdraw to wallet'), value: owner, ltr: true, note: t('Withdraw to ready') }]} />
+    <section className="lt-panel" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
+      <PanelHead title={<span id="where-withdraw-title">{t('Withdraw to title')}</span>} />
+      <div className="lt-row lt-row-between lt-row-nowrap" data-testid="assets-withdraw-to-wallet">
+        <span className="lt-stack lt-stack-tight">
+          <span>{t('Withdraw to wallet')}</span>
+          <span className="lt-mono lt-hint" title={owner} data-address={owner}>
+            <span aria-hidden="true">{shortAddress(owner)}</span>
+            <span className="lt-sr">{t('Withdraw to short', { address: owner })}</span>
+          </span>
+        </span>
+        <Tag tone="up">{t('Withdraw to ready')}</Tag>
+      </div>
       <p className="lt-hint">{t('Withdraw to note')}</p>
     </section>
   );
@@ -87,8 +108,8 @@ function YourLevel({ t }: { t: T }) {
   const { resource } = useResource((signal) => api.call(IDENTITY_KYC_STATUS, { limit: 1 }, { signal }), `where-level:${userId ?? ''}`);
   const room = isHiddenPath('/verification') ? null : '/verification';
   return (
-    <section className="lt-stack" aria-labelledby="where-level-title" data-testid="assets-level">
-      <h2 id="where-level-title">{t('Level title')}</h2>
+    <section className="lt-panel" aria-labelledby="where-level-title" data-testid="assets-level">
+      <PanelHead title={<span id="where-level-title">{t('Level title')}</span>} />
       {resource.status === 'ready' ? (
         <p>
           {t(LEVEL_WORD[resource.data.tier])}

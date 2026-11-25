@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { AssetIcon, Button, ButtonLink, Fold, PanelHead, Tag } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { PartnerHolds } from '../../features/money';
 import { displayAmount, parseAmount } from '../../shared/money';
@@ -16,6 +16,7 @@ import { moneyCopy } from './copy';
 import { VALUATION_REFRESH_MS, usePartnerStanding, useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
 import type { ValuedPart } from './standing';
 import { StandingTotal, dollars } from './StandingTotal';
+import { Shown } from './money-parts';
 import { ValuationNote } from './ValuationNote';
 import { Movers } from './Movers';
 import { clockTime } from './time';
@@ -63,7 +64,7 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
     navigate('/money');
   };
   return (
-    <div data-testid="assets-by-source">
+    <div data-testid="assets-by-source" className="money-where">
       {owner ? (
         <Read owner={owner} status={status} chainId={chainId} t={t} onWithdraw={openWithdraw} />
       ) : (
@@ -118,7 +119,7 @@ function BeforeWallet({ t, onWithdraw }: { t: T; onWithdraw: () => void }) {
       sections={
         partner.state === 'none' ? undefined : (
           <div className="lt-stack">
-            <PartnerSource read={partner} valued={valued} t={t} onWithdraw={onWithdraw} />
+            <PartnerSource read={partner} valued={valued} hidden={hideBalances} t={t} onWithdraw={onWithdraw} />
           </div>
         )
       }
@@ -161,44 +162,59 @@ function Read({
       description={t('Lede')}
       roomAction={<MoneyRoomLinks />}
       hero={
-        standing.prices || pricesFailed ? (
-          <section className="lt-stack" aria-labelledby="assets-total-title">
-            <h2 id="assets-total-title">{t('Total title')}</h2>
-            <StandingTotal
-              standing={standing}
-              pricesFailed={pricesFailed}
-              displayCurrency={displayCurrency}
-              hidden={hideBalances}
-              testId="assets-total"
-            />
-          </section>
-        ) : null
+        <div className="money-where__head">
+          {standing.prices || pricesFailed ? (
+            <section className="money-where__total" aria-labelledby="assets-total-title">
+              <h2 id="assets-total-title" className="lt-hint">
+                {t('Total title')}
+              </h2>
+              <StandingTotal
+                standing={standing}
+                pricesFailed={pricesFailed}
+                displayCurrency={displayCurrency}
+                hidden={hideBalances}
+                testId="assets-total"
+                face="headline"
+              />
+            </section>
+          ) : (
+            <span />
+          )}
+          <QuickActions t={t} />
+        </div>
       }
-      actions={<QuickActions t={t} />}
       sections={
-        <div className="lt-stack">
+        <div className="lt-stack money-where__sections">
           {standing.totalUsd !== null ? <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} /> : null}
-          <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
-          <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
-          <section className="lt-stack" aria-labelledby="assets-recent-title" data-testid="assets-recent">
-            <h2 id="assets-recent-title">{t('Recent title')}</h2>
-            <SourceActivity status={status} filters={NO_FILTERS} asset={null} hidden={hideBalances} recent={RECENT_LINES} />
-            {isHiddenPath('/money/activity') ? null : <a href="/money/activity">{t('Recent all')}</a>}
-          </section>
-          {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} onWithdraw={onWithdraw} />}
-          {valuation && standing.prices ? (
-            <ValuationNote
-              view={valuation}
-              copy={money}
-              refreshMs={VALUATION_REFRESH_MS}
-              timeZone={timeZone}
-              priceSourceNote={money.t('Valuation price sources', {
-                published: standing.prices.source,
-                venue: status.venue.displayName,
-              })}
+          <VenueSource status={status} read={venue} valued={part('venue')} hidden={hideBalances} t={t} />
+          <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} hidden={hideBalances} t={t} />
+          <section className="lt-panel" aria-labelledby="assets-recent-title" data-testid="assets-recent">
+            <PanelHead
+              title={<span id="assets-recent-title">{t('Recent title')}</span>}
+              aside={isHiddenPath('/money/activity') ? undefined : <a href="/money/activity">{t('Recent all')}</a>}
             />
+            <SourceActivity status={status} filters={NO_FILTERS} asset={null} hidden={hideBalances} recent={RECENT_LINES} />
+          </section>
+          {partner.state === 'none' ? null : (
+            <PartnerSource read={partner} valued={part('partner')} hidden={hideBalances} t={t} onWithdraw={onWithdraw} />
+          )}
+          {valuation && standing.prices ? (
+            <div className="lt-panel">
+              <ValuationNote
+                view={valuation}
+                copy={money}
+                refreshMs={VALUATION_REFRESH_MS}
+                timeZone={timeZone}
+                priceSourceNote={money.t('Valuation price sources', {
+                  published: standing.prices.source,
+                  venue: status.venue.displayName,
+                })}
+              />
+            </div>
           ) : null}
-          <WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />
+          <div className="lt-panel">
+            <WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />
+          </div>
           {standing.prices ? null : (
             <p className="lt-hint" data-testid="assets-no-price-note">
               {t('No price note')}
@@ -207,10 +223,16 @@ function Read({
         </div>
       }
       watching={
-        <div className="lt-stack">
-          <WalletBar />
+        <div className="lt-stack money-where__side">
           <WhereSide owner={owner} t={t} />
-          {valuation ? <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} /> : null}
+          {valuation ? (
+            <div className="lt-panel">
+              <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} />
+            </div>
+          ) : null}
+          <div className="lt-panel">
+            <WalletBar />
+          </div>
         </div>
       }
     />
@@ -226,6 +248,28 @@ function AsOf({ iso }: { iso: string }) {
   );
 }
 
+/** "4 s ago", "3 min ago": how long ago a source's figures were read, at this drawing (each poll draws it again). */
+function agoText(iso: string, t: T): string {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (seconds < 2) return t('Ago now');
+  if (seconds < 60) return t('Ago seconds', { n: String(seconds) });
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return t('Ago minutes', { n: String(minutes) });
+  return t('Ago hours', { n: String(Math.floor(minutes / 60)) });
+}
+
+/** A source's read time on its panel's face, relative; the exact time is its title and is in the panel's fold. */
+function ReadAgo({ iso, words, t }: { iso: string; words: 'Read venue' | 'Read chain' | 'Read partner'; t: T }) {
+  const exact = useAsOfText();
+  return (
+    <span className="lt-hint" title={exact(iso)} data-testid="source-read-ago">
+      {t(words, { ago: agoText(iso, t) })}
+    </span>
+  );
+}
+
 /** Where the person goes from the total (J-portfolio-01 #1): each a real room on the launch model, none a dead end. */
 const ACTIONS = [
   { id: 'Fund venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue') },
@@ -235,13 +279,14 @@ const ACTIONS = [
   { id: 'Activity', href: () => (isHiddenPath('/money/activity') ? null : '/money/activity') },
 ] as const;
 
+/** The action keys beside the total: money in first, the one lit key; the rest secondary (owner's pick A). */
 function QuickActions({ t }: { t: T }) {
   const live = ACTIONS.flatMap((action) => {
     const href = action.href();
     return href ? [{ id: action.id, href }] : [];
   });
   return (
-    <nav data-testid="assets-actions" className="lt-actions" aria-label={t('Actions')}>
+    <nav data-testid="assets-actions" className="lt-actions money-where__actions" aria-label={t('Actions')}>
       {live.map((action, index) => {
         const variant = index === 0 ? 'primary' : 'secondary';
         return (
@@ -254,10 +299,60 @@ function QuickActions({ t }: { t: T }) {
   );
 }
 
+/** The link to the records behind one row's figure (J-portfolio-01 #6), under the asset's name. */
+function EntriesLink({ href, asset, source, t }: { href: string; asset: string; source: string; t: T }) {
+  return (
+    <a
+      data-testid="source-entries-link"
+      className="lt-hint"
+      href={href}
+      aria-label={t('Entries link label', { asset, source })}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+        event.preventDefault();
+        navigate(href);
+      }}
+    >
+      {t('Entries link')}
+    </a>
+  );
+}
+
+/** Where a row's records are listed: the given room (the venue door off: the bank's list), else the sources' records. */
+function entriesHrefOf(valued: ValuedPart | undefined, asset: string, entriesHref?: string): string | null {
+  return entriesHref ?? (valued ? `${balanceEntriesHref(asset)}?source=${valued.id}` : null);
+}
+
+/** The asset cell: its mark, its symbol, and under it the link to what makes the row's figure. */
+function AssetCell({
+  asset,
+  label,
+  entries,
+  t,
+}: {
+  asset: string;
+  label?: string;
+  entries: { href: string; source: string } | null;
+  t: T;
+}) {
+  return (
+    <td data-label={t('Asset')}>
+      <span className="lt-cell-name">
+        <AssetIcon asset={asset} />
+        <span>
+          <strong>{label ?? asset}</strong>
+          {entries ? <EntriesLink href={entries.href} asset={asset} source={entries.source} t={t} /> : null}
+        </span>
+      </span>
+    </td>
+  );
+}
+
 /**
  * The price, value, share and source cells of `asset` in a valued part (J-portfolio-01 #1): the published price, dollars
- * to the cent, its share of the total, and the source that reports it, with a link to the records behind the figure.
- * An asset with no published price shows "No price published" for its price and value and no share, never a zero.
+ * to the cent, its share of the total, and the source that reports it. An asset with no published price shows "No price
+ * published" for its price and value and no share, never a zero. The face shows the value; price, share and source stay
+ * in the row for assistive tech and the journeys, visually hidden (owner's pick A: Asset, amounts, Value, one action).
  */
 function ValueCells({
   valued,
@@ -265,7 +360,6 @@ function ValueCells({
   rowKey,
   source,
   t,
-  entriesHref,
 }: {
   valued: ValuedPart | undefined;
   asset: string;
@@ -273,74 +367,103 @@ function ValueCells({
   rowKey?: string;
   source: string;
   t: T;
-  /** Where this row's own lines are listed, when not the sources' records page (the venue door off: the bank's list). */
-  entriesHref?: string;
 }) {
   const row = valued?.rows.find((r) => r.asset === asset && r.key === rowKey);
-  const href = entriesHref ?? (valued ? `${balanceEntriesHref(asset)}?source=${valued.id}` : null);
   return (
     <>
-      <td data-cell="price" data-label={t('Price')}>
+      <td data-cell="price" data-label={t('Price')} className="lt-sr">
         {row?.priceUsd ? dollars(row.priceUsd) : t('No price published')}
       </td>
-      <td data-cell="value" data-label={t('Value')}>
+      <td data-cell="value" data-label={t('Value')} data-align="end" className="lt-num">
         {row?.valueUsd ? dollars(row.valueUsd) : t('No price published')}
       </td>
-      <td data-cell="share" data-label={t('Share')}>
+      <td data-cell="share" data-label={t('Share')} className="lt-sr">
         {row?.share ? t('Share of total', { share: row.share }) : '—'}
       </td>
-      <td data-cell="source" data-label={t('Source')} data-source={valued?.id ?? ''}>
+      <td data-cell="source" data-label={t('Source')} data-source={valued?.id ?? ''} className="lt-sr">
         {source}
-        {href ? (
-          <>
-            {' · '}
-            <a
-              data-testid="source-entries-link"
-              href={href}
-              aria-label={t('Entries link label', { asset, source })}
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-                event.preventDefault();
-                navigate(href);
-              }}
-            >
-              {t('Entries link')}
-            </a>
-          </>
-        ) : null}
       </td>
     </>
   );
 }
 
-const VALUE_HEADERS = ['Price', 'Value', 'Share', 'Source'] as const;
+/** One table header cell; `hidden` ones name a column kept for assistive tech only. */
+type Head = { text: string; hidden?: boolean; end?: boolean; action?: boolean };
 
-/** One place the person's assets sit: its heading, then what that source reports. */
-function Source({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="lt-stack">
-      <h2>{title}</h2>
-      {children}
-    </div>
-  );
-}
+const valueHeads = (t: T): Head[] => [
+  { text: t('Price'), hidden: true },
+  { text: t('Value'), end: true },
+  { text: t('Share'), hidden: true },
+  { text: t('Source'), hidden: true },
+];
 
-/** A source's table in a named region that scrolls on its own: one header row, then the rows. */
-function SourceTable({ headers, children, label }: { headers: readonly ReactNode[]; children: ReactNode; label: string }) {
+/** A source's table in a named region: one header row, then the rows. */
+function SourceTable({ headers, children, label }: { headers: readonly Head[]; children: ReactNode; label: string }) {
   return (
-    <div tabIndex={0} role="region" aria-label={label}>
+    <div tabIndex={0} role="region" aria-label={label} className="money-where__table">
       <table className="lt-table">
         <thead>
           <tr>
             {headers.map((head, index) => (
-              <th key={index} scope="col">
-                {head}
+              <th
+                key={index}
+                scope="col"
+                className={head.hidden && !head.action ? 'lt-sr' : undefined}
+                data-align={head.end ? 'end' : undefined}
+              >
+                {head.action ? <span className="lt-sr">{head.text}</span> : head.text}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>{children}</tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * The head of one source's panel (owner's pick A): its kind as a chip, its name, when it was read (relative; the exact
+ * time is the title), and the value of what is priced in it. Anything else the source says goes in the panel's fold.
+ */
+function PanelTop({
+  chip,
+  title,
+  mark,
+  read,
+  valueUsd,
+  hidden,
+  action,
+  t,
+}: {
+  chip: string;
+  title: string;
+  mark?: ReactNode;
+  read: ReactNode;
+  valueUsd: string | null | undefined;
+  hidden: boolean;
+  action?: ReactNode;
+  t: T;
+}) {
+  return (
+    <div className="lt-panel-head money-where__panel-head">
+      <span className="lt-stack lt-stack-tight">
+        <span className="lt-row">
+          <Tag tone="neutral">{chip}</Tag>
+          <h2 className="lt-panel-title">{title}</h2>
+          {mark}
+        </span>
+        {read}
+      </span>
+      <span className="lt-row">
+        {valueUsd ? (
+          <strong className="lt-num" title={t('Panel total')}>
+            <span className="lt-sr">{t('Panel total')} </span>
+            <Shown text={dollars(valueUsd)} hidden={hidden} />
+          </strong>
+        ) : null}
+        {action}
+      </span>
     </div>
   );
 }
@@ -352,60 +475,87 @@ function WalletSource({
   network,
   read,
   valued,
+  hidden,
   t,
 }: {
   owner: string;
   network: string;
   read: Polled<WalletRead>;
   valued: ValuedPart | undefined;
+  hidden: boolean;
   t: T;
 }) {
   const data = read.data;
+  const move = isHiddenPath('/wallet/venue') ? null : '/wallet/venue';
   return (
-    <Source title={t('Wallet title')}>
-      <section data-testid="source-wallet" data-source="chain" data-address={owner} aria-label={t('Wallet title')}>
-        <p>
-          {t('Wallet address')}: <span data-testid="source-wallet-address">{owner}</span>
-        </p>
-        {!data ? (
-          <p className="lt-hint">{t('Reading')}</p>
-        ) : !data.ok ? (
-          <p role="alert">{t('Wallet read failed')}</p>
-        ) : (
-          <>
-            <p data-testid="source-wallet-block" data-block={data.block}>
-              {t('Wallet source', { block: data.block })} <AsOf iso={data.asOf} />
-            </p>
-            <h3 data-testid="source-wallet-network" data-chain-id={String(data.chainId)}>
-              {t('Wallet network', { network, chainId: String(data.chainId) })}
-            </h3>
-            {data.rows.length === 0 ? (
-              <p className="lt-hint">{t('Wallet empty')}</p>
-            ) : (
-              <SourceTable
-                label={t('Wallet network totals', { network })}
-                headers={[t('Asset'), t('Amount'), ...VALUE_HEADERS.map((h) => t(h))]}
-              >
-                {data.rows.map((row) => (
-                  <tr key={row.symbol} data-asset={row.symbol} data-token={row.token ?? 'native'}>
-                    <td data-label={t('Asset')}>{row.symbol}</td>
-                    <td data-cell="amount" data-label={t('Amount')}>
-                      {displayAmount(row.amount)}
-                    </td>
-                    <ValueCells valued={valued} asset={row.symbol} source={t('Source wallet', { network, block: data.block })} t={t} />
-                  </tr>
-                ))}
-              </SourceTable>
-            )}
-            {data.unread.length > 0 ? (
-              <p className="lt-hint" data-testid="source-wallet-unread">
-                {t('Wallet unread', { tokens: data.unread.join(', ') })}
+    <section className="lt-panel" data-testid="source-wallet" data-source="chain" data-address={owner} aria-label={t('Wallet title')}>
+      <PanelTop
+        chip={t('Chip wallet')}
+        title={t('Wallet title')}
+        read={data?.ok ? <ReadAgo iso={data.asOf} words="Read chain" t={t} /> : null}
+        valueUsd={data?.ok ? valued?.valueUsd : null}
+        hidden={hidden}
+        t={t}
+      />
+      {!data ? (
+        <p className="lt-hint">{t('Reading')}</p>
+      ) : !data.ok ? (
+        <p role="alert">{t('Wallet read failed')}</p>
+      ) : data.rows.length === 0 ? (
+        <p className="lt-hint">{t('Wallet empty')}</p>
+      ) : (
+        <SourceTable
+          label={t('Wallet network totals', { network })}
+          headers={[{ text: t('Asset') }, { text: t('Amount'), end: true }, ...valueHeads(t), { text: t('Row action'), action: true }]}
+        >
+          {data.rows.map((row) => {
+            const source = t('Source wallet', { network, block: data.block });
+            const href = entriesHrefOf(valued, row.symbol);
+            return (
+              <tr key={row.symbol} data-asset={row.symbol} data-token={row.token ?? 'native'}>
+                <AssetCell asset={row.symbol} entries={href ? { href, source } : null} t={t} />
+                <td data-cell="amount" data-label={t('Amount')} data-align="end" className="lt-num">
+                  {displayAmount(row.amount)}
+                </td>
+                <ValueCells valued={valued} asset={row.symbol} source={source} t={t} />
+                <td data-label={t('Row action')} data-align="end">
+                  {move ? (
+                    <ButtonLink tone="secondary" size="sm" href={move}>
+                      {t('Move to venue')}
+                    </ButtonLink>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </SourceTable>
+      )}
+      <Fold title={t('Worked out')}>
+        <div className="lt-stack lt-stack-tight">
+          <p className="lt-hint">
+            {t('Wallet address')}:{' '}
+            <span data-testid="source-wallet-address" className="lt-mono">
+              {owner}
+            </span>
+          </p>
+          {data?.ok ? (
+            <>
+              <p className="lt-hint" data-testid="source-wallet-block" data-block={data.block}>
+                {t('Wallet source', { block: data.block })} <AsOf iso={data.asOf} />
               </p>
-            ) : null}
-          </>
-        )}
-      </section>
-    </Source>
+              <h3 className="lt-hint" data-testid="source-wallet-network" data-chain-id={String(data.chainId)}>
+                {t('Wallet network', { network, chainId: String(data.chainId) })}
+              </h3>
+              {data.unread.length > 0 ? (
+                <p className="lt-hint" data-testid="source-wallet-unread">
+                  {t('Wallet unread', { tokens: data.unread.join(', ') })}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </Fold>
+    </section>
   );
 }
 
@@ -444,71 +594,120 @@ function StakingLines({ data, venue, t }: { data: VenueRead; venue: string; t: T
   );
 }
 
-function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polled<VenueRead>; valued: ValuedPart | undefined; t: T }) {
+const nonZero = (amount: string) => /[1-9]/.test(amount);
+
+function VenueSource({
+  status,
+  read,
+  valued,
+  hidden,
+  t,
+}: {
+  status: VenueUp;
+  read: Polled<VenueRead>;
+  valued: ValuedPart | undefined;
+  hidden: boolean;
+  t: T;
+}) {
   const data = read.data;
   const vaults = data?.vaults.read ? data.vaults.holdings.positions : [];
   const totals = data ? venueTotals(data) : null;
   const venueName = status.venue.displayName;
+  const title = t('Venue title', { venue: venueName });
   return (
-    <Source title={t('Venue title', { venue: status.venue.displayName })}>
-      <section data-testid="source-venue" data-source="venue" aria-label={t('Venue title', { venue: status.venue.displayName })}>
-        <p>
-          {t('Venue source')}{' '}
-          {status.test ? (
+    <section className="lt-panel" data-testid="source-venue" data-source="venue" aria-label={title}>
+      <PanelTop
+        chip={t('Chip venue')}
+        title={title}
+        mark={
+          status.test ? (
             <span className="lt-test" data-testid="source-venue-test" title={t('TEST note')}>
               {t('TEST')}
             </span>
-          ) : null}{' '}
-          {data ? <AsOf iso={data.asOf} /> : null}
-        </p>
-        {read.failure && !data ? (
-          <p role="alert">{t('Venue read failed', { detail: read.failure.message ?? '' })}</p>
-        ) : !data ? (
-          <p className="lt-hint">{t('Reading')}</p>
-        ) : data.rows.length === 0 && vaults.length === 0 ? (
-          <p className="lt-hint">{t('Venue empty')}</p>
-        ) : data.rows.length === 0 ? null : (
-          <SourceTable
-            label={t('Venue title', { venue: status.venue.displayName })}
-            headers={[t('Asset'), t('Free'), t('Locked'), t('Total'), t('Can withdraw'), ...VALUE_HEADERS.map((h) => t(h))]}
-          >
-            {data.rows.map((row) => (
+          ) : null
+        }
+        read={data ? <ReadAgo iso={data.asOf} words="Read venue" t={t} /> : null}
+        valueUsd={data ? valued?.valueUsd : null}
+        hidden={hidden}
+        t={t}
+      />
+      {read.failure && !data ? (
+        <p role="alert">{t('Venue read failed', { detail: read.failure.message ?? '' })}</p>
+      ) : !data ? (
+        <p className="lt-hint">{t('Reading')}</p>
+      ) : data.rows.length === 0 && vaults.length === 0 ? (
+        <p className="lt-hint">{t('Venue empty')}</p>
+      ) : data.rows.length === 0 ? null : (
+        <SourceTable
+          label={title}
+          headers={[
+            { text: t('Asset') },
+            { text: t('Free'), end: true },
+            { text: t('Locked'), end: true },
+            { text: t('Total'), hidden: true },
+            { text: t('Can withdraw'), hidden: true },
+            ...valueHeads(t),
+            { text: t('Row action'), action: true },
+          ]}
+        >
+          {data.rows.map((row) => {
+            const source = t('Source venue', { venue: venueName });
+            const href = entriesHrefOf(valued, row.asset);
+            const trade = buyHref(row.asset, null, false);
+            return (
               <tr key={row.asset} data-asset={row.asset}>
-                <td data-label={t('Asset')}>{row.asset}</td>
-                <td data-cell="free" data-label={t('Free')}>
+                <AssetCell asset={row.asset} entries={href ? { href, source } : null} t={t} />
+                <td data-cell="free" data-label={t('Free')} data-align="end" className="lt-num">
                   {displayAmount(row.free)}
                 </td>
-                <td data-cell="locked" data-label={t('Locked')} title={t('Locked note')}>
+                <td data-cell="locked" data-label={t('Locked')} title={t('Locked note')} data-align="end" className="lt-num">
                   {displayAmount(row.locked)}
                   {row.split ? (
-                    <ul data-testid="source-venue-split" className="lt-hint">
-                      <li data-part="in-orders" data-amount={row.split.inOrders}>
+                    // Each part of the lock as the venue names it; a part at zero stays for assistive tech, off the face.
+                    <ul data-testid="source-venue-split" className="lt-hint money-where__cell-notes">
+                      <li
+                        data-part="in-orders"
+                        data-amount={row.split.inOrders}
+                        className={nonZero(row.split.inOrders) ? undefined : 'lt-sr'}
+                      >
                         {t('In orders', { amount: displayAmount(row.split.inOrders) })}
                       </li>
-                      <li data-part="collateral" data-amount={row.split.collateral}>
+                      <li
+                        data-part="collateral"
+                        data-amount={row.split.collateral}
+                        className={nonZero(row.split.collateral) ? undefined : 'lt-sr'}
+                      >
                         {t('Collateral', { amount: displayAmount(row.split.collateral) })}
                       </li>
-                      <li data-part="stake" data-amount={row.split.stake}>
+                      <li data-part="stake" data-amount={row.split.stake} className={nonZero(row.split.stake) ? undefined : 'lt-sr'}>
                         {t('Stake', { amount: displayAmount(row.split.stake) })}
                       </li>
                       {row.split.delegated !== undefined ? (
-                        <li data-part="delegated" data-amount={row.split.delegated}>
+                        <li
+                          data-part="delegated"
+                          data-amount={row.split.delegated}
+                          className={nonZero(row.split.delegated) ? undefined : 'lt-sr'}
+                        >
                           {t('Delegated', { amount: displayAmount(row.split.delegated) })}
                         </li>
                       ) : null}
                       {row.split.unstaking !== undefined ? (
-                        <li data-part="unstaking" data-amount={row.split.unstaking}>
+                        <li
+                          data-part="unstaking"
+                          data-amount={row.split.unstaking}
+                          className={nonZero(row.split.unstaking) ? undefined : 'lt-sr'}
+                        >
                           {t('Unstaking', { amount: displayAmount(row.split.unstaking) })}
                         </li>
                       ) : null}
                     </ul>
-                  ) : /[1-9]/.test(row.locked) ? (
+                  ) : nonZero(row.locked) ? (
                     <p data-testid="source-venue-split-unknown" className="lt-hint">
                       {t('Split not reported')}
                     </p>
                   ) : null}
                   {row.orders.length > 0 ? (
-                    <ul data-testid="source-venue-locks">
+                    <ul data-testid="source-venue-locks" className="lt-hint money-where__cell-notes">
                       {row.orders.map((order) => (
                         <li key={order.id} data-order={order.id} title={order.id}>
                           {t('Order lock', {
@@ -523,68 +722,91 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
                     </ul>
                   ) : null}
                 </td>
-                <td data-cell="total" data-label={t('Total')}>
+                <td data-cell="total" data-label={t('Total')} className="lt-sr">
                   {displayAmount(row.total)}
                 </td>
-                <td data-cell="withdrawable" data-label={t('Can withdraw')}>
+                <td data-cell="withdrawable" data-label={t('Can withdraw')} className="lt-sr">
                   {displayAmount(row.withdrawable)}
                 </td>
-                <ValueCells valued={valued} asset={row.asset} source={t('Source venue', { venue: status.venue.displayName })} t={t} />
+                <ValueCells valued={valued} asset={row.asset} source={source} t={t} />
+                <td data-label={t('Row action')} data-align="end">
+                  {trade ? (
+                    <ButtonLink tone="secondary" size="sm" href={trade}>
+                      {t('Trade')}
+                    </ButtonLink>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </SourceTable>
+      )}
+      {data && vaults.length > 0 ? (
+        <div data-testid="source-venue-vaults" className="lt-stack lt-stack-tight">
+          <h3 className="lt-panel-title">{t('Vaults title')}</h3>
+          <SourceTable
+            label={t('Vaults title')}
+            headers={[
+              { text: t('Vault') },
+              { text: t('Asset') },
+              { text: t('Amount'), end: true },
+              { text: t('Lock-up ends') },
+              ...valueHeads(t),
+            ]}
+          >
+            {vaults.map((p) => (
+              <tr key={p.vault} data-vault={p.vault} data-asset={p.asset}>
+                <td data-label={t('Vault')}>{p.name}</td>
+                <AssetCell asset={p.asset} entries={null} t={t} />
+                <td data-cell="amount" data-label={t('Amount')} data-value={p.equity} data-align="end" className="lt-num">
+                  {displayAmount(p.equity)}
+                </td>
+                <td data-cell="ends" data-label={t('Lock-up ends')} data-value={p.lockUpEndsAt}>
+                  {new Date(p.lockUpEndsAt).toLocaleString()}
+                </td>
+                <ValueCells
+                  valued={valued}
+                  asset={p.asset}
+                  rowKey={`vault:${p.vault}`}
+                  source={t('Source venue vault', { venue: venueName })}
+                  t={t}
+                />
               </tr>
             ))}
           </SourceTable>
-        )}
-        {data && vaults.length > 0 ? (
-          <div data-testid="source-venue-vaults">
-            <h3>{t('Vaults title')}</h3>
-            <SourceTable
-              label={t('Vaults title')}
-              headers={[t('Vault'), t('Asset'), t('Amount'), t('Lock-up ends'), ...VALUE_HEADERS.map((h) => t(h))]}
-            >
-              {vaults.map((p) => (
-                <tr key={p.vault} data-vault={p.vault} data-asset={p.asset}>
-                  <td data-label={t('Vault')}>{p.name}</td>
-                  <td data-label={t('Asset')}>{p.asset}</td>
-                  <td data-cell="amount" data-label={t('Amount')} data-value={p.equity}>
-                    {displayAmount(p.equity)}
-                  </td>
-                  <td data-cell="ends" data-label={t('Lock-up ends')} data-value={p.lockUpEndsAt}>
-                    {new Date(p.lockUpEndsAt).toLocaleString()}
-                  </td>
-                  <ValueCells
-                    valued={valued}
-                    asset={p.asset}
-                    rowKey={`vault:${p.vault}`}
-                    source={t('Source venue vault', { venue: venueName })}
-                    t={t}
-                  />
-                </tr>
-              ))}
-            </SourceTable>
+        </div>
+      ) : null}
+      {data ? (
+        <Fold title={t('Worked out')}>
+          <div className="lt-stack lt-stack-tight">
+            <p className="lt-hint">
+              {t('Venue source')} <AsOf iso={data.asOf} />
+            </p>
+            <StakingLines data={data} venue={venueName} t={t} />
+            {!data.vaults.read ? (
+              <p className="lt-hint" data-testid="source-venue-vaults-unread">
+                {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
+              </p>
+            ) : null}
+            {totals ? (
+              <p
+                className="lt-hint"
+                data-testid="source-venue-account-value"
+                data-asset={totals.asset}
+                data-venue={totals.venue}
+                data-parts={totals.parts}
+                data-adds-up={parseAmount(totals.venue) === parseAmount(totals.parts) ? 'true' : 'false'}
+              >
+                {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
+                {parseAmount(totals.venue) === parseAmount(totals.parts)
+                  ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
+                  : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
+              </p>
+            ) : null}
           </div>
-        ) : null}
-        {data ? <StakingLines data={data} venue={venueName} t={t} /> : null}
-        {data && !data.vaults.read ? (
-          <p className="lt-hint" data-testid="source-venue-vaults-unread">
-            {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
-          </p>
-        ) : null}
-        {totals ? (
-          <p
-            data-testid="source-venue-account-value"
-            data-asset={totals.asset}
-            data-venue={totals.venue}
-            data-parts={totals.parts}
-            data-adds-up={parseAmount(totals.venue) === parseAmount(totals.parts) ? 'true' : 'false'}
-          >
-            {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
-            {parseAmount(totals.venue) === parseAmount(totals.parts)
-              ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
-              : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
-          </p>
-        ) : null}
-      </section>
-    </Source>
+        </Fold>
+      ) : null}
+    </section>
   );
 }
 
@@ -594,12 +816,18 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
  */
 export function PartnerAccount() {
   const { t } = whereCopy.useCopy();
-  const { displayCurrency } = usePreferences();
+  const { displayCurrency, hideBalances } = usePreferences();
   const { partner, valued } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
   if (partner.state === 'none') return null;
   // With the venue door off the partner's lines are in the bank's own activity list, which lists them for this person.
   return (
-    <PartnerSource read={partner} valued={valued} t={t} entriesHref={(asset) => `/money/activity?asset=${encodeURIComponent(asset)}`} />
+    <PartnerSource
+      read={partner}
+      valued={valued}
+      hidden={hideBalances}
+      t={t}
+      entriesHref={(asset) => `/money/activity?asset=${encodeURIComponent(asset)}`}
+    />
   );
 }
 
@@ -607,54 +835,64 @@ export function PartnerAccount() {
 function PartnerSource({
   read,
   valued,
+  hidden,
   t,
   entriesHref,
   onWithdraw,
 }: {
   read: Exclude<PartnerRead, { state: 'none' }>;
   valued: ValuedPart | undefined;
+  hidden: boolean;
   t: T;
   entriesHref?: (asset: string) => string;
   onWithdraw?: () => void;
 }) {
   const title = read.state === 'read' ? t('Partner title', { partner: read.label }) : t('Partner title unnamed');
   return (
-    <Source title={title}>
-      <section data-testid="source-partner" data-source="partner" aria-label={title}>
-        <p>
-          {t('Partner source')} {read.state === 'read' ? <AsOf iso={read.asOf} /> : null}
-        </p>
-        {onWithdraw && read.state === 'read' ? (
-          <div className="lt-actions">
+    <section className="lt-panel" data-testid="source-partner" data-source="partner" aria-label={title}>
+      <PanelTop
+        chip={t('Chip partner')}
+        title={title}
+        read={read.state === 'read' ? <ReadAgo iso={read.asOf} words="Read partner" t={t} /> : null}
+        valueUsd={read.state === 'read' ? valued?.valueUsd : null}
+        hidden={hidden}
+        action={
+          onWithdraw && read.state === 'read' ? (
             <Button tone="secondary" onClick={onWithdraw}>
               {t('Partner withdraw')}
             </Button>
-          </div>
-        ) : null}
-        {read.state === 'reading' ? (
-          <p className="lt-hint">{t('Reading')}</p>
-        ) : read.state === 'unread' ? (
-          <p role="alert">{t('Partner read failed')}</p>
-        ) : (
-          <SourceTable label={title} headers={[t('Asset'), t('Amount'), ...VALUE_HEADERS.map((h) => t(h))]}>
-            {read.rows.map((row) => (
-              <tr key={row.asset} data-asset={row.asset}>
-                <td data-label={t('Asset')}>{row.asset}</td>
-                <td data-cell="amount" data-label={t('Amount')}>
-                  {displayAmount(row.amount)}
-                </td>
-                <ValueCells
-                  valued={valued}
-                  asset={row.asset}
-                  source={t('Source partner', { partner: read.label })}
-                  t={t}
-                  entriesHref={entriesHref?.(row.asset)}
-                />
-              </tr>
-            ))}
+          ) : undefined
+        }
+        t={t}
+      />
+      {read.state === 'reading' ? (
+        <p className="lt-hint">{t('Reading')}</p>
+      ) : read.state === 'unread' ? (
+        <p role="alert">{t('Partner read failed')}</p>
+      ) : (
+        <>
+          <SourceTable label={title} headers={[{ text: t('Asset') }, { text: t('Amount'), end: true }, ...valueHeads(t)]}>
+            {read.rows.map((row) => {
+              const source = t('Source partner', { partner: read.label });
+              const href = entriesHrefOf(valued, row.asset, entriesHref?.(row.asset));
+              return (
+                <tr key={row.asset} data-asset={row.asset}>
+                  <AssetCell asset={row.asset} entries={href ? { href, source } : null} t={t} />
+                  <td data-cell="amount" data-label={t('Amount')} data-align="end" className="lt-num">
+                    {displayAmount(row.amount)}
+                  </td>
+                  <ValueCells valued={valued} asset={row.asset} source={source} t={t} />
+                </tr>
+              );
+            })}
           </SourceTable>
-        )}
-      </section>
-    </Source>
+          <Fold title={t('Worked out')}>
+            <p className="lt-hint">
+              {t('Partner source')} <AsOf iso={read.asOf} />
+            </p>
+          </Fold>
+        </>
+      )}
+    </section>
   );
 }
