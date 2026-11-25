@@ -226,6 +226,26 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // LOCAL TEST: WebAuthn (passkeys) cannot use an IP address as its relying-party ID, so the same Customer
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
+/**
+ * `LOCAL_STACK_PUBLIC_ORIGIN=<https origin>` on a start: the public origin a person opens this stack on (the hosted
+ * beta's name, beta-host.mjs), so what they sign there is accepted. A passkey's answer and a wallet message both name
+ * the page's own origin, which no front can rewrite: svc-identity's relying party becomes that host, and the TEST wallet
+ * provider and svc-protocol's wallet messages accept that origin beside the stack's own. One plain https origin or
+ * nothing: anything else stops the start. Unset: the stack's own origins only.
+ */
+export function publicOrigin(env = process.env) {
+  const raw = env.LOCAL_STACK_PUBLIC_ORIGIN?.trim();
+  if (!raw) return null;
+  let url = null;
+  try {
+    url = new URL(raw);
+  } catch {
+    // not a URL: refused below
+  }
+  if (!url || url.protocol !== 'https:' || url.origin !== raw)
+    throw new Error(`LOCAL_STACK_PUBLIC_ORIGIN must be one https origin like https://beta.example.com, not "${raw}"`);
+  return url.origin;
+}
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 // The Customer build links to the Team console only over HTTPS, so the stack's build points at this TEST front.
 const TEAM_TLS_ORIGIN = `https://${HOST}:${PORTS['team-tls']}`;
@@ -1725,7 +1745,9 @@ function serviceDefs(secrets) {
     UNUSED,
     CUSTOMER_ORIGIN,
     CUSTOMER_LOCALHOST_ORIGIN,
+    PUBLIC_ORIGIN: publicOrigin(),
     INVITATION_ORIGIN,
+    vendorKeys,
     identityFounderEnv,
     opsOutreachEnv,
     localOperatorIds,
@@ -1756,6 +1778,24 @@ function screeningEnv() {
   return { INTAFACED_SANCTIONS_REGIONS: file.regions, INTAFACED_SANCTIONS_LIST_SOURCE: file.source };
 }
 const screeningSet = () => Boolean(screeningEnv().INTAFACED_SANCTIONS_REGIONS);
+
+/**
+ * The owner's vendor keys (his wallet provider's three, his screening vendor's one), from a file that exists only on the
+ * box he allowed them on: `beta-screening-seal.yml` seals them to the box's key and the box decrypts them into
+ * STATE/vendors.local.json (mode 600). The repo never carries a value, and no message here ever names one: a malformed
+ * file is refused by its name alone. A service gets them only when its own switch asks (identity.mjs, pay.mjs).
+ */
+export function vendorKeys(names, file = path.join(STATE, 'vendors.local.json'), why = 'this start') {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    // missing or not JSON: refused below, naming the file only
+  }
+  const missing = names.filter((n) => typeof parsed?.[n] !== 'string' || parsed[n].trim() === '');
+  if (missing.length) throw new Error(`${why} needs ${missing.join(', ')} in ${file} (the owner's keys, sealed onto this box)`);
+  return Object.fromEntries(names.map((n) => [n, parsed[n].trim()]));
+}
 
 // ── Start / status / stop ───────────────────────────────────────────────────
 
@@ -2211,7 +2251,7 @@ async function startTestWalletProvider() {
   const pid = startProc(
     'test-wallet-provider',
     [process.execPath, SCRIPT, '__serve-test-wallet-provider'],
-    { ...baseEnv(), APP_ENV: 'dev' },
+    { ...baseEnv(), APP_ENV: 'dev', ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}) },
     REPO,
   );
   await waitHealthy('test-wallet-provider', url, pid, 20_000);
@@ -5120,7 +5160,7 @@ async function runCli() {
       host: HOST,
       port: PORTS['test-wallet-provider'],
       appEnv: process.env.APP_ENV,
-      origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN],
+      origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, ...(publicOrigin() ? [publicOrigin()] : [])],
       stateFile: path.join(STATE, 'test-wallet-provider.json'),
       // The TEST chain, for the page's reads and the person's own signed transactions (J-wallet-24); down: none.
       rpcUrl: `http://${HOST}:${CHAIN_PORTS.anvil}`,

@@ -20,12 +20,14 @@ import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
 import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
-import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
+import { PAIR_RULE_NOT_SET, type PairHalt, type PairRisk, type PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import type { CandleGate } from './admin/chart-feed-controls.js';
 import { publicRead } from './route-inventory.js';
 import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
+import type { HistoryDatasetsPort } from './spot/history-datasets.js';
+import { registerHistoryRestRoutes } from './spot/history-rest.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -149,6 +151,8 @@ export interface PublicRestDeps {
   ): Promise<Map<string, TickerStats24h>>;
   /** Injectable clock for tests. */
   now?: () => number;
+  /** Historical tick, book and trade datasets (RC-cex-spot-05; J-cex-spot-15 #10). */
+  history?: HistoryDatasetsPort;
   /**
    * Published funding rate for a futures market. Null → not served (never invent zero).
    * Spot markets never call this.
@@ -591,7 +595,10 @@ export function presentCcxtMarket(
       // price below it rounds to zero. Max is unbounded and stays null rather
       // than guessing a ceiling a client would clamp against.
       price: { min: tick, max: null as string | null },
-      cost: { min: formatAmount(market.minNotional), max: null as string | null },
+      cost: {
+        min: flags.pairRules?.minNotional === PAIR_RULE_NOT_SET ? null : (flags.pairRules?.minNotional ?? formatAmount(market.minNotional)),
+        max: null as string | null,
+      },
       /**
        * Only an explicit owner/listing cap is publishable. Spot/options and an
        * unconfigured futures listing stay null rather than advertising 10×.
@@ -1295,6 +1302,9 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     publicTape: (marketId, limit, sinceMs) => deps.publicTape(marketId, limit, sinceMs),
     now: () => new Date(now()),
   });
+
+  // Historical tick, book and trade data downloads (RC-cex-spot-05; J-cex-spot-15 #10).
+  registerHistoryRestRoutes(app, deps.history);
 }
 
 /** Test helper — build a minimal Market without a DB. */

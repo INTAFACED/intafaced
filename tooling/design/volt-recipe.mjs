@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The Volt recipe's mechanical part (#9433, #9793): moves a room onto the kit for the findings that need no judgement,
-// and names every one it leaves. The rest of the recipe is tooling/design/RECIPE.md.
+// and names every one it leaves.
 //   node tooling/design/volt-recipe.mjs <file under apps/customer/src> ...          prints what it would change and leave
 //   node tooling/design/volt-recipe.mjs --write <file> ...                            writes the changes
 //   node tooling/design/volt-recipe.mjs --plan                                        counts, over every customer .tsx

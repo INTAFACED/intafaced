@@ -1158,7 +1158,7 @@ test('--json --files-from: a pull request file list, judged against this checkou
 // fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
 // the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
 test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
-  const path = 'tooling/design/volt-count.mjs';
+  const path = 'tooling/design/volt-prune.mjs';
   assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
   const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
   writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
@@ -1980,7 +1980,7 @@ test('pullPick: a change that draws a Customer room runs every journey the map r
   assert.match(pullPick([table], over, { reach: wide }).room, /draws a Customer room or kit part .*all 101 journey files/);
   assert.ok(pullPick(['services/svc-bank/src/a.ts'], over, { reach: wide }).files.length <= PR_MAX_FILES);
   // A test of the room draws nothing: a journey test or a unit test beside a full path keeps the bounded set.
-  assert.equal(roomReach(['apps/customer/src/app/volt-count.test.ts', 'Cargo.lock'], reach), null);
+  assert.equal(roomReach(['apps/customer/src/app/beta-volt.test.ts', 'Cargo.lock'], reach), null);
 });
 
 test("the lint config, the lint plugins and the agents' files run no journeys; a crate is its service (project-state#3377 item 3)", () => {

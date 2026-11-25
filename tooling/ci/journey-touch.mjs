@@ -122,6 +122,7 @@ export const JOURNEY_CI = [
   'tooling/ci/journey-verdict.test.mjs',
   // The hosted beta's rule the verdict runs (notOnBeta).
   'tooling/ci/beta-hides.mjs',
+  'tooling/ci/beta-proof-held.json',
   // The scoreboard's shard download ("Merge the shards").
   'tooling/ci/shard-download.mjs',
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.

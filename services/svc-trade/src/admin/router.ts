@@ -79,7 +79,8 @@ const limits = z
     slippageCap: z.string().nullable(),
     throttle: z.string().nullable(),
     circuitBreaker: z.string().nullable(),
-    // Optional: a write that leaves them out keeps the market's current open-interest limits.
+    // Optional: a write that leaves them out keeps the market's current limits.
+    minNotional: z.string().nullable().optional(),
     oiLimit: z.string().nullable().optional(),
     oiShareBps: z.string().nullable().optional(),
     priceRangeMax: z.string().nullable().optional(),

@@ -18,8 +18,10 @@
  *       (`testPartner.set({ custody: 'off' })`, `testPartner.fund`), where the launch model holds a person's money and
  *       which Home and Money read (#10632): on every pass, once per account and fund id, so a restart of svc-bank (which
  *       empties the TEST partner) puts it back. It is made as that person on their own live session; an account not
- *       signed in waits for the next pass. Prints one line per action and nothing when there is nothing to do. `--root` holds invited.json and granted.json (default
- *       ~/.intafaced/beta); `--checkout` is the stack's checkout whose tools it runs (default: this file's own).
+ *       signed in waits for the next pass. An invited account holding full that has made its own embedded wallet gets
+ *       TEST USDC on Hyperliquid's TEST network in that wallet, once (beta-testnet.mjs, #10842). Prints one line per
+ *       action and nothing when there is nothing to do. `--root` holds invited.json, granted.json and
+ *       testnet-funded.json (default ~/.intafaced/beta); `--checkout` is the stack's checkout whose tools it runs (default: this file's own).
  *
  * TEST funds only: it runs only the stack's own TEST tools, which refuse anything but this machine's TEST stack, and
  * the grant is fixed: one GRANT per account, its ledger reference fixed per account so a repeat posts nothing.
@@ -29,6 +31,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { liveDeps, readTestnet, testnetCandidates, testnetStep } from './beta-testnet.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 
@@ -93,6 +96,8 @@ export function planPass({ users, approved, pending, tokens, granted }) {
 export const invitedPaths = (root = path.join(os.homedir(), '.intafaced', 'beta')) => ({
   invited: path.join(root, 'invited.json'),
   granted: path.join(root, 'granted.json'),
+  /** The testnet sends to invited testers' embedded wallets (beta-testnet.mjs). */
+  testnet: path.join(root, 'testnet-funded.json'),
 });
 
 const readJson = (file, fallback) => {
@@ -172,6 +177,38 @@ async function pass({ root, checkout }) {
     console.log(`invited ${f.email}: ${GRANT.amount} TEST ${GRANT.asset} added through the ledger (ref ${grantRef(f.userId)})`);
   }
   await keepAtPartner({ gates, secrets, tokens, files });
+  await sendOnTestnet({ gates, secrets, tokens, files, checkout });
+}
+
+/**
+ * TEST USDC on the testnet to an invited, Full account's own embedded wallet, once (beta-testnet.mjs). The wallet's
+ * address is read through svc-protocol's `protocol.embeddedWallet.status` record, as that person on their live session.
+ */
+async function sendOnTestnet({ gates, secrets, tokens, files, checkout }) {
+  const { users, approved } = gates.listAccountsAndTiers(secrets);
+  const candidates = testnetCandidates({ users, approved, tokens, accounts: readTestnet(files.testnet).accounts });
+  const inFlight = Object.values(readTestnet(files.testnet).accounts).some((r) => r.state !== 'sent');
+  if (candidates.length === 0 && !inFlight) return;
+  const { PROTOCOL_EMBEDDED_WALLET_STATUS } = await import(
+    pathToFileURL(path.join(checkout, 'packages', 'contracts', 'dist', 'protocol-wallet-procedures.js')).href
+  );
+  const sessions = gates.liveSessions(
+    secrets,
+    candidates.map((c) => c.userId),
+  );
+  let ctx = null;
+  const walletOf = async (userId) => {
+    const sessionId = sessions.get(userId);
+    if (!sessionId) return null; // not signed in: the next pass reads it
+    ctx ??= await gates.makeContext({ log: () => {} });
+    const token = await gates.personToken(ctx, { userId, sessionId }, 60, gates.PERSON_PROTOCOL_READ_SCOPES);
+    return (await ctx.edge.record(PROTOCOL_EMBEDDED_WALLET_STATUS, undefined, token)).data?.wallet?.address ?? null;
+  };
+  try {
+    await testnetStep({ file: files.testnet, candidates, deps: { ...liveDeps(), walletOf }, log: (l) => console.log(l) });
+  } catch (err) {
+    console.log(`invited: testnet TEST USDC step stopped: ${err.message}`);
+  }
 }
 
 /** Keeps each granted account's GRANT in its own TEST partner account (planPartner), made as that person. */

@@ -229,7 +229,15 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
   it('prepare → sign (viem, fixed key) → submit → read, with our builder fee from the owner value', async () => {
     const { d } = door();
     const status = await d.status();
-    expect(status).toMatchObject({ enabled: true, available: true, test: true, label: 'TEST', chainId: 84532 });
+    // The simulator's orders name the wallet's own chain, so the owner's wallet signs them (no trading session needed).
+    expect(status).toMatchObject({
+      enabled: true,
+      available: true,
+      test: true,
+      label: 'TEST',
+      chainId: 84532,
+      tradesSignedBy: 'owner_wallet',
+    });
 
     // The builder fee approval first (owner-signed), keyed by the caller's own business key.
     const approve = await d.prepare(principal, {

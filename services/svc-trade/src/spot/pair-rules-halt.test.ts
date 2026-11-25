@@ -23,6 +23,7 @@ function risk(over: Partial<RiskVersion> = {}): RiskVersion {
     slippageCap: null,
     throttle: null,
     circuitBreaker: null,
+    minNotional: null,
     oiLimit: null,
     oiShareBps: null,
     priceRangeMax: null,

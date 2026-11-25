@@ -835,6 +835,19 @@ const schema = serviceEnvSchema
       TRADE_FEE_TIER_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * Owner value (RC-cex-spot-05; J-cex-spot-15 #10): how often book snapshots are captured for downloadable
+       * historical datasets, in ms. NO DEFAULT: blank refuses `trade.history_book_interval_unset` and builds no book
+       * snapshot dataset.
+       */
+      TRADE_HISTORY_BOOK_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * Operational tick interval in ms for materializing downloadable historical datasets (`spot/history-jobs.ts`).
+       * Blank → the background materializer is off.
+       */
+      TRADE_HISTORY_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
        * The key VIP application proof files are encrypted with (spot/vip-applications.ts): 32 bytes as base64 or 64 hex
        * characters. NO DEFAULT: blank or malformed → every application refuses `vip.proof_key_unset`; no key is improvised.
        */

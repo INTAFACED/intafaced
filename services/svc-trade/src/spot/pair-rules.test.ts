@@ -24,6 +24,7 @@ const risk: RiskVersion = {
   slippageCap: '50',
   throttle: '200',
   circuitBreaker: null,
+  minNotional: '5',
   oiLimit: null,
   oiShareBps: null,
   priceRangeMax: null,
@@ -68,6 +69,9 @@ describe('SP-order-entry-03 pair rules in words', () => {
     for (const v of [rules.tick, rules.lot, rules.minQty, rules.minNotional, rules.maxQty, ...Object.values(rules.protection)]) {
       expect(typeof v).toBe('string');
     }
+    expect(presentPairRules(market, { ...risk, minNotional: null }).minNotional).toBe(PAIR_RULE_NOT_SET);
+    expect(presentPairRules(market, { ...risk, minNotional: '1' }).minNotional).toBe('5');
+    expect(presentPairRules(market, { ...risk, minNotional: '25' }).minNotional).toBe('25');
   });
 
   it('keeps the CCXT market shape valid with pairRules attached, and null when no reader is mounted', () => {

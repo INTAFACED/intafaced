@@ -35,7 +35,7 @@ const reasonCases = [
   [['packages/ui/src/button.tsx'], true], // a kit part
   [['apps/customer/README.md'], false], // a doc draws nothing
   [['apps/customer/tests/real-app/J-bank-02.pw.mjs'], false], // a test draws nothing: its own judge reads it
-  [['apps/customer/src/app/volt-count.test.ts'], false],
+  [['apps/customer/src/app/beta-volt.test.ts'], false],
   [['.github/CODEOWNERS'], true], // gate files
   [['.github/workflows/ci.yml'], true],
   [['tooling/ci/dependency-audit.mjs'], true],
