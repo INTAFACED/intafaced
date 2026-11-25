@@ -14,7 +14,7 @@ import type { ChainReadMethod, ClientFailure, EmbeddedWalletClient } from './pro
  */
 
 /** An EIP-1193 error: `code` is the standard's (4001 rejected, 4100 unauthorised, 4200 unsupported, 4900/4901 disconnected). */
-export class ProviderRpcError extends Error {
+class ProviderRpcError extends Error {
   constructor(
     readonly code: number,
     message: string,
@@ -24,16 +24,16 @@ export class ProviderRpcError extends Error {
   }
 }
 
-export const USER_REJECTED = 4001;
-export const UNAUTHORIZED = 4100;
-export const UNSUPPORTED_METHOD = 4200;
-export const DISCONNECTED = 4900;
-export const CHAIN_DISCONNECTED = 4901;
+const USER_REJECTED = 4001;
+const UNAUTHORIZED = 4100;
+const UNSUPPORTED_METHOD = 4200;
+const DISCONNECTED = 4900;
+const CHAIN_DISCONNECTED = 4901;
 const INTERNAL = -32603;
 const INVALID_PARAMS = -32602;
 
 /** A provider client's failure as the EIP-1193 error a dapp reads: a passkey that did not pass is the person's no. */
-export function failureError(failure: ClientFailure): ProviderRpcError {
+function failureError(failure: ClientFailure): ProviderRpcError {
   switch (failure) {
     case 'passkey':
       return new ProviderRpcError(USER_REJECTED, 'The passkey check did not pass. Nothing was signed or sent.');
