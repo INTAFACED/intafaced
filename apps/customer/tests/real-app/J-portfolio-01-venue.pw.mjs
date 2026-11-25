@@ -416,7 +416,8 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   await expect(walletSection.locator('tbody tr')).toHaveCount(walletRows.length);
   for (const row of walletRows) await holding('source-wallet', row, { amountCells: { amount: decimal(row.amount) }, source: atPageBlock });
   // The venue account: free, locked and total exactly as the venue reports them, each asset it holds.
-  await expect(page.getByTestId('source-venue').locator('tbody > tr')).toHaveCount(venueRows.length);
+  // Counted by the rows' asset mark: the panel's fold also holds the then-and-now table, whose rows are not holdings.
+  await expect(page.getByTestId('source-venue').locator('tbody > tr[data-asset]')).toHaveCount(venueRows.length);
   for (const b of venueRows) {
     const row = valued.find((r) => r.part === 'venue' && r.asset === b.asset);
     await holding('source-venue', row, { amountCells: { free: b.free, locked: b.locked, total: b.total }, source: venueName });
