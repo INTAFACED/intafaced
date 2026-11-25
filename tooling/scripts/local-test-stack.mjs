@@ -2272,6 +2272,9 @@ async function startRailStatements() {
  * its keys live only in it and its own state file (test-wallet-provider.json, mode 0600), and passkey assertions are accepted only from the Customer app's own origins.
  */
 async function startTestWalletProvider() {
+  // It serves the package code it loaded, so a new build restarts it, as a service's does (stopForNewBuild).
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild('test-wallet-provider', readProcs()['test-wallet-provider'], build, PORTS['test-wallet-provider']);
   const procs = readProcs();
   const url = `${urlOf('test-wallet-provider')}/health`;
   if (ownedAlive(procs['test-wallet-provider']) && (await httpGet(url, 2000)).status === 200) return;
@@ -2281,6 +2284,7 @@ async function startTestWalletProvider() {
     [process.execPath, SCRIPT, '__serve-test-wallet-provider'],
     { ...baseEnv(), APP_ENV: 'dev', ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}) },
     REPO,
+    { build },
   );
   await waitHealthy('test-wallet-provider', url, pid, 20_000);
 }
@@ -2299,6 +2303,10 @@ export function userVenueOn(env = process.env) {
 
 /** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */
 async function startTestVenue(name = 'test-venue') {
+  // A venue serves the adapter code it loaded (packages/venue-hyperliquid among it), so a new build restarts it, as a
+  // service's does: a long-lived beta otherwise kept a venue from before a fix while reporting the newer commit.
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild(name, readProcs()[name], build, PORTS[name]);
   const procs = readProcs();
   const url = `${urlOf(name)}/health`;
   // Which venue and source this start wants: a running one that answers for another (the simulator where
@@ -2345,7 +2353,7 @@ async function startTestVenue(name = 'test-venue') {
     LOCAL_STACK_HL_TRADER: hl.trader ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
-  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
+  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO, { build });
   await waitHealthy(name, url, pid, 20_000);
 }
 
