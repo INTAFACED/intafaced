@@ -502,12 +502,14 @@ export function venueApi(api: ApiClient) {
       actionKey?: string;
       stepUpApprovalId?: string | null;
       venueId?: string;
+      /** Who signs it: the owner's wallet (the default), or a trading session's agent key (session-signer.ts). */
+      signer?: { role: 'owner' | 'agent'; address: string };
     }) =>
       write('/prepare', preparedAnswerSchema, {
         ...(input.venueId ? { venueId: input.venueId } : {}),
         ...(input.subAccount ? { subAccount: input.subAccount } : {}),
         owner: input.owner,
-        signer: { role: 'owner', address: input.owner },
+        signer: input.signer ?? { role: 'owner', address: input.owner },
         intent: input.intent,
         actionKey: input.actionKey ?? null,
         stepUpApprovalId: input.stepUpApprovalId ?? null,

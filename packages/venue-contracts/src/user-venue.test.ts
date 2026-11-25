@@ -6,6 +6,7 @@ import {
   assertSignatureMatches,
   assertSignerMaySign,
   refuseTestVenueOutsideTest,
+  tradesSignedByOf,
   venueClientOrderId,
   type PreparedVenueAction,
   isTestVenue,
@@ -340,5 +341,14 @@ describe('needsReadBack', () => {
     expect(needsReadBack({ definite: true, accepted: false, refusal: { venueId: 'v', code: 'venue_rejected', detail: 'x' }, asOf })).toBe(
       false,
     );
+  });
+});
+
+describe("who signs a venue's trades (tradesSignedByOf)", () => {
+  it("a session key only where the venue declares it; the owner's wallet when it declares nothing or anything else", () => {
+    expect(tradesSignedByOf({ tradesSignedBy: 'session_key' })).toBe('session_key');
+    expect(tradesSignedByOf({ tradesSignedBy: 'owner_wallet' })).toBe('owner_wallet');
+    expect(tradesSignedByOf({})).toBe('owner_wallet');
+    expect(tradesSignedByOf({ tradesSignedBy: 'agent' as never })).toBe('owner_wallet');
   });
 });
