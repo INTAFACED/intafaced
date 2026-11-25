@@ -354,7 +354,9 @@ export const components = {
   PageColumn: 'One column of a PageGrid, its panels stacked with the page gap; span all for a band across every column',
   TileRow: 'A row of equal tiles that wraps by width (narrow 11rem, card 14rem, wide 18rem)',
   PanelHead: "A panel's head: its title as a heading at the start, an aside at the end",
-  Num: 'A number drawn with tabular digits and the figure cut, optionally up or down coloured',
+  MarketTable:
+    'Markets as a table: mark, symbol and name; price, 24h change, 7-day line and volume end-aligned in tabular digits; a row action shown on hover; placeholder rows while loading',
+  MoverTile: 'One market as a tile: symbol and change, the price large, its line',
 } as const;
 export type ComponentName = keyof typeof components;
 

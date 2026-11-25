@@ -764,6 +764,8 @@
 /* ---- Values (b2-values.tsx): figures in rows, coin marks, status words, panel states ---- */
 .lt-num {
   font-variant-numeric: tabular-nums;
+  /* Volt's figure cut, so every column of prices across the beta's screens lines up the same way. */
+  font-stretch: 112%;
   white-space: nowrap;
   unicode-bidi: isolate;
 }
@@ -1691,7 +1693,8 @@ button.lt-menu-item:focus-visible {
    home A. One column under 64rem of the page's own width; the layout's columns from there; a step larger on an
    ultra-wide screen so 2560 reads like 1440. */
 .lt-page {
-  container: lt-page / inline-size;
+  /* Also the kit's `room` container, so tables and templates inside take their phone form by the page's width. */
+  container: lt-page room / inline-size;
   inline-size: 100%;
   max-inline-size: 150rem;
   margin-inline: auto;
@@ -1769,15 +1772,141 @@ button.lt-menu-item:focus-visible {
   font-size: var(--lit-type-label-size);
 }
 
-.lt-num {
-  font-family: var(--lit-font-figure);
-  font-variant-numeric: tabular-nums;
-  font-stretch: 112%;
+
+/* Market parts (market-parts.tsx): one market drawn the same way on landing, home, markets and the movers row. */
+.lt-market-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-inline-size: 0;
+}
+.lt-market-symbol {
+  font-weight: 600;
+  color: var(--lit-text-1);
+}
+.lt-market-full {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lt-num[data-dir='up'] {
-  color: var(--lit-up-text);
+.lt-market-bone,
+.lt-market-table[data-loading] td:not(:first-child) bdi::before {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
 }
-.lt-num[data-dir='down'] {
-  color: var(--lit-down-text);
+.lt-market-bone {
+  inline-size: 7rem;
+  block-size: 1.75rem;
+}
+.lt-market-table[data-loading] td:not(:first-child) bdi::before {
+  content: '';
+  inline-size: 4rem;
+  block-size: 0.75rem;
+}
+.lt-market-table .lt-table th {
+  color: var(--lit-text-3);
+  border-block-end-color: var(--lit-line);
+}
+.lt-market-table .lt-table tbody tr {
+  transition: background var(--lit-t-quick) var(--lit-ease);
+}
+.lt-market-table .lt-table tbody tr:hover {
+  background: var(--lit-solid-bg-raised);
+}
+.lt-market-table .lt-table tbody tr:last-child td {
+  border-block-end: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .lt-market-action {
+    opacity: 0;
+    transition: opacity var(--lit-t-quick) var(--lit-ease);
+  }
+  .lt-market-table tr:is(:hover, :focus-within) .lt-market-action {
+    opacity: 1;
+  }
+}
+
+.lt-mover {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.875rem 1rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-sheen), var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip);
+  color: var(--lit-text-1);
+  text-decoration: none;
+  min-inline-size: 0;
+}
+a.lt-mover:hover {
+  background: var(--lit-sheen), var(--lit-solid-bg-raised);
+}
+.lt-mover-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: var(--lit-type-label-size);
+}
+.lt-mover-price {
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  font-weight: 600;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+}
+.lt-mover .lt-spark[data-size='row'] {
+  inline-size: 100%;
+}
+
+
+/* On a phone a market stays one row, the way exchanges list them: name, then price and 24h at the end; the line,
+   volume and row action step aside (the row itself opens the market). */
+@container room (max-width: 599px) {
+  .lt-market-table .lt-table thead {
+    display: none;
+  }
+  .lt-market-table .lt-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    column-gap: 0.75rem;
+    min-block-size: 3.5rem;
+    padding-block: 0.5rem;
+  }
+  .lt-market-table .lt-table td {
+    display: block;
+    min-block-size: 0;
+  }
+  .lt-market-table .lt-table td::before {
+    content: none;
+  }
+  .lt-market-table .lt-table td:nth-child(n + 4) {
+    display: none;
+  }
+  .lt-market-table .lt-table td:nth-child(3) {
+    min-inline-size: 4.5rem;
+    text-align: end;
+  }
+  .lt-market-table .lt-table tr[data-empty] {
+    display: block;
+  }
+}
+
+/* On a phone a row of market tiles swipes sideways (two and a bit in view) instead of stacking into a tall column. */
+@container room (max-width: 599px) {
+  .lt-tile-row[data-min='card'] {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 42%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .lt-tile-row[data-min='card'] > * {
+    scroll-snap-align: start;
+  }
 }

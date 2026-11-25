@@ -45,7 +45,8 @@ export function PageColumn({ span, className, ...rest }: Div & { span?: 'all' })
 
 /**
  * A row of equal tiles that wraps by width: what's moving, the trust strip, the stat row. `min` is the narrowest a
- * tile may get before the row wraps: `narrow` 11rem (a stat), `card` 14rem (a market tile), `wide` 18rem (a note).
+ * tile may get before the row wraps: `narrow` 11rem (a stat), `card` 14rem (a market tile; on a phone the row swipes
+ * sideways instead), `wide` 18rem (a note).
  */
 export function TileRow({ min = 'card', className, ...rest }: Div & { min?: 'narrow' | 'card' | 'wide' }) {
   return <div {...rest} className={clsx('lt-tile-row', className)} data-min={min} />;
@@ -69,12 +70,4 @@ export function PanelHead({
       {aside === undefined ? null : <div className="lt-panel-aside">{aside}</div>}
     </div>
   );
-}
-
-/**
- * A number in running text or a cell: tabular digits, Volt's slightly wide figure cut, so columns of prices line up
- * digit for digit. Formatting stays with `packages/i18n`; this only draws it.
- */
-export function Num({ className, dir, ...rest }: React.HTMLAttributes<HTMLSpanElement> & { dir?: 'up' | 'down' }) {
-  return <span {...rest} className={clsx('lt-num', className)} data-dir={dir} />;
 }

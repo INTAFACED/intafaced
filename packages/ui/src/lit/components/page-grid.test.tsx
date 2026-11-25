@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Num, PageColumn, PageGrid, PanelHead, TileRow } from '../index.js';
+import { PageColumn, PageGrid, PanelHead, TileRow } from '../index.js';
 
 describe('PageGrid', () => {
   it('wraps the grid in a page box that scales on an ultra-wide screen unless told not to', () => {
@@ -22,7 +22,7 @@ describe('PageGrid', () => {
   });
 });
 
-describe('PanelHead, TileRow and Num', () => {
+describe('PanelHead and TileRow', () => {
   it('names the panel with a heading at the asked level and keeps the aside beside it', () => {
     const html = renderToStaticMarkup(<PanelHead level={3} title="What's moving" aside="TEST" />);
     expect(html).toContain('<h3 class="lt-panel-title">What&#x27;s moving</h3>');
@@ -30,8 +30,7 @@ describe('PanelHead, TileRow and Num', () => {
     expect(renderToStaticMarkup(<PanelHead title="Markets" />)).not.toContain('lt-panel-aside');
   });
 
-  it('sets the tile minimum and the number direction as data, not style', () => {
+  it('sets the tile minimum as data, not style', () => {
     expect(renderToStaticMarkup(<TileRow min="narrow" />)).toContain('data-min="narrow"');
-    expect(renderToStaticMarkup(<Num dir="down">−1.12%</Num>)).toBe('<span class="lt-num" data-dir="down">−1.12%</span>');
   });
 });
