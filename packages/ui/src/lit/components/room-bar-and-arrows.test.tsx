@@ -154,8 +154,10 @@ describe('the rows that take the arrow keys', () => {
       />,
     );
     expect(out).toMatch(/^<div data-testid="coin-ranges" class="lit-segmented" role="group" aria-label="Chart range">/);
-    expect(out).toContain('<button type="button" aria-pressed="true">1D</button>');
-    expect(out).toContain('<button type="button" aria-pressed="false" aria-label="Six months" title="Six months">6M</button>');
+    expect(out).toContain('<button type="button" aria-pressed="true"><span class="lit-segmented-label">1D</span></button>');
+    expect(out).toContain(
+      '<button type="button" aria-pressed="false" aria-label="Six months" title="Six months"><span class="lit-segmented-label">6M</span></button>',
+    );
     expect(out.match(/aria-pressed="true"/g)).toHaveLength(1);
     // Every pill stays a Tab stop: no roving tabindex changes how Tab moves.
     expect(out).not.toContain('tabindex');
