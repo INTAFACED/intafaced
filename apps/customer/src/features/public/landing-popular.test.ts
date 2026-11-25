@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { popularOf } from './HomePage';
+import { dec, str } from '../../data/decimal';
+import { exampleLong, popularOf } from './HomePage';
 
 const line = (symbol: string, last: string | undefined, volume: string) => ({
   symbol,
@@ -15,5 +16,26 @@ describe('the landing board’s Popular tab', () => {
   it('leaves out a market whose ticker has no last price yet', () => {
     const lines = [line('SOL/USDT', '', '100'), line('XRP/USDT', '0.5230', '50')];
     expect(popularOf(lines).map((l) => l.symbol)).toEqual(['XRP/USDT']);
+  });
+});
+
+describe('the landing’s example long', () => {
+  const usd = (n: string) => dec(n)!;
+  it('works every figure from the live price and the published taker rate', () => {
+    const ex = exampleLong(usd('100000'), 7);
+    // $1,000 of margin at 10x: $10,000 of size; stop 2.10% under, target 1.44% over; our fee taken on the way in and out.
+    expect(str(ex.size)).toBe('10000');
+    expect(str(ex.stop)).toBe('97900');
+    expect(str(ex.target)).toBe('101440');
+    expect(str(ex.fee!)).toBe('14');
+    expect(str(ex.ifStopped!)).toBe('-224');
+    expect(str(ex.ifTarget!)).toBe('130');
+  });
+
+  it('leaves the fee and both outcomes blank while no fee is published', () => {
+    const ex = exampleLong(usd('100000'), null);
+    expect(ex.fee).toBeNull();
+    expect(ex.ifStopped).toBeNull();
+    expect(ex.ifTarget).toBeNull();
   });
 });

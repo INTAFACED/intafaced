@@ -157,14 +157,13 @@ export function BrandIris({
 }
 
 /**
- * The brand in an app bar: the horizontal lockup (top-bar drawing, 24 pixels) on a wide screen, the mark alone on a
- * phone, where the bar is tight and the dock below carries the rooms. The bar's link carries the name.
+ * The brand in an app bar: the horizontal lockup (top-bar drawing, 24 pixels), the mark and the wordmark together at
+ * every width, so every screen carries the same brand. The bar's link carries the name.
  */
 export function BrandBar({ className }: { className?: string }) {
   return (
     <span data-slot="brand-bar" className={['brand-bar', className].filter(Boolean).join(' ')}>
-      <BrandLockup size={24} title="" className="brand-bar__wide" />
-      <BrandMark size={24} className="brand-bar__compact" />
+      <BrandLockup size={24} title="" />
     </span>
   );
 }

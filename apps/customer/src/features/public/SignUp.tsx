@@ -58,6 +58,7 @@ export function SignUp() {
   const [country, setCountry] = useState('');
   const [subdivision, setSubdivision] = useState('');
   const [nationality, setNationality] = useState('');
+  const [showNationality, setShowNationality] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -217,6 +218,7 @@ export function SignUp() {
           <Stepper labels={steps} current={pending ? 1 : 0} />
           <header className="lt-stack">
             <h1 className="lt-title">{pending ? t('checkEmail') : t('title')}</h1>
+            <p className="lt-muted">{pending ? t('codeIntro') : t('intro')}</p>
           </header>
           {!pending && (
             <form ref={form} method="post" className="lt-stack" onSubmit={start} aria-label={t('step1')}>
@@ -316,6 +318,22 @@ export function SignUp() {
                   options={[{ value: '', label: t('subdivisionPick') }, ...provinces.map((p) => ({ value: p.code, label: p.name }))]}
                 />
               )}
+              {showNationality ? (
+                <SelectField
+                  label={t('nationality')}
+                  name="nationality"
+                  disabled={busy}
+                  value={nationality}
+                  onChange={setNationality}
+                  options={[{ value: '', label: t('nationalityPick') }, ...countries.map((c) => ({ value: c.code, label: c.name }))]}
+                />
+              ) : (
+                <div>
+                  <Button tone="quiet" size="sm" disabled={busy} onClick={() => setShowNationality(true)}>
+                    {t('addNationality')}
+                  </Button>
+                </div>
+              )}
               <fieldset className="lt-group lt-stack" disabled={busy}>
                 <legend>{t('usPerson')}</legend>
                 <small className="lt-muted">{t('usPersonHint')}</small>
@@ -327,14 +345,6 @@ export function SignUp() {
                   }))}
                 />
               </fieldset>
-              <SelectField
-                label={t('nationality')}
-                name="nationality"
-                disabled={busy}
-                value={nationality}
-                onChange={setNationality}
-                options={[{ value: '', label: t('nationalityPick') }, ...countries.map((c) => ({ value: c.code, label: c.name }))]}
-              />
               <Button
                 tone="primary"
                 size="lg"
@@ -350,9 +360,11 @@ export function SignUp() {
           {!pending && <SocialSignIn />}
           {pending && (
             <form ref={form} method="post" className="lt-stack" onSubmit={confirm} aria-label={t('step2')}>
-              <p role="status" className="lt-muted">
-                {t('checkEmailBody', { email: pending.email })}
-              </p>
+              <Surface material="raised">
+                <p role="status" className="lt-muted">
+                  {t('checkEmailBody', { email: pending.email })}
+                </p>
+              </Surface>
               {resent && <p className="lt-muted">{t('resent')}</p>}
               <Field
                 label={t('code')}
@@ -383,6 +395,7 @@ export function SignUp() {
                 </Button>
               </div>
               {wait > 0 && <small className="lt-muted">{t('resendIn', { seconds: wait })}</small>}
+              <small className="lt-muted">{t('codeHelp')}</small>
             </form>
           )}
           {problem ? (
@@ -431,8 +444,8 @@ export function SignUp() {
       <PageColumn>
         <Surface className="lt-stack lt-auth-stage">
           <WalletCard mark={<Logo variant="wordmark" size={18} />} label={t('stageWalletLabel')} value={t('stageWalletValue')} />
-          <Display as="h2">{t('stageTitle')}</Display>
-          <p className="lt-description">{t('stageBody')}</p>
+          <Display as="h2">{pending ? t('nextTitle') : t('stageTitle')}</Display>
+          <p className="lt-description">{pending ? t('nextBody') : t('stageBody')}</p>
           <TileRow min="narrow">
             {(
               [

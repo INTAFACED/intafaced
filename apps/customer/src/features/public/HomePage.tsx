@@ -1,8 +1,6 @@
 // volt-room: /
 import { useMemo, useState } from 'react';
-import { BrandLockup } from '@intafaced/ui';
 import {
-  Amount,
   Button,
   ButtonLink,
   Display,
@@ -14,7 +12,6 @@ import {
   PageColumn,
   PageGrid,
   PanelHead,
-  Price,
   SectionTitle,
   Stat,
   Surface,
@@ -24,8 +21,8 @@ import {
 } from '@intafaced/ui/lit';
 import { AreaChart, Segmented, TestTag } from '@intafaced/ui/lit/templates';
 import { useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
-import { compareDecimal, dec, ratio, str, sub, sumOf } from '../../data/decimal';
-import { fmtAmount, fmtPct, fmtPrice, fmtUsd } from '../../data/format';
+import { compareDecimal, dec, str, sumOf, type Scaled } from '../../data/decimal';
+import { fmtPct, fmtPrice, fmtUsd } from '../../data/format';
 import type { Decimal, Loadable, MarketRow, TickerRow } from '../../data/types';
 import { bpsAsPercent, publicFeesFetcher, type PublicFeeSchedule } from './fees';
 import { landingCopy } from './landing-copy';
@@ -41,8 +38,6 @@ interface Line {
 const USD_QUOTES = new Set(['USD', 'USDT', 'USDC']);
 const BOARD_ROWS = 6;
 const MOVERS = 5;
-/** The example order in "see the real screen": an amount, not a balance; its price and fee are live. */
-const EXAMPLE_SPEND = '1000';
 
 const pairPath = (market: MarketRow) => `/trade/spot/${encodeURIComponent(`${market.base}-${market.quote}`)}`;
 const priceOf = (line: Line) => {
@@ -122,8 +117,8 @@ export function HomePage() {
             />
           </form>
           <div className="ld-actions">
-            <ButtonLink size="sm" href="/trade/markets">
-              {t('seeMarkets')}
+            <ButtonLink size="sm" href="/login">
+              {t('passkeySignIn')}
             </ButtonLink>
           </div>
           <p className="ld-note">{t('heroNote')}</p>
@@ -145,14 +140,13 @@ export function HomePage() {
           <TrustStrip
             label={t('trustFees')}
             cells={[
-              { key: 'wallet', title: t('trustPasskeys'), body: t('trustPasskeysBody') },
-              { key: 'passkeys', title: t('trustSignIn'), body: t('trustSignInBody') },
+              { key: 'test', title: t('trustTest'), body: t('trustTestBody') },
               { key: 'fees', title: t('trustFees'), body: t('trustFeesBody') },
-              { key: 'agents', title: t('trustAgents'), body: t('trustAgentsBody') },
+              { key: 'passkeys', title: t('trustSignIn'), body: t('trustSignInBody') },
+              { key: 'wallet', title: t('trustWallet'), body: t('trustWalletBody') },
             ]}
           />
-          <Slab t={t} />
-          <FeesPreview line={featured} takerBps={takerBps} t={t} />
+          <DeskSection line={featured} takerBps={takerBps} t={t} />
           <section className="ld-closing" aria-labelledby="ld-closing-title">
             <SectionTitle className="ld-closing-title">
               <span id="ld-closing-title">{t('closingTitle')}</span>
@@ -308,124 +302,120 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
   );
 }
 
-/** B's engraved balance slab: one illustrative account (TEST) and the three doors it opens in the beta. */
-function Slab({ t }: { t: T }) {
-  const parts = [
-    { name: t('partTrading'), share: 52 },
-    { name: t('partWallet'), share: 39 },
-    { name: t('partAgents'), share: 9 },
-  ];
+/** A share of the example's price, in basis points: where its stop and its target sit. */
+const STOP_BPS = 210n;
+const TARGET_BPS = 144n;
+/** The example long: its margin and leverage. An illustration on the live price, drawn with TEST. */
+const EXAMPLE_MARGIN = '1000';
+const EXAMPLE_LEVERAGE = 10n;
+const BPS = 10_000n;
+
+/**
+ * The doors of the one account beside an example long on the busiest market: its size, what a stop or a target would
+ * leave after our fee, all from the live price and the published taker rate (blank where no fee is set). TEST.
+ */
+function DeskSection({ line, takerBps, t }: { line: Line | undefined; takerBps: number | null; t: T }) {
   const doors = [
     { href: '/trade/markets', name: t('doorTrade'), line: t('doorTradeLine') },
     { href: '/register', name: t('doorWallet'), line: t('doorWalletLine') },
     { href: '/register', name: t('doorAgents'), line: t('doorAgentsLine') },
+    { href: '/developers', name: t('doorApi'), line: t('doorApiLine') },
   ];
   return (
-    <section className="ld-slab-section" aria-labelledby="ld-slab-title">
-      <div className="ld-slab-copy">
+    <section className="ld-desk" aria-labelledby="ld-desk-title">
+      <div className="ld-desk-copy">
         <SectionTitle className="ld-big-title">
-          <span id="ld-slab-title">{t('slabTitle')}</span>
+          <span id="ld-desk-title">{t('deskTitle')}</span>
         </SectionTitle>
-        <p>{t('slabLead')}</p>
         <ul className="ld-doors">
           {doors.map((door) => (
             <li key={door.name}>
               <a href={door.href}>
                 <strong>{door.name}</strong>
                 <span>{door.line}</span>
+                <span className="ld-door-arrow" aria-hidden="true">
+                  →
+                </span>
               </a>
             </li>
           ))}
         </ul>
       </div>
-      <figure className="ld-slab" aria-label={t('slabExample')}>
-        <div className="ld-slab-top">
-          <BrandLockup size={24} title="INTAFACED" className="ld-slab-brand" />
-          <span className="ld-slab-example">
-            {t('slabExample')} <TestTag />
-          </span>
-        </div>
-        <div className="ld-slab-figure">
-          <span className="ld-slab-label">{t('slabTotal')}</span>
-          <Price className="ld-slab-total" value="$24,860.40" cents />
-          <span className="ld-slab-today" data-tone="up">
-            {t('slabToday')}
-          </span>
-        </div>
-        <div className="ld-slab-parts">
-          {parts.map((part) => (
-            <span key={part.name} className="ld-slab-part" style={{ flexGrow: part.share }}>
-              <span className="ld-slab-bar" />
-              <span>{part.name}</span>
-            </span>
-          ))}
-        </div>
-      </figure>
+      <ExampleLong line={line} takerBps={takerBps} t={t} />
     </section>
   );
 }
 
-/** C's "see the real screen with its fees": the ticket on the busiest market's live price and the published taker rate. */
-function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: number | null; t: T }) {
-  const spend = dec(EXAMPLE_SPEND)!;
+/** One example position, every figure worked from the live price: what a person sees on the desk before placing it. */
+export function exampleLong(price: Scaled, takerBps: number | null) {
+  const margin = dec(EXAMPLE_MARGIN)!;
+  const size = margin * EXAMPLE_LEVERAGE;
+  const fee = takerBps === null ? null : (size * BigInt(takerBps) * 2n) / BPS;
+  const stop = price - (price * STOP_BPS) / BPS;
+  const target = price + (price * TARGET_BPS) / BPS;
+  const stopMove = -(size * STOP_BPS) / BPS;
+  const targetMove = (size * TARGET_BPS) / BPS;
+  return {
+    size,
+    fee,
+    stop,
+    target,
+    ifStopped: fee === null ? null : stopMove - fee,
+    ifTarget: fee === null ? null : targetMove - fee,
+  };
+}
+
+const signedUsd = (value: Scaled) => (value < 0n ? `−${fmtUsd(str(-value))}` : `+${fmtUsd(str(value))}`);
+
+function ExampleLong({ line, takerBps, t }: { line: Line | undefined; takerBps: number | null; t: T }) {
   const price = dec(line?.ticker?.last);
-  const fee = takerBps === null ? null : (spend * BigInt(takerBps)) / 10_000n;
-  const net = fee === null ? spend : sub(spend, fee);
-  const amount = price && price > 0n ? ratio(net, price) : null;
   const points = useTrendPoints(line?.market.symbol);
+  const symbol = line?.market.base ?? '';
+  const ex = price && price > 0n ? exampleLong(price, takerBps) : null;
+  const usd = (value: Scaled) => fmtUsd(str(value));
   return (
-    <section className="ld-fees" aria-labelledby="ld-fees-title">
-      <header className="ld-section-head ld-fees-head">
-        <SectionTitle className="ld-big-title">
-          <span id="ld-fees-title">{t('feesTitle')}</span>
-        </SectionTitle>
-        <p>{t('feesLead')}</p>
-      </header>
-      <div className="ld-ticket">
-        <div className="ld-ticket-main">
-          <span className="ld-ticket-kicker">
-            {t('feesExample')} <TestTag />
+    <figure className="ld-card" aria-label={t('cardLabel', { symbol })}>
+      <div className="ld-card-chart">
+        <div className="ld-card-head">
+          <span className="ld-card-symbol">
+            {symbol} <TestTag />
           </span>
-          <span className="ld-slab-label">{t('feesYouPay')}</span>
-          <Price className="ld-ticket-big" value={fmtUsd(EXAMPLE_SPEND)} cents />
-          <span className="ld-slab-label">{t('feesYouGet')}</span>
-          <Amount
-            className="ld-ticket-get"
-            value={amount === null ? null : `${fmtAmount(str(amount), { places: 6 })} ${line?.market.base ?? ''}`}
-          />
-          <div className="ld-ticket-chart" hidden={points.length < 2}>
-            {line ? (
-              <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} tone="ink" soft fit />
-            ) : null}
+          <span>{line && line.ticker?.last ? priceOf(line) : t('cardNoPrice')}</span>
+        </div>
+        <div className="ld-card-plot" hidden={points.length < 2}>
+          {line ? <AreaChart label={t('trendOf', { symbol })} points={points} asset={line.market.quote} tone="ink" soft fit /> : null}
+        </div>
+        {ex && ex.ifTarget !== null && ex.ifStopped !== null ? (
+          <div className="ld-card-levels">
+            <span data-tone="up">{t('cardTargetTag', { price: usd(ex.target), pnl: signedUsd(ex.ifTarget) })}</span>
+            <span data-tone="down">{t('cardStopTag', { price: usd(ex.stop), pnl: signedUsd(ex.ifStopped) })}</span>
           </div>
-        </div>
-        <div className="ld-ticket-lines">
-          <dl>
-            <div>
-              <dt>{line ? t('feesBuy', { asset: line.market.base }) : t('feesPrice')}</dt>
-              <dd>{line ? priceOf(line) : t('feesNoPrice')}</dd>
-            </div>
-            <div>
-              <dt>{takerBps === null ? t('feesOurFee', { pct: '—' }) : t('feesOurFee', { pct: bpsAsPercent(takerBps) })}</dt>
-              <dd>{fee === null ? t('feesNotSet') : fmtUsd(str(fee))}</dd>
-            </div>
-            <div>
-              <dt>{t('feesVenue')}</dt>
-              <dd>{t('feesVenueLine')}</dd>
-            </div>
-            <div className="ld-ticket-total">
-              <dt>{t('feesTotal')}</dt>
-              <dd>{fmtUsd(EXAMPLE_SPEND)}</dd>
-            </div>
-          </dl>
-          <ButtonLink tone="secondary" size="lg" block href="/register">
-            {t('startTrading')}
-          </ButtonLink>
-          <a className="ld-link" href="/fees">
-            {t('feesSchedule')} →
-          </a>
-        </div>
+        ) : null}
       </div>
-    </section>
+      <div className="ld-card-side">
+        <dl className="ld-card-lines">
+          <div>
+            <dt>{t('cardSize', { lev: String(EXAMPLE_LEVERAGE) })}</dt>
+            <dd>{ex ? usd(ex.size) : '—'}</dd>
+          </div>
+          <div>
+            <dt>{t('cardStopped')}</dt>
+            <dd data-tone="down">{ex?.ifStopped != null ? signedUsd(ex.ifStopped) : t('cardNotSet')}</dd>
+          </div>
+          <div>
+            <dt>{t('cardTarget')}</dt>
+            <dd data-tone="up">{ex?.ifTarget != null ? signedUsd(ex.ifTarget) : t('cardNotSet')}</dd>
+          </div>
+          <div>
+            <dt>{takerBps === null ? t('cardFeeBlank') : t('cardFee', { pct: bpsAsPercent(takerBps) })}</dt>
+            <dd>{ex?.fee != null ? usd(ex.fee) : t('cardNotSet')}</dd>
+          </div>
+        </dl>
+        <ButtonLink tone="secondary" size="lg" block href="/register">
+          {t('cardOpen')}
+        </ButtonLink>
+        <p className="ld-card-note">{t('cardNote')}</p>
+      </div>
+    </figure>
   );
 }
