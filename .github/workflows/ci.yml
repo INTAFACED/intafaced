@@ -88,7 +88,7 @@ jobs:
       pull-requests: read # the journey list guard reads the pull request's current body
     # What tells main-bisect's automatic revert (exact-revert.mjs autoRevertOf): its branch, author, commit count, head and
     # head repository (the test judge runs only for this repository's own). Read by the test-diff guard, lint-ratchet and
-    # the kit-ceilings and volt-off-kit tests (in `pnpm gates`) and look drift, which judge a proven revert of X against X^
+    # the kit-ceilings test (in `pnpm gates`) and look drift, which judge a proven revert of X against X^
     # (project-state#3635, #3697). Empty on a push.
     env:
       PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
