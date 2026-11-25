@@ -86,7 +86,7 @@ export const whereCopy = defineCopy('money.where', {
   'Level title': 'Your level',
   'Level reading': 'Reading your level…',
   'Level unread': 'Your level could not be read.',
-  'Level none': 'Not verified yet: you can look around.',
+  'Level none': 'Not verified: you can look around.',
   'Level basic': 'Basic',
   'Level full': 'Full',
   'Level institutional': 'Institutional',

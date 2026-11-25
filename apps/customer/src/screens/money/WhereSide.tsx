@@ -71,13 +71,11 @@ function MovingNow({ owner, t }: { owner: string; t: T }) {
 
 /** Where a withdrawal from the venue account goes: the connected wallet, unless the person edits it at the withdrawal. */
 function WithdrawTo({ owner, t }: { owner: string; t: T }) {
-  const room = isHiddenPath('/wallet/venue') ? null : '/wallet/venue#withdraw';
   return (
     <section className="lt-stack" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
       <h2 id="where-withdraw-title">{t('Withdraw to title')}</h2>
       <KeyValue rows={[{ label: t('Withdraw to wallet'), value: owner, ltr: true, note: t('Withdraw to ready') }]} />
       <p className="lt-hint">{t('Withdraw to note')}</p>
-      {room ? <a href={room}>{t('Withdraw venue')}</a> : null}
     </section>
   );
 }
