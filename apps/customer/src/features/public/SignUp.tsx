@@ -1,6 +1,18 @@
 // volt-room: /register
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Button, ChoiceTile, Field, Logo, PageColumn, PageGrid, RadioTrack, Surface, TileRow, WalletCard } from '@intafaced/ui/lit';
+import {
+  Button,
+  ChoiceTile,
+  Display,
+  Field,
+  Logo,
+  PageColumn,
+  PageGrid,
+  RadioTrack,
+  Surface,
+  TileRow,
+  WalletCard,
+} from '@intafaced/ui/lit';
 import { SelectField, Stepper } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { FailureNote } from '../../shared/failure-note';
@@ -408,7 +420,7 @@ export function SignUp() {
       <PageColumn>
         <Surface className="lt-stack lt-auth-stage">
           <WalletCard mark={<Logo variant="wordmark" size={18} />} label={t('stageWalletLabel')} value={t('stageWalletValue')} />
-          <h2 className="lt-hero-line">{t('stageTitle')}</h2>
+          <Display as="h2">{t('stageTitle')}</Display>
           <p className="lt-description">{t('stageBody')}</p>
           <TileRow min="narrow">
             {(

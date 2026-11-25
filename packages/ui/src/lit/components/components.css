@@ -2233,7 +2233,8 @@ a.lit-button {
 }
 /* Beside a live panel (the hero layout) the headline follows the page's width, so each line stays one line in its 5/12 column. */
 @container lt-page (min-width: 64rem) {
-  .lt-page-grid[data-layout='hero'] .lt-display {
+  .lt-page-grid[data-layout='hero'] .lt-display,
+  .lt-page-grid[data-stage='start'] .lt-display {
     font-size: clamp(2.75rem, 4.2cqi, 8.5rem);
   }
 }
@@ -2638,21 +2639,4 @@ a.lit-button {
 .lt-auth-foot {
   margin: 0;
   text-align: center;
-}
-/* The stage's value line: a title on a phone, the hero size once the page has two columns. */
-.lt-hero-line {
-  margin: 0;
-  font-size: var(--lit-type-title-size);
-  line-height: var(--lit-type-title-line);
-  font-weight: var(--lit-type-title-weight);
-  letter-spacing: var(--lit-type-title-tracking);
-  text-wrap: balance;
-}
-@container lt-page (min-width: 64rem) {
-  .lt-hero-line {
-    font-size: var(--lit-type-hero-size);
-    line-height: var(--lit-type-hero-line);
-    font-weight: var(--lit-type-hero-weight);
-    letter-spacing: var(--lit-type-hero-tracking);
-  }
 }
