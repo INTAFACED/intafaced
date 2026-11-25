@@ -39,15 +39,23 @@ const text = (id: string) => host.querySelector(`[data-testid="${id}"]`)?.textCo
 
 describe('RiskStrip', () => {
   it('with nothing resting, the stop and target totals say none is set, never the open result passed off as one', () => {
-    act(() => root.render(<RiskStrip positions={[position]} orders={[]} quote="USDC" />));
+    act(() => root.render(<RiskStrip positions={[position]} orders={[]} quote="USDC" funding={null} />));
     expect(text('venue-risk-open')).toBe('+500.00 USDC');
     expect(text('venue-risk-stops')).toBe('None set');
     expect(text('venue-risk-targets')).toBe('None set');
   });
 
   it('a resting stop is totalled at its trigger: 0.5 long from 96,000 stopped at 95,000 loses 500', () => {
-    act(() => root.render(<RiskStrip positions={[position]} orders={[stop]} quote="USDC" />));
+    act(() => root.render(<RiskStrip positions={[position]} orders={[stop]} quote="USDC" funding={null} />));
     expect(text('venue-risk-stops')).toBe('-500.00 USDC');
+    expect(text('venue-risk-targets')).toBe('None set');
+  });
+
+  it('with no position, the strip keeps its shape and says so; funding the venue does not publish says that', () => {
+    act(() => root.render(<RiskStrip positions={[]} orders={[]} quote="USDC" funding={null} />));
+    expect(text('venue-risk-funding')).toBe('not published by this venue');
+    expect(text('venue-risk-open')).toBe('No position');
+    expect(text('venue-risk-stops')).toBe('None set');
     expect(text('venue-risk-targets')).toBe('None set');
   });
 });

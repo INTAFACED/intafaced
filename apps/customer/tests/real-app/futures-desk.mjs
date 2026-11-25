@@ -31,3 +31,20 @@ export async function chooseContract(page, name) {
   await page.getByRole('combobox', { name: 'Choose a contract' }).click();
   await page.getByRole('option', { name }).click(UNBUILT);
 }
+
+/**
+ * Opens one of the venue desk's folds (closed by default, off the desk's face) and hands back the scope to read in, so
+ * a step reads a moved part where a person finds it: the desk's "Market details" (the contract strip, who may open,
+ * the venue's rules and tiers) or the ticket's "Order options" (label, margin asset, slippage cap, price band).
+ */
+export async function openFold(scope, testId) {
+  const fold = scope.getByTestId(testId);
+  await expect(fold).toBeAttached({ timeout: 30_000 });
+  if (!(await fold.evaluate((d) => d.open))) await fold.locator('summary').first().click();
+  await expect(fold).toHaveAttribute('open', '');
+  return scope;
+}
+/** The desk's "Market details", opened: `(await marketDetails(page)).getByTestId('venue-contract-strip')`. */
+export const marketDetails = (page) => openFold(page, 'venue-market-details');
+/** The ticket's "Order options", opened. */
+export const ticketOptions = (ticket) => openFold(ticket, 'venue-ticket-options');

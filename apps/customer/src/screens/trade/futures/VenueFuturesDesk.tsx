@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import { VenueMarketPanel } from '../desk/VenueMarketData';
 import '../desk/exchange-desk.css';
-import { Button, Field, Segmented, Switch } from '@intafaced/ui/lit';
+import { Button, Field, Fold, Segmented, Switch } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -268,6 +268,14 @@ function Contracts({
                   positions={account.positions.data?.value ?? []}
                   orders={account.openOrders.data?.value ?? []}
                   quote={market.quoteAsset}
+                  funding={
+                    market.funding.known
+                      ? t('Funding rate value', {
+                          percent: percentOf(market.funding.value.rate),
+                          every: intervalText(market.funding.value.intervalSeconds),
+                        })
+                      : null
+                  }
                 />
                 {owner ? <FlattenHold positions={account.positions.data?.value ?? []} markets={perps} owner={owner} run={run} /> : null}
               </div>
@@ -324,19 +332,19 @@ function Contracts({
           </div>
         }
         orders={
-          <div className="xd-under">
-            <div className="lt-stack">
-              {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
-              {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-              {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
-            </div>
-            <div className="lt-stack">
-              {/* The contract's fixed specs sit under the positions: the top of the desk is for prices and risk. */}
-              <ContractStrip market={market} test={status.test} />
-              <GatedList status={status} />
-              <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
-              <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
-            </div>
+          <div className="lt-stack">
+            {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+            {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+            {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+            {/* The contract's fixed specs, who may open it, its rules and tiers: there when asked for, never on the desk's face. */}
+            <Fold title={t('Market details')} data-testid="venue-market-details">
+              <div className="lt-stack">
+                <ContractStrip market={market} test={status.test} />
+                <GatedList status={status} />
+                <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+                <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
+              </div>
+            </Fold>
           </div>
         }
       />
@@ -1303,49 +1311,13 @@ function Ticket({
           }}
         />
       </label>
-      {type === 'limit' ? (
-        <div className="lt-stack-tight" data-testid="venue-price-band">
-          <p className="lt-note">
-            <strong>{r('Price band')}:</strong>{' '}
-            {band
-              ? r('Price band range', {
-                  low: displayAmount(band.bandLow),
-                  high: displayAmount(band.bandHigh),
-                  quote: market.quoteAsset,
-                  width: bpsToPercent(band.widthBps),
-                })
-              : r('Price band not published', { venue: status.venue.displayName })}
-          </p>
-          {band?.widened ? (
-            <p className="lt-note" role="status" data-testid="venue-price-band-widened">
-              {r('Price band widened', {
-                width: bpsToPercent(band.widthBps),
-                usual: bpsToPercent(band.usualWidthBps),
-                reason: band.reason ?? '',
-              })}
-            </p>
-          ) : null}
-          {band ? (
-            <div className="lt-stack-tight">
-              <div className="lt-row lt-row-between">
-                <span className="lt-quiet">{r('Price correction')}</span>
-                <Switch
-                  label={r('Price correction')}
-                  checked={adjustPrice}
-                  onChange={(on) => {
-                    setAdjustPrice(on);
-                    clearChecks();
-                  }}
-                />
-              </div>
-              <p className="lt-note">{adjustPrice ? r('Price correction on') : r('Price correction off')}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : !reduceOnly && slippageCap !== null ? (
-        <p className="lt-note" data-testid="venue-slippage-cap" data-code={slippageCap.known ? undefined : 'trade.slippage_cap_unset'}>
-          <strong>{r('Slippage cap')}:</strong>{' '}
-          {slippageCap.known ? r('Slippage cap bps', { bps: slippageCap.value }) : r('Slippage cap unset')}
+      {type === 'limit' && band?.widened ? (
+        <p className="lt-note" role="status" data-testid="venue-price-band-widened">
+          {r('Price band widened', {
+            width: bpsToPercent(band.widthBps),
+            usual: bpsToPercent(band.usualWidthBps),
+            reason: band.reason ?? '',
+          })}
         </p>
       ) : null}
       <label className="lt-field">
@@ -1365,20 +1337,61 @@ function Ticket({
         <input type="checkbox" checked={reduceOnly} onChange={(e) => setReduceOnly(e.target.checked)} />
         <span>{p('Reduce-only')}</span>
       </label>
-      <label className="lt-field">
-        <span>{t('Label optional')}</span>
-        <input aria-label={t('Label optional')} value={label} onChange={(e) => setLabel(e.target.value)} />
-      </label>
-      <label className="lt-field">
-        <span>{t('Margin asset')}</span>
-        <select aria-label={t('Margin asset')} value={marginAsset} onChange={(e) => setMarginAsset(e.target.value)}>
-          {assets.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* What the venue publishes about this order and the rarely changed fields: there when asked for, off the ticket's face. */}
+      <Fold title={t('Order options')} data-testid="venue-ticket-options">
+        <div className="lt-stack-tight">
+          {type === 'limit' ? (
+            <div className="lt-stack-tight" data-testid="venue-price-band">
+              <p className="lt-note">
+                <strong>{r('Price band')}:</strong>{' '}
+                {band
+                  ? r('Price band range', {
+                      low: displayAmount(band.bandLow),
+                      high: displayAmount(band.bandHigh),
+                      quote: market.quoteAsset,
+                      width: bpsToPercent(band.widthBps),
+                    })
+                  : r('Price band not published', { venue: status.venue.displayName })}
+              </p>
+              {band ? (
+                <div className="lt-stack-tight">
+                  <div className="lt-row lt-row-between">
+                    <span className="lt-quiet">{r('Price correction')}</span>
+                    <Switch
+                      label={r('Price correction')}
+                      checked={adjustPrice}
+                      onChange={(on) => {
+                        setAdjustPrice(on);
+                        clearChecks();
+                      }}
+                    />
+                  </div>
+                  <p className="lt-note">{adjustPrice ? r('Price correction on') : r('Price correction off')}</p>
+                </div>
+              ) : null}
+            </div>
+          ) : !reduceOnly && slippageCap !== null ? (
+            <p className="lt-note" data-testid="venue-slippage-cap" data-code={slippageCap.known ? undefined : 'trade.slippage_cap_unset'}>
+              <strong>{r('Slippage cap')}:</strong>{' '}
+              {slippageCap.known ? r('Slippage cap bps', { bps: slippageCap.value }) : r('Slippage cap unset')}
+            </p>
+          ) : null}
+          <label className="lt-field">
+            <span>{t('Label optional')}</span>
+            <input aria-label={t('Label optional')} value={label} onChange={(e) => setLabel(e.target.value)} />
+          </label>
+          <label className="lt-field">
+            <span>{t('Margin asset')}</span>
+            <select aria-label={t('Margin asset')} value={marginAsset} onChange={(e) => setMarginAsset(e.target.value)}>
+              {assets.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Fold>
       {/* The summary and the one primary button stay pinned at the ticket column's foot, so a long ticket never hides them. */}
       <div className="xd-ticket-go">
         {summary ? (

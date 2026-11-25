@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { marketDetails, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -129,7 +130,7 @@ async function restFromDesk(page, owner, size, price, label = '', side = 'long')
   await t.getByRole('button', { name: 'Limit', exact: true }).click();
   await t.getByRole('textbox', { name: 'Size (BTC)', exact: true }).fill(size);
   await t.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
-  await t.getByRole('textbox', { name: 'Label (optional)', exact: true }).fill(label);
+  await (await ticketOptions(t)).getByRole('textbox', { name: 'Label (optional)', exact: true }).fill(label);
   await t.getByRole('button', { name: `Review ${side}`, exact: true }).click();
   const sheet = page.getByTestId('venue-review');
   await expect(sheet).toBeVisible({ timeout: 20_000 });
@@ -217,7 +218,9 @@ test(`${J} #1 opens /trade/orders: open orders, history, user trades and executi
 
   // From the futures desk: rest a labelled TEST limit buy under the book, and verify the desk's status word and tag.
   await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, {
+    timeout: 20_000,
+  });
   const restingId = await restFromDesk(page, s.owner, '0.001', REST, LABEL);
   await ordersTab(page);
   await expect(rowOf(page, restingId)).toBeVisible({ timeout: 20_000 });
@@ -327,7 +330,9 @@ test(`${J} #2 opens an order that came from a stop, and one made by a liquidatio
     expect(entry, JSON.stringify(entry).slice(0, 300)).toMatchObject({ accepted: true, order: { status: 'filled' } });
     // Arm a stop-loss via the futures desk's Exit orders dialog.
     await openVenueDesk(page, s.account, TRIGGER_DESK, s.walletKey);
-    await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(TRIGGER_PERP, { timeout: 20_000 });
+    await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(TRIGGER_PERP, {
+      timeout: 20_000,
+    });
     const posRow = page.getByTestId('venue-positions').locator(`tr[data-symbol="${TRIGGER_PERP}"]`);
     await expect(posRow).toBeVisible({ timeout: 20_000 });
     await posRow.getByRole('button', { name: `Exit orders ${TRIGGER_PERP}`, exact: true }).click();
@@ -462,7 +467,9 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
   test.setTimeout(600_000);
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, {
+    timeout: 20_000,
+  });
   const a = await restFromDesk(page, s.owner, '0.002', REST, 'amend-a');
   await ordersTab(page);
   await expect(rowOf(page, a)).toBeVisible({ timeout: 20_000 });
@@ -586,7 +593,9 @@ test(`${J} #4 cancels by id, by instrument and by label, singly and in a batch: 
   test.setTimeout(480_000);
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, {
+    timeout: 20_000,
+  });
   const l1 = await restFromDesk(page, s.owner, '0.001', REST, LABEL);
   const l2 = await restFromDesk(page, s.owner, '0.001', '39500', LABEL);
   const [x1, x2, x3, x4] = [
@@ -795,7 +804,9 @@ test(`${J} #6 with a take-profit and a stop-loss for the whole position resting,
   expect(sameDecimal(position.size, '0.1')).toBe(true);
 
   await openVenueDesk(page, s.account, TRIGGER_DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(TRIGGER_PERP, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(TRIGGER_PERP, {
+    timeout: 20_000,
+  });
   const row = page.getByTestId('venue-positions').locator(`tr[data-symbol="${TRIGGER_PERP}"]`);
   await expect(row).toBeVisible({ timeout: 20_000 });
   await row.getByRole('button', { name: `Exit orders ${TRIGGER_PERP}`, exact: true }).click();
@@ -894,8 +905,10 @@ test(`${J} #7 exercises the order-flow protections: the self-trade mode applied 
   const window = edgeLimit.windowMs % 1000 === 0 ? `${edgeLimit.windowMs / 1000} seconds` : `${edgeLimit.windowMs} milliseconds`;
 
   await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, { timeout: 20_000 });
-  const rules = page.getByTestId('venue-market-rules');
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, {
+    timeout: 20_000,
+  });
+  const rules = (await marketDetails(page)).getByTestId('venue-market-rules');
   // The mode the desk applies is the venue's own, named in its words.
   await expect(rules.getByTestId('venue-self-trade-rule')).toHaveText('Cancel my resting order', { timeout: 20_000 });
   await expect(rules.getByTestId('venue-self-trade-rule')).toHaveAttribute('data-mode', 'cancel_resting');

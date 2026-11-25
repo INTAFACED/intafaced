@@ -1,4 +1,5 @@
 // World: book, gates, restart
+import { marketDetails, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
@@ -91,7 +92,9 @@ function opened() {
 const desk = async (page) => {
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, {
+    timeout: 20_000,
+  });
   return { ...s, wallet, owner: wallet.address };
 };
 const since = () => new Date(Date.now() - 3_600_000).toISOString();
@@ -101,7 +104,7 @@ const submitsOf = (page) => {
   page.on('request', (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/venue/submit') && submits.push(r.url()));
   return submits;
 };
-const rules = (page) => page.getByTestId('venue-market-rules');
+const rules = async (page) => (await marketDetails(page)).getByTestId('venue-market-rules');
 const sessionPanel = (page) => page.getByTestId('venue-session');
 /**
  * Close the TEST home market (or open it), as the simulator's TEST control does, and answer the venue's session.
@@ -156,7 +159,7 @@ async function reviewLong(page) {
   await ticket.getByRole('button', { name: 'Market', exact: true }).click();
   await ticket.getByRole('textbox', { name: 'Size (XSTK)' }).fill(OPEN.size);
   await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill(OPEN.worst);
-  await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
+  await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
   await ticket.getByRole('button', { name: 'Review long' }).click();
   return ticket;
 }
@@ -185,13 +188,13 @@ test(`${J} #1 opens a stock perpetual: the venue that lists it (HIP-3 or Ostium)
     .getByTestId('venue-contract-list')
     .getByRole('button', { name: `${SYMBOL} · ${displayName}` })
     .click();
-  const strip = page.getByTestId('venue-contract-strip');
+  const strip = (await marketDetails(page)).getByTestId('venue-contract-strip');
   await expect(strip.getByRole('heading')).toContainText(SYMBOL);
   await expect(strip.getByTestId('venue-test').first()).toHaveText('TEST');
   // The leverage cap, from the venue's own market record.
   await expect(strip.getByTestId('venue-max-leverage')).toHaveText(`${m.maxLeverageBps / 10_000}x`);
 
-  const panel = rules(page);
+  const panel = await rules(page);
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
   // Who lists it: the kind of lister the venue names (HIP-3 or Ostium) and the lister's own name.
@@ -312,9 +315,12 @@ test(`${J} #3 tries an open above the venue's leverage cap: refused with the cap
     const lowered = await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: LOWER_CAP_BPS });
     expect(lowered.status, JSON.stringify(lowered.body)).toBe(200);
     expect((await market()).maxLeverageBps).toBe(LOWER_CAP_BPS);
-    await expect(page.getByTestId('venue-contract-strip').getByTestId('venue-max-leverage')).toHaveText(`${LOWER_CAP_BPS / 10_000}x`, {
-      timeout: 20_000,
-    });
+    await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByTestId('venue-max-leverage')).toHaveText(
+      `${LOWER_CAP_BPS / 10_000}x`,
+      {
+        timeout: 20_000,
+      },
+    );
     expect(before.leverage.leverageBps > LOWER_CAP_BPS).toBe(true);
     const ticket = await reviewLong(page);
     await expect(ticket.getByRole('alert')).toContainText(
@@ -489,7 +495,9 @@ test(`${J} #6 closes the position: the venue's realised result; the ledger posts
 const marginedDesk = async (page) => {
   const s = state();
   const wallet = await openVenueDesk(page, s.account, MARGINED_DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(MARGINED, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(MARGINED, {
+    timeout: 20_000,
+  });
   return { ...s, wallet, owner: wallet.address };
 };
 const marginedMarket = async () => (await testVenue('/markets', {})).body.value.find((m) => m.symbol === MARGINED);
@@ -511,7 +519,7 @@ test(`${J} #7 opens the market's margin before trading on a HIP-3 market: that m
   expect(m, `${MARGINED} is not listed on the TEST venue`).toBeTruthy();
   // A HIP-3 market, read from the venue.
   expect(m.listedBy).toMatchObject({ known: true, value: { kind: 'hip3' } });
-  await expect(rules(page).getByTestId('venue-listing')).toHaveAttribute('data-listing', 'hip3');
+  await expect((await rules(page)).getByTestId('venue-listing')).toHaveAttribute('data-listing', 'hip3');
   // Its own margin account on the venue, with the collateral asset and margin mode its deployer set.
   expect(m.marginAccount.known).toBe(true);
   const rule = m.marginAccount.value;
@@ -538,7 +546,7 @@ test(`${J} #7 opens the market's margin before trading on a HIP-3 market: that m
     .getByTestId('venue-contract-list')
     .getByRole('button', { name: new RegExp(`^${SYMBOL} · `) })
     .click();
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL);
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL);
   await expect(page.getByTestId('venue-market-margin')).toHaveCount(0);
   await page
     .getByTestId('venue-contract-list')
@@ -610,17 +618,20 @@ test(`${J} #8 tries an open that would pass the market's open-interest cap: refu
     const m = await marginedMarket();
     expect(m.openInterest).toEqual({ known: true, value: { size: open, capSize: cap } });
     // The desk shows the market's open interest and its deployer's cap, as the venue reports them.
-    await expect(rules(page).getByTestId('venue-open-interest-cap')).toHaveText(`At most ${cap} ${m.baseAsset} open, set by its deployer`, {
-      timeout: 20_000,
-    });
-    await expect(rules(page).getByTestId('venue-open-interest')).toHaveText(`${open} ${m.baseAsset} open, as the venue reports it`);
+    await expect((await rules(page)).getByTestId('venue-open-interest-cap')).toHaveText(
+      `At most ${cap} ${m.baseAsset} open, set by its deployer`,
+      {
+        timeout: 20_000,
+      },
+    );
+    await expect((await rules(page)).getByTestId('venue-open-interest')).toHaveText(`${open} ${m.baseAsset} open, as the venue reports it`);
 
     const ticket = page.getByTestId('venue-ticket');
     await ticket.getByRole('button', { name: 'Long', exact: true }).click();
     await ticket.getByRole('button', { name: 'Market', exact: true }).click();
     await ticket.getByRole('textbox', { name: `Size (${m.baseAsset})` }).fill(size);
     await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill('105');
-    await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
+    await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
     await ticket.getByRole('button', { name: 'Review long' }).click();
     // Refused by the venue, its cap named, before the wallet is asked.
     await expect(ticket.getByRole('alert')).toContainText(
@@ -649,7 +660,7 @@ async function placeLong(page, { size, limit = null }) {
   await ticket.getByRole('button', { name: limit ? 'Limit' : 'Market', exact: true }).click();
   await ticket.getByRole('textbox', { name: 'Size (XSTD)' }).fill(size);
   await ticket.getByRole('textbox', { name: limit ? 'Price' : 'Worst price (slippage limit)', exact: true }).fill(limit ?? '105');
-  await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
+  await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
   await ticket.getByRole('button', { name: 'Review long' }).click();
   const sheet = page.getByTestId('venue-review');
   await expect(sheet).toBeVisible({ timeout: 15_000 });
@@ -708,7 +719,7 @@ test(`${J} #9 the market's deployer halts it while the position is open: orders 
     expect(m.lastEvent).toEqual({ known: true, value: event });
 
     // The desk shows the venue's report: the halt, its time, the mark every position settled at, and no new open.
-    const shown = rules(page).getByTestId('venue-market-event');
+    const shown = (await rules(page)).getByTestId('venue-market-event');
     await expect(shown).toHaveAttribute('data-kind', 'deployer_halt', { timeout: 20_000 });
     await expect(shown).toHaveAttribute('data-at', event.eventAt);
     await expect(shown.getByTestId('venue-market-event-words')).toHaveText(
@@ -800,7 +811,7 @@ test(`${J} #10 holds a stock perpetual through a TEST split: the position settle
     const m = await marginedMarket();
     expect(m.status).toBe('trading');
     expect(m.lastEvent).toEqual({ known: true, value: event });
-    const shown = rules(page).getByTestId('venue-market-event');
+    const shown = (await rules(page)).getByTestId('venue-market-event');
     await expect(shown).toHaveAttribute('data-kind', 'split', { timeout: 20_000 });
     await expect(shown).toHaveAttribute('data-reopened', event.reopenedAt);
     await expect(shown.getByTestId('venue-market-event-words')).toHaveText(

@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { marketDetails, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -53,7 +54,9 @@ venueForThisFile(test);
 async function desk(page, path = DESK, symbol = SYMBOL) {
   const s = venueRunState(run, J);
   const wallet = await openVenueDesk(page, s.account, path, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(symbol, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(symbol, {
+    timeout: 20_000,
+  });
   return { ...s, wallet, owner: wallet.address };
 }
 
@@ -228,7 +231,7 @@ test(`${J} #1 opens the standalone margin and P&L calculator: margin, liquidatio
     .getByTestId('venue-contract-list')
     .getByRole('button', { name: `${UNPUBLISHED} · ${displayName}`, exact: true })
     .click();
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(UNPUBLISHED);
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(UNPUBLISHED);
   await panel.getByLabel('Size', { exact: true }).fill('0.1');
   await panel.getByLabel('Entry price', { exact: true }).fill('60000');
   await panel.getByLabel('Leverage', { exact: true }).fill('5');
@@ -262,7 +265,7 @@ test(`${J} #2 reads the tier table: the venue's published tiers and maintenance 
   expect(tiers.length).toBeGreaterThan(1);
 
   // The desk's tier table is those tiers, row for row: where each starts, its most leverage and its maintenance rate.
-  const panel = page.getByTestId('venue-tiers');
+  const panel = (await marketDetails(page)).getByTestId('venue-tiers');
   await expect(panel.getByRole('heading', { level: 2 })).toContainText(`Margin tiers on ${displayName}`);
   await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
   const table = panel.getByRole('region', { name: `Margin tiers ${SYMBOL}`, exact: true }).getByRole('table');
@@ -286,7 +289,7 @@ test(`${J} #2 reads the tier table: the venue's published tiers and maintenance 
     .getByTestId('venue-contract-list')
     .getByRole('button', { name: `${UNPUBLISHED} · ${displayName}`, exact: true })
     .click();
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(UNPUBLISHED);
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(UNPUBLISHED);
   await expect(panel.getByTestId('venue-tiers-unpublished')).toHaveText(
     `Margin tiers not published by ${displayName}. Nothing is shown in their place.`,
   );
@@ -364,7 +367,7 @@ test(`${J} #4 selects an asset the venue doesn't accept as margin: refused namin
   await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
   await ticket.getByRole('textbox', { name: `Size (${m.baseAsset})`, exact: true }).fill('1');
   await ticket.getByRole('textbox', { name: 'Price', exact: true }).fill('100');
-  await ticket.getByRole('combobox', { name: 'Margin asset', exact: true }).selectOption('BTC');
+  await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset', exact: true }).selectOption('BTC');
   await ticket.getByRole('button', { name: 'Review long', exact: true }).click();
   await expect(ticket.getByRole('alert')).toHaveText(
     `${displayName} does not take BTC as margin on ${SYMBOL}: it takes ${takenAssets.join(', ')}. Nothing was sent, and buying power is unchanged.`,
@@ -491,7 +494,9 @@ test(`${J} #5 previews above the order cap and outside the price band: split off
     const addr = page.getByTestId('venue-wallet-address');
     await connectWhenAsked(page, addr);
     await expect(addr).toHaveText(owner);
-    await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, { timeout: 20_000 });
+    await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, {
+      timeout: 20_000,
+    });
     const ticket = page.getByTestId('venue-ticket');
     await ticket.getByRole('button', { name: 'Long', exact: true }).click();
     await ticket.getByRole('button', { name: 'Market', exact: true }).click();
@@ -694,7 +699,7 @@ test(`${J} #7 opens beyond the venue's open-interest limit: refused with the ven
     await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
     await ticket.getByRole('textbox', { name: `Size (${m.baseAsset})`, exact: true }).fill(size);
     await ticket.getByRole('textbox', { name: 'Price', exact: true }).fill('100');
-    await ticket.getByRole('combobox', { name: 'Margin asset', exact: true }).selectOption('USDC');
+    await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset', exact: true }).selectOption('USDC');
     await ticket.getByRole('button', { name: 'Review long', exact: true }).click();
     // Refused in the venue's words, with the room left under its cap, before the wallet is asked.
     await expect(ticket.getByRole('alert')).toHaveText(

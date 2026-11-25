@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { marketDetails } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -128,7 +129,7 @@ test(`${J} #1 reads the contract strip and Funding tab: current rate, countdown,
   expect(f.inputs.known).toBe(true);
   const inputs = f.inputs.value;
   // The strip shows the venue's rate, every interval, and its next period.
-  const strip = page.getByTestId('venue-contract-strip');
+  const strip = (await marketDetails(page)).getByTestId('venue-contract-strip');
   await expect(strip.getByRole('heading')).toContainText(SYMBOL);
   await expect(strip.getByTestId('venue-funding')).toHaveAttribute('data-rate', f.rate);
   await expect(strip.getByTestId('venue-funding-next')).toHaveAttribute('dateTime', f.nextFundingAt);
@@ -167,7 +168,9 @@ test(`${J} #2 the venue publishes no rate for the period: "not published by this
   try {
     expect((await marketOn()).funding).toEqual({ known: false });
     const tab = await fundingTab(page, s);
-    await expect(page.getByTestId('venue-contract-strip').getByTestId('venue-funding')).toHaveText('not published by this venue');
+    await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByTestId('venue-funding')).toHaveText(
+      'not published by this venue',
+    );
     await expect(tab.getByTestId('venue-funding-unpublished')).toHaveText(
       'Funding rate: not published by this venue. Nothing is shown as paid or charged.',
     );

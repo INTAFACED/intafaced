@@ -1,4 +1,5 @@
 // World: book, gates, restart
+import { ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -444,7 +445,7 @@ async function reviewLong(page, { size, worst }) {
   await ticket.getByRole('button', { name: 'Market', exact: true }).click();
   await ticket.getByRole('textbox', { name: 'Size (BTC)', exact: true }).fill(size);
   await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)', exact: true }).fill(worst);
-  await ticket.getByRole('combobox', { name: 'Margin asset', exact: true }).selectOption('USDC');
+  await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset', exact: true }).selectOption('USDC');
   await ticket.getByRole('button', { name: 'Review long', exact: true }).click();
   const sheet = page.getByTestId('venue-route-review');
   await expect(sheet).toBeVisible();

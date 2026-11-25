@@ -1,4 +1,5 @@
 // World: gates, restart
+import { marketDetails, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
@@ -60,7 +61,9 @@ function opened() {
 const desk = async (page) => {
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, { timeout: 20_000 });
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, {
+    timeout: 20_000,
+  });
   return { ...s, wallet, owner: wallet.address };
 };
 const since = () => new Date(Date.now() - 3_600_000).toISOString();
@@ -70,7 +73,7 @@ const submitsOf = (page) => {
   page.on('request', (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/venue/submit') && submits.push(r.url()));
   return submits;
 };
-const rules = (page) => page.getByTestId('venue-market-rules');
+const rules = async (page) => (await marketDetails(page)).getByTestId('venue-market-rules');
 
 /** The stack's TEST founders' sessions, for #5's two operator reads (tooling/scripts/local-test-gates.mjs). */
 let staff;
@@ -109,7 +112,7 @@ async function reviewLong(page) {
   await ticket.getByRole('button', { name: 'Market', exact: true }).click();
   await ticket.getByRole('textbox', { name: 'Size (XAU)' }).fill(OPEN.size);
   await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill(OPEN.worst);
-  await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
+  await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
   await ticket.getByRole('button', { name: 'Review long' }).click();
   return ticket;
 }
@@ -136,13 +139,13 @@ test(`${J} #1 opens the gold perpetual: the venue that lists it (HIP-3 or Ostium
     .getByTestId('venue-contract-list')
     .getByRole('button', { name: `${SYMBOL} · ${displayName}` })
     .click();
-  const strip = page.getByTestId('venue-contract-strip');
+  const strip = (await marketDetails(page)).getByTestId('venue-contract-strip');
   await expect(strip.getByRole('heading')).toContainText(SYMBOL);
   await expect(strip.getByTestId('venue-test').first()).toHaveText('TEST');
   // The leverage cap, from the venue's own market record.
   await expect(strip.getByTestId('venue-max-leverage')).toHaveText(`${m.maxLeverageBps / 10_000}x`);
 
-  const panel = rules(page);
+  const panel = await rules(page);
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
   // Who lists it: the kind of lister the venue names (HIP-3 or Ostium) and the lister's own name.
@@ -253,9 +256,12 @@ test(`${J} #3 tries an open above the venue's leverage cap: refused with the cap
     const lowered = await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: LOWER_CAP_BPS });
     expect(lowered.status, JSON.stringify(lowered.body)).toBe(200);
     expect((await market()).maxLeverageBps).toBe(LOWER_CAP_BPS);
-    await expect(page.getByTestId('venue-contract-strip').getByTestId('venue-max-leverage')).toHaveText(`${LOWER_CAP_BPS / 10_000}x`, {
-      timeout: 20_000,
-    });
+    await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByTestId('venue-max-leverage')).toHaveText(
+      `${LOWER_CAP_BPS / 10_000}x`,
+      {
+        timeout: 20_000,
+      },
+    );
     const ticket = await reviewLong(page);
     await expect(ticket.getByRole('alert')).toContainText(
       `The venue refused it: ${SYMBOL} allows at most ${LOWER_CAP_BPS / 10_000}x; ${before.leverage.leverageBps / 10_000}x is above its cap`,
@@ -282,7 +288,7 @@ test(`${J} #4 the venue's feed goes stale: the venue's own rule and state shown;
   test.setTimeout(180_000);
   opened();
   const { owner, wallet } = await desk(page);
-  const panel = rules(page);
+  const panel = await rules(page);
   await expect(panel.getByTestId('venue-feed-state')).toHaveAttribute('data-state', 'live');
   const markBefore = (await venueRecord(owner, '/positions')).value[0].markPrice;
   try {

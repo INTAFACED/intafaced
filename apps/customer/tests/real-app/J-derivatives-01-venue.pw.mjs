@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { marketDetails, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, restartService, toUnits, fromUnits } from './stack.mjs';
@@ -54,7 +55,7 @@ async function reviewLong(page, { size = OPEN.size, worst = OPEN.worst } = {}) {
   await ticket.getByRole('button', { name: 'Market', exact: true }).click();
   await ticket.getByRole('textbox', { name: 'Size (BTC)' }).fill(size);
   await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill(worst);
-  await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
+  await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
   await ticket.getByRole('button', { name: 'Review long' }).click();
   const sheet = page.getByTestId('venue-review');
   await expect(sheet).toBeVisible();
@@ -99,8 +100,10 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
   await expect(list.getByRole('button')).toHaveCount(markets.length);
   for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();
   await expect(list.getByTestId('venue-test').first()).toHaveText('TEST');
-  for (const part of ['venue-contract-strip', 'venue-wallet', 'venue-balances', 'venue-margin', 'venue-ticket', 'venue-blotter'])
+  for (const part of ['venue-wallet', 'venue-balances', 'venue-margin', 'venue-ticket', 'venue-blotter'])
     await expect(page.getByTestId(part)).toBeVisible();
+  // The contract's figures sit in the desk's "Market details", one click away.
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip')).toBeVisible();
 
   // Where the venue lists no contract for this account: "No futures contract is listed", with the reason naming the venue.
   try {
@@ -169,14 +172,14 @@ test(`${J} #2 opens the gated list: each contract marked open or blocked for thi
     expect(status, JSON.stringify(body)).toBe(200);
     return body;
   };
-  const panelOf = (p) => p.getByTestId('venue-gated-list');
-  const panel = panelOf(page);
+  const panelOf = async (p) => (await marketDetails(p)).getByTestId('venue-gated-list');
+  const panel = await panelOf(page);
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
 
   /** The screen matches the service, contract by contract: open or blocked, and each reason by its code, no other. */
   async function shownAsService(body, { on = page, symbols } = {}) {
-    const p = panelOf(on);
+    const p = await panelOf(on);
     const listed =
       symbols ??
       (await on.getByTestId('venue-contract-list').getByRole('button').allInnerTexts()).map((b) => b.split('\n')[0].split(' · ')[0].trim());
@@ -291,7 +294,7 @@ test(`${J} #4 picks the contract and reads its strip: family, settle asset, cont
 }) => {
   await desk(page);
   const list = page.getByTestId('venue-contract-list');
-  const strip = page.getByTestId('venue-contract-strip');
+  const strip = (await marketDetails(page)).getByTestId('venue-contract-strip');
   const { displayName } = await venueInfo();
   const venueMarket = async (symbol) => (await testVenue('/markets', {})).body.value.find((m) => m.symbol === symbol);
   // Picking another contract redraws the strip for it; a figure the venue does not publish says so, never a zero.
@@ -374,7 +377,7 @@ test(`${J} #6 types a TEST size and leverage and presses Review: initial margin,
   const ticket = page.getByTestId('venue-ticket');
   await ticket.getByRole('textbox', { name: 'Size (BTC)' }).fill(OPEN.size);
   await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill(OPEN.worst);
-  await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('BTC');
+  await (await ticketOptions(ticket)).getByRole('combobox', { name: 'Margin asset' }).selectOption('BTC');
   await ticket.getByRole('button', { name: 'Review long' }).click();
   await expect(ticket.getByRole('alert')).toHaveText(
     'Margin on BTC-PERP is posted in USDC; BTC cannot be used as its margin. Nothing was sent.',

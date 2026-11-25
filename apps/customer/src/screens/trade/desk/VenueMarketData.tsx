@@ -164,34 +164,37 @@ export function VenueMarketPanel({
 
   return (
     <section className="lt-panel" aria-label={t('Venue market')} data-testid="venue-market" data-market={market.symbol}>
-      <h2 className="lt-panel-title">
-        {t('Venue market')} <TestMark test={test} />
-      </h2>
+      {/* One head line: the market's name, then its live figures, so the chart starts right under it. */}
+      <div className="xd-market-head">
+        <h2 className="lt-panel-title">
+          {market.symbol} <TestMark test={test} />
+        </h2>
+        <dl className="lt-stats" data-testid="venue-ticker">
+          <div>
+            <dt>{t('Last price')}</dt>
+            <dd className="lt-num" data-testid="venue-last" data-trade-id={last?.tradeId}>
+              {last ? `${price(last.price)} ${market.quoteAsset}` : t('No print')}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Best bid')}</dt>
+            <dd className="lt-num" data-testid="venue-best-bid">
+              {bid ? price(bid.price) : t('Side empty')}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Best ask')}</dt>
+            <dd className="lt-num" data-testid="venue-best-ask">
+              {ask ? price(ask.price) : t('Side empty')}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Market data as of')}</dt>
+            <dd data-testid="venue-market-as-of">{book.data ? asOfText(book.data.asOf) : '…'}</dd>
+          </div>
+        </dl>
+      </div>
       <ReadProblem failure={failure} venueName={venueName} />
-      <dl className="lt-stats" data-testid="venue-ticker">
-        <div>
-          <dt>{t('Last price')}</dt>
-          <dd className="lt-num" data-testid="venue-last" data-trade-id={last?.tradeId}>
-            {last ? `${price(last.price)} ${market.quoteAsset}` : t('No print')}
-          </dd>
-        </div>
-        <div>
-          <dt>{t('Best bid')}</dt>
-          <dd className="lt-num" data-testid="venue-best-bid">
-            {bid ? price(bid.price) : t('Side empty')}
-          </dd>
-        </div>
-        <div>
-          <dt>{t('Best ask')}</dt>
-          <dd className="lt-num" data-testid="venue-best-ask">
-            {ask ? price(ask.price) : t('Side empty')}
-          </dd>
-        </div>
-        <div>
-          <dt>{t('Market data as of')}</dt>
-          <dd data-testid="venue-market-as-of">{book.data ? asOfText(book.data.asOf) : '…'}</dd>
-        </div>
-      </dl>
 
       {/* The chart with the book and tape beside it, as today's desk sets them. */}
       <div className="xd-market-split">
