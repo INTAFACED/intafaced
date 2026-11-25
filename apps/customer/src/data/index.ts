@@ -10,13 +10,16 @@ export { createPoller, defaultPoller, setDefaultPoller, type Poller, type PollSt
 export * from './activity';
 export {
   useVenueMarketStates,
+  useVenueTickers,
   venueDoorOff,
   venueListingOf,
   venueListingStatuses,
   venueMarketRow,
   venueModeOf,
+  venueTickerRow,
   VENUE_DOOR_OFF,
   type VenueModeKey,
   type VenueMarketState,
   type VenueMarketStates,
+  type VenueTickersRead,
 } from './venue-market-states';
