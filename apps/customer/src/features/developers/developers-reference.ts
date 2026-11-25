@@ -164,6 +164,30 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'One market’s aggressor differential and trade count over a named window',
   },
   {
+    name: 'fetchHistorySchemas',
+    method: 'GET',
+    path: '/api/v1/history/schemas',
+    product: 'spot',
+
+    summary: 'Versioned NDJSON schemas, compression, checksum algorithm and provenance for historical downloads',
+  },
+  {
+    name: 'fetchHistoryDatasets',
+    method: 'GET',
+    path: '/api/v1/history/datasets',
+    product: 'spot',
+
+    summary: 'Published historical trade, candle and book-snapshot datasets with completeness, gaps, checksums and corrections',
+  },
+  {
+    name: 'downloadHistoryDataset',
+    method: 'GET',
+    path: '/api/v1/history/datasets/:id/download',
+    product: 'spot',
+
+    summary: 'Download one published historical dataset as gzip-compressed NDJSON with its SHA-256 checksum header',
+  },
+  {
     name: 'fetchOrderBook',
     method: 'GET',
     path: '/api/v1/orderbook/:symbol',
@@ -1357,6 +1381,38 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
 
     summary:
       'Each market we list on the venue, signed in or not: the venue’s own trading state and session beside our listing (when it opens, when it is delisted, our routing), as of the venue read',
+  },
+  {
+    name: 'venuePublicBook',
+    method: 'GET',
+    path: '/api/v1/venue/public-book',
+    product: 'accounts',
+
+    summary: 'Public order book and sequence for a listed venue market, signed in or out',
+  },
+  {
+    name: 'venueTickers',
+    method: 'GET',
+    path: '/api/v1/venue/tickers',
+    product: 'accounts',
+
+    summary: 'Public 24 h tickers and spreads for every listed venue spot market, derived from the venue’s book and trade tape',
+  },
+  {
+    name: 'venueSpreads',
+    method: 'GET',
+    path: '/api/v1/venue/spreads',
+    product: 'accounts',
+
+    summary: 'Public best bid, best ask and exact spread for every listed venue spot market',
+  },
+  {
+    name: 'venueAnalytics',
+    method: 'GET',
+    path: '/api/v1/venue/analytics',
+    product: 'accounts',
+
+    summary: 'Public aggressor differential and window stats for a listed venue market; a blank window refuses',
   },
   {
     name: 'venueMarketVenues',

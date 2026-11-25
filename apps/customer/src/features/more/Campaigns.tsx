@@ -1,7 +1,8 @@
 // volt-room: /campaigns
+// volt-room: /campaigns/mine
 import { useState, type ReactNode } from 'react';
 import { Button, Field, Tag, TextArea } from '@intafaced/ui/lit';
-import { OverviewTemplate, SectionTabs } from '@intafaced/ui/lit/templates';
+import { OverviewTemplate, RecordListTemplate, SectionTabs } from '@intafaced/ui/lit/templates';
 import { useApi } from '../session';
 import { CampaignCatalogue, MyCampaigns } from './campaign-catalogue';
 import { MyVouchers } from './campaign-vouchers';
@@ -18,7 +19,7 @@ const STEPS = ['discover', 'join', 'tasks', 'reward'] as const;
 /** Steps svc-campaigns serves today. Tasks and rewards wait for task campaigns and the reward saga. */
 const OPEN_STEPS: ReadonlySet<string> = new Set(['discover', 'join']);
 
-/** The campaign rooms on the overview template: /campaigns opens on the catalogue, /campaigns/mine on my campaigns and vouchers. */
+/** The campaign rooms on the overview template: /campaigns opens on the catalogue. */
 export function CampaignsRoom({
   initial = 'Catalogue',
   title,
@@ -37,6 +38,11 @@ export function CampaignsRoom({
       sections={<Campaigns initial={initial} />}
     />
   );
+}
+
+/** /campaigns/mine on the record-list template: my joined campaigns and my vouchers. */
+export function CampaignsMineRoom({ title, description }: { title: string; description: string }) {
+  return <RecordListTemplate title={title} description={description} state={{ kind: 'ready' }} list={<Campaigns initial="Mine" />} />;
 }
 
 /** Campaign rooms: the published catalogue, how a campaign runs, the campaigns I joined and my vouchers (/campaigns/mine), and a

@@ -7,6 +7,21 @@
  */
 import { z } from 'zod';
 import { unsignedAmountSchema as decimalSchema, signedAmountSchema as signedDecimalSchema } from './wire-amount.js';
+import { marketAnalyticsSchema } from './trade-market-analytics.js';
+
+/** A market's upcoming maintenance window on a venue market read (J-cex-spot-14 #5). */
+export const venueUpcomingMaintenanceSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('none') }),
+  z.object({ status: z.literal('unavailable') }),
+  z.object({
+    status: z.enum(['scheduled', 'in_progress']),
+    noticeId: z.string(),
+    title: z.string(),
+    startsAt: z.string().nullable(),
+    endsAt: z.string().nullable(),
+  }),
+]);
+export type VenueUpcomingMaintenance = z.infer<typeof venueUpcomingMaintenanceSchema>;
 
 export const isoTime = z.string().datetime({ offset: true });
 export const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -52,6 +67,9 @@ export const venueStatusSchema = z.union([
     // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
     amendsInPlace: z.boolean().optional(),
     cancelsPerAction: z.number().int().min(0).optional(),
+    // Who signs the venue's orders, cancels and changes: the owner's wallet, or a trading session's key the wallet approved
+    // once (a venue whose orders name a chain no wallet signs on). Absent from an older door: the owner's wallet.
+    tradesSignedBy: z.enum(['owner_wallet', 'session_key']).optional(),
     // J-cex-spot-07: the venue's own scheduled cancel with the owner's published timeouts (null: blank); null where the
     // venue offers none.
     scheduledCancel: z
@@ -125,10 +143,10 @@ export const venueMarketSchema = z.object({
   markRule: maybeKnown(z.string()),
   tradingHours: maybeKnown(z.string()),
   feed: maybeKnown(z.object({ state: z.enum(['live', 'stale']), lastOracleUpdateAt: isoTime, staleRule: maybeKnown(z.string()) })),
-  // A stock perpetual's home market and the venue's off-hours mode, each in the venue's words (J-derivatives-27).
+  // A stock perpetual's home market and the venue's off-hours mode, or a spot market's closed session (J-derivatives-27, J-cex-spot-14 #6).
   session: maybeKnown(
     z.object({
-      state: z.enum(['open', 'off_hours']),
+      state: z.enum(['open', 'off_hours', 'closed']),
       homeMarket: z.string(),
       offHoursMode: maybeKnown(z.string()),
       offHoursBand: maybeKnown(z.string()),
@@ -186,9 +204,14 @@ export const venueMarketSchema = z.object({
   maintenanceMarginRate: maybeKnown(decimalSchema).optional(),
   collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
   // The venue's own trading state for the market, null where it reports none, and our listing's routing beside it
-  // (J-charts-desk-15 #6: the chart refuses order entry naming either). Absent from an older door: not reported.
-  status: z.enum(['trading', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
+  // (J-charts-desk-15 #6: the chart refuses order entry naming either; J-cex-spot-14 #3: limit_only). Absent from an older door: not reported.
+  status: z.enum(['trading', 'limit_only', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
   listing: z.object({ routing: z.enum(['show', 'close_only', 'stop']), delisted: z.boolean().optional() }).optional(),
+  // J-cex-spot-14 #5 #7: opening window, higher-risk zone + cap, and upcoming platform maintenance window.
+  openingWindowEndsAt: isoTime.nullable().optional(),
+  zone: z.enum(['higher_risk']).nullable().optional(),
+  zoneOrderCap: decimalSchema.nullable().optional(),
+  upcomingMaintenance: venueUpcomingMaintenanceSchema.optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 /** One of the venue's published margin tiers (J-derivatives-02 #2). */
@@ -287,7 +310,12 @@ export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({
 // ── The venue's own market data on a market we list (J-cex-spot-01 #5: the spot desk's ticker, book, chart and tape) ──
 export const venueLevelSchema = z.object({ price: decimalSchema, amount: decimalSchema });
 export const venueBookReadSchema = asOf(
-  z.object({ symbol: z.string(), bids: z.array(venueLevelSchema), asks: z.array(venueLevelSchema) }),
+  z.object({
+    symbol: z.string(),
+    bids: z.array(venueLevelSchema),
+    asks: z.array(venueLevelSchema),
+    sequence: z.number().int().min(0).optional(),
+  }),
 ).extend({
   test: z.boolean(),
 });
@@ -322,7 +350,7 @@ export const venueChartMarketSchema = z.object({
   tickSize: decimalSchema,
   lotSize: decimalSchema,
   minOrderNotional: decimalSchema.nullable().optional(),
-  status: z.enum(['trading', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
+  status: z.enum(['trading', 'limit_only', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
   listing: z.object({ routing: z.enum(['show', 'close_only', 'stop']), delisted: z.boolean().optional() }).optional(),
 });
 export type VenueChartMarket = z.infer<typeof venueChartMarketSchema>;
@@ -783,6 +811,10 @@ export const venueMarketStateSchema = z.object({
     open: z.boolean(),
     delisted: z.boolean(),
   }),
+  openingWindowEndsAt: isoTime.nullable().optional(),
+  zone: z.enum(['higher_risk']).nullable().optional(),
+  zoneOrderCap: decimalSchema.nullable().optional(),
+  upcomingMaintenance: venueUpcomingMaintenanceSchema.optional(),
 });
 export type VenueMarketState = z.infer<typeof venueMarketStateSchema>;
 export const venueMarketStatesSchema = asOf(
@@ -794,6 +826,41 @@ export const venueMarketStatesSchema = asOf(
   }),
 );
 export type VenueMarketStates = z.infer<typeof venueMarketStatesSchema>;
+
+/** Public venue market analytics (J-cex-spot-14 #9): computed on read from the venue's public trade tape. */
+export const venueAnalyticsReadSchema = marketAnalyticsSchema.extend({
+  venueId: z.string(),
+  asOf: isoTime,
+  test: z.boolean(),
+});
+export type VenueAnalyticsRead = z.infer<typeof venueAnalyticsReadSchema>;
+
+/** Public venue ticker row (J-cex-spot-14 #8): derived from the venue's own book and 24h trade tape. */
+export const venueTickerRowSchema = z.object({
+  symbol: z.string(),
+  last: decimalSchema.nullable(),
+  high: decimalSchema.nullable(),
+  low: decimalSchema.nullable(),
+  baseVolume: decimalSchema,
+  quoteVolume: decimalSchema,
+  bid: decimalSchema.nullable(),
+  ask: decimalSchema.nullable(),
+  spread: decimalSchema.nullable(),
+});
+export type VenueTickerRow = z.infer<typeof venueTickerRowSchema>;
+export const venueTickersReadSchema = asOf(z.record(z.string(), venueTickerRowSchema)).extend({ test: z.boolean() });
+export type VenueTickersRead = z.infer<typeof venueTickersReadSchema>;
+
+/** Public venue spread row (J-cex-spot-14 #8): exact best ask minus best bid (or null when a side is empty). */
+export const venueSpreadRowSchema = z.object({
+  symbol: z.string(),
+  bid: decimalSchema.nullable(),
+  ask: decimalSchema.nullable(),
+  spread: decimalSchema.nullable(),
+});
+export type VenueSpreadRow = z.infer<typeof venueSpreadRowSchema>;
+export const venueSpreadsReadSchema = asOf(z.array(venueSpreadRowSchema)).extend({ test: z.boolean() });
+export type VenueSpreadsRead = z.infer<typeof venueSpreadsReadSchema>;
 /** One fee the venue publishes beside its trading fees (J-derivatives-12 #2), in bps of what it is charged on. */
 export const venueOtherFeeSchema = z.object({
   kind: z.enum(['settlement', 'liquidation', 'other']),

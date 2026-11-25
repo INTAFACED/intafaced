@@ -4,8 +4,7 @@ import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount, parseAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { DataTable, EmptyState, Panel } from '../../shared/ui';
-import { Read } from './common';
+import { EmptyNote, KitRead, ScrollTable, Section } from './volt-parts';
 import { buybackRunsCopy } from './buyback-runs-copy';
 
 export type BuybackRunsRead = ProcedureOutput<typeof TOKEN_BUYBACK_RUNS>;
@@ -36,17 +35,17 @@ export function BuybackRunsView({ read }: { read: { resource: Resource<BuybackRu
   const { Copy, t } = buybackRunsCopy.useCopy();
   const shown = (value: string) => (hideBalances ? '••••' : displayAmount(value));
   return (
-    <Panel title={t('runsTitle')}>
+    <Section title={t('runsTitle')} className="lt-stack">
       <p className="lt-muted">
         <Copy k="runsBody" /> {t('latest', { limit: LIMIT })}
       </p>
-      <Read resource={read.resource} retry={read.reload}>
+      <KitRead resource={read.resource} retry={read.reload}>
         {(data) => (
           <>
             <p role="status" data-testid="buyback-job">
               {data.job === 'set' ? t('jobSet') : t('jobUnset')}
             </p>
-            <DataTable headers={[t('executed'), t('window'), t('bought'), t('burned'), t('toRewards')]} label={t('runsTitle')}>
+            <ScrollTable headers={[t('executed'), t('window'), t('bought'), t('burned'), t('toRewards')]} label={t('runsTitle')}>
               {data.runs.map((r) => (
                 <tr key={r.id}>
                   <td>
@@ -58,8 +57,8 @@ export function BuybackRunsView({ read }: { read: { resource: Resource<BuybackRu
                   <td className="lt-num">{shown(r.toRewards)}</td>
                 </tr>
               ))}
-            </DataTable>
-            {data.runs.length === 0 && <EmptyState title={t('noRuns')} />}
+            </ScrollTable>
+            {data.runs.length === 0 && <EmptyNote title={t('noRuns')} />}
             <p data-testid="buyback-estimate">
               {data.rate
                 ? t('estimateRate', { buyback: data.rate.buybackBps, burn: data.rate.burnSplitBps })
@@ -69,7 +68,7 @@ export function BuybackRunsView({ read }: { read: { resource: Resource<BuybackRu
             </p>
           </>
         )}
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }

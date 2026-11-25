@@ -40,8 +40,25 @@ describe('refusedTypes (J-cex-spot-04 #1)', () => {
     expect(refusedTypes({ ...open, state: 'LIMIT_ONLY' }, { lead: true }, NOW).get('market')).toBe('Type reason limit only');
   });
 
-  it('never refuses a limit order', () => {
+  it('never refuses a limit order in a served region', () => {
     const all = refusedTypes({ state: 'LIMIT_ONLY', openingWindowEndsAt: NOW + 1, zone: 'higher_risk' }, { lead: true }, NOW);
     expect(all.has('limit')).toBe(false);
+  });
+
+  it('a blocked region refuses every ticket order type with the region reason first', () => {
+    const blocked = refusedTypes(
+      { state: 'LIMIT_ONLY', openingWindowEndsAt: NOW + 1, zone: 'higher_risk' },
+      { lead: true, regionBlocked: true },
+      NOW,
+    );
+    expect([...blocked]).toEqual([
+      ['limit', 'Type reason region'],
+      ['stop_limit', 'Type reason region'],
+      ['stop_market', 'Type reason region'],
+      ['oco', 'Type reason region'],
+      ['bracket', 'Type reason region'],
+      ['oto', 'Type reason region'],
+      ['market', 'Type reason region'],
+    ]);
   });
 });

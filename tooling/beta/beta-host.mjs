@@ -10,9 +10,8 @@
  *   node tooling/beta/beta-host.mjs serve     the supervisor: a round now and every BETA_EVERY_MIN minutes (30), and the
  *                                             TEST mailbox page; after each round it restarts the public front when the
  *                                             checkout's beta-front.mjs changed (syncFront); it exits after a round that
- *                                             changed this file, so systemd starts the new copy
- *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it (at most every 2 hours, or now
- *                                             when main holds a merge that closed a `beta` issue), launch
+ *                                             changed this file, asking systemd to start the new copy at once
+ *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it when main has moved, launch
  *                                             or update the stack, run the TEST funds check, wait until it is readied,
  *                                             write status.json: `updating` from before the checkout moves until then,
  *                                             so the front shows its updating page, never a half-built app (#10299)
@@ -109,8 +108,11 @@ const BETA_CADENCE_SECONDS = 300;
 const BETA_USER_VENUE = 'hl-testnet';
 
 /**
- * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its venue,
- * no TEST listings on svc-trade's board, and svc-ops' labelled TEST valuation price list. The journeys' TEST markets
+ * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its public
+ * name as the origin of what testers sign, its venue, no TEST listings on svc-trade's board, and svc-ops' labelled TEST
+ * valuation price list. A passkey or wallet message signed on https://beta.intafaced.com names that origin, which the
+ * front cannot rewrite; with only the stack's localhost origins every sign-in passkey, every TEST wallet approval and
+ * Connect to the venue (protocol.wallet_session_origin_unlisted) failed there. The journeys' TEST markets
  * (an untraded book, a shut session, a delisting, a new listing no one quotes) are fixtures for a step, not markets a
  * tester can use; the beta showed TWIN/USDC's empty coin page from its markets list (#10599). The rows stay in the
  * database; the beta's markets are the quoted ones. Without `LOCAL_STACK_VALUATION_PRICES=test`, svc-ops leaves
@@ -119,6 +121,7 @@ const BETA_USER_VENUE = 'hl-testnet';
  * labelled TEST price list (`test: true`, refused outside dev/test) so Home and Money total the partner balance.
  */
 const BETA_STACK_SETTINGS = Object.freeze({
+  LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
   LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
@@ -450,7 +453,7 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = nu
         .join('\n')
     : '<tr><td colspan="4">No mail yet. Sign up in the app, then reload this page.</td></tr>';
   const state = status
-    ? `<p>Beta: ${esc(status.state)}${status.sha ? ` on main ${esc(status.sha.slice(0, 9))}` : ''}${status.mainAt && status.sha && status.mainAt !== status.sha ? ` (main is at ${esc(status.mainAt.slice(0, 9))}; the beta updates at most every 2 hours)` : ''}${status.reason ? `: ${esc(status.reason)}` : ''}</p>`
+    ? `<p>Beta: ${esc(status.state)}${status.sha ? ` on main ${esc(status.sha.slice(0, 9))}` : ''}${status.mainAt && status.sha && status.mainAt !== status.sha ? ` (main is at ${esc(status.mainAt.slice(0, 9))}; the beta moves to it in its next round)` : ''}${status.reason ? `: ${esc(status.reason)}` : ''}</p>`
     : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="10"><title>TEST mailbox</title>
@@ -531,71 +534,12 @@ function run(paths, cmd, args, { cwd, env }) {
  * What a round does, decided from what it found: 'blocked' (no screening file: build nothing), 'update' (main moved:
  * check out, install, launch) or 'launch' (same commit: launch, which restarts only what is down).
  */
-export function decide({ screening, head, target, updatedAt = null, now = Date.now(), betaFix = false }) {
+export function decide({ screening, head, target }) {
   if (!screening) return 'blocked';
-  if (head === target) return 'launch';
-  return betaFix || nextUpdateAt(updatedAt) <= now ? 'update' : 'launch';
+  // Every round moves to a moved main, so each merge is on the beta within one round (owner's guide, 25 Nov: the beta
+  // picks up each merge the same hour; it replaced the 2-hour bound and its beta-issue bypass, #10612).
+  return head === target ? 'launch' : 'update';
 }
-
-/** The issues a commit message says it closes, in GitHub's closing words ("Closes #10603", "Fixes #10300"). */
-export function closedIssues(message) {
-  return [...new Set([...message.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi)].map((m) => Number(m[1])))];
-}
-
-/** The repository whose `beta` issues move the beta early. Public: its issues are read without a token. */
-const BETA_REPO = 'INTAFACED/intafaced';
-
-/** An issue's state and labels from GitHub, or null when it can't be read (the round then waits for the 2-hour bound). */
-async function issueOf(n) {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${BETA_REPO}/issues/${n}`, {
-      headers: { accept: 'application/vnd.github+json', 'user-agent': 'intafaced-beta-host' },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    const j = await res.json();
-    return { closed: j.state === 'closed', pull: Boolean(j.pull_request), labels: (j.labels ?? []).map((l) => l.name) };
-  } catch {
-    return null;
-  }
-}
-
-/** Closed issues already read, so a round reads each one once while the beta stays behind main. */
-const closedSeen = new Map();
-
-/**
- * The first merge on main after the checkout that closed a `beta` issue (#10612), as { sha, issue }, else null. A fix
- * for the beta reaches it in the next round instead of waiting out UPDATE_EVERY_MS; everything else keeps the bound.
- */
-async function betaFixOnMain({ git, checkout, head, target, issue = issueOf, seen = closedSeen }) {
-  const r = git(checkout, 'log', '--format=%H%x00%B%x1e', `${head}..${target}`);
-  if (r.status !== 0) return null;
-  for (const entry of r.stdout.split('\x1e')) {
-    const [sha, message] = entry.trim().split('\x00');
-    if (!sha || message === undefined) continue;
-    for (const n of closedIssues(message)) {
-      let found = seen.get(n);
-      if (!found) {
-        found = await issue(n);
-        if (found?.closed) seen.set(n, found);
-      }
-      if (found?.closed && !found.pull && found.labels.includes('beta')) return { sha, issue: n };
-    }
-  }
-  return null;
-}
-
-/**
- * The beta moves to main at most once every UPDATE_EVERY_MS. An update (checkout, install, rebuild) cost 10 CPU-minutes in
- * one measured round, and main moves nearly every half hour; between updates a round only launches what is down. A merge
- * that closed a `beta` issue moves it in the next round all the same (betaFixOnMain, #10612).
- */
-export const UPDATE_EVERY_MS = 2 * 3600_000;
-/** When the next update may run: UPDATE_EVERY_MS after the last one, or now when none is recorded. */
-const nextUpdateAt = (updatedAt) => {
-  const at = Date.parse(updatedAt ?? '');
-  return Number.isFinite(at) ? at + UPDATE_EVERY_MS : 0;
-};
 
 /**
  * The beta's stop: the TEST market maker's own stop, then the stack's, as `verify stop` runs them, without its gate.
@@ -643,13 +587,12 @@ const roundIo = {
   check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS),
   readied: readiedNow,
   anvil: ensureAnvil,
-  issue: issueOf,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Date.now(),
 };
 
 export async function round(paths = betaPaths(), io = {}) {
-  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now, issue } = { ...roundIo, ...io };
+  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now } = { ...roundIo, ...io };
   fs.mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   const noCheckout = ensureCheckout(paths);
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
@@ -659,19 +602,8 @@ export async function round(paths = betaPaths(), io = {}) {
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
   const prev = readJson(paths.status, {});
   const screening = fs.existsSync(paths.screening);
-  // Within the bound, a merge that closed a `beta` issue still moves the beta now (#10612).
-  const fix =
-    screening && head !== target && nextUpdateAt(prev.updatedAt) > now()
-      ? await betaFixOnMain({ git, checkout: paths.checkout, head, target, issue })
-      : null;
-  const step = decide({ screening, head, target, updatedAt: prev.updatedAt, now: now(), betaFix: Boolean(fix) });
-  const held = step === 'launch' && head !== target;
-  const why = fix
-    ? `; main holds ${fix.sha.slice(0, 9)}, which closed beta issue #${fix.issue}`
-    : held
-      ? `; the next update is after ${new Date(nextUpdateAt(prev.updatedAt)).toISOString()}`
-      : '';
-  log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)}${why})`);
+  const step = decide({ screening, head, target });
+  log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)})`);
   if (step === 'blocked')
     return finish(paths, {
       state: 'blocked',
@@ -835,13 +767,34 @@ async function serve(paths) {
     } catch (err) {
       log(paths, `front: ${err.message}`);
     }
-    // The checkout's copy of this file moved with main: exit, and systemd (Restart=always) starts the new one.
+    // The checkout's copy of this file moved with main: start the new one at once (selfRestart), else exit and let
+    // systemd (Restart=always) start it.
     if (SELF.startsWith(paths.checkout + path.sep) && fileHash(SELF) !== mine) {
-      log(paths, 'serve: beta-host.mjs changed on main; exiting so the new copy starts');
+      if (selfRestart() === 'restart') {
+        log(paths, 'serve: beta-host.mjs changed on main; systemd starts the new copy now');
+        // systemd stops this copy as its restart job runs; should it not, exit and Restart=always starts the new one.
+        await new Promise((r) => setTimeout(r, 30_000));
+      } else log(paths, 'serve: beta-host.mjs changed on main; exiting so the new copy starts');
       process.exit(0);
     }
     await new Promise((r) => setTimeout(r, everyMin * 60_000));
   }
+}
+
+const BETA_SERVICE = 'intafaced-beta.service';
+
+/**
+ * How the supervisor hands over to a new copy of itself (#10888): when it is its unit's main process, it asks systemd to
+ * restart the unit now ('restart'), so the TEST mailbox is down only while node starts, not for RestartSec; run by
+ * hand, or when systemd refuses, it exits ('exit').
+ */
+export function selfRestart({
+  pid = process.pid,
+  systemctl = (...args) => spawnSync('systemctl', ['--user', ...args], { encoding: 'utf8', timeout: 10_000 }),
+} = {}) {
+  const show = systemctl('show', BETA_SERVICE, '-p', 'MainPID');
+  if (show.status !== 0 || Number(/MainPID=(\d+)/.exec(show.stdout ?? '')?.[1]) !== pid) return 'exit';
+  return systemctl('restart', '--no-block', BETA_SERVICE).status === 0 ? 'restart' : 'exit';
 }
 
 /** The systemd user service that keeps `serve` running. KillMode=process: a restart of the supervisor leaves the stack up. */

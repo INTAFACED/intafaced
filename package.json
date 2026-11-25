@@ -36,6 +36,8 @@
     "test:gate-tools": "node tooling/scripts/gate-tools.test.mjs",
     "test:services-map": "node --test tooling/scripts/services-map.test.mjs",
     "pr": "node tooling/scripts/agent-pr.mjs",
+    "shots": "node tooling/shots/shots.mjs",
+    "shots:record": "node tooling/shots/record-demo.mjs",
     "verify": "node tooling/ci/verify.mjs",
     "verify:verdict": "node tooling/ci/infra-verdict.mjs",
     "gate": "node tooling/ci/dod-gate.mjs",

@@ -10,6 +10,7 @@ import {
   useMarkets,
   useTickers,
   useVenueMarketStates,
+  venueListingStatuses,
   type Loadable,
   type MarketData,
   type TickerRow,
@@ -59,7 +60,11 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   const venueStates = useVenueMarketStates();
   const { markets, tickers } = useMemo(() => pickSource(venueStates, ownMarkets, ownTickers), [venueStates, ownMarkets, ownTickers]);
   // Which listed markets are their own group (FX) and which are shut for the session; null if that read fails.
-  const statuses = useListingStatus();
+  const ownStatuses = useListingStatus();
+  const statuses = useMemo(
+    () => (venueStates.status === 'ready' ? venueListingStatuses(venueStates.data) : ownStatuses),
+    [venueStates, ownStatuses],
+  );
 
   const storageKey = viewKey(userId);
   const [view, setView] = useState<ViewState>(() => applyAddress(readView(browserStorage(), storageKey), search));

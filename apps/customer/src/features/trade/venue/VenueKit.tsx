@@ -2,7 +2,7 @@ import { useCallback, useRef, type ReactNode } from 'react';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
-import { WalletProvider, usePolled, useWallet } from '../../protocol';
+import { WalletProvider, signWithSessionKey, usePolled, useWallet } from '../../protocol';
 import {
   keys,
   walletTypedData,
@@ -24,6 +24,7 @@ import { feeShown } from './fee-rates';
 import { VENUE_POLL_MS } from './poll';
 import { useAsOfText, useVenueApi, word } from './venue-words';
 import { fillTotal, groupVenueFillsByOrder, readAllVenueOrders, type VenueFillGroup } from './venue-fill-groups';
+import { chooseSigner, signerOfSignature, type DeskSigner, type SessionSigning } from './session-signer';
 
 export { VENUE_POLL_MS, fillTotal, readAllVenueOrders };
 export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
@@ -224,14 +225,28 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   return actionKey ?? '';
 }
 
+/** The refusal codes the desk gives an action it could not sign for want of a trading session (session-signer.ts). */
+export const SESSION_NEEDED = 'trade.venue_session_needed';
+export const SESSION_KEY_GONE = 'trade.venue_session_key_gone';
+
 /**
  * Prepare → the wallet signs → submit, once per business key. A second call with a key still in flight is the same call
  * (a double press asks for one signature); a key the door already holds comes back with its stored action, so a signed
  * one is never signed again: its first definite answer stands, and one with no definite answer is read back.
+ *
+ * With `session` (a venue whose trades a trading session's key signs, session-signer.ts), an order, cancel, change or
+ * leverage is prepared for the live session key and signed by it here, with no wallet prompt; approvals and every move of
+ * funds stay the owner wallet's. Without a live key on such a venue, nothing is prepared: the desk offers the session.
  */
-export function useVenueActions(owner: string | null) {
+export function useVenueActions(owner: string | null, session: SessionSigning | null = null) {
   const venue = useVenueApi();
   const wallet = useWallet();
+  const { t } = venueCopy.useCopy();
+  // The session as of the press, read when the action runs (a session started after this render signs the next press).
+  const sessionNow = useRef(session);
+  sessionNow.current = session;
+  // The signer each key was prepared with on this page: a retry of the key is the same action, signed by the same signer.
+  const signers = useRef(new Map<string, DeskSigner>());
   const inFlight = useRef(new Map<string, Promise<ActionResult>>());
   // The signed bytes of this page's own actions, in memory only, so a submit refused before it was sent can be re-sent as
   // the same bytes. A key whose bytes may have reached the venue is never sent again.
@@ -266,8 +281,12 @@ export function useVenueActions(owner: string | null) {
       if (running) return running;
       const job = (async (): Promise<ActionResult> => {
         if (!owner) return { kind: 'wallet_failed', message: '' };
+        const choice = chooseSigner(intent.kind, owner, sessionNow.current, signers.current.get(key));
+        if ('needs' in choice) return { kind: 'refused', code: SESSION_NEEDED, message: t('Session needed'), beforeWallet: true };
+        const signer = choice.signer;
         const prepared = await venue.prepare({
           owner,
+          signer,
           intent,
           actionKey: opts.actionKey,
           stepUpApprovalId: opts.stepUpApprovalId,
@@ -276,6 +295,7 @@ export function useVenueActions(owner: string | null) {
         if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
         const answer = prepared.data;
         const p = answer.prepared;
+        signers.current.set(key, signer);
         const next = preparedStep(answer, {
           kept: signatures.current.get(answer.actionKey),
           refusedBeforeSend: refusedBeforeSend.current.has(answer.actionKey),
@@ -289,10 +309,22 @@ export function useVenueActions(owner: string | null) {
           case 'resend':
             return submitSigned(answer.actionKey, p, next.signature);
           case 'wait':
+            // A session key prompts nobody, so there is no other prompt to wait for: it signs here.
+            if (signer.role === 'agent') break;
             promptedHere.current.add(answer.actionKey);
             return { kind: 'waiting' };
           case 'sign':
             break;
+        }
+        if (signer.role === 'agent') {
+          // The session key signs it here: no wallet prompt. A key that is no longer this sign-in's live session key signs
+          // nothing; the stored action waits unsigned, and the desk says the session ended.
+          const live = sessionNow.current?.live ?? null;
+          if (!live || live.address.toLowerCase() !== signer.address)
+            return { kind: 'refused', code: SESSION_KEY_GONE, message: t('Session key gone'), beforeWallet: true };
+          const signature = await signWithSessionKey(live, p);
+          signatures.current.set(answer.actionKey, signature);
+          return submitSigned(answer.actionKey, p, signature);
         }
         promptedHere.current.add(answer.actionKey);
         const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
@@ -306,7 +338,7 @@ export function useVenueActions(owner: string | null) {
       void job.finally(() => inFlight.current.delete(key));
       return job;
     },
-    [owner, venue, wallet, submitSigned],
+    [owner, venue, wallet, submitSigned, t],
   );
 
   /**
@@ -320,8 +352,11 @@ export function useVenueActions(owner: string | null) {
       // The signature this page made, or one the page kept for the key across a reload (J-cex-spot-02 #4): the same bytes.
       const kept = signatures.current.get(key) ?? opts.signature;
       if (!kept) return run(intent, opts);
+      // The same key under the signer it was signed by, or the door would read it as a different action.
+      const signer = signers.current.get(key) ?? signerOfSignature(owner ?? '', kept.signedBy);
       const prepared = await venue.prepare({
         owner: owner ?? '',
+        signer,
         intent,
         actionKey: opts.actionKey,
         ...(opts.venueId ? { venueId: opts.venueId } : {}),

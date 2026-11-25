@@ -57,6 +57,8 @@ vi.mock('../../../features/trade', () => ({
 
 vi.mock('../../../features/session', () => ({
   useApi: () => ({}),
+  // The desk reads the trading session only on a venue whose orders a session key signs (VenueSession.tsx); none here.
+  useSession: () => ({ api: {}, userId: null }),
 }));
 
 vi.mock('../../../shared/resource', () => ({

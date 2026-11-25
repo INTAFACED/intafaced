@@ -349,6 +349,27 @@ export const components = {
   Payee: 'The person money is about to go to, as the lookup found them: face, name, handle, a confirmed badge and a tick; nothing guessed',
   StatusNote:
     'Where something stands, in the flow (still confirming, held for review, could not load): title, words, the caller’s actions; polite, an alert only for a failure',
+  PageGrid:
+    "The page's width, gutter and columns (split 8:4, hero 5:7, even, full): one column under 64rem of its own width, a step larger on an ultra-wide screen",
+  PageColumn: 'One column of a PageGrid, its panels stacked with the page gap; span all for a band across every column',
+  TileRow: 'A row of equal tiles that wraps by width (narrow 11rem, card 14rem, wide 18rem)',
+  PanelHead: "A panel's head: its title as a heading at the start, an aside at the end",
+  MarketTable:
+    'Markets as a table: mark, symbol and name; price, 24h change, 7-day line and volume end-aligned in tabular digits; a row action shown on hover; placeholder rows while loading',
+  MoverTile: 'One market as a tile: symbol and change, the price large, its line',
+  ActionRow: 'A row of equal action keys: wide bars beside their words, square keys with the word under on a phone',
+  ActionButton: 'One action key of an ActionRow; `primary` for the one lit key',
+  PanelSection: "A panel's section under a hairline: its title and an aside on one row, then its body",
+  ProgressSegments: 'Progress as N segments, the done ones lit, said in words',
+  ActivityRow: 'One line of activity: a circle, what and when, the signed amount at the end (in reads up), masked with hide-balances',
+  ActivityList: 'The named list ActivityRows sit in',
+  ButtonLink: "A link drawn as the kit's Button (primary, secondary, quiet; sm, md, lg): a call to action that goes somewhere",
+  Display: "The page's display headline in the wide face, with an optional dimmed second line",
+  SectionTitle: "A front page's section title in the wide face, a step under Display",
+  LiveDot: 'A small glowing dot in the up colour beside its words; grey when off',
+  TrustStrip: 'Equal cells in one panel divided by hairlines: a title, an optional badge, a short body',
+  WarnBadge: 'A warn-toned pill for a value that is not real yet',
+  FeaturedMarket: 'The busiest market in a sunken tile: mark and name, the price large, its change, its chart filling the end',
 } as const;
 export type ComponentName = keyof typeof components;
 

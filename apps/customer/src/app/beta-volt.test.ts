@@ -119,6 +119,27 @@ describe("the beta's menus", () => {
     expect(simpleTrade?.items.map((item) => item.href)).toContain('/trade/buy');
   });
 
+  it('shows API keys and the API permissions reference (/developers/permissions) on the beta while keeping /developers blocked (J-developer-03 #7 #9)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/uc/safe/api-keys', '/uc/safe/api-keys'],
+      ['/uc/safe/api-keys/new', '/uc/safe/api-keys/new'],
+      ['/uc/safe/api-keys/:keyId', '/uc/safe/api-keys/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d'],
+      ['/developers/permissions', '/developers/permissions'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(betaOffFeatureFor(sample), sample).toBeUndefined();
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    expect(betaOffFeatureFor('/developers')?.id).toBe('developer-portal');
+    expect(betaOffFeatureFor('/developers/hosts')?.id).toBe('developer-portal');
+    expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
+    expect(isHiddenPath('/developers')).toBe(true);
+    expect(isHiddenPath('/developers/hosts')).toBe(true);
+  });
+
   it('shows Notices (/notice, /notice/:id, /announcement, /announcement/:id) on the beta while keeping Lab, App and Partner blocked (J-cex-spot-10 #10)', () => {
     const betaList = betaRoomList(count.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
@@ -143,6 +164,40 @@ describe("the beta's menus", () => {
     }
   });
 
+  it('shows Person-to-person offers (/p2p) and orders (/uc/order) on the beta while keeping the remaining P2P rooms blocked (J-p2p-21)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/p2p', '/p2p'],
+      ['/uc/order', '/uc/order'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(betaOffFeatureFor(sample), sample).toBeUndefined();
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    for (const alias of ['/ctc', '/p2p/orders', '/p2p/orders/trade-1']) {
+      expect(betaHides(alias, betaList), alias).toBe(false);
+      expect(betaOffFeatureFor(alias), alias).toBeUndefined();
+      expect(isHiddenPath(alias), alias).toBe(false);
+    }
+    for (const mode of ['simple', 'pro'] as const) {
+      const pay = tabSpecs(mode, true).find((tab) => tab.door === 'Pay');
+      expect(
+        pay?.items.map((item) => item.href),
+        `Pay menu in ${mode} mode`,
+      ).toContain('/p2p');
+    }
+    expect(visibleSections().flatMap((group) => group.tiles.map((tile) => tile.href))).toContain('/p2p');
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/p2p');
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/uc/order');
+    expect(searchRooms('person-to-person', 'Personal').map((room) => room.path)).toContain('/p2p');
+    for (const blockedPath of ['/uc/ad', '/p2p/methods', '/p2p/access', '/chat', '/checkuser']) {
+      expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('p2p');
+      expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
+    }
+  });
+
   it('shows Idempotent order placement (/developers/idempotency) on the beta while keeping /developers blocked (J-developer-05 #5)', () => {
     const betaList = betaRoomList(count.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
@@ -157,6 +212,21 @@ describe("the beta's menus", () => {
     expect(isHiddenPath('/developers')).toBe(true);
     expect(isHiddenPath('/developers/hosts')).toBe(true);
     expect(isHiddenPath('/developers/status')).toBe(true);
+  });
+
+  it('shows Official channels (/help/official-channels) on the beta while keeping Status, Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/help/official-channels')).toBe('volt');
+    expect(betaHides('/help/official-channels', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/help/official-channels')).toBeUndefined();
+    expect(isHiddenPath('/help/official-channels')).toBe(false);
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/help/official-channels');
+    expect(searchRooms('official channels', 'Personal').map((room) => room.path)).toContain('/help/official-channels');
+    for (const blockedPath of ['/status', '/rulebook', '/support/chat', '/help/mule-policy']) {
+      expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('owner-blank-pages');
+      expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
+    }
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {

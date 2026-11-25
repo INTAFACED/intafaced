@@ -58,6 +58,7 @@ import {
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
+import { VenueSessionPanel, useDeskSession } from '../../../features/trade/venue/VenueSession';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
 import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
@@ -67,6 +68,7 @@ import { useResource } from '../../../shared/resource';
 import { useReveal } from '../../../shared/reveal';
 import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
+import { VenueMarketPanel } from '../desk/VenueMarketData';
 import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
@@ -190,7 +192,9 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const market = perps.find((m) => m.symbol === chosen) ?? perps[0]!;
   const owner = useOwner();
   const account = useVenueAccount(owner, { positions: true });
-  const { run, resend } = useVenueActions(owner);
+  // A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's live key.
+  const session = useDeskSession(owner, status);
+  const { run, resend } = useVenueActions(owner, session.signing);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   return (
     <>
@@ -213,6 +217,8 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
             ))}
           </ul>
           <ContractStrip market={market} test={status.test} />
+          {/* The contract's own book, tape and chart, read from the venue (as on the venue spot desk). */}
+          <VenueMarketPanel key={`m:${market.symbol}`} market={market} test={status.test} venueName={status.venue.displayName} />
           {owner ? (
             <Ticket
               key={`t:${market.symbol}`}
@@ -234,6 +240,7 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
         </div>
         <div className="lt-col-side">
           <WalletBar />
+          {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
           <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
           {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
           {owner && market.marginAccount?.known ? (
