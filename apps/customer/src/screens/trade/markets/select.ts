@@ -193,8 +193,23 @@ export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: st
 }
 
 /** "$67,812.40" for a dollar-quoted market, "0.0123 BTC" otherwise; an unknown price is a bare "—". */
+/**
+ * The places a price is shown with: its tick's, but never more than about six significant digits, so a venue that
+ * publishes a hair-thin tick (Hyperliquid's spot BTC at 0.00000001) still reads $65,206.98, never $65,206.98000000.
+ */
+export function displayTick(tickSize: Decimal | null | undefined, value: Decimal | null | undefined): Decimal | null | undefined {
+  const tickPlaces = tickSize?.includes('.') ? tickSize.split('.')[1]!.replace(/0+$/, '').length : 0;
+  const text = value?.replace(/^-/, '') ?? '';
+  if (!/^\d+(\.\d+)?$/.test(text)) return tickSize;
+  const [whole = '0', fraction = ''] = text.split('.');
+  const wholeDigits = whole.replace(/^0+/, '').length;
+  const sig = wholeDigits > 0 ? Math.max(2, 6 - wholeDigits) : (fraction.match(/^0*/)?.[0].length ?? 0) + 4;
+  const places = tickSize ? Math.min(tickPlaces, sig) : sig;
+  return places === 0 ? '1' : `0.${'0'.repeat(places - 1)}1`;
+}
+
 export function priceText(market: MarketData, value: Decimal | null | undefined): string {
-  const price = fmtPrice(value, market.tickSize);
+  const price = fmtPrice(value, displayTick(market.tickSize, value));
   if (price === '—') return price;
   return isUsdQuote(market.quote) ? `$${price}` : `${price} ${market.quote}`;
 }

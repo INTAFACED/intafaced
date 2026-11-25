@@ -210,6 +210,13 @@ describe('text helpers', () => {
     expect(priceText(market('ETH', 'BTC', { tickSize: '0.0001' }), '0.0475')).toBe('0.0475 BTC');
     expect(priceText(market('BTC'), null)).toBe('—');
   });
+  it('a hair-thin venue tick still reads as about six significant digits, never finer than the tick', () => {
+    const thin = { tickSize: '0.00000001' };
+    expect(priceText(market('BTC', 'USDC', thin), '65206.98')).toBe('$65,206.98');
+    expect(priceText(market('IFC', 'USDT', thin), '0.9981')).toBe('$0.9981');
+    expect(priceText(market('PEPE', 'USDC', thin), '0.00002188')).toBe('$0.00002188');
+    expect(priceText(market('ETH', 'USDC', { tickSize: '0.01' }), '2584.031')).toBe('$2,584.03');
+  });
   it('volume is compact dollars on a dollar market and a dash when unknown', () => {
     expect(volumeText(market('BTC'), ticker('BTC-USDT', '1', null, '1234567'))).toBe('$1.2M');
     expect(volumeText(market('BTC'), ticker('BTC-USDT', '1', null, null))).toBe('—');
