@@ -32,7 +32,7 @@ import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
 import { useRecentActivityLimit } from './recent-activity-limit';
-import { HomeStanding, launchStanding, useLaunchVenue } from './HomeStanding';
+import { StandingFigure, StandingScope, StandingSpendable, launchStanding, useLaunchVenue } from './HomeStanding';
 import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
@@ -277,7 +277,7 @@ function HomeSimple() {
               </a>
             )}
           </div>
-          {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
+          {launch ? <StandingFigure hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
         </div>
         {portfolio.status === 'refused' ? null : <ValueRanges range={range} onRange={setRange} />}
       </div>
@@ -337,24 +337,28 @@ function HomeSimple() {
   const sideTiles = SIDE.filter((id) => shown.has(id));
 
   return (
-    <div data-testid="if-home" className="hm">
-      <PageGrid layout="split">
-        <PageColumn span="all" className="hm-band">
-          <HomeNotices />
-          <HomeInbox needsYou={needsYou} />
-        </PageColumn>
-        <PageColumn className="hm-main">
-          {hero}
-          {shown.has('markets') ? marketsPanel : null}
-        </PageColumn>
-        <PageColumn className="hm-side" data-testid="home-side">
-          {sideTiles.map(tile)}
-          <div className="hm-room-action">
-            <CustomiseHome home={home} mode="simple" />
-          </div>
-        </PageColumn>
-      </PageGrid>
-    </div>
+    <StandingScope status={launch}>
+      <div data-testid="if-home" className="hm">
+        <PageGrid layout="split">
+          <PageColumn span="all" className="hm-band">
+            <HomeNotices />
+            <HomeInbox needsYou={needsYou} />
+          </PageColumn>
+          <PageColumn className="hm-main">
+            {hero}
+            {shown.has('markets') ? marketsPanel : null}
+          </PageColumn>
+          <PageColumn className="hm-side" data-testid="home-side">
+            {/* Where the person stands, spendable today, beside the total (J-bank-31). */}
+            <StandingSpendable hidden={hideBalances} panel="hm-side-panel" />
+            {sideTiles.map(tile)}
+            <div className="hm-room-action">
+              <CustomiseHome home={home} mode="simple" />
+            </div>
+          </PageColumn>
+        </PageGrid>
+      </div>
+    </StandingScope>
   );
 }
 

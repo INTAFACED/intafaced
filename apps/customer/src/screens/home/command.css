@@ -361,3 +361,17 @@
 .hm-chart.hm-chart-note {
   block-size: 4.5rem;
 }
+
+/* Where the person stands (the launch model), in the hero: its sources side by side where there is room, each one's
+   figure before who reports it. Layout only: the look comes from the kit. */
+.hm-hero [data-standing] > * {
+  max-inline-size: none;
+}
+.hm-hero [data-testid='standing-parts'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.625rem 1.5rem;
+}
+.hm-hero [data-testid='standing-parts'] > li > .lt-hint {
+  order: 2;
+}
