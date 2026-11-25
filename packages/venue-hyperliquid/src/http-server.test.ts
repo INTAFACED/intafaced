@@ -65,7 +65,8 @@ describe('the venue protocol over HTTP (answerUserVenue)', () => {
       label: 'TEST',
       chainId: 421_614,
       deposit: null,
-      venue: { id: 'hyperliquid-testnet', proofLevel: 'partner-sandbox' },
+      // Orders are L1 actions under chain 1337, which no wallet signs on: a trading session's key signs them.
+      venue: { id: 'hyperliquid-testnet', proofLevel: 'partner-sandbox', tradesSignedBy: 'session_key' },
     });
     for (const spec of Object.values(USER_VENUE_READS)) {
       const [s] = await post(venue, spec.path, { account: RECORDED_ORDER_ACCOUNT });

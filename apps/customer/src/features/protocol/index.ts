@@ -17,3 +17,14 @@ export { usePolled } from './wallet/use-polled';
 export { useWallet, waitMined, WalletProvider, type MinedOutcome, type SequenceResult } from './wallet/WalletProvider';
 export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';
 export { EmbeddedWalletAnnouncer } from './embedded-wallet/EmbeddedWalletAnnouncer';
+export {
+  createTradingSessionApi,
+  freshKey,
+  heldKey,
+  keyFor,
+  signWithSessionKey,
+  type HeldKey,
+  type SessionView,
+  type TradingSessionApi,
+} from './embedded-wallet/trading-session';
+export type { SignResult } from './wallet/eip1193';

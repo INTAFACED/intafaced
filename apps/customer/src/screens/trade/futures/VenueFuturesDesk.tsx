@@ -58,6 +58,7 @@ import {
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
+import { VenueSessionPanel, useDeskSession } from '../../../features/trade/venue/VenueSession';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
 import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
@@ -191,7 +192,9 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const market = perps.find((m) => m.symbol === chosen) ?? perps[0]!;
   const owner = useOwner();
   const account = useVenueAccount(owner, { positions: true });
-  const { run, resend } = useVenueActions(owner);
+  // A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's live key.
+  const session = useDeskSession(owner, status);
+  const { run, resend } = useVenueActions(owner, session.signing);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   return (
     <>
@@ -237,6 +240,7 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
         </div>
         <div className="lt-col-side">
           <WalletBar />
+          {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
           <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
           {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
           {owner && market.marginAccount?.known ? (
