@@ -21,7 +21,7 @@ export type SortColumnId = (typeof SORT_COLUMNS)[number];
 
 export const isSortColumn = (id: string): id is SortColumnId => (SORT_COLUMNS as readonly string[]).includes(id);
 
-const TABS: readonly Tab[] = ['favorites', 'spot', 'perps'];
+const TABS: readonly Tab[] = ['favorites', 'all', 'spot', 'perps'];
 const CHIPS: readonly Chip[] = ['all', 'gainers', 'losers', 'new'];
 const STATUSES: readonly StatusFilter[] = ['open', 'all'];
 const DENSITIES: readonly Density[] = ['comfortable', 'compact'];
@@ -38,6 +38,7 @@ export interface ViewState {
   density: Density | null;
 }
 
+// Spot first, not All: J-cex-spot-14 #1 reads every row of the list as it opens as a listed spot market.
 export const DEFAULT_VIEW: ViewState = { tab: 'spot', chip: 'all', quote: null, status: 'open', sort: null, density: null };
 
 /** The part of `Storage` this module uses, so tests can pass a fake that throws. */

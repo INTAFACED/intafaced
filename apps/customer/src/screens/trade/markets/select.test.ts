@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { MarketData, TickerRow } from './deps';
 import {
   anyListed,
+  displayName,
   entriesFor,
+  entryTarget,
+  fundingText,
+  interestText,
+  leverageText,
+  topMovers,
   isAnnounced,
   isPaused,
   marketTarget,
@@ -270,5 +276,56 @@ describe('upcoming and delisting listings (J-cex-spot-14 #1)', () => {
     expect(isAnnounced(market('BTC', 'USDT', { listing: 'open' }))).toBe(false);
     expect(isAnnounced(market('HLT', 'USDT', { orderable: false, listing: 'halted' }))).toBe(false);
     expect(isAnnounced(market('GONE', 'USDT', { orderable: false, listing: 'delisted' }))).toBe(false);
+  });
+});
+
+describe('spot and perpetuals in one list (the pick)', () => {
+  const perp = (base: string, facts: Partial<{ maxLeverage: string; funding1h: string; openInterest: string }> = {}) => ({
+    market: market(base, 'USDC', { symbol: `${base}-PERP` }),
+    ticker: undefined,
+    perp: { maxLeverage: null, funding1h: null, openInterest: null, ...facts },
+  });
+
+  it('reads a perpetual by its contract and a spot market by its pair', () => {
+    expect(displayName(perp('BTC'))).toBe('BTC-PERP');
+    expect(displayName(entries[0]!)).toBe('BTC/USDT');
+  });
+
+  it("shows a perpetual's published facts, and a dash for any it does not publish, never a made-up figure", () => {
+    const known = perp('BTC', { maxLeverage: '40', funding1h: '0.000012', openInterest: '2910000000' });
+    expect(leverageText(known.perp)).toBe('40x');
+    expect(fundingText(known.perp)).toBe('+0.0012%');
+    expect(fundingText(perp('DOGE', { funding1h: '-0.000018' }).perp)).toBe('−0.0018%');
+    expect(interestText(known.market, known.perp)).toBe('$2.9B');
+    const blank = perp('ETH');
+    expect(leverageText(blank.perp)).toBeNull();
+    expect(fundingText(blank.perp)).toBe('—');
+    expect(interestText(blank.market, blank.perp)).toBe('—');
+    expect(fundingText(undefined)).toBe('—');
+  });
+
+  it('opens a perpetual on the futures desk, and nowhere where the build hides that desk', () => {
+    expect(entryTarget(perp('BTC'), 'simple', () => false)).toBe('/trade/futures/BTC-PERP');
+    expect(entryTarget(perp('BTC'), 'simple', (path) => path === '/trade/futures')).toBeNull();
+    expect(entryTarget(entries[0]!, 'pro', () => false)).toBe('/trade/spot/BTC-USDT');
+  });
+
+  it('takes the six biggest 24h moves either way, only from markets with a price and a 24h figure, one per coin and kind', () => {
+    const many = entriesFor(
+      ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((b) => market(b)),
+      {
+        'A-USDT': ticker('A-USDT', '1', '0.01', '9'),
+        'B-USDT': ticker('B-USDT', '1', '-0.09', '8'),
+        'C-USDT': ticker('C-USDT', '1', '0.05', '7'),
+        'D-USDT': ticker('D-USDT', '1', '-0.03', '6'),
+        'E-USDT': ticker('E-USDT', '1', '0.07', '5'),
+        'F-USDT': ticker('F-USDT', '1', '0.02', '4'),
+        'G-USDT': ticker('G-USDT', '1', null, '3'),
+        'H-USDT': ticker('H-USDT', '1', '0.04', '2'),
+      },
+    );
+    expect(topMovers(many).map((e) => e.market.base)).toEqual(['B', 'E', 'C', 'H', 'D', 'F']);
+    const moved = topMovers([...entries, { ...perp('BTC'), ticker: ticker('BTC-PERP', '67000', '0.03', '5') }]);
+    expect(moved.map(displayName)).toEqual(['DOGE/USDT', 'BTC-PERP', 'BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
   });
 });

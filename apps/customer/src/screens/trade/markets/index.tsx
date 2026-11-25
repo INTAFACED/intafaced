@@ -1,8 +1,8 @@
 // volt-room: /trade
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
-import { Button, FreshnessTag, PageGrid, SearchField, Segmented, StatusNote, ToggleChips } from '@intafaced/ui/lit';
-import { CatalogueTemplate, TabList, type SortState } from '@intafaced/ui/lit/templates';
+import { Button, FreshnessTag, PageGrid, SearchField, Segmented, StatusNote } from '@intafaced/ui/lit';
+import { CatalogueTemplate, SectionTabs, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
 import {
   refusalCopy,
@@ -12,7 +12,6 @@ import {
   useVenueMarketStates,
   venueListingStatuses,
   venueMarketRow,
-  isHiddenPath,
   type Loadable,
   type MarketData,
   type TickerRow,
@@ -25,7 +24,7 @@ import type { FavoriteControl } from './MarketRow';
 import { Board, BoardSkeleton } from './Board';
 import './markets.css';
 import { TradeAccess } from './TradeAccess';
-import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, visibleEntries, type Chip } from './select';
+import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, visibleEntries, type Chip, type Entry, type Tab } from './select';
 import {
   applyAddress,
   browserStorage,
@@ -42,7 +41,8 @@ import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import type { ScreenProps } from '../../../app/screen-types';
 
-const CHIPS: readonly Chip[] = ['all', 'gainers', 'losers', 'new'];
+/** The list's one row of tabs, as the pick: which markets (Favorites, All, Spot, Perps), then which way they moved. */
+type TabValue = Tab | 'gainers' | 'losers';
 /** Prices older than this read Stale (they are polled every 10 s). */
 const STALE_AFTER_MS = 30_000;
 
@@ -107,24 +107,37 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   // Upcoming and delisting listings stay on the list with their state named (J-cex-spot-14 #1); they never trade.
   const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry) || isAnnounced(entry.market)), [everyEntry]);
   const hasPaused = openEntries.length < everyEntry.length;
-  // The venue's perpetuals, on their own tab (the Markets list's default tab stays spot only, J-cex-spot-14 #1).
-  const perpEntries = useMemo(
+  // The venue's perpetuals: on All and their own tab, never on the default Spot tab (J-cex-spot-14 #1 reads every row
+  // there as a listed spot market). A price, volume and 24h move show only from a ticker under the contract's own symbol,
+  // never a spot pair's; funding, open interest and the maximum leverage only where the venue read carries them.
+  const perpEntries = useMemo<Entry[]>(
     () =>
       venueStates.status === 'ready'
-        ? entriesFor(venueStates.data.value.markets.filter((m) => m.kind === 'perpetual').map(venueMarketRow), undefined, {
-            includePaused: true,
-          })
+        ? venueStates.data.value.markets
+            .filter((m) => m.kind === 'perpetual')
+            .map((m) => ({
+              market: venueMarketRow(m),
+              ticker: tickerMap?.[m.symbol],
+              perp: { maxLeverage: m.maxLeverage ?? null, funding1h: m.funding1h ?? null, openInterest: m.openInterest ?? null },
+            }))
         : [],
-    [venueStates],
+    [venueStates, tickerMap],
   );
-  const tab = view.tab === 'perps' && perpEntries.length === 0 ? 'spot' : view.tab;
-  const pool = tab === 'perps' ? perpEntries : view.status === 'open' ? openEntries : everyEntry;
+  // The board draws from every open market, spot and perpetual.
+  const boardEntries = useMemo(() => [...openEntries, ...perpEntries], [openEntries, perpEntries]);
+  const tab: Tab = view.tab === 'perps' && perpEntries.length === 0 ? 'spot' : view.tab;
+  const spotPool = view.status === 'open' ? openEntries : everyEntry;
+  const allPool = useMemo(() => [...spotPool, ...perpEntries], [spotPool, perpEntries]);
+  const pool = tab === 'perps' ? perpEntries : tab === 'spot' ? spotPool : allPool;
   const quotes = useMemo(() => quotesOf(pool.map((entry) => entry.market)), [pool]);
   const showNew = useMemo(() => anyListed(pool), [pool]);
 
-  // A saved choice the data no longer offers (a currency that left, no listing dates) is not applied.
+  // A saved choice the data no longer offers (a currency that left, no listing dates) is not applied. New has no tab of
+  // its own in the pick: `?filter=new` still filters, and choosing any tab clears it.
   const quote = quotes.length > 1 && view.quote && quotes.includes(view.quote) ? view.quote : null;
   const chip: Chip = view.chip === 'new' && !showNew ? 'all' : view.chip;
+  const tabValue: TabValue = chip === 'gainers' || chip === 'losers' ? chip : tab;
+  const favoriteCount = useMemo(() => allPool.filter((entry) => favorites.includes(entry.market.symbol)).length, [allPool, favorites]);
   const density: Density = view.density ?? (layoutMode === 'pro' ? 'compact' : 'comfortable');
   const sort: SortState | null = view.sort;
 
@@ -182,7 +195,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         <KitState
           kind="empty"
           title={t('Star a market to keep it here.')}
-          action={{ label: t('Browse markets'), onClick: () => change({ tab: 'spot' }) }}
+          action={{ label: t('Browse markets'), onClick: () => change({ tab: 'all', chip: 'all' }) }}
         />
       ) : (
         <KitState kind="empty" title={t('Log in to keep your favorites here.')} action={{ label: t('Log in'), href: signIn }} />
@@ -207,32 +220,29 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     );
   })();
 
-  const featured = marketsLoading ? <BoardSkeleton /> : <Board entries={openEntries} mode={layoutMode} />;
+  const featured = marketsLoading ? <BoardSkeleton /> : <Board entries={boardEntries} mode={layoutMode} />;
 
   return (
     <Frame meta={meta} featured={featured}>
       <div className="lt-stack" ref={tableTop}>
         <div data-testid="mkt-tabs" className="mkt-toolbar">
-          <TabList
+          <SectionTabs<TabValue>
             label={t('Markets')}
             items={[
-              { value: 'favorites', label: t('Favorites') },
+              { value: 'favorites', label: t('Favorites {count}', { count: favoriteCount }) },
+              { value: 'all', label: t('All {count}', { count: allPool.length }) },
               { value: 'spot', label: t('Spot') },
-              ...(perpEntries.length > 0 ? [{ value: 'perps', label: t('Perps') }] : []),
+              ...(perpEntries.length > 0 ? [{ value: 'perps' as const, label: t('Perps') }] : []),
+              { value: 'gainers', label: t('Gainers') },
+              { value: 'losers', label: t('Losers') },
             ]}
-            value={tab}
-            onChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : value === 'perps' ? 'perps' : 'spot' })}
+            value={tabValue}
+            onChange={(value) =>
+              // Gainers and Losers look across every market; the others name which markets, with no move filter.
+              change(value === 'gainers' || value === 'losers' ? { tab: 'all', chip: value } : { tab: value, chip: 'all' })
+            }
           />
           <div data-testid="mkt-chips" className="mkt-toolbar__chips" hidden={tab === 'perps'}>
-            <ToggleChips
-              label={t('Filter by change')}
-              options={CHIPS.filter((value) => value !== 'new' || showNew).map((value) => ({
-                value,
-                label: t(value === 'all' ? 'All' : value === 'gainers' ? 'Gainers' : value === 'losers' ? 'Losers' : 'New'),
-              }))}
-              value={chip}
-              onChange={(value) => change({ chip: CHIPS.find((item) => item === value) ?? 'all' })}
-            />
             {hasPaused || view.status === 'all' ? (
               <Segmented
                 label={t('Filter by status')}
@@ -282,7 +292,6 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         ) : null}
         <MarketsList
           label={t('Markets')}
-          targetOf={tab === 'perps' ? perpTarget : undefined}
           entries={rows}
           mode={layoutMode}
           density={density}
@@ -322,12 +331,6 @@ function NotOffered() {
       </ul>
     </section>
   );
-}
-
-/** A perpetual opens the futures desk on its contract; nowhere where the beta hides the desk. */
-function perpTarget(market: MarketData): string | null {
-  const path = `/trade/futures/${encodeURIComponent(market.symbol)}`;
-  return isHiddenPath('/trade/futures') ? null : path;
 }
 
 /** The freshness of the prices on screen, from the ticker read's own time (UI-SPEC TRD-0079). */

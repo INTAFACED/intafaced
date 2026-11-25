@@ -15,7 +15,7 @@ export type MarketColumn = 'name' | 'price' | 'change' | 'spark' | 'range' | 'vo
 export const ALL_COLUMNS: readonly MarketColumn[] = ['name', 'price', 'change', 'spark', 'range', 'volume', 'action'];
 
 export type Mode = 'simple' | 'pro';
-export type Tab = 'favorites' | 'spot' | 'perps';
+export type Tab = 'favorites' | 'all' | 'spot' | 'perps';
 export type Chip = 'all' | 'gainers' | 'losers' | 'new';
 export type SortKey = 'name' | 'price' | 'change' | 'volume';
 export type SortDir = 'asc' | 'desc';
@@ -57,6 +57,59 @@ export interface FilterState {
 export interface Entry {
   market: MarketData;
   ticker: TickerRow | undefined;
+  /** Set on a perpetual only: its venue facts, each null until a read carries it. */
+  perp?: PerpFacts;
+}
+
+/** A perpetual's facts from the venue read; null where the read carries none, drawn as "—". */
+export interface PerpFacts {
+  /** A multiple, "40". */
+  maxLeverage: Decimal | null;
+  /** The hourly funding rate as a ratio, "0.000012". */
+  funding1h: Decimal | null;
+  /** The open contracts' value in the quote asset. */
+  openInterest: Decimal | null;
+}
+
+export const isPerp = (entry: Entry): boolean => entry.perp !== undefined;
+
+/** "40x", or null when the venue publishes no maximum. */
+export function leverageText(perp: PerpFacts | undefined): string | null {
+  const value = perp?.maxLeverage ?? null;
+  if (dec(value) === null) return null;
+  return `${fmtAmount(value, { places: 0 })}x`;
+}
+
+/** "+0.0012%": funding is a small rate, so four places; "—" when unknown or not a perpetual. */
+export function fundingText(perp: PerpFacts | undefined): string {
+  return fmtPct(perp?.funding1h ?? null, { places: 4 });
+}
+
+/** Open interest in the quote currency, compact ("$2.9B"); "—" when unknown or not a perpetual. */
+export function interestText(market: MarketData, perp: PerpFacts | undefined): string {
+  const value = perp?.openInterest ?? null;
+  if (dec(value) === null) return '—';
+  return isUsdQuote(market.quote) ? fmtUsd(value, { compact: true }) : `${fmtAmount(value, { places: 2 })} ${market.quote}`;
+}
+
+/** The name a row reads by: "BTC-PERP" for a perpetual, "BTC/USDC" for spot. */
+export const displayName = (entry: Entry) => (entry.perp ? `${entry.market.base}-PERP` : `${entry.market.base}/${entry.market.quote}`);
+
+/** Largest 24h volume first, markets without a figure after; one row per coin and kind, so BTC-PERP and BTC/USDC both stay. */
+export function byVolume(entries: readonly Entry[]): Entry[] {
+  const sorted = [...entries].sort((a, b) => byDecimal(a.ticker?.quoteVolume24h, b.ticker?.quoteVolume24h, 'desc'));
+  const key = (entry: Entry) => `${entry.market.base}|${isPerp(entry)}`;
+  return sorted.filter((entry, i) => sorted.findIndex((other) => key(other) === key(entry)) === i);
+}
+
+const absolute = (value: Decimal | null | undefined): Decimal | null => (value == null ? null : value.replace(/^[-−]/, ''));
+
+/** The biggest 24h moves either way, across every market that has a price and a 24h figure (the board's movers). */
+export function topMovers(entries: readonly Entry[], size = 6): Entry[] {
+  const moved = entries.filter((entry) => dec(entry.ticker?.last) !== null && dec(entry.ticker?.changePct24h) !== null);
+  return byVolume(moved)
+    .sort((a, b) => byDecimal(absolute(a.ticker?.changePct24h), absolute(b.ticker?.changePct24h), 'desc'))
+    .slice(0, size);
 }
 
 /** Open markets only, or with `includePaused` the ones the service lists as not orderable too (they draw a Paused badge). */
@@ -190,6 +243,15 @@ export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: st
   if (mode === 'simple' && !isHidden('/trade/buy')) return `/trade/buy?asset=${encodeURIComponent(market.base)}`;
   const desk = `/trade/spot/${normalizePair(market.symbol)}`;
   return isHidden(desk) ? null : desk;
+}
+
+/**
+ * Where a row of either kind goes: a perpetual opens the futures desk on its contract (null where the build hides that
+ * desk); a spot market goes where `marketTarget` says.
+ */
+export function entryTarget(entry: Entry, mode: Mode, isHidden: (path: string) => boolean, signedIn = true): string | null {
+  if (!entry.perp) return marketTarget(entry.market, mode, isHidden, signedIn);
+  return isHidden('/trade/futures') ? null : `/trade/futures/${encodeURIComponent(entry.market.symbol)}`;
 }
 
 /** "$67,812.40" for a dollar-quoted market, "0.0123 BTC" otherwise; an unknown price is a bare "—". */
