@@ -32,10 +32,10 @@ import { MAX_FUNDED_PER_PERSON, invitedOwner } from './beta-invited.mjs';
 
 /** What one tester's embedded wallet gets on the testnet, once: margin for a few small BTC-PERP orders at 20x. */
 export const TESTNET_GRANT = Object.freeze({ asset: 'USDC', amount: '25' });
-export const SEND_REPO = 'INTAFACED/intafaced';
-export const SEND_WORKFLOW = 'hl-testnet-send.yml';
+const SEND_REPO = 'INTAFACED/intafaced';
+const SEND_WORKFLOW = 'hl-testnet-send.yml';
 /** Hyperliquid's TEST network's public read door: balances only, no key. */
-export const TESTNET_INFO_URL = 'https://api.hyperliquid-testnet.xyz/info';
+const TESTNET_INFO_URL = 'https://api.hyperliquid-testnet.xyz/info';
 /** Sends per key, the first included: a dispatch or run that fails is tried again up to this. */
 export const MAX_TRIES = 3;
 /** How long a failed send waits before it is tried again. */
