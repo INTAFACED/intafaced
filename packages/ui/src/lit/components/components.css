@@ -2161,6 +2161,9 @@ a.lt-mover:hover {
 .lt-chart[data-tone='ink'] {
   --lt-chart-soft: var(--lit-text-1);
 }
+.lt-chart[data-tone='ink'] .lt-chart-live {
+  fill: var(--lit-text-1);
+}
 .lt-chart[data-tone='ink'] .lt-chart-soft-top {
   stop-opacity: 0.14;
 }
@@ -2550,12 +2553,6 @@ a.lit-button {
   min-inline-size: 0;
   min-block-size: 16rem;
 }
-.lt-market-hero-chart[data-tone='up'] {
-  --lt-chart-soft: var(--lit-up);
-}
-.lt-market-hero-chart[data-tone='down'] {
-  --lt-chart-soft: var(--lit-down);
-}
 .lt-market-hero-chart .lt-chart {
   flex: 1;
   margin: 0;
@@ -2602,6 +2599,29 @@ a.lit-button {
   }
 }
 
+/* A favourite star: quiet text when off, the text colour when on; the accent is the main action's alone. */
+.lt-star {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 1.5rem;
+  min-block-size: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-3);
+  cursor: pointer;
+  transition: color var(--lit-t-quick) var(--lit-ease);
+}
+.lt-star:hover,
+.lt-star[aria-pressed='true'] {
+  color: var(--lit-text-1);
+}
+.lt-star:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
 .lt-toolbar[hidden] {
   display: none;
 }

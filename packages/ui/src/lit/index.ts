@@ -57,7 +57,9 @@ export {
   Dim,
   ToolbarEnd,
   FootNotes,
+  StarToggle,
   type MarketHeroProps,
+  type StarToggleProps,
 } from './components/board-parts.js';
 export {
   ButtonLink,

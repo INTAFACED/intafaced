@@ -34,11 +34,6 @@ import {
 /** Markets the board can show: priced, and open to trade. */
 const priced = (entries: readonly Entry[]) => entries.filter((entry) => entry.ticker?.last != null && entry.market.orderable);
 
-const toneOf = (value: Decimal | null | undefined) => {
-  const dir = direction(value);
-  return dir === 'up' ? 'up' : dir === 'down' ? 'down' : 'neutral';
-};
-
 /**
  * The top of Markets: the most traded market large, with its day on a chart and one press to trade it, and beside it
  * the biggest movers. Drawn only from markets with a price; with none, nothing (the list below says why).
@@ -80,8 +75,6 @@ export function Board({
     [t('Max leverage'), leverageText(perp) ?? '—'],
   ];
 
-  const tone = toneOf(ticker?.changePct24h);
-
   return (
     <MarketBoard data-testid="mkt-board">
       <MarketHero
@@ -116,10 +109,9 @@ export function Board({
         }
         stats={stats}
         chartTitle={t('Price, last 24 hours')}
-        tone={tone}
         chart={
           points.length > 1 ? (
-            <AreaChart label={t('{pair}, last 24 hours', { pair })} points={points} asset={market.quote} tone={tone} soft />
+            <AreaChart label={t('{pair}, last 24 hours', { pair })} points={points} asset={market.quote} tone="ink" soft />
           ) : (
             <p>
               <Dim>{t('No price history for {pair} here.', { pair })}</Dim>

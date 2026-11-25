@@ -1,6 +1,5 @@
 import { createContext, useContext, useId, useMemo, useState, type ReactNode } from 'react';
-import { Star } from 'lucide-react';
-import { AssetIcon, Button, GridTable, Tag, type GridColumn } from '@intafaced/ui/lit';
+import { AssetIcon, Button, GridTable, StarToggle, Tag, type GridColumn } from '@intafaced/ui/lit';
 import { sortRows, Sparkline, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
 import { direction, isHiddenPath, navigate, useSparklines, type Decimal, type MarketData } from './deps';
@@ -33,21 +32,13 @@ const PAGE_SIZE = 50;
 /** A click on the star must not open the row; the grid ignores clicks that start on a button or link. */
 function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteControl }) {
   const { t } = marketsCopy.useCopy();
-  if ('signInHref' in favorite)
-    return (
-      <a className="lt-link" href={favorite.signInHref} aria-label={t('Log in to star {asset}', { asset })}>
-        <Star size={16} aria-hidden="true" />
-      </a>
-    );
+  if ('signInHref' in favorite) return <StarToggle href={favorite.signInHref} label={t('Log in to star {asset}', { asset })} />;
   return (
-    <Button
-      tone="quiet"
-      aria-pressed={favorite.on}
-      aria-label={favorite.on ? t('Remove {asset} from favorites', { asset }) : t('Add {asset} to favorites', { asset })}
-      onClick={favorite.onToggle}
-    >
-      <Star size={16} aria-hidden="true" fill={favorite.on ? 'currentColor' : 'none'} />
-    </Button>
+    <StarToggle
+      on={favorite.on}
+      onToggle={favorite.onToggle}
+      label={favorite.on ? t('Remove {asset} from favorites', { asset }) : t('Add {asset} to favorites', { asset })}
+    />
   );
 }
 

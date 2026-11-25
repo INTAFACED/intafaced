@@ -385,6 +385,7 @@ export const components = {
   Dim: 'Quieter words inside a hero or a board head',
   ToolbarEnd: "A toolbar's end slot (a search), a whole row on a phone",
   FootNotes: 'Short quiet lines under a list, a bold lead on each',
+  StarToggle: "A market's favourite star, grey when off and white when on",
 } as const;
 export type ComponentName = keyof typeof components;
 

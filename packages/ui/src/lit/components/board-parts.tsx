@@ -8,6 +8,7 @@
  * - `MarketBoardSkeleton`: the board at its final size while the markets load.
  * - `ToolbarEnd`: the end of an `lt-toolbar` (a search), a whole row on a phone.
  * - `FootNotes`: short quiet lines under a list (what is not offered here, and why).
+ * - `StarToggle`: a market's favourite star, grey when off and white when on (lime is the main action's alone).
  *
  * No copy here: every word arrives as a prop. Figures arrive formatted, never as numbers.
  */
@@ -15,10 +16,10 @@ import * as React from 'react';
 import { clsx } from 'clsx';
 import { AssetIcon } from './asset-icon.js';
 import { TileRow } from './page-grid.js';
+import { Star } from 'lucide-react';
 import { Price } from './b2-values.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
-type Tone = 'up' | 'down' | 'neutral';
 
 /** The board's panels in a column, with the page's section gap; the region it fills draws no panel of its own. */
 export function MarketBoard({ className, ...rest }: Div) {
@@ -48,10 +49,8 @@ export interface MarketHeroProps extends Omit<React.HTMLAttributes<HTMLElement>,
   stats: ReadonlyArray<readonly [label: string, value: string]>;
   /** The chart's caption ("Price, last 24 hours"); folded away on a phone. */
   chartTitle: React.ReactNode;
-  /** The chart (AreaChart soft), or the words for none. */
+  /** The chart (AreaChart soft, tone ink: lime is the main action's alone), or the words for none. */
   chart: React.ReactNode;
-  /** The chart's colour: the day's direction. */
-  tone?: Tone;
 }
 
 /** One market large, with its day beside it. */
@@ -68,7 +67,6 @@ export function MarketHero({
   stats,
   chartTitle,
   chart,
-  tone = 'neutral',
   className,
   ...rest
 }: MarketHeroProps) {
@@ -100,7 +98,7 @@ export function MarketHero({
           ))}
         </dl>
       </div>
-      <div className="lt-market-hero-chart" data-tone={tone}>
+      <div className="lt-market-hero-chart">
         <span className="lt-market-hero-dim" data-part="chart-title">
           {chartTitle}
         </span>
@@ -137,4 +135,23 @@ export function ToolbarEnd({ className, ...rest }: Div) {
 /** Short quiet lines under a list; each child is an `li`. */
 export function FootNotes({ className, ...rest }: React.HTMLAttributes<HTMLUListElement>) {
   return <ul {...rest} className={clsx('lt-footnotes', className)} />;
+}
+
+export type StarToggleProps =
+  | { label: string; href: string; on?: undefined; onToggle?: undefined }
+  | { label: string; on: boolean; onToggle: () => void; href?: undefined };
+
+/** A market's favourite star: a link to sign in, or a pressed/unpressed button; grey when off, white when on. */
+export function StarToggle(props: StarToggleProps) {
+  if (props.href !== undefined)
+    return (
+      <a className="lt-star" href={props.href} aria-label={props.label}>
+        <Star size={16} aria-hidden="true" />
+      </a>
+    );
+  return (
+    <button type="button" className="lt-star" aria-pressed={props.on} aria-label={props.label} onClick={props.onToggle}>
+      <Star size={16} aria-hidden="true" fill={props.on ? 'currentColor' : 'none'} />
+    </button>
+  );
 }
