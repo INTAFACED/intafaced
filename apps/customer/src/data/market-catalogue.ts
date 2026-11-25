@@ -18,6 +18,11 @@ type Tickers = Loadable<Record<string, TickerRow>>;
 export interface MarketCatalogue {
   markets: Markets;
   tickers: Tickers;
+  /**
+   * The venue's listed perpetuals (gold and stocks are listed only as perpetuals), priced from `tickers` under their own
+   * symbols. Empty where the door is off: our own book lists no perpetuals.
+   */
+  perpetuals: Markets;
   /** `venue` while the venue door is on here (its markets, its prices), `own` where it is off (today's reads). */
   source: 'venue' | 'own';
 }
@@ -45,11 +50,16 @@ export function pickSource(
   ownTickers: Tickers,
   venueTickers: Loadable<VenueTickersRead>,
 ): MarketCatalogue {
-  if (venueDoorOff(venue)) return { markets: own, tickers: ownTickers, source: 'own' };
-  if (venue.status !== 'ready') return { markets: venue as Markets, tickers: { status: 'empty' }, source: 'venue' };
-  const rows = venue.data.value.markets.filter((m) => m.kind === 'spot').map(venueMarketRow);
+  if (venueDoorOff(venue)) return { markets: own, tickers: ownTickers, perpetuals: { status: 'empty' }, source: 'own' };
+  if (venue.status !== 'ready')
+    return { markets: venue as Markets, tickers: { status: 'empty' }, perpetuals: venue as Markets, source: 'venue' };
+  const listed = (kind: string): Markets => {
+    const rows = venue.data.value.markets.filter((m) => m.kind === kind).map(venueMarketRow);
+    return rows.length === 0 ? { status: 'empty' } : { status: 'ready', data: rows, asOf: venue.asOf };
+  };
   return {
-    markets: rows.length === 0 ? { status: 'empty' } : { status: 'ready', data: rows, asOf: venue.asOf },
+    markets: listed('spot'),
+    perpetuals: listed('perpetual'),
     tickers: venuePrices(venueTickers),
     source: 'venue',
   };

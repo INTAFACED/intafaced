@@ -31,12 +31,6 @@
   color: var(--lit-object-fg);
   box-shadow: var(--lit-object-shadow);
 }
-:root .money-label {
-  font-size: var(--lit-type-micro-size);
-  letter-spacing: var(--lit-type-micro-tracking);
-  text-transform: uppercase;
-  color: var(--if-fg-2);
-}
 :root .money-total {
   block-size: auto;
   margin-block-start: auto;
@@ -79,23 +73,6 @@
   box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
   border-color: transparent;
 }
-:root .money-actions [data-slot='button'] {
-  border-radius: var(--lit-radius-key);
-}
-
-/* Phone: the actions as one row of equal keys. */
-@media (max-width: 767px) {
-  :root .money-actions {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-    gap: var(--if-space-2);
-  }
-  :root .money-actions [data-slot='button'] {
-    padding-inline: 0.5rem;
-  }
-}
-
 /* The holdings' column head stays one line ("Amount · Value"), so the card's head never breaks mid-label. */
 :root .money-card thead .money-num {
   white-space: nowrap;
@@ -147,7 +124,6 @@
 }
 :root .money-where__alloc-legend .lt-parts-bar {
   grid-column: 1 / -1;
-  block-size: 0.25rem;
 }
 :root .money-where__alloc-legend .lt-parts-list {
   display: flex;
@@ -200,4 +176,13 @@
   :root .money-where__actions {
     justify-content: flex-start;
   }
+}
+/* The three tiles' bar (the owner's Money target): the tiles above are its legend, so the bar draws alone. */
+:root .money-where__tiles-bar .lt-parts-list {
+  display: none;
+}
+/* The sections in each column stand apart by the kit's section gap, with no panel round them (the Money target). */
+:root .money-where__side,
+:root .money-where__sections {
+  gap: var(--lit-gap-section);
 }

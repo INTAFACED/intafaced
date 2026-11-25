@@ -1,25 +1,32 @@
-import { useState, type ReactNode } from 'react';
-import { Info } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ArrowDown, ArrowLeftRight, ArrowUp, Eye, EyeOff, Info, TrendingUp } from 'lucide-react';
 import { AssetIcon, Button, ButtonLink, Fold, PanelHead, Tag } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { PartnerHolds } from '../../features/money';
-import { displayAmount, parseAmount } from '../../shared/money';
+import { displayAmount, formatAmount, parseAmount } from '../../shared/money';
+import { mul } from '@intafaced/money-math';
+import { useSession } from '../../features/session';
+import { createVenueAccountApi } from '../../features/protocol/venue-wallet/venue-account-api';
+import { useResource } from '../../shared/resource';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
 import { WalletProvider } from '../../features/protocol/wallet/WalletProvider';
 import { useAsOfText, useOwner } from '../../features/trade/venue/VenueKit';
 import { WalletBar } from '../../features/trade/permissions/venue-parts';
 import type { VenueUp } from '../../features/trade/venue-api';
-import { usePreferences } from '../../shared/preferences';
+import { savePreferences, usePreferences } from '../../shared/preferences';
 import { shortOrderId, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
 import { assetName, moneyCopy } from './copy';
 import { VALUATION_REFRESH_MS, usePartnerStanding, useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
-import type { ValuedPart } from './standing';
+import type { Standing, ValuedPart } from './standing';
+import type { MoneyView } from './portfolio-source';
 import { StandingTotal, dollars } from './StandingTotal';
-import { Shown } from './money-parts';
+import { ChangeLine, Shown, signOf } from './money-parts';
+import { fmtChangeLine } from './deps';
+import { WhereTiles } from './WhereTiles';
 import { ValuationNote } from './ValuationNote';
-import { Movers } from './Movers';
+import { Movers, spokenOf } from './Movers';
 import { clockTime } from './time';
 import { WhereAllocation } from './WhereAllocation';
 import { WhereHoldingsChange } from './WhereHoldingsChange';
@@ -29,7 +36,7 @@ import { buyHref } from './links';
 import { balanceEntriesHref } from './balance-entries-model';
 import { SourceActivity } from './SourceActivity';
 import { NO_FILTERS } from './activity-filter';
-import { WhereSide } from './WhereSide';
+import { WhereSide, type DepositsRead } from './WhereSide';
 
 /** How many lines of activity Assets shows; the rest are on /money/activity. */
 const RECENT_LINES = 5;
@@ -151,6 +158,10 @@ function Read({
     { network, venue: status.venue.displayName, venueTest: status.test },
     displayCurrency === 'BTC' ? 'BTC' : 'USD',
   );
+  // The venue's deposits, read once: the Moving tile, the line under the total and Moving now all show this one read.
+  const { api } = useSession();
+  const account = useMemo(() => createVenueAccountApi(api), [api]);
+  const { resource: deposits } = useResource((signal) => account.deposits(owner, signal), `where-moving:${owner}`);
   const part = (id: ValuedPart['id']) => standing.parts.find((p) => p.id === id);
   const valuation = standing.prices && standing.valuation && standing.valuation.rows.length > 0 ? standing.valuation : null;
   const sinceLabel =
@@ -160,54 +171,74 @@ function Read({
   return (
     <AssetsPage
       title={t('Title')}
-      roomAction={<MoneyRoomLinks />}
+      titleHidden
       hero={
-        <div className="money-where__head">
-          {standing.prices || pricesFailed ? (
-            <section className="money-where__total" aria-labelledby="assets-total-title">
-              <h2 id="assets-total-title" className="lt-hint">
-                {t('Total title')}
-              </h2>
-              <StandingTotal
-                standing={standing}
-                pricesFailed={pricesFailed}
-                displayCurrency={displayCurrency}
-                hidden={hideBalances}
-                testId="assets-total"
-                face="headline"
-                foldLead={
-                  <p className="lt-hint" data-testid="assets-lede">
-                    {t('Lede')}
-                  </p>
-                }
-                foldMore={
-                  <>
-                    {valuation && standing.prices ? (
-                      <ValuationNote
-                        view={valuation}
-                        copy={money}
-                        refreshMs={VALUATION_REFRESH_MS}
-                        timeZone={timeZone}
-                        priceSourceNote={money.t('Valuation price sources', {
-                          published: standing.prices.source,
-                          venue: status.venue.displayName,
-                        })}
-                      />
-                    ) : null}
-                    {valuation ? <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} /> : null}
-                  </>
-                }
-              />
-            </section>
-          ) : (
-            <span />
-          )}
-          <QuickActions t={t} />
+        <div className="lt-stack">
+          <div className="money-where__head">
+            {standing.prices || pricesFailed ? (
+              <section className="money-where__total" aria-labelledby="assets-total-title">
+                <div className="lt-actions">
+                  <h2 id="assets-total-title" className="lt-hint">
+                    {totalLine(standing, t)}
+                  </h2>
+                  <Button
+                    tone="quiet"
+                    size="sm"
+                    onClick={() => savePreferences({ hideBalances: !hideBalances })}
+                    aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
+                    data-testid="assets-eye"
+                  >
+                    {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+                  </Button>
+                </div>
+                <StandingTotal
+                  standing={standing}
+                  pricesFailed={pricesFailed}
+                  displayCurrency={displayCurrency}
+                  hidden={hideBalances}
+                  testId="assets-total"
+                  face="headline"
+                  lineStart={valuation ? <TodayChange view={valuation} hidden={hideBalances} /> : undefined}
+                  lineEnd={<MovingLine deposits={deposits} standing={standing} hidden={hideBalances} t={t} />}
+                  foldLead={
+                    <p className="lt-hint" data-testid="assets-lede">
+                      {t('Lede')}
+                    </p>
+                  }
+                  foldMore={
+                    <>
+                      {valuation && standing.prices ? (
+                        <ValuationNote
+                          view={valuation}
+                          copy={money}
+                          refreshMs={VALUATION_REFRESH_MS}
+                          timeZone={timeZone}
+                          priceSourceNote={money.t('Valuation price sources', {
+                            published: standing.prices.source,
+                            venue: status.venue.displayName,
+                          })}
+                        />
+                      ) : null}
+                      {valuation ? <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} /> : null}
+                    </>
+                  }
+                />
+              </section>
+            ) : (
+              <span />
+            )}
+            <QuickActions t={t} />
+          </div>
+          <WhereTiles standing={standing} venue={venue} wallet={wallet} deposits={deposits} hidden={hideBalances} t={t} />
+          {standing.totalUsd !== null ? (
+            <Fold title={t('Allocation fold')} data-testid="assets-allocation-fold">
+              <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} />
+            </Fold>
+          ) : null}
         </div>
       }
       sections={
         <div className="lt-stack money-where__sections">
-          {standing.totalUsd !== null ? <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} /> : null}
           <VenueSource
             status={status}
             read={venue}
@@ -217,16 +248,16 @@ function Read({
             change={<WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />}
           />
           <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} hidden={hideBalances} t={t} />
-          <section className="lt-panel" aria-labelledby="assets-recent-title" data-testid="assets-recent">
+          {partner.state === 'none' ? null : (
+            <PartnerSource read={partner} valued={part('partner')} hidden={hideBalances} t={t} onWithdraw={onWithdraw} />
+          )}
+          <section className="lt-stack" aria-labelledby="assets-recent-title" data-testid="assets-recent">
             <PanelHead
-              title={<span id="assets-recent-title">{t('Recent title')}</span>}
+              title={<span id="assets-recent-title">{t('Activity title')}</span>}
               aside={isHiddenPath('/money/activity') ? undefined : <a href="/money/activity">{t('Recent all')}</a>}
             />
             <SourceActivity status={status} filters={NO_FILTERS} asset={null} hidden={hideBalances} recent={RECENT_LINES} />
           </section>
-          {partner.state === 'none' ? null : (
-            <PartnerSource read={partner} valued={part('partner')} hidden={hideBalances} t={t} onWithdraw={onWithdraw} />
-          )}
           {standing.prices ? null : (
             <p className="lt-hint" data-testid="assets-no-price-note">
               {t('No price note')}
@@ -236,10 +267,72 @@ function Read({
       }
       watching={
         <div className="lt-stack money-where__side">
-          <WhereSide owner={owner} t={t} />
+          <WhereSide owner={owner} deposits={deposits} t={t} />
         </div>
       }
     />
+  );
+}
+
+const TOTAL_PART = { wallet: 'Total part wallet', venue: 'Total part venue', partner: 'Total part partner' } as const;
+
+/** What the total adds up, in words: each part it is made of, at the prices it is valued at. */
+function totalLine(standing: Standing, t: T): string {
+  const names = standing.parts.map((p) =>
+    p.id === 'partner' && !p.label ? t('Total part partner unnamed') : t(TOTAL_PART[p.id], { partner: p.label }),
+  );
+  if (names.length === 0) return t('Total title');
+  const parts =
+    names.length === 1 ? (names[0] ?? '') : t('Total line and', { a: names.slice(0, -1).join(', '), b: names[names.length - 1] ?? '' });
+  return t('Total line', { parts });
+}
+
+/** Today's change of what is priced, as Portfolio's headline says it: the amount and percent, then since when. */
+function TodayChange({ view, hidden }: { view: MoneyView; hidden: boolean }) {
+  const money = moneyCopy.useCopy();
+  const { timeZone } = usePreferences();
+  // A holding of cash and dollar coins only has no price moves, as on Portfolio: "$0.00 (0.00%) Today" would say nothing.
+  if (view.change24hUsd === null || !/[1-9]/.test(view.cryptoUsd ?? '')) return null;
+  const label =
+    view.windowStart !== null
+      ? money.t('Since {time}', { time: clockTime(view.windowStart, timeZone) })
+      : view.source === 'derived'
+        ? money.t('Today, from price moves')
+        : money.t('Today');
+  return (
+    <span data-testid="assets-change">
+      <ChangeLine
+        text={fmtChangeLine(view.change24hUsd, view.change24hPct)}
+        sign={signOf(view.change24hUsd)}
+        hidden={hidden}
+        spoken={spokenOf(money)}
+      />{' '}
+      {label} ·
+    </span>
+  );
+}
+
+/**
+ * What is moving into the venue, after the parts on the line under the total: never added into the total, and said so,
+ * since the venue counts it only once it credits it. Nothing while nothing is moving or the venue has not said.
+ */
+function MovingLine({ deposits, standing, hidden, t }: { deposits: DepositsRead; standing: Standing; hidden: boolean; t: T }) {
+  if (deposits.status !== 'ready') return null;
+  const moving = deposits.data.value.filter((d) => d.status === 'confirming');
+  if (moving.length === 0) return null;
+  const price = (asset: string) => {
+    for (const p of standing.parts) for (const row of p.rows) if (row.asset === asset && row.priceUsd !== null) return row.priceUsd;
+    return null;
+  };
+  const unpriced = [...new Set(moving.filter((d) => price(d.asset) === null).map((d) => d.asset))];
+  if (unpriced.length > 0)
+    return <span data-testid="assets-moving-line"> · {t('Line moving unpriced', { assets: unpriced.join(', ') })}</span>;
+  const total = moving.reduce((sum, d) => sum + mul(parseAmount(d.amount), parseAmount(price(d.asset) ?? '0'), 'half-up'), 0n);
+  return (
+    <span data-testid="assets-moving-line" data-value-usd={formatAmount(total)}>
+      {' · '}
+      {t('Line moving')} <Shown text={dollars(formatAmount(total))} hidden={hidden} />, {t('Line moving note')}
+    </span>
   );
 }
 
@@ -276,18 +369,17 @@ function ReadAgo({ iso, words, t }: { iso: string; words: 'Read venue' | 'Read c
 
 /** Where the person goes from the total (J-portfolio-01 #1): each a real room on the launch model, none a dead end. */
 const ACTIONS = [
-  { id: 'Fund venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue') },
-  { id: 'Withdraw venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue#withdraw') },
-  { id: 'Convert', href: () => (isHiddenPath('/trade/convert') ? null : '/trade/convert') },
-  { id: 'Trade', href: () => buyHref(null, null, false, 'pro') },
-  { id: 'Activity', href: () => (isHiddenPath('/money/activity') ? null : '/money/activity') },
+  { id: 'Fund venue', icon: ArrowDown, href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue') },
+  { id: 'Withdraw venue', icon: ArrowUp, href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue#withdraw') },
+  { id: 'Convert', icon: ArrowLeftRight, href: () => (isHiddenPath('/trade/convert') ? null : '/trade/convert') },
+  { id: 'Trade', icon: TrendingUp, href: () => buyHref(null, null, false, 'pro') },
 ] as const;
 
 /** The action keys beside the total: money in first, the one lit key; the rest secondary (owner's pick A). */
 function QuickActions({ t }: { t: T }) {
   const live = ACTIONS.flatMap((action) => {
     const href = action.href();
-    return href ? [{ id: action.id, href }] : [];
+    return href ? [{ id: action.id, icon: action.icon, href }] : [];
   });
   return (
     <nav data-testid="assets-actions" className="lt-actions money-where__actions" aria-label={t('Actions')}>
@@ -295,6 +387,7 @@ function QuickActions({ t }: { t: T }) {
         const variant = index === 0 ? 'primary' : 'secondary';
         return (
           <a key={action.id} className={`lt-button lt-button-${variant}`} data-variant={variant} href={action.href}>
+            <action.icon size={16} aria-hidden="true" />
             {t(action.id)}
           </a>
         );
@@ -362,10 +455,10 @@ function AssetCell({
 }
 
 /**
- * The price, value, share and source cells of `asset` in a valued part (J-portfolio-01 #1): the published price, dollars
- * to the cent, its share of the total, and the source that reports it. An asset with no published price shows "No price
- * published" for its price and value and no share, never a zero. The face shows the value; price, share and source stay
- * in the row for assistive tech and the journeys, visually hidden (owner's pick A: Asset, amounts, Value, one action).
+ * The value cell of `asset` in a valued part (J-portfolio-01 #1: "with amount, price, value, share and source"): the
+ * value, dollars to the cent, and under it, quiet, the published price, its share of the total and the source that
+ * reports it, each in its own marked span. An asset with no published price shows "No price published" for its price and
+ * value and no share, never a zero.
  */
 function ValueCells({
   valued,
@@ -383,32 +476,33 @@ function ValueCells({
 }) {
   const row = valued?.rows.find((r) => r.asset === asset && r.key === rowKey);
   return (
-    <>
-      <td data-cell="price" data-label={t('Price')} data-align="end" className="lt-num">
-        {row?.priceUsd ? dollars(row.priceUsd) : t('No price published')}
-      </td>
-      <td data-cell="value" data-label={t('Value')} data-align="end" className="lt-num">
-        {row?.valueUsd ? dollars(row.valueUsd) : t('No price published')}
-      </td>
-      <td data-cell="share" data-label={t('Share')} data-align="end" className="lt-num">
-        {row?.share ? t('Share of total', { share: row.share }) : '—'}
-      </td>
-      <td data-cell="source" data-label={t('Source')} data-source={valued?.id ?? ''} className="lt-hint">
-        {source}
-      </td>
-    </>
+    <td data-label={t('Value')} data-align="end">
+      <span className="lt-stack lt-stack-tight">
+        <span data-cell="value" className="lt-num">
+          {row?.valueUsd ? dollars(row.valueUsd) : t('No price published')}
+        </span>
+        <span className="lt-hint">
+          <span data-cell="price" title={t('Price')}>
+            {row?.priceUsd ? dollars(row.priceUsd) : t('No price published')}
+          </span>
+          {' · '}
+          <span data-cell="share" title={t('Share')}>
+            {row?.share ? t('Share of total', { share: row.share }) : '—'}
+          </span>
+          {' · '}
+          <span data-cell="source" title={t('Source')} data-source={valued?.id ?? ''}>
+            {source}
+          </span>
+        </span>
+      </span>
+    </td>
   );
 }
 
 /** One table header cell; `hidden` ones name a column kept for assistive tech only. */
 type Head = { text: string; hidden?: boolean; end?: boolean; action?: boolean };
 
-const valueHeads = (t: T): Head[] => [
-  { text: t('Price'), end: true },
-  { text: t('Value'), end: true },
-  { text: t('Share'), end: true },
-  { text: t('Source') },
-];
+const valueHeads = (t: T): Head[] => [{ text: t('Value'), end: true }];
 
 /** A source's table in a named region: one header row, then the rows. */
 function SourceTable({ headers, children, label }: { headers: readonly Head[]; children: ReactNode; label: string }) {
@@ -436,13 +530,15 @@ function SourceTable({ headers, children, label }: { headers: readonly Head[]; c
 }
 
 /**
- * The head of one source's panel (owner's pick A): its kind as a chip, its name, when it was read (relative; the exact
- * time is the title), and the value of what is priced in it. Anything else the source says goes in the panel's fold.
+ * The head of one source's section (the owner's Money target, 25 Nov): its name and the value of what is priced in it
+ * across one row; under them its place as a chip, one line on what it is, and when it was read (relative; the exact time
+ * is the title). Anything else the source says goes in the section's fold.
  */
 function PanelTop({
   chip,
   title,
   mark,
+  line,
   read,
   valueUsd,
   hidden,
@@ -452,6 +548,7 @@ function PanelTop({
   chip: string;
   title: string;
   mark?: ReactNode;
+  line?: string;
   read: ReactNode;
   valueUsd: string | null | undefined;
   hidden: boolean;
@@ -459,23 +556,29 @@ function PanelTop({
   t: T;
 }) {
   return (
-    <div className="lt-panel-head money-where__panel-head">
-      <span className="lt-stack lt-stack-tight">
+    <div className="lt-stack lt-stack-tight">
+      <div className="lt-panel-head money-where__panel-head">
         <span className="lt-row">
-          <Tag tone="neutral">{chip}</Tag>
           <h2 className="lt-panel-title">{title}</h2>
           {mark}
         </span>
-        {read}
-      </span>
-      <span className="lt-row">
-        {valueUsd ? (
-          <strong className="lt-num" title={t('Panel total')}>
-            <span className="lt-sr">{t('Panel total')} </span>
-            <Shown text={dollars(valueUsd)} hidden={hidden} />
-          </strong>
-        ) : null}
-        {action}
+        <span className="lt-row">
+          {valueUsd ? (
+            <strong className="lt-num" title={t('Panel total')}>
+              <span className="lt-sr">{t('Panel total')} </span>
+              <Shown text={dollars(valueUsd)} hidden={hidden} />
+            </strong>
+          ) : null}
+          {action}
+        </span>
+      </div>
+      <span className="lt-row lt-hint">
+        <Tag tone="neutral">{chip}</Tag>
+        <span>
+          {line}
+          {line && read ? ' · ' : null}
+          {read}
+        </span>
       </span>
     </div>
   );
@@ -501,10 +604,11 @@ function WalletSource({
   const data = read.data;
   const move = isHiddenPath('/wallet/venue') ? null : '/wallet/venue';
   return (
-    <section className="lt-panel" data-testid="source-wallet" data-source="chain" data-address={owner} aria-label={t('Wallet title')}>
+    <section className="lt-stack" data-testid="source-wallet" data-source="chain" data-address={owner} aria-label={t('Wallet title')}>
       <PanelTop
-        chip={t('Chip wallet')}
+        chip={network}
         title={t('Wallet title')}
+        line={t('Wallet line')}
         read={data?.ok ? <ReadAgo iso={data.asOf} words="Read chain" t={t} /> : null}
         valueUsd={data?.ok ? valued?.valueUsd : null}
         hidden={hidden}
@@ -631,10 +735,11 @@ function VenueSource({
   const venueName = status.venue.displayName;
   const title = t('Venue title', { venue: venueName });
   return (
-    <section className="lt-panel" data-testid="source-venue" data-source="venue" aria-label={title}>
+    <section className="lt-stack" data-testid="source-venue" data-source="venue" aria-label={title}>
       <PanelTop
-        chip={t('Chip venue')}
+        chip={venueName}
         title={title}
+        line={t('Venue line')}
         mark={
           status.test ? (
             <span className="lt-test" data-testid="source-venue-test" title={t('TEST note')}>
@@ -792,10 +897,14 @@ function VenueSource({
           </SourceTable>
         </div>
       ) : null}
+      {/* J-cex-spot-21 #8 and J-derivatives-31 #3 name these on the face: staking rewards and how the staked parts add
+          up, where the account holds any staking; and with vaults held, that the parts add to the venue's total. */}
+      {data ? <StakingLines data={data} venue={venueName} t={t} /> : null}
+      {data && totals && vaults.length > 0 ? <AccountValue totals={totals} venueName={venueName} t={t} /> : null}
       {data || change ? (
         <Fold title={t('Worked out')} data-testid="source-venue-worked-out">
           <div className="lt-stack">
-            {data ? <VenueLines data={data} totals={totals} venueName={venueName} t={t} /> : null}
+            {data ? <VenueLines data={data} totals={vaults.length > 0 ? null : totals} venueName={venueName} t={t} /> : null}
             {change}
           </div>
         </Fold>
@@ -821,28 +930,33 @@ function VenueLines({
       <p className="lt-hint">
         {t('Venue source')} <AsOf iso={data.asOf} />
       </p>
-      <StakingLines data={data} venue={venueName} t={t} />
       {!data.vaults.read ? (
         <p className="lt-hint" data-testid="source-venue-vaults-unread">
           {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
         </p>
       ) : null}
-      {totals ? (
-        <p
-          className="lt-hint"
-          data-testid="source-venue-account-value"
-          data-asset={totals.asset}
-          data-venue={totals.venue}
-          data-parts={totals.parts}
-          data-adds-up={parseAmount(totals.venue) === parseAmount(totals.parts) ? 'true' : 'false'}
-        >
-          {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
-          {parseAmount(totals.venue) === parseAmount(totals.parts)
-            ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
-            : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
-        </p>
-      ) : null}
+      {totals ? <AccountValue totals={totals} venueName={venueName} t={t} /> : null}
     </div>
+  );
+}
+
+/** What the venue counts the account at, and whether the balances and vault positions shown add up to it. */
+function AccountValue({ totals, venueName, t }: { totals: NonNullable<ReturnType<typeof venueTotals>>; venueName: string; t: T }) {
+  const addsUp = parseAmount(totals.venue) === parseAmount(totals.parts);
+  return (
+    <p
+      className="lt-hint"
+      data-testid="source-venue-account-value"
+      data-asset={totals.asset}
+      data-venue={totals.venue}
+      data-parts={totals.parts}
+      data-adds-up={addsUp ? 'true' : 'false'}
+    >
+      {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
+      {addsUp
+        ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
+        : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
+    </p>
   );
 }
 
@@ -885,7 +999,7 @@ function PartnerSource({
 }) {
   const title = read.state === 'read' ? t('Partner title', { partner: read.label }) : t('Partner title unnamed');
   return (
-    <section className="lt-panel" data-testid="source-partner" data-source="partner" aria-label={title}>
+    <section className="lt-stack" data-testid="source-partner" data-source="partner" aria-label={title}>
       <PanelTop
         chip={t('Chip partner')}
         title={title}

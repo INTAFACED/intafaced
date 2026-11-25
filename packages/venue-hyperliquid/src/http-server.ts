@@ -178,7 +178,9 @@ export async function startHyperliquidVenueServer(
     betaPosture: opts.betaPosture ?? null,
     // The wallet signs a user-signed action on the chain `GET /venue` names, so the typed data's domain names that chain too.
     walletChainId: HL_TESTNET_WALLET_CHAIN_ID,
-    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    // Live, every tester's reads leave from this one address, which the venue limits by weight a minute: reads are shared.
+    // A recording played back answers every read as recorded, so its reads stay one call each.
+    ...(opts.fetch ? { fetch: opts.fetch } : { shareReads: true }),
     ...(opts.clock ? { clock: opts.clock } : {}),
     ...(opts.nonceSource ? { nonceSource: opts.nonceSource } : {}),
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),

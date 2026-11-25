@@ -48,12 +48,15 @@ export function MoneyOverview({ state = { kind: 'ready' }, ...props }: MoneyOver
 }
 
 /**
- * Assets with the venue door on, on the kit's page grid as the owner's pick A draws it: the page fills the screen with the
- * kit's gutter, the title row across, then the main column (the total, the split, each source, recent activity) and the
- * side column (moving now, where a withdrawal goes, the level), 8 to 4; one column under 64rem.
+ * Assets with the venue door on, on the kit's page grid as the owner's Money target draws it (25 Nov: "Yes, the
+ * competitive front is much better"): the page fills the screen with the kit's gutter; the total, its keys and the three
+ * tiles across the page; then the main column (each source, activity) and the side column (moving now, withdrawal
+ * addresses, the connected wallet, emergency), 8 to 4; one column under 64rem. The room's name stays the page's one
+ * heading for assistive tech, off the face (`titleHidden`), where the total line opens the page.
  */
 export function AssetsPage({
   title,
+  titleHidden,
   description,
   roomAction,
   hero,
@@ -61,6 +64,7 @@ export function AssetsPage({
   watching,
 }: {
   title: string;
+  titleHidden?: boolean;
   description?: ReactNode;
   roomAction?: ReactNode;
   hero: ReactNode;
@@ -70,18 +74,20 @@ export function AssetsPage({
   return (
     <PageGrid layout="split" data-template="assets">
       <PageColumn span="all">
-        <header className="lt-title-row">
-          <div>
-            <h1 className="lt-title">{title}</h1>
-            {description ? <p className="lt-description">{description}</p> : null}
-          </div>
-          {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
-        </header>
-      </PageColumn>
-      <PageColumn>
+        {titleHidden ? (
+          <h1 className="lt-sr">{title}</h1>
+        ) : (
+          <header className="lt-title-row">
+            <div>
+              <h1 className="lt-title">{title}</h1>
+              {description ? <p className="lt-description">{description}</p> : null}
+            </div>
+            {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
+          </header>
+        )}
         {hero}
-        {sections}
       </PageColumn>
+      <PageColumn>{sections}</PageColumn>
       <PageColumn>{watching}</PageColumn>
     </PageGrid>
   );

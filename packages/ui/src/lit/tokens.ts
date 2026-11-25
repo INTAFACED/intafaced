@@ -679,6 +679,14 @@ ${L.replace('])', "][data-mode='pro'])")} {
 ${decl(roleVars(pro))}
 }
 
+/* The top bar: 60px from 1000px up, 56px below (the family pages' one top bar, 25 Nov). Whole pixels, so nothing under
+   the bar sits off the pixel grid (a fractional height moved a drawn chart point a pixel, J-charts-desk-05 #1). */
+@media (min-width: 1000px) {
+  ${L} {
+    --lit-topbar-h: 60px;
+  }
+}
+
 /* Flat tiles on a board that asks for them (the markets board): its panels are tiles, in Simple too. */
 :where([data-look='${LIT_LOOK}']) [data-panels='tiles'] {
 ${decl(roleVars(TILES))}

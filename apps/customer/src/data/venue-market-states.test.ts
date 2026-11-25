@@ -119,6 +119,8 @@ describe('pickSource (the one markets catalogue: Markets, Home, Home Pro)', () =
     const ownPrices = { status: 'ready', asOf: 1, data: { 'BTC-USDC': { symbol: 'BTC-USDC' } as never } } as const;
     const picked = pickSource(states([market(), market({ symbol: 'BTC-PERP', kind: 'perpetual' })]), own, ownPrices, venuePrices);
     expect(picked.markets.status === 'ready' && picked.markets.data.map((m) => m.symbol)).toEqual(['BTC-USDC']);
+    // The perpetuals stand apart, so a room lists them only on purpose (the landing's Perps tab).
+    expect(picked.perpetuals.status === 'ready' && picked.perpetuals.data.map((m) => m.symbol)).toEqual(['BTC-PERP']);
     // Home reads this source too, and shows none of our own engine's movers beside the venue's markets.
     expect(picked.source).toBe('venue');
     expect(picked.tickers).toEqual({
@@ -159,6 +161,7 @@ describe('pickSource (the one markets catalogue: Markets, Home, Home Pro)', () =
     expect(pickSource({ status: 'refused', code: 'trade.user_venue_off' }, own, tickers, venuePrices)).toEqual({
       markets: own,
       tickers,
+      perpetuals: { status: 'empty' },
       source: 'own',
     });
     expect(pickSource({ status: 'refused', code: 'trade.venue.venue_down' }, own, tickers, venuePrices).markets).toEqual({
