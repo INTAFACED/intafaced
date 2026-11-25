@@ -883,10 +883,14 @@ function VenueSource({
           </SourceTable>
         </div>
       ) : null}
+      {/* J-cex-spot-21 #8 and J-derivatives-31 #3 name these on the face: staking rewards and how the staked parts add
+          up, where the account holds any staking; and with vaults held, that the parts add to the venue's total. */}
+      {data ? <StakingLines data={data} venue={venueName} t={t} /> : null}
+      {data && totals && vaults.length > 0 ? <AccountValue totals={totals} venueName={venueName} t={t} /> : null}
       {data || change ? (
         <Fold title={t('Worked out')} data-testid="source-venue-worked-out">
           <div className="lt-stack">
-            {data ? <VenueLines data={data} totals={totals} venueName={venueName} t={t} /> : null}
+            {data ? <VenueLines data={data} totals={vaults.length > 0 ? null : totals} venueName={venueName} t={t} /> : null}
             {change}
           </div>
         </Fold>
@@ -912,28 +916,33 @@ function VenueLines({
       <p className="lt-hint">
         {t('Venue source')} <AsOf iso={data.asOf} />
       </p>
-      <StakingLines data={data} venue={venueName} t={t} />
       {!data.vaults.read ? (
         <p className="lt-hint" data-testid="source-venue-vaults-unread">
           {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
         </p>
       ) : null}
-      {totals ? (
-        <p
-          className="lt-hint"
-          data-testid="source-venue-account-value"
-          data-asset={totals.asset}
-          data-venue={totals.venue}
-          data-parts={totals.parts}
-          data-adds-up={parseAmount(totals.venue) === parseAmount(totals.parts) ? 'true' : 'false'}
-        >
-          {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
-          {parseAmount(totals.venue) === parseAmount(totals.parts)
-            ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
-            : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
-        </p>
-      ) : null}
+      {totals ? <AccountValue totals={totals} venueName={venueName} t={t} /> : null}
     </div>
+  );
+}
+
+/** What the venue counts the account at, and whether the balances and vault positions shown add up to it. */
+function AccountValue({ totals, venueName, t }: { totals: NonNullable<ReturnType<typeof venueTotals>>; venueName: string; t: T }) {
+  const addsUp = parseAmount(totals.venue) === parseAmount(totals.parts);
+  return (
+    <p
+      className="lt-hint"
+      data-testid="source-venue-account-value"
+      data-asset={totals.asset}
+      data-venue={totals.venue}
+      data-parts={totals.parts}
+      data-adds-up={addsUp ? 'true' : 'false'}
+    >
+      {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
+      {addsUp
+        ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
+        : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
+    </p>
   );
 }
 
