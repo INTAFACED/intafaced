@@ -1,4 +1,5 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import type { AlgoApiState } from '@intafaced/contracts/trade-call-schemas';
 import type { AlgoSchedulerView } from './scheduler-heartbeat.js';
 import { algoStopReason } from './stop-reason.js';
 import { awaitingTrigger, type AlgoProgressView, type AlgoStatus, type TwapParent } from './types.js';
@@ -205,4 +206,25 @@ export function presentAlgo(parent: TwapParent) {
     awaitingTrigger: awaitingTrigger(parent),
     ...presentChase(parent),
   };
+}
+
+/**
+ * The algo API's states (SP-conditional-algo-04), the same for every kind, mapped from the parent's own status and the
+ * sum of its children's fills: `live` while it runs or waits (active, paused); `canceled`; `order_failed` when it halted,
+ * or finished with nothing filled; `effective` when it finished filled whole; `partially_effective` when it finished with
+ * part filled. Never read from a stored figure: the fill is the children's.
+ */
+
+export function algoApiState(status: TwapParent['status'], filledQty: Amount, totalQty: Amount): AlgoApiState {
+  switch (status) {
+    case 'active':
+    case 'paused':
+      return 'live';
+    case 'cancelled':
+      return 'canceled';
+    case 'halted':
+      return 'order_failed';
+    case 'completed':
+      return filledQty >= totalQty ? 'effective' : filledQty > 0n ? 'partially_effective' : 'order_failed';
+  }
 }

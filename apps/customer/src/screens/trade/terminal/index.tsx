@@ -32,6 +32,17 @@ import { CandlestickChart } from 'lucide-react';
 type TabId = 'orders' | 'history' | 'positions' | 'algo' | 'dom';
 const TABS: readonly TabId[] = ['orders', 'history', 'positions', 'algo', 'dom'];
 
+/**
+ * A tab's panel is a keyboard stop (its content starts with a table), so it never grows taller than the space between
+ * the fixed bars, which `trackObscuringBars` measures onto the root: a longer panel scrolls inside itself, and focusing
+ * it never leaves it partly under the top bar or the phone dock (seen at 200% text on a phone).
+ */
+const PANEL_FITS = {
+  // Less the room the focus scroll keeps clear above and below a focused part (a11y.css: 8px each side).
+  maxBlockSize: 'calc(100dvh - var(--a11y-obscured-top, 0rem) - var(--a11y-obscured-bottom, 0rem) - 1rem)',
+  overflow: 'auto',
+} as const;
+
 function OrdersTab({ parents }: { parents: readonly ParentRead[] }) {
   const { t } = terminalCopy.useCopy();
   const open = useOpenOrders();
@@ -285,19 +296,19 @@ export default function Screen({ search }: ScreenProps) {
             <TabsTab value="dom">{t('DOM')}</TabsTab>
           </TabsList>
           <div className="pt-4">
-            <TabsPanel value="orders">
+            <TabsPanel value="orders" style={PANEL_FITS}>
               <OrdersTab parents={parentRows} />
             </TabsPanel>
-            <TabsPanel value="history">
+            <TabsPanel value="history" style={PANEL_FITS}>
               <HistoryTab parents={parentRows} />
             </TabsPanel>
-            <TabsPanel value="positions">
+            <TabsPanel value="positions" style={PANEL_FITS}>
               <PositionsTab />
             </TabsPanel>
-            <TabsPanel value="algo">
+            <TabsPanel value="algo" style={PANEL_FITS}>
               <AlgoTab ids={ids} parents={parents} listing={list} />
             </TabsPanel>
-            <TabsPanel value="dom">
+            <TabsPanel value="dom" style={PANEL_FITS}>
               <DomTab />
             </TabsPanel>
           </div>

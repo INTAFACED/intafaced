@@ -205,6 +205,16 @@ async function openAssets(page, { fresh = true } = {}) {
   await connectWhenAsked(page, page.locator(`[data-testid="source-wallet"][data-address="${owner}"]`));
   return sources;
 }
+/**
+ * Opens the total's "How this is worked out" fold on Assets, where the valuation note and the movers sit off the face
+ * (the owner's pick A): a person opens it to read them, and a closed fold hides them from sight and from assistive tech.
+ */
+async function openTotalFold(page) {
+  const fold = page.getByTestId('assets-total').getByTestId('standing-worked-out');
+  await expect(fold).toBeVisible({ timeout: 30_000 });
+  if ((await fold.getAttribute('open')) === null) await fold.locator('summary').click();
+  await expect(fold).toHaveAttribute('open', '');
+}
 const cell = async (row, name) =>
   (
     (
@@ -407,7 +417,8 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   await expect(walletSection.locator('tbody tr')).toHaveCount(walletRows.length);
   for (const row of walletRows) await holding('source-wallet', row, { amountCells: { amount: decimal(row.amount) }, source: atPageBlock });
   // The venue account: free, locked and total exactly as the venue reports them, each asset it holds.
-  await expect(page.getByTestId('source-venue').locator('tbody > tr')).toHaveCount(venueRows.length);
+  // Counted by the rows' asset mark: the panel's fold also holds the then-and-now table, whose rows are not holdings.
+  await expect(page.getByTestId('source-venue').locator('tbody > tr[data-asset]')).toHaveCount(venueRows.length);
   for (const b of venueRows) {
     const row = valued.find((r) => r.part === 'venue' && r.asset === b.asset);
     await holding('source-venue', row, { amountCells: { free: b.free, locked: b.locked, total: b.total }, source: venueName });
@@ -447,14 +458,14 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   const actions = page.getByTestId('assets-actions');
   for (const [name, href] of [
     ['Trade', /^\/trade\/spot\//],
-    ['Fund your venue account', /^\/wallet\/venue$/],
+    ['Deposit', /^\/wallet\/venue$/],
     ['Activity', /^\/money\/activity$/],
   ])
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${name}$`) })).toHaveAttribute('href', href);
   await stepPicture();
   await actions
     .locator('a')
-    .filter({ hasText: /^Fund your venue account$/ })
+    .filter({ hasText: /^Deposit$/ })
     .click();
   await expect(page).toHaveURL(/\/wallet\/venue$/);
 
@@ -480,6 +491,7 @@ test(`${J} #2 reads the valuation note: the price source and refresh rate, stabl
   expect(btcQuote.last).toBe(units(btcFill.price));
 
   await openAssets(page);
+  await openTotalFold(page);
   const note = page.getByRole('region', { name: 'How these values are worked out', exact: true });
   await expect(note).toBeVisible({ timeout: 30_000 });
   await expect(note.locator('tr[data-coin="BTC"] [data-col="price"]')).toHaveText(dollars(btcQuote.last), { timeout: 30_000 });
@@ -811,6 +823,7 @@ test(`${J} #7 reads best and worst movers: the assets that moved most today, fro
   const expectedTotal = units(usdcBal.total) + btcVal + upVal + downVal + partnerUsdt;
 
   await openAssets(page);
+  await openTotalFold(page);
   const movers = page.getByRole('region', { name: 'Best and worst today', exact: true });
   await expect(movers).toBeVisible({ timeout: 30_000 });
   await expect(movers.locator(`[data-side="best"] li[data-asset="${up.base}"]`)).toBeVisible({ timeout: 30_000 });

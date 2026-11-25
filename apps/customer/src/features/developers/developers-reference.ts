@@ -2167,7 +2167,8 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     path: '/api/v1/algo/:id',
     product: 'spot',
 
-    summary: 'Refused trade.algo_params_immutable: an algo order’s parameters are fixed at create',
+    summary:
+      'Refused trade.algo_params_immutable on this door: amend a TWAP’s quantity down or its trigger with PATCH /api/v1/algo/orders/:id',
   },
   {
     name: 'cancelAlgoOrder',
@@ -2176,6 +2177,41 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'spot',
 
     summary: 'Cancel an algo order; no new slices are placed',
+  },
+  {
+    name: 'createAlgoOrderV2',
+    method: 'POST',
+    path: '/api/v1/algo/orders',
+    product: 'spot',
+
+    summary:
+      'Place an algo order (the same body as POST /api/v1/algo); answers it with filledQty and its state: live, effective, partially_effective, canceled or order_failed',
+  },
+  {
+    name: 'fetchAlgoOrderState',
+    method: 'GET',
+    path: '/api/v1/algo/orders/:id',
+    product: 'spot',
+
+    summary:
+      'One algo order with filledQty and its state, the same for every kind: live (running or waiting), effective (finished, filled whole), partially_effective (finished, part filled), canceled, order_failed (halted, or finished with nothing filled)',
+  },
+  {
+    name: 'amendAlgoOrder',
+    method: 'PATCH',
+    path: '/api/v1/algo/orders/:id',
+    product: 'spot',
+
+    summary:
+      'Amend a TWAP: totalQty down, or triggerPrice while it waits; a larger quantity refuses trade.amend_qty_up, one no more than already scheduled trade.algo_amend_below_placed',
+  },
+  {
+    name: 'cancelAlgoOrderV2',
+    method: 'DELETE',
+    path: '/api/v1/algo/orders/:id',
+    product: 'spot',
+
+    summary: 'Cancel an algo order; no new slices are placed, and its state reads canceled',
   },
   {
     name: 'fetchVipApplications',

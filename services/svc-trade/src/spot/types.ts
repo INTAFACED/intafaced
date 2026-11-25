@@ -670,6 +670,10 @@ export type TradeErrorCode =
   | 'trade.algo_kind_not_built'
   /** CB-execution-08: a schedule's parameters are fixed at create, as in the web; amend is refused. */
   | 'trade.algo_params_immutable'
+  /** An algo amend asked for more quantity: it only goes down (SP-conditional-algo-04). */
+  | 'trade.amend_qty_up'
+  /** An algo amend asked for no more than is already scheduled: cancel stops the order. */
+  | 'trade.algo_amend_below_placed'
   /**
    * Resume would stretch the schedule past 2× the order's own durationMs
    * (ADR 2026-08-08). Trader may cancel-and-recreate; parent stays paused.

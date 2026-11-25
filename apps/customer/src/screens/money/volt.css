@@ -104,3 +104,100 @@
 :root .money-card thead .money-num__value {
   display: inline;
 }
+
+/*
+ * Assets with the venue door on (owner's pick A, "Ledger"): layout only. Every figure, face, panel and the one lit key
+ * come from the kit's parts (lt-panel, Tag, HeroFigure, lt-button, Shares); this sheet only places them.
+ */
+/* The total on the start side, the action keys on the end side of the same row. */
+:root .money-where__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+}
+:root .money-where__total {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+:root .money-where__total > h2 {
+  margin: 0;
+}
+:root .money-where__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* A figure in a source's table stays on one line; the table's own region scrolls when the column is narrow. */
+:root .money-where__table td.lt-num {
+  white-space: nowrap;
+}
+/* The split: one thin bar across, its legend on one line under it, the grouping control at the line's end. */
+:root .money-where__alloc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem var(--lit-gap-item);
+}
+:root .money-where__alloc-legend,
+:root .money-where__alloc-legend .lt-parts {
+  display: contents;
+}
+:root .money-where__alloc-legend .lt-parts-bar {
+  grid-column: 1 / -1;
+  block-size: 0.25rem;
+}
+:root .money-where__alloc-legend .lt-parts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+}
+:root .money-where__alloc-legend .lt-parts-list li {
+  display: inline-flex;
+  gap: 0.375rem;
+  min-block-size: 0;
+  border: 0;
+}
+:root .money-where__alloc-legend .lt-parts-swatch {
+  display: none;
+}
+:root .money-where__alloc-note {
+  grid-column: 1;
+}
+:root .money-where__alloc-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--lit-gap-item);
+}
+/* A source's panel head: chip and name, when it was read, and its value, on one row that wraps on a phone. */
+:root .money-where__panel-head {
+  flex-wrap: wrap;
+}
+:root .money-where__cell-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* The asset's symbol with its info mark on one line; its full name under them. */
+:root .money-where__asset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+:root .money-where__address {
+  min-inline-size: 0;
+}
+:root .money-where__entries {
+  display: inline-flex;
+  text-decoration: none;
+}
+@media (max-width: 47.9375rem) {
+  :root .money-where__actions {
+    justify-content: flex-start;
+  }
+}

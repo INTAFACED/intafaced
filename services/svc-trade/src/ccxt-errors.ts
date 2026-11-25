@@ -539,6 +539,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_child_refused': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_kind_not_built': { ccxt: 'NotSupported', status: 400 },
   'trade.algo_params_immutable': { ccxt: 'InvalidOrder', status: 400 },
+  /** An algo amend only lowers the quantity. Not retryable unchanged. */
+  'trade.amend_qty_up': { ccxt: 'InvalidOrder', status: 400 },
+  /** An algo amend to no more than is already scheduled. Cancel instead. */
+  'trade.algo_amend_below_placed': { ccxt: 'InvalidOrder', status: 400 },
   /**
    * Child cancel failed and the parent was left non-cancelled. Caller must
    * retry cancel — not treat the algo as dead (a cancel that does not cancel

@@ -398,7 +398,6 @@
   font-size: var(--lit-type-micro-size);
   line-height: var(--lit-type-micro-line);
   letter-spacing: var(--lit-type-micro-tracking);
-  text-transform: uppercase;
   color: var(--lit-text-3);
 }
 .lit-tag {
@@ -2281,8 +2280,11 @@ a.lit-button {
 }
 /* Beside a live panel (the hero layout) the headline follows the page's width, so each line stays one line in its 5/12 column. */
 @container lt-page (min-width: 64rem) {
-  .lt-page-grid[data-layout='hero'] .lt-display {
+  .lt-page-grid[data-stage='start'] .lt-display {
     font-size: clamp(2.75rem, 4.2cqi, 8.5rem);
+  }
+  .lt-page-grid[data-layout='hero'] .lt-display {
+    font-size: clamp(2.75rem, 5.2cqi, 8.5rem);
   }
 }
 .lt-display-line {
@@ -2957,8 +2959,7 @@ a.lit-button {
   inline-size: 0.5rem;
   block-size: 0.5rem;
   border-radius: 50%;
-  background: var(--lit-accent);
-  box-shadow: 0 0 0.75rem var(--lit-accent);
+  background: var(--lit-text-1);
 }
 .lt-wallet-card__label {
   grid-row: 3;
@@ -2968,9 +2969,15 @@ a.lit-button {
 .lt-wallet-card__value {
   grid-row: 4;
   color: var(--lit-text-1);
-  font-size: var(--lit-type-title-size);
-  font-weight: var(--lit-type-title-weight);
+  font-size: var(--lit-type-heading-size);
+  font-weight: var(--lit-type-heading-weight);
   font-variant-numeric: tabular-nums;
+}
+@container lt-page (min-width: 64rem) {
+  .lt-wallet-card__value {
+    font-size: var(--lit-type-title-size);
+    font-weight: var(--lit-type-title-weight);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .lt-wallet-card__card {
@@ -2999,11 +3006,41 @@ a.lit-button {
     grid-template-columns: 1fr;
   }
 }
-.lt-hero-line {
+/* An auth page whose stage comes first on a computer; on a phone the form stays first (it is first in the page). */
+@container lt-page (min-width: 64rem) {
+  .lt-page-grid[data-stage='start'] {
+    align-items: stretch;
+  }
+  .lt-page-grid[data-stage='start'] > .lt-page-col {
+    align-content: stretch;
+  }
+  .lt-page-grid[data-stage='start'] > .lt-page-col:last-child {
+    order: -1;
+  }
+  .lt-page-grid[data-stage='start'] .lt-auth-panel {
+    max-inline-size: none;
+  }
+  .lt-page-grid[data-stage='start'] .lt-auth-stage {
+    position: relative;
+    inset-block-start: 0;
+  }
+}
+/* "or" between a form's own button and its other ways in: a hairline each side of the word. */
+.lt-auth-or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   margin: 0;
-  font-size: var(--lit-type-hero-size);
-  line-height: var(--lit-type-hero-line);
-  font-weight: var(--lit-type-hero-weight);
-  letter-spacing: var(--lit-type-hero-tracking);
-  text-wrap: balance;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.lt-auth-or::before,
+.lt-auth-or::after {
+  content: '';
+  flex: 1;
+  border-block-start: 1px solid var(--lit-line);
+}
+.lt-auth-foot {
+  margin: 0;
+  text-align: center;
 }

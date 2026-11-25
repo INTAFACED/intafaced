@@ -173,6 +173,8 @@ export function seededAccount(calls, { now, venueId }) {
     // The venue's own fee schedule and a fresh account's rates on it, as the recorder read them from the venue (no volume
     // yet, so every account's): null where the recording has none, and the call is then refused as unanswered.
     ...(calls['GET /api/v1/venue/fee-tier'] ? { '/api/v1/venue/fee-tier': calls['GET /api/v1/venue/fee-tier'] } : {}),
+    // No conversion made yet: the Convert room's recent list says so.
+    '/api/v1/venue/convert/history': { status: 200, json: { conversions: [], asOf: at(0) } },
     // No trading session started on this device yet: the desk offers to start one.
     '/api/v1/venue/session': (u) => ({
       status: 200,
