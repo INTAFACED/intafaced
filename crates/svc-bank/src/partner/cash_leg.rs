@@ -390,12 +390,22 @@ impl CashLegs {
                 ),
             ));
         }
+        // A concurrent carry of the same leg may have delivered it first: its recorded time is the answer (#9885).
+        let mut legs = self.legs();
+        if let Some(stored) = legs.get(&leg.key).filter(|l| l.delivered_at.is_some()) {
+            return Ok(stored.clone());
+        }
         let done = Leg {
             delivered_at: Some(now),
             ..leg
         };
-        self.legs().insert(done.key.clone(), done.clone());
+        legs.insert(done.key.clone(), done.clone());
         Ok(done)
+    }
+
+    /// Keeps a new leg unless a concurrent carry of the same key stored it first, and answers with the stored one.
+    fn record(&self, leg: Leg) -> Leg {
+        self.legs().entry(leg.key.clone()).or_insert(leg).clone()
     }
 
     /// `carry`: one leg per key, made once and paid out once.
@@ -503,7 +513,7 @@ impl CashLegs {
             moved_at: moved.moved_at,
             label: bank.label(),
         };
-        self.legs().insert(leg.key.clone(), leg.clone());
+        let leg = self.record(leg);
         self.finish(leg, now)
     }
 
@@ -520,6 +530,63 @@ impl CashLegs {
 mod tests {
     #![allow(clippy::unwrap_used, reason = "a test")]
     use super::*;
+
+    /// The TEST venue's payout: it pays every time it is asked and counts the asks.
+    struct Counted(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Payout for Counted {
+        fn pay(&self, _: &str, _: &VenueAccount, _: &str, _: Amount) -> Result<(), String> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    fn a_leg() -> Leg {
+        Leg {
+            key: "convert-cash:0xabc:quote-0001".to_owned(),
+            user_id: "u1".to_owned(),
+            cash: "EUR".to_owned(),
+            coin: "USDC".to_owned(),
+            paid: parse_amount("100").unwrap(),
+            delivered: parse_amount("108").unwrap(),
+            rate: parse_amount("1.08").unwrap(),
+            venue: VenueAccount {
+                venue_id: "venue-test".to_owned(),
+                owner: "0xabc".to_owned(),
+            },
+            delivered_at: None,
+            move_id: "move-1".to_owned(),
+            moved_at: Instant(1_000),
+            label: "TEST",
+        }
+    }
+
+    /// #9885: two concurrent carries of one leg both read it before it was delivered. The second to finish answers
+    /// with the first's recorded delivery time, and the record keeps it, whatever the clock reads now.
+    #[test]
+    fn a_concurrent_duplicate_answers_with_the_first_delivery_time() {
+        let asks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let legs = CashLegs::new(Vec::new(), Box::new(Counted(asks.clone())));
+        let read_by_both = legs.record(a_leg());
+        let first = legs.finish(read_by_both.clone(), Instant(2_000)).unwrap();
+        let second = legs.finish(read_by_both, Instant(2_001)).unwrap();
+        assert_eq!(first.delivered_at, Some(Instant(2_000)));
+        assert_eq!(second, first);
+        assert_eq!(legs.leg("u1", &first.key), Some(first));
+    }
+
+    /// #9885: a carry that missed the stored leg and made its own keeps the stored one, delivered or not.
+    #[test]
+    fn a_racing_new_leg_never_replaces_the_stored_one() {
+        let legs = CashLegs::new(Vec::new(), Box::new(Counted(std::sync::Arc::default())));
+        let delivered = legs.finish(legs.record(a_leg()), Instant(2_000)).unwrap();
+        let raced = legs.record(Leg {
+            move_id: "move-2".to_owned(),
+            ..a_leg()
+        });
+        assert_eq!(raced, delivered);
+        assert_eq!(legs.finish(raced, Instant(2_001)).unwrap(), delivered);
+    }
 
     #[test]
     fn rates_read_cash_coin_and_rate_and_refuse_anything_else() {
