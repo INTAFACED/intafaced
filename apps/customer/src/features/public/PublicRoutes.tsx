@@ -57,7 +57,10 @@ export function PublicHeader({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
   const { session, restoreFailed } = useSession();
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
-  const authHref = publicAuthHref(publicAuthContext(path, location.search), alternateAuth);
+  const context = publicAuthContext(path, location.search);
+  const authHref = publicAuthHref(context, alternateAuth);
+  // The invitation card carries its own Create account, with the invite token; a second one here would drop the token.
+  const showSignup = !path.startsWith('/login') && path !== '/register' && path !== '/invite';
   return (
     <header className="public-header">
       <Brand />
@@ -85,8 +88,8 @@ export function PublicHeader({ path }: { path: string }) {
           <a href={authHref} className="public-signin" data-session="signed-out">
             {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
           </a>
-          {!path.startsWith('/login') && path !== '/register' && (
-            <a href="/register" className="public-signup">
+          {showSignup && (
+            <a href={publicAuthHref(context, '/register')} className="public-signup">
               {t('Create account')}
             </a>
           )}

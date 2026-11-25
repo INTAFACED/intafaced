@@ -176,12 +176,16 @@ export function App() {
   }, [room, path, willRender]);
   const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
   const fallback = <RoomLoading label={t('Opening room')} />;
-  // While a public room's code loads, the bar is drawn already: no page opens on bare black.
-  const framedFallback = (
-    <Shell door={room?.door} path={path}>
-      {fallback}
-    </Shell>
-  );
+  // While a room's code loads, the bar is drawn already: no page opens on bare black. A Web3 room keeps the bare
+  // fallback: the Exchange bar would put a second Exchange | Web3 switch on the page, whose Exchange link is this path.
+  const framedFallback =
+    room?.area === 'web3' ? (
+      fallback
+    ) : (
+      <Shell door={room?.door} path={path}>
+        {fallback}
+      </Shell>
+    );
   const area = room ? legacyArea(room) : undefined;
   let body: ReactNode;
   if (devFeatures)
