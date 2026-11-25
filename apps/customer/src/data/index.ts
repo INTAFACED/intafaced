@@ -23,3 +23,4 @@ export {
   type VenueMarketStates,
   type VenueTickersRead,
 } from './venue-market-states';
+export { pickSource, useMarketCatalogue, type MarketCatalogue } from './market-catalogue';

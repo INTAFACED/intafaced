@@ -21,3 +21,7 @@ graphify-out/
 
 # Written by `next build` in Next's own format; formatting it made every stack build leave a diff to commit.
 apps/admin/next-env.d.ts
+
+# Written by the Hyperliquid daily run (packages/venue-hyperliquid/src/recorded.ts traderRecording), the venue's answers
+# as the recorder writes them; formatting them rewrote about 30,000 lines and refused every push that touched one.
+packages/venue-hyperliquid/recordings/*-venue.json

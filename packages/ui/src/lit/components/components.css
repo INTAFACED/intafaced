@@ -398,7 +398,6 @@
   font-size: var(--lit-type-micro-size);
   line-height: var(--lit-type-micro-line);
   letter-spacing: var(--lit-type-micro-tracking);
-  text-transform: uppercase;
   color: var(--lit-text-3);
 }
 .lit-tag {
@@ -2874,8 +2873,7 @@ a.lit-button {
   inline-size: 0.5rem;
   block-size: 0.5rem;
   border-radius: 50%;
-  background: var(--lit-accent);
-  box-shadow: 0 0 0.75rem var(--lit-accent);
+  background: var(--lit-text-1);
 }
 .lt-wallet-card__label {
   grid-row: 3;

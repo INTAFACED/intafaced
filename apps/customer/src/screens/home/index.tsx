@@ -11,13 +11,12 @@ import {
   isHiddenPath,
   useActivity,
   useFavorites,
-  useMarkets,
+  useMarketCatalogue,
   useMovers,
   moneyUnitOf,
   useHomePortfolio,
   DerivedTotalTag,
   useSparklines,
-  useTickers,
   type Loadable,
   type HomePortfolio,
 } from './deps';
@@ -63,6 +62,9 @@ const ACTIONS = [
 
 type ActionLabel = (typeof ACTIONS)[number]['label'];
 /** Which pills make sense for the account: nothing to spend, nothing to trade, or a paused account. */
+/** Movers where the catalogue is the venue's: none of ours stand in. */
+const NO_MOVERS = { status: 'empty' } as const;
+
 type ActionMode = 'normal' | 'empty' | 'noMarkets' | 'emptyNoMarkets' | 'refused';
 const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
   normal: null,
@@ -185,9 +187,11 @@ function HomeSimple() {
   const { t } = homeCopy.useCopy();
   const { hideBalances, timeZone, displayCurrency } = usePreferences();
   const portfolio = useHomePortfolio(moneyUnitOf(displayCurrency));
-  const markets = useMarkets();
-  const tickers = useTickers();
-  const movers = useMovers(6);
+  // The one markets catalogue, as Markets reads it: with the venue on, its markets at its prices.
+  const { markets, tickers, source } = useMarketCatalogue();
+  // Our own engine's movers rank our own book's markets, so they show only where the catalogue is ours.
+  const ownMovers = useMovers(6);
+  const movers = source === 'own' ? ownMovers : NO_MOVERS;
   const { userId } = useSession();
   const activity = useActivity();
   const activityLimit = useRecentActivityLimit();
