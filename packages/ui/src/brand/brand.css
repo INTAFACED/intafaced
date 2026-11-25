@@ -74,19 +74,8 @@
   }
 }
 
-/* The app bar's brand: lockup when wide, mark alone on a phone (the shell's phone break, 767 px). */
+/* The app bar's brand: the lockup, mark and wordmark, at every width. */
 .brand-bar {
   display: inline-flex;
   align-items: center;
-}
-.brand-bar__compact {
-  display: none;
-}
-@media (max-width: 767px) {
-  .brand-bar__wide {
-    display: none;
-  }
-  .brand-bar__compact {
-    display: block;
-  }
 }

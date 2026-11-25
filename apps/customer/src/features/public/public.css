@@ -24,9 +24,6 @@
 .public-signin {
   white-space: nowrap;
 }
-.public-header .brand-compact {
-  display: none;
-}
 .public-menu {
   display: none;
   position: relative;
@@ -272,12 +269,6 @@
     flex-wrap: wrap;
     row-gap: var(--if-space-2-5);
     padding-block: var(--if-space-2-5);
-  }
-  .public-header .brand-full {
-    display: none;
-  }
-  .public-header .brand-compact {
-    display: block;
   }
   .public-header > nav {
     display: none;
