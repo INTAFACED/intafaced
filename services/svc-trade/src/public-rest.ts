@@ -20,7 +20,7 @@ import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
 import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
-import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
+import { PAIR_RULE_NOT_SET, type PairHalt, type PairRisk, type PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import type { CandleGate } from './admin/chart-feed-controls.js';
@@ -595,7 +595,10 @@ export function presentCcxtMarket(
       // price below it rounds to zero. Max is unbounded and stays null rather
       // than guessing a ceiling a client would clamp against.
       price: { min: tick, max: null as string | null },
-      cost: { min: formatAmount(market.minNotional), max: null as string | null },
+      cost: {
+        min: flags.pairRules?.minNotional === PAIR_RULE_NOT_SET ? null : (flags.pairRules?.minNotional ?? formatAmount(market.minNotional)),
+        max: null as string | null,
+      },
       /**
        * Only an explicit owner/listing cap is publishable. Spot/options and an
        * unconfigured futures listing stay null rather than advertising 10×.

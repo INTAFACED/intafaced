@@ -29,6 +29,7 @@ import {
   venueClientOrderId,
   ordersTakenTogether,
   cancelsTakenTogether,
+  tradesSignedByOf,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
@@ -839,6 +840,8 @@ export class UserVenueDoor {
       // and how many it cancels in one signed action (0: one cancel per signature).
       amendsInPlace: venue.venue.amendsInPlace === true,
       cancelsPerAction: cancelsTakenTogether(venue.venue),
+      // Who signs the venue's orders, cancels and changes: the owner's wallet, or a trading session's key it approved once.
+      tradesSignedBy: tradesSignedByOf(venue.venue),
       // The venue's own scheduled cancel (J-cex-spot-07), with the owner's published timeouts (null: blank); null where the
       // venue offers none.
       scheduledCancel: venue.venue.scheduledCancel
