@@ -197,13 +197,12 @@ export function SignUp() {
 
   const steps = [t('step1'), t('step2'), t('step3')];
   return (
-    <PageGrid layout="even" data-template="sign-up">
+    <PageGrid layout="even" data-template="sign-up" data-stage="start">
       <PageColumn>
         <Surface className="lt-stack lt-auth-panel" data-testid="auth-form">
           <Stepper labels={steps} current={pending ? 1 : 0} />
           <header className="lt-stack">
             <h1 className="lt-title">{pending ? t('checkEmail') : t('title')}</h1>
-            {!pending && <p className="lt-description">{t('intro')}</p>}
           </header>
           {!pending && (
             <form ref={form} method="post" className="lt-stack" onSubmit={start} aria-label={t('step1')}>
@@ -221,20 +220,22 @@ export function SignUp() {
                   />
                 ))}
               </fieldset>
-              <fieldset className="lt-group lt-stack" disabled={busy}>
-                <legend>{t('channel')}</legend>
-                <RadioTrack
-                  name="channel"
-                  value={channel}
-                  onChange={(next) => setChannel(next as Channel)}
-                  options={(['email', 'phone'] as const).map((kind) => ({ value: kind, label: t(kind) }))}
-                />
-              </fieldset>
-              {channel === 'email' ? (
-                <Field label={t('emailField')} name="email" type="email" autoComplete="email" maxLength={320} required disabled={busy} />
-              ) : (
-                <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" maxLength={20} required disabled={busy} />
-              )}
+              <div className="lt-tile-row">
+                {channel === 'email' ? (
+                  <Field label={t('emailField')} name="email" type="email" autoComplete="email" maxLength={320} required disabled={busy} />
+                ) : (
+                  <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" maxLength={20} required disabled={busy} />
+                )}
+                <fieldset className="lt-group lt-stack" disabled={busy}>
+                  <legend>{t('channel')}</legend>
+                  <RadioTrack
+                    name="channel"
+                    value={channel}
+                    onChange={(next) => setChannel(next as Channel)}
+                    options={(['email', 'phone'] as const).map((kind) => ({ value: kind, label: t(kind) }))}
+                  />
+                </fieldset>
+              </div>
               <div className="lt-tile-row">
                 <Field
                   label={t('handle')}
@@ -396,7 +397,7 @@ export function SignUp() {
               </div>
             )
           )}
-          <p className="lt-muted" data-testid="auth-form-links">
+          <p className="lt-muted lt-auth-foot" data-testid="auth-form-links">
             {t('haveAccount')}{' '}
             <a className="lt-link" href={publicAuthHref(context, '/login')}>
               {t('signIn')}

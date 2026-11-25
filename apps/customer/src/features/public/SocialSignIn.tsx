@@ -52,12 +52,14 @@ export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> }
   const code = (WORDED as readonly string[]).includes(refusal?.code ?? '') ? (refusal!.code as (typeof WORDED)[number]) : undefined;
   return (
     <div className="lt-stack">
-      <p className="lt-muted">{t('or')}</p>
-      {(['social', 'wallet'] as const).map((kind) => (
-        <Button key={kind} tone="secondary" block disabled={busy !== null} onClick={() => void start(kind)}>
-          {busy === kind ? t('starting') : t(kind)}
-        </Button>
-      ))}
+      <p className="lt-auth-or">{t('or')}</p>
+      <div className="lt-tile-row" data-min="narrow">
+        {(['social', 'wallet'] as const).map((kind) => (
+          <Button key={kind} tone="secondary" block disabled={busy !== null} onClick={() => void start(kind)}>
+            {busy === kind ? t('starting') : t(kind)}
+          </Button>
+        ))}
+      </div>
       {code ? (
         <div className="lt-refusal" role="alert">
           <p className="lt-refusal-body">{t(code)}</p>

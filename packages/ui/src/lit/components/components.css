@@ -2565,9 +2565,15 @@ a.lit-button {
 .lt-wallet-card__value {
   grid-row: 4;
   color: var(--lit-text-1);
-  font-size: var(--lit-type-title-size);
-  font-weight: var(--lit-type-title-weight);
+  font-size: var(--lit-type-heading-size);
+  font-weight: var(--lit-type-heading-weight);
   font-variant-numeric: tabular-nums;
+}
+@container lt-page (min-width: 64rem) {
+  .lt-wallet-card__value {
+    font-size: var(--lit-type-title-size);
+    font-weight: var(--lit-type-title-weight);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .lt-wallet-card__card {
@@ -2596,11 +2602,57 @@ a.lit-button {
     grid-template-columns: 1fr;
   }
 }
+/* An auth page whose stage comes first on a computer; on a phone the form stays first (it is first in the page). */
+@container lt-page (min-width: 64rem) {
+  .lt-page-grid[data-stage='start'] {
+    align-items: stretch;
+  }
+  .lt-page-grid[data-stage='start'] > .lt-page-col {
+    align-content: stretch;
+  }
+  .lt-page-grid[data-stage='start'] > .lt-page-col:last-child {
+    order: -1;
+  }
+  .lt-page-grid[data-stage='start'] .lt-auth-panel {
+    max-inline-size: none;
+  }
+  .lt-page-grid[data-stage='start'] .lt-auth-stage {
+    position: static;
+  }
+}
+/* "or" between a form's own button and its other ways in: a hairline each side of the word. */
+.lt-auth-or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.lt-auth-or::before,
+.lt-auth-or::after {
+  content: '';
+  flex: 1;
+  border-block-start: 1px solid var(--lit-line);
+}
+.lt-auth-foot {
+  margin: 0;
+  text-align: center;
+}
+/* The stage's value line: a title on a phone, the hero size once the page has two columns. */
 .lt-hero-line {
   margin: 0;
-  font-size: var(--lit-type-hero-size);
-  line-height: var(--lit-type-hero-line);
-  font-weight: var(--lit-type-hero-weight);
-  letter-spacing: var(--lit-type-hero-tracking);
+  font-size: var(--lit-type-title-size);
+  line-height: var(--lit-type-title-line);
+  font-weight: var(--lit-type-title-weight);
+  letter-spacing: var(--lit-type-title-tracking);
   text-wrap: balance;
+}
+@container lt-page (min-width: 64rem) {
+  .lt-hero-line {
+    font-size: var(--lit-type-hero-size);
+    line-height: var(--lit-type-hero-line);
+    font-weight: var(--lit-type-hero-weight);
+    letter-spacing: var(--lit-type-hero-tracking);
+  }
 }

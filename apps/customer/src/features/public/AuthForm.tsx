@@ -567,7 +567,7 @@ export function AuthForm({ register }: { register: boolean }) {
       ? recoveryLanguageFor('title')
       : publicLanguageFor('SIGN IN');
   const flow = (
-    <PageGrid layout="even" data-template="sign-in">
+    <PageGrid layout="even" data-template="sign-in" data-stage="start">
       <PageColumn>
         <Surface className="lt-stack lt-auth-panel" data-testid="auth-form" lang={publicLanguageFor('SIGN IN')}>
           <header className="lt-stack">
