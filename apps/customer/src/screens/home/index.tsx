@@ -2,10 +2,10 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ChevronRight, Eye, EyeOff, QrCode, Send, TrendingUp } from 'lucide-react';
 import { ActionButton, ActionRow, Button, Fold, PageColumn, PageGrid } from '@intafaced/ui/lit';
-import { Skeleton } from '@intafaced/ui/lit/templates';
+import { Skeleton, TabPanel } from '@intafaced/ui/lit/templates';
 import { commandCopy } from './command-copy';
 import { standingCopy } from '../money/standing-copy';
-import { ValueChart, ValueRanges, useValueRange } from './ValueChart';
+import { RANGE_TABS, ValueChart, ValueRanges, useValueRange } from './ValueChart';
 import { AgentSection, LevelsSection, OpenPositions } from './HomeRail';
 import { HomeMarkets } from './HomeMarkets';
 import { clockTime } from './clock';
@@ -346,7 +346,11 @@ function HomeSimple() {
           </div>
         )}
       </div>
-      {portfolio.status === 'refused' ? null : <ValueChart range={range} hidden={hideBalances} />}
+      {portfolio.status === 'refused' ? null : (
+        <TabPanel id={RANGE_TABS} value={range} current={range} className="hm-chart-panel">
+          <ValueChart range={range} hidden={hideBalances} />
+        </TabPanel>
+      )}
       <ActionKeys loading={portfolio.status === 'loading'} mode={actionMode} mainElsewhere={startedOpen} />
     </section>
   );

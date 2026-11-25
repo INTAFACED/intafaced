@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { AreaChart, Segmented, Skeleton } from '@intafaced/ui/lit/templates';
+import { AreaChart, Skeleton, Tabs } from '@intafaced/ui/lit/templates';
 import { useValueOverTime } from '../money/pnl-source';
 import { commandCopy } from './command-copy';
 import { HIDDEN_MASK } from '@intafaced/ui/lit';
@@ -23,12 +23,17 @@ type RangeKey = (typeof RANGES)[number]['key'];
 /** The range's start, on the minute, so the read is shared and stable while the page is open. */
 const fromOf = (hours: number) => new Date(Math.floor((Date.now() - hours * 3_600_000) / 60_000) * 60_000).toISOString();
 
+/** The range tabs' id: the chart under them is their panel (`TabPanel` with the same id in Home's hero). */
+export const RANGE_TABS = 'home-range';
+
 export function ValueRanges({ range, onRange }: { range: RangeKey; onRange: (range: RangeKey) => void }) {
   const { t } = commandCopy.useCopy();
   return (
-    <Segmented
+    <Tabs
+      id={RANGE_TABS}
+      soft
       label={t('Value range')}
-      options={RANGES.map((r) => ({ value: r.key, label: t(r.key) }))}
+      items={RANGES.map((r) => ({ value: r.key, label: t(r.key) }))}
       value={range}
       onChange={(value) => onRange(value as RangeKey)}
     />

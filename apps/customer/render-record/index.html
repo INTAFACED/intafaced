@@ -143,21 +143,23 @@
 </details>
 </div>
 <div class="hm-ranges">
-<div class="lt-segmented" role="radiogroup" aria-label="Range">
-<button type="button" role="radio" aria-checked="true" class="lt-segment">1D</button>
-<button type="button" role="radio" aria-checked="false" class="lt-segment">1W</button>
-<button type="button" role="radio" aria-checked="false" class="lt-segment">1M</button>
-<button type="button" role="radio" aria-checked="false" class="lt-segment">1Y</button>
-<button type="button" role="radio" aria-checked="false" class="lt-segment">All</button>
+<div class="lt-tabs lt-tabs-soft" role="tablist" aria-label="Range">
+<button type="button" role="tab" id="home-range-tab-1D" aria-controls="home-range-panel-1D" aria-selected="true" tabindex="0" class="lt-tab">1D</button>
+<button type="button" role="tab" id="home-range-tab-1W" aria-controls="home-range-panel-1W" aria-selected="false" tabindex="-1" class="lt-tab">1W</button>
+<button type="button" role="tab" id="home-range-tab-1M" aria-controls="home-range-panel-1M" aria-selected="false" tabindex="-1" class="lt-tab">1M</button>
+<button type="button" role="tab" id="home-range-tab-1Y" aria-controls="home-range-panel-1Y" aria-selected="false" tabindex="-1" class="lt-tab">1Y</button>
+<button type="button" role="tab" id="home-range-tab-All" aria-controls="home-range-panel-All" aria-selected="false" tabindex="-1" class="lt-tab">All</button>
 </div>
 </div>
 </div>
+<div class="lt-tab-panel hm-chart-panel" role="tabpanel" id="home-range-panel-1D" aria-labelledby="home-range-tab-1D" tabindex="0">
 <div class="hm-chart hm-chart-note" data-testid="home-value-down">
 <svg class="hm-chart-flat" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
 <path d="M0,50 L600,50 M0,100 L600,100 M0,150 L600,150" vector-effect="non-scaling-stroke">
 </path>
 </svg>
 <p>Value over time can’t be read right now. Your total above is current.</p>
+</div>
 </div>
 <nav data-testid="home-actions" aria-label="Trade" data-count="4">
 <div class="lt-action-row">
@@ -222,13 +224,14 @@
 <span id="home-markets-title" data-sr-only="">Markets</span>
 </h2>
 <div class="lt-panel-aside">
-<div class="lt-segmented" role="radiogroup" aria-label="Markets view">
-<button type="button" role="radio" aria-checked="true" class="lt-segment">Popular</button>
-<button type="button" role="radio" aria-checked="false" class="lt-segment">Movers</button>
+<div class="lt-tabs lt-tabs-soft" role="tablist" aria-label="Markets view">
+<button type="button" role="tab" id="home-markets-tab-watch" aria-controls="home-markets-panel-watch" aria-selected="true" tabindex="0" class="lt-tab">Popular</button>
+<button type="button" role="tab" id="home-markets-tab-movers" aria-controls="home-markets-panel-movers" aria-selected="false" tabindex="-1" class="lt-tab">Movers</button>
 </div>
 <a class="hm-link" href="/trade">All 6 markets</a>
 </div>
 </div>
+<div class="lt-tab-panel" role="tabpanel" id="home-markets-panel-watch" aria-labelledby="home-markets-tab-watch">
 <div class="lt-market-table">
 <table class="lt-table" data-mode="simple">
 <caption class="lt-sr">Markets</caption>
@@ -512,6 +515,7 @@
 </tr>
 </tbody>
 </table>
+</div>
 </div>
 </section>
 </div>

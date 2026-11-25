@@ -16,7 +16,7 @@ const BLOCKS = [
   ['figure', '.bf-total > *', '[data-testid="home-total"] > *'],
   ['figure bar', '.bf-total .lt-ghost-item', '[data-testid="home-total"] .lt-ghost-item'],
   ['change', '.bf-change > *', '[data-testid="home-change"] > *'],
-  ['ranges', '.bf-ranges', '.hm-hero .lt-segmented'],
+  ['ranges', '.bf-ranges', '.hm-hero .lt-tabs'],
   ['chart', '.hm-chart', '.hm-chart'],
   ['keys tray', '.bf-keys', '[data-testid="home-actions"]'],
   ['key', '.bf-keys .lt-ghost-item', '[data-testid="home-actions"] .lt-ghost-item', true],

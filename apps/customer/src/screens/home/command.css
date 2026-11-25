@@ -53,8 +53,10 @@
     justify-self: start;
   }
 }
-.hm-hero .hm-chart {
+.hm-hero .hm-chart-panel {
   order: 3;
+}
+.hm-hero .hm-chart {
   margin-block-start: 0.75rem;
 }
 .hm-hero [data-testid='home-actions'] {
@@ -233,17 +235,6 @@
 }
 .hm-rail-sec > section {
   margin: 0;
-}
-
-/* The range and view switches keep their own width; their look is the kit's. */
-.hm .lt-segmented {
-  display: inline-flex;
-  flex-wrap: wrap;
-  max-inline-size: 100%;
-}
-.hm .lt-segment {
-  flex: none;
-  padding-inline: 0.75rem;
 }
 
 /* A balance the bank refuses (not verified yet): the step itself, large, where the figure would be. */

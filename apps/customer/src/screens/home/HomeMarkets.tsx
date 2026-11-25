@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ButtonLink, MarketTable, PanelHead, type MarketRow } from '@intafaced/ui/lit';
-import { Segmented } from '@intafaced/ui/lit/templates';
+import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { assetName, homeCopy } from './copy';
 import { commandCopy } from './command-copy';
 import { priceText, type Tickers } from './MarketsSection';
@@ -68,9 +68,11 @@ export function HomeMarkets({
         }
         aside={
           <>
-            <Segmented
+            <Tabs
+              id="home-markets"
+              soft
               label={t('Markets view')}
-              options={[
+              items={[
                 { value: 'watch', label: popular ? t('Popular') : t('Watchlist') },
                 ...(movers.length > 0 ? [{ value: 'movers', label: t('Movers') }] : []),
               ]}
@@ -88,25 +90,27 @@ export function HomeMarkets({
       {broken ? (
         <StateBlock kind="error" title={t('Markets down')} onRetry={retry ?? (() => location.reload())} retryLabel={t('Try again')} />
       ) : (
-        <MarketTable
-          labels={{
-            caption: t('Markets'),
-            market: t('Market'),
-            price: t('Price'),
-            change: t('24h'),
-            trend: t('Last day'),
-            trendLabel: (row) => t('{asset}, last day', { asset: row.symbol }),
-          }}
-          rows={rows}
-          loadingRows={loading ? 6 : undefined}
-          empty={<p className="lt-hint">{t('No markets yet')}</p>}
-          action={(row) => (
-            <ButtonLink size="sm" tone="secondary" href={row.href}>
-              {t('Trade')}
-            </ButtonLink>
-          )}
-          actionLabel={t('Trade')}
-        />
+        <TabPanel id="home-markets" value={view} current={view}>
+          <MarketTable
+            labels={{
+              caption: t('Markets'),
+              market: t('Market'),
+              price: t('Price'),
+              change: t('24h'),
+              trend: t('Last day'),
+              trendLabel: (row) => t('{asset}, last day', { asset: row.symbol }),
+            }}
+            rows={rows}
+            loadingRows={loading ? 6 : undefined}
+            empty={<p className="lt-hint">{t('No markets yet')}</p>}
+            action={(row) => (
+              <ButtonLink size="sm" tone="secondary" href={row.href}>
+                {t('Trade')}
+              </ButtonLink>
+            )}
+            actionLabel={t('Trade')}
+          />
+        </TabPanel>
       )}
     </section>
   );
