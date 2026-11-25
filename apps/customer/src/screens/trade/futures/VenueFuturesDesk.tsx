@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import { VenueMarketPanel } from '../desk/VenueMarketData';
 import '../desk/exchange-desk.css';
-import { Button, Field, Fold, PageGrid, Segmented, Switch } from '@intafaced/ui/lit';
+import { Button, Field, Fold, Menu, PageGrid, Segmented, Switch } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -345,18 +345,11 @@ function Contracts({
                   disabled={false}
                 />
               ) : null}
-              {owner ? <WalletBar /> : null}
-              {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
               {owner && market.marginAccount?.known ? (
                 <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
               ) : null}
               {owner ? (
                 <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} />
-              ) : null}
-              <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-              {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
-              {owner ? (
-                <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
               ) : null}
             </div>
           }
@@ -364,6 +357,27 @@ function Contracts({
             <div className="lt-stack">
               {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
               {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+              {/* Under the positions, never squeezed under the ticket: the wallet, its session, the venue balances and collateral. */}
+              {owner ? (
+                <div className="xd-under">
+                  <div className="lt-stack">
+                    <WalletBar />
+                    <VenueSessionPanel session={session} owner={owner} status={status} />
+                  </div>
+                  <div className="lt-stack">
+                    <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+                    <BalancesPanel balances={account.balances.data} test={status.test} />
+                    <VenueCollateral
+                      market={market}
+                      venueName={status.venue.displayName}
+                      balances={account.balances.data}
+                      test={status.test}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+              )}
               {owner ? (
                 // The venue's fees, tiers, account and bills: one fold under the positions, never on the desk's face.
                 <Fold title={t('Venue account fold')} data-testid="venue-account-fold">
@@ -1289,7 +1303,6 @@ function Ticket({
           }}
           label={t('Order types')}
         />
-        <NotOfferedChips types={RESTING_TYPES.filter((x) => !market.orderTypes.includes(x))} />
       </div>
       <div className="xd-switch-row">
         <span aria-hidden="true">{t('Size from my risk')}</span>
@@ -1372,6 +1385,10 @@ function Ticket({
       {/* What the venue publishes about this order and the rarely changed fields: there when asked for, off the ticket's face. */}
       <Fold title={t('Order options')} data-testid="venue-ticket-options">
         <div className="lt-stack-tight">
+          {/* The kinds this venue doesn't offer, named and disabled: off the ticket's head. */}
+          <div role="group" aria-label={t('Order types')} data-testid="venue-order-types-off">
+            <NotOfferedChips types={RESTING_TYPES.filter((x) => !market.orderTypes.includes(x))} />
+          </div>
           {type === 'limit' ? (
             <div className="lt-stack-tight" data-testid="venue-price-band">
               <p className="lt-note">
@@ -1426,21 +1443,23 @@ function Ticket({
       </Fold>
       {/* The summary and the one primary button stay pinned at the ticket column's foot, so a long ticket never hides them. */}
       <div className="xd-ticket-go">
-        {summary ? (
-          <div data-testid="venue-ticket-summary">
-            <KeyValue
-              rows={[
-                { label: t('Order value'), value: quoted(summary.value) },
-                {
-                  label: summary.leverage ? t('Margin at', { times: summary.leverage }) : t('Margin'),
-                  value: quoted(summary.margin),
-                },
-                { label: t('Opening fee'), value: summary.fee === null ? t('Not published') : quoted(summary.fee) },
-                { label: t('Line liquidation'), value: quoted(summary.liquidation) },
-              ]}
-            />
-          </div>
-        ) : null}
+        {/* The ticket's own maths, always in its place: blank until a size is in, so the ticket keeps its shape. */}
+        <div data-testid="venue-ticket-summary" data-ready={summary ? 'true' : 'false'}>
+          <KeyValue
+            rows={[
+              { label: t('Order value'), value: summary ? quoted(summary.value) : '—' },
+              {
+                label: summary?.leverage ? t('Margin at', { times: summary.leverage }) : t('Margin'),
+                value: summary ? quoted(summary.margin) : '—',
+              },
+              {
+                label: t('Opening fee'),
+                value: !summary ? '—' : summary.fee === null ? t('Not published') : quoted(summary.fee),
+              },
+              { label: t('Line liquidation'), value: summary ? quoted(summary.liquidation) : '—' },
+            ]}
+          />
+        </div>
         <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
           {side === 'buy' ? t('Review long') : t('Review short')}
         </Button>
@@ -1980,15 +1999,26 @@ function PositionsTable({
                   </td>
                   <td>
                     <CloseControl position={row} market={market} owner={owner} run={run} onDone={onDone} />
+                    {/* Close stays on the row; the rarer actions sit behind the row's More menu, so a row keeps one line. */}
                     {row.symbol === market.symbol ? (
-                      <>
-                        <Button tone="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>
-                          {p('Protect button', { symbol: row.symbol })}
-                        </Button>{' '}
-                        <Button tone="secondary" onClick={() => setOpen({ kind: 'reverse', position: row })}>
-                          {p('Reverse button', { symbol: row.symbol })}
-                        </Button>
-                      </>
+                      <Menu
+                        label={t('More')}
+                        triggerLabel={t('More for', { symbol: row.symbol })}
+                        size="sm"
+                        testId="venue-position-more"
+                        items={[
+                          {
+                            key: 'protect',
+                            label: p('Protect button', { symbol: row.symbol }),
+                            onSelect: () => setOpen({ kind: 'protect', position: row }),
+                          },
+                          {
+                            key: 'reverse',
+                            label: p('Reverse button', { symbol: row.symbol }),
+                            onSelect: () => setOpen({ kind: 'reverse', position: row }),
+                          },
+                        ]}
+                      />
                     ) : null}
                   </td>
                 </tr>

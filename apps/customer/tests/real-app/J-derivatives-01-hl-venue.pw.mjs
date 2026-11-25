@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { ticketOptions } from './futures-desk.mjs';
 import { test, expect } from './journey.mjs';
 import { journeyState } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
@@ -113,13 +114,17 @@ test(`${J} #7 looks at the order types: market and limit as offered; resting typ
   const writes = [];
   page.on('request', (r) => r.method() !== 'GET' && new URL(r.url()).pathname.startsWith('/api/') && writes.push(r.url()));
   for (const x of resting) {
-    const button = types.getByRole('button', { name: `${RESTING[x]}: not offered by this venue`, exact: true });
+    const button = (await ticketOptions(page))
+      .getByTestId('venue-order-types-off')
+      .getByRole('button', { name: `${RESTING[x]}: not offered by this venue`, exact: true });
     await expect(button).toBeDisabled();
     await button.click({ force: true });
   }
   // Each pressed type stays disabled and the desk still offers market and limit: nothing was chosen or sent.
   for (const x of resting)
-    await expect(types.getByRole('button', { name: `${RESTING[x]}: not offered by this venue`, exact: true })).toBeDisabled();
+    await expect(
+      page.getByTestId('venue-order-types-off').getByRole('button', { name: `${RESTING[x]}: not offered by this venue`, exact: true }),
+    ).toBeDisabled();
   await expect(types.getByRole('button', { name: 'Market', exact: true })).toBeEnabled();
   await stepPicture();
   expect(writes).toEqual([]);

@@ -1,5 +1,5 @@
 // World: book, gates, restart, stack
-import { marketDetails, ticketOptions } from './futures-desk.mjs';
+import { marketDetails, rowAction, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -335,7 +335,7 @@ test(`${J} #2 opens an order that came from a stop, and one made by a liquidatio
     });
     const posRow = page.getByTestId('venue-positions').locator(`tr[data-symbol="${TRIGGER_PERP}"]`);
     await expect(posRow).toBeVisible({ timeout: 20_000 });
-    await posRow.getByRole('button', { name: `Exit orders ${TRIGGER_PERP}`, exact: true }).click();
+    await rowAction(posRow, `Exit orders ${TRIGGER_PERP}`);
     const dialog = page.getByRole('dialog', { name: `Exit orders for ${TRIGGER_PERP}`, exact: true });
     await dialog.getByRole('button', { name: 'Stop loss', exact: true }).click();
     await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
@@ -809,7 +809,7 @@ test(`${J} #6 with a take-profit and a stop-loss for the whole position resting,
   });
   const row = page.getByTestId('venue-positions').locator(`tr[data-symbol="${TRIGGER_PERP}"]`);
   await expect(row).toBeVisible({ timeout: 20_000 });
-  await row.getByRole('button', { name: `Exit orders ${TRIGGER_PERP}`, exact: true }).click();
+  await rowAction(row, `Exit orders ${TRIGGER_PERP}`);
   const dialog = page.getByRole('dialog', { name: `Exit orders for ${TRIGGER_PERP}`, exact: true });
   await expect(dialog).toBeVisible();
 

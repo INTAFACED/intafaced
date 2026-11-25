@@ -173,6 +173,8 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   Stop: 'Stop',
   Target: 'Target',
   'Liquidation est': 'Liq., est.',
+  More: 'More',
+  'More for': 'More actions for {symbol}',
   Margin: 'Margin',
   Leverage: 'Leverage',
   'No positions': 'No open position on the venue.',

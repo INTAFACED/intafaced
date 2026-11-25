@@ -1,5 +1,5 @@
 // World: book, gates, restart
-import { marketDetails } from './futures-desk.mjs';
+import { marketDetails, rowAction } from './futures-desk.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, tool, toUnits, fromUnits } from './stack.mjs';
@@ -130,9 +130,7 @@ async function openLong(page, size, extra = async () => {}) {
 
 /** The position's protection dialog, from its row on the Positions table. */
 async function protect(page) {
-  await row(page)
-    .getByRole('button', { name: `Exit orders ${SYMBOL}` })
-    .click();
+  await rowAction(row(page), `Exit orders ${SYMBOL}`, false);
   const dialog = page.getByRole('dialog', { name: `Exit orders for ${SYMBOL}` });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -687,9 +685,7 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
   await ladderAt(MARK);
   const opened = await openLong(page, '1');
   await opened.getByRole('button', { name: 'Back', exact: true }).click();
-  await row(page)
-    .getByRole('button', { name: `Reverse ${SYMBOL}` })
-    .click();
+  await rowAction(row(page), `Reverse ${SYMBOL}`, false);
   const review = page.getByRole('dialog', { name: `Reverse ${SYMBOL}` });
   // Reviewed: the close and the open, in the opposite direction, before anything is signed.
   await expect(review).toContainText('Close 1 ETH long, then open 1 ETH short');

@@ -202,7 +202,7 @@ export function PriceChart({
           panes: { separatorColor: c.line, separatorHoverColor: c.line, enableResize: false },
         },
         grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
-        rightPriceScale: { borderColor: c.line },
+        rightPriceScale: { borderColor: c.line, scaleMargins: { top: 0.1, bottom: 0.1 } },
         localization: { timeFormatter: (seconds: number) => axisTime(seconds, zone.current) },
         timeScale: {
           borderColor: c.line,

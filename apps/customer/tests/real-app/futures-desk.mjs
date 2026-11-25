@@ -48,3 +48,11 @@ export async function openFold(scope, testId) {
 export const marketDetails = (page) => openFold(page, 'venue-market-details');
 /** The ticket's "Order options", opened. */
 export const ticketOptions = (ticket) => openFold(ticket, 'venue-ticket-options');
+/**
+ * A position row's rarer action (Exit orders, Reverse), behind the row's More menu: opens the menu, picks the item.
+ * `name` is the action's own name ("Exit orders BTC-PERP"), as the step's words give it.
+ */
+export async function rowAction(row, name, exact = true) {
+  await row.getByTestId('venue-position-more').click();
+  await row.page().getByRole('menuitem', { name, exact }).click();
+}
