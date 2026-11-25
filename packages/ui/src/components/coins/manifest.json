@@ -33,6 +33,62 @@
       "licence": "MIT",
       "copied": "2026-10-13"
     },
+    "XRP": {
+      "file": "xrp.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/XRP.svg",
+      "commit": "172f57f38fca75007002a4d707e08f33d82ba3a5",
+      "licence": "MIT",
+      "copied": "2026-11-25"
+    },
+    "DOGE": {
+      "file": "doge.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/DOGE.svg",
+      "commit": "172f57f38fca75007002a4d707e08f33d82ba3a5",
+      "licence": "MIT",
+      "copied": "2026-11-25"
+    },
+    "HYPE": {
+      "file": "hype.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/networks/background/hyper-evm.svg",
+      "commit": "172f57f38fca75007002a4d707e08f33d82ba3a5",
+      "licence": "MIT",
+      "copied": "2026-11-25"
+    },
+    "AVAX": {
+      "file": "avax.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/AVAX.svg",
+      "commit": "172f57f38fca75007002a4d707e08f33d82ba3a5",
+      "licence": "MIT",
+      "copied": "2026-11-25"
+    },
+    "LINK": {
+      "file": "link.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/LINK.svg",
+      "commit": "172f57f38fca75007002a4d707e08f33d82ba3a5",
+      "licence": "MIT",
+      "copied": "2026-11-25"
+    },
+    "SUI": {
+      "file": "sui.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/SUI.svg",
+      "commit": "172f57f38fca75007002a4d707e08f33d82ba3a5",
+      "licence": "MIT",
+      "copied": "2026-11-25"
+    },
+    "ARB": {
+      "file": "arb.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/ARB.svg",
+      "commit": "172f57f38fca75007002a4d707e08f33d82ba3a5",
+      "licence": "MIT",
+      "copied": "2026-11-25"
+    },
     "IFC": {
       "file": null,
       "fallback": "lettered",
