@@ -118,12 +118,12 @@ describe("the markets table and top cards in the beta's build", () => {
     );
     // The board above the list (hero and movers) replaced the top cards; the same guard holds for its links.
     const board = renderToStaticMarkup(<Board entries={rows} mode="pro" />);
-    for (const html of [table, board]) {
-      expect(droppedLinks(html)).toEqual([]);
-      expect(html).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
-      expect(html).toMatch(/ETH<span[^>]*>\/USDT<\/span>/);
-    }
-    expect(board.match(/data-testid="mkt-mover"/g)).toHaveLength(2);
+    for (const html of [table, board]) expect(droppedLinks(html)).toEqual([]);
+    expect(table).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
+    expect(table).toMatch(/ETH<span[^>]*>\/USDT<\/span>/);
+    expect(board).toContain('BTC/USDT');
+    expect(board).toContain('ETH/USDT');
+    expect(board.match(/class="lt-mover"/g)).toHaveLength(2);
     expect(board).toMatch(/href="\/trade\/spot\/BTC-USDT"/);
   });
 });

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { AssetIcon, ToggleChips } from '@intafaced/ui/lit';
-import { AreaChart, Sparkline } from '@intafaced/ui/lit/templates';
+import { AssetIcon, MoverTile, TileRow, ToggleChips } from '@intafaced/ui/lit';
+import { AreaChart } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../../features/session/session';
 import { assetName, marketsCopy } from './copy';
-import { direction, isHiddenPath, useSparklines, type Decimal } from './deps';
+import { direction, fmtPct, isHiddenPath, useSparklines, type Decimal } from './deps';
 import { Pct } from './parts';
 import { marketTarget, priceText, volumeText, type Entry, type Mode } from './select';
 
@@ -120,33 +120,20 @@ export function Board({ entries, mode }: { entries: readonly Entry[]; mode: Mode
             <h2 id="mkt-moving-title">{t('What’s moving')}</h2>
             <span className="mkt-dim">{t('Biggest 24h moves')}</span>
           </header>
-          <ul className="mkt-moving__list">
-            {movers.map(({ market: m, ticker: tk }) => {
-              const href = marketTarget(m, mode, isHiddenPath, signedIn);
-              const Tag = href ? 'a' : 'span';
-              return (
-                <li key={m.symbol}>
-                  <Tag className="mkt-mover" href={href ?? undefined} data-testid="mkt-mover">
-                    <span className="mkt-mover__top">
-                      <strong>
-                        {m.base}
-                        <span className="mkt-dim">/{m.quote}</span>
-                      </strong>
-                      <Pct value={tk?.changePct24h} />
-                    </span>
-                    <span className="mkt-mover__price" dir="ltr">
-                      {priceText(m, tk?.last)}
-                    </span>
-                    <Sparkline
-                      label={t('{pair}, last 24 hours', { pair: `${m.base}/${m.quote}` })}
-                      values={lines[m.symbol] ?? []}
-                      tone={toneOf(tk?.changePct24h)}
-                    />
-                  </Tag>
-                </li>
-              );
-            })}
-          </ul>
+          <TileRow min="narrow">
+            {movers.map(({ market: m, ticker: tk }) => (
+              <MoverTile
+                key={m.symbol}
+                symbol={`${m.base}/${m.quote}`}
+                price={priceText(m, tk?.last)}
+                change={fmtPct(tk?.changePct24h)}
+                trend={lines[m.symbol] ?? []}
+                trendLabel={t('{pair}, last 24 hours', { pair: `${m.base}/${m.quote}` })}
+                href={marketTarget(m, mode, isHiddenPath, signedIn) ?? undefined}
+                data-testid="mkt-mover"
+              />
+            ))}
+          </TileRow>
         </section>
       ) : null}
     </div>
