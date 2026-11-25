@@ -1864,6 +1864,41 @@ a.lt-mover:hover {
   font-weight: 600;
   letter-spacing: -0.02em;
 }
+/* A desk's pair (market-parts.tsx MarketTile): a flat tile, the symbol and change on top, the last price under them;
+   the market the desk is on carries the strong rim. */
+.lt-market-tile {
+  display: grid;
+  align-content: start;
+  gap: 0.125rem;
+  min-inline-size: 8rem;
+  padding: 0.625rem 0.875rem;
+  border: 0;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip);
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.lt-market-tile:hover {
+  background: var(--lit-solid-bg-raised);
+}
+.lt-market-tile[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
+}
+.lt-market-tile-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: var(--lit-type-label-size);
+}
+.lt-market-tile-price {
+  font-size: var(--lit-type-heading-size);
+  font-weight: var(--lit-type-figure-weight);
+  letter-spacing: -0.02em;
+}
 .lt-mover .lt-spark[data-size='row'] {
   inline-size: 100%;
 }

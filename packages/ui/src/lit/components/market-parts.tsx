@@ -279,3 +279,39 @@ export function MarketHeader({
     </section>
   );
 }
+
+export interface MarketTileProps {
+  /** The market as the venue lists it ("BTC-USD", "PURR/USDC"). */
+  symbol: string;
+  /** Formatted last price, or null when the venue publishes none (then no price line is drawn). */
+  price: string | null;
+  /** Formatted signed 24h change, or null when the venue publishes none (then nothing is drawn). */
+  change: string | null;
+  /** The market the desk is on now. */
+  selected?: boolean;
+  onSelect?: () => void;
+  className?: string;
+  'data-testid'?: string;
+}
+
+/**
+ * One market in a desk's strip of pairs: a flat tile with the symbol and its 24h change on top and the last price under
+ * them, pressed to switch the desk to it. A figure the venue does not publish is left out, never drawn as a dash.
+ */
+export function MarketTile({ symbol, price, change, selected, onSelect, className, 'data-testid': testId }: MarketTileProps) {
+  return (
+    <button
+      type="button"
+      className={clsx('lt-market-tile', className)}
+      aria-pressed={selected ?? false}
+      onClick={onSelect}
+      data-testid={testId}
+    >
+      <span className="lt-market-tile-top">
+        <span className="lt-market-symbol">{symbol}</span>
+        {change !== null ? <Pct value={change} /> : null}
+      </span>
+      {price !== null ? <Price className="lt-market-tile-price" value={price} cents /> : null}
+    </button>
+  );
+}
