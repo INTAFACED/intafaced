@@ -23,7 +23,7 @@ export interface SwitcherRow {
 }
 
 /** A perpetual reads by its contract (BTC-PERP); a spot pair by base and quote. */
-export const pairOf = (market: Pick<MarketRow, 'base' | 'quote'>, kind: PairKind) =>
+const pairOf = (market: Pick<MarketRow, 'base' | 'quote'>, kind: PairKind) =>
   kind === 'perp' ? `${market.base}-PERP` : `${market.base}/${market.quote}`;
 
 /** A perpetual opens the futures desk on its contract, a spot pair the spot desk (BTC-USDC); null where the desk is hidden. */
@@ -58,7 +58,7 @@ const squash = (text: string) => text.toLowerCase().replace(/[\s/_-]+/g, '');
  * How well a row answers the search: 0 when its coin is the search ("eth" → ETH), 1 when its coin starts with it
  * ("eth" → ETHFI), 2 when its pair or name holds it anywhere, null when it does not match. An empty search matches all.
  */
-export function matchRank(row: SwitcherRow, query: string, name: string | null): number | null {
+function matchRank(row: SwitcherRow, query: string, name: string | null): number | null {
   const needle = squash(query.trim());
   if (!needle) return 2;
   const base = squash(row.base);
@@ -116,7 +116,7 @@ export const changeOf = (row: SwitcherRow): Decimal | null => row.ticker?.change
 
 // The last markets opened from the switcher, newest first, on this device only.
 export const RECENT_KEY = 'intafaced.pair-switcher.recent.v1';
-export const RECENT_LIMIT = 5;
+const RECENT_LIMIT = 5;
 
 export interface RecentPair {
   symbol: string;

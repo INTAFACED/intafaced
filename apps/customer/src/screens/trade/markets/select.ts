@@ -197,7 +197,7 @@ export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: st
  * The places a price is shown with: its tick's, but never more than about six significant digits, so a venue that
  * publishes a hair-thin tick (Hyperliquid's spot BTC at 0.00000001) still reads $65,206.98, never $65,206.98000000.
  */
-export function displayTick(tickSize: Decimal | null | undefined, value: Decimal | null | undefined): Decimal | null | undefined {
+function displayTick(tickSize: Decimal | null | undefined, value: Decimal | null | undefined): Decimal | null | undefined {
   const tickPlaces = tickSize?.includes('.') ? tickSize.split('.')[1]!.replace(/0+$/, '').length : 0;
   const text = value?.replace(/^-/, '') ?? '';
   if (!/^\d+(\.\d+)?$/.test(text)) return tickSize;
