@@ -108,8 +108,11 @@ const BETA_CADENCE_SECONDS = 300;
 const BETA_USER_VENUE = 'hl-testnet';
 
 /**
- * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its venue,
- * no TEST listings on svc-trade's board, and svc-ops' labelled TEST valuation price list. The journeys' TEST markets
+ * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its public
+ * name as the origin of what testers sign, its venue, no TEST listings on svc-trade's board, and svc-ops' labelled TEST
+ * valuation price list. A passkey or wallet message signed on https://beta.intafaced.com names that origin, which the
+ * front cannot rewrite; with only the stack's localhost origins every sign-in passkey, every TEST wallet approval and
+ * Connect to the venue (protocol.wallet_session_origin_unlisted) failed there. The journeys' TEST markets
  * (an untraded book, a shut session, a delisting, a new listing no one quotes) are fixtures for a step, not markets a
  * tester can use; the beta showed TWIN/USDC's empty coin page from its markets list (#10599). The rows stay in the
  * database; the beta's markets are the quoted ones. Without `LOCAL_STACK_VALUATION_PRICES=test`, svc-ops leaves
@@ -118,6 +121,7 @@ const BETA_USER_VENUE = 'hl-testnet';
  * labelled TEST price list (`test: true`, refused outside dev/test) so Home and Money total the partner balance.
  */
 const BETA_STACK_SETTINGS = Object.freeze({
+  LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
   LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
