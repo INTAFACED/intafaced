@@ -14,12 +14,12 @@ import {
   PanelHead,
   SectionTitle,
   Stat,
-  Surface,
   TileRow,
   TrustStrip,
   type MarketRow as KitMarketRow,
 } from '@intafaced/ui/lit';
-import { AreaChart, Segmented, TestTag } from '@intafaced/ui/lit/templates';
+import { AreaChart, TabPanel, Tabs, TestTag } from '@intafaced/ui/lit/templates';
+import { INSTRUMENTS } from '@intafaced/contracts/instruments';
 import { useDataEnv, useSource, useSparklines } from '../../data/hooks';
 import { useMarketCatalogue, type MarketCatalogue } from '../../data';
 import { compareDecimal, dec, str, sumOf, type Scaled } from '../../data/decimal';
@@ -41,6 +41,23 @@ export interface Line {
 const USD_QUOTES = new Set(['USD', 'USDT', 'USDC']);
 const BOARD_ROWS = 6;
 const MOVERS = 5;
+
+/** A coin's name from our launch catalogue (BTC: Bitcoin); a coin it doesn't list has none, never a guessed one. */
+const NAMES: Readonly<Record<string, string>> = Object.fromEntries(INSTRUMENTS.map((i) => [i.base, i.displayName]));
+export const coinName = (base: string): string | undefined => NAMES[base];
+
+/**
+ * The bases the board lists more than once (BTC/USDT and BTC/USDC, or BTC spot and its perpetual). Only those rows keep
+ * their quote or their Perp mark, so two markets of one coin never read as one; every other row shows the bare symbol.
+ */
+export function sharedBases(lines: readonly Line[]): Set<string> {
+  const seen = new Set<string>();
+  const shared = new Set<string>();
+  for (const l of lines) (seen.has(l.market.base) ? shared : seen).add(l.market.base);
+  return shared;
+}
+const tagOf = (line: Line, shared: Set<string>, t: T): string | undefined =>
+  shared.has(line.market.base) ? (line.perp ? t('perpTag') : `/${line.market.quote}`) : undefined;
 
 const pairPath = (market: MarketRow) => `/trade/spot/${encodeURIComponent(`${market.base}-${market.quote}`)}`;
 const lineHref = (line: Line) => (line.perp ? `/trade/futures/${encodeURIComponent(line.market.symbol)}` : pairPath(line.market));
@@ -171,10 +188,11 @@ export function HomePage() {
   );
 }
 
-const rowOf = (line: Line, trend: Record<string, Decimal[]>): KitMarketRow => ({
+const rowOf = (line: Line, trend: Record<string, Decimal[]>, shared: Set<string>, t: T): KitMarketRow => ({
   id: line.market.symbol,
   symbol: line.market.base,
-  name: `/${line.market.quote}`,
+  // A coin listed twice shows which market (its quote or Perp); every other coin shows its name.
+  name: tagOf(line, shared, t) ?? coinName(line.market.base),
   price: line.ticker?.last ? priceOf(line) : null,
   change: line.ticker?.changePct24h != null ? fmtPct(line.ticker.changePct24h) : null,
   trend: trend[line.market.symbol] ?? [],
@@ -206,53 +224,50 @@ function MarketBoard({
   const hasMoves = lines.some((l) => l.ticker?.changePct24h != null);
   const sparks = useSparklines(rows.map((r) => r.market.symbol));
   const trend = sparks.status === 'ready' ? sparks.data : {};
+  const shared = useMemo(() => sharedBases(lines), [lines]);
+  const tabs = [
+    { value: 'popular', label: t('tabPopular') },
+    // The venue's tickers carry no 24h move; with none, there is nothing to rank.
+    ...(hasMoves
+      ? [
+          { value: 'gainers', label: t('tabGainers') },
+          { value: 'losers', label: t('tabLosers') },
+        ]
+      : []),
+    ...(lines.some((l) => l.perp) ? [{ value: 'perps', label: t('tabPerps') }] : []),
+  ];
   return (
-    <Surface className="ld-board" aria-label={t('boardLabel')}>
-      <PanelHead
-        title={
-          <Segmented
-            label={t('boardLabel')}
-            value={tab}
-            onChange={(value) => setTab(value as Tab)}
-            options={[
-              { value: 'popular', label: t('tabPopular') },
-              // The venue's tickers carry no 24h move; with none, there is nothing to rank.
-              ...(hasMoves
-                ? [
-                    { value: 'gainers', label: t('tabGainers') },
-                    { value: 'losers', label: t('tabLosers') },
-                  ]
-                : []),
-              ...(lines.some((l) => l.perp) ? [{ value: 'perps', label: t('tabPerps') }] : []),
-            ]}
-          />
-        }
-        aside={<LiveDot>{t('boardLive')}</LiveDot>}
-      />
+    <section className="ld-board" aria-label={t('boardLabel')}>
+      <div className="ld-board-head">
+        <Tabs id="ld-board" soft label={t('boardLabel')} items={tabs} value={tab} onChange={(value) => setTab(value as Tab)} />
+        <LiveDot>{t('boardLive')}</LiveDot>
+      </div>
       {featured ? <Featured line={featured} t={t} /> : null}
-      {state.status === 'error' ? (
-        <p className="ld-board-note">{t('boardFailed')}</p>
-      ) : (
-        <MarketTable
-          labels={{
-            caption: t('boardLabel'),
-            market: t('colMarket'),
-            price: t('colPrice'),
-            change: t('colChange'),
-            trend: t('colTrend'),
-            volume: t('colVolume'),
-            trendLabel: (row) => t('trendOf', { symbol: row.symbol }),
-          }}
-          rows={rows.map((line) => rowOf(line, trend))}
-          loadingRows={state.status === 'loading' ? BOARD_ROWS : undefined}
-          empty={<p className="ld-board-note">{t('boardEmpty')}</p>}
-        />
-      )}
+      <TabPanel id="ld-board" value={tab} current={tab}>
+        {state.status === 'error' ? (
+          <p className="ld-board-note">{t('boardFailed')}</p>
+        ) : (
+          <MarketTable
+            labels={{
+              caption: t('boardLabel'),
+              market: t('colMarket'),
+              price: t('colPrice'),
+              change: t('colChange'),
+              trend: t('colTrend'),
+              volume: t('colVolume'),
+              trendLabel: (row) => t('trendOf', { symbol: row.symbol }),
+            }}
+            rows={rows.map((line) => rowOf(line, trend, shared, t))}
+            loadingRows={state.status === 'loading' ? BOARD_ROWS : undefined}
+            empty={<p className="ld-board-note">{t('boardEmpty')}</p>}
+          />
+        )}
+      </TabPanel>
       <footer className="ld-board-foot">
         <span>{t('boardFootNote')}</span>
         <a href="/trade/markets">{t('boardAll', { count: String(lines.length) })} →</a>
       </footer>
-    </Surface>
+    </section>
   );
 }
 
@@ -275,7 +290,7 @@ function Featured({ line, t }: { line: Line; t: T }) {
   return (
     <FeaturedMarket
       symbol={line.market.base}
-      name={`/${line.market.quote}`}
+      name={coinName(line.market.base) ?? `/${line.market.quote}`}
       price={line.ticker?.last ? priceOf(line) : null}
       change={line.ticker?.changePct24h != null ? fmtPct(line.ticker.changePct24h) : null}
       points={points}
@@ -299,6 +314,7 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
     [lines],
   );
   const sparks = useSparklines(movers.map((m) => m.market.symbol));
+  const shared = useMemo(() => sharedBases(lines), [lines]);
   if (movers.length === 0) return null;
   return (
     <section className="ld-moving" aria-labelledby="ld-moving-title">
@@ -307,7 +323,8 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
         {movers.map((line) => (
           <MoverTile
             key={line.market.symbol}
-            symbol={`${line.market.base}/${line.market.quote}`}
+            symbol={line.market.base}
+            quote={shared.has(line.market.base) ? (line.perp ? undefined : line.market.quote) : undefined}
             price={line.ticker?.last ? priceOf(line) : null}
             change={fmtPct(line.ticker?.changePct24h)}
             trend={sparks.status === 'ready' ? (sparks.data[line.market.symbol] ?? []) : []}

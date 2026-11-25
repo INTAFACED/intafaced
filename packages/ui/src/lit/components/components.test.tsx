@@ -620,6 +620,10 @@ describe('b2 parts carry what the spot desk needs, so it uses them and no second
       <B2.Tabs id="bt" items={[{ label: 'Order book', value: 'book' }]} value="book" onChange={() => undefined} className="lt-grow" />,
     );
     expect(tabs).toContain('<div class="lt-tabs lt-grow" role="tablist">');
+    // Soft tabs (a board's own) add their class beside the row's; the tabs inside are the same tabs.
+    const soft = html(<B2.Tabs id="sb" soft items={[{ label: 'Popular', value: 'popular' }]} value="popular" onChange={() => undefined} />);
+    expect(soft).toContain('<div class="lt-tabs lt-tabs-soft" role="tablist">');
+    expect(soft).toContain('aria-selected="true"');
     const panel = html(
       <B2.TabPanel id="bt" value="book" current="book" className="lt-stack" testId="dk-bottom-body">
         <p>Rows</p>

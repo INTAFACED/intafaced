@@ -71,20 +71,16 @@
 </div>
 </div>
 <div class="lt-page-col">
-<div aria-label="Markets" class="lit-surface ld-board" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
-<div class="lt-panel-head" data-part="panel-head">
-<h2 class="lt-panel-title">
-<div class="lt-segmented" role="radiogroup" aria-label="Markets">
-<button type="button" role="radio" aria-checked="true" class="lt-segment">Popular</button>
-<button type="button" role="radio" aria-checked="false" class="lt-segment">Gainers</button>
-<button type="button" role="radio" aria-checked="false" class="lt-segment">Losers</button>
+<section class="ld-board" aria-label="Markets">
+<div class="ld-board-head">
+<div class="lt-tabs lt-tabs-soft" role="tablist" aria-label="Markets">
+<button type="button" role="tab" id="ld-board-tab-popular" aria-controls="ld-board-panel-popular" aria-selected="true" tabindex="0" class="lt-tab">Popular</button>
+<button type="button" role="tab" id="ld-board-tab-gainers" aria-controls="ld-board-panel-gainers" aria-selected="false" tabindex="-1" class="lt-tab">Gainers</button>
+<button type="button" role="tab" id="ld-board-tab-losers" aria-controls="ld-board-panel-losers" aria-selected="false" tabindex="-1" class="lt-tab">Losers</button>
 </div>
-</h2>
-<div class="lt-panel-aside">
 <span class="lt-live-mark">
 <span class="lt-live-mark-dot" aria-hidden="true">
 </span>Live, TEST prices</span>
-</div>
 </div>
 <a class="lt-featured" href="/trade/spot/BTC-USDT">
 <span class="lt-featured-figure">
@@ -100,14 +96,14 @@
 </span>
 </span>
 <span class="lt-market-symbol">BTC</span>
-<span class="lt-market-full">/USDT</span>
+<span class="lt-market-full">Bitcoin</span>
 </span>
 <span data-slot="price" class="lt-num lt-featured-price" dir="ltr" data-ltr="">$67,812<span class="lt-cents">.40</span>
 </span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+2.75%</span>
 </span>
 <span class="lt-featured-chart">
-<figure class="lt-chart" data-tone="up" data-fit="true" dir="ltr">
+<figure class="lt-chart" data-tone="ink" data-fit="true" dir="ltr">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="BTC, last 24 hours">
 <defs>
 <linearGradient id="lt-chart-soft-_r_5_" x1="0" y1="0" x2="0" y2="1">
@@ -228,6 +224,7 @@
 </figure>
 </span>
 </a>
+<div class="lt-tab-panel" role="tabpanel" id="ld-board-panel-popular" aria-labelledby="ld-board-tab-popular">
 <div class="lt-market-table">
 <table class="lt-table" data-mode="simple">
 <caption class="lt-sr">Markets</caption>
@@ -312,7 +309,7 @@
 </span>
 </span>
 <span class="lt-market-symbol">ETH</span>
-<span class="lt-market-full">/USDT</span>
+<span class="lt-market-full">Ether</span>
 </span>
 </bdi>
 </a>
@@ -345,7 +342,7 @@
 <span class="lt-market-name">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="IFC" data-size="md" data-fallback="lettered">I</span>
 <span class="lt-market-symbol">IFC</span>
-<span class="lt-market-full">/USDT</span>
+<span class="lt-market-full">INTAFACED Coin</span>
 </span>
 </bdi>
 </a>
@@ -378,7 +375,6 @@
 <span class="lt-market-name">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="SOL" data-size="md" data-fallback="lettered">S</span>
 <span class="lt-market-symbol">SOL</span>
-<span class="lt-market-full">/USDT</span>
 </span>
 </bdi>
 </a>
@@ -411,7 +407,6 @@
 <span class="lt-market-name">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="XRP" data-size="md" data-fallback="lettered">X</span>
 <span class="lt-market-symbol">XRP</span>
-<span class="lt-market-full">/USDT</span>
 </span>
 </bdi>
 </a>
@@ -444,7 +439,6 @@
 <span class="lt-market-name">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="DOGE" data-size="md" data-fallback="lettered">D</span>
 <span class="lt-market-symbol">DOGE</span>
-<span class="lt-market-full">/USDT</span>
 </span>
 </bdi>
 </a>
@@ -473,11 +467,12 @@
 </tbody>
 </table>
 </div>
+</div>
 <footer class="ld-board-foot">
 <span>Prices refresh every 10 seconds.</span>
 <a href="/trade/markets">All 7 markets →</a>
 </footer>
-</div>
+</section>
 </div>
 <div class="lt-page-col" data-span="all">
 <section class="ld-moving" aria-labelledby="ld-moving-title">
@@ -492,8 +487,11 @@
 <div class="lt-tile-row" data-min="card">
 <a class="lt-mover" href="/trade/spot/DOGE-USDT">
 <span class="lt-mover-top">
+<span class="lt-mover-name">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="DOGE" data-size="md" data-fallback="lettered">D</span>
 <span>
-<span class="lt-market-symbol">DOGE/USDT</span>
+<span class="lt-market-symbol">DOGE</span>
+</span>
 </span>
 <span data-slot="pct" data-direction="down" class="lt-num lt-signed" dir="ltr" data-ltr="">−4.94%</span>
 </span>
@@ -507,8 +505,21 @@
 </a>
 <a class="lt-mover" href="/trade/spot/BTC-USDT">
 <span class="lt-mover-top">
+<span class="lt-mover-name">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="md">
+<span class="lit-asset__art">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M24 0H0V24H24V0Z" fill="#F7931A">
+</path>
+<path d="M18.0114 10.4321C18.2596 8.7478 16.9846 7.84972 15.2284 7.23992L15.7972 4.97038L14.4103 4.62522L13.857 6.83884L12.7501 6.57419L13.3113 4.34467L11.9239 4L11.3546 6.27773L10.4724 6.069V6.06128L8.55582 5.5797L8.18656 7.06348C8.18656 7.06348 9.21334 7.3045 9.19696 7.31222C9.75855 7.45684 9.85497 7.82562 9.83905 8.11437L9.19696 10.7127L9.34158 10.7609L9.18924 10.7286L8.28296 14.3618C8.21885 14.5306 8.04194 14.787 7.64954 14.6824C7.66545 14.7066 6.64686 14.4419 6.64686 14.4419L5.95752 16.022L7.76186 16.4708L8.74816 16.7278L8.17065 19.0296L9.55802 19.3742L10.1196 17.0966L11.2341 17.3853L10.6653 19.6549L12.0522 20L12.6215 17.6982C14.9874 18.147 16.7682 17.9711 17.5143 15.8292C18.1155 14.1054 17.4821 13.1186 16.2388 12.4611C17.1451 12.2606 17.8267 11.6589 18.0032 10.4316L18.0114 10.4321ZM14.8433 14.8753C14.4181 16.5996 11.5151 15.661 10.577 15.4363L11.3387 12.381C12.2768 12.6216 15.2925 13.0786 14.8433 14.867V14.8753ZM15.2684 10.408C14.8833 11.9718 12.4614 11.1778 11.6834 10.9855L12.3727 8.21849C13.159 8.41131 15.6772 8.78009 15.2684 10.408Z" fill="white">
+</path>
+</svg>
+</span>
+</span>
 <span>
-<span class="lt-market-symbol">BTC/USDT</span>
+<span class="lt-market-symbol">BTC</span>
+<span class="lt-market-full">/USDT</span>
+</span>
 </span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+2.75%</span>
 </span>
@@ -523,8 +534,11 @@
 </a>
 <a class="lt-mover" href="/trade/spot/XRP-USDT">
 <span class="lt-mover-top">
+<span class="lt-mover-name">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="XRP" data-size="md" data-fallback="lettered">X</span>
 <span>
-<span class="lt-market-symbol">XRP/USDT</span>
+<span class="lt-market-symbol">XRP</span>
+</span>
 </span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+2.15%</span>
 </span>
@@ -538,8 +552,11 @@
 </a>
 <a class="lt-mover" href="/trade/spot/IFC-USDT">
 <span class="lt-mover-top">
+<span class="lt-mover-name">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="IFC" data-size="md" data-fallback="lettered">I</span>
 <span>
-<span class="lt-market-symbol">IFC/USDT</span>
+<span class="lt-market-symbol">IFC</span>
+</span>
 </span>
 <span data-slot="pct" data-direction="down" class="lt-num lt-signed" dir="ltr" data-ltr="">−2.14%</span>
 </span>
@@ -553,8 +570,11 @@
 </a>
 <a class="lt-mover" href="/trade/spot/SOL-USDT">
 <span class="lt-mover-top">
+<span class="lt-mover-name">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="SOL" data-size="md" data-fallback="lettered">S</span>
 <span>
-<span class="lt-market-symbol">SOL/USDT</span>
+<span class="lt-market-symbol">SOL</span>
+</span>
 </span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+1.75%</span>
 </span>

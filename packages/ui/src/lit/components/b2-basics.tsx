@@ -226,6 +226,8 @@ export type TabsProps =
       /** Prefix for the tab and panel ids, shared with each `TabPanel`. */
       id: string;
       className?: string;
+      /** Small soft pills with no rim, only the shown one filled (a board's own tabs, as the family landing draws them). */
+      soft?: boolean;
     };
 
 export function Tabs(props: TabsProps) {
@@ -244,7 +246,7 @@ export function Tabs(props: TabsProps) {
       </nav>
     );
   }
-  const { items, value, onChange, label, id, className } = props;
+  const { items, value, onChange, label, id, className, soft } = props;
   const at = Math.max(
     0,
     items.findIndex((t) => t.value === value),
@@ -259,7 +261,7 @@ export function Tabs(props: TabsProps) {
     refs.current[next]?.focus();
   };
   return (
-    <div className={className ? `lt-tabs ${className}` : 'lt-tabs'} role="tablist" aria-label={label}>
+    <div className={['lt-tabs', soft ? 'lt-tabs-soft' : '', className ?? ''].filter(Boolean).join(' ')} role="tablist" aria-label={label}>
       {items.map((t, i) => (
         <button
           key={t.value}

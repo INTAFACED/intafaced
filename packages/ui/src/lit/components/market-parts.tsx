@@ -149,14 +149,17 @@ export interface MoverTileProps {
   className?: string;
 }
 
-/** One market as a tile: symbol and change on top, the price large, its line under it. A link when `href` is given. */
+/** One market as a tile: its mark, symbol and change on top, the price large, its line under it. A link when `href` is given. */
 export function MoverTile({ symbol, quote, price, change, trend, trendLabel, href, className }: MoverTileProps) {
   const body = (
     <>
       <span className="lt-mover-top">
-        <span>
-          <span className="lt-market-symbol">{symbol}</span>
-          {quote ? <span className="lt-market-full">/{quote}</span> : null}
+        <span className="lt-mover-name">
+          <AssetIcon asset={symbol} />
+          <span>
+            <span className="lt-market-symbol">{symbol}</span>
+            {quote ? <span className="lt-market-full">/{quote}</span> : null}
+          </span>
         </span>
         <Pct value={change} />
       </span>

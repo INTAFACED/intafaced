@@ -1850,10 +1850,16 @@ button.lt-menu-item:focus-visible {
 a.lt-mover:hover {
   background: var(--lit-sheen), var(--lit-solid-bg-raised);
 }
+.lt-mover-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
 .lt-mover-top {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
   font-size: var(--lit-type-label-size);
 }
