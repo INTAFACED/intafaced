@@ -180,6 +180,15 @@ describe('announcing it (EIP-6963)', () => {
     again();
   });
 
+  it('hands the client the person’s wallet, which the owner’s provider needs to sign for it', () => {
+    const given: unknown[] = [];
+    announcedWallet(PROVIDER, { ...WALLET, providerWalletId: 'testw_given' }, 'INTAFACED wallet', (_provider, wallet) => {
+      given.push(wallet);
+      return client();
+    });
+    expect(given).toEqual([{ address: WALLET.address, providerWalletId: 'testw_given' }]);
+  });
+
   it('keeps one provider per wallet, so its chain and connection carry across rooms; no client, no announcement', () => {
     const first = announcedWallet(PROVIDER, { ...WALLET, providerWalletId: 'testw_keep' }, 'INTAFACED wallet (TEST)', () => client());
     const second = announcedWallet(PROVIDER, { ...WALLET, providerWalletId: 'testw_keep' }, 'INTAFACED wallet (TEST)', () => client());
