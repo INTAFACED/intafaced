@@ -107,6 +107,12 @@ describe('MarketHeader', () => {
     expect(html).toContain('data-unknown="true"');
     expect(html).not.toContain('lt-stat-strip');
   });
+
+  it('leaves out a 24h change the venue does not publish, so no dash sits beside the price', () => {
+    const html = renderToStaticMarkup(<MarketHeader label="Market" asset="PURR" symbol="PURR/USDC" price="4.5342" change={null} />);
+    expect(html).not.toContain('data-slot="pct"');
+    expect(html).toContain('4.5342');
+  });
 });
 
 describe('MoverTile quote', () => {

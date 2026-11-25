@@ -1716,6 +1716,10 @@ button.lt-menu-item:focus-visible {
     zoom: 1.2;
   }
 }
+/* A board of tiles (the desks, the markets board) keeps the owner's desk frame: a 1.5rem edge, the tiles 1rem apart. */
+.lt-page[data-panels='tiles'] {
+  padding-inline: clamp(1rem, 1.6667vw, 1.5rem);
+}
 .lt-page-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
