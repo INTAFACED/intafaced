@@ -1062,6 +1062,11 @@ test('customerImporters on this repository: who loads a style sheet, the buildâ€
       rmSync(dir, { recursive: true, force: true });
     }
   }
+  assert.deepEqual(
+    importers[`${SRC}/app/menus.ts`],
+    [`${SRC}/app/TopBar.tsx`],
+    'the top bar imports it; its unit tests (menus, feature-registry, beta-volt) load nothing',
+  );
   for (const f of computed) assert.match(f, /^apps\/customer\/src\//);
   assert.equal(importers[`${SRC}/features/pay/portal/w3c2.pw.mjs`], undefined, 'a Playwright file in the source is a test');
   for (const [f, v] of Object.entries(importers)) {
