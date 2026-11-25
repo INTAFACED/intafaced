@@ -51,7 +51,6 @@ import {
   OTHER_ORDER_TYPES,
   pendingOrders,
   slippageLimit,
-  spotOrdersOf,
   type DepositRoute,
   type DeskTif,
   type PendingOrder,
@@ -504,7 +503,7 @@ export function VenueSpotDesk({
       <VenueStatement status={status} owner={owner} />
       <TabPanel id="venue-bottom" value="open" current={tab}>
         <OrdersTable
-          orders={spotOrdersOf(account.openOrders.data, markets)}
+          orders={account.openOrders.data}
           test={status.test}
           onCancel={(o) => void cancel(o)}
           cancelled={cancelled}

@@ -390,16 +390,3 @@ export function pendingOrders(owner: string) {
     },
   };
 }
-
-/**
- * The spot desk's own orders: the venue lists every order on the account, perpetuals included, and a perpetual's order
- * belongs on the futures desk. An order whose market is not listed stays, so nothing open is ever hidden by a stale list.
- */
-export function spotOrdersOf<T extends { readonly value: readonly { readonly symbol: string }[] }>(
-  orders: T | null,
-  markets: readonly Pick<VenueMarket, 'symbol' | 'kind'>[],
-): T | null {
-  if (!orders) return null;
-  const perps = new Set(markets.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
-  return { ...orders, value: orders.value.filter((o) => !perps.has(o.symbol)) };
-}

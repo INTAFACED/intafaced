@@ -214,16 +214,13 @@
    screen and is one click away (the pair picker) below that. */
 @container room (min-width: 1024px) {
   .xd .lt-desk[data-desk='pro']:not([data-arranged]):has(> [data-region='book']) {
-    grid-template-columns: minmax(0, 1fr) 18rem 22.5rem;
+    grid-template-columns: 15rem minmax(0, 1fr) 18rem 22.5rem;
     grid-template-rows: auto auto auto 1fr;
     grid-template-areas:
-      'instrument instrument ticket'
-      'chart book ticket'
-      'chart tape ticket'
-      'orders orders ticket';
-  }
-  .xd .lt-desk[data-desk='pro']:not([data-arranged]):has(> [data-region='book']) > [data-region='pairs'] {
-    display: none;
+      'pairs instrument instrument ticket'
+      'pairs chart book ticket'
+      'pairs chart tape ticket'
+      'pairs orders orders ticket';
   }
 }
 @container room (min-width: 2000px) {
@@ -234,9 +231,6 @@
       'pairs instrument instrument instrument ticket'
       'pairs chart book tape ticket'
       'pairs orders orders orders ticket';
-  }
-  .xd .lt-desk[data-desk='pro']:not([data-arranged]):has(> [data-region='book']) > [data-region='pairs'] {
-    display: block;
   }
 }
 
