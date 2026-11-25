@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Loading } from '../shared/ui';
+import { RoomLoading } from './RoomLoading';
 import { appCopy } from './app-copy';
 
 const TradeRoutes = lazy(() => import('../features/trade/TradeRoutes').then((module) => ({ default: module.TradeRoutes })));
@@ -32,15 +32,7 @@ export function LegacyRoom({ area, path }: { area: LegacyArea; path: string }) {
     );
   return (
     <div className={area === 'pay' ? 'if-business' : 'legacy-room'}>
-      <Suspense
-        fallback={
-          <div data-testid="page" className="page">
-            <Loading room label={t('Opening room')} />
-          </div>
-        }
-      >
-        {view}
-      </Suspense>
+      <Suspense fallback={<RoomLoading label={t('Opening room')} />}>{view}</Suspense>
     </div>
   );
 }

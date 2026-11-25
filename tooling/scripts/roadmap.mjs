@@ -49,6 +49,9 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+/** The most bytes `--progress` reads of main's 120-day log: well past its size (about 1 MB on 25 Nov 2026). */
+export const PROGRESS_LOG_MAX_BYTES = 64 * 1024 * 1024;
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const INDEX = join(ROOT, 'docs', 'roadmap', 'slices.json');
 const OVERRIDES = join(ROOT, 'docs', 'roadmap', 'lane-overrides.json');
@@ -876,6 +879,9 @@ async function main(argv) {
     const log = execFileSync('git', ['log', ref || 'origin/main', '--since=120 days ago', '--format=%cI%x09%s'], {
       cwd: ROOT,
       encoding: 'utf8',
+      // 120 days of subjects passed node's 1 MiB default on 25 Nov 2026 (1,048,747 bytes): ENOBUFS failed the journeys
+      // run's Scoreboard step on every run that reached it.
+      maxBuffer: PROGRESS_LOG_MAX_BYTES,
     });
     const commits = log
       .split('\n')
