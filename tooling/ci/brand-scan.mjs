@@ -233,6 +233,11 @@ const ALLOWLIST = [
     reason:
       'root third-party attribution record; an attribution that omits the upstream it attributes is a false legal statement, so this file must name upstreams verbatim. It has no file extension and so currently falls outside EXTENSIONS below — this entry is deliberate belt-and-braces, so that widening EXTENSIONS later cannot silently fail CI on the one file whose whole job is naming upstreams accurately.',
   },
+  {
+    path: join('packages', 'venue-hyperliquid', 'recordings'),
+    reason:
+      "Hyperliquid's own answers, recorded byte for byte from its test network (.github/workflows/hl-venue-daily.yml) and replayed only to the adapter on test stacks. Anyone may list a token on that network under any name (one is called OPENAI), and a replay that renamed it would no longer be the venue's answer. Not copy we write or ship; the adapter and the rooms that show its markets stay under the scan.",
+  },
   { path: 'CLAUDE.md', reason: 'internal agent instructions' },
   { path: '.claude', reason: 'internal tooling config' },
   // Stream A agent law / handoffs — name planner vs implementer roles and on-disk
@@ -289,6 +294,9 @@ function selfTest() {
   assert(isInternalPastePath('docs/START-HERE.md') === false, 'ordinary docs not paste');
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
   assert(isAllowlisted('docs/START-HERE.md') === false, 'ordinary doc not archive');
+  assert(isAllowlisted(join('packages', 'venue-hyperliquid', 'recordings', 'x.json')), "the venue's recorded answers");
+  for (const f of [join('packages', 'venue-hyperliquid', 'src', 'core.ts'), join('packages', 'venue-hyperliquid', 'recordings.ts')])
+    assert(isAllowlisted(f) === false, `only the recordings folder: ${f}`);
 
   // The model name stays forbidden; the required file and directory names do not trip it.
   {

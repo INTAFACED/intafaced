@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PageColumn, PageGrid, PanelHead, TileRow } from '../index.js';
@@ -40,5 +43,11 @@ describe('PageGrid panels', () => {
     const html = renderToStaticMarkup(<PageGrid panels="tiles">x</PageGrid>);
     expect(html).toContain('<div class="lt-page" data-scale="auto" data-panels="tiles">');
     expect(renderToStaticMarkup(<PageGrid>x</PageGrid>)).not.toContain('data-panels');
+  });
+
+  it("keeps the owner's desk frame on a board of tiles: a 1.5rem edge at most, narrower than the Simple page's", () => {
+    const css = readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), 'components.css'), 'utf8');
+    const tiles = /\.lt-page\[data-panels='tiles'\] \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(tiles).toContain('padding-inline: clamp(1rem, 1.6667vw, 1.5rem);');
   });
 });

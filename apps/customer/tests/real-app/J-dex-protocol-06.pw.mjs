@@ -387,7 +387,9 @@ test(`${J} #6 looks at the tracker request while signed in: no cookie, no author
   // No analytics script: every script the room loaded is the app's own.
   const origin = new URL(page.url()).origin;
   expect(scripts.filter((src) => new URL(src).origin !== origin)).toEqual([]);
-  expect(scripts.filter((src) => /analytic|gtag|segment|mixpanel|posthog|amplitude|hotjar/i.test(src))).toEqual([]);
+  // Judged on each script's name, without the build's content hash: a hash like `DWtgTaGe` is no analytics script.
+  const named = (src) => new URL(src).pathname.replace(/-[A-Za-z0-9_-]{8}(?=\.[cm]?js$)/, '');
+  expect(scripts.filter((src) => /analytic|gtag|segment|mixpanel|posthog|amplitude|hotjar/i.test(named(src)))).toEqual([]);
   // The address is on the watchlist, and nothing exports it.
   await expect(page.getByRole('list', { name: 'Watchlist' })).toContainText(new RegExp(tracked.slice(2, 10), 'i'));
   await expect(page.getByRole('main').getByRole('button', { name: /export|download/i })).toHaveCount(0);

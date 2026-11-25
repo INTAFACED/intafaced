@@ -34,7 +34,9 @@ describe('Volt is the default and only look, dark, with no flag', () => {
     const dark = block(":root:where([data-look='lit'])");
     expect(dark['--lit-page']).toBe('#000000');
     expect(dark['--lit-text-1']).toBe('#f3f2ec');
-    expect(dark['--lit-accent']).toBe('#e0f83a');
+    // The chartreuse spark is the one main action's (primary-bg); links, steps and chart lines take the bone accent.
+    expect(dark['--lit-primary-bg']).toBe('#e0f83a');
+    expect(dark['--lit-accent']).toBe('#f3f2ec');
     expect(dark['--lit-font-ui']).toMatch(/^'manrope variable'/);
     expect(lit.page).toBe('#000000');
   });

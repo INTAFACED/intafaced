@@ -143,11 +143,11 @@
   --lit-text-disabled: #86857f;
   --lit-line: rgba(243, 242, 236, 0.07);
   --lit-line-strong: rgba(243, 242, 236, 0.13);
-  --lit-accent: #e0f83a;
-  --lit-accent-hot: #f2ffb0;
-  --lit-accent-deep: #2f3a05;
+  --lit-accent: #f3f2ec;
+  --lit-accent-hot: #ffffff;
+  --lit-accent-deep: #1c1c1a;
   --lit-accent-pair: #f3f2ec;
-  --lit-accent-text: #e0f83a;
+  --lit-accent-text: #f3f2ec;
   --lit-accent-fill: #e0f83a;
   --lit-accent-fill-2: #cde82a;
   --lit-on-accent: #0a0a09;
@@ -159,8 +159,8 @@
   --lit-solid-bg-raised: #1a1a1a;
   --lit-solid-bg-sunken: #0a0a0a;
   --lit-solid-lip: none;
-  --lit-solid-rim: rgba(255, 255, 255, 0);
-  --lit-solid-rim-dim: rgba(255, 255, 255, 0);
+  --lit-solid-rim: rgba(243, 242, 236, 0.1);
+  --lit-solid-rim-dim: rgba(243, 242, 236, 0.1);
   --lit-solid-wall: #050505;
   --lit-solid-shadow: none;
   --lit-sheen: linear-gradient(transparent, transparent);
@@ -317,9 +317,9 @@
   --lit-status-unknown: #44433e;
   --lit-status-stale: #734000;
   --lit-field: radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.7), transparent 62%);
-  --lit-accent: #e0f83a;
-  --lit-accent-hot: #f2ffb0;
-  --lit-accent-deep: #2f3a05;
+  --lit-accent: #f3f2ec;
+  --lit-accent-hot: #ffffff;
+  --lit-accent-deep: #1c1c1a;
   --lit-accent-pair: #f3f2ec;
   --lit-accent-fill: #e0f83a;
   --lit-accent-fill-2: #cde82a;
@@ -379,6 +379,8 @@
   --lit-solid-bg-raised: #151616;
   --lit-radius-panel: 6px;
   --lit-radius-tile: 6px;
+  --lit-solid-rim: rgba(255, 255, 255, 0);
+  --lit-solid-rim-dim: rgba(255, 255, 255, 0);
   --lit-gap-section: 16px;
   --lit-gap-item: 8px;
   --lit-pad-panel: 14px;
@@ -392,6 +394,8 @@
   --lit-solid-bg-raised: #151616;
   --lit-radius-panel: 6px;
   --lit-radius-tile: 6px;
+  --lit-solid-rim: rgba(255, 255, 255, 0);
+  --lit-solid-rim-dim: rgba(255, 255, 255, 0);
 }
 
 /* Today's names in the look's roles (todayInLookRoles). */

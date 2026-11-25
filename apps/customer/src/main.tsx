@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SessionProvider } from './features/session/session';
+import { EmbeddedWalletAnnouncer } from './features/protocol';
 import './shared/styles.css';
 import './app/redesign.css';
 import './app/shell.css';
@@ -17,6 +18,8 @@ createRoot(element).render(
   <StrictMode>
     <LitLookRoot />
     <SessionProvider>
+      {/* The person's own embedded wallet, offered to every room that looks for a browser wallet (J-wallet-22). */}
+      <EmbeddedWalletAnnouncer />
       <App />
     </SessionProvider>
   </StrictMode>,
