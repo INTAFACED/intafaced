@@ -162,7 +162,8 @@ function TileFace({
         <p className="lt-hint">{reading ? t('Tile reading') : t(NOT_KNOWN[id])}</p>
       ) : (
         <>
-          {tile.valueUsd === null ? (
+          {/* A tile that holds nothing draws no figure, only its sentence: a zero is never shown as a value (J-wallet-01 #4). */}
+          {!tile.any ? null : tile.valueUsd === null ? (
             <p className="lt-hint">{t('Tile no price')}</p>
           ) : hidden ? (
             <Shown text={null} hidden />

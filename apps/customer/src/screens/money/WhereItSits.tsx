@@ -280,7 +280,8 @@ function totalLine(standing: Standing, t: T): string {
 function TodayChange({ view, hidden }: { view: MoneyView; hidden: boolean }) {
   const money = moneyCopy.useCopy();
   const { timeZone } = usePreferences();
-  if (view.change24hUsd === null) return null;
+  // A holding of cash and dollar coins only has no price moves, as on Portfolio: "$0.00 (0.00%) Today" would say nothing.
+  if (view.change24hUsd === null || !/[1-9]/.test(view.cryptoUsd ?? '')) return null;
   const label =
     view.windowStart !== null
       ? money.t('Since {time}', { time: clockTime(view.windowStart, timeZone) })
