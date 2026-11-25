@@ -138,6 +138,8 @@ function toneOf(change: string | null): 'up' | 'down' | 'neutral' {
 
 export interface MoverTileProps {
   symbol: string;
+  /** The quote side, drawn quieter after the symbol ("/USDT"), so two pairs of one coin never read as one market. */
+  quote?: string;
   price: string | null;
   change: string | null;
   trend?: readonly DecimalString[];
@@ -148,11 +150,14 @@ export interface MoverTileProps {
 }
 
 /** One market as a tile: symbol and change on top, the price large, its line under it. A link when `href` is given. */
-export function MoverTile({ symbol, price, change, trend, trendLabel, href, className }: MoverTileProps) {
+export function MoverTile({ symbol, quote, price, change, trend, trendLabel, href, className }: MoverTileProps) {
   const body = (
     <>
       <span className="lt-mover-top">
-        <span className="lt-market-symbol">{symbol}</span>
+        <span>
+          <span className="lt-market-symbol">{symbol}</span>
+          {quote ? <span className="lt-market-full">/{quote}</span> : null}
+        </span>
         <Pct value={change} />
       </span>
       <Price className="lt-mover-price" value={price} />
