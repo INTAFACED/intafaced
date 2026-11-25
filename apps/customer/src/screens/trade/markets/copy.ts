@@ -3,6 +3,14 @@ import { defineCopy } from '../../../shared/i18n';
 // English source only (UI-SPEC §4.4); other languages fall back to English.
 const messages = {
   Markets: 'Markets',
+  '{pair} today': '{pair} today',
+  'Show a market': 'Show a market',
+  'in 24h': 'in 24h',
+  'Price, last 24 hours': 'Price, last 24 hours',
+  '{pair}, last 24 hours': '{pair}, last 24 hours',
+  'No price history for {pair} yet.': 'No price history for {pair} yet.',
+  'What’s moving': 'What’s moving',
+  'Biggest 24h moves': 'Biggest 24h moves',
   Popular: 'Popular',
   'New listings': 'New listings',
   'Top gainers': 'Top gainers',

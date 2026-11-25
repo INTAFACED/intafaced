@@ -20,15 +20,14 @@ import { KitState } from '../kit-parts';
 import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
-import { TopCards, TopCardsSkeleton } from './TopCards';
+import { TopCardsSkeleton } from './TopCards';
+import { Board } from './Board';
+import './markets.css';
 import { TradeAccess } from './TradeAccess';
-import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, topCards, visibleEntries, type CardId, type Chip } from './select';
+import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, visibleEntries, type Chip } from './select';
 import {
   applyAddress,
   browserStorage,
-  clearView,
-  DEFAULT_VIEW,
-  isDefaultView,
   isSortColumn,
   queryFromAddress,
   readView,
@@ -122,9 +121,6 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     // `copy` changes only with the language.
     [pool, view.tab, chip, quote, query, favorites, copy.renderedLocale],
   );
-  // Cards are all prices and changes: without prices they would be rows of dashes, so they wait for them.
-  const cards = useMemo(() => (tickerMap ? topCards(openEntries) : []), [openEntries, tickerMap]);
-
   const signedIn = userId != null;
   const signIn = `/login?redirect=${encodeURIComponent(path + search)}`;
   const favorite = useCallback(
@@ -133,22 +129,6 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     [signedIn, isFavorite, toggle, signIn],
   );
 
-  const seeAll = (id: CardId) => {
-    // Looking at a card's full list is not a saved choice.
-    setView((current) => ({
-      ...current,
-      tab: 'spot',
-      chip: id === 'new' ? 'new' : id === 'gainers' ? 'gainers' : 'all',
-      quote: null,
-      sort: id === 'popular' ? { columnId: 'volume', direction: 'desc' } : null,
-    }));
-    setQuery('');
-    tableTop.current?.scrollIntoView({ block: 'start' });
-  };
-  const resetView = () => {
-    clearView(browserStorage(), storageKey);
-    setView({ ...DEFAULT_VIEW });
-  };
   const changeSort = (next: SortState | null) =>
     change({ sort: next && isSortColumn(next.columnId) ? { columnId: next.columnId, direction: next.direction } : null });
 
@@ -215,16 +195,12 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     );
   })();
 
-  const featured = marketsLoading ? (
-    <TopCardsSkeleton />
-  ) : cards.length > 0 ? (
-    <TopCards cards={cards} mode={layoutMode} onSeeAll={seeAll} />
-  ) : null;
+  const featured = marketsLoading ? <TopCardsSkeleton /> : <Board entries={openEntries} mode={layoutMode} />;
 
   return (
     <Frame meta={meta} featured={featured}>
       <div className="lt-stack" ref={tableTop}>
-        <div data-testid="mkt-tabs" className="lt-toolbar">
+        <div data-testid="mkt-tabs" className="mkt-toolbar">
           <TabList
             label={t('Markets')}
             items={[
@@ -234,62 +210,39 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
             value={view.tab}
             onChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : 'spot' })}
           />
-          <SearchField
-            id={searchId}
-            label={t('Search markets')}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('Search by coin or name')}
-            icon={<Search size={16} aria-hidden="true" />}
-            onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-          />
-        </div>
-
-        <div data-testid="mkt-chips" className="lt-toolbar">
-          <ToggleChips
-            label={t('Filter by change')}
-            options={CHIPS.filter((value) => value !== 'new' || showNew).map((value) => ({
-              value,
-              label: t(value === 'all' ? 'All' : value === 'gainers' ? 'Gainers' : value === 'losers' ? 'Losers' : 'New'),
-            }))}
-            value={chip}
-            onChange={(value) => change({ chip: CHIPS.find((item) => item === value) ?? 'all' })}
-          />
-          {quotes.length > 1 ? (
-            // Pressing the chosen currency again turns the filter off.
+          <div data-testid="mkt-chips" className="mkt-toolbar__chips">
             <ToggleChips
-              label={t('Filter by currency')}
-              options={quotes.map((value) => ({ value, label: value }))}
-              value={quote}
-              onChange={(value) => change({ quote: value })}
-              clearable
+              label={t('Filter by change')}
+              options={CHIPS.filter((value) => value !== 'new' || showNew).map((value) => ({
+                value,
+                label: t(value === 'all' ? 'All' : value === 'gainers' ? 'Gainers' : value === 'losers' ? 'Losers' : 'New'),
+              }))}
+              value={chip}
+              onChange={(value) => change({ chip: CHIPS.find((item) => item === value) ?? 'all' })}
             />
-          ) : null}
-          {!isDefaultView(view, layoutMode === 'pro' ? 'compact' : 'comfortable') ? (
-            <Button tone="quiet" onClick={resetView}>
-              {t('Reset view')}
-            </Button>
-          ) : null}
-          {hasPaused || view.status === 'all' ? (
-            <Segmented
-              label={t('Filter by status')}
-              options={[
-                { value: 'open', label: t('Open only') },
-                { value: 'all', label: t('Include paused') },
-              ]}
-              value={view.status}
-              onChange={(value) => change({ status: value === 'all' ? 'all' : 'open' })}
+            {hasPaused || view.status === 'all' ? (
+              <Segmented
+                label={t('Filter by status')}
+                options={[
+                  { value: 'open', label: t('Open only') },
+                  { value: 'all', label: t('Include paused') },
+                ]}
+                value={view.status}
+                onChange={(value) => change({ status: value === 'all' ? 'all' : 'open' })}
+              />
+            ) : null}
+          </div>
+          <div className="mkt-toolbar__search">
+            <SearchField
+              id={searchId}
+              label={t('Search markets')}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('Search by coin or name')}
+              icon={<Search size={16} aria-hidden="true" />}
+              onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
             />
-          ) : null}
-          <Segmented
-            label={t('Row size')}
-            options={[
-              { value: 'comfortable', label: t('Comfortable') },
-              { value: 'compact', label: t('Compact') },
-            ]}
-            value={density}
-            onChange={(value) => change({ density: value === 'compact' ? 'compact' : 'comfortable' })}
-          />
+          </div>
         </div>
 
         {tickers.status === 'error' ? (
@@ -337,16 +290,15 @@ function NotOffered() {
   const { t } = marketsCopy.useCopy();
   return (
     <section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" className="lt-stack">
-      <h2 id="mkt-not-offered" className="lt-empty-title">
+      <h2 id="mkt-not-offered" className="lt-sr">
         {t('Not offered here')}
       </h2>
-      <ul className="lt-rows">
+      <ul className="mkt-footnote">
         <li data-testid="mkt-not-offered-equity">
-          <strong>{t('Tokenized equities')}</strong> <span className="lt-hint">{t('Not available: licence not named')}</span>
+          <strong>{t('Tokenized equities')}</strong> {t('Not available: licence not named')}
         </li>
         <li data-testid="mkt-not-offered-rpi">
-          <strong>{t('Retail price improvement')}</strong>{' '}
-          <span className="lt-hint">{t('Not available: priority class not specified')}</span>
+          <strong>{t('Retail price improvement')}</strong> {t('Not available: priority class not specified')}
         </li>
       </ul>
     </section>

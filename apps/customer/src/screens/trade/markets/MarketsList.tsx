@@ -1,5 +1,5 @@
 import { createContext, useContext, useId, useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeftRight, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { AssetIcon, Button, GridTable, Tag, type GridColumn } from '@intafaced/ui/lit';
 import { sortRows, Sparkline, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
@@ -15,9 +15,6 @@ import type { FavoriteControl } from './MarketRow';
 
 /** Rows drawn at first, and added by each "Show more"; sparklines are read for the rows drawn only. */
 const PAGE_SIZE = 50;
-
-/** Convert opens with the pair filled in (it reads `from` and `to`): pay in the quote, get the coin. */
-const convertHref = (market: MarketData) => `/trade/convert?from=${encodeURIComponent(market.quote)}&to=${encodeURIComponent(market.base)}`;
 
 /** A click on the star must not open the row; the grid ignores clicks that start on a button or link. */
 function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteControl }) {
@@ -363,23 +360,7 @@ export function MarketsList({
         const { market } = entry;
         const text = pro ? t('Trade') : t('Buy');
         const aria = pro ? t('Trade {pair}', { pair: `${market.base}/${market.quote}` }) : t('Buy {asset}', { asset: market.base });
-        const pair = `${market.base}/${market.quote}`;
-        const wrap = (button: ReactNode) => (
-          <span className="lt-actions">
-            {button}
-            {/* The kit's row link centres the word on the button's line; the word itself is a link's. */}
-            <a className="lt-row-link" href={convertHref(market)} aria-label={t('Convert {pair}', { pair })}>
-              {/* Pro's twelve columns leave the word no room: its mark stands in, with the same name and a tooltip. */}
-              {pro ? (
-                <span className="lt-link" title={t('Convert')}>
-                  <ArrowLeftRight size={16} aria-hidden="true" />
-                </span>
-              ) : (
-                <span className="lt-link">{t('Convert')}</span>
-              )}
-            </a>
-          </span>
-        );
+        const wrap = (button: ReactNode) => <span className="lt-actions">{button}</span>;
         // Not a tradeable row: the button says why (its title for the pointer), stays reachable by keyboard, and links nowhere.
         const refused = (title: string, describedBy?: string) =>
           wrap(
