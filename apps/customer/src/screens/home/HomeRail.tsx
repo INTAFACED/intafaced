@@ -147,7 +147,8 @@ export function OpenPositions({ hidden }: { hidden: boolean }) {
                 <span>{order.symbol}</span>
                 <span className="lt-hint">
                   {t(order.side === 'buy' ? 'Order buy {amount} at {price}' : 'Order sell {amount} at {price}', {
-                    amount: fmtAmount(order.remaining),
+                    // The eye masks every amount on Home (J-home-ia-01 #2): the order's size as well as its price.
+                    amount: hidden ? HIDDEN_MASK : fmtAmount(order.remaining),
                     price: hidden ? HIDDEN_MASK : fmtUsd(order.price),
                   })}
                 </span>
