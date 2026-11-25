@@ -45,12 +45,12 @@
  * "untangle first" rather than guessed at.
  */
 import { execFileSync } from 'node:child_process';
-
-/** The most bytes `--progress` reads of main's 120-day log: well past its size (about 1 MB on 25 Nov 2026). */
-export const PROGRESS_LOG_MAX_BYTES = 64 * 1024 * 1024;
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+/** The most bytes `--progress` reads of main's 120-day log: well past its size (about 1 MB on 25 Nov 2026). */
+export const PROGRESS_LOG_MAX_BYTES = 64 * 1024 * 1024;
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const INDEX = join(ROOT, 'docs', 'roadmap', 'slices.json');
