@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Fold } from '@intafaced/ui/lit';
 import { createTradingSessionApi, heldKey, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session';
@@ -34,7 +34,18 @@ export function useDeskSession(owner: string | null, status: VenueUp) {
 export type DeskSession = ReturnType<typeof useDeskSession>;
 
 /** The one panel: why the session is needed, its state in words, and Start or End. Nothing on a venue the wallet signs. */
-export function VenueSessionPanel({ session, owner, status }: { session: DeskSession; owner: string; status: VenueUp }) {
+export function VenueSessionPanel({
+  session,
+  owner,
+  status,
+  compact = false,
+}: {
+  session: DeskSession;
+  owner: string;
+  status: VenueUp;
+  /** In a ticket's key slot: the why folded under its title, so the state and the one button stay in sight. */
+  compact?: boolean;
+}) {
   const { t } = venueCopy.useCopy();
   const { timeZone } = usePreferences();
   const wallet = useWallet();
@@ -122,8 +133,16 @@ export function VenueSessionPanel({ session, owner, status }: { session: DeskSes
 
   return (
     <section className="lt-stack" aria-label={t('Session title')} data-testid="venue-session">
-      <h2>{t('Session title')}</h2>
-      <p className="lt-hint">{t('Session why', { venue: status.venue.displayName })}</p>
+      {compact ? (
+        <Fold title={t('Session title')}>
+          <p className="lt-hint">{t('Session why', { venue: status.venue.displayName })}</p>
+        </Fold>
+      ) : (
+        <>
+          <h2>{t('Session title')}</h2>
+          <p className="lt-hint">{t('Session why', { venue: status.venue.displayName })}</p>
+        </>
+      )}
       {line ? (
         <p role="status" data-testid="venue-session-line" data-session={line.line}>
           {lineText()}
@@ -141,7 +160,7 @@ export function VenueSessionPanel({ session, owner, status }: { session: DeskSes
       {line ? (
         <div className="lt-actions">
           {line.offer === 'start' ? (
-            <Button tone="primary" disabled={busy !== null} onClick={() => void start()} data-testid="venue-session-start">
+            <Button tone="primary" block={compact} disabled={busy !== null} onClick={() => void start()} data-testid="venue-session-start">
               {busy === 'start' ? t('Session starting') : t('Session start')}
             </Button>
           ) : (

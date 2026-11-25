@@ -346,7 +346,7 @@ function Contracts({
                   side={side}
                   setSide={setSide}
                   disabled={false}
-                  keySlot={needsSession ? <VenueSessionPanel session={session} owner={owner} status={status} /> : undefined}
+                  keySlot={needsSession ? <VenueSessionPanel session={session} owner={owner} status={status} compact /> : undefined}
                 />
               ) : null}
               {owner && market.marginAccount?.known ? (

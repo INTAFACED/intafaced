@@ -547,3 +547,12 @@
   gap: 0.5rem;
   color: var(--lit-text-2);
 }
+.xd-blotter-head .lit-segmented > button {
+  white-space: nowrap;
+}
+/* A phone: the six tabs scroll sideways in their own row, never past the panel's edge. */
+.xd-blotter-head > .lit-segmented {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
