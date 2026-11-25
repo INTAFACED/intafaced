@@ -12,7 +12,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { buildFilters, classify, readEdges } from '../ci/ci-affected.mjs';
-import { NEEDS_BUILD, failedTests, failureSummary, runFiles, runsAlone, testFiles } from './tooling-tests.mjs';
+import { NEEDS_BUILD, RUN_CONTEXT, failedTests, failureSummary, runFiles, runsAlone, testFiles } from './tooling-tests.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'tooling/scripts/tooling-tests.mjs');
@@ -239,6 +239,38 @@ test('end to end: a planted hang turns the gate red and names the file', () => {
     assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
     assert.match(r.stderr, /TOOLING TESTS FAILED — 1 of 2 files/);
     assert.match(r.stderr, /✖ tooling\/scripts\/b-hang\.test\.mjs: stopped after \d+ s, its limit/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("end to end: no test file sees the run's branch or event, so a beta/ pull request's run judges like main's", () => {
+  // The replay of CI run 45564726213 (beta/simple-rim): the run's context as GitHub sets it on a beta pull request.
+  const run = {
+    GITHUB_EVENT_NAME: 'pull_request',
+    GITHUB_EVENT_PATH: '/home/runner/work/_temp/_github_workflow/event.json',
+    GITHUB_HEAD_REF: 'beta/simple-rim',
+    GITHUB_BASE_REF: 'main',
+    GITHUB_REF: 'refs/pull/10927/merge',
+    GITHUB_REF_NAME: '10927/merge',
+    GITHUB_REF_TYPE: 'branch',
+    GITHUB_REF_PROTECTED: 'false',
+    GITHUB_SHA: '968c3554fb6d82be7ec25b85e3ea72db9e0794fb',
+    JOURNEYS_TARGET: 'J-a-01.pw.mjs',
+  };
+  assert.deepEqual(Object.keys(run).sort(), [...RUN_CONTEXT].sort(), 'the replay sets every key the runner withholds');
+  const dir = mkdtempSync(join(tmpdir(), 'tooling-tests-'));
+  try {
+    mkdirSync(join(dir, 'tooling', 'scripts'), { recursive: true });
+    writeFileSync(
+      join(dir, 'tooling', 'scripts', 'context.test.mjs'),
+      "import test from 'node:test';\nimport assert from 'node:assert/strict';\n" +
+        `test('no run context', () => { for (const k of ${JSON.stringify(RUN_CONTEXT)}) assert.equal(process.env[k], undefined, k); });\n` +
+        "test('the rest of the env', () => assert.equal(process.env.KEPT_BY_THE_RUNNER, 'yes'));\n",
+    );
+    const r = spawnSync(process.execPath, [SCRIPT], { cwd: dir, encoding: 'utf8', env: { ...env, ...run, KEPT_BY_THE_RUNNER: 'yes' } });
+    assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+    assert.match(r.stdout, /tooling tests: 2 passed/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
