@@ -1341,7 +1341,7 @@ button.lt-menu-item:focus-visible {
 }
 .lit-stack__card[data-card='front'] [data-part='figure'] {
   font-family: var(--lit-font-figure);
-  font-weight: 600;
+  font-weight: var(--lit-type-figure-weight);
   font-size: 2rem;
   line-height: 1;
   letter-spacing: -0.035em;
@@ -1851,7 +1851,7 @@ a.lt-mover:hover {
 .lt-mover-price {
   font-size: var(--lit-type-figure-size);
   line-height: var(--lit-type-figure-line);
-  font-weight: 600;
+  font-weight: var(--lit-type-figure-weight);
   letter-spacing: -0.02em;
 }
 .lt-mover .lt-spark[data-size='row'] {
@@ -2350,7 +2350,7 @@ a.lit-button {
   white-space: normal;
   font-size: clamp(2rem, 2.6vw, 2.75rem);
   line-height: 1.05;
-  font-weight: 600;
+  font-weight: var(--lit-type-figure-weight);
   letter-spacing: -0.02em;
 }
 .lt-featured-chart {
