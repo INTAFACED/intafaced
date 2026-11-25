@@ -154,7 +154,7 @@ test(`${J}, with the user-venue door off: the eye hides amounts and keeps prices
   await expect(totalOn(page, HOME_TOTAL)).toHaveAttribute('data-hidden', 'true');
   await expect(totalOn(page, HOME_TOTAL).getByLabel('Hidden')).toBeVisible();
   // Prices are not balances: the markets on Home still show theirs.
-  await expect(page.locator('[data-testid="hp-markets"] [role=row], [data-testid="home-cards"] > *').nth(1)).toContainText(/\d/);
+  await expect(page.getByTestId('hp-markets').getByRole('row').nth(1)).toContainText(/\d/);
   await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
 
   // A second device: a fresh browser with nothing stored, signed in as the same person.

@@ -339,6 +339,8 @@ function HomeSimple() {
   return (
     <StandingScope status={launch}>
       <div data-testid="if-home" className="hm">
+        {/* The room's name for screen readers and the page outline: Home A draws no title row. */}
+        <h1 data-sr-only="">{t('Home')}</h1>
         <PageGrid layout="split">
           <PageColumn span="all" className="hm-band">
             <HomeNotices />
