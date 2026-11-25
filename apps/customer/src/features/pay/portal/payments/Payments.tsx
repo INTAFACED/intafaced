@@ -1,35 +1,51 @@
+// volt-room: /pay/payments
+// volt-room: /pay/payments/:paymentId
+// volt-room: portal:payments
+// volt-room: portal:payment
 import type { ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { PaymentViewColumn } from '@intafaced/contracts/pay-payment-views';
-import { EmptyState } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
-import { Facts, Gate, HaltBanner, Money, MoneyLines, NotConfigured, PortalFailure, PortalLoading } from '../components';
+import { useMerchantAccess } from '../access/MerchantAccess';
 import type { ListState } from '../hooks';
-import { isUuid, nameHold, paymentLinks, paymentRefunds, shortId } from '../model';
+import { assetsOf, isUuid, nameHold, paymentLinks, paymentRefunds, shortId } from '../model';
 import { paymentLabel } from '../presentation';
 import { portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
 import type { DisputeDetail, HaltStatus, Payment, PaymentEvent, Snapshot } from '../schemas';
 import { paymentStatuses } from '../schemas';
-import { CopyReference } from '../ui/CopyReference';
 import { DateTime } from '../ui/DateTime';
-import { DetailHeader } from '../ui/DetailHeader';
-import { EntityList } from '../ui/EntityList';
-import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
-import { Freshness } from '../ui/Freshness';
-import { KpiStrip } from '../ui/Kpi';
+import { dateRange, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
 import { plainCode } from '../ui/plain-code';
 import { actionWords } from '../settings/activity/model';
-import { RelatedLinks } from '../ui/RelatedLinks';
-import { StatusChip } from '../ui/StatusChip';
-import { Timeline } from '../ui/Timeline';
 import { useServerList } from '../ui/useServerList';
-import { assetsOf } from '../model';
+import {
+  CopyReference,
+  DetailHeader,
+  Empty,
+  EntityList,
+  Facts,
+  Failure,
+  FilterRow,
+  Freshness,
+  Gate,
+  HaltNotice,
+  KpiStrip,
+  LinkButton,
+  Loading,
+  MoneyAction,
+  MoneyLines,
+  MoneyText,
+  NotConfigured,
+  RelatedLinks,
+  Section,
+  StatusChip,
+  Timeline,
+} from '../volt/parts';
+import { RecordListRoom, type RecordListSlots } from '../volt/RecordListRoom';
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { ExportResults } from './ExportResults';
 import { PayerEmailCell, PaymentViewsBar, usePaymentColumns } from './PaymentViews';
-import { MoneyAction } from '../access/MoneyAction';
 import { RefundsIssuedValue } from './RefundsIssued';
 import { railName } from './HomePanels';
 import { portalCopy as c } from './copy';
@@ -54,8 +70,29 @@ export function feeNoneText(
 
 export const paymentHref = (id: string) => `/pay/payments/${encodeURIComponent(id)}`;
 
-/** `/pay/payments`: the server filters and pages the list; the totals above it say which period they cover. */
-export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+/** `/pay/payments` on the record-list template: totals, saved views, filters, export and server-paged payments. */
+export function PaymentsRoom({ portal }: { portal: PortalApi }) {
+  const { access, can } = useMerchantAccess();
+  if (access.status !== 'ready' || !can('payments.read')) return <RecordListRoom need="payments.read">{() => ({})}</RecordListRoom>;
+  return <PaymentsReadyRoom portal={portal} merchantId={access.merchantId} />;
+}
+
+function PaymentsReadyRoom({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+  const data = usePaymentsData(portal, merchantId);
+  const slots = usePaymentsSlots({ portal, merchantId, ...data });
+  return <RecordListRoom need="payments.read">{() => slots}</RecordListRoom>;
+}
+
+/** `/pay/payments/:paymentId` on the record-list template: one payment's own page. */
+export function PaymentRoom({ portal, paymentId }: { portal: PortalApi; paymentId: string }) {
+  return (
+    <RecordListRoom need="payments.read">
+      {({ merchantId }) => ({ detail: <PaymentDetailPage portal={portal} paymentId={paymentId} merchantId={merchantId} /> })}
+    </RecordListRoom>
+  );
+}
+
+function usePaymentsData(portal: PortalApi, merchantId: string) {
   const filters = useListFilters();
   const range = dateRange(filters.date as DatePreset, Date.now(), { from: filters.from, to: filters.to });
   const query = {
@@ -73,36 +110,22 @@ export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId
   const { period } = totalsPeriod(filters.date);
   const snapshot = useResource((s) => portal.snapshot(merchantId, PRESET[period], s), `portal:payments-kpi:${merchantId}:${period}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `portal:halts:${merchantId}`);
-  return (
-    <PaymentsView
-      portal={portal}
-      merchantId={merchantId}
-      filters={filters}
-      range={range}
-      list={list.state}
-      snapshot={snapshot.resource}
-      halts={halts.resource}
-      loadMore={list.loadMore}
-      retry={() => {
-        list.reload();
-        snapshot.reload();
-        halts.reload();
-      }}
-    />
-  );
+  return {
+    filters,
+    range,
+    list: list.state,
+    snapshot: snapshot.resource,
+    halts: halts.resource,
+    loadMore: list.loadMore,
+    retry: () => {
+      list.reload();
+      snapshot.reload();
+      halts.reload();
+    },
+  };
 }
 
-export function PaymentsView({
-  portal,
-  merchantId,
-  filters,
-  range,
-  list,
-  snapshot,
-  halts,
-  loadMore,
-  retry,
-}: {
+type PaymentsViewProps = {
   portal: PortalApi;
   merchantId?: string;
   filters: ListFilters;
@@ -112,7 +135,20 @@ export function PaymentsView({
   halts: Resource<HaltStatus>;
   loadMore: () => void;
   retry: () => void;
-}) {
+};
+
+/** The payments page's regions, each a slot of the record-list template. */
+function usePaymentsSlots({
+  portal,
+  merchantId,
+  filters,
+  range,
+  list,
+  snapshot,
+  halts,
+  loadMore,
+  retry,
+}: PaymentsViewProps): RecordListSlots {
   const { t } = c.useCopy();
   const { period, matchesList } = totalsPeriod(filters.date);
   const filtered = Boolean(filters.status || filters.search || filters.date || filters.asset);
@@ -128,28 +164,15 @@ export function PaymentsView({
         </>
       ),
     },
-    amount: { header: t('colAmount'), cell: (p) => <Money value={p.amount} asset={p.assetId} /> },
+    amount: { header: t('colAmount'), cell: (p) => <MoneyText value={p.amount} asset={p.assetId} /> },
     status: { header: t('colStatus'), cell: (p) => <StatusChip entity="payment" value={p.status} /> },
     method: { header: t('pay_colMethod'), cell: (p) => plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_')) },
     created: { header: t('colCreated'), cell: (p) => <DateTime value={p.createdAt} /> },
     customerEmail: { header: t('pay_colEmail'), cell: (p) => <PayerEmailCell portal={portal} payment={p} /> },
     railRef: { header: t('railReference'), cell: (p) => p.railRef ?? <span className="lt-muted">{t('notGiven')}</span> },
   };
-  return (
-    <div className="stack">
-      {snapshot.status === 'ready' ? (
-        <Freshness asOf={snapshot.data.freshness.asOf} lagSeconds={snapshot.data.freshness.lagSeconds ?? 0} />
-      ) : null}
-      <HaltBanner resource={halts} scopes={['intake']} />
-      <Totals
-        snapshot={snapshot}
-        period={period}
-        matchesList={matchesList}
-        retry={retry}
-        portal={portal}
-        {...(merchantId ? { merchantId } : {})}
-      />
-      {merchantId && <PaymentViewsBar portal={portal} filters={filters} columns={columns} setColumns={setColumns} />}
+  return {
+    filters: (
       <FilterRow
         label={t('pay_listTitle')}
         filters={filters}
@@ -158,65 +181,95 @@ export function PaymentsView({
         searchHint={t('pay_searchHint')}
         {...(list.status === 'ready' ? { shown: list.items.length, hasMore: list.hasMore } : {})}
       />
-      {list.status === 'loading' && <PortalLoading />}
-      {list.status === 'failed' && <PortalFailure result={list.failure} retry={retry} />}
-      {list.status === 'ready' &&
-        (list.items.length === 0 ? (
-          <EmptyState
-            title={t(filtered ? 'pay_emptyFilteredTitle' : 'pay_emptyTitle')}
-            action={
-              filtered ? undefined : (
-                <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
-                  {t('createLink')}
-                </Button>
-              )
-            }
-          >
-            {t(filtered ? 'pay_emptyFilteredBody' : 'pay_emptyBody')}
-          </EmptyState>
-        ) : (
-          <>
-            <EntityList
-              label={t('pay_listTitle')}
-              rows={list.items}
-              rowKey={(p) => p.id}
-              href={(p) => paymentHref(p.id)}
-              columns={columns.map((col) => columnDefs[col])}
-              card={(p) => ({
-                title: paymentLabel(p),
-                time: <DateTime value={p.createdAt} />,
-                amount: <Money value={p.amount} asset={p.assetId} />,
-                status: <StatusChip entity="payment" value={p.status} />,
-              })}
-            />
+    ),
+    tools: merchantId ? <PaymentViewsBar portal={portal} filters={filters} columns={columns} setColumns={setColumns} /> : undefined,
+    export:
+      list.status === 'ready' && list.items.length > 0 ? (
+        <ExportResults
+          portal={portal}
+          kind="payments"
+          filters={{
+            ...(range.from ? { from: range.from } : {}),
+            ...(range.to ? { to: range.to } : {}),
+            ...(filters.status ? { status: filters.status } : {}),
+            ...(filters.asset ? { assetId: filters.asset } : {}),
+          }}
+          searchLeftOut={Boolean(filters.search.trim())}
+          summary={[
+            [t('colStatus'), filters.status ? t(`chipPayment_${filters.status}` as 'chipPayment_created') : t('pay_any')],
+            [
+              t('pay_date'),
+              range.from || range.to ? `${range.from?.slice(0, 10) ?? '…'} → ${range.to?.slice(0, 10) ?? '…'}` : t('pay_any'),
+            ],
+            [t('pay_asset'), filters.asset || t('pay_any')],
+          ]}
+        />
+      ) : undefined,
+    summary: (
+      <div className="lt-stack">
+        {snapshot.status === 'ready' ? (
+          <Freshness asOf={snapshot.data.freshness.asOf} lagSeconds={snapshot.data.freshness.lagSeconds ?? 0} />
+        ) : null}
+        <HaltNotice resource={halts} scopes={['intake']} />
+        <Totals
+          snapshot={snapshot}
+          period={period}
+          matchesList={matchesList}
+          retry={retry}
+          portal={portal}
+          {...(merchantId ? { merchantId } : {})}
+        />
+      </div>
+    ),
+    list:
+      list.status === 'loading' ? (
+        <Loading />
+      ) : list.status === 'failed' ? (
+        <Failure result={list.failure} retry={retry} />
+      ) : list.items.length === 0 ? (
+        <Empty
+          title={t(filtered ? 'pay_emptyFilteredTitle' : 'pay_emptyTitle')}
+          action={
+            filtered ? undefined : (
+              <LinkButton href="/pay/links/new" tone="primary">
+                {t('createLink')}
+              </LinkButton>
+            )
+          }
+        >
+          {t(filtered ? 'pay_emptyFilteredBody' : 'pay_emptyBody')}
+        </Empty>
+      ) : (
+        <div className="lt-stack">
+          <EntityList
+            label={t('pay_listTitle')}
+            rows={list.items}
+            rowKey={(p) => p.id}
+            href={(p) => paymentHref(p.id)}
+            columns={columns.map((col) => columnDefs[col])}
+          />
+          {list.hasMore && (
             <div className="lt-actions">
-              {list.hasMore && (
-                <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
-                  {list.more === 'loading' ? t('pay_loadingMore') : t('pay_loadMore')}
-                </Button>
-              )}
-              <ExportResults
-                portal={portal}
-                kind="payments"
-                filters={{
-                  ...(range.from ? { from: range.from } : {}),
-                  ...(range.to ? { to: range.to } : {}),
-                  ...(filters.status ? { status: filters.status } : {}),
-                  ...(filters.asset ? { assetId: filters.asset } : {}),
-                }}
-                searchLeftOut={Boolean(filters.search.trim())}
-                summary={[
-                  [t('colStatus'), filters.status ? t(`chipPayment_${filters.status}` as 'chipPayment_created') : t('pay_any')],
-                  [
-                    t('pay_date'),
-                    range.from || range.to ? `${range.from?.slice(0, 10) ?? '…'} → ${range.to?.slice(0, 10) ?? '…'}` : t('pay_any'),
-                  ],
-                  [t('pay_asset'), filters.asset || t('pay_any')],
-                ]}
-              />
+              <Button tone="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
+                {list.more === 'loading' ? t('pay_loadingMore') : t('pay_loadMore')}
+              </Button>
             </div>
-          </>
-        ))}
+          )}
+        </div>
+      ),
+  };
+}
+
+/** The payments page's regions in order, outside the template (a static preview, a unit test). */
+export function PaymentsView(props: PaymentsViewProps) {
+  const slots = usePaymentsSlots(props);
+  return (
+    <div className="lt-stack">
+      {slots.summary}
+      {slots.tools}
+      {slots.filters}
+      {slots.list}
+      {slots.export}
     </div>
   );
 }
@@ -237,8 +290,8 @@ function Totals({
   merchantId?: string;
 }) {
   const { t } = c.useCopy();
-  if (snapshot.status === 'loading') return <PortalLoading rows={2} />;
-  if (snapshot.status === 'failed') return <PortalFailure result={snapshot.failure} retry={retry} />;
+  if (snapshot.status === 'loading') return <Loading rows={2} />;
+  if (snapshot.status === 'failed') return <Failure result={snapshot.failure} retry={retry} />;
   const snap = snapshot.data;
   const label = t(`pay_period_${period}`);
   const rate = successRate(snap.statusMix);
@@ -294,14 +347,14 @@ function Totals({
           { label: t('kpiDisputed'), period: label, href: list({ status: 'disputed' }), value: countOf(snap.statusMix, 'disputed') },
         ]}
       />
-      {!matchesList && <p className="muted pp-note">{t('pay_totalsWider', { period: label })}</p>}
+      {!matchesList && <p className="lt-hint">{t('pay_totalsWider', { period: label })}</p>}
     </div>
   );
 }
 
 // ---- detail ---------------------------------------------------------------------------------------------
 
-export function PaymentDetailPage({ portal, paymentId, merchantId }: { portal: PortalApi; paymentId: string; merchantId: string }) {
+function PaymentDetailPage({ portal, paymentId, merchantId }: { portal: PortalApi; paymentId: string; merchantId: string }) {
   const valid = isUuid(paymentId);
   const payment = useResource(
     (s) => (valid ? portal.payment(paymentId, s) : Promise.resolve(portalRefusal('rPaymentNotFound'))),
@@ -387,42 +440,40 @@ export function PaymentDetailView({
             <>
               <DetailHeader
                 back={{ href: '/pay/payments', label: t('backToPayments') }}
-                title={<Money value={p.amount} asset={p.assetId} />}
+                title={<MoneyText value={p.amount} asset={p.assetId} />}
                 status={<StatusChip entity="payment" value={p.status} />}
                 subtitle={[paymentLabel(p), plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_'))].join(' · ')}
                 action={
                   canRefund(p) ? (
                     <MoneyAction kind="refund">
-                      <Button
-                        variant="primary"
-                        nativeButton={false}
-                        role="link"
-                        render={<a href={`/pay/refunds/new?payment=${encodeURIComponent(p.id)}`} />}
-                      >
+                      <LinkButton href={`/pay/refunds/new?payment=${encodeURIComponent(p.id)}`} tone="primary">
                         {t('pay_refund')}
-                      </Button>
+                      </LinkButton>
                     </MoneyAction>
                   ) : undefined
                 }
               />
-              <PaySection title={t('pay_summary')}>
+              <Section title={t('pay_summary')}>
                 <Facts
                   items={[
-                    [t('pay_amount'), <Money value={p.amount} asset={p.assetId} />],
-                    [t('colCaptured'), <Money value={p.capturedAmount} asset={p.assetId} />],
-                    [t('colRefunded'), <Money value={p.refundedAmount} asset={p.assetId} />],
-                    [t('stillRefundable'), <Money value={refundable(p)} asset={p.assetId} />],
+                    [t('pay_amount'), <MoneyText value={p.amount} asset={p.assetId} />],
+                    [t('colCaptured'), <MoneyText value={p.capturedAmount} asset={p.assetId} />],
+                    [t('colRefunded'), <MoneyText value={p.refundedAmount} asset={p.assetId} />],
+                    [t('stillRefundable'), <MoneyText value={refundable(p)} asset={p.assetId} />],
                     ...(fee.kind === 'none'
                       ? ([[t('pay_fee'), <NotConfigured>{feeNoneText(t, p.status)}</NotConfigured>]] as const)
                       : ([
-                          [t('pay_fee'), <Money value={fee.fee} asset={fee.assetId} />],
-                          ...(fee.net ? ([[t('pay_net'), <Money value={fee.net} asset={fee.assetId} />]] as const) : []),
+                          [t('pay_fee'), <MoneyText value={fee.fee} asset={fee.assetId} />],
+                          ...(fee.net ? ([[t('pay_net'), <MoneyText value={fee.net} asset={fee.assetId} />]] as const) : []),
                           ...(fee.net && fee.assetId === p.assetId && parseAmount(p.refundedAmount) > 0n
                             ? ([
                                 [
                                   t('pay_netAfterRefunds'),
                                   <>
-                                    <Money value={formatAmount(parseAmount(fee.net) - parseAmount(p.refundedAmount))} asset={fee.assetId} />
+                                    <MoneyText
+                                      value={formatAmount(parseAmount(fee.net) - parseAmount(p.refundedAmount))}
+                                      asset={fee.assetId}
+                                    />
                                     {parseAmount(fee.net) - parseAmount(p.refundedAmount) < 0n && (
                                       <small className="lt-hint">{t('pay_netNegativeWhy')}</small>
                                     )}
@@ -446,7 +497,7 @@ export function PaymentDetailView({
                                   (part) =>
                                     [
                                       t(`pay_feePart_${part.kind}`, { percent: fee.percent }),
-                                      <Money value={part.amount} asset={fee.assetId} />,
+                                      <MoneyText value={part.amount} asset={fee.assetId} />,
                                     ] as const,
                                 )
                               : ([[t('pay_feeParts'), <NotConfigured>{t('pay_feePartsNotRecorded')}</NotConfigured>]] as const)
@@ -455,22 +506,22 @@ export function PaymentDetailView({
                   ]}
                 />
                 {p.failure && (
-                  <p className="pp-callout" role="note">
+                  <p className="lt-held" role="note">
                     {t('pay_whyFailed')} {p.failure.message}
                   </p>
                 )}
                 {waiting && (
-                  <p className="pp-callout" role="note" data-testid="payment-confirmations">
+                  <p className="lt-held" role="note" data-testid="payment-confirmations">
                     {t('pay_waitingConfirmations', { seen: waiting.seen, required: waiting.required })} <DateTime value={waiting.asOf} />
                   </p>
                 )}
                 {held && (
-                  <p className="pp-callout" role="note" data-testid="payment-name-hold">
+                  <p className="lt-held" role="note" data-testid="payment-name-hold">
                     {t('pay_heldTitle')} {t(`pay_held_${held}`)}
                   </p>
                 )}
-              </PaySection>
-              <PaySection title={t('keyFacts')}>
+              </Section>
+              <Section title={t('keyFacts')}>
                 <Facts
                   items={[
                     [t('colCreated'), <DateTime value={p.createdAt} />],
@@ -488,29 +539,29 @@ export function PaymentDetailView({
                     ...(p.description ? ([[t('pay_description'), p.description]] as const) : []),
                   ]}
                 />
-              </PaySection>
-              <PaySection title={t('timelineTitle')}>
+              </Section>
+              <Section title={t('timelineTitle')}>
                 {history.status === 'loading' ? (
-                  <PortalLoading rows={3} />
+                  <Loading rows={3} />
                 ) : history.status === 'failed' ? (
-                  <PortalFailure result={history.failure} retry={retry} />
+                  <Failure result={history.failure} retry={retry} />
                 ) : (
                   <PaymentTimeline events={history.data} currency={p.assetId} />
                 )}
-              </PaySection>
-              <div className="pp-two">
-                <PaySection title={t('refundsTitle')}>
+              </Section>
+              <div className="lt-stack">
+                <Section title={t('refundsTitle')}>
                   <RefundsList refunds={refunds} derived={derived} assetId={p.assetId} />
-                </PaySection>
-                <PaySection title={t('disputeCardTitle')}>
+                </Section>
+                <Section title={t('disputeCardTitle')}>
                   <DisputeCard dispute={dispute} status={p.status} retry={retry} />
-                </PaySection>
+                </Section>
               </div>
-              <PaySection title={t('pay_activity')}>
+              <Section title={t('pay_activity')}>
                 <ActivityList activity={activity} />
-              </PaySection>
+              </Section>
               <RelatedLinks links={related} />
-              <PaySection title={t('idsTitle')}>
+              <Section title={t('idsTitle')}>
                 <Facts
                   items={[
                     [t('idPayment'), <CopyReference value={p.id} what={t('idPayment')} />],
@@ -520,7 +571,7 @@ export function PaymentDetailView({
                       : []),
                   ]}
                 />
-              </PaySection>
+              </Section>
             </>
           );
         }}
@@ -557,10 +608,10 @@ function RefundsList({
       }));
   if (rows.length === 0) return <p className="lt-muted">{t('refundsEmptyBody')}</p>;
   return (
-    <ul className="pp-links">
+    <ul className="lt-list">
       {rows.map((r) => (
         <li key={r.key}>
-          {r.amount ? <Money value={r.amount} asset={assetId} /> : '—'} · {r.status} · <DateTime value={r.at} />
+          {r.amount ? <MoneyText value={r.amount} asset={assetId} /> : '—'} · {r.status} · <DateTime value={r.at} />
           {r.href && (
             <>
               {' '}
@@ -578,8 +629,8 @@ function RefundsList({
 function ActivityList({ activity }: { activity: Loaded<ActivityItem[]> }) {
   const { t } = c.useCopy();
   if (isResource(activity)) {
-    if (activity.status === 'loading') return <PortalLoading rows={2} />;
-    if (activity.status === 'failed') return <PortalFailure result={activity.failure} />;
+    if (activity.status === 'loading') return <Loading rows={2} />;
+    if (activity.status === 'failed') return <Failure result={activity.failure} />;
     return null;
   }
   if (activity.length === 0) return <p className="lt-muted">{t('pay_activityEmpty')}</p>;
@@ -614,8 +665,8 @@ function PaymentTimeline({ events, currency }: { events: PaymentEvent[]; currenc
 function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDetail | null> | null; status: string; retry: () => void }) {
   const { t } = c.useCopy();
   if (dispute === null) return <p className="lt-muted">{status === 'disputed' ? t('disputeCardMissing') : t('disputeCardNone')}</p>;
-  if (dispute.status === 'loading') return <PortalLoading rows={2} />;
-  if (dispute.status === 'failed') return <PortalFailure result={dispute.failure} retry={retry} />;
+  if (dispute.status === 'loading') return <Loading rows={2} />;
+  if (dispute.status === 'failed') return <Failure result={dispute.failure} retry={retry} />;
   const d = dispute.data;
   if (!d) return <p className="lt-muted">{t('disputeCardNone')}</p>;
   return (
@@ -623,7 +674,7 @@ function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDeta
       <Facts
         items={[
           [t('colStatus'), <StatusChip entity="dispute" value={d.status} />],
-          [t('colAmount'), <Money value={d.amount} asset={d.assetId} />],
+          [t('colAmount'), <MoneyText value={d.amount} asset={d.assetId} />],
           [t('colReason'), d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')],
           [t('colDue'), d.responseDueAt ? <DateTime value={d.responseDueAt} /> : <NotConfigured>{t('noDeadline')}</NotConfigured>],
         ]}

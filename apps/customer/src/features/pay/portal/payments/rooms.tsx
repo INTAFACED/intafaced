@@ -1,7 +1,5 @@
 import './payments.css';
 import { Button } from '@intafaced/ui';
-import { Requires } from '../access/MerchantAccess';
-import { WithAccount } from '../access/WithAccount';
 import { extensionCopy, paymentsCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { CustomerRoom, CustomersRoom } from './Customers';
@@ -12,7 +10,7 @@ import { InvoiceRoom, InvoicesRoom } from './Invoices';
 import { LinkNewRoom } from './Links';
 import { LinksRoom } from './LinkList';
 import { LinkButton } from '../volt/parts';
-import { PaymentDetailPage, Payments } from './Payments';
+import { PaymentRoom, PaymentsRoom } from './Payments';
 import { SubscriptionNewRoom, subscriptionHeader } from './Subscriptions';
 import { SubscriptionsRoom } from './SubscriptionList';
 import { CheckoutSettingsRoom } from './CheckoutSettings';
@@ -140,15 +138,8 @@ export const paymentsRooms: RoomTable = {
       title: t('pagePayments'),
       purpose: t('purposePayments'),
     }),
-    render: (_route, { portal }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="payments.read">
-            <Payments portal={portal} merchantId={merchantId} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <PaymentsRoom portal={portal} />,
   },
   payment: {
     header: () => ({
@@ -156,15 +147,8 @@ export const paymentsRooms: RoomTable = {
       purpose: t('purposePayment'),
     }),
     here: '/pay/payments',
-    render: (route, { portal }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="payments.read">
-            <PaymentDetailPage portal={portal} paymentId={route.param!} merchantId={merchantId} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (route, { portal }) => <PaymentRoom portal={portal} paymentId={route.param!} />,
   },
   'invoice-new': invoices,
   'checkout-settings': {

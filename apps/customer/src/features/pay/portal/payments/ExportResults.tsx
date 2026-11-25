@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { PortalApi } from '../api';
 import type { ExportKind } from '../schemas';
-import { PortalReview } from '../ui/PortalReview';
+import { Review } from '../volt/Review';
 import { useRequestId } from './invoice-model';
 import { paymentsCopy } from './copy';
-import { Facts } from '../components';
+import { Facts } from '../volt/parts';
 
 /**
  * "Export these results": asks for a file with the filters now on the page. The file is built in the background and
@@ -29,14 +29,14 @@ export function ExportResults({
   const [done, setDone] = useState(false);
   return (
     <div className="lt-actions">
-      <PortalReview
+      <Review
         title={t('exp_title')}
         variant="secondary"
         description={t('exp_body')}
         review={
           <>
             <Facts items={summary} />
-            {searchLeftOut && <p className="muted pp-note">{t('exp_searchLeftOut')}</p>}
+            {searchLeftOut && <p className="lt-hint">{t('exp_searchLeftOut')}</p>}
           </>
         }
         perform={() => portal.createExport({ requestId: request.id, kind, filters })}

@@ -1,4 +1,5 @@
 // volt-room: /uc/order
+// volt-room: /chat
 import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
 import { useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
@@ -24,25 +25,51 @@ import { OrderHistory } from '../personal/OrderHistory';
 import { OrderReceipt } from '../personal/OrderReceipt';
 import { OrderReview } from '../personal/OrderReview';
 import { DisputeProgress, EscrowPath } from '../personal/P2PDepth';
+import { p2pDepth } from '../personal/p2p-depth-copy';
 import type { Trade, TradeDestination } from '../schemas';
-import { Field, PayAmount, PayDetails, PayNotice, PaySection, PayState, ReviewedAction } from '../volt/parts';
+import { EmptyState, Field, PayAmount, PayDetails, PayNotice, PaySection, PayState, ReviewedAction } from '../volt/parts';
 
 /**
- * `/uc/order` (also `/p2p/orders` and `/p2p/orders/:tradeId`), on the record-list template: the P2P rooms above, then
- * either the person's order history or one open order in full (ledger or contract escrow, external payment details,
- * receipt, review, chat and dispute).
+ * `/uc/order` (also `/p2p/orders` and `/p2p/orders/:tradeId`) and `/chat`, on the record-list template: the P2P rooms
+ * above, then the person's order history, one open order in full (ledger or contract escrow, external payment details,
+ * receipt, review, chat and dispute), or the "Choose an order" prompt when `/chat` opens with no order id.
  */
-export function OrderRoom({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string | null; userId: string | null }) {
+export function OrderRoom({
+  pay,
+  tradeId,
+  userId,
+  chat = false,
+}: {
+  pay: PersonalPayApi;
+  tradeId: string | null;
+  userId: string | null;
+  chat?: boolean;
+}) {
   const { layoutMode } = usePreferences();
   const mode = layoutMode === 'pro' ? 'pro' : 'simple';
-  if (tradeId) {
+  if (tradeId || chat) {
     return (
       <RecordListTemplate
         title={payCopy.t('p2pOrder')}
         section={<P2PTabs order current="/uc/order" />}
         state={{ kind: 'ready' }}
         mode={mode}
-        list={<OrderDetail pay={pay} tradeId={tradeId} userId={userId} />}
+        list={
+          tradeId ? (
+            <OrderDetail pay={pay} tradeId={tradeId} userId={userId} />
+          ) : (
+            <EmptyState
+              title={p2pDepth.t('chatPickTitle')}
+              action={
+                <a className="lt-button lt-button-primary" href="/uc/order">
+                  {p2pDepth.t('chatPickAction')}
+                </a>
+              }
+            >
+              {p2pDepth.t('chatPickBody')}
+            </EmptyState>
+          )
+        }
       />
     );
   }
@@ -58,7 +85,7 @@ export function OrderRoom({ pay, tradeId, userId }: { pay: PersonalPayApi; trade
   );
 }
 
-export function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string; userId: string | null }) {
+function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string; userId: string | null }) {
   return (
     <P2POrder
       pay={pay}

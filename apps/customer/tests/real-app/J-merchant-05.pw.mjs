@@ -215,11 +215,11 @@ test(`${J} #2 opens the list: totals with their period, filters the service appl
   const totals = page.getByRole('group', { name: 'Totals for Last 30 days' });
   await expect(totals).toBeVisible();
   await expect(totals.getByRole('link', { name: /Failed/ })).toHaveAttribute('href', /status=failed&date=30d/);
-  const tile = (name) => totals.getByRole('link', { name }).locator('.pp-kpi-value');
+  const tile = (name) => totals.getByRole('link', { name }).getByTestId('pp-kpi-value');
   await expect(tile(/^Payments/)).toHaveText('27');
   await expect(tile(/^Failed/)).toHaveText('1');
   await expect(tile(/^Disputed/)).toHaveText('1');
-  const rows = page.locator('.pe-table tbody tr');
+  const rows = page.getByTestId('pe-table').locator('tbody tr');
   await expect(rows).toHaveCount(25);
   await page.getByRole('button', { name: 'Load more' }).click();
   await expect(rows).toHaveCount(27);
@@ -252,11 +252,11 @@ test(`${J} #2 opens the list: totals with their period, filters the service appl
   await expect(page.getByRole('status').filter({ hasText: 'Your export is being prepared.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open exports' })).toHaveAttribute('href', '/pay/reports/exports');
 
-  // A phone: the list becomes cards, and nothing scrolls sideways.
+  // A phone: the list stacks into labelled row cards, and nothing scrolls sideways.
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
-  await expect(page.locator('.pe-table')).toBeHidden();
-  await expect(page.getByRole('list', { name: 'Payments' }).getByRole('listitem')).toHaveCount(25);
+  await expect(rows).toHaveCount(25);
+  await expect(rows.first()).toHaveCSS('display', 'block');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(refused).toEqual([]);
 });
@@ -334,8 +334,8 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   const chosenIds = ['payment', 'amount', 'status', 'customerEmail'];
   await signInOwner(page, journey(), '/pay/payments');
   const refused = refusedPayCalls(page);
-  const headers = page.locator('.pe-table thead th');
-  const rows = page.locator('.pe-table tbody tr');
+  const headers = page.getByTestId('pe-table').locator('thead th');
+  const rows = page.getByTestId('pe-table').locator('tbody tr');
   await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
   await expect(headers.filter({ hasText: 'Method' })).toHaveCount(1);
   await page.getByLabel('Status').selectOption('captured');
@@ -402,7 +402,7 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   expect(await page.locator('body').innerText()).not.toContain(email);
   // The payment's own page has no Unmask for the viewer either, and never the clear email.
   await page.goto(`/pay/payments/${encodeURIComponent(paidId)}`);
-  await expect(page.locator('.pp-detail-head')).toBeVisible();
+  await expect(page.getByTestId('pp-detail-head')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unmask' })).toHaveCount(0);
   expect(await page.locator('body').innerText()).not.toContain(email);
   // The service refuses a viewer's unmask too, with its typed code, and the audit and the view read back unchanged.
@@ -501,7 +501,7 @@ const fact = (section, label) =>
     .locator('dd');
 
 /** The status word in a payment page's header. */
-const statusWord = (page) => page.locator('.pp-detail-head [data-testid="pp-chip"]');
+const statusWord = (page) => page.getByTestId('pp-detail-head').getByTestId('pp-chip');
 
 /** The typed code a pay read refused with. A read that answers is the step's failure. */
 async function refusalOf(read) {
@@ -560,7 +560,8 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   expect((await owner.mutate('payment.authorize', { paymentId: waiting.id })).status).toBe('created');
   await signInOwner(page, journey(), `/pay/payments/${ids.refunded}`);
   const refused = refusedPayCalls(page);
-  const section = (name) => page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name, level: 2 }) });
+  const section = (name) =>
+    page.locator('section[data-testid="pay-section"]').filter({ has: page.getByRole('heading', { name, level: 2 }) });
   // Each payment's status word is the one the page's vocabulary gives the status the service reads back.
   const WORD = {
     created: 'Created',
@@ -817,7 +818,9 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
   ]);
 
   await page.goto(`/pay/payments/${paid.id}`);
-  const summary = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Summary', level: 2 }) });
+  const summary = page
+    .locator('section[data-testid="pay-section"]')
+    .filter({ has: page.getByRole('heading', { name: 'Summary', level: 2 }) });
   await expect(summary).toBeVisible();
   const shown = {
     fee: await fact(summary, 'Fee').textContent(),

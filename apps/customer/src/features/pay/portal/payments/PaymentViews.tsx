@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Button, Field } from '@intafaced/ui/lit';
 import {
   PAYMENT_UNMASK_REASON_MIN,
   PAYMENT_VIEW_COLUMNS,
@@ -9,15 +10,14 @@ import {
   type PaymentViewColumn,
   type PaymentViewFilters,
 } from '@intafaced/contracts/pay-payment-views';
-import { Field } from '../../ui-kit';
 import { useResource } from '../../../../shared/resource';
-import { PortalFailure, SelectField } from '../components';
+import { Failure, SelectField } from '../volt/parts';
+import { Review } from '../volt/Review';
 import { readyAccess, useOptionalMerchantAccess } from '../access/MerchantAccess';
 import type { PortalApi } from '../api';
 import { useUrlParam } from '../hooks';
 import type { Payment } from '../schemas';
 import type { ListFilters } from '../ui/FilterRow';
-import { PortalReview } from '../ui/PortalReview';
 import { portalCopy as c } from './copy';
 
 /** The columns the list draws, as the address holds them (`cols=amount,status`). Unknown names are dropped; none means the default set. */
@@ -84,10 +84,10 @@ export function PaymentViewsBar({
   const chosen = items.find((v) => v.id === viewId) ?? null;
   const columnLabel = (col: PaymentViewColumn) => t(`pv_col_${col}`);
   return (
-    <div className="pp-filterbar">
-      <div className="pp-filter-row">
+    <div className="lt-stack">
+      <div className="lt-field-row">
         {views.resource.status === 'failed' ? (
-          <PortalFailure result={views.resource.failure} retry={views.reload} />
+          <Failure result={views.resource.failure} retry={views.reload} />
         ) : (
           <SelectField
             label={t('pv_views')}
@@ -104,7 +104,7 @@ export function PaymentViewsBar({
             ]}
           />
         )}
-        <PortalReview
+        <Review
           title={t('pv_save')}
           description={t('pv_saveBody')}
           ready={name.trim().length > 0}
@@ -119,8 +119,8 @@ export function PaymentViewsBar({
                 </span>
                 {!mayShare && <small>{t('pv_shareAdminOnly')}</small>}
               </label>
-              <p className="muted pp-note">{t('pv_keeps', { columns: columns.map(columnLabel).join(', ') })}</p>
-              {filters.date === 'custom' && <p className="muted pp-note">{t('pv_customLeftOut')}</p>}
+              <p className="lt-hint">{t('pv_keeps', { columns: columns.map(columnLabel).join(', ') })}</p>
+              {filters.date === 'custom' && <p className="lt-hint">{t('pv_customLeftOut')}</p>}
             </>
           }
           perform={() =>
@@ -139,7 +139,7 @@ export function PaymentViewsBar({
           }}
         />
         {chosen?.editable && (
-          <PortalReview
+          <Review
             title={t('pv_remove')}
             description={t('pv_removeBody', { name: chosen.name })}
             perform={() => portal.deletePaymentView(chosen.id)}
@@ -151,11 +151,11 @@ export function PaymentViewsBar({
         )}
       </div>
       <div>
-        <button type="button" className="lt-link" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Button tone="quiet" aria-expanded={open} onClick={() => setOpen(!open)}>
           {t('pv_columns')}
-        </button>
+        </Button>
         {open && (
-          <fieldset className="pp-filter-row">
+          <fieldset className="lt-toolbar">
             <legend className="lt-muted">{t('pv_columnsLegend')}</legend>
             {PAYMENT_VIEW_COLUMNS.map((col) => {
               const on = columns.includes(col);
@@ -202,7 +202,7 @@ export function PayerEmailCell({ portal, payment }: { portal: PortalApi; payment
     <span className="lt-actions">
       <span data-testid="payer-email-masked">{masked}</span>
       {canUnmask && (
-        <PortalReview
+        <Review
           title={t('pay_unmask')}
           description={t('pay_unmaskBody')}
           ready={reason.trim().length >= PAYMENT_UNMASK_REASON_MIN}
