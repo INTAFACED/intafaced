@@ -3,6 +3,8 @@ import { defineCopy } from '../../../shared/i18n';
 // English source only (UI-SPEC §4.4); other languages fall back to English.
 const messages = {
   Markets: 'Markets',
+  '{count} markets, spot and perpetuals. Open any row to trade.': '{count} markets, spot and perpetuals. Open any row to trade.',
+  '{count} markets. Open any row to trade.': '{count} markets. Open any row to trade.',
   '{pair} today': '{pair} today',
   'Show a market': 'Show a market',
   'in 24h': 'in 24h',

@@ -223,7 +223,15 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   const featured = marketsLoading ? <BoardSkeleton /> : <Board entries={boardEntries} mode={layoutMode} />;
 
   return (
-    <Frame meta={meta} featured={featured}>
+    <Frame
+      meta={meta}
+      featured={featured}
+      description={
+        perpEntries.length > 0
+          ? t('{count} markets, spot and perpetuals. Open any row to trade.', { count: allPool.length })
+          : t('{count} markets. Open any row to trade.', { count: allPool.length })
+      }
+    >
       <div className="lt-stack" ref={tableTop}>
         <div data-testid="mkt-tabs" className="mkt-toolbar">
           <SectionTabs<TabValue>
@@ -368,12 +376,23 @@ function Freshness({ tickers }: { tickers: Loadable<Record<string, TickerRow>> }
  * The room on the catalogue template: the title with the prices' freshness, the person's trading access, the top cards
  * (Popular, New listings, Top gainers) and the list with its tabs, search and filters.
  */
-function Frame({ children, meta, featured }: { children: ReactNode; meta: ReactNode; featured?: ReactNode }) {
+function Frame({
+  children,
+  meta,
+  featured,
+  description,
+}: {
+  children: ReactNode;
+  meta: ReactNode;
+  featured?: ReactNode;
+  description?: ReactNode;
+}) {
   const { t } = marketsCopy.useCopy();
   return (
     <PageGrid layout="full" data-testid="if-markets">
       <CatalogueTemplate
         title={t('Markets')}
+        description={description}
         roomAction={meta}
         state={{ kind: 'ready' }}
         filters={<TradeAccess />}
