@@ -1,4 +1,4 @@
-import { Button } from '@intafaced/ui/lit';
+import { Button, Surface } from '@intafaced/ui/lit';
 import { StatusChip } from '@intafaced/ui/lit/templates';
 import {
   KYC_LADDER_LEVELS,
@@ -100,7 +100,7 @@ export function VerificationLadder({
       <p className="lt-muted">
         <Copy k="intro" /> {ladder.regionResolved ? <Copy k="region" params={{ region: ladder.region }} /> : <Copy k="regionUnknown" />}
       </p>
-      <ol className="lt-sections">
+      <ol className="lt-tile-row lt-list" data-min="card">
         {ladder.levels.map((rung) => (
           <li
             key={rung.level}
@@ -109,88 +109,94 @@ export function VerificationLadder({
             data-level={rung.level}
             aria-current={rung.current ? 'step' : undefined}
           >
-            <div className="lt-title-row">
-              <h3>
-                <Copy k={rung.level} />
-              </h3>
-              {rung.current && <StatusChip status="done" label={t('yourLevel')} />}
-            </div>
-            <h4>
-              <Copy k="unlocks" />
-            </h4>
-            <ul className="lt-list">{rung.features.map((f) => feature(rung, f))}</ul>
-            <h4>
-              <Copy k="asks" />
-            </h4>
-            {rung.requirements.published ? (
-              <ul data-testid="verification__requirements" className="lt-list" data-published="true">
-                {rung.requirements.keys.map((key) => (
-                  <li key={key} data-requirement={key}>
-                    <Copy k={key} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p data-testid="verification__requirements" className="lt-muted" data-published="false">
-                <Copy k="notPublished" />
-              </p>
-            )}
-            {rung.reviewHours === null ? (
-              <p data-testid="verification__review-time" className="lt-muted" data-stated="false">
-                <Copy k="noReviewTime" />{' '}
-                <a className="lt-link" href="/support">
-                  <Copy k="noReviewTimeHelp" /> <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
-                </a>
-              </p>
-            ) : (
-              <p data-testid="verification__review-time" data-stated="true">
-                {rung.reviewHours === 1 ? <Copy k="reviewTimeOne" /> : <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />}
-              </p>
-            )}
-            <h4>
-              <Copy k="limitsTitle" />
-            </h4>
-            <div data-testid="verification__limits" data-level={rung.level}>
-              {limits.status === 'loading' ? (
-                <p className="lt-muted">
-                  <Copy k="limitsReading" />
-                </p>
-              ) : limits.status === 'failed' ? (
-                <p className="lt-muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
-                  <Copy k="limitsFailed" />{' '}
-                  <button type="button" className="lt-link" onClick={reloadLimits}>
-                    <Copy k="limitsRetry" />
-                  </button>
-                </p>
-              ) : limitsByTier.get(rung.level)?.length ? (
-                <>
-                  <ul data-limits="set">
-                    {limitsByTier.get(rung.level)!.map((l) => (
-                      <li key={l.assetId}>
-                        <Copy k="limitRow" params={{ asset: l.assetId, perTx: l.perTx, rolling: l.rolling24h }} />
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="lt-muted">
-                    <Copy k={limits.data.enforced ? 'limitOthersRefused' : 'limitsNotApplied'} />
-                  </p>
-                </>
+            <Surface material="raised" className="lt-stack">
+              <div className="lt-title-row">
+                <h3>
+                  <Copy k={rung.level} />
+                </h3>
+                {rung.current && <StatusChip status="done" label={t('yourLevel')} />}
+              </div>
+              <h4>
+                <Copy k="unlocks" />
+              </h4>
+              <ul className="lt-list">{rung.features.map((f) => feature(rung, f))}</ul>
+              <h4>
+                <Copy k="asks" />
+              </h4>
+              {rung.requirements.published ? (
+                <ul data-testid="verification__requirements" className="lt-list" data-published="true">
+                  {rung.requirements.keys.map((key) => (
+                    <li key={key} data-requirement={key}>
+                      <Copy k={key} />
+                    </li>
+                  ))}
+                </ul>
               ) : (
-                <>
-                  <p data-limits="unset">
-                    <Copy k="limitUnset" />
-                  </p>
-                  <p className="lt-muted">
-                    <Copy k={limits.data.enforced ? 'limitUnsetRefused' : 'limitsNotApplied'} />
-                  </p>
-                </>
+                <p data-testid="verification__requirements" className="lt-muted" data-published="false">
+                  <Copy k="notPublished" />
+                </p>
               )}
-            </div>
-            {rank(rung.level) > rank(ladder.held) && offered.includes(rung.level) && (
-              <Button tone="secondary" disabled={verifyDisabled} onClick={() => onVerify(rung.level)}>
-                <Copy k="verify" />
-              </Button>
-            )}
+              {rung.reviewHours === null ? (
+                <p data-testid="verification__review-time" className="lt-muted" data-stated="false">
+                  <Copy k="noReviewTime" />{' '}
+                  <a className="lt-link" href="/support">
+                    <Copy k="noReviewTimeHelp" /> <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+                  </a>
+                </p>
+              ) : (
+                <p data-testid="verification__review-time" data-stated="true">
+                  {rung.reviewHours === 1 ? (
+                    <Copy k="reviewTimeOne" />
+                  ) : (
+                    <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />
+                  )}
+                </p>
+              )}
+              <h4>
+                <Copy k="limitsTitle" />
+              </h4>
+              <div data-testid="verification__limits" data-level={rung.level}>
+                {limits.status === 'loading' ? (
+                  <p className="lt-muted">
+                    <Copy k="limitsReading" />
+                  </p>
+                ) : limits.status === 'failed' ? (
+                  <p className="lt-muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
+                    <Copy k="limitsFailed" />{' '}
+                    <button type="button" className="lt-link" onClick={reloadLimits}>
+                      <Copy k="limitsRetry" />
+                    </button>
+                  </p>
+                ) : limitsByTier.get(rung.level)?.length ? (
+                  <>
+                    <ul data-limits="set">
+                      {limitsByTier.get(rung.level)!.map((l) => (
+                        <li key={l.assetId}>
+                          <Copy k="limitRow" params={{ asset: l.assetId, perTx: l.perTx, rolling: l.rolling24h }} />
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="lt-muted">
+                      <Copy k={limits.data.enforced ? 'limitOthersRefused' : 'limitsNotApplied'} />
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p data-limits="unset">
+                      <Copy k="limitUnset" />
+                    </p>
+                    <p className="lt-muted">
+                      <Copy k={limits.data.enforced ? 'limitUnsetRefused' : 'limitsNotApplied'} />
+                    </p>
+                  </>
+                )}
+              </div>
+              {rank(rung.level) > rank(ladder.held) && offered.includes(rung.level) && (
+                <Button tone="secondary" disabled={verifyDisabled} onClick={() => onVerify(rung.level)}>
+                  <Copy k="verify" />
+                </Button>
+              )}
+            </Surface>
           </li>
         ))}
       </ol>
