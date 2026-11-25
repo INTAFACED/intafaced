@@ -213,8 +213,10 @@
 </li>
 </ul>
 </div>
-<nav data-testid="home-actions" class="hm-keys" aria-label="Trade" data-count="4">
-<a class="hm-key" data-primary="true" href="/uc/recharge">
+<nav data-testid="home-actions" aria-label="Trade" data-count="4">
+<div class="lt-action-row">
+<a class="lt-action" data-primary="true" href="/uc/recharge">
+<span class="lt-action-icon" aria-hidden="true">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-down-to-line" aria-hidden="true">
 <path d="M12 17V3">
 </path>
@@ -223,9 +225,11 @@
 <path d="M19 21H5">
 </path>
 </svg>
-<span>Deposit</span>
+</span>
+<span class="lt-action-label">Deposit</span>
 </a>
-<a class="hm-key" href="/uc/withdraw">
+<a class="lt-action" href="/uc/withdraw">
+<span class="lt-action-icon" aria-hidden="true">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-from-line" aria-hidden="true">
 <path d="m18 9-6-6-6 6">
 </path>
@@ -234,9 +238,11 @@
 <path d="M5 21h14">
 </path>
 </svg>
-<span>Withdraw</span>
+</span>
+<span class="lt-action-label">Withdraw</span>
 </a>
-<a class="hm-key" href="/trade/convert">
+<a class="lt-action" href="/trade/convert">
+<span class="lt-action-icon" aria-hidden="true">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-left-right" aria-hidden="true">
 <path d="M8 3 4 7l4 4">
 </path>
@@ -247,17 +253,21 @@
 <path d="M20 17H4">
 </path>
 </svg>
-<span>Convert</span>
+</span>
+<span class="lt-action-label">Convert</span>
 </a>
-<a class="hm-key" href="/trade/buy">
+<a class="lt-action" href="/trade/buy">
+<span class="lt-action-icon" aria-hidden="true">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trending-up" aria-hidden="true">
 <path d="M16 7h6v6">
 </path>
 <path d="m22 7-8.5 8.5-5-5L2 17">
 </path>
 </svg>
-<span>Trade</span>
+</span>
+<span class="lt-action-label">Trade</span>
 </a>
+</div>
 </nav>
 </div>
 <div data-testid="hp-markets" aria-labelledby="home-markets-title" class="lit-surface hm-markets" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">

@@ -1,7 +1,7 @@
 // volt-room: /home
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ChevronRight, Eye, EyeOff, QrCode, Send, TrendingUp } from 'lucide-react';
-import { Button, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
+import { ActionButton, ActionRow, Button, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { commandCopy } from './command-copy';
 import { Allocation, ValueChart, ValueRanges, useValueRange } from './ValueChart';
@@ -81,19 +81,24 @@ function ActionKeys({ loading, mode }: { loading: boolean; mode: ActionMode }) {
     .map((label) => ACTIONS.find((action) => action.label === label)!)
     .filter((action) => !isHiddenPath(action.href.split('?')[0]!));
   return (
-    <nav data-testid="home-actions" className="hm-keys" aria-label={t('Trade')} data-count={live.length}>
+    <nav data-testid="home-actions" aria-label={t('Trade')} data-count={live.length}>
       {loading ? (
         <Skeleton shape="keys" count={4} />
       ) : (
-        live.map((action, index) => {
-          const Icon = action.icon;
-          return (
-            <a key={action.label} className="hm-key" data-primary={(index === 0 && mode !== 'refused') || undefined} href={action.href}>
-              <Icon aria-hidden="true" />
-              <span>{t(action.label)}</span>
-            </a>
-          );
-        })
+        <ActionRow>
+          {live.map((action, index) => {
+            const Icon = action.icon;
+            return (
+              <ActionButton
+                key={action.label}
+                icon={<Icon />}
+                label={t(action.label)}
+                primary={index === 0 && mode !== 'refused'}
+                href={action.href}
+              />
+            );
+          })}
+        </ActionRow>
       )}
     </nav>
   );

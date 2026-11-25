@@ -1,5 +1,5 @@
 import { Check, ChevronRight, Clock, X } from 'lucide-react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, ProgressSegments } from '@intafaced/ui/lit';
 import { homeCopy } from './copy';
 import { Ghost, StatusTag } from './volt-parts';
 import { progress, type Step, type StepId, type StepStatus } from './started';
@@ -104,11 +104,7 @@ export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => voi
           <span className="hm-started-hint">{t(next.status === 'review' ? 'Step verify review' : HINT[next.id])}</span>
         </a>
       ) : null}
-      <div className="hm-progress" aria-hidden="true">
-        {steps.map((step) => (
-          <i key={step.id} data-done={step.status === 'done' || undefined} />
-        ))}
-      </div>
+      <ProgressSegments total={count.total} done={count.done} label={t('Steps done', { done: count.done, total: count.total })} />
       <ul className="hm-started-list">
         {steps.map((step) => (
           <Row key={step.id} step={step} />
