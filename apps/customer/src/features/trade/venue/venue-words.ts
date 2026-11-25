@@ -17,6 +17,14 @@ export function useVenueApi(): VenueApi {
   return useMemo(() => venueApi(api), [api]);
 }
 
+/**
+ * The person's clock setting as an IANA zone. "device" and "UTC+8" are not zone names, and passing them as one made the
+ * "as of" line fall back to a raw ISO time; undefined is the device's own zone.
+ */
+export function ianaZone(zone: 'UTC' | 'UTC+8' | 'device'): string | undefined {
+  return zone === 'UTC' ? 'UTC' : zone === 'UTC+8' ? 'Etc/GMT-8' : undefined;
+}
+
 export function useAsOfText(): (iso: string) => string {
   const { timeZone } = usePreferences();
   const { t } = venueCopy.useCopy();
@@ -24,7 +32,9 @@ export function useAsOfText(): (iso: string) => string {
     (iso: string) => {
       let text: string;
       try {
-        text = new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
+        text = new Intl.DateTimeFormat('en-GB', { timeZone: ianaZone(timeZone), dateStyle: 'medium', timeStyle: 'medium' }).format(
+          new Date(iso),
+        );
       } catch {
         text = iso;
       }

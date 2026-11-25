@@ -44,6 +44,7 @@ import {
   VENUE_POLL_MS,
   VenueFrame,
   VenueHeader,
+  VenueLines,
   WalletBar,
   heldKeys,
   heldTags,
@@ -125,11 +126,16 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   }
   const perps = (markets.data?.value ?? []).filter((m) => m.kind === 'perpetual');
   const down = markets.failure?.code === 'trade.venue.venue_down';
+  const warnings = (
+    <>
+      <ActionLimitWarning venueName={status.venue.displayName} />
+      {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
+    </>
+  );
   const head = (
     <>
       <VenueHeader status={status} title={t('Futures on venue')} />
-      <ActionLimitWarning venueName={status.venue.displayName} />
-      {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
+      {warnings}
     </>
   );
   if (!markets.data && !markets.failure)
@@ -150,7 +156,7 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   if (markets.data && perps.length > 0)
     return (
       <div data-testid="if-futures" className="xd" data-venue="on">
-        <Contracts status={status} perps={perps} requested={requested} head={head} />
+        <Contracts status={status} perps={perps} requested={requested} head={warnings} />
       </div>
     );
   return (
@@ -258,43 +264,46 @@ function Contracts({
         instrument={
           <div className="lt-stack-tight">
             {head}
-            <div className="xd-top">
-              <ul className="xd-contracts" aria-label={t('Contracts')} data-testid="venue-contract-list">
-                {perps.map((m) => (
-                  <li key={m.symbol}>
-                    <Button
-                      tone="secondary"
-                      aria-pressed={m.symbol === market.symbol}
-                      aria-label={t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-                      onClick={() => setChosen(m.symbol)}
-                    >
-                      <span className="xd-tile-symbol">{m.symbol}</span>
-                      <span className="lt-num xd-tile-price">{m.mark.known ? displayAmount(m.mark.value) : '—'}</span>
-                    </Button>
+            {/* The header is the top strip itself: contracts, figures and Flatten; the venue's lines are in Market details. */}
+            <VenueHeader status={status} title={t('Futures on venue')}>
+              <div className="xd-top">
+                <ul className="xd-contracts" aria-label={t('Contracts')} data-testid="venue-contract-list">
+                  {perps.map((m) => (
+                    <li key={m.symbol}>
+                      <Button
+                        tone="secondary"
+                        aria-pressed={m.symbol === market.symbol}
+                        aria-label={t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
+                        onClick={() => setChosen(m.symbol)}
+                      >
+                        <span className="xd-tile-symbol">{m.symbol}</span>
+                        <span className="lt-num xd-tile-price">{m.mark.known ? displayAmount(m.mark.value) : '—'}</span>
+                      </Button>
+                    </li>
+                  ))}
+                  {/* One TEST mark for the whole list, not one per contract. */}
+                  <li>
+                    <TestMark test={status.test} />
                   </li>
-                ))}
-                {/* One TEST mark for the whole list, not one per contract. */}
-                <li>
-                  <TestMark test={status.test} />
-                </li>
-              </ul>
-              <div className="xd-risk-row">
-                <RiskStrip
-                  positions={account.positions.data?.value ?? []}
-                  orders={account.openOrders.data?.value ?? []}
-                  quote={market.quoteAsset}
-                  funding={
-                    market.funding.known
-                      ? t('Funding rate value', {
-                          percent: percentOf(market.funding.value.rate),
-                          every: intervalText(market.funding.value.intervalSeconds),
-                        })
-                      : null
-                  }
-                />
-                {owner ? <FlattenHold positions={account.positions.data?.value ?? []} markets={perps} owner={owner} run={run} /> : null}
+                </ul>
+                <div className="xd-risk-row">
+                  <RiskStrip
+                    positions={account.positions.data?.value ?? []}
+                    orders={account.openOrders.data?.value ?? []}
+                    quote={market.quoteAsset}
+                    funding={
+                      market.funding.known
+                        ? t('Funding rate value', {
+                            percent: percentOf(market.funding.value.rate),
+                            every: intervalText(market.funding.value.intervalSeconds),
+                          })
+                        : null
+                    }
+                  />
+                  {owner ? <FlattenHold positions={account.positions.data?.value ?? []} markets={perps} owner={owner} run={run} /> : null}
+                </div>
               </div>
-            </div>
+            </VenueHeader>
           </div>
         }
         chart={
@@ -350,10 +359,16 @@ function Contracts({
           <div className="lt-stack">
             {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
             {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-            {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+            {owner ? (
+              // The venue's fees, tiers, account and bills: one fold under the positions, never on the desk's face.
+              <Fold title={t('Venue account fold')} data-testid="venue-account-fold">
+                <VenueAccountPanel status={status} owner={owner} />
+              </Fold>
+            ) : null}
             {/* The contract's fixed specs, who may open it, its rules and tiers: there when asked for, never on the desk's face. */}
             <Fold title={t('Market details')} data-testid="venue-market-details">
               <div className="lt-stack">
+                <VenueLines status={status} />
                 <ContractStrip market={market} test={status.test} />
                 <GatedList status={status} />
                 <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />

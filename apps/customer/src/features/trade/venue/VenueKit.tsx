@@ -71,21 +71,57 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
   );
 }
 
-export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
+/**
+ * The venue's header. With `children` (a desk's top strip) the strip is what shows: the venue, its trading mode and fees
+ * stay in the header's text for screen readers, and the desk shows them in its Market details (`VenueLines`).
+ */
+export function VenueHeader({
+  status,
+  title,
+  feeLine,
+  children,
+}: {
+  status: VenueUp;
+  title: ReactNode;
+  feeLine?: ReactNode;
+  children?: ReactNode;
+}) {
   const { t } = venueCopy.useCopy();
+  const quiet = children ? true : undefined;
   return (
     <header className="lt-panel" data-testid="venue-header" aria-label={t('Venue')}>
-      <h1 className="lt-panel-title">
+      <h1 className="lt-panel-title" data-sr-only={quiet}>
         {title} <TestMark test={status.test} />
       </h1>
-      <p data-testid="venue-name">
+      <p data-testid="venue-name" data-sr-only={quiet}>
         {t('Venue')}: {status.venue.displayName} <TestMark test={status.test} />
       </p>
-      <p data-testid="venue-trading-mode">
+      <p data-testid="venue-trading-mode" data-sr-only={quiet}>
         {t('Trading mode')}: {t('Trading mode line', { venue: status.venue.displayName })}
       </p>
-      {feeLine ? <p data-testid="venue-fee-line">{feeLine}</p> : null}
+      {feeLine ? (
+        <p data-testid="venue-fee-line" data-sr-only={quiet}>
+          {feeLine}
+        </p>
+      ) : null}
+      {children}
     </header>
+  );
+}
+
+/** The venue and its trading mode, as words a desk's Market details shows (the header keeps the marked copies). */
+export function VenueLines({ status, feeLine }: { status: VenueUp; feeLine?: ReactNode }) {
+  const { t } = venueCopy.useCopy();
+  return (
+    <div className="lt-stack-tight">
+      <p>
+        {t('Venue')}: {status.venue.displayName} <TestMark test={status.test} />
+      </p>
+      <p>
+        {t('Trading mode')}: {t('Trading mode line', { venue: status.venue.displayName })}
+      </p>
+      {feeLine ? <p>{feeLine}</p> : null}
+    </div>
   );
 }
 

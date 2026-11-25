@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { openFold } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -114,7 +115,7 @@ async function accountTab(page, s, tab, { again = false } = {}) {
   const pick = page.getByTestId('venue-contract-list').getByRole('button', { name: `${SYMBOL} · ${a.name}`, exact: true });
   await pick.click();
   await expect(pick).toHaveAttribute('aria-pressed', 'true');
-  const panel = page.getByTestId('venue-account');
+  const panel = (await openFold(page, 'venue-account-fold')).getByTestId('venue-account');
   await expect(panel).toBeVisible({ timeout: 30_000 });
   await panel.getByRole('group', { name: 'Your venue accounts', exact: true }).getByRole('button', { name: tab, exact: true }).click();
   return panel;

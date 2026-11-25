@@ -424,8 +424,10 @@
 
 /* A position row stays one line high: its close percent, Close and the other actions sit in one compact row. The
    percent field keeps its accessible name; its visible label moves to screen readers. */
+/* The row's actions wrap inside their own cell rather than running past the table's edge. */
 .xd [data-testid='venue-positions'] td:last-child {
-  white-space: nowrap;
+  white-space: normal;
+  min-inline-size: 14rem;
 }
 .xd [data-testid='venue-positions'] [data-testid='venue-close'] {
   display: inline-flex;
@@ -501,4 +503,17 @@
     grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
     column-gap: 2rem;
   }
+}
+
+/* The wallet's address on a desk: its ends with an ellipsis between; the whole address is its title and its text. */
+.xd [data-testid='venue-wallet-address'] [data-part='address-middle'] {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.xd [data-testid='venue-wallet-address'] [data-part='address-end']::before {
+  content: '…';
 }

@@ -93,6 +93,7 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   'No position': 'No position',
   'Market details': 'Market details',
   'Order options': 'Order options',
+  'Venue account fold': 'Your venue account: fees, tiers and bills',
   'Positions open': '{count} open',
   'No stop on': '{count} without a stop',
   'No target on': '{count} without a target',

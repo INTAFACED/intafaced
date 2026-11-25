@@ -17,8 +17,11 @@ export function WalletBar() {
           <dl className="lt-kv">
             <div>
               <dt>{t('Connected address')}</dt>
-              <dd className="lt-mono" data-testid="venue-wallet-address">
-                {wallet.address.toLowerCase()}
+              <dd className="lt-mono" data-testid="venue-wallet-address" title={wallet.address.toLowerCase()}>
+                {/* The whole address stays in the text (copy and checks read it); a desk may show its ends only. */}
+                {wallet.address.toLowerCase().slice(0, 6)}
+                <span data-part="address-middle">{wallet.address.toLowerCase().slice(6, -4)}</span>
+                <span data-part="address-end">{wallet.address.toLowerCase().slice(-4)}</span>
               </dd>
             </div>
             <div>
