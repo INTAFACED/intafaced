@@ -71,8 +71,11 @@ export function MarketName({ symbol, name }: { symbol: string; name?: string }) 
   return (
     <span className="lt-market-name">
       {symbol === '' ? <span className="lt-market-bone" aria-hidden="true" /> : <AssetIcon asset={symbol} />}
-      <span className="lt-market-symbol">{symbol}</span>
-      {name ? <span className="lt-market-full">{name}</span> : null}
+      {/* The symbol over its name (BTC / Bitcoin), as every family picture draws a market row. */}
+      <span className="lt-market-text">
+        <span className="lt-market-symbol">{symbol}</span>
+        {name ? <span className="lt-market-full">{name}</span> : null}
+      </span>
     </span>
   );
 }

@@ -22,6 +22,10 @@ describe('MarketTable', () => {
     );
     expect(html).toContain('class="lt-market-symbol">BTC</span>');
     expect(html).toContain('class="lt-market-full">Bitcoin</span>');
+    // The symbol stands over its name, in one stacked block beside the coin.
+    expect(html).toContain(
+      '<span class="lt-market-text"><span class="lt-market-symbol">BTC</span><span class="lt-market-full">Bitcoin</span></span>',
+    );
     expect(html).toContain('href="/trade/spot/BTC-USD"');
     expect(html).toMatch(/data-label="Price" data-align="end">.*\$97,240\.12/);
     expect(html).toContain('data-direction="up"');
