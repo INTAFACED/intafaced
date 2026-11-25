@@ -58,6 +58,7 @@ export function SignUp() {
   const [country, setCountry] = useState('');
   const [subdivision, setSubdivision] = useState('');
   const [nationality, setNationality] = useState('');
+  const [showNationality, setShowNationality] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -316,6 +317,22 @@ export function SignUp() {
                   options={[{ value: '', label: t('subdivisionPick') }, ...provinces.map((p) => ({ value: p.code, label: p.name }))]}
                 />
               )}
+              {showNationality ? (
+                <SelectField
+                  label={t('nationality')}
+                  name="nationality"
+                  disabled={busy}
+                  value={nationality}
+                  onChange={setNationality}
+                  options={[{ value: '', label: t('nationalityPick') }, ...countries.map((c) => ({ value: c.code, label: c.name }))]}
+                />
+              ) : (
+                <div>
+                  <Button tone="quiet" size="sm" disabled={busy} onClick={() => setShowNationality(true)}>
+                    {t('addNationality')}
+                  </Button>
+                </div>
+              )}
               <fieldset className="lt-group lt-stack" disabled={busy}>
                 <legend>{t('usPerson')}</legend>
                 <small className="lt-muted">{t('usPersonHint')}</small>
@@ -327,14 +344,6 @@ export function SignUp() {
                   }))}
                 />
               </fieldset>
-              <SelectField
-                label={t('nationality')}
-                name="nationality"
-                disabled={busy}
-                value={nationality}
-                onChange={setNationality}
-                options={[{ value: '', label: t('nationalityPick') }, ...countries.map((c) => ({ value: c.code, label: c.name }))]}
-              />
               <Button
                 tone="primary"
                 size="lg"

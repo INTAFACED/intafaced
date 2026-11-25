@@ -30,10 +30,9 @@ const messages = {
   emailField: 'Email address',
   phoneField: 'Phone number, international format (+…)',
   handle: 'Handle',
-  handleHint: '3 to 32 letters, numbers or underscores. Other people can see it.',
+  handleHint: '3 to 32 letters, numbers or underscores',
   password: 'Password',
-  passwordRule:
-    'At least 12 characters and at most 72 bytes, not one character repeated, and not your handle or email. A long phrase you use nowhere else is best.',
+  passwordRule: 'At least 12 characters',
   screeningUnset:
     'The breached-password screening list is not set in this build, so a new password is not checked against known data breaches.',
   useEmail: 'Use email instead',
@@ -46,6 +45,7 @@ const messages = {
   usPersonYes: 'Yes, I am a US person',
   usPersonNo: 'No, I am not a US person',
   nationality: 'Nationality (optional)',
+  addNationality: 'Add a nationality',
   nationalityPick: 'Same as above, or choose',
   dateOfBirth: 'Date of birth',
   create: 'Create account',
