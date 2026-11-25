@@ -6,9 +6,19 @@ import { test } from 'node:test';
 import { optIn, optedInFiles } from './hl-venue-daily.mjs';
 
 test('a venue file opts in by calling hyperliquidForThisFile once with its recording written out', () => {
-  assert.equal(optIn('a', "const hl = hyperliquidForThisFile(test, 'J-derivatives-01-venue');"), 'J-derivatives-01-venue');
-  assert.equal(optIn('a', 'hyperliquidForThisFile( test , "J-x" )'), 'J-x');
+  assert.equal(
+    optIn('J-derivatives-01-venue.pw.mjs', "const hl = hyperliquidForThisFile(test, 'J-derivatives-01-venue');"),
+    'J-derivatives-01-venue',
+  );
+  assert.equal(optIn('J-x.pw.mjs', 'hyperliquidForThisFile( test , "J-x" )'), 'J-x');
   assert.equal(optIn('a', 'venueForThisFile(test);'), null);
+});
+
+test("a recording named other than its file is refused, naming the file's own name", () => {
+  assert.throws(
+    () => optIn('J-x-hl-venue.pw.mjs', "hyperliquidForThisFile(test, 'J-y-hl-venue')"),
+    /J-x-hl-venue\.pw\.mjs: name its recording after the file, hyperliquidForThisFile\(test, 'J-x-hl-venue'\), not 'J-y-hl-venue'/,
+  );
 });
 
 test('a call it cannot read fails by the file name, never leaves the file out', () => {
