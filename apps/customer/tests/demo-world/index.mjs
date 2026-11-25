@@ -55,10 +55,11 @@ export function recordedAnswer(href, method, { signedIn }) {
   const key = callKey(method, href);
   if (Object.hasOwn(calls, key)) return calls[key];
   const u = new URL(href, 'http://x');
-  // The same read asked at another depth or length: every other part of the query (the market, the interval) must agree.
+  // The same read asked at another depth or length, or naming the recorded venue: every other part of the query (the
+  // market, the interval) must agree.
   const rest = (x) =>
     [...x.searchParams.entries()]
-      .filter(([k]) => k !== 'depth' && k !== 'limit')
+      .filter(([k, v]) => k !== 'depth' && k !== 'limit' && !(k === 'venueId' && v === VENUE_ID))
       .sort(([a], [b]) => a.localeCompare(b))
       .join('&');
   const near = Object.keys(calls).find((k) => {

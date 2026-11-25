@@ -787,15 +787,31 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
             WHEN trade.history_datasets.sha256 = EXCLUDED.sha256 THEN trade.history_datasets.generated_at
             ELSE now()
           END
+        -- A window still open keeps the file first published for it: a client that read the manifest then downloads
+        -- the very bytes that manifest's sha256 names. The file is rebuilt once the window has closed.
+        WHERE trade.history_datasets.window_end <= now()
         RETURNING id, dataset_key, market_id, symbol, kind, day, window_start, window_end,
                   schema_version, row_count, byte_length, sha256, first_sequence, last_sequence,
                   completeness_pct::text AS completeness_pct, gaps, provenance, generated_at
       `,
     );
-    if (!row) {
+    // No row: the window is still open and its published file stays as it is.
+    const [kept] = row
+      ? [row]
+      : datasetRecordSchema.array().parse(
+          await this.sql`
+            SELECT id, dataset_key, market_id, symbol, kind, day, window_start, window_end,
+                   schema_version, row_count, byte_length, sha256, first_sequence, last_sequence,
+                   completeness_pct::text AS completeness_pct, gaps, provenance, generated_at
+              FROM trade.history_datasets
+             WHERE dataset_key = ${input.key}
+             LIMIT 1
+          `,
+        );
+    if (!kept) {
       throw new TradeError('Historical dataset upsert returned no row', TRADE_HISTORY_DATASET_NOT_FOUND);
     }
-    const corrections = await this.correctionsFor([row.id]);
-    return presentManifest(row, corrections.get(row.id) ?? []);
+    const corrections = await this.correctionsFor([kept.id]);
+    return presentManifest(kept, corrections.get(kept.id) ?? []);
   }
 }

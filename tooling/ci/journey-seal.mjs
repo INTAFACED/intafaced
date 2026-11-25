@@ -83,6 +83,9 @@ import {
   judge,
   manifestsAt,
   moneyRule,
+  NO_LANE,
+  betaLane,
+  isBetaPull,
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
@@ -600,6 +603,13 @@ export async function judgeTouchedRun({
       read.push(
         `${where}: main's money rule disagrees with the baseline on ${v.moneyByHead.join(', ')}, and this head's own rule agrees with the baseline, so each is read under the baseline's flag and any red there counts as money`,
       );
+    if (v.offBeta?.length)
+      read.push(
+        `${where}: ${v.offBeta.length} red step(s) outside the beta's own journeys, money and sign-in hold no beta pull request (the beta lane; main's run after the merge judges them): ${v.offBeta
+          .slice(0, 10)
+          .map((x) => x.step)
+          .join(', ')}${v.offBeta.length > 10 ? `, ${v.offBeta.length - 10} more` : ''}`,
+      );
     // A red this head inherited from main outside this pull request's area stops no one.
     const split = await splitOrAll(inherited, v.red, r);
     read.push(...inheritedLines(split));
@@ -725,6 +735,25 @@ async function listWhole(path, key, token, what) {
   throw new Error(`${what}: more than 1,000 listed, not whole`);
 }
 
+/**
+ * The steps on a screen the hosted beta hides, as the run's own verdict wrote them beside its report (set-aside.json
+ * `notOnBeta`, `betaUnread`): { steps } or { unread }. No file, no list or an unreadable one is unread, so the beta gate
+ * (journey-verdict.mjs betaLane) sets nothing apart and every step gates.
+ */
+export function betaOfArtifact(zip, exec = execFileSync) {
+  let list;
+  try {
+    list = JSON.parse(
+      exec('unzip', ['-p', zip, 'set-aside.json'], { maxBuffer: 64 * 2 ** 20, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }),
+    );
+  } catch {
+    return { unread: 'the run kept no readable set-aside.json' };
+  }
+  if (list?.betaUnread) return { unread: String(list.betaUnread) };
+  if (!Array.isArray(list?.notOnBeta)) return { unread: 'its set-aside.json holds no notOnBeta list' };
+  return { steps: list.notOnBeta };
+}
+
 export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   // One report artifact, downloaded and read: { states, files, ran, artifact }.
@@ -735,7 +764,7 @@ export function makeIo(repo, token) {
       writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
       const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
       const { states, files, ran } = readReport(JSON.parse(text));
-      return { states, files, ran, artifact: art.id };
+      return { states, files, ran, artifact: art.id, beta: betaOfArtifact(zip) };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -939,6 +968,14 @@ export function journeyFilesAt(root) {
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
 export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
   const { baseline, money, reports, memo } = inputs;
+  // The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061): on a beta pull request's
+  // run (a `beta/` branch of this repository), a red outside the beta's own journeys, money and sign-in holds nothing.
+  // Every other run, main's runs read for inherited reds included, keeps every step.
+  const betaPull =
+    run?.event === 'pull_request' &&
+    !isMainRun(run, repo) &&
+    isBetaPull({ headRef: run?.head_branch, headRepo: run?.head_repository?.full_name, repo });
+  const offBeta = betaPull ? betaLane({ beta: report?.beta, guard: inputs.guard, modules: inputs.owners, orders: inputs.orders }) : NO_LANE;
   const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
@@ -968,6 +1005,7 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
     headMoney,
     // The baseline the merge would hold: the head's when the pull request changes it (sealPull), else main's.
     headBaseline: headMoney ? (headBaseline ?? baseline) : null,
+    offBeta,
   });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
@@ -981,7 +1019,7 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
           ? String(baseline?.run?.sha ?? '')
           : null;
   }
-  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [] };
+  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [], offBeta: v.offBeta ?? [] };
 }
 
 /**

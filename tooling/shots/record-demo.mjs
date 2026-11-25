@@ -68,6 +68,15 @@ const CARRIES_TOKEN = /eyJ[A-Za-z0-9_-]{10,}|bearer\s/i;
 /** The public feed recorded per venue market: each read as the desks ask it, and every chart interval they offer. */
 export const FEED = { bookDepth: [10, 20], tradeLimit: [30, 50], candleIntervals: ['15m', '1h', '4h', '1d'], candleLimit: 240 };
 
+/** The venue's own fee schedule and a fresh account's rates, read from the venue for the shared zero address. */
+async function venueFeeTier() {
+  const dist = (pkg) => pathToFileURL(join(ROOT, 'packages', pkg, 'dist/index.js')).href;
+  const { HyperliquidTestnetUserVenue } = await import(dist('venue-hyperliquid'));
+  const { encodeVenueWire } = await import(dist('venue-contracts'));
+  const venue = new HyperliquidTestnetUserVenue({ appEnv: 'dev' });
+  return { status: 200, json: encodeVenueWire({ ...(await venue.feeStatus(null)), test: true }) };
+}
+
 /** The venue's public feed for each of `symbols`, keyed as the door's routes answer it, wire-encoded: one map a market. */
 async function venueFeeds(symbols) {
   const dist = (pkg) => pathToFileURL(join(ROOT, 'packages', pkg, 'dist/index.js')).href;
@@ -270,6 +279,8 @@ async function main() {
   const symbols = (states?.json?.value?.markets ?? []).map((m) => m.symbol);
   if (symbols.length === 0) throw new Error('the beta listed no venue market: nothing to record a feed for');
   const feeds = await venueFeeds(symbols);
+  // The venue's fee schedule with a fresh account's rates on it (no volume: every new account's), for the seeded trader.
+  calls.signedIn[callKey('GET', '/api/v1/venue/fee-tier')] = await venueFeeTier();
 
   // One file for the beta's own reads and one a market for its feed, each small enough for the CI review to read.
   const at = new Date().toISOString();

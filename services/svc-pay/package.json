@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx scripts/migrate.ts",
+    "live-check:screening": "tsx scripts/opensanctions-live-check.ts",
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
