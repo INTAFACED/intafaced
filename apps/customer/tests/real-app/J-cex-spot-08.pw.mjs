@@ -6,6 +6,7 @@ import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { ownSpotMarket } from './own-market.mjs';
+import { openFold } from './futures-desk.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -162,9 +163,10 @@ async function placeOnEngine(page, words = 'Placed. Run by INTAFACED on our engi
   return body.conditional;
 }
 
-/** The desk, signed in with the TEST wallet connected, the conditional orders panel on screen. */
+/** The desk, signed in with the TEST wallet connected, the conditional orders fold opened. */
 async function openDesk(page, s) {
   const wallet = await openVenueDesk(page, s.account, desk(s), s.walletKey);
+  await openFold(page, 'spot-conditional-fold');
   await expect(panel(page)).toBeVisible({ timeout: 30_000 });
   await expect(panel(page).getByTestId('spot-conditional-where')).toHaveText(ENGINE);
   return wallet;

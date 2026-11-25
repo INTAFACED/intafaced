@@ -14,7 +14,7 @@ import { VENUE_POLL_MS, outcomeText, useVenueApi } from '../../../features/trade
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { refusalOf, useSignPrepared, type Refusal } from '../futures/VenueProtect';
 import { canonical } from '../futures/venue-protect-logic';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Fold } from '@intafaced/ui/lit';
 import { spotConditionalCopy } from './spot-conditional-copy';
 import { SPOT_FIELDS, legsOutOfOrder, optionalField, spotClientId, type SpotField } from './spot-conditional-logic';
 
@@ -30,11 +30,13 @@ export function VenueConditionalOrders({ market, owner, venueName }: { market: V
   const { t } = spotConditionalCopy.useCopy();
   if (!owner) return null;
   return (
-    <section className="lt-panel" aria-label={t('Title')} data-testid="spot-conditional">
-      <h2 className="lt-panel-title">{t('Title')}</h2>
-      <p className="lt-note">{t('Note')}</p>
-      <ConditionalForm market={market} owner={owner} venueName={venueName} />
-    </section>
+    // A closed fold under the ticket: the desk keeps its height, and the orders are one click away.
+    <Fold title={t('Title')} data-testid="spot-conditional-fold">
+      <section className="lt-stack" aria-label={t('Title')} data-testid="spot-conditional">
+        <p className="lt-note">{t('Note')}</p>
+        <ConditionalForm market={market} owner={owner} venueName={venueName} />
+      </section>
+    </Fold>
   );
 }
 
