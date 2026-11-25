@@ -51,6 +51,7 @@ import {
   JOURNEYS_WORKFLOW,
   SEAL,
   getTried,
+  betaOfArtifact,
 } from './journey-seal.mjs';
 
 const REPO = 'INTAFACED/intafaced';
@@ -2319,6 +2320,67 @@ test('#1574 inputsGoing: CI and the review always count; journeys only when the 
   );
 });
 
+test('project-state#4047: no CI run on the head is CI still to come, so the seal waits, never red on "no CI ran"', async () => {
+  const { inputsGoing, sealNow, waitStep, CI_JOBS_NAME, NO_RUN } = await import('./journey-seal.mjs');
+  const { judgeCiJobs } = await import('./ci-jobs-seal.mjs');
+  const headCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
+  const files = ['apps/customer/src/features/more/MoreRoutes.tsx'];
+  // #9879 on 05a2bbde at 23:42:59 UTC, 22 Nov 2026 (seal run 45084720542): it conflicted with main, so GitHub started no
+  // pull_request run; the CI review had skipped. The seal read "every input on this head has finished" and went red.
+  const review = { id: 2, head_sha: HEAD, event: 'pull_request_target', status: 'completed' };
+  const going = inputsGoing({ sha: HEAD, runsOf: { 'ci-review.yml': [review] }, needJourneys: true });
+  assert.deepEqual(going, [`CI: ${NO_RUN} (GitHub starts none while the pull request conflicts with its base: merge main)`]);
+  assert.equal(sealNow({ files, headCi, going }).now, false, 'waits: no `CI merge seal` check, so the merge stays blocked');
+  // #9884 on 4059116a, 23 Nov 2026: the seal asked at 06:06:13 UTC and CI's run was created at 06:08:08. Another head's
+  // or another event's CI run is not this head's.
+  const other = [
+    { id: 3, head_sha: 'f'.repeat(40), event: 'pull_request', status: 'completed' },
+    { id: 4, head_sha: HEAD, event: 'push', status: 'completed' },
+  ];
+  assert.equal(inputsGoing({ sha: HEAD, runsOf: { 'ci.yml': other }, needJourneys: false }).length, 1);
+  // Once CI's run on the head is there, the seal waits for it as for any input, then judges.
+  const ci = { id: 1, head_sha: HEAD, event: 'pull_request', status: 'in_progress' };
+  assert.deepEqual(inputsGoing({ sha: HEAD, runsOf: { 'ci.yml': [ci] }, needJourneys: false }), ['CI run 1 (in_progress)']);
+  const done = { ...ci, status: 'completed', conclusion: 'failure' };
+  const finished = inputsGoing({ sha: HEAD, runsOf: { 'ci.yml': [done] }, needJourneys: false });
+  assert.deepEqual(finished, []);
+  assert.equal(sealNow({ files, headCi, going: finished }).now, true);
+  // Planted real failure: a red required job on the head's finished run is judged, and stays red (no wait).
+  const red = judgeCiJobs({
+    run: { ...done, run_attempt: 1 },
+    jobs: [{ id: 2, name: 'Doctrine gates', status: 'completed', conclusion: 'failure' }],
+    files: ['services/svc-pay/src/a.ts'],
+  });
+  assert.equal(red.ok, false);
+  assert.equal(red.wait, false, red.lines.join('\n'));
+  // A seal that must run at once (a change under .github/) on a conflicting head judges now, as before, rather than
+  // waiting out its hour for a run GitHub never starts; while GitHub hasn't computed the conflict yet, or another input
+  // is what is going, it waits.
+  const pull = { number: 9879, state: 'open', head: { sha: HEAD } };
+  assert.equal(waitStep({ pull: { ...pull, mergeable: false }, sha: HEAD, going }).act, 'judge');
+  assert.equal(waitStep({ pull: { ...pull, mergeable: null }, sha: HEAD, going }).act, 'wait');
+  assert.equal(waitStep({ pull: { ...pull, mergeable: false }, sha: HEAD, going: ['Real-app journeys run 5 (in_progress)'] }).act, 'wait');
+});
+
+test('project-state#4047: a seal on a draft holds its check and waits for `gh pr ready`, never red on the skipped review', async () => {
+  const { sealNow, waitStep, CI_JOBS_NAME } = await import('./journey-seal.mjs');
+  const headCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
+  // #10284 on 23 Nov 2026 (seal run 45130197219): a draft touching .github/ sealed at once at 07:19 UTC and was red on the
+  // CI review, which skips drafts; it was marked ready at 08:11.
+  const files = ['.github/workflows/ci.yml'];
+  // Planted: a .github/ change still seals at once, draft or not, so a pull request's own `CI merge seal` never stands alone.
+  assert.equal(sealNow({ files, headCi, going: ['CI run 1 (in_progress)'] }).now, true);
+  const pull = { number: 10284, state: 'open', draft: true, head: { sha: HEAD }, mergeable: true };
+  const step = waitStep({ pull, sha: HEAD, going: [] });
+  assert.equal(step.act, 'wait', 'a running check: it blocks the merge and is not red');
+  assert.match(step.msg, /gh pr ready/);
+  // Ready: it judges once the review it then waits for has finished.
+  assert.equal(waitStep({ pull: { ...pull, draft: false }, sha: HEAD, going: ['the CI review run 2 (in_progress)'] }).act, 'wait');
+  assert.equal(waitStep({ pull: { ...pull, draft: false }, sha: HEAD, going: [] }).act, 'judge');
+  // A draft closed, or pushed past, stops the wait as before.
+  assert.equal(waitStep({ pull: { ...pull, state: 'closed' }, sha: HEAD, going: [] }).act, 'judge');
+});
+
 test('#1574 recheckStep: a waiting first attempt is started whole; a verdict, once given, is re-run in place', async () => {
   const waitingJob = {
     id: 8,
@@ -3586,7 +3648,13 @@ test('a pure revert of a merge on main passes the seal and is not waited on; one
         const m = /\/compare\/([^.]+)\.\.\.([^?]+)\?/.exec(path);
         if (m) return compare(m[1], m[2]);
         if (path.includes('/runs?head_sha='))
-          return { workflow_runs: path.includes('real-app-journeys') ? [{ id: 4, head_sha: pull.head.sha, status: 'in_progress' }] : [] };
+          return {
+            workflow_runs: path.includes('real-app-journeys')
+              ? [{ id: 4, head_sha: pull.head.sha, status: 'in_progress' }]
+              : path.includes('/ci.yml/')
+                ? [{ id: 1, head_sha: pull.head.sha, event: 'pull_request', status: 'completed' }]
+                : [],
+          };
         if (path.includes('/jobs')) return { jobs: [], total_count: 0 };
         throw new Error(`unread ${path}`);
       };
@@ -3620,4 +3688,108 @@ test('a pure revert of a merge on main passes the seal and is not waited on; one
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061), as the merge seal reads it.
+test("betaOfArtifact: the run's own notOnBeta list, or unread for a missing, unread or listless set-aside.json", () => {
+  const ex = (text) => () => {
+    if (text instanceof Error) throw text;
+    return text;
+  };
+  assert.deepEqual(betaOfArtifact('z', ex(JSON.stringify({ notOnBeta: [{ step: 'J-a-01#1', paths: ['/h'] }] }))), {
+    steps: [{ step: 'J-a-01#1', paths: ['/h'] }],
+  });
+  assert.deepEqual(betaOfArtifact('z', ex(JSON.stringify({ notOnBeta: [], betaUnread: 'no dist' }))), { unread: 'no dist' });
+  assert.match(betaOfArtifact('z', ex(JSON.stringify({ steps: [] }))).unread, /no notOnBeta list/);
+  assert.match(betaOfArtifact('z', ex(new Error('unzip: 11'))).unread, /no readable set-aside.json/);
+  assert.match(betaOfArtifact('z', ex('not json')).unread, /no readable set-aside.json/);
+});
+
+test("fullVerdict and the beta lane: a pull request's hidden non-money red holds nothing; money, tester path, main's runs and an unread list do", () => {
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const files = { 'J-algo-dev-01': 'J-algo-dev-01.pw.mjs', 'J-identity-01': 'J-identity-01.pw.mjs', 'J-bank-05': 'J-bank-05.pw.mjs' };
+  const rep = (failing, beta) => ({
+    ...readReport({
+      suites: Object.entries(files).map(([id, file]) => ({
+        file,
+        specs: [spec(`${id} #1`, `${id}#1` === failing ? 'unexpected' : 'expected', file)],
+      })),
+    }),
+    beta,
+  });
+  const named = rep(null);
+  const inputs = {
+    baseline: { run: { number: 100, id: 1 }, steps: [] },
+    money: { 'J-algo-dev-01#1': false, 'J-identity-01#1': false, 'J-bank-05#1': true },
+    guard: { 'J-algo-dev-01#1': false, 'J-identity-01#1': false, 'J-bank-05#1': true },
+    owners: { 'J-algo-dev-01': 'algo-dev', 'J-identity-01': 'identity', 'J-bank-05': 'bank' },
+    orders: { 'J-algo-dev-01': 1, 'J-identity-01': 1, 'J-bank-05': 1 },
+    reports: new Map(),
+  };
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
+  const hidden = { steps: ['J-algo-dev-01#1', 'J-identity-01#1', 'J-bank-05#1'].map((step) => ({ step, paths: ['/hidden'] })) };
+  const pr = run(1, { head_branch: 'beta/home', event: 'pull_request', created_at: '2026-11-25T06:00:00Z' });
+  const mainRun = run(2, { head_branch: 'main', event: 'push', created_at: '2026-11-25T06:00:00Z' });
+  const v = (failing, r = pr, beta = hidden) => fullVerdict({ repo: REPO, report: rep(failing, beta), run: r, inputs, read });
+  const off = v('J-algo-dev-01#1');
+  assert.deepEqual(off.red, [], "a hidden non-money step's red holds no pull request");
+  assert.deepEqual(
+    off.offBeta.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'and is still listed',
+  );
+  assert.deepEqual(
+    v('J-identity-01#1').red.map((x) => x.step),
+    ['J-identity-01#1'],
+    'a tester-path step still blocks',
+  );
+  assert.deepEqual(
+    v('J-bank-05#1').red.map((x) => x.step),
+    ['J-bank-05#1'],
+    'a money step still blocks',
+  );
+  assert.deepEqual(
+    v('J-algo-dev-01#1', mainRun).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    "main's runs keep every step",
+  );
+  const other = run(3, { head_branch: 'fix/10883', event: 'pull_request', created_at: '2026-11-25T06:00:00Z' });
+  assert.deepEqual(
+    v('J-algo-dev-01#1', other).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'a pull request off a beta branch keeps every step',
+  );
+  const fork = run(4, { head_branch: 'beta/home', event: 'pull_request', head_repository: { full_name: 'someone/fork' } });
+  assert.deepEqual(
+    v('J-algo-dev-01#1', fork).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    "a fork's beta branch keeps every step",
+  );
+  assert.deepEqual(
+    v('J-algo-dev-01#1', pr, { unread: 'no dist' }).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'unread: everything gates',
+  );
+  assert.deepEqual(
+    v('J-algo-dev-01#1', pr, null).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'no list: everything gates',
+  );
+});
+
+test('judgeTouchedRun: a beta run whose only red is outside the beta passes the touched journeys, and says so', async () => {
+  const r = run(1, { head_branch: 'beta/home', event: 'pull_request' });
+  const got = await judgeTouchedRun({
+    sha: HEAD,
+    repo: REPO,
+    files: ['J-algo-dev-01.pw.mjs'],
+    runs: [r],
+    reportOf: async () => ({ states: { 'J-algo-dev-01#1': 'failed' }, files: {}, ran: ['J-algo-dev-01.pw.mjs'] }),
+    verdictOf: async () => ({ red: [], offBeta: [{ step: 'J-algo-dev-01#1', why: 'failing, not in the baseline', money: false }] }),
+  });
+  assert.equal(got.ok, true);
+  assert.match(
+    got.lines.join('\n'),
+    /1 red step\(s\) outside the beta's own journeys, money and sign-in hold no beta pull request[^\n]*J-algo-dev-01#1/,
+  );
 });

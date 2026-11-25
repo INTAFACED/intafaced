@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList, betaShownHref, type BetaRooms } from './beta-volt';
 import { leaveTo, navigate } from './location';
 import { findRoom, rooms } from './navigation';
-import { voltCount } from './volt-count';
+import betaScreens from './beta-screens.json';
 
-const list: BetaRooms = betaRoomList(voltCount().rooms, rooms);
+const list: BetaRooms = betaRoomList(betaScreens.rooms, rooms);
 const root = join(__dirname, '..');
 const files = (readdirSync(root, { recursive: true }) as string[])
   .filter((file) => /\.tsx?$/.test(file) && !/\.(test|spec|compare)\.tsx?$/.test(file) && !file.includes('harness'))

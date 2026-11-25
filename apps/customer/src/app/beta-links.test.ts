@@ -11,12 +11,17 @@ import { betaHides, betaRoomList, setBetaAccess, type BetaRooms } from './beta-v
 import { isHiddenPath } from './feature-registry';
 import { navigate } from './location';
 import { rooms } from './navigation';
-import { voltCount } from './volt-count';
+import betaScreens from './beta-screens.json';
 import { betaJsxSource, betaVolt } from '../../vite.config';
 
-const list: BetaRooms = betaRoomList(voltCount().rooms, rooms);
-const hidden = list.find(([route, volt]) => !volt && !route.includes(':'))![0];
-const shown = list.find(([route, volt]) => volt && !route.includes(':'))![0];
+const list: BetaRooms = betaRoomList(betaScreens.rooms, rooms);
+const hidden = list.find(([route, on]) => !on && !route.includes(':'))![0];
+const shown = list.find(([route, on]) => on && !route.includes(':'))![0];
+/** Every room shown, so a feature row, not the list, is what keeps a room out. */
+const everyRoom: BetaRooms = betaRoomList(
+  rooms.map((room) => room.path),
+  rooms,
+);
 const runtime = betaRuntime<JsxRuntime>(react);
 const jsx = runtime.jsx! as typeof react.jsx;
 
@@ -113,13 +118,13 @@ const VENUE = ['/uc/trading-permissions', '/trade/positions', '/trade/account', 
 
 describe("the beta's parked rooms", () => {
   it('are left out of the menus, every drawn link and every move in code, for a personal account without the venue door', () => {
-    vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', everyRoom);
     let at = '';
     vi.stubGlobal('history', { pushState: (_s: unknown, _t: string, to: string) => void (at = to) });
     vi.stubGlobal('window', { dispatchEvent: () => true, scrollTo: () => undefined });
     vi.stubGlobal('PopStateEvent', class {});
-    // Most of them are in Volt: their feature row, not the count, keeps them out.
-    expect(PARKED.filter((path) => !betaHides(path, list)).length).toBeGreaterThan(20);
+    // Their feature row, not the list, keeps them out: every room is shown here.
+    expect(PARKED.filter((path) => betaHides(path, everyRoom))).toEqual([]);
     expect(PARKED.filter((path) => !isHiddenPath(path))).toEqual([]);
     expect(PARKED.filter((path) => !betaDropsLink(`${path}?from=room`))).toEqual([]);
     expect(PARKED.filter((path) => jsx('a', { href: path }).type !== BetaDroppedLink)).toEqual([]);
@@ -131,7 +136,7 @@ describe("the beta's parked rooms", () => {
   });
 
   it('keeps Official channels (/help/official-channels) in menus, drawn links and navigation (J-identity-13 #1)', () => {
-    vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', everyRoom);
     let at = '';
     vi.stubGlobal('history', { pushState: (_s: unknown, _t: string, to: string) => void (at = to) });
     vi.stubGlobal('window', { dispatchEvent: () => true, scrollTo: () => undefined });
@@ -144,7 +149,7 @@ describe("the beta's parked rooms", () => {
   });
 
   it('come back in links once the account has the venue door, and stay in every other build', () => {
-    vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', everyRoom);
     setBetaAccess({ business: false, venue: true, staking: true, vaults: true });
     expect(VENUE.filter((path) => betaDropsLink(path))).toEqual([]);
     // The door on, but a venue that answers neither staking nor vaults (Hyperliquid's test network): those two stay out.

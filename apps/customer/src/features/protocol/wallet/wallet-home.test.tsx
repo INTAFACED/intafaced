@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList } from '../../../app/beta-volt';
 import { rooms } from '../../../app/navigation';
-import { voltCount } from '../../../app/volt-count';
+import betaScreens from '../../../app/beta-screens.json';
 import { WALLET_SECTIONS, walletSections } from '../routes';
 
 const transport = {
@@ -48,15 +48,14 @@ describe('WalletHomeRoom (/wallet)', () => {
     const link = host.querySelector(`a[href="${WALLET_SECTIONS.embedded}"]`);
     expect(link, 'Wallet overview renders an <a href="/wallet/embedded"> link').not.toBeNull();
     expect(link?.textContent?.trim()).toBe('Open My wallet');
-    const list = betaRoomList(voltCount().rooms, rooms);
+    const list = betaRoomList(betaScreens.rooms, rooms);
     expect(betaHides('/wallet', list)).toBe(false);
     expect(betaHides(WALLET_SECTIONS.embedded, list)).toBe(false);
   });
 
-  it('links to Venue account (/wallet/venue) in Volt and keeps it in the wallet sections (J-wallet-09)', async () => {
-    const count = voltCount();
-    const list = betaRoomList(count.rooms, rooms);
-    expect(count.rooms.find((r) => r.key === WALLET_SECTIONS.venue)?.state).toBe('volt');
+  it('links to Venue account (/wallet/venue), an Order 1 screen, and keeps it in the wallet sections (J-wallet-09)', async () => {
+    const list = betaRoomList(betaScreens.rooms, rooms);
+    expect(betaScreens.rooms).toContain(WALLET_SECTIONS.venue);
     expect(betaHides(WALLET_SECTIONS.venue, list)).toBe(false);
     expect(walletSections(list)).toContain('venue');
     await act(async () => {

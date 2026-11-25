@@ -650,3 +650,27 @@ test('any other job of the run that ran red fails the seal, whatever sealNeeded 
 function fullShards() {
   return Array.from({ length: SHARD_COUNT }, (_, i) => job(200 + i, `Tests (${i + 1}/${SHARD_COUNT})`));
 }
+
+// The beta lane (journey-verdict.mjs BETA_GATE, project-state decision PR #4061): on a beta pull request the Look gate
+// runs and reports, and never holds the merge; every other job still does.
+test('the beta lane, planted look failure: #9920 run with its Look gate red passes a beta pull request, says the look is advisory, and holds any other', () => {
+  const beta = judgeCiJobs({ run: PR_9920.run, jobs: PR_9920.jobs, files: PR_9920.files, betaPull: true });
+  assert.equal(beta.ok, true, beta.lines.join('\n'));
+  assert.ok(
+    beta.lines.some((l) => /look was failure: advisory on a beta pull request \(the beta lane\), so it holds nothing/.test(l)),
+    beta.lines.join('\n'),
+  );
+  assert.equal(judgeCiJobs({ run: PR_9920.run, jobs: PR_9920.jobs, files: PR_9920.files }).ok, false, 'another pull request is held');
+  // A red unit test, build or Doctrine gates job still holds a beta pull request.
+  const testRed = PR_9920.jobs.map((j) => (j.name.startsWith('Tests (') ? { ...j, conclusion: 'failure' } : j));
+  assert.ok(
+    testRed.some((j) => j.name.startsWith('Tests (')),
+    'the fixture has a test job',
+  );
+  assert.equal(judgeCiJobs({ run: PR_9920.run, jobs: testRed, files: PR_9920.files, betaPull: true }).ok, false);
+  const gatesRed = PR_9920.jobs.map((j) => (j.name === 'Doctrine gates' ? { ...j, conclusion: 'failure' } : j));
+  assert.equal(judgeCiJobs({ run: PR_9920.run, jobs: gatesRed, files: PR_9920.files, betaPull: true }).ok, false);
+  // A green Look gate on a beta pull request adds no line.
+  const green = judgeCiJobs({ run: PR_9920.run, jobs: lookGreen(PR_9920.jobs), files: PR_9920.files, betaPull: true });
+  assert.deepEqual([green.ok, green.lines.some((l) => /advisory/.test(l))], [true, false]);
+});

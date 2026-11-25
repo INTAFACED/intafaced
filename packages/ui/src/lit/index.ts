@@ -70,3 +70,4 @@ export {
   type StripCell,
   type FeaturedMarketProps,
 } from './components/display-parts.js';
+export { ChoiceTile, RadioTrack, WalletCard, type RadioTrackOption } from './components/auth-parts.js';

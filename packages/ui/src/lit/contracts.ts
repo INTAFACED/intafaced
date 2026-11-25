@@ -364,6 +364,11 @@ export const components = {
   ActivityRow: 'One line of activity: a circle, what and when, the signed amount at the end (in reads up), masked with hide-balances',
   ActivityList: 'The named list ActivityRows sit in',
   ButtonLink: "A link drawn as the kit's Button (primary, secondary, quiet; sm, md, lg): a call to action that goes somewhere",
+  ChoiceTile:
+    "One answer of a short choice drawn as a tile (title and a quiet line); the browser's own radio inside a fieldset, sent with the form",
+  RadioTrack: "Two or three answers on one sunken pill track, each the browser's own radio; sent with the form, may start unanswered",
+  WalletCard:
+    'The hero object of the auth pages: a tilted matte card with the brand mark, a label and a short value, lit by one soft spark',
   Display: "The page's display headline in the wide face, with an optional dimmed second line",
   SectionTitle: "A front page's section title in the wide face, a step under Display",
   LiveDot: 'A small glowing dot in the up colour beside its words; grey when off',

@@ -1402,8 +1402,8 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   assert.match(
     headers['Content-Security-Policy'],
-    /connect-src 'self' http:\/\/localhost:14500;/,
-    'the TEST sandbox address stands in for the sandbox API origin',
+    /connect-src 'self' http:\/\/localhost:14500 https:\/\/api\.turnkey\.com;/,
+    'the TEST sandbox address stands in for the sandbox API origin; the wallet provider is the fixed one (#10853)',
   );
   assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
   assert.equal(headers['X-Frame-Options'], 'DENY');
@@ -2305,4 +2305,73 @@ console.log('local-test-stack: customer folder override checks passed');
   );
 
   console.log('local-test-stack: a slot whose owner is gone is taken back, and a live owner keeps its own');
+}
+
+// The owner's vendor keys (the box's sealed vendors.local.json): a service gets them only when its own switch asks, and no
+// refusal ever carries a value.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS, vendorKeys } = await import('./local-test-stack.mjs');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vendor-keys-'));
+  const file = path.join(dir, 'vendors.local.json');
+  const names = ['TURNKEY_ORGANIZATION_ID', 'TURNKEY_API_PUBLIC_KEY', 'TURNKEY_API_PRIVATE_KEY'];
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      TURNKEY_ORGANIZATION_ID: ' org-SECRET ',
+      TURNKEY_API_PUBLIC_KEY: 'pub-SECRET',
+      TURNKEY_API_PRIVATE_KEY: 'priv-SECRET',
+    }),
+  );
+  assert.deepEqual(vendorKeys(names, file), {
+    TURNKEY_ORGANIZATION_ID: 'org-SECRET',
+    TURNKEY_API_PUBLIC_KEY: 'pub-SECRET',
+    TURNKEY_API_PRIVATE_KEY: 'priv-SECRET',
+  });
+  const refusal = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return err.message;
+    }
+    assert.fail('expected a refusal');
+  };
+  const missing = refusal(() => vendorKeys([...names, 'OPENSANCTIONS_API_KEY'], file, 'the switch'));
+  assert.match(missing, /^the switch needs OPENSANCTIONS_API_KEY in .*vendors\.local\.json/);
+  assert.doesNotMatch(missing, /SECRET/, 'a refusal never carries a value');
+  fs.writeFileSync(file, '{"TURNKEY_ORGANIZATION_ID": "org-SECRET", broken');
+  const malformed = refusal(() => vendorKeys(names, file));
+  assert.doesNotMatch(malformed, /SECRET/, 'a malformed file is refused by its name alone');
+  assert.match(
+    refusal(() => vendorKeys(names, path.join(dir, 'none.json'))),
+    /needs TURNKEY_ORGANIZATION_ID, TURNKEY_API_PUBLIC_KEY/,
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const envOf = (envs, name) => envs.find((d) => d.name === name).env;
+  const prior = { wallet: process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET, screener: process.env.LOCAL_STACK_PAY_SCREENER };
+  try {
+    delete process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET;
+    delete process.env.LOCAL_STACK_PAY_SCREENER;
+    const plain = localTestServiceEnvs(PLAN_SECRETS);
+    for (const { name, env } of plain)
+      for (const key of [...names, 'OPENSANCTIONS_API_KEY']) assert.equal(env[key], undefined, `${name} gets no ${key} by default`);
+    assert.equal(envOf(plain, 'protocol').PROTOCOL_EMBEDDED_WALLET_PROVIDER, 'TEST:test');
+    assert.equal(envOf(plain, 'pay').PAY_SCREENING_SCREENER, 'local-test');
+    // With the switch and no sealed file in this state folder, the start stops, naming the switch and the file.
+    process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET = 'turnkey';
+    assert.throws(() => localTestServiceEnvs(PLAN_SECRETS), /LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey needs TURNKEY_ORGANIZATION_ID/);
+    delete process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET;
+    process.env.LOCAL_STACK_PAY_SCREENER = 'opensanctions';
+    assert.throws(() => localTestServiceEnvs(PLAN_SECRETS), /LOCAL_STACK_PAY_SCREENER=opensanctions needs OPENSANCTIONS_API_KEY/);
+  } finally {
+    for (const [key, value] of [
+      ['LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET', prior.wallet],
+      ['LOCAL_STACK_PAY_SCREENER', prior.screener],
+    ])
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  }
 }

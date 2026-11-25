@@ -118,6 +118,16 @@ tabs overlap, so "OTO" covers "Market".
   artifact and decrypts it, unseen, into `~/.intafaced/beta/state/screening.local.json` (mode 600,
   `{"regions": "...", "source": "..."}`, the same file `docs/LOCAL-TEST-STACK.md` names). The next round starts the
   stack.
+- **The owner's vendor keys** (his wallet provider's `TURNKEY_ORGANIZATION_ID`, `TURNKEY_API_PUBLIC_KEY`,
+  `TURNKEY_API_PRIVATE_KEY`, and his screening vendor's `OPENSANCTIONS_API_KEY`; his decision is cited in the workflow's
+  header) reach the box the same way, unseen: make a fresh RSA-4096 key on the box (`~/.intafaced/beta/seal/seal.key`,
+  mode 600) and commit its public half as `tooling/beta/seal.pub.pem`; once that is on main, dispatch
+  `beta-screening-seal.yml`, download its artifact, decrypt `key.enc` with that key and `vendors.enc` with the result,
+  under `umask 077`, straight into `~/.intafaced/beta/state/vendors.local.json`; then delete the key and the download.
+  Show only that each name is set, never a value. No service reads them until a start asks: svc-identity and
+  svc-protocol with `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey`, svc-pay with `LOCAL_STACK_PAY_SCREENER=opensanctions`.
+  The beta sets neither yet. A wallet at his provider can't sign from the Customer app yet, so a tester could not
+  approve a trading session. With the TEST list, the vendor clears no custodial send.
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main
   removes it.

@@ -335,7 +335,7 @@ export const NOT_GATES = {
   'model-check.mjs':
     "the plan of model-check.yml: which TLA+ models a change is checked against (every model, when a modelled service, a path a COVERS.md names or the check itself changes), failing on a model nothing runs. Not a doctrine gate: it needs the pull request's changed files, and the models need Java and minutes, so the Model check workflow runs it; its tests are model-check.test.mjs.",
   'beta-hides.mjs':
-    "which customer-app paths the hosted beta hides, by the beta build's own rule (beta-volt.ts betaHides over volt-count.ts); journey-verdict.mjs runs it on a journeys run's recorded screens to name the steps not proven on the beta (notOnBeta). Not a doctrine gate: it judges nothing on its own and needs a run's screens; its tests are in journey-verdict.test.mjs.",
+    "which customer-app paths the hosted beta hides, by the beta build's own rule (beta-volt.ts betaHides over beta-screens.json, the rooms Order 1's steps showed); journey-verdict.mjs runs it on a journeys run's recorded screens to name the steps not proven on the beta (notOnBeta). Not a doctrine gate: it judges nothing on its own and needs a run's screens; its tests are in journey-verdict.test.mjs.",
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
   'look-paths.mjs':
@@ -390,6 +390,8 @@ export const NOT_GATES = {
     "merge-seal step: for a gate-file or look-baseline change, needs the `CI review` job (ci-review.yml, a pull_request_target run of the default branch's copy) to have passed its `Verdict` step on the PR's exact head, read from the Actions API; a FAIL on that head stands, and no comment or status counts. Needs a GitHub token and a head sha, so a laptop verify cannot run it; review-marker.test.mjs and ci-review.test.mjs check the verdict reader and which changes need the review.",
   'ci-jobs-seal.mjs':
     'merge-seal step: CI’s jobs on the pull request’s exact head (ci.yml’s Affected tests, Doctrine gates, Format, Typecheck & build, every Tests shard, Rust and the Look gate when the change needs them, and any other job that ran red), read through the Actions API, held to `sealNeeded` with the default branch classifying the changed files (`classify`). It fails when main changed a lint rule, a ceiling or the gate list (`RULE_PATHS`) after CI’s run on the head took main’s rules, so a change green before a new rule merges only once CI has judged it by that rule (project-state#3326). It runs in merge-seal.yml on pull_request_target, so the seal is the default branch’s whatever a pull request changes (R3 C3 piece 2). Needs a GitHub token and a head, so a laptop verify has no input; `ci-jobs-seal.test.mjs` holds its planted cases.',
+  'hl-venue-daily.mjs':
+    'not a gate: lists the venue files the daily Hyperliquid run takes live on main (.github/workflows/hl-venue-daily.yml); it checks no change. Its tests are hl-venue-daily.test.mjs.',
   'open-flaky.mjs':
     'the one command an agent opens a flaky item with (`gh issue create --label`, so it never exists bare: RULING 7, project-state #2065). It writes a GitHub issue, so a laptop verify has no input; `open-flaky.test.mjs` holds its cases.',
   'journey-seal.mjs':
