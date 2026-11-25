@@ -14,8 +14,8 @@ One copy of the local test stack (`tooling/scripts/local-test-stack.mjs`) runs o
 `origin/main` (`~/.intafaced/beta/checkout`), its own state folder (`~/.intafaced/beta/state`) and slot 3, so its ports
 never move. The systemd user service `intafaced-beta.service` runs `tooling/beta/beta-host.mjs serve`, which every 30
 minutes fetches main and runs `verify launch`, which readies the stack the way a journeys shard is readied and restarts
-what is down. At most once every 2 hours it first moves the checkout to main and installs, so the launch rebuilds what
-changed: a merge to main is on the link within about two and a half hours. The mailbox page names the commit served.
+what is down. When main has moved, it first moves the checkout to main and installs, so the launch rebuilds what
+changed: a merge to main is on the link within about 35 minutes. The mailbox page names the commit served.
 
 **While it updates:** the update rebuilds and restarts the stack in its one checkout, which takes about five minutes on
 the box. From before the checkout moves until the new stack passes the TEST funds check and Markets lists priced markets,
