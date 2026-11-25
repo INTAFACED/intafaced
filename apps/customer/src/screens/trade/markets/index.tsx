@@ -1,7 +1,7 @@
 // volt-room: /trade
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
-import { Button, FreshnessTag, SearchField, Segmented, StatusNote, ToggleChips } from '@intafaced/ui/lit';
+import { Button, FreshnessTag, PageGrid, SearchField, Segmented, StatusNote, ToggleChips } from '@intafaced/ui/lit';
 import { CatalogueTemplate, TabList, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
 import {
@@ -368,7 +368,7 @@ function Freshness({ tickers }: { tickers: Loadable<Record<string, TickerRow>> }
 function Frame({ children, meta, featured }: { children: ReactNode; meta: ReactNode; featured?: ReactNode }) {
   const { t } = marketsCopy.useCopy();
   return (
-    <div data-testid="if-markets">
+    <PageGrid layout="full" data-testid="if-markets">
       <CatalogueTemplate
         title={t('Markets')}
         roomAction={meta}
@@ -377,6 +377,6 @@ function Frame({ children, meta, featured }: { children: ReactNode; meta: ReactN
         featured={featured}
         items={<div className="lt-stack">{children}</div>}
       />
-    </div>
+    </PageGrid>
   );
 }
