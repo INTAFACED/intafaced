@@ -23,7 +23,7 @@
 }
 
 /* A computer: the instrument strip and the market (chart beside book and tape) on the left, the orders under them, and
-   the ticket down the right in its own scroll, so a long ticket never pushes the chart away. */
+   the ticket down the right at its full height: it never scrolls on its own, so nothing is drawn over its fields. */
 @container room (min-width: 1024px) {
   .xd .lt-desk[data-desk='pro']:not([data-arranged]) {
     grid-template-columns: minmax(0, 1fr) 22.5rem;
@@ -33,14 +33,6 @@
       'chart ticket'
       'orders ticket';
     align-items: start;
-  }
-  .xd .lt-desk[data-desk='pro'] > [data-region='ticket'] {
-    position: sticky;
-    inset-block-start: calc(var(--lit-topbar-h, 3.5rem) + 0.5rem);
-    max-block-size: calc(100dvh - var(--lit-topbar-h, 3.5rem) - 1rem);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
   }
 }
 
@@ -460,12 +452,9 @@
   white-space: nowrap;
 }
 
-/* Desk A's ticket: its summary and primary button pinned at the foot of the ticket's own scroll. */
+/* Desk A's ticket: its summary and primary button under the fields, set off by a rule. */
 @container room (min-width: 1024px) {
   .xd .xd-ticket-go {
-    position: sticky;
-    inset-block-end: 0;
-    z-index: 1;
     display: grid;
     gap: 0.5rem;
     padding-block: 0.75rem;
