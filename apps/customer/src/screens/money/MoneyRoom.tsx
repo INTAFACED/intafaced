@@ -25,22 +25,18 @@ export type MoneyOverviewProps = Omit<OverviewProps, 'state' | 'mode'> & {
   hero: ReactNode;
 };
 
-/** Links to the live Money helper rooms reachable from Assets on the hosted beta (J-wallet-01 #3 and #5). */
+/**
+ * The one quiet link at the top of Assets: the supported assets and networks (J-wallet-01 #5). Money in is the Deposit
+ * key beside the total, so the room bar repeats none of it. The link reads short on the face; its name is the list's full
+ * name, which starts with the words shown.
+ */
 export function MoneyRoomLinks() {
   const { t } = whereCopy.useCopy();
-  const links = [
-    ...(!isHiddenPath('/bank/ramps/new') ? [{ href: '/bank/ramps/new', label: t('Add money') }] : []),
-    ...(!isHiddenPath('/uc/assets') ? [{ href: '/uc/assets', label: t('Supported assets') }] : []),
-  ];
-  if (links.length === 0) return null;
+  if (isHiddenPath('/uc/assets')) return null;
   return (
-    <div className="lt-actions">
-      {links.map((link) => (
-        <a key={link.href} className="lt-button lt-button-secondary" href={link.href}>
-          {link.label}
-        </a>
-      ))}
-    </div>
+    <a className="lt-hint" href="/uc/assets" aria-label={t('Supported assets')}>
+      {t('Supported assets short')}
+    </a>
   );
 }
 

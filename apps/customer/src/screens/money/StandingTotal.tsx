@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Fold, Tag, heldStateOf, totalFreshness, useFreshnessClock, type HeldState } from '@intafaced/ui/lit';
 import type { UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
 import { useAsOfText } from '../../features/trade/venue/VenueKit';
@@ -82,6 +83,8 @@ export function StandingTotal({
   hidden,
   testId,
   face = 'full',
+  foldLead,
+  foldMore,
 }: {
   standing: Standing;
   pricesFailed: boolean;
@@ -95,6 +98,10 @@ export function StandingTotal({
    * still in the page with the same marks.
    */
   face?: 'full' | 'headline';
+  /** `headline` only: what comes first in the fold, before the total's own lines (Assets: what the room shows). */
+  foldLead?: ReactNode;
+  /** `headline` only: what follows the total's own lines in the fold (Assets: the valuation note and the movers). */
+  foldMore?: ReactNode;
 }) {
   const { t } = standingCopy.useCopy();
   const asOfText = useAsOfText();
@@ -162,7 +169,13 @@ export function StandingTotal({
         {figure}
         <PartsLine standing={standing} hidden={hidden} t={t} />
         <Fold title={t('Worked out')} data-testid="standing-worked-out">
-          <div className="lt-stack lt-stack-tight">{lines}</div>
+          <div className="lt-stack">
+            <div className="lt-stack lt-stack-tight">
+              {foldLead}
+              {lines}
+            </div>
+            {foldMore}
+          </div>
         </Fold>
       </section>
     );

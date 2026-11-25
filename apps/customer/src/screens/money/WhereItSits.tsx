@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { Info } from 'lucide-react';
 import { AssetIcon, Button, ButtonLink, Fold, PanelHead, Tag } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { PartnerHolds } from '../../features/money';
@@ -12,7 +13,7 @@ import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
 import { shortOrderId, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
-import { moneyCopy } from './copy';
+import { assetName, moneyCopy } from './copy';
 import { VALUATION_REFRESH_MS, usePartnerStanding, useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
 import type { ValuedPart } from './standing';
 import { StandingTotal, dollars } from './StandingTotal';
@@ -159,7 +160,6 @@ function Read({
   return (
     <MoneyOverview
       title={t('Title')}
-      description={t('Lede')}
       roomAction={<MoneyRoomLinks />}
       hero={
         <div className="money-where__head">
@@ -175,6 +175,28 @@ function Read({
                 hidden={hideBalances}
                 testId="assets-total"
                 face="headline"
+                foldLead={
+                  <p className="lt-hint" data-testid="assets-lede">
+                    {t('Lede')}
+                  </p>
+                }
+                foldMore={
+                  <>
+                    {valuation && standing.prices ? (
+                      <ValuationNote
+                        view={valuation}
+                        copy={money}
+                        refreshMs={VALUATION_REFRESH_MS}
+                        timeZone={timeZone}
+                        priceSourceNote={money.t('Valuation price sources', {
+                          published: standing.prices.source,
+                          venue: status.venue.displayName,
+                        })}
+                      />
+                    ) : null}
+                    {valuation ? <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} /> : null}
+                  </>
+                }
               />
             </section>
           ) : (
@@ -186,7 +208,14 @@ function Read({
       sections={
         <div className="lt-stack money-where__sections">
           {standing.totalUsd !== null ? <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} /> : null}
-          <VenueSource status={status} read={venue} valued={part('venue')} hidden={hideBalances} t={t} />
+          <VenueSource
+            status={status}
+            read={venue}
+            valued={part('venue')}
+            hidden={hideBalances}
+            t={t}
+            change={<WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />}
+          />
           <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} hidden={hideBalances} t={t} />
           <section className="lt-panel" aria-labelledby="assets-recent-title" data-testid="assets-recent">
             <PanelHead
@@ -198,23 +227,6 @@ function Read({
           {partner.state === 'none' ? null : (
             <PartnerSource read={partner} valued={part('partner')} hidden={hideBalances} t={t} onWithdraw={onWithdraw} />
           )}
-          {valuation && standing.prices ? (
-            <div className="lt-panel">
-              <ValuationNote
-                view={valuation}
-                copy={money}
-                refreshMs={VALUATION_REFRESH_MS}
-                timeZone={timeZone}
-                priceSourceNote={money.t('Valuation price sources', {
-                  published: standing.prices.source,
-                  venue: status.venue.displayName,
-                })}
-              />
-            </div>
-          ) : null}
-          <div className="lt-panel">
-            <WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />
-          </div>
           {standing.prices ? null : (
             <p className="lt-hint" data-testid="assets-no-price-note">
               {t('No price note')}
@@ -225,14 +237,6 @@ function Read({
       watching={
         <div className="lt-stack money-where__side">
           <WhereSide owner={owner} t={t} />
-          {valuation ? (
-            <div className="lt-panel">
-              <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} />
-            </div>
-          ) : null}
-          <div className="lt-panel">
-            <WalletBar />
-          </div>
         </div>
       }
     />
@@ -299,13 +303,17 @@ function QuickActions({ t }: { t: T }) {
   );
 }
 
-/** The link to the records behind one row's figure (J-portfolio-01 #6), under the asset's name. */
+/**
+ * The link to the records behind one row's figure (J-portfolio-01 #6): the row's info mark beside the asset's name.
+ * Its name says what it opens for this asset and source; its title says it to a pointer.
+ */
 function EntriesLink({ href, asset, source, t }: { href: string; asset: string; source: string; t: T }) {
   return (
     <a
       data-testid="source-entries-link"
-      className="lt-hint"
+      className="lt-hint money-where__entries"
       href={href}
+      title={t('Entries link')}
       aria-label={t('Entries link label', { asset, source })}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -313,7 +321,7 @@ function EntriesLink({ href, asset, source, t }: { href: string; asset: string; 
         navigate(href);
       }}
     >
-      {t('Entries link')}
+      <Info size={14} aria-hidden="true" />
     </a>
   );
 }
@@ -323,7 +331,7 @@ function entriesHrefOf(valued: ValuedPart | undefined, asset: string, entriesHre
   return entriesHref ?? (valued ? `${balanceEntriesHref(asset)}?source=${valued.id}` : null);
 }
 
-/** The asset cell: its mark, its symbol, and under it the link to what makes the row's figure. */
+/** The asset cell: its mark, its symbol with the info mark to what makes the row's figure, and under it its full name. */
 function AssetCell({
   asset,
   label,
@@ -335,13 +343,18 @@ function AssetCell({
   entries: { href: string; source: string } | null;
   t: T;
 }) {
+  const money = moneyCopy.useCopy();
+  const name = assetName(asset, money);
   return (
     <td data-label={t('Asset')}>
       <span className="lt-cell-name">
         <AssetIcon asset={asset} />
         <span>
-          <strong>{label ?? asset}</strong>
-          {entries ? <EntriesLink href={entries.href} asset={asset} source={entries.source} t={t} /> : null}
+          <span className="money-where__asset">
+            <strong>{label ?? asset}</strong>
+            {entries ? <EntriesLink href={entries.href} asset={asset} source={entries.source} t={t} /> : null}
+          </span>
+          {name && name !== (label ?? asset) ? <span className="lt-hint">{name}</span> : null}
         </span>
       </span>
     </td>
@@ -602,12 +615,15 @@ function VenueSource({
   valued,
   hidden,
   t,
+  change,
 }: {
   status: VenueUp;
   read: Polled<VenueRead>;
   valued: ValuedPart | undefined;
   hidden: boolean;
   t: T;
+  /** What the venue account held then and now (J-portfolio-06 #3), kept in the panel's fold, off its face. */
+  change?: ReactNode;
 }) {
   const data = read.data;
   const vaults = data?.vaults.read ? data.vaults.holdings.positions : [];
@@ -776,37 +792,57 @@ function VenueSource({
           </SourceTable>
         </div>
       ) : null}
-      {data ? (
-        <Fold title={t('Worked out')}>
-          <div className="lt-stack lt-stack-tight">
-            <p className="lt-hint">
-              {t('Venue source')} <AsOf iso={data.asOf} />
-            </p>
-            <StakingLines data={data} venue={venueName} t={t} />
-            {!data.vaults.read ? (
-              <p className="lt-hint" data-testid="source-venue-vaults-unread">
-                {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
-              </p>
-            ) : null}
-            {totals ? (
-              <p
-                className="lt-hint"
-                data-testid="source-venue-account-value"
-                data-asset={totals.asset}
-                data-venue={totals.venue}
-                data-parts={totals.parts}
-                data-adds-up={parseAmount(totals.venue) === parseAmount(totals.parts) ? 'true' : 'false'}
-              >
-                {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
-                {parseAmount(totals.venue) === parseAmount(totals.parts)
-                  ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
-                  : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
-              </p>
-            ) : null}
+      {data || change ? (
+        <Fold title={t('Worked out')} data-testid="source-venue-worked-out">
+          <div className="lt-stack">
+            {data ? <VenueLines data={data} totals={totals} venueName={venueName} t={t} /> : null}
+            {change}
           </div>
         </Fold>
       ) : null}
     </section>
+  );
+}
+
+/** The venue panel's own lines in its fold: where its figures come from, its staking, its vaults, its account value. */
+function VenueLines({
+  data,
+  totals,
+  venueName,
+  t,
+}: {
+  data: VenueRead;
+  totals: ReturnType<typeof venueTotals> | null;
+  venueName: string;
+  t: T;
+}) {
+  return (
+    <div className="lt-stack lt-stack-tight">
+      <p className="lt-hint">
+        {t('Venue source')} <AsOf iso={data.asOf} />
+      </p>
+      <StakingLines data={data} venue={venueName} t={t} />
+      {!data.vaults.read ? (
+        <p className="lt-hint" data-testid="source-venue-vaults-unread">
+          {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
+        </p>
+      ) : null}
+      {totals ? (
+        <p
+          className="lt-hint"
+          data-testid="source-venue-account-value"
+          data-asset={totals.asset}
+          data-venue={totals.venue}
+          data-parts={totals.parts}
+          data-adds-up={parseAmount(totals.venue) === parseAmount(totals.parts) ? 'true' : 'false'}
+        >
+          {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
+          {parseAmount(totals.venue) === parseAmount(totals.parts)
+            ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
+            : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

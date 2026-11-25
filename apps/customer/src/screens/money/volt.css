@@ -186,7 +186,14 @@
   margin: 0;
   padding: 0;
 }
-:root .money-where__table td .lt-cell-name > :last-child > a {
+/* The asset's symbol with its info mark on one line; its full name under them. */
+:root .money-where__asset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+:root .money-where__entries {
+  display: inline-flex;
   text-decoration: none;
 }
 @media (max-width: 47.9375rem) {

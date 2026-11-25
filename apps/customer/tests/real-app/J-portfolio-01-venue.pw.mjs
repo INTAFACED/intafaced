@@ -204,6 +204,16 @@ async function openAssets(page, { fresh = true } = {}) {
   await connectWhenAsked(page, page.locator(`[data-testid="source-wallet"][data-address="${owner}"]`));
   return sources;
 }
+/**
+ * Opens the total's "How this is worked out" fold on Assets, where the valuation note and the movers sit off the face
+ * (the owner's pick A): a person opens it to read them, and a closed fold hides them from sight and from assistive tech.
+ */
+async function openTotalFold(page) {
+  const fold = page.getByTestId('assets-total').getByTestId('standing-worked-out');
+  await expect(fold).toBeVisible({ timeout: 30_000 });
+  if ((await fold.getAttribute('open')) === null) await fold.locator('summary').click();
+  await expect(fold).toHaveAttribute('open', '');
+}
 const cell = async (row, name) =>
   (
     (
@@ -479,6 +489,7 @@ test(`${J} #2 reads the valuation note: the price source and refresh rate, stabl
   expect(btcQuote.last).toBe(units(btcFill.price));
 
   await openAssets(page);
+  await openTotalFold(page);
   const note = page.getByRole('region', { name: 'How these values are worked out', exact: true });
   await expect(note).toBeVisible({ timeout: 30_000 });
   await expect(note.locator('tr[data-coin="BTC"] [data-col="price"]')).toHaveText(dollars(btcQuote.last), { timeout: 30_000 });
@@ -798,6 +809,7 @@ test(`${J} #7 reads best and worst movers: the assets that moved most today, fro
   const expectedTotal = units(usdcBal.total) + btcVal + upVal + downVal + partnerUsdt;
 
   await openAssets(page);
+  await openTotalFold(page);
   const movers = page.getByRole('region', { name: 'Best and worst today', exact: true });
   await expect(movers).toBeVisible({ timeout: 30_000 });
   await expect(movers.locator(`[data-side="best"] li[data-asset="${up.base}"]`)).toBeVisible({ timeout: 30_000 });
