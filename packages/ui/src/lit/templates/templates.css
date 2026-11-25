@@ -414,6 +414,24 @@
     align-items: center;
     gap: var(--lit-gap-item);
   }
+  /* Inline toolbar fields keep their label whole beside the control instead of squeezing it mid-word against a 100% control. */
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    :is(.lt-toolbar, .lt-row)
+    > .lt-field:not(:has(> input:is([type='checkbox'], [type='radio'])))
+    > :is(span:first-child, label:first-child) {
+    flex: none;
+    white-space: nowrap;
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    :is(.lt-toolbar, .lt-row)
+    > .lt-field:not(:has(> input:is([type='checkbox'], [type='radio'])))
+    > :is(select, input, .lit-date) {
+    inline-size: auto;
+  }
   .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
       :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
     )

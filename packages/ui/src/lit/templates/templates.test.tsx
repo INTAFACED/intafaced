@@ -606,6 +606,11 @@ describe('the desk on a computer leaves no empty slot beside a panel', () => {
   it('a desk screen keeps its title and panels off the window edge', () => {
     expect(css).toMatch(/\.lt-room\[data-template='desk'\]:not\(\.page \.lt-room\) \{\s*padding-inline: var\(--lit-gap-item\);/);
   });
+
+  it('inline chart-desk toolbar fields keep their label whole beside an auto-sized control', () => {
+    expect(css).toMatch(/> :is\(span:first-child, label:first-child\) \{\s*flex: none;\s*white-space: nowrap;\s*\}/);
+    expect(css).toMatch(/> :is\(select, input, \.lit-date\) \{\s*inline-size: auto;\s*\}/);
+  });
 });
 
 describe('the room title', () => {
