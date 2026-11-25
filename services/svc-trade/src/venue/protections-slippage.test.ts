@@ -6,7 +6,7 @@ import { worstPrice } from './protections.js';
 const a = parseAmount;
 
 describe("a fired engine stop's worst price", () => {
-  it('is 10% past the trigger, the owner’s one value the desk’s Close uses too', () => {
+  it('is 10% past the trigger on a reduce-only exit, the one value the desk’s Close uses too (project-state decision PR #3930)', () => {
     expect(CLOSE_SLIPPAGE_PERCENT).toBe(10n);
     // A long's stop sells at no less than trigger × 0.90; a short's buys at no more than trigger × 1.10.
     expect(formatAmount(worstPrice('sell', a('60000'), a('1')))).toBe('54000');

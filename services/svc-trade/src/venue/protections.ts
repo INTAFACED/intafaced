@@ -167,7 +167,7 @@ const onTick = (price: Amount, tick: Amount, up: boolean): Amount => {
   return up && down !== price ? add(down, tick) : down;
 };
 
-/** A fired market exit's worst price: CLOSE_SLIPPAGE_PERCENT past its trigger (a sell's below, a buy's above), on the tick. */
+/** A reduce-only protection exit's worst price: CLOSE_SLIPPAGE_PERCENT past its trigger or mark (a sell's below, a buy's above), on the tick. */
 export function worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
   const raw =
     side === 'sell'

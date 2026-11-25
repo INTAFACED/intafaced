@@ -301,8 +301,9 @@ export type VenueSession = Extract<VenueMarket['session'], { known: true }>['val
 export const venueBestPricesSchema = z.object({ symbol: z.string(), bid: decimalSchema.nullable(), ask: decimalSchema.nullable() });
 export type VenueBestPrices = z.infer<typeof venueBestPricesSchema>;
 /**
- * How far past the price a stop-loss or reduce-only close may fill, in percent: the customer app's Close and svc-trade's
- * fired engine stop both use this one value, the owner's 10% for stop-loss and reduce-only closes.
+ * How far past the price a stop-loss or reduce-only close may fill, in percent, the owner's 10%. Every order that uses it
+ * is reduce-only: the customer app's Close, Close all and the risk room's close (`closeWorstPrice`), and svc-trade's
+ * protections, both the trigger order resting on the venue and the market exit the engine fires (`worstPrice`).
  */
 export const CLOSE_SLIPPAGE_PERCENT = 10n;
 /** The venue's best prices with the owner's market price protection (TRADE_MARKET_SLIPPAGE_CAP_BPS) svc-trade adds: blank is not known. */

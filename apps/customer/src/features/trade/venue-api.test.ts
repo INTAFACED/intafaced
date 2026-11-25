@@ -118,7 +118,7 @@ describe('venue client', () => {
     expect(totalToCommit({ ...preview, venueFee: { known: false } })).toBeNull();
   });
 
-  it('puts a close’s worst price on the tick, against the position', () => {
+  it('puts a reduce-only close’s worst price 10% from the mark, on the tick, against the position (project-state decision PR #3930)', () => {
     const position = {
       symbol: 'BTC-PERP',
       side: 'long' as const,
