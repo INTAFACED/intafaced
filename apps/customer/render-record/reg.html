@@ -31,55 +31,51 @@
 </a>
 </header>
 <main id="main">
-<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
-<header class="lt-title-row">
-<div>
-<h1 class="lt-title">Create your account</h1>
-<p class="lt-description">Tell us who you are, then confirm your email with the code we send. Your account opens when the code is entered.</p>
-</div>
-</header>
-<div class="lt-body">
-<ol class="lt-stepper" aria-label="Step 1 of 2">
-<li data-step="current" aria-current="step">Your details</li>
-<li data-step="todo">Confirm your email</li>
+<div class="lt-page" data-scale="auto">
+<div data-template="sign-up" class="lt-page-grid" data-layout="even">
+<div class="lt-page-col">
+<div data-testid="auth-form" class="lit-surface lt-stack lt-auth-panel" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<ol class="lt-stepper" aria-label="Step 1 of 3">
+<li data-step="current" aria-current="step">Account</li>
+<li data-step="todo">Email code</li>
+<li data-step="todo">Your wallet</li>
 </ol>
-<div class="lt-grid lt-grid-flow">
-<div class="lt-col-main">
-<section class="lt-region" data-region="step" aria-label="This step">
-<div class="lt-stack" data-testid="auth-form">
-<ol class="lt-list lt-stack" aria-label="Sign-up steps">
-<li class="lt-stack" data-step="current" aria-current="step">
-<span class="lt-hint">Step 1</span>
-<h2>Your details</h2>
-<form method="post" class="lt-stack">
-<fieldset class="lt-group lt-stack">
+<header class="lt-stack">
+<h1 class="lt-title">Open your account</h1>
+<p class="lt-description">About a minute. Then a code to your email, and your account opens.</p>
+</header>
+<form method="post" class="lt-stack" aria-label="Account">
+<fieldset class="lt-group lt-tile-row" data-min="narrow">
 <legend>Account type</legend>
-<label class="lt-field">
+<label class="lt-choice-tile">
 <input type="radio" value="individual" checked="" name="accountType">
-<span>Personal <small class="lt-muted">For you, in your own name.</small>
-</span>
+<span class="lt-choice-tile__title">Personal</span>
+<small class="lt-choice-tile__detail">For you, in your own name.</small>
 </label>
-<label class="lt-field">
+<label class="lt-choice-tile">
 <input type="radio" value="business" name="accountType">
-<span>Business <small class="lt-muted">For a company. After the code, you go on to business verification.</small>
-</span>
+<span class="lt-choice-tile__title">Business</span>
+<small class="lt-choice-tile__detail">For a company. After the code, you go on to business verification.</small>
 </label>
 </fieldset>
 <fieldset class="lt-group lt-stack">
 <legend>Sign up with</legend>
-<label class="lt-field">
+<div class="lt-radio-track">
+<label class="lt-radio-track__option">
 <input type="radio" value="email" checked="" name="channel">
 <span>Email</span>
 </label>
-<label class="lt-field">
+<label class="lt-radio-track__option">
 <input type="radio" value="phone" name="channel">
 <span>Phone</span>
 </label>
+</div>
 </fieldset>
 <div class="lit-field-control">
 <label for="_r_1_">Email address</label>
 <input autocomplete="email" maxlength="320" required="" id="_r_1_" type="email" name="email">
 </div>
+<div class="lt-tile-row">
 <div class="lit-field-control">
 <label for="_r_2_">Handle</label>
 <input autocomplete="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_]+" required="" id="_r_2_" aria-describedby="_r_2_-hint" name="handle">
@@ -90,6 +86,8 @@
 <input autocomplete="new-password" maxlength="200" required="" id="_r_3_" aria-describedby="_r_3_-hint" type="password" name="password">
 <span id="_r_3_-hint" data-part="hint">At least 12 characters and at most 72 bytes, not one character repeated, and not your handle or email. A long phrase you use nowhere else is best.</span>
 </div>
+</div>
+<div class="lt-tile-row">
 <div class="lt-field">
 <label for="_r_4_">Country you live in</label>
 <select name="country" required="" id="_r_4_">
@@ -353,21 +351,32 @@
 <option value="ZW">Zimbabwe</option>
 </select>
 </div>
+<div class="lit-field-control">
+<label for="_r_5_">Date of birth</label>
+<span class="lit-date" data-empty="">
+<input max="2026-10-21" required="" id="_r_5_" type="date" name="dateOfBirth">
+<span data-part="shown" aria-hidden="true" data-shown="mo day, yr" style="inset-inline-start: calc(0px + 0px); font: 16px &quot;Times New Roman&quot;;">
+</span>
+</span>
+</div>
+</div>
 <fieldset class="lt-group lt-stack">
 <legend>Are you a US person?</legend>
 <small class="lt-muted">A US citizen, a green-card holder or a US resident, wherever you live now.</small>
-<label class="lt-field">
+<div class="lt-radio-track">
+<label class="lt-radio-track__option">
 <input type="radio" value="yes" name="usPerson">
 <span>Yes, I am a US person</span>
 </label>
-<label class="lt-field">
+<label class="lt-radio-track__option">
 <input type="radio" value="no" name="usPerson">
 <span>No, I am not a US person</span>
 </label>
+</div>
 </fieldset>
 <div class="lt-field">
-<label for="_r_5_">Nationality (optional)</label>
-<select name="nationality" id="_r_5_">
+<label for="_r_6_">Nationality (optional)</label>
+<select name="nationality" id="_r_6_">
 <option value="">Same as above, or choose</option>
 <option value="AF">Afghanistan</option>
 <option value="AX">Åland Islands</option>
@@ -628,35 +637,53 @@
 <option value="ZW">Zimbabwe</option>
 </select>
 </div>
-<div class="lit-field-control">
-<label for="_r_6_">Date of birth</label>
-<span class="lit-date" data-empty="">
-<input max="2026-10-21" required="" id="_r_6_" type="date" name="dateOfBirth">
-<span data-part="shown" aria-hidden="true" data-shown="mo day, yr" style="inset-inline-start: calc(0px + 0px); font: 16px &quot;Times New Roman&quot;;">
-</span>
-</span>
-</div>
-<div class="lt-actions">
-<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Create account</button>
-</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg" data-block="true">Create account</button>
 </form>
 <div class="lt-stack">
 <p class="lt-muted">Or</p>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a social account</button>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a wallet</button>
 </div>
-</li>
-<li class="lt-stack" data-step="upcoming">
-<span class="lt-hint">Step 2</span>
-<h2>Confirm your email</h2>
-</li>
-</ol>
 <p class="lt-muted" data-testid="auth-form-links">Already have an account? <a class="lt-link" href="/login">Sign in</a>
 </p>
 </div>
-</section>
 </div>
-<div class="lt-col-side">
+<div class="lt-page-col">
+<div class="lit-surface lt-stack lt-auth-stage" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<div class="lt-wallet-card">
+<div class="lt-wallet-card__card">
+<span class="lt-wallet-card__top">
+<span class="lt-wallet-card__mark">
+<span class="lit-logo">
+<svg data-slot="brand-wordmark" viewBox="0 0 2730.45 200" width="150" height="10.99" fill="currentColor" focusable="false" role="img" aria-label="INTAFACED">
+<path d="M0 200L63.06 0L143.7 0L80.65 200ZM134.92 200L215.56 200L260.83 56.45C261.62 53.93 265.01 52.58 266.39 54.23L374.87 184.13C383.41 194.36 396.71 200 412.31 200L476.85 200L539.91 0L459.27 0L423.64 113L340.77 13.76C333.36 4.89 321.83 0 308.31 0L231.85 0C213.14 0 193.2 15.16 187.3 33.87ZM558.79 0L865.24 0L849.47 50L736.57 50L689.27 200L608.63 200L655.92 50L543.02 50ZM772.02 200L934.33 27.36C950.33 10.34 972.24 0 992.31 0L1061.24 0C1072.31 0 1080.86 5.6 1083.96 14.88L1131.8 158.07C1132.2 159.26 1134.23 158.71 1134.68 157.29L1162.66 68.55L1432.01 68.55L1415.23 121.77L1226.52 121.77L1201.85 200L1059.52 200L1012.87 49.31C1012.08 46.78 1008.4 46.78 1006.03 49.31L864.35 200ZM1168.5 50L1168.5 50C1177.21 22.38 1201.6 0 1222.98 0L1466.53 0L1450.76 50ZM1386.13 200L1548.44 27.36C1564.44 10.34 1586.35 0 1606.42 0L1675.36 0C1686.42 0 1694.97 5.6 1698.07 14.88L1759.92 200L1673.63 200L1626.98 49.31C1626.2 46.78 1622.52 46.78 1620.14 49.31L1478.47 200ZM2083.46 0L2067.7 50L1915.68 50C1900.54 50 1884.39 62.28 1879.62 77.42L1865.38 122.58C1860.6 137.72 1869.01 150 1884.15 150L2036.17 150L2020.4 200L1857.1 200C1799.03 200 1768.26 174.84 1780.16 137.1L1803.04 64.52C1815.25 25.81 1854.35 0 1900.8 0ZM2112.09 0L2393.14 0L2377.38 50L2176.97 50L2169.6 73.39L2363.55 73.39L2348.29 121.77L2154.34 121.77L2145.44 150L2349.07 150L2333.31 200L2049.03 200ZM2430.24 0L2651.2 0C2709.27 0 2740.05 25.16 2728.15 62.9L2705.26 135.48C2693.06 174.19 2653.95 200 2607.5 200L2367.18 200L2408.62 68.55L2489.27 68.55L2463.59 150L2592.62 150C2607.76 150 2623.91 137.72 2628.68 122.58L2642.92 77.42C2647.7 62.28 2639.29 50 2624.15 50L2414.47 50Z">
+</path>
+</svg>
+</span>
+</span>
+<span class="lt-wallet-card__spark" aria-hidden="true">
+</span>
+</span>
+<span class="lt-wallet-card__label">Your wallet · made on this device</span>
+<span class="lt-wallet-card__value">Made after the code</span>
+</div>
+</div>
+<h2 class="lt-hero-line">Your keys. Your wallet. Look around first.</h2>
+<p class="lt-description">Your own wallet is made with a passkey after the code: no seed phrase to write down. Verify only when you want to trade.</p>
+<div class="lt-tile-row" data-min="narrow">
+<div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<strong>Your own wallet</strong>
+<small class="lt-muted">No seed phrase</small>
+</div>
+<div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<strong>Fees before you confirm</strong>
+<small class="lt-muted">Every fee on its own line</small>
+</div>
+<div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<strong>Verify later</strong>
+<small class="lt-muted">Look around now</small>
+</div>
+</div>
 </div>
 </div>
 </div>

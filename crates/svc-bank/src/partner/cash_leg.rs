@@ -92,6 +92,9 @@ pub struct CashLegs {
     pub rates: Vec<Rate>,
     pub payout: Box<dyn Payout>,
     legs: Mutex<HashMap<String, Leg>>,
+    /// Held for a whole carry, so two carries of one key never both pay and stamp their own delivery time: the
+    /// second reads the leg the first stored (#9872).
+    carrying: Mutex<()>,
 }
 
 /// `parseCashLegRates`: `EUR:USDC:1.08,USD:USDC:1`. `None` when blank; a malformed list refuses to start.
@@ -360,6 +363,7 @@ impl CashLegs {
             rates,
             payout,
             legs: Mutex::new(HashMap::new()),
+            carrying: Mutex::new(()),
         }
     }
 
@@ -398,8 +402,24 @@ impl CashLegs {
         Ok(done)
     }
 
-    /// `carry`: one leg per key, made once and paid out once.
+    /// `carry`: one leg per key, made once and paid out once. Carries run one at a time, so every caller of a key
+    /// gets the one stored leg, whatever the clock read when each asked.
     pub fn carry(
+        &self,
+        custody: &Custody<'_>,
+        custody_layer: &str,
+        user_id: &str,
+        ask: &Ask,
+        now: Instant,
+    ) -> Result<Leg, Refusal> {
+        let _one_at_a_time = self
+            .carrying
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.carry_one(custody, custody_layer, user_id, ask, now)
+    }
+
+    fn carry_one(
         &self,
         custody: &Custody<'_>,
         custody_layer: &str,
@@ -588,5 +608,97 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// A payout that tells the test each time it is asked, and answers only when the test lets it.
+    struct Held {
+        asked: std::sync::mpsc::Sender<()>,
+        answer: Mutex<std::sync::mpsc::Receiver<()>>,
+        paid: Mutex<Vec<String>>,
+    }
+
+    impl Payout for std::sync::Arc<Held> {
+        fn pay(&self, reference: &str, _: &VenueAccount, _: &str, _: Amount) -> Result<(), String> {
+            self.asked.send(()).unwrap();
+            self.answer.lock().unwrap().recv().unwrap();
+            let mut paid = self.paid.lock().unwrap();
+            // The venue credits a reference once.
+            if !paid.iter().any(|p| p == reference) {
+                paid.push(reference.to_owned());
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn two_carries_of_one_key_at_once_get_the_one_stored_leg_whatever_the_clock_reads() {
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+        let (asked_tx, asked) = channel();
+        let (let_go, answer) = channel();
+        let payout = std::sync::Arc::new(Held {
+            asked: asked_tx,
+            answer: Mutex::new(answer),
+            paid: Mutex::new(Vec::new()),
+        });
+        let legs = CashLegs::new(Vec::new(), Box::new(payout.clone()));
+        let key = "convert-cash:0xabc:quote-0001";
+        let venue = VenueAccount {
+            venue_id: "venue".to_owned(),
+            owner: "0xabc".to_owned(),
+        };
+        // The cash has left already: the leg is stored, sending, and each carry finishes it.
+        let sending = Leg {
+            key: key.to_owned(),
+            user_id: "u1".to_owned(),
+            cash: "EUR".to_owned(),
+            coin: "USDC".to_owned(),
+            paid: parse_amount("10").unwrap(),
+            delivered: parse_amount("10.8").unwrap(),
+            rate: parse_amount("1.08").unwrap(),
+            venue: venue.clone(),
+            delivered_at: None,
+            move_id: "m1".to_owned(),
+            moved_at: Instant(1_000),
+            label: super::super::LABEL,
+        };
+        legs.legs().insert(key.to_owned(), sending.clone());
+        let ask = Ask {
+            key: key.to_owned(),
+            cash: "EUR".to_owned(),
+            coin: "USDC".to_owned(),
+            spend: sending.paid,
+            least: sending.delivered,
+            venue,
+        };
+        let store = crate::db::Store::Down("no database".to_owned());
+        let custody = Custody {
+            partner: None,
+            freeze: &super::super::custody::NotWired,
+            store: &store,
+        };
+        let (a, b) = std::thread::scope(|s| {
+            let first = s.spawn(|| legs.carry(&custody, "off", "u1", &ask, Instant(2_000)));
+            // The first carry is paying out, and has not been answered.
+            asked.recv_timeout(Duration::from_secs(10)).unwrap();
+            // A millisecond later the same key is carried again.
+            let second = s.spawn(|| legs.carry(&custody, "off", "u1", &ask, Instant(2_001)));
+            // The second may not pay while the first is unanswered; give it the time it would take.
+            let second_paid_too = asked.recv_timeout(Duration::from_millis(300)).is_ok();
+            let_go.send(()).unwrap();
+            if second_paid_too {
+                let_go.send(()).unwrap();
+            }
+            let a = first.join().unwrap().unwrap();
+            // A pay the second asks after the first is answered is let go, so a wrong answer fails, never hangs.
+            if !second_paid_too && asked.recv_timeout(Duration::from_millis(300)).is_ok() {
+                let_go.send(()).unwrap();
+            }
+            (a, second.join().unwrap().unwrap())
+        });
+        assert_eq!(a.delivered_at, Some(Instant(2_000)));
+        assert_eq!(a, b);
+        assert_eq!(legs.leg("u1", key), Some(a));
+        assert_eq!(*payout.paid.lock().unwrap(), vec![key.to_owned()]);
     }
 }

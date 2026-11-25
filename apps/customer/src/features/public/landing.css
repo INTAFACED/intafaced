@@ -1,0 +1,375 @@
+/* The signed-out landing page (/): Landing A, "Markets first", with B's balance slab and C's real ticket. Volt tokens only.
+   Measurements follow the picked prototype (project-state design/new-look/first-pages-2026-11-25/landing-A.html). */
+.ld {
+  inline-size: 100%;
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: 1.0714rem;
+  line-height: 1.5714rem;
+}
+.ld h1,
+.ld h2,
+.ld h3,
+.ld p {
+  margin: 0;
+}
+.ld :where(a) {
+  color: inherit;
+  text-decoration: none;
+}
+.ld [data-tone='up'] {
+  color: var(--lit-up-text);
+}
+.ld [data-tone='down'] {
+  color: var(--lit-down-text);
+}
+.ld-num {
+  font-variant-numeric: tabular-nums;
+  font-stretch: 112%;
+  text-align: end;
+  white-space: nowrap;
+}
+.ld-fig {
+  font-stretch: 125%;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.ld-pitch {
+  min-inline-size: 0;
+}
+.ld-lead {
+  max-inline-size: 34ch;
+  margin-block-start: 1.5714rem;
+  color: var(--lit-text-2);
+  font-size: clamp(1.2143rem, 1.25vw, 1.5714rem);
+  line-height: 1.45;
+}
+.ld-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5714rem;
+  margin-block-start: 2.2857rem;
+}
+.ld a:focus-visible {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+.ld-note {
+  margin-block-start: 0.8571rem;
+  color: var(--lit-text-3);
+  font-size: 0.9286rem;
+  line-height: 1.2857rem;
+}
+.ld-board {
+  padding: 1.2857rem 0.5714rem 0.5714rem;
+}
+.ld-board-note {
+  padding: 2.2857rem 1.1429rem;
+  color: var(--lit-text-3);
+  text-align: center;
+}
+.ld-board-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8571rem 1rem 0.4286rem;
+  color: var(--lit-text-3);
+  font-size: 0.9286rem;
+}
+.ld-board-foot a {
+  color: var(--lit-text-1);
+  font-weight: 600;
+}
+
+/* Section heads. */
+.ld-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5714rem 2.2857rem;
+  margin-block-end: 0.8571rem;
+}
+.ld-section-head h2 {
+  font-size: 1.4286rem;
+  font-stretch: 112%;
+  font-weight: 600;
+}
+.ld-section-head p {
+  color: var(--lit-text-3);
+  font-size: 0.9286rem;
+  line-height: 1.2857rem;
+}
+.ld-slab-copy h2,
+.ld-fees-head h2 {
+  font-size: clamp(2rem, 2.4vw, 3.4286rem);
+  line-height: 1.04;
+  font-stretch: 120%;
+  letter-spacing: -0.03em;
+  font-weight: 650;
+}
+
+/* B's balance slab beside the three doors. */
+.ld-slab-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(2.2857rem, 4vw, 5.7143rem);
+  align-items: center;
+  padding: clamp(1.7143rem, 3.5vw, 4rem);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+}
+@media (min-width: 1000px) {
+  .ld-slab-section {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+}
+.ld-slab-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.1429rem;
+}
+.ld-slab-copy > p {
+  max-inline-size: 34.2857rem;
+  color: var(--lit-text-2);
+  line-height: 1.5;
+}
+.ld-doors {
+  display: grid;
+  gap: 0.2857rem;
+  margin: 1.1429rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ld-doors a {
+  display: grid;
+  gap: 0.2857rem;
+  padding: 1.1429rem 1.4286rem;
+  border-radius: var(--lit-radius-tile);
+  transition: background var(--lit-t-quick) var(--lit-ease);
+}
+.ld-doors a:hover {
+  background: var(--lit-solid-bg-raised);
+}
+.ld-doors strong {
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+  font-size: 1.5714rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.ld-doors span {
+  color: var(--lit-text-3);
+  font-size: 1rem;
+}
+.ld-slab {
+  display: grid;
+  gap: 2.8571rem;
+  margin: 0;
+  padding: clamp(1.7143rem, 2.5vw, 2.8571rem);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-object-bg);
+  color: var(--lit-object-fg);
+  box-shadow: var(--lit-object-shadow);
+  border: 1px solid var(--lit-line-strong);
+  transform: perspective(91.4286rem) rotateX(4deg) rotateY(-7deg);
+  transform-origin: center;
+}
+.ld-slab-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.1429rem;
+}
+.ld-slab-brand {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.ld-slab-example {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5714rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-figure {
+  display: grid;
+  gap: 0.5714rem;
+}
+.ld-slab-label {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-total {
+  font-family: var(--lit-font-figure);
+  font-stretch: 118%;
+  font-weight: 700;
+  font-size: clamp(2.8571rem, 5vw, 5.7143rem);
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+.ld-slab-cents {
+  color: var(--lit-text-3);
+}
+.ld-slab-today {
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-parts {
+  display: flex;
+  gap: 0.4286rem;
+}
+.ld-slab-part {
+  display: grid;
+  gap: 0.5714rem;
+  min-inline-size: 0;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-bar {
+  block-size: 0.4286rem;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-line-strong);
+}
+.ld-slab-part:first-child .ld-slab-bar {
+  background: var(--lit-accent);
+}
+
+/* C's ticket with its fees. */
+.ld-fees-head p {
+  max-inline-size: 41.1429rem;
+  color: var(--lit-text-2);
+  font-size: 1.1429rem;
+  line-height: 1.5;
+}
+.ld-ticket {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.8571rem;
+  padding: 0.8571rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+}
+@media (min-width: 900px) {
+  .ld-ticket {
+    grid-template-columns: minmax(0, 1.5fr) minmax(22.8571rem, 1fr);
+  }
+}
+.ld-ticket-main {
+  display: grid;
+  align-content: start;
+  gap: 0.4286rem;
+  padding: 2rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+}
+.ld-ticket-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5714rem;
+  margin-block-end: 1.1429rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-ticket-big {
+  margin-block-end: 1.1429rem;
+  font-family: var(--lit-font-figure);
+  font-stretch: 118%;
+  font-weight: 700;
+  font-size: clamp(2.8571rem, 4vw, 4.5714rem);
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+.ld-ticket-get {
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+  font-weight: 600;
+  font-size: clamp(1.7143rem, 2.2vw, 2.5714rem);
+  letter-spacing: -0.03em;
+}
+.ld-ticket-chart {
+  block-size: 13.7143rem;
+  margin-block-start: 1.7143rem;
+}
+.ld-ticket-lines {
+  display: grid;
+  align-content: start;
+  margin: 0;
+  padding: 1.7143rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+}
+.ld-ticket-lines dl {
+  margin: 0;
+}
+.ld-ticket-lines dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.1429rem;
+  padding-block: 1.0286rem;
+  border-block-end: 1px solid var(--lit-line);
+}
+.ld-ticket-lines dt {
+  color: var(--lit-text-2);
+}
+.ld-ticket-lines dd {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  text-align: end;
+}
+.ld-ticket-total dt,
+.ld-ticket-total dd {
+  color: var(--lit-text-1);
+  font-weight: 700;
+}
+.ld-link {
+  margin-block-start: 1.1429rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+  text-align: center;
+}
+
+/* Closing call. */
+.ld-closing {
+  display: grid;
+  justify-items: center;
+  gap: 1.5714rem;
+  padding-block: 4.5714rem 5.7143rem;
+  text-align: center;
+}
+.ld-slab-section,
+.ld-fees {
+  margin-block-end: 1.7143rem;
+}
+
+/* At 200% text on a phone every part wraps inside the screen: no track grows past it, and the big figures shrink with
+   the screen before they spill. */
+.ld-slab-section > *,
+.ld-slab-copy > *,
+.ld-ticket > *,
+.ld-slab > * {
+  min-inline-size: 0;
+}
+.ld-slab-top,
+.ld-slab-parts,
+.ld-ticket-lines dl > div {
+  flex-wrap: wrap;
+}
+.ld-slab-copy h2,
+.ld-slab-brand,
+.ld-slab-total,
+.ld-ticket-big,
+.ld-ticket-get {
+  overflow-wrap: anywhere;
+}
+.ld-slab-total {
+  font-size: clamp(min(2.8571rem, 11vw), 5vw, 5.7143rem);
+}
+.ld-ticket-big {
+  font-size: clamp(min(2.8571rem, 11vw), 4vw, 4.5714rem);
+}

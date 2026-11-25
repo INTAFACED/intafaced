@@ -190,6 +190,8 @@
   flex: 1;
   min-height: calc(var(--lit-control-h) - 16px);
   min-width: 24px;
+  /* A label too long for its share folds onto a second line with room above and below it, clear of the track's rim. */
+  padding-block: 4px;
   border: 0;
   border-radius: calc(var(--lit-radius-control) - 4px);
   background: none;
@@ -205,11 +207,12 @@
   padding-inline: 12px;
   text-align: center;
 }
+/* The chosen segment is lifted in the raised material, never lime: lime is only the screen's one main action. */
 .lit-segmented button[aria-pressed='true'],
 .lit-segmented button[aria-selected='true'] {
-  color: var(--lit-on-accent);
-  background: linear-gradient(180deg, var(--lit-accent-fill), var(--lit-accent-fill-2));
-  box-shadow: var(--lit-fill-shadow);
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
 }
 
 /* Toggle chips: a list's filters, one on at a time; they wrap rather than scroll. */
@@ -354,6 +357,15 @@
 }
 .lit-figure__minor {
   color: var(--lit-text-3);
+}
+/* A big figure's cents, as the look sets them (smaller and dimmed on the line, or raised and small); tables keep full
+   cents. Both the decimal mark and the digits after it take them. */
+.lit-figure:not([data-size='body']) .lit-figure__minor,
+.lt-cents {
+  font-size: var(--lit-cents-size);
+  color: var(--lit-cents-tone);
+  transform: translateY(calc(-1 * var(--lit-cents-shift)));
+  display: inline-block;
 }
 .lit-figure__marks {
   display: inline-flex;
@@ -765,7 +777,6 @@
 .lt-num {
   font-variant-numeric: tabular-nums;
   /* Volt's figure cut, so every column of prices across the beta's screens lines up the same way. */
-  font-stretch: 112%;
   white-space: nowrap;
   unicode-bidi: isolate;
 }
@@ -1304,7 +1315,6 @@ button.lt-menu-item:focus-visible {
 .lit-stack__card[data-card='back'] [data-part='peek'] {
   margin-inline-start: auto;
   font-family: var(--lit-font-figure);
-  font-stretch: 125%;
 }
 .lit-stack__card[data-card='front'] {
   position: relative;
@@ -1331,7 +1341,6 @@ button.lt-menu-item:focus-visible {
 }
 .lit-stack__card[data-card='front'] [data-part='figure'] {
   font-family: var(--lit-font-figure);
-  font-stretch: 125%;
   font-weight: 600;
   font-size: 2rem;
   line-height: 1;
@@ -1843,7 +1852,6 @@ a.lt-mover:hover {
   font-size: var(--lit-type-figure-size);
   line-height: var(--lit-type-figure-line);
   font-weight: 600;
-  font-stretch: 125%;
   letter-spacing: -0.02em;
 }
 .lt-mover .lt-spark[data-size='row'] {
@@ -2214,11 +2222,12 @@ a.lit-button {
 /* Front pages' type: the wide face, large and tight. */
 .lt-display {
   margin: 0;
+  /* At 200% text on a phone a word wider than its column breaks rather than pushing the page sideways. */
+  overflow-wrap: break-word;
   font-family: var(--lit-font-figure);
   font-size: clamp(2.75rem, 5.4vw, 8.5rem);
   line-height: 0.95;
   font-weight: 700;
-  font-stretch: 125%;
   letter-spacing: -0.035em;
   color: var(--lit-text-1);
 }
@@ -2240,7 +2249,6 @@ a.lit-button {
   font-size: clamp(1.5rem, 2.4vw, 2.5rem);
   line-height: 1.1;
   font-weight: 600;
-  font-stretch: 118%;
   letter-spacing: -0.02em;
   color: var(--lit-text-1);
 }
@@ -2326,6 +2334,7 @@ a.lit-button {
 }
 .lt-featured-figure {
   display: grid;
+  min-inline-size: 0;
   align-content: center;
   gap: 0.25rem;
 }
@@ -2336,10 +2345,12 @@ a.lit-button {
   font-size: var(--lit-type-label-size);
 }
 .lt-featured-price {
+  /* At 200% text on a phone the price wraps inside its tile instead of pushing the page sideways. */
+  overflow-wrap: anywhere;
+  white-space: normal;
   font-size: clamp(2rem, 2.6vw, 2.75rem);
   line-height: 1.05;
   font-weight: 600;
-  font-stretch: 125%;
   letter-spacing: -0.02em;
 }
 .lt-featured-chart {
@@ -2440,4 +2451,156 @@ a.lit-button {
   margin-inline-start: auto;
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
+}
+/* Sign-up, sign-in and verification parts (auth-parts.tsx). */
+.lt-choice-tile {
+  position: relative;
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--lit-radius-tile);
+  border: 1px solid var(--lit-line-strong);
+  background: var(--lit-solid-bg-sunken);
+  cursor: pointer;
+}
+.lt-choice-tile > input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.lt-choice-tile:has(input:checked) {
+  border-color: var(--lit-text-1);
+  background: var(--lit-solid-bg-raised);
+}
+.lt-choice-tile:has(input:focus-visible) {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lt-choice-tile__title {
+  font-weight: var(--lit-type-heading-weight);
+  color: var(--lit-text-1);
+}
+.lt-choice-tile__detail {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+  line-height: var(--lit-type-micro-line);
+}
+.lt-radio-track {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: var(--lit-radius-control);
+  border: 1px solid var(--lit-line);
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-radio-track__option {
+  position: relative;
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  min-block-size: 2.5rem;
+  padding-inline: 0.75rem;
+  border-radius: var(--lit-radius-control);
+  border: 1px solid transparent;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  text-align: center;
+  cursor: pointer;
+}
+.lt-radio-track__option > input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.lt-radio-track__option:has(input:checked) {
+  background: var(--lit-secondary-bg);
+  border-color: var(--lit-line-strong);
+  color: var(--lit-text-1);
+  font-weight: var(--lit-type-label-weight);
+}
+.lt-radio-track__option:has(input:focus-visible) {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lt-wallet-card {
+  display: grid;
+  place-items: center;
+  padding-block: 1.5rem;
+  background: radial-gradient(55% 60% at 50% 50%, color-mix(in srgb, var(--lit-accent) 12%, transparent), transparent 70%);
+}
+.lt-wallet-card__card {
+  inline-size: min(26rem, 80%);
+  aspect-ratio: 1.586;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  padding: 1.5rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-secondary-bg);
+  box-shadow:
+    0 2.5rem 5rem -2rem var(--lit-solid-bg-sunken),
+    inset 0 0 0 1px var(--lit-line-strong);
+  transform: perspective(60rem) rotateX(10deg) rotateY(-14deg) rotateZ(-3deg);
+}
+.lt-wallet-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.lt-wallet-card__spark {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: var(--lit-accent);
+  box-shadow: 0 0 0.75rem var(--lit-accent);
+}
+.lt-wallet-card__label {
+  grid-row: 3;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-wallet-card__value {
+  grid-row: 4;
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-title-size);
+  font-weight: var(--lit-type-title-weight);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lt-wallet-card__card {
+    transform: none;
+  }
+}
+/* The two panels of an auth page: the form, and the stage beside it (the hero object, the value line, three facts). */
+.lt-auth-panel,
+.lt-auth-stage {
+  padding: clamp(1.25rem, 2.4vw, 2.5rem);
+  gap: 1rem;
+}
+.lt-auth-panel {
+  max-inline-size: 40rem;
+  inline-size: 100%;
+  justify-self: center;
+}
+.lt-auth-stage {
+  align-content: center;
+  position: sticky;
+  inset-block-start: 1.25rem;
+}
+/* On a phone the stage's three facts stack, one per line, instead of two and an orphan. */
+@media (max-width: 37.4375rem) {
+  .lt-auth-stage .lt-tile-row[data-min] {
+    grid-template-columns: 1fr;
+  }
+}
+.lt-hero-line {
+  margin: 0;
+  font-size: var(--lit-type-hero-size);
+  line-height: var(--lit-type-hero-line);
+  font-weight: var(--lit-type-hero-weight);
+  letter-spacing: var(--lit-type-hero-tracking);
+  text-wrap: balance;
 }

@@ -25,6 +25,12 @@ import { isHiddenPath, navigate } from './deps';
 import { MoneyOverview, MoneyRoomLinks } from './MoneyRoom';
 import { buyHref } from './links';
 import { balanceEntriesHref } from './balance-entries-model';
+import { SourceActivity } from './SourceActivity';
+import { NO_FILTERS } from './activity-filter';
+import { WhereSide } from './WhereSide';
+
+/** How many lines of activity Assets shows; the rest are on /money/activity. */
+const RECENT_LINES = 5;
 
 type T = ReturnType<typeof whereCopy.useCopy>['t'];
 
@@ -172,8 +178,13 @@ function Read({
       sections={
         <div className="lt-stack">
           {standing.totalUsd !== null ? <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} /> : null}
-          <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
           <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
+          <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
+          <section className="lt-stack" aria-labelledby="assets-recent-title" data-testid="assets-recent">
+            <h2 id="assets-recent-title">{t('Recent title')}</h2>
+            <SourceActivity status={status} filters={NO_FILTERS} asset={null} hidden={hideBalances} recent={RECENT_LINES} />
+            {isHiddenPath('/money/activity') ? null : <a href="/money/activity">{t('Recent all')}</a>}
+          </section>
           {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} onWithdraw={onWithdraw} />}
           {valuation && standing.prices ? (
             <ValuationNote
@@ -198,6 +209,7 @@ function Read({
       watching={
         <div className="lt-stack">
           <WalletBar />
+          <WhereSide owner={owner} t={t} />
           {valuation ? <Movers view={valuation} hidden={hideBalances} copy={money} sinceLabel={sinceLabel} /> : null}
         </div>
       }
@@ -216,8 +228,10 @@ function AsOf({ iso }: { iso: string }) {
 
 /** Where the person goes from the total (J-portfolio-01 #1): each a real room on the launch model, none a dead end. */
 const ACTIONS = [
-  { id: 'Trade', href: () => buyHref(null, null, false, 'pro') },
   { id: 'Fund venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue') },
+  { id: 'Withdraw venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue#withdraw') },
+  { id: 'Convert', href: () => (isHiddenPath('/trade/convert') ? null : '/trade/convert') },
+  { id: 'Trade', href: () => buyHref(null, null, false, 'pro') },
   { id: 'Activity', href: () => (isHiddenPath('/money/activity') ? null : '/money/activity') },
 ] as const;
 
