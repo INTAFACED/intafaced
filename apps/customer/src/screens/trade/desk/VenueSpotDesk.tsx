@@ -63,7 +63,7 @@ import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
 import { VenueDeskTicker, VenueRpiLine, venueMaintenanceLine } from './VenueDeskTicker';
-import { SpotTicketOptions, SpotTopStrip } from './SpotDeskParts';
+import { SpotTicketOptions, SpotTopStrip, useMarketOrderRefusal } from './SpotDeskParts';
 import { PendingCheck } from './VenuePending';
 import { useCancelledOrders, useFilledOrders } from './venue-order-reads';
 
@@ -143,18 +143,8 @@ export function VenueSpotDesk({
   const spreadSet = best.data?.spreadLimitBps?.known === true;
   const capSet = cap?.known === true && spreadSet;
 
-  const openingWindowEndsMs = market.openingWindowEndsAt ? Date.parse(market.openingWindowEndsAt) : Number.NaN;
-  const openingWindowActive = !Number.isNaN(openingWindowEndsMs) && openingWindowEndsMs > Date.now();
-  const higherRisk = market.zone === 'higher_risk';
   const maintenance = maintenanceOf(market.upcomingMaintenance);
-  const marketDisabledReason =
-    market.status === 'limit_only'
-      ? t('Mode limit only reason')
-      : openingWindowActive
-        ? t('Opening window reason')
-        : higherRisk
-          ? t('Higher risk zone reason')
-          : null;
+  const marketDisabledReason = useMarketOrderRefusal(market);
   const offeredTypes = market.orderTypes.filter(
     (x): x is VenueOrderType => (x === 'limit' || x === 'market') && !(x === 'market' && marketDisabledReason !== null),
   );

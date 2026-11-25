@@ -125,3 +125,18 @@ export function SpotTicketOptions({
     </Fold>
   );
 }
+
+/** Why this pair takes no market order now (limit only, its opening window, the higher-risk zone), or null. */
+export function useMarketOrderRefusal(market: VenueMarket): string | null {
+  const { t } = spotVenueCopy.useCopy();
+  const openingWindowEndsMs = market.openingWindowEndsAt ? Date.parse(market.openingWindowEndsAt) : Number.NaN;
+  const openingWindowActive = !Number.isNaN(openingWindowEndsMs) && openingWindowEndsMs > Date.now();
+  const higherRisk = market.zone === 'higher_risk';
+  return market.status === 'limit_only'
+    ? t('Mode limit only reason')
+    : openingWindowActive
+      ? t('Opening window reason')
+      : higherRisk
+        ? t('Higher risk zone reason')
+        : null;
+}
