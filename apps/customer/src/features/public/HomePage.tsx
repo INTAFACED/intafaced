@@ -1,6 +1,8 @@
 // volt-room: /
 import { useMemo, useState } from 'react';
+import { BrandLockup } from '@intafaced/ui';
 import {
+  Amount,
   ButtonLink,
   Display,
   FeaturedMarket,
@@ -10,6 +12,7 @@ import {
   PageColumn,
   PageGrid,
   PanelHead,
+  Price,
   SectionTitle,
   Stat,
   Surface,
@@ -128,7 +131,7 @@ export function HomePage() {
             <SectionTitle className="ld-closing-title">
               <span id="ld-closing-title">{t('closingTitle')}</span>
             </SectionTitle>
-            <ButtonLink tone="primary" size="lg" href="/register">
+            <ButtonLink tone="secondary" size="lg" href="/register">
               {t('openAccount')}
             </ButtonLink>
           </section>
@@ -282,7 +285,9 @@ function Slab({ t }: { t: T }) {
   return (
     <section className="ld-slab-section" aria-labelledby="ld-slab-title">
       <div className="ld-slab-copy">
-        <h2 id="ld-slab-title">{t('slabTitle')}</h2>
+        <SectionTitle className="ld-big-title">
+          <span id="ld-slab-title">{t('slabTitle')}</span>
+        </SectionTitle>
         <p>{t('slabLead')}</p>
         <ul className="ld-doors">
           {doors.map((door) => (
@@ -297,16 +302,14 @@ function Slab({ t }: { t: T }) {
       </div>
       <figure className="ld-slab" aria-label={t('slabExample')}>
         <div className="ld-slab-top">
-          <span className="ld-slab-brand">INTAFACED</span>
+          <BrandLockup size={24} title="INTAFACED" className="ld-slab-brand" />
           <span className="ld-slab-example">
             {t('slabExample')} <TestTag />
           </span>
         </div>
         <div className="ld-slab-figure">
           <span className="ld-slab-label">{t('slabTotal')}</span>
-          <span className="ld-slab-total">
-            $24,860<span className="ld-slab-cents">.40</span>
-          </span>
+          <Price className="ld-slab-total" value="$24,860.40" cents />
           <span className="ld-slab-today" data-tone="up">
             {t('slabToday')}
           </span>
@@ -336,7 +339,9 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
   return (
     <section className="ld-fees" aria-labelledby="ld-fees-title">
       <header className="ld-section-head ld-fees-head">
-        <h2 id="ld-fees-title">{t('feesTitle')}</h2>
+        <SectionTitle className="ld-big-title">
+          <span id="ld-fees-title">{t('feesTitle')}</span>
+        </SectionTitle>
         <p>{t('feesLead')}</p>
       </header>
       <div className="ld-ticket">
@@ -345,11 +350,12 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
             {t('feesExample')} <TestTag />
           </span>
           <span className="ld-slab-label">{t('feesYouPay')}</span>
-          <span className="ld-ticket-big">{fmtUsd(EXAMPLE_SPEND)}</span>
+          <Price className="ld-ticket-big" value={fmtUsd(EXAMPLE_SPEND)} cents />
           <span className="ld-slab-label">{t('feesYouGet')}</span>
-          <span className="ld-ticket-get">
-            {amount === null ? '—' : `${fmtAmount(str(amount), { places: 6 })} ${line?.market.base ?? ''}`}
-          </span>
+          <Amount
+            className="ld-ticket-get"
+            value={amount === null ? null : `${fmtAmount(str(amount), { places: 6 })} ${line?.market.base ?? ''}`}
+          />
           <div className="ld-ticket-chart" hidden={points.length < 2}>
             {line ? (
               <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} soft live fit />
@@ -375,7 +381,7 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
               <dd>{fmtUsd(EXAMPLE_SPEND)}</dd>
             </div>
           </dl>
-          <ButtonLink tone="primary" size="lg" block href="/register">
+          <ButtonLink tone="secondary" size="lg" block href="/register">
             {t('startTrading')}
           </ButtonLink>
           <a className="ld-link" href="/fees">

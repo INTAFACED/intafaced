@@ -23,18 +23,6 @@
 .ld [data-tone='down'] {
   color: var(--lit-down-text);
 }
-.ld-num {
-  font-variant-numeric: tabular-nums;
-  font-stretch: 112%;
-  text-align: end;
-  white-space: nowrap;
-}
-.ld-fig {
-  font-stretch: 125%;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
 .ld-pitch {
   min-inline-size: 0;
 }
@@ -91,23 +79,13 @@
   gap: 0.5714rem 2.2857rem;
   margin-block-end: 0.8571rem;
 }
-.ld-section-head h2 {
+.ld-section-head h2:not(.lt-section-title) {
   font-size: 1.4286rem;
-  font-stretch: 112%;
-  font-weight: 600;
 }
 .ld-section-head p {
   color: var(--lit-text-3);
   font-size: 0.9286rem;
   line-height: 1.2857rem;
-}
-.ld-slab-copy h2,
-.ld-fees-head h2 {
-  font-size: clamp(2rem, 2.4vw, 3.4286rem);
-  line-height: 1.04;
-  font-stretch: 120%;
-  letter-spacing: -0.03em;
-  font-weight: 650;
 }
 
 /* B's balance slab beside the three doors. */
@@ -154,11 +132,7 @@
   background: var(--lit-solid-bg-raised);
 }
 .ld-doors strong {
-  font-family: var(--lit-font-figure);
-  font-stretch: 112%;
   font-size: 1.5714rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
 }
 .ld-doors span {
   color: var(--lit-text-3);
@@ -183,13 +157,6 @@
   align-items: center;
   gap: 1.1429rem;
 }
-.ld-slab-brand {
-  font-family: var(--lit-font-figure);
-  font-stretch: 125%;
-  font-style: italic;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
 .ld-slab-example {
   display: inline-flex;
   align-items: center;
@@ -206,15 +173,8 @@
   font-size: var(--lit-type-micro-size);
 }
 .ld-slab-total {
-  font-family: var(--lit-font-figure);
-  font-stretch: 118%;
-  font-weight: 700;
   font-size: clamp(2.8571rem, 5vw, 5.7143rem);
-  letter-spacing: -0.045em;
   line-height: 1;
-}
-.ld-slab-cents {
-  color: var(--lit-text-3);
 }
 .ld-slab-today {
   font-size: var(--lit-type-micro-size);
@@ -278,19 +238,11 @@
 }
 .ld-ticket-big {
   margin-block-end: 1.1429rem;
-  font-family: var(--lit-font-figure);
-  font-stretch: 118%;
-  font-weight: 700;
   font-size: clamp(2.8571rem, 4vw, 4.5714rem);
-  letter-spacing: -0.045em;
   line-height: 1;
 }
 .ld-ticket-get {
-  font-family: var(--lit-font-figure);
-  font-stretch: 112%;
-  font-weight: 600;
   font-size: clamp(1.7143rem, 2.2vw, 2.5714rem);
-  letter-spacing: -0.03em;
 }
 .ld-ticket-chart {
   block-size: 13.7143rem;
@@ -319,7 +271,6 @@
 }
 .ld-ticket-lines dd {
   margin: 0;
-  font-family: var(--lit-font-figure);
   text-align: end;
 }
 .ld-ticket-total dt,
@@ -360,12 +311,12 @@
 .ld-ticket-lines dl > div {
   flex-wrap: wrap;
 }
-.ld-slab-copy h2,
-.ld-slab-brand,
+.ld-big-title,
 .ld-slab-total,
 .ld-ticket-big,
 .ld-ticket-get {
   overflow-wrap: anywhere;
+  white-space: normal;
 }
 .ld-slab-total {
   font-size: clamp(min(2.8571rem, 11vw), 5vw, 5.7143rem);
