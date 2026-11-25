@@ -1,7 +1,6 @@
 /**
- * The beta's page layout (art director, 25 Nov): one wide grid every first-party screen sits in, so landing, home,
- * markets, money and sign-up share one width, one gutter and one rhythm. Built from the owner's picked references
- * (project-state `design/new-look/first-pages-2026-11-25/` landing A and home A):
+ * The beta's page layout: one wide grid every first-party screen sits in, so landing, home, markets, money and
+ * sign-up share one width, one gutter and one rhythm, matching the owner's picked landing and home references:
  *
  * - the page fills the screen up to 150rem, with a gutter that grows from 1rem on a phone to 2.5rem;
  * - under 64rem of its own width everything is one column; from 64rem the layout's columns apply;
