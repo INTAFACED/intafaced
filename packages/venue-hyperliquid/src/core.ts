@@ -34,6 +34,18 @@ export const BPS_PER_X = 10_000;
 const MARKETS_TTL_MS = 5 * 60_000;
 /** A symbol or coin we do not know reads the listing again at most this often. */
 const MARKETS_MISS_REFRESH_MS = 10_000;
+/**
+ * How long a shared read's answer is kept (`shareReads`). The venue weighs most info reads at 20 and a few at 2, against
+ * 1200 a minute per address (its rate-limit docs); the account's fee rates and builder approval change only by its own
+ * signed action, which drops every kept answer. Each is well inside a figure's 60-second staleness limit.
+ */
+const LIGHT_READS = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
+const SLOW_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'meta', 'spotMeta']);
+export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000 } as const;
+/** How long to wait before the one retry of a read the venue answered 429, unless it says (Retry-After, capped at 5 s). */
+const READ_RETRY_MS = 1_000;
+const freshFor = (type: string) =>
+  LIGHT_READS.has(type) ? READ_FRESH_MS.light : SLOW_READS.has(type) ? READ_FRESH_MS.slow : READ_FRESH_MS.heavy;
 /** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
 export const FILLS_PAGE_CAP = 2000;
 
@@ -69,6 +81,8 @@ export type FetchLike = (
 ) => Promise<{
   readonly ok: boolean;
   readonly status: number;
+  /** Read for a 429's Retry-After only; a fake may leave it out. */
+  readonly headers?: { get(name: string): string | null };
   text(): Promise<string>;
 }>;
 
@@ -95,6 +109,13 @@ export interface HyperliquidTestnetOptions {
    * venue takes whichever chain the action names. Defaults to the app's chain, `WALLET_CHAIN_ID`.
    */
   readonly walletChainId?: number;
+  /**
+   * Share reads across callers (the live venue server): every tester's desk is read through this one process, so one
+   * address, and the venue limits each address by the weight of its requests a minute. On, an answer is kept for a few
+   * seconds by its weight (`READ_FRESH_MS`), one read is in flight per request, any signed action drops what was kept,
+   * and a read the venue answers 429 is tried once more. Off (the default), every read goes to the venue.
+   */
+  readonly shareReads?: boolean;
 }
 
 /** The chain the customer app holds a wallet on (Base Sepolia, 84532; apps/customer `APP_CHAIN_ID`), which is not INTACHAIN. */
@@ -172,6 +193,12 @@ export abstract class HyperliquidCore {
   /** One listing read at a time: concurrent callers share it. */
   private marketsInFlight: Promise<MarketIndex> | null = null;
   private lastMissRefreshMs = Number.NEGATIVE_INFINITY;
+  private readonly shareReads: boolean;
+  /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight. */
+  private readonly kept = new Map<string, { text: string; atMs: number }>();
+  private readonly reading = new Map<string, Promise<string>>();
+  /** Bumped by every signed action, so a read that began before it is not kept after it. */
+  private readsEpoch = 0;
   /**
    * Destinations of withdrawals signed and sent through this instance, by
    * nonce. The venue's ledger read does not report one; this is the
@@ -204,12 +231,46 @@ export abstract class HyperliquidCore {
     const chainId = options.walletChainId ?? WALLET_CHAIN_ID;
     if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`wallet chain ${String(chainId)} is not a chain id`);
     this.chainId = chainId;
+    this.shareReads = options.shareReads === true;
   }
 
   // ── transport ──────────────────────────────────────────────────────────
 
   /** A read. Any failure to get a readable answer is `venue_down`: nothing was changed by a read. */
   protected async info(body: Record<string, Json>): Promise<Json> {
+    if (!this.shareReads) return JSON.parse(await this.readOnce(body)) as Json;
+    const key = JSON.stringify(body);
+    const now = this.clock().getTime();
+    const kept = this.kept.get(key);
+    if (kept && now - kept.atMs < freshFor(String(body.type))) return JSON.parse(kept.text) as Json;
+    let inFlight = this.reading.get(key);
+    if (!inFlight) {
+      const epoch = this.readsEpoch;
+      inFlight = this.readOnce(body, true)
+        .then((text) => {
+          if (epoch === this.readsEpoch) this.keep(key, text);
+          return text;
+        })
+        .finally(() => this.reading.delete(key));
+      this.reading.set(key, inFlight);
+    }
+    return JSON.parse(await inFlight) as Json;
+  }
+
+  /** A signed action may change any account's reads: nothing kept before it is served after it. */
+  protected forgetReads(): void {
+    this.readsEpoch += 1;
+    this.kept.clear();
+    this.reading.clear();
+  }
+
+  private keep(key: string, text: string): void {
+    const now = this.clock().getTime();
+    if (this.kept.size >= 2_000) for (const [k, v] of this.kept) if (now - v.atMs >= READ_FRESH_MS.slow) this.kept.delete(k);
+    this.kept.set(key, { text, atMs: now });
+  }
+
+  private async readOnce(body: Record<string, Json>, retry429 = false): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -220,8 +281,15 @@ export abstract class HyperliquidCore {
         signal: controller.signal,
       });
       const text = await res.text();
+      if (res.status === 429 && retry429) {
+        clearTimeout(timer);
+        const said = Number(res.headers?.get('retry-after') ?? NaN);
+        await new Promise((r) => setTimeout(r, Number.isFinite(said) && said > 0 ? Math.min(said * 1000, 5_000) : READ_RETRY_MS));
+        return await this.readOnce(body, false);
+      }
       if (!res.ok) throw refusal(this.venue.id, 'venue_down', `info ${String(body.type)} answered HTTP ${res.status}`);
-      return JSON.parse(text) as Json;
+      JSON.parse(text);
+      return text;
     } catch (error) {
       if (error instanceof VenueRefusalError) throw error;
       throw refusal(this.venue.id, 'venue_down', `info ${String(body.type)} failed: ${(error as Error).message}`);
