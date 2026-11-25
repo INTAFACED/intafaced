@@ -1,6 +1,6 @@
 {
   "label": "TEST",
-  "at": "2026-11-25T04:32:07.488Z",
+  "at": "2026-11-25T04:35:30.992Z",
   "source": "the hosted beta, venue on (TEST venue: testnet)",
   "calls": {
     "signedOut": {
@@ -75,7 +75,7 @@
             "test": true,
             "label": "TEST"
           },
-          "asOf": "2026-11-25T04:31:20.934Z"
+          "asOf": "2026-11-25T04:34:27.605Z"
         }
       },
       "GET /api/v1/markets?limit=500": {
@@ -127,7 +127,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816835982, "datetime": "2026-11-27T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816849690, "datetime": "2026-11-27T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -142,11 +142,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.811Z",
+              "observedAt": "2026-11-25T04:34:49.811Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:6a03172613f7ddc03af238d461bff777",
+              "transitionId": "trade.lifecycle.snapshot:df892d7ad01cb0673e312140e3e35382",
               "evidenceRefs": ["trade.lifecycle.evidence:0dfc0c281aaf876a1883700a48056406"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -211,7 +211,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644035982, "datetime": "2026-11-25T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644049690, "datetime": "2026-11-25T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -232,11 +232,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.811Z",
+              "observedAt": "2026-11-25T04:34:49.811Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:555bb5cb204a45cd6a8a523d77e3b5bd",
+              "transitionId": "trade.lifecycle.snapshot:4607f9e4ef87d37069c2a5bfa42ef44d",
               "evidenceRefs": ["trade.lifecycle.evidence:703d8fef8c82e549ebc708be23bdc6de"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -312,10 +312,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:54:59.337Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "observedAt": "2026-11-25T04:34:49.811Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:e85f5cf23f7672c6c35bb3d9584084e4",
+              "transitionId": "trade.lifecycle.snapshot:87f7dc4b0f1717a94f4aaf6882847ed5",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:344c2fe1c0a66053bd518e26ea63c0a6",
@@ -398,10 +398,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:54:59.527Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:0ac9d784ebd35eda7361322f45d40bc9",
+              "transitionId": "trade.lifecycle.snapshot:17a00cbf665a38959c4e47b410fae874",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:ffcf08db6e352d70f7e205e92f7ce4f7",
@@ -484,10 +484,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:55:00.001Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:232e49be092a1ee5068f5514c3ee1349",
+              "transitionId": "trade.lifecycle.snapshot:5678fd06fd9c5eb4f3e00a7dfd4ada62",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:ee9d6265ea512b6734c8d97719b100bd",
@@ -570,10 +570,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:55:00.157Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:8f91b58e159f2858df0031a8965fb9ee",
+              "transitionId": "trade.lifecycle.snapshot:2e5b07f3811c5ed0fd1744b9ac6879a2",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:78547d43e9adb9e45c95bd208d8fe96e",
@@ -657,7 +657,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816835982, "datetime": "2026-11-27T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816849690, "datetime": "2026-11-27T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -672,11 +672,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:a92081aec9e927f6c8bc47d2a96bda33",
+              "transitionId": "trade.lifecycle.snapshot:48beb1d40df6d1a4b80afda90149cd53",
               "evidenceRefs": ["trade.lifecycle.evidence:1a2e3ce0895d45b8302adf3e0c47a22a"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -753,7 +753,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816835982, "datetime": "2026-11-27T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816849690, "datetime": "2026-11-27T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -768,11 +768,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:4844dbc40537b2ed54f0dc5169fe79cb",
+              "transitionId": "trade.lifecycle.snapshot:251c9d2b14400b2e837bd92773a628e4",
               "evidenceRefs": ["trade.lifecycle.evidence:e74e9637d65d2932f0836b1372b22ec1"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -848,10 +848,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:55:00.658Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:34ce0cb1d8bc8323881edad70a613288",
+              "transitionId": "trade.lifecycle.snapshot:e700365cb15309f57146f0467f8352dc",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:60e0d903dd2ec53c62c2a09511f440f5",
@@ -923,7 +923,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644035982, "datetime": "2026-11-25T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644049690, "datetime": "2026-11-25T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -944,11 +944,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:67462f6cd4a79fe584954f141982846b",
+              "transitionId": "trade.lifecycle.snapshot:702de5bfffc5fcc038068ef077c813ae",
               "evidenceRefs": ["trade.lifecycle.evidence:6ba625b564f443cb919d1650fdcd6074"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -1025,7 +1025,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816835982, "datetime": "2026-11-27T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816849690, "datetime": "2026-11-27T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -1040,11 +1040,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:c7eb72b1ffccfaef0cf4a5489215eeca",
+              "transitionId": "trade.lifecycle.snapshot:531f97e88f89980a7b5ec77956ba12ba",
               "evidenceRefs": ["trade.lifecycle.evidence:31d6f8a25c3153b0bf9b8741d0deb466"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -1121,7 +1121,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816835982, "datetime": "2026-11-27T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816849690, "datetime": "2026-11-27T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -1136,11 +1136,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:3177b63560f134a5624f3e6f0a24b0ef",
+              "transitionId": "trade.lifecycle.snapshot:9a2395de29f00e82190feca215672386",
               "evidenceRefs": ["trade.lifecycle.evidence:65700694c9641a898c371f3a6f5dfea6"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -1217,7 +1217,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816835982, "datetime": "2026-11-27T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816849690, "datetime": "2026-11-27T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -1232,11 +1232,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:efff6351e0e8bd57a182c169622966c4",
+              "transitionId": "trade.lifecycle.snapshot:240a3290fe66cba8bc0b17e6199edbf4",
               "evidenceRefs": ["trade.lifecycle.evidence:07a053aa03c5c785b25ac9d3c77a6fb2"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -1301,7 +1301,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644035982, "datetime": "2026-11-25T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644049690, "datetime": "2026-11-25T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -1322,11 +1322,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:b571640a323574163fbbee3d731c1edb",
+              "transitionId": "trade.lifecycle.snapshot:d09dc0fde06bd29f016bfb5e9502a66a",
               "evidenceRefs": ["trade.lifecycle.evidence:f1eeb64ddd7f683dfe91c097590ce179"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -1391,7 +1391,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644035982, "datetime": "2026-11-25T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644049690, "datetime": "2026-11-25T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -1412,11 +1412,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:18c2247225dcb88c1731f9dcd3970d80",
+              "transitionId": "trade.lifecycle.snapshot:d775c1810704b563a365b9c8ae262368",
               "evidenceRefs": ["trade.lifecycle.evidence:686a6b88c82676bb71125a84b43c175c"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -1481,7 +1481,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644035982, "datetime": "2026-11-25T22:00:35.982Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644049690, "datetime": "2026-11-25T22:00:49.690Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -1502,11 +1502,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:35.988Z",
-              "observedAt": "2026-11-25T04:31:35.988Z",
+              "effectiveAt": "2026-11-25T04:34:49.812Z",
+              "observedAt": "2026-11-25T04:34:49.812Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:9df7529365ff185cca21ea72ba4f48f0",
+              "transitionId": "trade.lifecycle.snapshot:7f422132074be339676f045836e8b194",
               "evidenceRefs": ["trade.lifecycle.evidence:9815b17a3322bdd1f98767a3fd32b177"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -1544,26 +1544,26 @@
         "json": {
           "BTC/USDC": {
             "symbol": "BTC/USDC",
-            "timestamp": 1795581081275,
-            "datetime": "2026-11-25T04:31:21.275Z",
+            "timestamp": 1795581269048,
+            "datetime": "2026-11-25T04:34:29.048Z",
             "high": "65631.59",
             "low": "64477.95",
             "bid": "65415.22",
             "bidVolume": "0.13758",
             "ask": "65670.96",
             "askVolume": "0.09136",
-            "vwap": "65056.921661784733696249",
-            "open": "64945.04",
+            "vwap": "65057.349046852467700639",
+            "open": "64802.27",
             "close": "65474.24",
             "last": "65474.24",
             "previousClose": null,
-            "change": "529.2",
-            "percentage": "0.81484282710427155",
+            "change": "671.97",
+            "percentage": "1.036954415331438235",
             "average": null,
-            "baseVolume": "44.35743",
-            "quoteVolume": "2885757.8486281",
+            "baseVolume": "44.1727",
+            "quoteVolume": "2873758.7622419",
             "spread": "255.74",
-            "windowStart": 1795494681275,
+            "windowStart": 1795494869048,
             "sparkline": [
               "64970.7",
               "65094.15",
@@ -1593,26 +1593,26 @@
           },
           "BTC/USDT": {
             "symbol": "BTC/USDT",
-            "timestamp": 1795581081275,
-            "datetime": "2026-11-25T04:31:21.275Z",
+            "timestamp": 1795581269048,
+            "datetime": "2026-11-25T04:34:29.048Z",
             "high": "65470.13",
             "low": "64492.94",
             "bid": "64878.58",
             "bidVolume": "0.13872",
             "ask": "65132.23",
             "askVolume": "0.09212",
-            "vwap": "64844.644547255047706913",
-            "open": "65092.59",
+            "vwap": "64843.301033339387735818",
+            "open": "64975.5",
             "close": "64937.11",
             "last": "64937.11",
             "previousClose": null,
-            "change": "-155.48",
-            "percentage": "-0.238859753468098289",
+            "change": "-38.39",
+            "percentage": "-0.059083808512439304",
             "average": null,
-            "baseVolume": "35.53049",
-            "quoteVolume": "2303961.9946398",
+            "baseVolume": "35.34618",
+            "quoteVolume": "2291962.9901186",
             "spread": "253.65",
-            "windowStart": 1795494681275,
+            "windowStart": 1795494869048,
             "sparkline": [
               "64689.79",
               "64819.14",
@@ -1642,26 +1642,26 @@
           },
           "ETH/USDC": {
             "symbol": "ETH/USDC",
-            "timestamp": 1795581081275,
-            "datetime": "2026-11-25T04:31:21.275Z",
+            "timestamp": 1795581269048,
+            "datetime": "2026-11-25T04:34:29.048Z",
             "high": "2624.38",
             "low": "2574.39",
             "bid": "2578.72",
             "bidVolume": "2.3267",
             "ask": "2588.81",
             "askVolume": "1.5451",
-            "vwap": "2592.119146590474595248",
-            "open": "2584.75",
+            "vwap": "2592.146172696618586191",
+            "open": "2584.48",
             "close": "2581.05",
             "last": "2581.05",
             "previousClose": null,
-            "change": "-3.7",
-            "percentage": "-0.143147306315891285",
+            "change": "-3.43",
+            "percentage": "-0.132715285086361667",
             "average": null,
-            "baseVolume": "802.3932",
-            "quoteVolume": "2079898.776814",
+            "baseVolume": "799.2988",
+            "quoteVolume": "2071899.325261",
             "spread": "10.09",
-            "windowStart": 1795494681275,
+            "windowStart": 1795494869048,
             "sparkline": [
               "2596.08",
               "2589.27",
@@ -1691,26 +1691,26 @@
           },
           "ETH/USDT": {
             "symbol": "ETH/USDT",
-            "timestamp": 1795581081275,
-            "datetime": "2026-11-25T04:31:21.275Z",
-            "high": "2614.98",
+            "timestamp": 1795581269048,
+            "datetime": "2026-11-25T04:34:29.048Z",
+            "high": "2610.54",
             "low": "2574.21",
             "bid": "2587.53",
             "bidVolume": "2.3188",
             "ask": "2597.66",
             "askVolume": "1.5398",
-            "vwap": "2591.176683773079944558",
-            "open": "2612.63",
+            "vwap": "2591.083428859079871271",
+            "open": "2607.4",
             "close": "2589.86",
             "last": "2589.86",
             "previousClose": null,
-            "change": "-22.77",
-            "percentage": "-0.871535579090801223",
+            "change": "-17.54",
+            "percentage": "-0.672700774718109995",
             "average": null,
-            "baseVolume": "720.1003",
-            "quoteVolume": "1865907.107338",
+            "baseVolume": "717.0388",
+            "quoteVolume": "1857907.352529",
             "spread": "10.13",
-            "windowStart": 1795494681275,
+            "windowStart": 1795494869048,
             "sparkline": [
               "2598.75",
               "2591.71",
@@ -1740,26 +1740,26 @@
           },
           "IFC/USDT": {
             "symbol": "IFC/USDT",
-            "timestamp": 1795581081275,
-            "datetime": "2026-11-25T04:31:21.275Z",
+            "timestamp": 1795581269048,
+            "datetime": "2026-11-25T04:34:29.048Z",
             "high": "1.0102",
             "low": "0.9953",
             "bid": "1.0033",
             "bidVolume": "1495.06",
             "ask": "1.0074",
             "askVolume": "992.65",
-            "vwap": "1.001463710594055414",
-            "open": "0.9971",
+            "vwap": "1.001481933724073255",
+            "open": "0.9967",
             "close": "1.0042",
             "last": "1.0042",
             "previousClose": null,
-            "change": "0.0071",
-            "percentage": "0.712064988466553004",
+            "change": "0.0075",
+            "percentage": "0.752483194541988562",
             "average": null,
-            "baseVolume": "465816.14",
-            "quoteVolume": "466497.960019",
+            "baseVolume": "463810.64",
+            "quoteVolume": "464497.976629",
             "spread": "0.0041",
-            "windowStart": 1795494681275,
+            "windowStart": 1795494869048,
             "sparkline": [
               "1.0007",
               "1.003",
@@ -1793,26 +1793,26 @@
         "status": 200,
         "json": {
           "symbol": "BTC/USDT",
-          "timestamp": 1795581088159,
-          "datetime": "2026-11-25T04:31:28.159Z",
+          "timestamp": 1795581280355,
+          "datetime": "2026-11-25T04:34:40.355Z",
           "high": "65470.13",
           "low": "64492.94",
           "bid": "64878.58",
           "bidVolume": "0.13872",
           "ask": "65132.23",
           "askVolume": "0.09212",
-          "vwap": "64844.644547255047706913",
-          "open": "65092.59",
+          "vwap": "64843.301033339387735818",
+          "open": "64975.5",
           "close": "64937.11",
           "last": "64937.11",
           "previousClose": null,
-          "change": "-155.48",
-          "percentage": "-0.238859753468098289",
+          "change": "-38.39",
+          "percentage": "-0.059083808512439304",
           "average": null,
-          "baseVolume": "35.53049",
-          "quoteVolume": "2303961.9946398",
+          "baseVolume": "35.34618",
+          "quoteVolume": "2291962.9901186",
           "spread": "253.65",
-          "windowStart": 1795494688159
+          "windowStart": 1795494880355
         }
       },
       "GET /api/v1/fees/published": {
@@ -1957,7 +1957,7 @@
             "test": true,
             "label": "TEST"
           },
-          "asOf": "2026-11-25T04:31:32.888Z"
+          "asOf": "2026-11-25T04:34:44.970Z"
         }
       },
       "GET /api/v1/venue/status": {
@@ -1997,7 +1997,7 @@
           "message": "TEST venue (testnet) does not offer staking",
           "intafacedCode": "trade.venue.not_offered",
           "refusal": { "venueId": "hyperliquid-testnet", "code": "not_offered", "detail": "TEST venue (testnet) does not offer staking" },
-          "requestId": "858ff751-2f27-41b4-bebc-2e37cdaa6833"
+          "requestId": "837e8513-664c-4dc8-804a-a7d38d931926"
         }
       },
       "GET /api/v1/venue/vaults": {
@@ -2007,7 +2007,51 @@
           "message": "TEST venue (testnet) does not offer vaults",
           "intafacedCode": "trade.venue.not_offered",
           "refusal": { "venueId": "hyperliquid-testnet", "code": "not_offered", "detail": "TEST venue (testnet) does not offer vaults" },
-          "requestId": "39c70505-2253-4de9-bf35-3723e7235c77"
+          "requestId": "e57174c7-21a2-4bae-95fe-b6a4ff864a98"
+        }
+      },
+      "GET /api/v1/venue/tickers": {
+        "status": 200,
+        "json": {
+          "venueId": "hyperliquid-testnet",
+          "value": {
+            "PURR-USDC": {
+              "symbol": "PURR-USDC",
+              "last": "4.5342",
+              "high": "4.5795",
+              "low": "4.5342",
+              "baseVolume": "96",
+              "quoteVolume": "438.4542",
+              "bid": "4.5342",
+              "ask": "4.5795",
+              "spread": "0.0453"
+            },
+            "BTC-USDC": {
+              "symbol": "BTC-USDC",
+              "last": "6100",
+              "high": null,
+              "low": null,
+              "baseVolume": "0",
+              "quoteVolume": "0",
+              "bid": null,
+              "ask": "6100",
+              "spread": null
+            }
+          },
+          "asOf": "2026-11-25T04:35:23.817Z",
+          "test": true
+        }
+      },
+      "GET /api/v1/venue/spreads": {
+        "status": 200,
+        "json": {
+          "venueId": "hyperliquid-testnet",
+          "value": [
+            { "symbol": "PURR-USDC", "bid": "4.5342", "ask": "4.5795", "spread": "0.0453" },
+            { "symbol": "BTC-USDC", "bid": null, "ask": "6100", "spread": null }
+          ],
+          "asOf": "2026-11-25T04:35:24.101Z",
+          "test": true
         }
       }
     },
@@ -2049,7 +2093,7 @@
           "message": "TEST venue (testnet) does not offer staking",
           "intafacedCode": "trade.venue.not_offered",
           "refusal": { "venueId": "hyperliquid-testnet", "code": "not_offered", "detail": "TEST venue (testnet) does not offer staking" },
-          "requestId": "ae7fc474-d7ff-40e8-a992-3f8e4f0f041d"
+          "requestId": "d62f9b32-66c1-4159-8da1-de99abbe9b1b"
         }
       },
       "GET /api/v1/venue/vaults": {
@@ -2059,7 +2103,7 @@
           "message": "TEST venue (testnet) does not offer vaults",
           "intafacedCode": "trade.venue.not_offered",
           "refusal": { "venueId": "hyperliquid-testnet", "code": "not_offered", "detail": "TEST venue (testnet) does not offer vaults" },
-          "requestId": "9bf6a16c-7dd8-4f75-b8f2-29b495470b2a"
+          "requestId": "95926604-f46e-4546-924f-88fe3ac9b7c8"
         }
       },
       "GET /api/v1/markets?limit=500": {
@@ -2111,7 +2155,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816855809, "datetime": "2026-11-27T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816819579, "datetime": "2026-11-27T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -2126,11 +2170,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:da82188353afc58c12ef8708c76d2057",
+              "transitionId": "trade.lifecycle.snapshot:f290d94b8818fb3c5a4ab370e97fa99e",
               "evidenceRefs": ["trade.lifecycle.evidence:0dfc0c281aaf876a1883700a48056406"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -2195,7 +2239,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644055809, "datetime": "2026-11-25T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644019579, "datetime": "2026-11-25T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -2216,11 +2260,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:23efc775dfd7e8f3616c407ff6ebb046",
+              "transitionId": "trade.lifecycle.snapshot:f5a0899f141409088cb9a2451bbd62dd",
               "evidenceRefs": ["trade.lifecycle.evidence:703d8fef8c82e549ebc708be23bdc6de"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -2296,10 +2340,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:54:59.337Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:e11d3cdb9ce9921812b5b3593ea48985",
+              "transitionId": "trade.lifecycle.snapshot:e682e7e2cb34fe795d47f376302f6edb",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:344c2fe1c0a66053bd518e26ea63c0a6",
@@ -2382,10 +2426,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:54:59.527Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:951ffa29e009517dc9bec99fafc96d31",
+              "transitionId": "trade.lifecycle.snapshot:7175d5b1ed087055d86bccfeca7179c6",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:ffcf08db6e352d70f7e205e92f7ce4f7",
@@ -2468,10 +2512,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:55:00.001Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:1161bc0b488210c43e5c0e80bb214eda",
+              "transitionId": "trade.lifecycle.snapshot:ccbdd2cb2dd62b9ffb130624b0e7cd0a",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:ee9d6265ea512b6734c8d97719b100bd",
@@ -2554,10 +2598,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:55:00.157Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:7d93f68e669cc8fc3817cad1e94429fa",
+              "transitionId": "trade.lifecycle.snapshot:9fcf02907174cf8ac2eace791194f8d4",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:78547d43e9adb9e45c95bd208d8fe96e",
@@ -2641,7 +2685,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816855809, "datetime": "2026-11-27T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816819579, "datetime": "2026-11-27T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -2656,11 +2700,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:0f1c40d4560e30205bdfed4a91556e32",
+              "transitionId": "trade.lifecycle.snapshot:26a4b2466d546ec718210e514391c49a",
               "evidenceRefs": ["trade.lifecycle.evidence:1a2e3ce0895d45b8302adf3e0c47a22a"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -2737,7 +2781,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816855809, "datetime": "2026-11-27T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816819579, "datetime": "2026-11-27T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -2752,11 +2796,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:68e64033e8ea05eed748c6a24b8cf1ad",
+              "transitionId": "trade.lifecycle.snapshot:6ae83916e7db2a8a7c9dcfc7034e867b",
               "evidenceRefs": ["trade.lifecycle.evidence:e74e9637d65d2932f0836b1372b22ec1"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -2832,10 +2876,10 @@
               "reasonCategory": "NORMAL",
               "reasonCode": "trade.lifecycle.ready",
               "effectiveAt": "2026-11-23T10:55:00.658Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": "OPEN",
               "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
-              "transitionId": "trade.lifecycle.snapshot:8d1c64b6f39e058610b2667f5189560a",
+              "transitionId": "trade.lifecycle.snapshot:4d36dfcef71d94b28d2f445074c1ebf9",
               "evidenceRefs": [
                 "local-test:approval: LOCAL TEST — not an owner or legal approval",
                 "trade.lifecycle.publication:60e0d903dd2ec53c62c2a09511f440f5",
@@ -2907,7 +2951,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644055809, "datetime": "2026-11-25T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644019579, "datetime": "2026-11-25T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -2928,11 +2972,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:94b094f863de03a2f16994f7f4b29146",
+              "transitionId": "trade.lifecycle.snapshot:390eca92911fe9849e7c83a7f79e9991",
               "evidenceRefs": ["trade.lifecycle.evidence:6ba625b564f443cb919d1650fdcd6074"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -3009,7 +3053,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816855809, "datetime": "2026-11-27T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816819579, "datetime": "2026-11-27T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -3024,11 +3068,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:b30d1a72ca6490d6a84bb9b5dff32510",
+              "transitionId": "trade.lifecycle.snapshot:b2ae79870bcd84be130ac9ecb92a1842",
               "evidenceRefs": ["trade.lifecycle.evidence:31d6f8a25c3153b0bf9b8741d0deb466"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -3105,7 +3149,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816855809, "datetime": "2026-11-27T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816819579, "datetime": "2026-11-27T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -3120,11 +3164,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:c484277fc6f2cf1a1604f3dd89447dfd",
+              "transitionId": "trade.lifecycle.snapshot:f8a5ad1d05e1aa12d7fd337c0bf605d8",
               "evidenceRefs": ["trade.lifecycle.evidence:65700694c9641a898c371f3a6f5dfea6"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -3201,7 +3245,7 @@
             },
             "schedule": "fx-global",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795816855809, "datetime": "2026-11-27T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795816819579, "datetime": "2026-11-27T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/New_York",
@@ -3216,11 +3260,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:ba48781b59ab120b5e202b626c1e134d",
+              "transitionId": "trade.lifecycle.snapshot:ca2df3ac0e951bef1383e3651bb1b398",
               "evidenceRefs": ["trade.lifecycle.evidence:07a053aa03c5c785b25ac9d3c77a6fb2"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -3285,7 +3329,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644055809, "datetime": "2026-11-25T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644019579, "datetime": "2026-11-25T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -3306,11 +3350,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:e656c65a4eaaac0f8306e9206bf864f7",
+              "transitionId": "trade.lifecycle.snapshot:5b03d7043f669e3ddcb54989d6fb4cd1",
               "evidenceRefs": ["trade.lifecycle.evidence:f1eeb64ddd7f683dfe91c097590ce179"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -3375,7 +3419,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644055809, "datetime": "2026-11-25T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644019579, "datetime": "2026-11-25T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -3396,11 +3440,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:c9a9be85fff23560a7547b486555b362",
+              "transitionId": "trade.lifecycle.snapshot:b041fab30ad27e20e7b05bde53d1af31",
               "evidenceRefs": ["trade.lifecycle.evidence:686a6b88c82676bb71125a84b43c175c"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -3465,7 +3509,7 @@
             "assetClass": "commodity",
             "schedule": "cme-globex",
             "sessionOpen": true,
-            "nextSessionChange": { "open": false, "timestamp": 1795644055809, "datetime": "2026-11-25T22:00:55.809Z" },
+            "nextSessionChange": { "open": false, "timestamp": 1795644019579, "datetime": "2026-11-25T22:00:19.579Z" },
             "hours": {
               "kind": "sessions",
               "timezone": "America/Chicago",
@@ -3486,11 +3530,11 @@
               "state": "REFUSED",
               "reasonCategory": "TECHNICAL",
               "reasonCode": "trade.lifecycle_authority_unavailable",
-              "effectiveAt": "2026-11-25T04:31:55.814Z",
-              "observedAt": "2026-11-25T04:31:55.814Z",
+              "effectiveAt": "2026-11-25T04:35:19.597Z",
+              "observedAt": "2026-11-25T04:35:19.597Z",
               "lastGoodState": null,
               "allowedActions": [],
-              "transitionId": "trade.lifecycle.snapshot:de2d8ba30dbaf4c38b604d8c3a864b57",
+              "transitionId": "trade.lifecycle.snapshot:66a226e84c0273f1ff12c18816308d8e",
               "evidenceRefs": ["trade.lifecycle.evidence:9815b17a3322bdd1f98767a3fd32b177"]
             },
             "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
@@ -3528,26 +3572,26 @@
         "json": {
           "BTC/USDC": {
             "symbol": "BTC/USDC",
-            "timestamp": 1795581106386,
-            "datetime": "2026-11-25T04:31:46.386Z",
+            "timestamp": 1795581306082,
+            "datetime": "2026-11-25T04:35:06.082Z",
             "high": "65631.59",
             "low": "64477.95",
             "bid": "65415.22",
             "bidVolume": "0.13758",
             "ask": "65670.96",
             "askVolume": "0.09136",
-            "vwap": "65056.921661784733696249",
-            "open": "64945.04",
+            "vwap": "65057.349046852467700639",
+            "open": "64802.27",
             "close": "65474.24",
             "last": "65474.24",
             "previousClose": null,
-            "change": "529.2",
-            "percentage": "0.81484282710427155",
+            "change": "671.97",
+            "percentage": "1.036954415331438235",
             "average": null,
-            "baseVolume": "44.35743",
-            "quoteVolume": "2885757.8486281",
+            "baseVolume": "44.1727",
+            "quoteVolume": "2873758.7622419",
             "spread": "255.74",
-            "windowStart": 1795494706386,
+            "windowStart": 1795494903107,
             "sparkline": [
               "64970.7",
               "65094.15",
@@ -3577,26 +3621,26 @@
           },
           "BTC/USDT": {
             "symbol": "BTC/USDT",
-            "timestamp": 1795581106386,
-            "datetime": "2026-11-25T04:31:46.386Z",
+            "timestamp": 1795581306082,
+            "datetime": "2026-11-25T04:35:06.082Z",
             "high": "65470.13",
             "low": "64492.94",
             "bid": "64878.58",
             "bidVolume": "0.13872",
             "ask": "65132.23",
             "askVolume": "0.09212",
-            "vwap": "64844.644547255047706913",
-            "open": "65092.59",
+            "vwap": "64843.301033339387735818",
+            "open": "64975.5",
             "close": "64937.11",
             "last": "64937.11",
             "previousClose": null,
-            "change": "-155.48",
-            "percentage": "-0.238859753468098289",
+            "change": "-38.39",
+            "percentage": "-0.059083808512439304",
             "average": null,
-            "baseVolume": "35.53049",
-            "quoteVolume": "2303961.9946398",
+            "baseVolume": "35.34618",
+            "quoteVolume": "2291962.9901186",
             "spread": "253.65",
-            "windowStart": 1795494706386,
+            "windowStart": 1795494903107,
             "sparkline": [
               "64689.79",
               "64819.14",
@@ -3626,26 +3670,26 @@
           },
           "ETH/USDC": {
             "symbol": "ETH/USDC",
-            "timestamp": 1795581106386,
-            "datetime": "2026-11-25T04:31:46.386Z",
+            "timestamp": 1795581306082,
+            "datetime": "2026-11-25T04:35:06.082Z",
             "high": "2624.38",
             "low": "2574.39",
             "bid": "2578.72",
             "bidVolume": "2.3267",
             "ask": "2588.81",
             "askVolume": "1.5451",
-            "vwap": "2592.119146590474595248",
-            "open": "2584.75",
+            "vwap": "2592.146172696618586191",
+            "open": "2584.48",
             "close": "2581.05",
             "last": "2581.05",
             "previousClose": null,
-            "change": "-3.7",
-            "percentage": "-0.143147306315891285",
+            "change": "-3.43",
+            "percentage": "-0.132715285086361667",
             "average": null,
-            "baseVolume": "802.3932",
-            "quoteVolume": "2079898.776814",
+            "baseVolume": "799.2988",
+            "quoteVolume": "2071899.325261",
             "spread": "10.09",
-            "windowStart": 1795494706386,
+            "windowStart": 1795494903107,
             "sparkline": [
               "2596.08",
               "2589.27",
@@ -3675,26 +3719,26 @@
           },
           "ETH/USDT": {
             "symbol": "ETH/USDT",
-            "timestamp": 1795581106386,
-            "datetime": "2026-11-25T04:31:46.386Z",
-            "high": "2614.98",
+            "timestamp": 1795581306082,
+            "datetime": "2026-11-25T04:35:06.082Z",
+            "high": "2610.54",
             "low": "2574.21",
             "bid": "2587.53",
             "bidVolume": "2.3188",
             "ask": "2597.66",
             "askVolume": "1.5398",
-            "vwap": "2591.176683773079944558",
-            "open": "2612.63",
+            "vwap": "2591.083428859079871271",
+            "open": "2607.4",
             "close": "2589.86",
             "last": "2589.86",
             "previousClose": null,
-            "change": "-22.77",
-            "percentage": "-0.871535579090801223",
+            "change": "-17.54",
+            "percentage": "-0.672700774718109995",
             "average": null,
-            "baseVolume": "720.1003",
-            "quoteVolume": "1865907.107338",
+            "baseVolume": "717.0388",
+            "quoteVolume": "1857907.352529",
             "spread": "10.13",
-            "windowStart": 1795494706386,
+            "windowStart": 1795494903107,
             "sparkline": [
               "2598.75",
               "2591.71",
@@ -3724,26 +3768,26 @@
           },
           "IFC/USDT": {
             "symbol": "IFC/USDT",
-            "timestamp": 1795581106386,
-            "datetime": "2026-11-25T04:31:46.386Z",
+            "timestamp": 1795581306082,
+            "datetime": "2026-11-25T04:35:06.082Z",
             "high": "1.0102",
             "low": "0.9953",
             "bid": "1.0033",
             "bidVolume": "1495.06",
             "ask": "1.0074",
             "askVolume": "992.65",
-            "vwap": "1.001463710594055414",
-            "open": "0.9971",
+            "vwap": "1.001481933724073255",
+            "open": "0.9967",
             "close": "1.0042",
             "last": "1.0042",
             "previousClose": null,
-            "change": "0.0071",
-            "percentage": "0.712064988466553004",
+            "change": "0.0075",
+            "percentage": "0.752483194541988562",
             "average": null,
-            "baseVolume": "465816.14",
-            "quoteVolume": "466497.960019",
+            "baseVolume": "463810.64",
+            "quoteVolume": "464497.976629",
             "spread": "0.0041",
-            "windowStart": 1795494706386,
+            "windowStart": 1795494903107,
             "sparkline": [
               "1.0007",
               "1.003",
@@ -3844,7 +3888,7 @@
             "test": true,
             "label": "TEST"
           },
-          "asOf": "2026-11-25T04:31:45.837Z"
+          "asOf": "2026-11-25T04:35:05.291Z"
         }
       },
       "GET /api/v1/venue/markets": {
@@ -4037,7 +4081,7 @@
               "upcomingMaintenance": { "status": "none" }
             }
           ],
-          "asOf": "2026-11-25T04:31:52.140Z",
+          "asOf": "2026-11-25T04:35:15.571Z",
           "reportedAt": null
         }
       },
@@ -4054,17 +4098,6 @@
           "orderProtectionBps": 500,
           "queueFillWindowSeconds": 300,
           "dataClass": null
-        }
-      },
-      "GET /api/v1/venue/best-prices?symbol=PURR-USDC": {
-        "status": 200,
-        "json": {
-          "venueId": "hyperliquid-testnet",
-          "value": { "symbol": "PURR-USDC", "bid": "4.5342", "ask": "4.5795" },
-          "asOf": "2026-11-25T04:31:48.141Z",
-          "reportedAt": "2026-11-25T04:31:48.141Z",
-          "slippageCapBps": { "known": true, "value": "50" },
-          "spreadLimitBps": { "known": true, "value": "100" }
         }
       },
       "GET /api/v1/venue/trades?limit=30&symbol=PURR-USDC": {
@@ -4158,6 +4191,17 @@
           "test": true
         }
       },
+      "GET /api/v1/venue/best-prices?symbol=PURR-USDC": {
+        "status": 200,
+        "json": {
+          "venueId": "hyperliquid-testnet",
+          "value": { "symbol": "PURR-USDC", "bid": "4.5342", "ask": "4.5795" },
+          "asOf": "2026-11-25T04:35:09.070Z",
+          "reportedAt": "2026-11-25T04:35:09.070Z",
+          "slippageCapBps": { "known": true, "value": "50" },
+          "spreadLimitBps": { "known": true, "value": "100" }
+        }
+      },
       "GET /api/v1/venue/book?depth=10&symbol=PURR-USDC": {
         "status": 200,
         "json": {
@@ -4189,8 +4233,8 @@
               { "price": "4.8128", "amount": "100000" }
             ]
           },
-          "asOf": "2026-11-25T04:31:48.141Z",
-          "reportedAt": "2026-11-25T04:31:48.141Z",
+          "asOf": "2026-11-25T04:35:09.070Z",
+          "reportedAt": "2026-11-25T04:35:09.070Z",
           "test": true
         }
       },
@@ -5576,7 +5620,7 @@
               "baseVolume": "10"
             }
           ],
-          "asOf": "2026-11-25T04:31:48.937Z",
+          "asOf": "2026-11-25T04:35:09.568Z",
           "reportedAt": null,
           "test": true
         }
@@ -5589,7 +5633,7 @@
             { "symbol": "BTC-PERP", "open": true, "code": null, "message": null, "blockers": [] },
             { "symbol": "ETH-PERP", "open": true, "code": null, "message": null, "blockers": [] }
           ],
-          "asOf": "2026-11-25T04:31:52.167Z"
+          "asOf": "2026-11-25T04:35:15.638Z"
         }
       },
       "GET /api/v1/venue/book?depth=10&symbol=BTC-PERP": {
@@ -5599,32 +5643,32 @@
           "value": {
             "symbol": "BTC-PERP",
             "bids": [
-              { "price": "58840", "amount": "0.00093" },
-              { "price": "58826", "amount": "0.00073" },
-              { "price": "58824", "amount": "0.00255" },
-              { "price": "58792", "amount": "0.0034" },
-              { "price": "58781", "amount": "0.00035" },
-              { "price": "58774", "amount": "0.0102" },
-              { "price": "58770", "amount": "0.00333" },
+              { "price": "58784", "amount": "0.0034" },
+              { "price": "58781", "amount": "0.0029" },
+              { "price": "58780", "amount": "0.02" },
               { "price": "58767", "amount": "0.00051" },
-              { "price": "58765", "amount": "0.00255" },
-              { "price": "58762", "amount": "0.00343" }
+              { "price": "58766", "amount": "0.0102" },
+              { "price": "58759", "amount": "0.00073" },
+              { "price": "58754", "amount": "0.00033" },
+              { "price": "58752", "amount": "0.00442" },
+              { "price": "58744", "amount": "0.00664" },
+              { "price": "58737", "amount": "0.00658" }
             ],
             "asks": [
-              { "price": "58868", "amount": "0.01468" },
-              { "price": "58875", "amount": "0.00717" },
-              { "price": "58879", "amount": "0.0034" },
-              { "price": "58884", "amount": "0.00255" },
-              { "price": "58900", "amount": "0.00041" },
-              { "price": "58916", "amount": "0.001" },
-              { "price": "58934", "amount": "0.01369" },
-              { "price": "58935", "amount": "0.01743" },
-              { "price": "58939", "amount": "0.01227" },
-              { "price": "58943", "amount": "0.00254" }
+              { "price": "58841", "amount": "0.00985" },
+              { "price": "58843", "amount": "0.00718" },
+              { "price": "58863", "amount": "0.0034" },
+              { "price": "58864", "amount": "0.00022" },
+              { "price": "58878", "amount": "0.001" },
+              { "price": "58900", "amount": "0.0029" },
+              { "price": "58901", "amount": "0.01406" },
+              { "price": "58915", "amount": "0.01339" },
+              { "price": "58917", "amount": "0.0102" },
+              { "price": "58935", "amount": "0.01743" }
             ]
           },
-          "asOf": "2026-11-25T04:31:50.269Z",
-          "reportedAt": "2026-11-25T04:31:50.269Z",
+          "asOf": "2026-11-25T04:35:12.720Z",
+          "reportedAt": "2026-11-25T04:35:12.720Z",
           "test": true
         }
       },
@@ -5634,88 +5678,88 @@
           "venueId": "hyperliquid-testnet",
           "value": [
             {
-              "tradeId": "251036206069891",
+              "tradeId": "775447820932393",
               "symbol": "BTC-PERP",
-              "price": "58840",
-              "amount": "0.00025",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:31:23.289Z"
-            },
-            {
-              "tradeId": "8196694649025",
-              "symbol": "BTC-PERP",
-              "price": "58874",
-              "amount": "0.00018",
+              "price": "58847",
+              "amount": "0.00019",
               "takerSide": "buy",
-              "tradedAt": "2026-11-25T04:31:17.402Z"
+              "tradedAt": "2026-11-25T04:34:34.697Z"
             },
             {
-              "tradeId": "609351259841004",
+              "tradeId": "797203082777598",
               "symbol": "BTC-PERP",
-              "price": "58870",
-              "amount": "0.00315",
+              "price": "58859",
+              "amount": "0.00352",
               "takerSide": "buy",
-              "tradedAt": "2026-11-25T04:31:17.402Z"
+              "tradedAt": "2026-11-25T04:34:29.638Z"
             },
             {
-              "tradeId": "431621656974644",
+              "tradeId": "281717655956745",
               "symbol": "BTC-PERP",
-              "price": "58840",
-              "amount": "0.0003",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:31:07.974Z"
-            },
-            {
-              "tradeId": "918400887175671",
-              "symbol": "BTC-PERP",
-              "price": "58870",
-              "amount": "0.00025",
-              "takerSide": "buy",
-              "tradedAt": "2026-11-25T04:30:53.944Z"
-            },
-            {
-              "tradeId": "1052039738084689",
-              "symbol": "BTC-PERP",
-              "price": "58872",
-              "amount": "0.00034",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:37.787Z"
-            },
-            {
-              "tradeId": "1112490783249045",
-              "symbol": "BTC-PERP",
-              "price": "58840",
-              "amount": "0.0051",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:31.282Z"
-            },
-            {
-              "tradeId": "770741548181872",
-              "symbol": "BTC-PERP",
-              "price": "58840",
-              "amount": "0.00119",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:31.282Z"
-            },
-            {
-              "tradeId": "459265951072022",
-              "symbol": "BTC-PERP",
-              "price": "58840",
-              "amount": "0.00035",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:31.282Z"
-            },
-            {
-              "tradeId": "630923936038394",
-              "symbol": "BTC-PERP",
-              "price": "58845",
+              "price": "58857",
               "amount": "0.00255",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:34:29.638Z"
+            },
+            {
+              "tradeId": "786197664321355",
+              "symbol": "BTC-PERP",
+              "price": "58856",
+              "amount": "0.00666",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:34:29.638Z"
+            },
+            {
+              "tradeId": "304153769583645",
+              "symbol": "BTC-PERP",
+              "price": "58847",
+              "amount": "0.00019",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:34:29.638Z"
+            },
+            {
+              "tradeId": "991748392492180",
+              "symbol": "BTC-PERP",
+              "price": "58841",
+              "amount": "0.00022",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:34:29.638Z"
+            },
+            {
+              "tradeId": "937096765743035",
+              "symbol": "BTC-PERP",
+              "price": "58841",
+              "amount": "0.0002",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:34:20.800Z"
+            },
+            {
+              "tradeId": "585037339032518",
+              "symbol": "BTC-PERP",
+              "price": "58798",
+              "amount": "0.00025",
               "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:31.282Z"
+              "tradedAt": "2026-11-25T04:34:14.303Z"
+            },
+            {
+              "tradeId": "1103981871801381",
+              "symbol": "BTC-PERP",
+              "price": "58839",
+              "amount": "0.00101",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:33:32.240Z"
+            },
+            {
+              "tradeId": "580951435081441",
+              "symbol": "BTC-PERP",
+              "price": "58780",
+              "amount": "0.00025",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:33:20.981Z"
             }
           ],
-          "asOf": "2026-11-25T04:31:23.289Z",
-          "reportedAt": "2026-11-25T04:31:23.289Z",
+          "asOf": "2026-11-25T04:34:34.697Z",
+          "reportedAt": "2026-11-25T04:34:34.697Z",
           "test": true
         }
       },
@@ -7640,104 +7684,13 @@
               "openAt": "2026-11-25T04:30:00.000Z",
               "openPrice": "58869",
               "highPrice": "58890",
-              "lowPrice": "58840",
-              "closePrice": "58840",
-              "baseVolume": "0.02939"
+              "lowPrice": "58780",
+              "closePrice": "58847",
+              "baseVolume": "0.04686"
             }
           ],
-          "asOf": "2026-11-25T04:31:50.826Z",
+          "asOf": "2026-11-25T04:35:13.401Z",
           "reportedAt": null,
-          "test": true
-        }
-      },
-      "GET /api/v1/venue/trades?limit=30&symbol=ETH-PERP": {
-        "status": 200,
-        "json": {
-          "venueId": "hyperliquid-testnet",
-          "value": [
-            {
-              "tradeId": "432716324001564",
-              "symbol": "ETH-PERP",
-              "price": "1660",
-              "amount": "0.0062",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:31:15.300Z"
-            },
-            {
-              "tradeId": "977042731611060",
-              "symbol": "ETH-PERP",
-              "price": "1660.5",
-              "amount": "0.0078",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:31:15.300Z"
-            },
-            {
-              "tradeId": "881670621124844",
-              "symbol": "ETH-PERP",
-              "price": "1660.6",
-              "amount": "0.007",
-              "takerSide": "buy",
-              "tradedAt": "2026-11-25T04:31:02.601Z"
-            },
-            {
-              "tradeId": "964378246298882",
-              "symbol": "ETH-PERP",
-              "price": "1660.6",
-              "amount": "0.007",
-              "takerSide": "buy",
-              "tradedAt": "2026-11-25T04:30:50.985Z"
-            },
-            {
-              "tradeId": "611674422228599",
-              "symbol": "ETH-PERP",
-              "price": "1660.5",
-              "amount": "0.0072",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:31.282Z"
-            },
-            {
-              "tradeId": "801190620032571",
-              "symbol": "ETH-PERP",
-              "price": "1662.1",
-              "amount": "0.0072",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:00.647Z"
-            },
-            {
-              "tradeId": "265016030784566",
-              "symbol": "ETH-PERP",
-              "price": "1662.2",
-              "amount": "0.005",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:30:00.647Z"
-            },
-            {
-              "tradeId": "9892927874096",
-              "symbol": "ETH-PERP",
-              "price": "1663.5",
-              "amount": "0.0028",
-              "takerSide": "buy",
-              "tradedAt": "2026-11-25T04:29:11.235Z"
-            },
-            {
-              "tradeId": "448588733574079",
-              "symbol": "ETH-PERP",
-              "price": "1663.1",
-              "amount": "0.0072",
-              "takerSide": "buy",
-              "tradedAt": "2026-11-25T04:29:11.235Z"
-            },
-            {
-              "tradeId": "1067094779965969",
-              "symbol": "ETH-PERP",
-              "price": "1662.2",
-              "amount": "0.01",
-              "takerSide": "sell",
-              "tradedAt": "2026-11-25T04:28:54.285Z"
-            }
-          ],
-          "asOf": "2026-11-25T04:31:15.300Z",
-          "reportedAt": "2026-11-25T04:31:15.300Z",
           "test": true
         }
       },
@@ -7748,32 +7701,123 @@
           "value": {
             "symbol": "ETH-PERP",
             "bids": [
-              { "price": "1660", "amount": "0.0028" },
-              { "price": "1659.6", "amount": "0.0072" },
-              { "price": "1659.2", "amount": "0.1205" },
-              { "price": "1658.8", "amount": "0.493" },
-              { "price": "1658.7", "amount": "0.3615" },
-              { "price": "1658.2", "amount": "0.025" },
-              { "price": "1658.1", "amount": "0.5037" },
-              { "price": "1657.9", "amount": "0.436" },
+              { "price": "1658.9", "amount": "0.0072" },
+              { "price": "1658.5", "amount": "0.2547" },
+              { "price": "1658.4", "amount": "0.6365" },
               { "price": "1657.5", "amount": "0.0361" },
-              { "price": "1657.2", "amount": "0.015" }
+              { "price": "1657.2", "amount": "0.015" },
+              { "price": "1657", "amount": "0.9209" },
+              { "price": "1655.5", "amount": "0.015" },
+              { "price": "1655.4", "amount": "0.5874" },
+              { "price": "1655.2", "amount": "0.4805" },
+              { "price": "1654", "amount": "0.009" }
             ],
             "asks": [
-              { "price": "1660.5", "amount": "0.5645" },
-              { "price": "1660.9", "amount": "0.0072" },
-              { "price": "1661.3", "amount": "0.3615" },
-              { "price": "1661.9", "amount": "0.4698" },
-              { "price": "1662", "amount": "0.4219" },
-              { "price": "1662.3", "amount": "0.0163" },
-              { "price": "1663.7", "amount": "0.4825" },
-              { "price": "1663.9", "amount": "0.4134" },
-              { "price": "1665.6", "amount": "0.015" },
-              { "price": "1666", "amount": "0.009" }
+              { "price": "1659.8", "amount": "0.0072" },
+              { "price": "1659.9", "amount": "0.4106" },
+              { "price": "1660.2", "amount": "0.1205" },
+              { "price": "1660.4", "amount": "0.0076" },
+              { "price": "1660.6", "amount": "0.0167" },
+              { "price": "1660.9", "amount": "0.462" },
+              { "price": "1661", "amount": "0.8198" },
+              { "price": "1661.8", "amount": "0.0723" },
+              { "price": "1662.3", "amount": "0.015" },
+              { "price": "1662.9", "amount": "0.8912" }
             ]
           },
-          "asOf": "2026-11-25T04:31:52.058Z",
-          "reportedAt": "2026-11-25T04:31:52.058Z",
+          "asOf": "2026-11-25T04:35:15.435Z",
+          "reportedAt": "2026-11-25T04:35:15.435Z",
+          "test": true
+        }
+      },
+      "GET /api/v1/venue/trades?limit=30&symbol=ETH-PERP": {
+        "status": 200,
+        "json": {
+          "venueId": "hyperliquid-testnet",
+          "value": [
+            {
+              "tradeId": "42517852790135",
+              "symbol": "ETH-PERP",
+              "price": "1658.9",
+              "amount": "0.007",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:35:10.915Z"
+            },
+            {
+              "tradeId": "360047433486688",
+              "symbol": "ETH-PERP",
+              "price": "1660.1",
+              "amount": "0.007",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:35:00.472Z"
+            },
+            {
+              "tradeId": "479056980712886",
+              "symbol": "ETH-PERP",
+              "price": "1659.1",
+              "amount": "0.0138",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:34:10.720Z"
+            },
+            {
+              "tradeId": "256795314034331",
+              "symbol": "ETH-PERP",
+              "price": "1659.3",
+              "amount": "0.0078",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:33:21.647Z"
+            },
+            {
+              "tradeId": "762705341435466",
+              "symbol": "ETH-PERP",
+              "price": "1659.1",
+              "amount": "0.0072",
+              "takerSide": "buy",
+              "tradedAt": "2026-11-25T04:33:21.647Z"
+            },
+            {
+              "tradeId": "782494709605581",
+              "symbol": "ETH-PERP",
+              "price": "1658.8",
+              "amount": "0.0072",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:33:10.184Z"
+            },
+            {
+              "tradeId": "185936893661773",
+              "symbol": "ETH-PERP",
+              "price": "1658.8",
+              "amount": "0.015",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:33:10.184Z"
+            },
+            {
+              "tradeId": "613856788147945",
+              "symbol": "ETH-PERP",
+              "price": "1659.6",
+              "amount": "0.007",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:32:40.630Z"
+            },
+            {
+              "tradeId": "610759479304730",
+              "symbol": "ETH-PERP",
+              "price": "1659.3",
+              "amount": "0.0041",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:32:24.317Z"
+            },
+            {
+              "tradeId": "241232098312219",
+              "symbol": "ETH-PERP",
+              "price": "1660",
+              "amount": "0.0028",
+              "takerSide": "sell",
+              "tradedAt": "2026-11-25T04:32:24.317Z"
+            }
+          ],
+          "asOf": "2026-11-25T04:35:10.915Z",
+          "reportedAt": "2026-11-25T04:35:10.915Z",
           "test": true
         }
       },
@@ -9698,12 +9742,12 @@
               "openAt": "2026-11-25T04:30:00.000Z",
               "openPrice": "1662.2",
               "highPrice": "1662.2",
-              "lowPrice": "1660",
-              "closePrice": "1660",
-              "baseVolume": "0.0474"
+              "lowPrice": "1658.8",
+              "closePrice": "1658.9",
+              "baseVolume": "0.2402"
             }
           ],
-          "asOf": "2026-11-25T04:31:52.605Z",
+          "asOf": "2026-11-25T04:35:16.101Z",
           "reportedAt": null,
           "test": true
         }
@@ -9882,16 +9926,16 @@
             "test": true,
             "label": "TEST"
           },
-          "asOf": "2026-11-25T04:31:59.677Z"
+          "asOf": "2026-11-25T04:35:23.112Z"
         }
       }
     },
     "trpc": {
+      "GET /api/bank/trpc/business.list?input=%7B%22limit%22%3A50%7D": { "status": 200, "json": { "result": { "data": [] } } },
       "GET /api/identity/trpc/preferences.get?input=%7B%22namespace%22%3A%22ui.view%22%7D": {
         "status": 200,
         "json": { "result": { "data": { "namespace": "ui.view", "version": 0, "value": null } } }
       },
-      "GET /api/bank/trpc/business.list?input=%7B%22limit%22%3A50%7D": { "status": 200, "json": { "result": { "data": [] } } },
       "GET /api/identity/trpc/preferences.get?input=%7B%22namespace%22%3A%22account.display%22%7D": {
         "status": 200,
         "json": { "result": { "data": { "namespace": "account.display", "version": 0, "value": null } } }
@@ -9914,10 +9958,6 @@
       },
       "GET /api/notify/trpc/notify.unreadCount": { "status": 200, "json": { "result": { "data": { "count": 1 } } } },
       "GET /api/identity/trpc/workItems.list": { "status": 200, "json": { "result": { "data": { "items": [] } } } },
-      "GET /api/notify/trpc/notify.noticeStatus": {
-        "status": 200,
-        "json": { "result": { "data": { "incidents": [], "maintenance": [] } } }
-      },
       "GET /api/identity/trpc/preferences.get?input=%7B%22namespace%22%3A%22home.tiles%22%7D": {
         "status": 200,
         "json": { "result": { "data": { "namespace": "home.tiles", "version": 0, "value": null } } }
@@ -9931,14 +9971,14 @@
               "tradingOnly": false,
               "records": [
                 {
-                  "id": "8f2d98e8-8721-454e-9991-456a42b86b5e",
-                  "userId": "18b49e8e-0f6f-47ae-99eb-2842cc2abf8f",
+                  "id": "793af541-2b52-4aad-a786-5bbdeead866a",
+                  "userId": "d7a57b15-8806-43d8-b420-c272703570e8",
                   "tier": "full",
                   "jurisdiction": "DE",
                   "status": "approved",
-                  "reviewedAt": "2026-11-25T04:31:39.734Z",
+                  "reviewedAt": "2026-11-25T04:34:55.650Z",
                   "expiresAt": null,
-                  "createdAt": "2026-11-25T04:31:36.454Z"
+                  "createdAt": "2026-11-25T04:34:51.490Z"
                 }
               ]
             }
@@ -9960,8 +10000,10 @@
           }
         }
       },
-      "GET /api/bank/trpc/workItems.list": { "status": 200, "json": { "result": { "data": { "items": [] } } } },
-      "GET /api/pay/trpc/workItems.list": { "status": 200, "json": { "result": { "data": { "items": [] } } } },
+      "GET /api/notify/trpc/notify.noticeStatus": {
+        "status": 200,
+        "json": { "result": { "data": { "incidents": [], "maintenance": [] } } }
+      },
       "GET /api/notify/trpc/notify.list?input=%7B%22limit%22%3A1%7D": {
         "status": 200,
         "json": {
@@ -9969,8 +10011,8 @@
             "data": {
               "items": [
                 {
-                  "id": "75d8cf06-e6f0-4d61-b9cc-314c5ba375f7",
-                  "userId": "18b49e8e-0f6f-47ae-99eb-2842cc2abf8f",
+                  "id": "9bc53781-dd0b-4c9f-83fe-a71c571508c5",
+                  "userId": "d7a57b15-8806-43d8-b420-c272703570e8",
                   "kind": "identity.kyc.approved",
                   "titleKey": "notify.identity.kyc.approved.title",
                   "bodyKey": "notify.identity.kyc.approved.body",
@@ -9981,8 +10023,8 @@
                   "severity": "action",
                   "readAt": null,
                   "sourceSubject": "intafaced.identity.kyc.approved",
-                  "sourceIdempotencyKey": "18b49e8e-0f6f-47ae-99eb-2842cc2abf8f:full",
-                  "createdAt": "2026-11-25T04:31:39.747Z"
+                  "sourceIdempotencyKey": "d7a57b15-8806-43d8-b420-c272703570e8:full",
+                  "createdAt": "2026-11-25T04:34:55.671Z"
                 }
               ],
               "nextCursor": null
@@ -9990,6 +10032,7 @@
           }
         }
       },
+      "GET /api/bank/trpc/workItems.list": { "status": 200, "json": { "result": { "data": { "items": [] } } } },
       "GET /api/bank/trpc/portfolio.summary": {
         "status": 200,
         "json": {
@@ -10001,19 +10044,20 @@
               "cryptoUsd": "0.00",
               "priced": [],
               "unpriced": [],
-              "asOf": 1795581115795,
+              "asOf": 1795581319241,
               "windowStart": null
             }
           }
         }
       },
-      "GET /api/notify/trpc/notify.alerts?input=%7B%22limit%22%3A100%7D": {
-        "status": 200,
-        "json": { "result": { "data": { "items": [], "evaluation": { "markSource": "live", "canFire": true, "code": null } } } }
-      },
       "GET /api/bank/trpc/activity.list?input=%7B%22limit%22%3A50%7D": {
         "status": 200,
         "json": { "result": { "data": { "items": [], "nextCursor": null } } }
+      },
+      "GET /api/pay/trpc/workItems.list": { "status": 200, "json": { "result": { "data": { "items": [] } } } },
+      "GET /api/notify/trpc/notify.alerts?input=%7B%22limit%22%3A100%7D": {
+        "status": 200,
+        "json": { "result": { "data": { "items": [], "evaluation": { "markSource": "live", "canFire": true, "code": null } } } }
       },
       "GET /api/protocol/trpc/venueWallet.status": { "status": 200, "json": { "result": { "data": { "connections": [] } } } },
       "GET /api/bank/trpc/activity.list?input=%7B%22kind%22%3A%5B%22trade%22%2C%22convert%22%5D%2C%22limit%22%3A1%7D": {
@@ -10024,7 +10068,6 @@
         "status": 200,
         "json": { "result": { "data": [] } }
       },
-      "GET /api/bank/trpc/spaces.list?input=%7B%22limit%22%3A200%7D": { "status": 200, "json": { "result": { "data": [] } } },
       "GET /api/ops/trpc/valuation.prices": {
         "status": 200,
         "json": {
@@ -10042,6 +10085,7 @@
           }
         }
       },
+      "GET /api/bank/trpc/spaces.list?input=%7B%22limit%22%3A200%7D": { "status": 200, "json": { "result": { "data": [] } } },
       "GET /api/identity/trpc/kyc.status?input=%7B%22limit%22%3A1%7D": {
         "status": 200,
         "json": {
@@ -10051,14 +10095,14 @@
               "tradingOnly": false,
               "records": [
                 {
-                  "id": "8f2d98e8-8721-454e-9991-456a42b86b5e",
-                  "userId": "18b49e8e-0f6f-47ae-99eb-2842cc2abf8f",
+                  "id": "793af541-2b52-4aad-a786-5bbdeead866a",
+                  "userId": "d7a57b15-8806-43d8-b420-c272703570e8",
                   "tier": "full",
                   "jurisdiction": "DE",
                   "status": "approved",
-                  "reviewedAt": "2026-11-25T04:31:39.734Z",
+                  "reviewedAt": "2026-11-25T04:34:55.650Z",
                   "expiresAt": null,
-                  "createdAt": "2026-11-25T04:31:36.454Z"
+                  "createdAt": "2026-11-25T04:34:51.490Z"
                 }
               ]
             }
@@ -10107,7 +10151,15 @@
         "status": 200,
         "json": { "result": { "data": { "convert": { "minQty": "0.1", "maxQty": "5" }, "oneClickBuy": null } } }
       },
+      "GET /api/bank/trpc/portfolio.holdingsChange?input=%7B%22from%22%3A%222026-11-18T04%3A35%3A19.264Z%22%7D": {
+        "status": 200,
+        "json": { "result": { "data": { "from": "2026-11-18T04:00:00.000Z", "to": "2026-11-25T04:35:19.272Z", "rows": [] } } }
+      },
       "GET /api/bank/trpc/partnerHolds": { "status": 200, "json": { "result": { "data": { "held": false } } } },
+      "GET /api/identity/trpc/kyc.tradingChecks.read": {
+        "status": 200,
+        "json": { "result": { "data": { "state": "not_run", "country": "DE", "listSet": true } } }
+      },
       "GET /api/identity/trpc/kyc.levels.describe?input=%7B%7D": {
         "status": 200,
         "json": {
@@ -10178,28 +10230,6 @@
           }
         }
       },
-      "GET /api/identity/trpc/kyc.tradingChecks.read": {
-        "status": 200,
-        "json": { "result": { "data": { "state": "not_run", "country": "DE", "listSet": true } } }
-      },
-      "GET /api/pay/trpc/withdrawal.tierLimits?input=%7B%7D": {
-        "status": 200,
-        "json": {
-          "result": {
-            "data": {
-              "enforced": true,
-              "limits": [
-                { "tier": "basic", "assetId": "USDC", "perTx": "1000", "rolling24h": "5000" },
-                { "tier": "basic", "assetId": "USDT", "perTx": "1000", "rolling24h": "5000" },
-                { "tier": "full", "assetId": "USDC", "perTx": "1000", "rolling24h": "5000" },
-                { "tier": "full", "assetId": "USDT", "perTx": "1000", "rolling24h": "5000" },
-                { "tier": "institutional", "assetId": "USDC", "perTx": "1000", "rolling24h": "5000" },
-                { "tier": "institutional", "assetId": "USDT", "perTx": "1000", "rolling24h": "5000" }
-              ]
-            }
-          }
-        }
-      },
       "GET /api/identity/trpc/kyc.profile.read": {
         "status": 200,
         "json": {
@@ -10222,15 +10252,33 @@
               "tradingOnly": false,
               "records": [
                 {
-                  "id": "8f2d98e8-8721-454e-9991-456a42b86b5e",
-                  "userId": "18b49e8e-0f6f-47ae-99eb-2842cc2abf8f",
+                  "id": "793af541-2b52-4aad-a786-5bbdeead866a",
+                  "userId": "d7a57b15-8806-43d8-b420-c272703570e8",
                   "tier": "full",
                   "jurisdiction": "DE",
                   "status": "approved",
-                  "reviewedAt": "2026-11-25T04:31:39.734Z",
+                  "reviewedAt": "2026-11-25T04:34:55.650Z",
                   "expiresAt": null,
-                  "createdAt": "2026-11-25T04:31:36.454Z"
+                  "createdAt": "2026-11-25T04:34:51.490Z"
                 }
+              ]
+            }
+          }
+        }
+      },
+      "GET /api/pay/trpc/withdrawal.tierLimits?input=%7B%7D": {
+        "status": 200,
+        "json": {
+          "result": {
+            "data": {
+              "enforced": true,
+              "limits": [
+                { "tier": "basic", "assetId": "USDC", "perTx": "1000", "rolling24h": "5000" },
+                { "tier": "basic", "assetId": "USDT", "perTx": "1000", "rolling24h": "5000" },
+                { "tier": "full", "assetId": "USDC", "perTx": "1000", "rolling24h": "5000" },
+                { "tier": "full", "assetId": "USDT", "perTx": "1000", "rolling24h": "5000" },
+                { "tier": "institutional", "assetId": "USDC", "perTx": "1000", "rolling24h": "5000" },
+                { "tier": "institutional", "assetId": "USDT", "perTx": "1000", "rolling24h": "5000" }
               ]
             }
           }
@@ -10309,7 +10357,7 @@
                   "grantedAt": "basic",
                   "reasonCode": null,
                   "reasonText": null,
-                  "changedAt": "2026-11-25T04:31:39.734Z"
+                  "changedAt": "2026-11-25T04:34:55.650Z"
                 },
                 {
                   "capability": "custody_fiat",
@@ -10317,7 +10365,7 @@
                   "grantedAt": "full",
                   "reasonCode": null,
                   "reasonText": null,
-                  "changedAt": "2026-11-25T04:31:39.734Z"
+                  "changedAt": "2026-11-25T04:34:55.650Z"
                 },
                 {
                   "capability": "transfer_crypto",
@@ -10325,7 +10373,7 @@
                   "grantedAt": "basic",
                   "reasonCode": null,
                   "reasonText": null,
-                  "changedAt": "2026-11-25T04:31:39.734Z"
+                  "changedAt": "2026-11-25T04:34:55.650Z"
                 },
                 {
                   "capability": "transfer_fiat",
@@ -10333,7 +10381,7 @@
                   "grantedAt": "full",
                   "reasonCode": null,
                   "reasonText": null,
-                  "changedAt": "2026-11-25T04:31:39.734Z"
+                  "changedAt": "2026-11-25T04:34:55.650Z"
                 },
                 {
                   "capability": "trade_crypto",
@@ -10341,7 +10389,7 @@
                   "grantedAt": "basic",
                   "reasonCode": null,
                   "reasonText": null,
-                  "changedAt": "2026-11-25T04:31:39.734Z"
+                  "changedAt": "2026-11-25T04:34:55.650Z"
                 }
               ]
             }
@@ -10355,21 +10403,21 @@
             "data": {
               "cases": [
                 {
-                  "id": "13a8da4f-a2eb-45f6-a739-d6b502c2bb2d",
-                  "recordId": "8f2d98e8-8721-454e-9991-456a42b86b5e",
+                  "id": "351e1396-b117-46c4-9ca3-bb7388a3e051",
+                  "recordId": "793af541-2b52-4aad-a786-5bbdeead866a",
                   "tier": "full",
                   "jurisdiction": "DE",
                   "state": "approved",
                   "version": 2,
                   "followsCaseId": null,
-                  "submittedAt": "2026-11-25T04:31:36.454Z",
-                  "decidedAt": "2026-11-25T04:31:39.734Z",
+                  "submittedAt": "2026-11-25T04:34:51.490Z",
+                  "decidedAt": "2026-11-25T04:34:55.650Z",
                   "expiresAt": null,
                   "reason": null,
                   "note": null,
                   "history": [
-                    { "version": 1, "state": "submitted", "at": "2026-11-25T04:31:36.454Z" },
-                    { "version": 2, "state": "approved", "at": "2026-11-25T04:31:39.734Z" }
+                    { "version": 1, "state": "submitted", "at": "2026-11-25T04:34:51.490Z" },
+                    { "version": 2, "state": "approved", "at": "2026-11-25T04:34:55.650Z" }
                   ]
                 }
               ]

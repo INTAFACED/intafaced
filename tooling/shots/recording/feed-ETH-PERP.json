@@ -1,6 +1,6 @@
 {
   "label": "TEST",
-  "at": "2026-11-25T04:32:07.488Z",
+  "at": "2026-11-25T04:35:30.992Z",
   "source": "the venue's public feed for ETH-PERP (TEST venue: testnet)",
   "calls": {
     "GET /api/v1/venue/book?depth=10&symbol=ETH-PERP": {
@@ -10,32 +10,32 @@
         "value": {
           "symbol": "ETH-PERP",
           "bids": [
-            { "price": "1660", "amount": "0.0028" },
-            { "price": "1659.6", "amount": "0.0072" },
-            { "price": "1658.9", "amount": "0.1205" },
-            { "price": "1658.8", "amount": "0.015" },
-            { "price": "1658.5", "amount": "0.4826" },
-            { "price": "1658.4", "amount": "0.3615" },
-            { "price": "1658.2", "amount": "0.025" },
-            { "price": "1657.5", "amount": "0.4745" },
-            { "price": "1657.3", "amount": "0.4845" },
-            { "price": "1657.2", "amount": "0.015" }
+            { "price": "1658.9", "amount": "0.0072" },
+            { "price": "1658.8", "amount": "0.1205" },
+            { "price": "1658.4", "amount": "0.025" },
+            { "price": "1658.3", "amount": "0.8414" },
+            { "price": "1657.5", "amount": "1.0458" },
+            { "price": "1657.2", "amount": "0.015" },
+            { "price": "1655.5", "amount": "0.015" },
+            { "price": "1655.4", "amount": "0.5874" },
+            { "price": "1655.2", "amount": "0.4805" },
+            { "price": "1654", "amount": "0.009" }
           ],
           "asks": [
-            { "price": "1660.3", "amount": "0.5947" },
-            { "price": "1660.9", "amount": "0.0072" },
+            { "price": "1660.1", "amount": "0.3204" },
+            { "price": "1660.2", "amount": "0.2196" },
+            { "price": "1660.4", "amount": "0.0148" },
+            { "price": "1660.6", "amount": "0.0167" },
             { "price": "1661", "amount": "0.3615" },
-            { "price": "1661.4", "amount": "0.4457" },
-            { "price": "1661.5", "amount": "0.4055" },
-            { "price": "1662.3", "amount": "0.0163" },
-            { "price": "1663.7", "amount": "0.4825" },
-            { "price": "1663.9", "amount": "0.4134" },
-            { "price": "1665.6", "amount": "0.015" },
-            { "price": "1666", "amount": "0.009" }
+            { "price": "1661.5", "amount": "0.8426" },
+            { "price": "1661.8", "amount": "0.0723" },
+            { "price": "1662.3", "amount": "0.015" },
+            { "price": "1662.9", "amount": "0.8912" },
+            { "price": "1663.9", "amount": "0.015" }
           ]
         },
-        "asOf": "2026-11-25T04:32:02.716Z",
-        "reportedAt": "2026-11-25T04:32:02.716Z",
+        "asOf": "2026-11-25T04:35:25.997Z",
+        "reportedAt": "2026-11-25T04:35:25.997Z",
         "test": true
       }
     },
@@ -46,32 +46,32 @@
         "value": {
           "symbol": "ETH-PERP",
           "bids": [
-            { "price": "1660", "amount": "0.0028" },
-            { "price": "1659.6", "amount": "0.0072" },
-            { "price": "1658.9", "amount": "0.1205" },
-            { "price": "1658.8", "amount": "0.015" },
-            { "price": "1658.5", "amount": "0.4826" },
-            { "price": "1658.4", "amount": "0.3615" },
-            { "price": "1658.2", "amount": "0.025" },
-            { "price": "1657.5", "amount": "0.4745" },
-            { "price": "1657.3", "amount": "0.4845" },
-            { "price": "1657.2", "amount": "0.015" }
+            { "price": "1658.9", "amount": "0.0072" },
+            { "price": "1658.8", "amount": "0.1205" },
+            { "price": "1658.4", "amount": "0.025" },
+            { "price": "1658.3", "amount": "0.8414" },
+            { "price": "1657.5", "amount": "1.0458" },
+            { "price": "1657.2", "amount": "0.015" },
+            { "price": "1655.5", "amount": "0.015" },
+            { "price": "1655.4", "amount": "0.5874" },
+            { "price": "1655.2", "amount": "0.4805" },
+            { "price": "1654", "amount": "0.009" }
           ],
           "asks": [
-            { "price": "1660.3", "amount": "0.5947" },
-            { "price": "1660.9", "amount": "0.0072" },
+            { "price": "1660.1", "amount": "0.3204" },
+            { "price": "1660.2", "amount": "0.2196" },
+            { "price": "1660.4", "amount": "0.0148" },
+            { "price": "1660.6", "amount": "0.0167" },
             { "price": "1661", "amount": "0.3615" },
-            { "price": "1661.4", "amount": "0.4457" },
-            { "price": "1661.5", "amount": "0.4055" },
-            { "price": "1662.3", "amount": "0.0163" },
-            { "price": "1663.7", "amount": "0.4825" },
-            { "price": "1663.9", "amount": "0.4134" },
-            { "price": "1665.6", "amount": "0.015" },
-            { "price": "1666", "amount": "0.009" }
+            { "price": "1661.5", "amount": "0.8426" },
+            { "price": "1661.8", "amount": "0.0723" },
+            { "price": "1662.3", "amount": "0.015" },
+            { "price": "1662.9", "amount": "0.8912" },
+            { "price": "1663.9", "amount": "0.015" }
           ]
         },
-        "asOf": "2026-11-25T04:32:02.716Z",
-        "reportedAt": "2026-11-25T04:32:02.716Z",
+        "asOf": "2026-11-25T04:35:25.997Z",
+        "reportedAt": "2026-11-25T04:35:25.997Z",
         "test": true
       }
     },
@@ -82,52 +82,52 @@
         "value": {
           "symbol": "ETH-PERP",
           "bids": [
-            { "price": "1660", "amount": "0.0028" },
-            { "price": "1659.6", "amount": "0.0072" },
-            { "price": "1658.9", "amount": "0.1205" },
-            { "price": "1658.8", "amount": "0.015" },
-            { "price": "1658.5", "amount": "0.4826" },
-            { "price": "1658.4", "amount": "0.3615" },
-            { "price": "1658.2", "amount": "0.025" },
-            { "price": "1657.5", "amount": "0.4745" },
-            { "price": "1657.3", "amount": "0.4845" },
+            { "price": "1658.9", "amount": "0.0072" },
+            { "price": "1658.8", "amount": "0.1205" },
+            { "price": "1658.4", "amount": "0.025" },
+            { "price": "1658.3", "amount": "0.8414" },
+            { "price": "1657.5", "amount": "1.0458" },
             { "price": "1657.2", "amount": "0.015" },
-            { "price": "1655.5", "amount": "0.5242" },
-            { "price": "1654.9", "amount": "0.5168" },
+            { "price": "1655.5", "amount": "0.015" },
+            { "price": "1655.4", "amount": "0.5874" },
+            { "price": "1655.2", "amount": "0.4805" },
             { "price": "1654", "amount": "0.009" },
             { "price": "1653.9", "amount": "0.015" },
-            { "price": "1653.6", "amount": "0.0722" },
             { "price": "1652.2", "amount": "0.015" },
-            { "price": "1651.7", "amount": "0.4951" },
-            { "price": "1651.2", "amount": "0.461" },
+            { "price": "1650.8", "amount": "0.9748" },
             { "price": "1650.6", "amount": "0.015" },
-            { "price": "1648.9", "amount": "0.015" }
+            { "price": "1648.9", "amount": "0.015" },
+            { "price": "1648", "amount": "0.0591" },
+            { "price": "1647.3", "amount": "0.015" },
+            { "price": "1645.6", "amount": "0.015" },
+            { "price": "1644", "amount": "0.065" },
+            { "price": "1642.8", "amount": "0.9705" }
           ],
           "asks": [
-            { "price": "1660.3", "amount": "0.5947" },
-            { "price": "1660.9", "amount": "0.0072" },
+            { "price": "1660.1", "amount": "0.3204" },
+            { "price": "1660.2", "amount": "0.2196" },
+            { "price": "1660.4", "amount": "0.0148" },
+            { "price": "1660.6", "amount": "0.0167" },
             { "price": "1661", "amount": "0.3615" },
-            { "price": "1661.4", "amount": "0.4457" },
-            { "price": "1661.5", "amount": "0.4055" },
-            { "price": "1662.3", "amount": "0.0163" },
-            { "price": "1663.7", "amount": "0.4825" },
-            { "price": "1663.9", "amount": "0.4134" },
+            { "price": "1661.5", "amount": "0.8426" },
+            { "price": "1661.8", "amount": "0.0723" },
+            { "price": "1662.3", "amount": "0.015" },
+            { "price": "1662.9", "amount": "0.8912" },
+            { "price": "1663.9", "amount": "0.015" },
             { "price": "1665.6", "amount": "0.015" },
             { "price": "1666", "amount": "0.009" },
-            { "price": "1666.9", "amount": "0.0722" },
+            { "price": "1666.4", "amount": "0.4608" },
             { "price": "1667.2", "amount": "0.015" },
-            { "price": "1667.9", "amount": "0.4072" },
-            { "price": "1668.1", "amount": "0.4686" },
+            { "price": "1667.7", "amount": "0.4555" },
             { "price": "1668.9", "amount": "0.015" },
             { "price": "1669.6", "amount": "0.012" },
             { "price": "1670", "amount": "0.0598" },
             { "price": "1670.4", "amount": "0.0064" },
-            { "price": "1670.6", "amount": "0.015" },
-            { "price": "1672", "amount": "0.059" }
+            { "price": "1670.6", "amount": "0.015" }
           ]
         },
-        "asOf": "2026-11-25T04:32:02.716Z",
-        "reportedAt": "2026-11-25T04:32:02.716Z",
+        "asOf": "2026-11-25T04:35:25.997Z",
+        "reportedAt": "2026-11-25T04:35:25.997Z",
         "test": true
       }
     },
@@ -138,52 +138,52 @@
         "value": {
           "symbol": "ETH-PERP",
           "bids": [
-            { "price": "1660", "amount": "0.0028" },
-            { "price": "1659.6", "amount": "0.0072" },
-            { "price": "1658.9", "amount": "0.1205" },
-            { "price": "1658.8", "amount": "0.015" },
-            { "price": "1658.5", "amount": "0.4826" },
-            { "price": "1658.4", "amount": "0.3615" },
-            { "price": "1658.2", "amount": "0.025" },
-            { "price": "1657.5", "amount": "0.4745" },
-            { "price": "1657.3", "amount": "0.4845" },
+            { "price": "1658.9", "amount": "0.0072" },
+            { "price": "1658.8", "amount": "0.1205" },
+            { "price": "1658.4", "amount": "0.025" },
+            { "price": "1658.3", "amount": "0.8414" },
+            { "price": "1657.5", "amount": "1.0458" },
             { "price": "1657.2", "amount": "0.015" },
-            { "price": "1655.5", "amount": "0.5242" },
-            { "price": "1654.9", "amount": "0.5168" },
+            { "price": "1655.5", "amount": "0.015" },
+            { "price": "1655.4", "amount": "0.5874" },
+            { "price": "1655.2", "amount": "0.4805" },
             { "price": "1654", "amount": "0.009" },
             { "price": "1653.9", "amount": "0.015" },
-            { "price": "1653.6", "amount": "0.0722" },
             { "price": "1652.2", "amount": "0.015" },
-            { "price": "1651.7", "amount": "0.4951" },
-            { "price": "1651.2", "amount": "0.461" },
+            { "price": "1650.8", "amount": "0.9748" },
             { "price": "1650.6", "amount": "0.015" },
-            { "price": "1648.9", "amount": "0.015" }
+            { "price": "1648.9", "amount": "0.015" },
+            { "price": "1648", "amount": "0.0591" },
+            { "price": "1647.3", "amount": "0.015" },
+            { "price": "1645.6", "amount": "0.015" },
+            { "price": "1644", "amount": "0.065" },
+            { "price": "1642.8", "amount": "0.9705" }
           ],
           "asks": [
-            { "price": "1660.3", "amount": "0.5947" },
-            { "price": "1660.9", "amount": "0.0072" },
+            { "price": "1660.1", "amount": "0.3204" },
+            { "price": "1660.2", "amount": "0.2196" },
+            { "price": "1660.4", "amount": "0.0148" },
+            { "price": "1660.6", "amount": "0.0167" },
             { "price": "1661", "amount": "0.3615" },
-            { "price": "1661.4", "amount": "0.4457" },
-            { "price": "1661.5", "amount": "0.4055" },
-            { "price": "1662.3", "amount": "0.0163" },
-            { "price": "1663.7", "amount": "0.4825" },
-            { "price": "1663.9", "amount": "0.4134" },
+            { "price": "1661.5", "amount": "0.8426" },
+            { "price": "1661.8", "amount": "0.0723" },
+            { "price": "1662.3", "amount": "0.015" },
+            { "price": "1662.9", "amount": "0.8912" },
+            { "price": "1663.9", "amount": "0.015" },
             { "price": "1665.6", "amount": "0.015" },
             { "price": "1666", "amount": "0.009" },
-            { "price": "1666.9", "amount": "0.0722" },
+            { "price": "1666.4", "amount": "0.4608" },
             { "price": "1667.2", "amount": "0.015" },
-            { "price": "1667.9", "amount": "0.4072" },
-            { "price": "1668.1", "amount": "0.4686" },
+            { "price": "1667.7", "amount": "0.4555" },
             { "price": "1668.9", "amount": "0.015" },
             { "price": "1669.6", "amount": "0.012" },
             { "price": "1670", "amount": "0.0598" },
             { "price": "1670.4", "amount": "0.0064" },
-            { "price": "1670.6", "amount": "0.015" },
-            { "price": "1672", "amount": "0.059" }
+            { "price": "1670.6", "amount": "0.015" }
           ]
         },
-        "asOf": "2026-11-25T04:32:02.716Z",
-        "reportedAt": "2026-11-25T04:32:02.716Z",
+        "asOf": "2026-11-25T04:35:26.499Z",
+        "reportedAt": "2026-11-25T04:35:26.499Z",
         "test": true
       }
     },
@@ -191,9 +191,9 @@
       "status": 200,
       "json": {
         "venueId": "hyperliquid-testnet",
-        "value": { "symbol": "ETH-PERP", "bid": "1660", "ask": "1660.3" },
-        "asOf": "2026-11-25T04:32:02.716Z",
-        "reportedAt": "2026-11-25T04:32:02.716Z",
+        "value": { "symbol": "ETH-PERP", "bid": "1658.9", "ask": "1660.1" },
+        "asOf": "2026-11-25T04:35:26.499Z",
+        "reportedAt": "2026-11-25T04:35:26.499Z",
         "test": true,
         "slippageCapBps": { "known": false },
         "spreadLimitBps": { "known": false }
@@ -205,88 +205,88 @@
         "venueId": "hyperliquid-testnet",
         "value": [
           {
-            "tradeId": "432716324001564",
+            "tradeId": "42517852790135",
+            "symbol": "ETH-PERP",
+            "price": "1658.9",
+            "amount": "0.007",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:35:10.915Z"
+          },
+          {
+            "tradeId": "360047433486688",
+            "symbol": "ETH-PERP",
+            "price": "1660.1",
+            "amount": "0.007",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:35:00.472Z"
+          },
+          {
+            "tradeId": "479056980712886",
+            "symbol": "ETH-PERP",
+            "price": "1659.1",
+            "amount": "0.0138",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:34:10.720Z"
+          },
+          {
+            "tradeId": "256795314034331",
+            "symbol": "ETH-PERP",
+            "price": "1659.3",
+            "amount": "0.0078",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:33:21.647Z"
+          },
+          {
+            "tradeId": "762705341435466",
+            "symbol": "ETH-PERP",
+            "price": "1659.1",
+            "amount": "0.0072",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:33:21.647Z"
+          },
+          {
+            "tradeId": "782494709605581",
+            "symbol": "ETH-PERP",
+            "price": "1658.8",
+            "amount": "0.0072",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:33:10.184Z"
+          },
+          {
+            "tradeId": "185936893661773",
+            "symbol": "ETH-PERP",
+            "price": "1658.8",
+            "amount": "0.015",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:33:10.184Z"
+          },
+          {
+            "tradeId": "613856788147945",
+            "symbol": "ETH-PERP",
+            "price": "1659.6",
+            "amount": "0.007",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:32:40.630Z"
+          },
+          {
+            "tradeId": "610759479304730",
+            "symbol": "ETH-PERP",
+            "price": "1659.3",
+            "amount": "0.0041",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:32:24.317Z"
+          },
+          {
+            "tradeId": "241232098312219",
             "symbol": "ETH-PERP",
             "price": "1660",
-            "amount": "0.0062",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:31:15.300Z"
-          },
-          {
-            "tradeId": "977042731611060",
-            "symbol": "ETH-PERP",
-            "price": "1660.5",
-            "amount": "0.0078",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:31:15.300Z"
-          },
-          {
-            "tradeId": "881670621124844",
-            "symbol": "ETH-PERP",
-            "price": "1660.6",
-            "amount": "0.007",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:31:02.601Z"
-          },
-          {
-            "tradeId": "964378246298882",
-            "symbol": "ETH-PERP",
-            "price": "1660.6",
-            "amount": "0.007",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:30:50.985Z"
-          },
-          {
-            "tradeId": "611674422228599",
-            "symbol": "ETH-PERP",
-            "price": "1660.5",
-            "amount": "0.0072",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:30:31.282Z"
-          },
-          {
-            "tradeId": "801190620032571",
-            "symbol": "ETH-PERP",
-            "price": "1662.1",
-            "amount": "0.0072",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:30:00.647Z"
-          },
-          {
-            "tradeId": "265016030784566",
-            "symbol": "ETH-PERP",
-            "price": "1662.2",
-            "amount": "0.005",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:30:00.647Z"
-          },
-          {
-            "tradeId": "9892927874096",
-            "symbol": "ETH-PERP",
-            "price": "1663.5",
             "amount": "0.0028",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:29:11.235Z"
-          },
-          {
-            "tradeId": "448588733574079",
-            "symbol": "ETH-PERP",
-            "price": "1663.1",
-            "amount": "0.0072",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:29:11.235Z"
-          },
-          {
-            "tradeId": "1067094779965969",
-            "symbol": "ETH-PERP",
-            "price": "1662.2",
-            "amount": "0.01",
             "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:28:54.285Z"
+            "tradedAt": "2026-11-25T04:32:24.317Z"
           }
         ],
-        "asOf": "2026-11-25T04:31:15.300Z",
-        "reportedAt": "2026-11-25T04:31:15.300Z",
+        "asOf": "2026-11-25T04:35:10.915Z",
+        "reportedAt": "2026-11-25T04:35:10.915Z",
         "test": true
       }
     },
@@ -296,88 +296,88 @@
         "venueId": "hyperliquid-testnet",
         "value": [
           {
-            "tradeId": "432716324001564",
+            "tradeId": "42517852790135",
+            "symbol": "ETH-PERP",
+            "price": "1658.9",
+            "amount": "0.007",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:35:10.915Z"
+          },
+          {
+            "tradeId": "360047433486688",
+            "symbol": "ETH-PERP",
+            "price": "1660.1",
+            "amount": "0.007",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:35:00.472Z"
+          },
+          {
+            "tradeId": "479056980712886",
+            "symbol": "ETH-PERP",
+            "price": "1659.1",
+            "amount": "0.0138",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:34:10.720Z"
+          },
+          {
+            "tradeId": "256795314034331",
+            "symbol": "ETH-PERP",
+            "price": "1659.3",
+            "amount": "0.0078",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:33:21.647Z"
+          },
+          {
+            "tradeId": "762705341435466",
+            "symbol": "ETH-PERP",
+            "price": "1659.1",
+            "amount": "0.0072",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:33:21.647Z"
+          },
+          {
+            "tradeId": "782494709605581",
+            "symbol": "ETH-PERP",
+            "price": "1658.8",
+            "amount": "0.0072",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:33:10.184Z"
+          },
+          {
+            "tradeId": "185936893661773",
+            "symbol": "ETH-PERP",
+            "price": "1658.8",
+            "amount": "0.015",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:33:10.184Z"
+          },
+          {
+            "tradeId": "613856788147945",
+            "symbol": "ETH-PERP",
+            "price": "1659.6",
+            "amount": "0.007",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:32:40.630Z"
+          },
+          {
+            "tradeId": "610759479304730",
+            "symbol": "ETH-PERP",
+            "price": "1659.3",
+            "amount": "0.0041",
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:32:24.317Z"
+          },
+          {
+            "tradeId": "241232098312219",
             "symbol": "ETH-PERP",
             "price": "1660",
-            "amount": "0.0062",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:31:15.300Z"
-          },
-          {
-            "tradeId": "977042731611060",
-            "symbol": "ETH-PERP",
-            "price": "1660.5",
-            "amount": "0.0078",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:31:15.300Z"
-          },
-          {
-            "tradeId": "881670621124844",
-            "symbol": "ETH-PERP",
-            "price": "1660.6",
-            "amount": "0.007",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:31:02.601Z"
-          },
-          {
-            "tradeId": "964378246298882",
-            "symbol": "ETH-PERP",
-            "price": "1660.6",
-            "amount": "0.007",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:30:50.985Z"
-          },
-          {
-            "tradeId": "611674422228599",
-            "symbol": "ETH-PERP",
-            "price": "1660.5",
-            "amount": "0.0072",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:30:31.282Z"
-          },
-          {
-            "tradeId": "801190620032571",
-            "symbol": "ETH-PERP",
-            "price": "1662.1",
-            "amount": "0.0072",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:30:00.647Z"
-          },
-          {
-            "tradeId": "265016030784566",
-            "symbol": "ETH-PERP",
-            "price": "1662.2",
-            "amount": "0.005",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:30:00.647Z"
-          },
-          {
-            "tradeId": "9892927874096",
-            "symbol": "ETH-PERP",
-            "price": "1663.5",
             "amount": "0.0028",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:29:11.235Z"
-          },
-          {
-            "tradeId": "448588733574079",
-            "symbol": "ETH-PERP",
-            "price": "1663.1",
-            "amount": "0.0072",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T04:29:11.235Z"
-          },
-          {
-            "tradeId": "1067094779965969",
-            "symbol": "ETH-PERP",
-            "price": "1662.2",
-            "amount": "0.01",
             "takerSide": "sell",
-            "tradedAt": "2026-11-25T04:28:54.285Z"
+            "tradedAt": "2026-11-25T04:32:24.317Z"
           }
         ],
-        "asOf": "2026-11-25T04:31:15.300Z",
-        "reportedAt": "2026-11-25T04:31:15.300Z",
+        "asOf": "2026-11-25T04:35:10.915Z",
+        "reportedAt": "2026-11-25T04:35:10.915Z",
         "test": true
       }
     },
@@ -2302,12 +2302,12 @@
             "openAt": "2026-11-25T04:30:00.000Z",
             "openPrice": "1662.2",
             "highPrice": "1662.2",
-            "lowPrice": "1660",
-            "closePrice": "1660",
-            "baseVolume": "0.0474"
+            "lowPrice": "1658.8",
+            "closePrice": "1658.9",
+            "baseVolume": "0.2402"
           }
         ],
-        "asOf": "2026-11-25T04:32:03.978Z",
+        "asOf": "2026-11-25T04:35:27.400Z",
         "reportedAt": null,
         "test": true
       }
@@ -4234,11 +4234,11 @@
             "openPrice": "1663.1",
             "highPrice": "1669.8",
             "lowPrice": "1655.5",
-            "closePrice": "1660",
-            "baseVolume": "5.3371"
+            "closePrice": "1658.9",
+            "baseVolume": "5.5299"
           }
         ],
-        "asOf": "2026-11-25T04:32:04.185Z",
+        "asOf": "2026-11-25T04:35:27.611Z",
         "reportedAt": null,
         "test": true
       }
@@ -6165,11 +6165,11 @@
             "openPrice": "1663.1",
             "highPrice": "1669.8",
             "lowPrice": "1655.5",
-            "closePrice": "1660",
-            "baseVolume": "5.3371"
+            "closePrice": "1658.9",
+            "baseVolume": "5.5299"
           }
         ],
-        "asOf": "2026-11-25T04:32:04.390Z",
+        "asOf": "2026-11-25T04:35:27.740Z",
         "reportedAt": null,
         "test": true
       }
@@ -8096,11 +8096,11 @@
             "openPrice": "1679.6",
             "highPrice": "1680",
             "lowPrice": "1647.1",
-            "closePrice": "1660",
-            "baseVolume": "68.2086"
+            "closePrice": "1658.9",
+            "baseVolume": "68.4014"
           }
         ],
-        "asOf": "2026-11-25T04:32:04.513Z",
+        "asOf": "2026-11-25T04:35:27.961Z",
         "reportedAt": null,
         "test": true
       }
