@@ -23,6 +23,10 @@ export function optIn(name, text) {
   const named = [...text.matchAll(NAMED)].map((m) => m[2]);
   if (calls !== 1 || named.length !== 1)
     throw new Error(`${name}: call hyperliquidForThisFile(test, '<recording>') exactly once, with the recording's name written out`);
+  // Named after its file, so a change to the recording runs that file (journey-touch.mjs HL_RECORDING).
+  const stem = path.basename(name).replace(/\.pw\.mjs$/, '');
+  if (named[0] !== stem)
+    throw new Error(`${name}: name its recording after the file, hyperliquidForThisFile(test, '${stem}'), not '${named[0]}'`);
   return named[0];
 }
 

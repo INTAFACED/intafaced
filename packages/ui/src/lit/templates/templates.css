@@ -1898,6 +1898,10 @@ button.lt-tab:focus-visible {
 .lt-chart[data-tone='down'] .lt-chart-line {
   stroke: var(--lit-down);
 }
+/* A flat day's line is quiet text, not the accent: the accent is the main action's alone (the owner's pick, 25 Nov). */
+.lt-chart[data-tone='neutral'] .lt-chart-line {
+  stroke: var(--lit-text-2);
+}
 
 /* Sparkline: a card's small trend line; in a table row, a shorter and fixed-width one. */
 .lt-spark svg {
@@ -2347,7 +2351,7 @@ button.lt-tab:focus-visible {
 
 :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):is(:checked, :indeterminate) {
   border-color: transparent;
-  background: var(--lit-accent-fill);
+  background: var(--lit-accent);
 }
 
 :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {

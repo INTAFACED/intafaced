@@ -1,11 +1,24 @@
 import { createContext, useContext, useId, useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeftRight, Star } from 'lucide-react';
-import { AssetIcon, Button, GridTable, Tag, type GridColumn } from '@intafaced/ui/lit';
+import { AssetIcon, Button, GridTable, StarToggle, Tag, type GridColumn } from '@intafaced/ui/lit';
 import { sortRows, Sparkline, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
 import { direction, isHiddenPath, navigate, useSparklines, type Decimal, type MarketData } from './deps';
 import { Pct } from './parts';
-import { isAnnounced, isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
+import {
+  displayName,
+  entryTarget,
+  interestText,
+  isAnnounced,
+  isPaused,
+  isPerp,
+  leverageText,
+  priceText,
+  spreadRatio,
+  spreadText,
+  volumeText,
+  type Entry,
+  type Mode,
+} from './select';
 import { isSessionShut, opensLabel, rowStatus, type ListingStatusMap } from './listing-status';
 import { maintenanceWhen, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
 import { ianaZone, partialWindowStart, sinceLabel } from './window';
@@ -16,27 +29,16 @@ import type { FavoriteControl } from './MarketRow';
 /** Rows drawn at first, and added by each "Show more"; sparklines are read for the rows drawn only. */
 const PAGE_SIZE = 50;
 
-/** Convert opens with the pair filled in (it reads `from` and `to`): pay in the quote, get the coin. */
-const convertHref = (market: MarketData) => `/trade/convert?from=${encodeURIComponent(market.quote)}&to=${encodeURIComponent(market.base)}`;
-
 /** A click on the star must not open the row; the grid ignores clicks that start on a button or link. */
 function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteControl }) {
   const { t } = marketsCopy.useCopy();
-  if ('signInHref' in favorite)
-    return (
-      <a className="lt-link" href={favorite.signInHref} aria-label={t('Log in to star {asset}', { asset })}>
-        <Star size={16} aria-hidden="true" />
-      </a>
-    );
+  if ('signInHref' in favorite) return <StarToggle href={favorite.signInHref} label={t('Log in to star {asset}', { asset })} />;
   return (
-    <Button
-      tone="quiet"
-      aria-pressed={favorite.on}
-      aria-label={favorite.on ? t('Remove {asset} from favorites', { asset }) : t('Add {asset} to favorites', { asset })}
-      onClick={favorite.onToggle}
-    >
-      <Star size={16} aria-hidden="true" fill={favorite.on ? 'currentColor' : 'none'} />
-    </Button>
+    <StarToggle
+      on={favorite.on}
+      onToggle={favorite.onToggle}
+      label={favorite.on ? t('Remove {asset} from favorites', { asset }) : t('Add {asset} to favorites', { asset })}
+    />
   );
 }
 
@@ -99,8 +101,12 @@ function ListingState({ market }: { market: MarketData }) {
   return null;
 }
 
+/** The row's day as a line; with no history, an empty cell the column keeps its width for, named for a screen reader. */
 function SparkCell({ symbol, label, trend }: { symbol: string; label: string; trend: Tone }) {
-  return <Sparkline label={label} values={useContext(SparkContext)[symbol] ?? []} tone={trend} size="row" />;
+  const { t } = marketsCopy.useCopy();
+  const values = useContext(SparkContext)[symbol] ?? [];
+  if (values.length < 2) return <span className="lt-sr">{t('No price history')}</span>;
+  return <Sparkline label={label} values={values} tone={trend} size="row" />;
 }
 
 export interface MarketsListProps {
@@ -151,9 +157,14 @@ export function MarketsList({
   const pausedNote = useId();
   const [limit, setLimit] = useState(PAGE_SIZE);
   const pro = mode === 'pro';
+  // Funding and open interest are a perpetual's figures: their columns show where a perpetual is listed.
+  const withPerps = useMemo(() => entries.some(isPerp), [entries]);
   const dense = density === 'compact';
+  // A perpetual opens the futures desk and is traded, never bought; a spot market opens its desk or coin page.
+  const targetOf = (entry: Entry) => entryTarget(entry, mode, isHiddenPath, signedIn);
 
   const { columns, sorting } = useMemo(() => {
+    const targetOf = (entry: Entry) => entryTarget(entry, mode, isHiddenPath, signedIn);
     const sorting: SortSpec[] = [];
     const figure = (
       key: string,
@@ -217,25 +228,32 @@ export function MarketsList({
         </span>
       ) : null;
 
-    sorting.push({ id: 'name', sortType: 'text', value: ({ market }) => `${market.base}/${market.quote}` });
+    sorting.push({ id: 'name', sortType: 'text', value: displayName });
     const name: GridColumn<Entry> = {
       key: 'name',
-      label: t('Name'),
+      label: t('Market'),
       sortType: 'text',
-      sortLabel: t('Sort by {column}', { column: t('Name') }),
+      sortLabel: t('Sort by {column}', { column: t('Market') }),
       headMarks: { 'data-col': 'name' },
       cellMarks: () => ({ 'data-col': 'name', 'data-cell': 'name' }),
       cell: (entry) => {
         const { market } = entry;
-        const target = marketTarget(market, mode, isHiddenPath, signedIn);
+        const target = targetOf(entry);
         const full = assetName(market.base, copy);
+        const perp = isPerp(entry);
         const pair = (
           <>
-            <span data-testid="mkt-name__ticker">
-              {market.base}
-              <span data-testid="mkt-name__quote" className="lt-muted">
-                /{market.quote}
+            <span className="lt-market-name">
+              <span data-testid="mkt-name__ticker">
+                {market.base}
+                <span data-testid="mkt-name__quote" className="lt-muted">
+                  {perp ? '-PERP' : `/${market.quote}`}
+                </span>
               </span>
+              {/* Spot or the contract's leverage, as the pick; a perpetual whose maximum is not published says Perp. */}
+              <Tag tone="neutral" data-testid="mkt-kind">
+                {perp ? (leverageText(entry.perp) ?? t('Perp')) : t('Spot')}
+              </Tag>
             </span>
             {full && !dense ? (
               <span data-testid="mkt-name__full" className="lt-hint">
@@ -277,7 +295,7 @@ export function MarketsList({
     };
     const last = figure(
       'last',
-      t('Last'),
+      t('Price'),
       ({ ticker }) => ticker?.last ?? null,
       ({ market, ticker }) => (
         <span data-slot="price" className="lt-num" dir="ltr">
@@ -287,7 +305,7 @@ export function MarketsList({
     );
     const change = figure(
       'change',
-      t('24h change'),
+      t('24h'),
       ({ ticker }) => ticker?.changePct24h ?? null,
       (entry) => (
         <span className="lt-lines">
@@ -308,7 +326,7 @@ export function MarketsList({
     );
     const volume = figure(
       'volume',
-      t('24h volume'),
+      t('Volume 24h'),
       ({ ticker }) => ticker?.quoteVolume24h ?? null,
       (entry) => (
         <span className="lt-lines">
@@ -319,11 +337,28 @@ export function MarketsList({
         </span>
       ),
     );
-    const chart = unsortedColumn('chart', t('Last 24h'), ({ market, ticker }) => (
+    // A perpetual's funding and open interest; a spot row has neither and reads "—".
+    const funding = figure(
+      'funding',
+      t('Funding 1h'),
+      ({ perp }) => perp?.funding1h ?? null,
+      ({ perp }) => <Pct value={perp?.funding1h} places={4} />,
+    );
+    const interest = figure(
+      'interest',
+      t('Open interest'),
+      ({ perp }) => perp?.openInterest ?? null,
+      ({ market, perp }) => (
+        <span className="lt-num" dir="ltr">
+          {interestText(market, perp)}
+        </span>
+      ),
+    );
+    const chart = unsortedColumn('chart', t('Last 24h'), (entry) => (
       <SparkCell
-        symbol={market.symbol}
-        label={`${market.base}/${market.quote} ${t('Last 24h')}`}
-        trend={(direction(ticker?.changePct24h) ?? 'flat') === 'flat' ? 'neutral' : (direction(ticker?.changePct24h) as Tone)}
+        symbol={entry.market.symbol}
+        label={`${displayName(entry)} ${t('Last 24h')}`}
+        trend={(direction(entry.ticker?.changePct24h) ?? 'flat') === 'flat' ? 'neutral' : (direction(entry.ticker?.changePct24h) as Tone)}
       />
     ));
     const status = unsortedColumn('status', t('Status'), (entry) => {
@@ -361,25 +396,14 @@ export function MarketsList({
       cellMarks: () => ({ 'data-col': 'action', 'data-cell': 'action' }),
       cell: (entry) => {
         const { market } = entry;
-        const text = pro ? t('Trade') : t('Buy');
-        const aria = pro ? t('Trade {pair}', { pair: `${market.base}/${market.quote}` }) : t('Buy {asset}', { asset: market.base });
-        const pair = `${market.base}/${market.quote}`;
-        const wrap = (button: ReactNode) => (
-          <span className="lt-actions">
-            {button}
-            {/* The kit's row link centres the word on the button's line; the word itself is a link's. */}
-            <a className="lt-row-link" href={convertHref(market)} aria-label={t('Convert {pair}', { pair })}>
-              {/* Pro's twelve columns leave the word no room: its mark stands in, with the same name and a tooltip. */}
-              {pro ? (
-                <span className="lt-link" title={t('Convert')}>
-                  <ArrowLeftRight size={16} aria-hidden="true" />
-                </span>
-              ) : (
-                <span className="lt-link">{t('Convert')}</span>
-              )}
-            </a>
-          </span>
-        );
+        const perp = isPerp(entry);
+        const text = pro || perp ? t('Trade') : t('Buy');
+        const aria = perp
+          ? t('Trade {pair}', { pair: displayName(entry) })
+          : pro
+            ? t('Trade {pair}', { pair: `${market.base}/${market.quote}` })
+            : t('Buy {asset}', { asset: market.base });
+        const wrap = (button: ReactNode) => <span className="lt-actions">{button}</span>;
         // Not a tradeable row: the button says why (its title for the pointer), stays reachable by keyboard, and links nowhere.
         const refused = (title: string, describedBy?: string) =>
           wrap(
@@ -394,7 +418,7 @@ export function MarketsList({
           // A shut session is never a tradeable row: an order now is refused and not queued (J-cex-spot-14 #6).
           return refused(t('This market is closed. Orders are not queued while it is closed'));
         if (isPaused(entry)) return refused(t('Orders are paused on this market'), pausedNote);
-        const target = marketTarget(market, mode, isHiddenPath, signedIn);
+        const target = targetOf(entry);
         if (target === null) return wrap(null);
         return wrap(
           <a className="lt-button lt-button-secondary" role="button" href={target} aria-label={aria}>
@@ -403,6 +427,7 @@ export function MarketsList({
         );
       },
     };
+    const perpColumns = withPerps ? [funding, interest] : [];
     const columns = pro
       ? [
           name,
@@ -412,14 +437,26 @@ export function MarketsList({
           spread,
           pricePair('high', t('24h high / low'), { field: 'high24h', label: t('24h high') }, { field: 'low24h', label: t('24h low') }),
           volume,
+          ...perpColumns,
           chart,
           status,
           action,
         ]
-      : [name, last, change, chart, volume, action];
-    return { columns, sorting };
+      : [name, last, change, chart, volume, ...perpColumns, action];
+    // On a phone a market is one tappable line: its name, then its price over its 24h move; the row itself opens it.
+    // On a computer the row's action shows on the row pointed at, as landing's markets panel.
+    const PHONE: Record<string, GridColumn<Entry>['phone']> = {
+      name: 'name',
+      last: 'top',
+      change: 'bottom',
+      chart: 'hide',
+      volume: 'hide',
+      action: 'hide',
+    };
+    const placed = columns.map((column) => ({ ...column, phone: PHONE[column.key], reveal: column.key === 'action' || undefined }));
+    return { columns: placed, sorting };
     // `copy` changes only with the language.
-  }, [pro, dense, mode, signedIn, favorite, timeZone, pausedNote, statuses, copy.renderedLocale]);
+  }, [pro, withPerps, dense, mode, signedIn, favorite, timeZone, pausedNote, statuses, copy.renderedLocale]);
 
   const sorted = useMemo(() => sortRows(entries, sorting, sort), [entries, sorting, sort]);
   const shown = useMemo(() => sorted.slice(0, limit), [sorted, limit]);
@@ -442,7 +479,7 @@ export function MarketsList({
           onSortChange(sort && sort.columnId === next.columnId && sort.direction !== firstDirection(next.columnId) ? null : next)
         }
         onRowActivate={(entry) => {
-          const target = isAnnounced(entry.market) ? null : marketTarget(entry.market, mode, isHiddenPath, signedIn);
+          const target = isAnnounced(entry.market) ? null : targetOf(entry);
           if (target !== null) navigate(target);
         }}
         rowMarks={(entry) => ({ 'data-testid': 'mkt-row', 'data-symbol': entry.market.symbol })}

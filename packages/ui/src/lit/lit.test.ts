@@ -120,7 +120,10 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   it('draws Volt on the root with no switch: no direction or accent selector is left in lit.css', () => {
     expect(css).not.toMatch(/data-direction|data-accent/);
     expect(css.toLowerCase()).toContain(`--lit-accent: ${lit.accent.toLowerCase()};`);
-    expect(lit.accent).toBe('#E0F83A');
+    // Volt's lime is the main action's (primary-bg) and the older rooms' primary fill; the accent family is bone.
+    expect(lit['primary-bg']).toBe('#E0F83A');
+    expect(lit['accent-fill']).toBe('#E0F83A');
+    expect(lit.accent).toBe('#F3F2EC');
   });
 
   it("today's medium and large radii are box radii, never the control's pill (a tall box drawn with a pill clips into an ellipse)", () => {
@@ -224,9 +227,14 @@ describe('Volt: the chartreuse spark (intafaced issue 9302)', () => {
   });
 
   it('is chartreuse, not lemon: its hue sits on the green side of yellow, as in the references', () => {
-    expect(hue(dark.accent)).toBeGreaterThanOrEqual(64);
-    expect(hue(dark.accent)).toBeLessThanOrEqual(80);
+    expect(hue(dark['primary-bg'])).toBeGreaterThanOrEqual(64);
+    expect(hue(dark['primary-bg'])).toBeLessThanOrEqual(80);
     expect(hue('#FAF33E')).toBeLessThan(64);
+  });
+
+  it('keeps lime on the one main action: in dark, a link, a current step, a checked box and a chart line are bone', () => {
+    for (const role of ['accent', 'accent-text', 'accent-pair'] as const) expect(dark[role], role).toBe(dark['text-1']);
+    expect(dark['primary-bg']).toBe('#E0F83A');
   });
 
   it('reads as another colour than the warning and the gain, in both schemes (CIEDE2000 at least 20)', () => {
@@ -394,11 +402,22 @@ describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
     expect(lit.page).toBe('#000000');
     expect(lit['primary-bg']).toBe('#E0F83A');
     expect(lit['solid-bg']).toBe('#000000');
+    // An unpainted panel keeps one even hairline, as the picked samples draw it, so a panel still has an edge on black.
+    expect(lit['solid-rim']).toBe(lit['solid-rim-dim']);
+    expect(lit['solid-rim']).not.toMatch(/,\s*0\)$/);
+  });
+  it("draws every big figure at the figure weight (the owner's pick: Manrope 300), never a fixed bold", () => {
+    const css = readFileSync(join(here, 'components/components.css'), 'utf8');
+    for (const sel of ['.lt-mover-price', '.lt-featured-price', ".lit-stack__card[data-card='front'] [data-part='figure']"]) {
+      const rule = css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+      expect(rule, sel).toContain('font-weight: var(--lit-type-figure-weight);');
+    }
   });
   it('draws flat tiles in Pro and on a board that asks for them', () => {
     const css = readFileSync(join(here, 'lit.css'), 'utf8');
     expect(css).toMatch(/\[data-panels='tiles'\] \{\n {2}--lit-solid-bg: #0d0e0e;/i);
     expect(pro['solid-bg']).toBe('#0D0E0E');
     expect(pro['radius-panel']).toBe('6px');
+    expect(pro['solid-rim']).toMatch(/,\s*0\)$/);
   });
 });
