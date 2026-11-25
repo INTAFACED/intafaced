@@ -558,8 +558,28 @@
 </div>
 <div data-testid="home-side" class="lt-page-col hm-side">
 <div data-testid="home-next" class="lit-surface hm-side-panel hm-next" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<div class="hm-started" data-testid="home-next-head">
+<div class="hm-started-head">
+<h2>Your next step</h2>
+<span class="lt-hint">6 of 6 done</span>
+</div>
+<div class="lt-progress-segments" role="img" aria-label="6 of 6 done">
+<span data-done="true">
+</span>
+<span data-done="true">
+</span>
+<span data-done="true">
+</span>
+<span data-done="true">
+</span>
+<span data-done="true">
+</span>
+<span data-done="true">
+</span>
+</div>
+</div>
 <section class="lt-stack" aria-labelledby="home-work-title">
-<h2 id="home-work-title">Needs you</h2>
+<h2 id="home-work-title" data-sr-only="">Needs you</h2>
 <p class="lt-hint" data-complete="true">
 <span lang="en" dir="ltr" data-i18n="customer.home.Work nothing">Nothing needs you right now.</span>
 </p>
@@ -667,84 +687,31 @@
 </ul>
 <p class="lt-hint">No one is saved on this device.</p>
 </section>
-<section class="hm-widget" data-widget="agent" aria-labelledby="home-widget-agent">
+<section class="hm-widget hm-widget-row" data-widget="agent" data-state="not-read" aria-labelledby="home-widget-agent">
 <h2 id="home-widget-agent">Agent</h2>
-<div class="hm-widget-body" data-state="not-read">
-<p class="lt-hint">Home does not read this room, so it shows nothing here.</p>
-<a class="hm-link" href="/agents/approvals">Open Agents</a>
-</div>
+<span class="lt-hint">Not read on Home</span>
+<a class="hm-link" href="/agents/approvals" aria-label="Open Agents">Open</a>
 </section>
-<section class="hm-widget" data-widget="bots" aria-labelledby="home-widget-bots">
+<section class="hm-widget hm-widget-row" data-widget="bots" data-state="not-read" aria-labelledby="home-widget-bots">
 <h2 id="home-widget-bots">Bots running</h2>
-<div class="hm-widget-body" data-state="not-read">
-<p class="lt-hint">Home does not read this room, so it shows nothing here.</p>
-<a class="hm-link" href="/trade/bots">Open Bots</a>
-</div>
+<span class="lt-hint">Not read on Home</span>
+<a class="hm-link" href="/trade/bots" aria-label="Open Bots">Open</a>
 </section>
-<section class="hm-widget" data-widget="prediction" aria-labelledby="home-widget-prediction">
+<section class="hm-widget hm-widget-row" data-widget="prediction" data-state="not-read" aria-labelledby="home-widget-prediction">
 <h2 id="home-widget-prediction">Your prediction</h2>
-<div class="hm-widget-body" data-state="not-read">
-<p class="lt-hint">Home does not read this room, so it shows nothing here.</p>
-<a class="hm-link" href="/predict/positions">Open Predictions</a>
-</div>
+<span class="lt-hint">Not read on Home</span>
+<a class="hm-link" href="/predict/positions" aria-label="Open Predictions">Open</a>
 </section>
-<section class="hm-widget" data-widget="copy" aria-labelledby="home-widget-copy">
+<section class="hm-widget hm-widget-row" data-widget="copy" data-state="not-read" aria-labelledby="home-widget-copy">
 <h2 id="home-widget-copy">Copy trading</h2>
-<div class="hm-widget-body" data-state="not-read">
-<p class="lt-hint">Home does not read this room, so it shows nothing here.</p>
-<a class="hm-link" href="/trade/copy">Open Copy trading</a>
-</div>
+<span class="lt-hint">Not read on Home</span>
+<a class="hm-link" href="/trade/copy" aria-label="Open Copy trading">Open</a>
 </section>
-<div class="hm-widget" data-widget="learn">
-<section class="lt-stack" aria-labelledby="home-learn-title">
-<div class="lt-title-row">
-<h2 id="home-learn-title">Learn</h2>
-<a class="lt-link" href="/academy">Open Academy</a>
-</div>
-<ul class="lt-rows">
-<li>
-<a data-testid="home-learn__card" class="lt-lines" href="/academy">
-<span>Crypto basics<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
-<path d="M7 7h10v10">
-</path>
-<path d="M7 17 17 7">
-</path>
-</svg>
-</span>
-<span class="lt-hint">What coins, wallets and markets are.</span>
-</a>
-</li>
-<li>
-<a data-testid="home-learn__card" class="lt-lines" href="/academy">
-<span>Staying safe<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
-<path d="M7 7h10v10">
-</path>
-<path d="M7 17 17 7">
-</path>
-</svg>
-</span>
-<span class="lt-hint">Passkeys, scams and protecting your money.</span>
-</a>
-</li>
-<li>
-<a data-testid="home-learn__card" class="lt-lines" href="/academy">
-<span>Reading a chart<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
-<path d="M7 7h10v10">
-</path>
-<path d="M7 17 17 7">
-</path>
-</svg>
-</span>
-<span class="lt-hint">Prices, candles and what moves them.</span>
-</a>
-</li>
-</ul>
-</section>
-</div>
 </div>
 <section class="hm-pin" data-testid="home-pin" aria-labelledby="home-pin-title">
 <h2 id="home-pin-title">Pin a widget</h2>
 <div class="hm-pin-chips">
+<a href="/academy" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Academy</a>
 <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sliders-horizontal" aria-hidden="true">
 <path d="M10 5H3">

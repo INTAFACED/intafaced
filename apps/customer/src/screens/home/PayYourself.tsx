@@ -8,6 +8,7 @@
  */
 // hand-declared-ok: svc-bank's cards.list and cards.partnerHeld answers have no browser-safe schema in packages/contracts; this narrows them
 import { useId, useMemo, useState } from 'react';
+import { Info } from 'lucide-react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { displayAmount } from '../../shared/money';
 import { useSession } from '../../features/session/session';
@@ -71,7 +72,13 @@ export default function PayYourself({
   partner,
   venue,
   wallet: walletRead,
+  fold = false,
 }: {
+  /**
+   * Home's rail (the owner's Home A): the figures stay on the face, and each source line and note sits behind "How this
+   * is worked out", closed by default and kept in the page. Without it every line shows, as Pro Home draws it.
+   */
+  fold?: boolean;
   owner: string;
   status: VenueUp;
   partner: PartnerRead;
@@ -87,6 +94,8 @@ export default function PayYourself({
   const [ask, setAsk] = useState<Ask | null>(null);
   const [refusal, setRefusal] = useState<{ title: string; body: string; code?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
+  const howId = useId();
 
   const partnerName = partner.state === 'read' ? partner.label : t('partPartnerUnnamed');
   const venueRows = venue.data?.rows ?? [];
@@ -201,13 +210,31 @@ export default function PayYourself({
   const prepared = s?.moves.filter((m) => m.status === 'prepared') ?? [];
 
   return (
-    <div className="lt-stack" data-testid="pay-yourself-home">
+    <div className="lt-stack" data-testid="pay-yourself-home" id={howId} data-how={fold ? (howOpen ? 'open' : 'closed') : undefined}>
       <section aria-label={t('spendableTitle')} data-testid="spendable-now" className="lt-stack">
-        <h2>{t('spendableTitle')}</h2>
+        {fold ? (
+          <div className="lt-title-row">
+            <h2>{t('spendableTitle')}</h2>
+            <Button
+              tone="quiet"
+              size="sm"
+              onClick={() => setHowOpen((open) => !open)}
+              aria-expanded={howOpen}
+              aria-controls={howId}
+              aria-label={t('howTitle')}
+            >
+              <Info size={16} aria-hidden="true" />
+            </Button>
+          </div>
+        ) : (
+          <h2>{t('spendableTitle')}</h2>
+        )}
         <p data-testid="spendable-total">
           {parts.total !== null ? t('spendableTotal', { amount: displayAmount(parts.total) }) : t('spendableNoTotal')}
         </p>
-        <p className="lt-hint">{t('spendableNote')}</p>
+        <p className="lt-hint" data-how-line="">
+          {t('spendableNote')}
+        </p>
         <ul>
           {parts.parts.map((part) => (
             <li key={part.id} data-spendable={part.id}>
@@ -259,14 +286,16 @@ export default function PayYourself({
         {venue.data ? (
           <p>
             <strong data-locked-amount>{displayAmount(lockedInTrades(venueRows))} USD</strong>{' '}
-            <span className="lt-hint">
+            <span className="lt-hint" data-how-line="">
               {t('sourceVenue')}, {t('asOf')} <At iso={venue.data.asOf} />
             </span>
           </p>
         ) : (
           <p className="lt-hint">{venue.failure ? t('partUnread') : t('partReading')}</p>
         )}
-        <p className="lt-hint">{t('lockedNote')}</p>
+        <p className="lt-hint" data-how-line="">
+          {t('lockedNote')}
+        </p>
       </section>
 
       <section aria-label={t('payTitle')} data-testid="pay-yourself" className="lt-stack">
@@ -289,7 +318,11 @@ export default function PayYourself({
             {!ask ? (
               <div className="lt-stack">
                 <Field label={t('amountLabel')} inputMode="decimal" value={shownAmount} onChange={(e) => setAmount(e.target.value)} />
-                <Button tone="primary" disabled={busy} onClick={() => void begin(manualMoveKey(owner, Date.now()), shownAmount)}>
+                <Button
+                  tone={fold ? 'secondary' : 'primary'}
+                  disabled={busy}
+                  onClick={() => void begin(manualMoveKey(owner, Date.now()), shownAmount)}
+                >
                   {t('payButton', { amount: displayAmount(canonicalAmount(shownAmount) ?? '0', 2) })}
                 </Button>
               </div>

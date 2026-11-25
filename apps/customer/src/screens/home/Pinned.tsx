@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, ButtonLink } from '@intafaced/ui/lit';
 import { readPayees } from '../../features/money';
 import { commandCopy } from './command-copy';
 import { homeCopy } from './copy';
@@ -50,19 +50,6 @@ export function Widget({
   );
 }
 
-/** A widget Home has no read for yet: the plain sentence and its room's door. */
-function NotRead({ href, room }: { href: string; room: string }) {
-  const { t } = commandCopy.useCopy();
-  return (
-    <div className="hm-widget-body" data-state="not-read">
-      <p className="lt-hint">{t('Widget not read')}</p>
-      <a className="hm-link" href={href}>
-        {t('Widget open {room}', { room })}
-      </a>
-    </div>
-  );
-}
-
 const ROOM_WIDGETS = [
   { id: 'agent', title: 'Agent', href: '/agents/approvals', room: 'Room Agents' },
   { id: 'bots', title: 'Bots running', href: '/trade/bots', room: 'Room Bots' },
@@ -70,15 +57,28 @@ const ROOM_WIDGETS = [
   { id: 'copy', title: 'Copy trading', href: '/trade/copy', room: 'Room Copy' },
 ] as const;
 
-/** Agent, Bots running, Your prediction and Copy trading: each in its honest state until Home reads its room. */
+/**
+ * Agent, Bots running, Your prediction and Copy trading, which Home does not read: each one row, its name, the honest
+ * status and its room's door, never a made-up figure. A row whose room this build hides is not drawn.
+ */
 export function RoomWidgets() {
   const { t } = commandCopy.useCopy();
   return (
     <>
       {ROOM_WIDGETS.filter((widget) => !isHiddenPath(widget.href)).map((widget) => (
-        <Widget key={widget.id} id={widget.id} title={t(widget.title)}>
-          <NotRead href={widget.href} room={t(widget.room)} />
-        </Widget>
+        <section
+          key={widget.id}
+          className="hm-widget hm-widget-row"
+          data-widget={widget.id}
+          data-state="not-read"
+          aria-labelledby={`home-widget-${widget.id}`}
+        >
+          <h2 id={`home-widget-${widget.id}`}>{t(widget.title)}</h2>
+          <span className="lt-hint">{t('Widget not read')}</span>
+          <a className="hm-link" href={widget.href} aria-label={t('Widget open {room}', { room: t(widget.room) })}>
+            {t('Open')}
+          </a>
+        </section>
       ))}
     </>
   );
@@ -120,15 +120,14 @@ const TILE_NAME = {
   work: 'Tile work',
   activity: 'Tile activity',
   markets: 'Tile markets',
-  learn: 'Tile learn',
 } as const satisfies Partial<Record<HomeTileId, string>>;
 const nameOf = (id: HomeTileId) => (id in TILE_NAME ? TILE_NAME[id as keyof typeof TILE_NAME] : undefined);
 
-/** Pin a widget: each Home tile the person hid, one press to pin it back, and Customise Home for the rest. */
+/** Pin a widget: each Home tile the person hid, one press to pin it back; the Academy (Learn's room); Customise Home for the rest. */
 export function PinAWidget({ home, hidden, customise }: { home: HomeLayout; hidden: readonly HomeTileId[]; customise: ReactNode }) {
   const { t } = commandCopy.useCopy();
   const words = homeCopy.useCopy();
-  const offered = hidden.filter((id) => nameOf(id) !== undefined && !(id === 'learn' && isHiddenPath('/academy')));
+  const offered = hidden.filter((id) => nameOf(id) !== undefined);
   return (
     <section className="hm-pin" data-testid="home-pin" aria-labelledby="home-pin-title">
       <h2 id="home-pin-title">{t('Pin a widget')}</h2>
@@ -144,6 +143,11 @@ export function PinAWidget({ home, hidden, customise }: { home: HomeLayout; hidd
             {words.t(nameOf(id)!)}
           </Button>
         ))}
+        {isHiddenPath('/academy') ? null : (
+          <ButtonLink size="sm" tone="secondary" href="/academy">
+            {t('Academy')}
+          </ButtonLink>
+        )}
         {customise}
       </div>
     </section>

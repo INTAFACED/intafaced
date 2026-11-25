@@ -124,3 +124,25 @@ export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => voi
     </section>
   );
 }
+
+/**
+ * "Your next step" when Get started has no open step to lead with (every step done, or still being read): the card's
+ * heading, and the steps' progress when they are read. What needs the person follows it in the same card.
+ */
+export function NextStepHead({ steps }: { steps: Step[] }) {
+  const { t } = homeCopy.useCopy();
+  const command = commandCopy.useCopy();
+  const count = progress(steps);
+  const read = steps.length > 0 && count.settled;
+  return (
+    <div className="hm-started" data-testid="home-next-head">
+      <div className="hm-started-head">
+        <h2>{command.t('Your next step')}</h2>
+        {read ? <span className="lt-hint">{t('Steps done', { done: count.done, total: count.total })}</span> : null}
+      </div>
+      {read ? (
+        <ProgressSegments total={count.total} done={count.done} label={t('Steps done', { done: count.done, total: count.total })} />
+      ) : null}
+    </div>
+  );
+}

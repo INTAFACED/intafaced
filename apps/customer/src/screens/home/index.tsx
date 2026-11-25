@@ -29,8 +29,7 @@ import {
 import { balanceRefusal } from './balance-refusal';
 import { ChangeText, HeroFigure, StateBlock } from './volt-parts';
 import { listings, topCards, topMovers, type Listing } from './select';
-import { GetStarted } from './GetStarted';
-import { LearnStrip } from './LearnStrip';
+import { GetStarted, NextStepHead } from './GetStarted';
 import { RecentActivity } from './RecentActivity';
 import { useRecentActivityLimit } from './recent-activity-limit';
 import { StandingFigure, StandingScope, StandingSpendable, launchStanding, useHomeStanding, useLaunchVenue } from './HomeStanding';
@@ -349,16 +348,22 @@ function HomeSimple() {
   ) : null;
 
   // The next step (Home A): Get started's next step, with what needs the person under it, as one card.
+  // Your next step (Home A), at the top of the rail: Get started's next open step with its progress, then what needs the
+  // person, in one card. With no open step the card keeps its heading and progress, and the list says what it says.
   const nextStep =
     (shown.has('started') && started.show) || shown.has('work') ? (
       <Surface className="hm-side-panel hm-next" data-testid="home-next">
-        {shown.has('started') && started.show ? <GetStarted steps={started.steps} onHide={started.hide} /> : null}
-        {shown.has('work') ? <WorkList hidden={hideBalances} onShown={setNeedsYou} /> : null}
+        {shown.has('started') && started.show ? (
+          <GetStarted steps={started.steps} onHide={started.hide} />
+        ) : (
+          <NextStepHead steps={shown.has('started') ? started.steps : []} />
+        )}
+        {shown.has('work') ? <WorkList hidden={hideBalances} onShown={setNeedsYou} quietTitle /> : null}
       </Surface>
     ) : null;
 
   const hiddenTiles = HOME_TILE_IDS.filter(
-    (id) => !shown.has(id) && (id === 'activity' || id === 'learn' || id === 'work' || id === 'started' || id === 'markets'),
+    (id) => !shown.has(id) && (id === 'activity' || id === 'work' || id === 'started' || id === 'markets'),
   );
 
   return (
@@ -380,7 +385,7 @@ function HomeSimple() {
             <div className="hm-pinned" data-testid="home-pinned">
               <PinnedHead />
               {/* Spendable now and Locked in trades, as one widget (J-bank-31). */}
-              <StandingSpendable hidden={hideBalances} panel="hm-widget" />
+              <StandingSpendable hidden={hideBalances} panel="hm-widget" fold />
               {shown.has('activity') ? (
                 <Widget id="activity">
                   <RecentActivity activity={activity} limit={activityLimit} hidden={hideBalances} />
@@ -388,11 +393,7 @@ function HomeSimple() {
               ) : null}
               <SendTo userId={userId} />
               <RoomWidgets />
-              {shown.has('learn') && !isHiddenPath(HOME_LINKS.academy) ? (
-                <Widget id="learn">
-                  <LearnStrip />
-                </Widget>
-              ) : null}
+              {/* Learn is offered in Pin a widget, as the Academy (Home A). */}
             </div>
             <PinAWidget home={home} hidden={hiddenTiles} customise={<CustomiseHome home={home} mode="simple" />} />
           </PageColumn>

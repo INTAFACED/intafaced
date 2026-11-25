@@ -128,13 +128,13 @@ export function StandingFigure({
 }
 
 /** J-bank-31: Spendable now and Pay yourself (inside a `StandingScope`), loaded with its own copy once a wallet is read. */
-export function StandingSpendable({ hidden, panel }: { hidden: boolean; panel?: string }) {
+export function StandingSpendable({ hidden, panel, fold = false }: { hidden: boolean; panel?: string; fold?: boolean }) {
   const read = useContext(StandingContext);
   if (!read?.owner || !read.standing || hidden) return null;
   const { partner, venue, wallet } = read.standing;
   const body = (
     <Suspense fallback={null}>
-      <PayYourself owner={read.owner} status={read.status} partner={partner} venue={venue} wallet={wallet} />
+      <PayYourself owner={read.owner} status={read.status} partner={partner} venue={venue} wallet={wallet} fold={fold} />
     </Suspense>
   );
   return panel ? <Surface className={panel}>{body}</Surface> : body;
