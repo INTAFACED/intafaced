@@ -6,7 +6,8 @@
  * `protocol.embeddedWallet.status` record, read as that person) gets TESTNET_GRANT sent to that wallet's address by the
  * dispatch-only workflow `hl-testnet-send.yml` on main, the only place the platform's funded testnet key is used
  * (project-state decision PR #3883); the box only dispatches it with `gh` and never holds that key. At most
- * MAX_FUNDED_PER_PERSON accounts per person, as the ledger grant.
+ * MAX_FUNDED_PER_PERSON accounts per person, as the ledger grant; the daily check's own fresh accounts (judgeAccount) are
+ * not counted against that cap.
  *
  * Each send is kept in `testnet-funded.json` beside granted.json under its business key (testnetKey: account and
  * address), written as `dispatching` BEFORE the dispatch. So a crash anywhere after that line leaves a record, never a
@@ -44,6 +45,16 @@ export const RETRY_AFTER_MS = 5 * 60_000;
 export const UNKNOWN_AFTER_MS = 20 * 60_000;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
+/**
+ * The daily check's own fresh account (project-state tooling/beta/ready.mjs): made under the agents' invite, whose
+ * token starts with `zenyoda`, with the address `<token>.ready<12 digits>@local-test.invalid`. Each run signs up anew, so
+ * the per-person cap would stop its step 3 after three runs; it is exempt (Nino's guide on project-state#4046, 25 Nov).
+ * The funder's balance still bounds it, and the check runs only after beta merges that touch the tester path.
+ */
+export function judgeAccount(email, token) {
+  return String(token ?? '').startsWith('zenyoda') && /^[^@]+\.ready\d{12}@local-test\.invalid$/.test(String(email ?? ''));
+}
+
 /** The business key of one account's one testnet send. */
 export const testnetKey = (userId, address) => `beta-testnet:${userId}:${String(address).toLowerCase()}`;
 
@@ -78,7 +89,7 @@ export function testnetCandidates({ users, approved, tokens, accounts }) {
     if (!(tiers.has('full') || tiers.has('institutional'))) continue;
     // Only send records count: an account with no wallet yet takes no place under the cap (testnetStep holds it as
     // it sends, one send per pass, each recorded before its dispatch).
-    if ((perPerson.get(token) ?? 0) >= MAX_FUNDED_PER_PERSON) continue;
+    if (!judgeAccount(u.email, token) && (perPerson.get(token) ?? 0) >= MAX_FUNDED_PER_PERSON) continue;
     out.push({ userId: u.id, email: u.email, token });
   }
   return out;
@@ -152,7 +163,7 @@ export async function testnetStep({ file, candidates, deps, log, now = () => Dat
   if (!next) {
     const records = (token) => Object.values(doc.accounts).filter((r) => r.token === token).length;
     for (const c of candidates) {
-      if (records(c.token) >= MAX_FUNDED_PER_PERSON) continue;
+      if (!judgeAccount(c.email, c.token) && records(c.token) >= MAX_FUNDED_PER_PERSON) continue;
       const address = await deps.walletOf(c.userId);
       if (!address) continue;
       if (!ADDRESS_RE.test(address)) {
