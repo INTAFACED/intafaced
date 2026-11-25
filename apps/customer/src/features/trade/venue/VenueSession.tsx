@@ -129,8 +129,12 @@ export function VenueSessionPanel({ session, owner, status }: { session: DeskSes
           {lineText()}
         </p>
       ) : null}
-      {said ? (
-        <p role={said.tone} className={said.tone === 'alert' ? 'lt-refusal' : undefined} data-testid="venue-session-said">
+      {said?.tone === 'alert' ? (
+        <p role="alert" className="lt-refusal" data-testid="venue-session-said">
+          {said.text}
+        </p>
+      ) : said ? (
+        <p role="status" data-testid="venue-session-said">
           {said.text}
         </p>
       ) : null}
@@ -152,7 +156,7 @@ export function VenueSessionPanel({ session, owner, status }: { session: DeskSes
 }
 
 /** The words for a start's result. A start that reached the venue says nothing more: the re-read line says the state. */
-export function startWords(
+function startWords(
   result: SessionStartResult,
   t: ReturnType<typeof venueCopy.useCopy>['t'],
 ): { tone: 'status' | 'alert'; text: string } | null {
