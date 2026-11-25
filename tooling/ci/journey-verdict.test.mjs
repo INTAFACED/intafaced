@@ -43,6 +43,10 @@ import {
   HISTORY_FILE,
   HISTORY_ARTIFACT,
   JOURNEYS_ARTIFACT,
+  offBetaSteps,
+  TESTER_PATH,
+  BETA_GATE,
+  BETA_GATE_UNTIL,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -1921,4 +1925,124 @@ test("#10704: the verdict's own run lists hidden-screen steps in notOnBeta, apar
   assert.match(broken.out.betaUnread, /no dist|Command failed/);
   assert.match(broken.stdout, /On a screen the hosted beta hides: unknown/);
   assert.match(broken.stdout, /no step of this run is known to be on the beta/);
+});
+
+// The beta gate (project-state decision PR #4060): on a pull request's run, a failing step on a screen the hosted beta
+// hides holds nothing when it is neither money nor on the tester path; a money step, a tester-path step, main's own runs, an
+// unread rule and a run after the gate lapses all gate as before.
+test('the beta gate: only a known non-money step outside the tester path, from a readable rule, before it lapses', () => {
+  assert.equal(BETA_GATE, 'narrow');
+  assert.deepEqual([...TESTER_PATH].sort(), ['cex-spot', 'charts-desk', 'derivatives', 'home-ia', 'identity', 'portfolio', 'wallet']);
+  const beta = {
+    steps: ['J-algo-dev-01#1', 'J-identity-01#1', 'J-bank-05#1', 'J-x-01#1', 'J-algo-dev-01#2'].map((step) => ({ step, paths: ['/h'] })),
+  };
+  const guard = { 'J-algo-dev-01#1': false, 'J-identity-01#1': false, 'J-bank-05#1': true, 'J-x-01#1': false };
+  const modules = { 'J-algo-dev-01': 'algo-dev', 'J-identity-01': 'identity', 'J-bank-05': 'bank' };
+  const at = '2026-11-25T06:00:00Z';
+  const got = (over = {}) => [...offBetaSteps({ beta, guard, modules, at, ...over })];
+  // J-algo-dev-01#2 has no guard entry (unknown is money); J-x-01 has no module (unknown journey): both gate.
+  assert.deepEqual(got(), ['J-algo-dev-01#1']);
+  assert.deepEqual(got({ beta: { steps: [], unread: 'no dist' } }), [], 'an unread rule gates everything');
+  assert.deepEqual(got({ beta: { unread: 'no list' } }), []);
+  assert.deepEqual(got({ beta: undefined }), []);
+  assert.deepEqual(got({ mode: 'full' }), [], "BETA_GATE 'full' switches it back");
+  assert.deepEqual(got({ at: BETA_GATE_UNTIL }), [], 'a run created once it lapses gates everything');
+  assert.deepEqual(got({ at: 'not a time' }), []);
+});
+
+test('the beta gate in judge: a non-money red it names is listed apart; a money red never is', () => {
+  const named = readReport(report(ok('J-a-01 #1'), ok('J-a-01 #2')));
+  const newest = readReport(report(bad('J-a-01 #1'), bad('J-a-01 #2')));
+  const money = { 'J-a-01#1': false, 'J-a-01#2': true };
+  const v = judge({ newest, named, baseline: { run: { number: 1 }, steps: [] }, money, offBeta: new Set(['J-a-01#1', 'J-a-01#2']) });
+  assert.deepEqual(
+    v.red.map((r) => r.step),
+    ['J-a-01#2'],
+    'the money step still gates, even if named',
+  );
+  assert.deepEqual(v.offBeta, [{ step: 'J-a-01#1', why: 'failing, not in the baseline', money: false }]);
+  const none = judge({ newest, named, baseline: { run: { number: 1 }, steps: [] }, money });
+  assert.deepEqual(
+    none.red.map((r) => r.step),
+    ['J-a-01#1', 'J-a-01#2'],
+    'without the gate both are red',
+  );
+});
+
+test('the beta gate, planted faults through the verdict itself: a hidden non-money step no longer holds; money, tester path, main, an unread rule and a lapsed gate do', () => {
+  const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
+  const journeys = [
+    { id: 'J-algo-dev-01', module: 'algo-dev', steps: [{ n: 1, slices: ['AD-01'] }] },
+    { id: 'J-identity-01', module: 'identity', steps: [{ n: 1, slices: ['ID-01'] }] },
+    ...bankSteps(1),
+  ];
+  const slices = [{ id: 'AD-01', touches: ['customer: algo'] }, { id: 'ID-01', touches: ['customer: identity'] }, ...bankSlices];
+  const hides =
+    "import { readFileSync } from 'node:fs'; const p = JSON.parse(readFileSync(0, 'utf8')); process.stdout.write(JSON.stringify({ hidden: p.filter((x) => x.startsWith('/hidden')) }));";
+  const step = (title, file, status, paths) => ({
+    title,
+    file,
+    tests: [{ status, annotations: [{ type: 'beta screens', description: JSON.stringify(paths) }] }],
+  });
+  const run = ({ fail, paths = ['/hidden/room'], rule = hides, ref, now = '2026-11-25T06:00:00Z' }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'verdict-gate-'));
+    try {
+      mkdirSync(join(dir, 'docs/roadmap'), { recursive: true });
+      mkdirSync(join(dir, 'services/svc-bank'), { recursive: true });
+      mkdirSync(join(dir, 'history'));
+      writeFileSync(join(dir, 'docs/roadmap/journeys.json'), JSON.stringify(journeys));
+      writeFileSync(join(dir, 'docs/roadmap/slices.json'), JSON.stringify(slices));
+      writeFileSync(join(dir, 'services/svc-bank/package.json'), JSON.stringify(bankManifests.get('services/svc-bank')));
+      writeFileSync(join(dir, 'rule.mjs'), rule);
+      const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+      const all = [
+        ['J-algo-dev-01 #1', 'J-algo-dev-01.pw.mjs'],
+        ['J-identity-01 #1', 'J-identity-01.pw.mjs'],
+        ['J-bank-05 #1', bankFile],
+      ];
+      const rep = (failing) => ({
+        suites: all.map(([title, file]) => ({
+          file,
+          specs: [step(title, file, title === failing ? 'unexpected' : 'expected', title === failing ? paths : ['/home'])],
+        })),
+      });
+      const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
+      delete env.JOURNEYS_TARGET;
+      delete env.GITHUB_REF;
+      if (ref) env.GITHUB_REF = ref;
+      const args = [verdict, '--report', f('report.json', rep(fail)), '--named-report', f('named.json', rep(null))];
+      args.push('--history-dir', join(dir, 'history'), '--baseline', f('baseline.json', baseline1719), '--now', now);
+      args.push('--set-aside-out', join(dir, 'set-aside.json'), '--beta-rule', join(dir, 'rule.mjs'));
+      const r = spawnSync(process.execPath, args, { cwd: dir, env, encoding: 'utf8' });
+      return { ...r, out: JSON.parse(readFileSync(join(dir, 'set-aside.json'), 'utf8')) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const hidden = run({ fail: 'J-algo-dev-01 #1' });
+  assert.equal(hidden.status, 0, `a hidden non-money step's red holds no pull request: ${hidden.stdout}${hidden.stderr}`);
+  assert.match(
+    hidden.stdout,
+    /### Failing on a screen the hosted beta hides, not holding this pull request: 1\n\n[^\n]*\n\n- J-algo-dev-01#1: failing, not in the baseline$/m,
+    'still listed',
+  );
+  assert.deepEqual(hidden.out.notOnBeta, [{ step: 'J-algo-dev-01#1', paths: ['/hidden/room'] }], 'still not proven');
+  const tester = run({ fail: 'J-identity-01 #1' });
+  assert.equal(tester.status, 1, 'a failing tester-path step blocks');
+  assert.match(tester.stdout, /^- J-identity-01#1: failing, not in the baseline$/m);
+  const moneyShown = run({ fail: 'J-bank-05 #1', paths: ['/home'] });
+  assert.equal(moneyShown.status, 1, 'a failing money step on a beta screen blocks');
+  assert.match(moneyShown.stdout, /^- J-bank-05#1 \(money\): failing, not in the baseline$/m);
+  assert.equal(run({ fail: 'J-bank-05 #1' }).status, 1, 'a failing money step on a hidden screen blocks too');
+  const unread = run({ fail: 'J-algo-dev-01 #1', rule: "throw new Error('no dist');" });
+  assert.equal(unread.status, 1, 'an unread beta rule: everything gates as before');
+  assert.match(unread.out.betaUnread, /no dist|Command failed/);
+  const main = run({ fail: 'J-algo-dev-01 #1', ref: 'refs/heads/main' });
+  assert.equal(main.status, 1, "main's own run judges every step as before");
+  assert.deepEqual(
+    [main.out.notOnBeta, main.out.notProven],
+    [hidden.out.notOnBeta, hidden.out.notProven],
+    'what the proof count reads is the same with the gate and without it',
+  );
+  assert.equal(run({ fail: 'J-algo-dev-01 #1', now: '2026-11-25T16:00:00Z' }).status, 1, 'a run after the gate lapses gates everything');
 });

@@ -28,6 +28,8 @@
  *     tests work not built yet and stays out until it first passes. No set-aside excuses one;
  *   - an input could not be read: this run's report, the named run's report, the pass history since it, or an issue.
  *     Every unreadable input is red (fail closed), never green.
+ * Not red on a run that is not main's: a failing step on a screen the hosted beta hides that is neither money nor on the
+ * tester path (the beta gate, BETA_GATE and offBetaSteps below); it is listed apart. Main's own runs judge every step.
  * The workflow adds the rest: a shard with no report, and a shard job red for any reason other than its journeys failing
  * (setup, the stack, the time limit, the Content-Security-Policy check), are red too.
  *
@@ -237,6 +239,43 @@ export function notOnBeta(screens, hidden) {
   return { steps };
 }
 export const BETA_RULE = fileURLToPath(new URL('./beta-hides.mjs', import.meta.url));
+
+/**
+ * THE BETA GATE: what a beta screen's pull request waits on (project-state decision PR #4060: the owner's "yes", 25 Nov
+ * 2026 13:02 WITA, to "a beta screen's pull request waits only on what it can break: the tester path; the Order 1 screens
+ * the beta shows; every money step those screens reach", "for today's beta push"; "The money tests keep running before
+ * every merge"). On a run that is not main's, a failing step whose test showed a screen the hosted beta hides (notOnBeta)
+ * holds neither this verdict nor the merge seal when it is not money by the set-aside's guard (setAsideGuard: a step it
+ * doesn't know is money) and its journey is a known one outside the tester path (TESTER_PATH). It is listed apart
+ * (`offBeta`), never dropped. Main runs every journey after the merge, and a red there is reverted (journeys-revert.mjs).
+ * Proof is unchanged: a step on a hidden screen is never proven (notOnBeta, owner decision 24 Nov 2026).
+ * The beta rule unread, a run with no list, or a run created at or after BETA_GATE_UNTIL (the end of 25 Nov 2026 in
+ * Bali: "today's beta push"): nothing is set apart, and everything gates as before.
+ * Switch it back here, in one place: BETA_GATE = 'full'.
+ */
+export const BETA_GATE = 'narrow';
+export const BETA_GATE_UNTIL = '2026-11-25T16:00:00Z';
+/** The tester path's modules (docs/roadmap/journeys.json `module`): sign-up, the funded wallet, the menus and Home, the
+ *  spot and futures desks, the charts and the portfolio, through to an order on the venue. Their steps always gate. */
+export const TESTER_PATH = new Set(['identity', 'wallet', 'home-ia', 'cex-spot', 'derivatives', 'charts-desk', 'portfolio']);
+/**
+ * The steps whose failure holds no pull request (the beta gate above): `beta` is notOnBeta()'s answer for the run (or
+ * { unread }), `guard` the set-aside's money guard, `modules` each journey id's module, `at` the run's creation time.
+ * Returns a Set; empty whenever anything can't be read.
+ */
+export function offBetaSteps({ beta, guard, modules, at, mode = BETA_GATE, until = BETA_GATE_UNTIL }) {
+  if (mode !== 'narrow' || !(Date.parse(at) < Date.parse(until))) return new Set();
+  if (!beta || beta.unread || !Array.isArray(beta.steps)) return new Set();
+  return new Set(
+    beta.steps
+      .map((r) => r?.step)
+      .filter((step) => {
+        if (typeof step !== 'string') return false;
+        const module = modules?.[step.split('#')[0]];
+        return guard?.[step] === false && typeof module === 'string' && !TESTER_PATH.has(module);
+      }),
+  );
+}
 /** The beta rule (`rule`, BETA_RULE unless --beta-rule names a stand-in), run as its own process: it loads the app's
  *  TypeScript through tsx. */
 export const betaHidden = (paths, { rule = BETA_RULE, exec = execFileSync } = {}) =>
@@ -440,6 +479,7 @@ export function judge({
   onMain = false,
   headMoney = null,
   headBaseline = null,
+  offBeta = new Set(),
 }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
@@ -478,6 +518,8 @@ export function judge({
   const notBaselined = new Set((baseline?.notBaselined ?? []).map((e) => e.step));
   const runNo = baseline?.run?.number;
   const red = [];
+  // The beta gate (offBetaSteps): a red that is not money, of a step it names, is listed here instead of `red`.
+  const hiddenRed = [];
   const kept = [];
   const moneyByHead = [];
   const headEntries = new Map();
@@ -494,7 +536,10 @@ export function judge({
     const he = headEntries.get(step);
     const headRuled = headMoney?.[step] ?? true;
     const headOff = Boolean(he && he.money !== headRuled);
-    const no = (why, mark = {}) => red.push({ step, why, money: isMoney, ...mark });
+    const no = (why, mark = {}) => {
+      const r = { step, why, money: isMoney, ...mark };
+      (offBeta.has(step) && !r.money ? hiddenRed : red).push(r);
+    };
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
     // entry (if any) is well formed. Skipped or missing never.
@@ -548,7 +593,7 @@ export function judge({
     testsFailing++;
     red.push({ step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) });
   }
-  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead, retired };
+  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead, retired, offBeta: hiddenRed };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
@@ -1176,6 +1221,11 @@ function main() {
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
+  // The steps whose test showed a screen the hosted beta hides (notOnBeta), and, on a run that is not main's, those of
+  // them whose failure holds no pull request (offBetaSteps, the beta gate). Main's own runs judge every step as before.
+  const beta = newest ? notOnBeta(newest.screens, (paths) => betaHidden(paths, { rule: arg('--beta-rule') ?? BETA_RULE })) : { steps: [] };
+  const offBeta =
+    onMain || process.env.GITHUB_REF === MAIN_REF ? new Set() : offBetaSteps({ beta, guard, modules: owners, at: thisRun.at });
   const verdict =
     newest && named
       ? judge({
@@ -1189,21 +1239,21 @@ function main() {
           target,
           setAside: excusedSetAside({ setAside, onMain, incomplete }),
           onMain,
+          offBeta,
         })
-      : { failing: 0, testsFailing: 0, red: [], setAside: [], flaky: [], retired: [] };
+      : { failing: 0, testsFailing: 0, red: [], setAside: [], flaky: [], retired: [], offBeta: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
     .map(([step, { before, ...a }]) => ({ step, file: newest?.files[step] ?? null, state: newest?.states[step] ?? 'missing', ...a }));
-  let beta = null;
-  if (arg('--set-aside-out')) {
+  const showBeta = Boolean(arg('--set-aside-out'));
+  if (showBeta) {
     // Not proven from this run: every set-aside step, and every step with a test Playwright called flaky (a pass only on
     // its retry, or a failure whose retry was skipped), money or not.
     const flakyNow = [...(newest?.retried ?? [])];
     const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow])].sort(byStep);
-    // The steps whose test showed a screen the hosted beta hides: listed apart from notProven, since a reader sends a
-    // notProven step to its flaky issue, and a step on a hidden room needs its room built in Volt, not a retry.
-    beta = newest ? notOnBeta(newest.screens, (paths) => betaHidden(paths, { rule: arg('--beta-rule') ?? BETA_RULE })) : { steps: [] };
+    // The steps whose test showed a screen the hosted beta hides (`beta`, above): listed apart from notProven, since a
+    // reader sends a notProven step to its flaky issue, and a step on a hidden room needs its room built in Volt, not a retry.
     // The ref it ran on: the next run takes the list only from refs/heads/main.
     const out = {
       days: SET_ASIDE_DAYS,
@@ -1268,11 +1318,17 @@ function main() {
         )
       : ['None.']),
     '',
-    ...(beta
+    `### Failing on a screen the hosted beta hides, not holding this pull request: ${verdict.offBeta.length}`,
+    '',
+    `The beta gate (journey-verdict.mjs BETA_GATE, ${BETA_GATE}, until ${BETA_GATE_UNTIL}): on a run that is not main's, a failing step whose test showed a screen the hosted beta hides, that is not money and not on the tester path, doesn't turn this verdict red. Main runs every journey after the merge, and a red there is reverted. A money step, a tester-path step and every step on main's own runs still count.`,
+    '',
+    ...(verdict.offBeta.length ? verdict.offBeta.map((r) => `- ${r.step}: ${r.why}`) : ['None.']),
+    '',
+    ...(showBeta
       ? [
           `### On a screen the hosted beta hides: ${beta.unread ? 'unknown' : beta.steps.length}`,
           '',
-          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt, or switched off) still runs and still gates its pull request, but it is not proven from this run (set-aside.json `notOnBeta`). It doesn't turn this verdict red.",
+          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt, or switched off) still runs, but it is not proven from this run (set-aside.json `notOnBeta`). Being on a hidden screen doesn't turn this verdict red; its failure still does on main, and on a pull request when it is money or on the tester path (the beta gate above).",
           '',
           ...(beta.unread
             ? [
