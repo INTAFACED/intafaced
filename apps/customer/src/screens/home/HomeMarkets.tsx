@@ -1,24 +1,25 @@
 import { useMemo, useState } from 'react';
-import { MarketTable, PanelHead, Surface, type MarketRow } from '@intafaced/ui/lit';
+import { ButtonLink, MarketTable, PanelHead, Surface, type MarketRow } from '@intafaced/ui/lit';
 import { Segmented } from '@intafaced/ui/lit/templates';
 import { assetName, homeCopy } from './copy';
 import { commandCopy } from './command-copy';
 import { priceText, type Tickers } from './MarketsSection';
-import { coinHref, fmtPct, fmtUsd, isHiddenPath, type Decimal, type Loadable } from './deps';
+import { coinHref, fmtPct, isHiddenPath, type Decimal, type Loadable } from './deps';
 import type { Listing } from './select';
 import { tradeTabHref } from '../../app/navigation';
 import { StateBlock } from './volt-parts';
 
-type View = 'watch' | 'movers';
+type View = 'positions' | 'watch' | 'movers';
 
 /**
- * Home's markets panel (Home A): the watchlist, or the biggest movers, as one table of the kit's market rows, each
- * opening its coin, with Trade at the end. Prices are the venue's TEST prices; volumes are what the venue reports.
+ * Home's markets panel (Home A): what the person holds, the watchlist, or the biggest movers, as one table of the kit's market rows, each
+ * opening its coin, with Trade at the end. Prices are the venue's TEST prices.
  */
 export function HomeMarkets({
   watch,
   popular,
   movers,
+  positions,
   tickers,
   sparklines,
   loading,
@@ -28,6 +29,8 @@ export function HomeMarkets({
   watch: Listing[];
   popular: boolean;
   movers: Listing[];
+  /** The coins the person holds that have a market: Positions. Null while what they hold is not read. */
+  positions: Listing[] | null;
   tickers: Tickers;
   sparklines: Loadable<Record<string, Decimal[]>>;
   loading: boolean;
@@ -37,13 +40,15 @@ export function HomeMarkets({
   const { t } = commandCopy.useCopy();
   const home = homeCopy.useCopy();
   const [view, setView] = useState<View>('watch');
-  const shown = view === 'movers' && movers.length > 0 ? movers : watch;
+  const shown = useMemo(
+    () => (view === 'movers' && movers.length > 0 ? movers : view === 'positions' ? (positions ?? []) : watch),
+    [view, movers, positions, watch],
+  );
   const points = useMemo(() => (sparklines.status === 'ready' ? sparklines.data : {}), [sparklines]);
   const rows = useMemo<MarketRow[]>(
     () =>
       shown.map((item) => {
         const ticker = tickers.status === 'ready' ? tickers.data[item.symbol] : undefined;
-        const volume = ticker?.quoteVolume24h ?? null;
         return {
           id: item.symbol,
           symbol: item.base,
@@ -51,7 +56,6 @@ export function HomeMarkets({
           price: ticker ? priceText(item, ticker) : null,
           change: ticker?.changePct24h != null ? fmtPct(ticker.changePct24h) : null,
           trend: points[item.symbol] ?? undefined,
-          volume: volume === null ? null : fmtUsd(volume, { compact: true }),
           href: coinHref(item.base, 'simple'),
         };
       }),
@@ -61,20 +65,26 @@ export function HomeMarkets({
   return (
     <Surface data-testid="hp-markets" className="hm-markets" aria-labelledby="home-markets-title">
       <PanelHead
-        title={<span id="home-markets-title">{t('Markets')}</span>}
+        title={
+          <span id="home-markets-title" data-sr-only="">
+            {t('Markets')}
+          </span>
+        }
         aside={
           <>
-            {movers.length > 0 ? (
-              <Segmented
-                label={t('Markets view')}
-                options={[
-                  { value: 'watch', label: popular ? t('Popular') : t('Watchlist') },
-                  { value: 'movers', label: t('Movers') },
-                ]}
-                value={view}
-                onChange={(value) => setView(value as View)}
-              />
-            ) : null}
+            <Segmented
+              label={t('Markets view')}
+              options={[
+                {
+                  value: 'positions',
+                  label: positions === null ? t('Positions') : `${t('Positions')} ${positions.length}`,
+                },
+                { value: 'watch', label: popular ? t('Popular') : t('Watchlist') },
+                ...(movers.length > 0 ? [{ value: 'movers', label: t('Movers') }] : []),
+              ]}
+              value={view}
+              onChange={(value) => setView(value as View)}
+            />
             {desk ? (
               <a className="hm-link" href={desk}>
                 {t('Open the desk')}
@@ -93,16 +103,15 @@ export function HomeMarkets({
             price: t('Price'),
             change: t('24h'),
             trend: t('Last day'),
-            volume: t('24h volume'),
             trendLabel: (row) => t('{asset}, last day', { asset: row.symbol }),
           }}
           rows={rows}
           loadingRows={loading ? 6 : undefined}
-          empty={<p className="lt-hint">{t('No markets yet')}</p>}
+          empty={<p className="lt-hint">{t(view === 'positions' ? 'Positions none' : 'No markets yet')}</p>}
           action={(row) => (
-            <a className="lt-button lt-button-secondary hm-trade" href={row.href}>
+            <ButtonLink size="sm" tone="secondary" href={row.href}>
               {t('Trade')}
-            </a>
+            </ButtonLink>
           )}
           actionLabel={t('Trade')}
         />

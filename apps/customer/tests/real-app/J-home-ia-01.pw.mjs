@@ -81,6 +81,12 @@ const usd = (summary) => (summary.totalUsd === null ? null : `$${grouped(summary
  * The TEST market maker keeps moving BTC's price, so the page is compared with the bank's reads just before and just after
  * it loads: the page must show one of those two valuations exactly.
  */
+/** Opens Home's "How this is worked out", where the total's provenance lines sit (closed by default). */
+async function openHow(page) {
+  const how = page.getByTestId('home-how');
+  if ((await how.getAttribute('aria-expanded')) !== 'true') await how.click();
+}
+
 async function showsBankTotal(page, path, scope, expected, input) {
   await expect
     .poll(
@@ -118,6 +124,7 @@ test(`${J}, with the user-venue door off: Home shows the bank's total to the cen
 
   // EUR has no USD market: it is named as left out, never counted as zero.
   expect(summary.unpriced.map((row) => row.asset)).toContain('EUR');
+  await openHow(page);
   await expect(page.getByText(/Excludes \d+ coins? \(no USD price\)/)).toBeVisible();
 
   // The person picks BTC in View; Home then shows the bank's BTC total, or keeps dollars and says why.

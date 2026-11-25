@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
-import { AreaChart, Parts, Segmented, Skeleton, sumDecimals } from '@intafaced/ui/lit/templates';
+import { useMemo, useState, type ReactNode } from 'react';
+import { AreaChart, Segmented, Skeleton } from '@intafaced/ui/lit/templates';
 import { useValueOverTime } from '../money/pnl-source';
 import { commandCopy } from './command-copy';
 import { HIDDEN_MASK } from '@intafaced/ui/lit';
-import { compareDecimal, dec, fmtUsd, type HomeHolding } from './deps';
+import { dec, fmtUsd } from './deps';
 
 /**
  * Home's value over time (the owner's Home A): the bank's own replay of what the account was worth
@@ -15,6 +15,8 @@ const RANGES = [
   { key: '1W', hours: 24 * 7 },
   { key: '1M', hours: 24 * 30 },
   { key: '1Y', hours: 24 * 365 },
+  // All: five years back; the line starts where the account first held anything (the empty start is not drawn).
+  { key: 'All', hours: 24 * 365 * 5 },
 ] as const;
 type RangeKey = (typeof RANGES)[number]['key'];
 
@@ -50,21 +52,20 @@ export function ValueChart({ range, hidden }: { range: RangeKey; hidden: boolean
     );
   if (value.status === 'error' || value.status === 'refused')
     return (
-      <div className="hm-chart hm-chart-note" data-testid="home-value-down">
+      <ChartFrame testId="home-value-down">
         <p>{t('Value chart down')}</p>
-      </div>
+      </ChartFrame>
     );
-  const points =
+  const all =
     value.status === 'ready' ? value.data.points.flatMap((p) => (p.valueUsd === null ? [] : [{ at: p.at, value: p.valueUsd }])) : [];
-  const moved = points.some((p) => (dec(p.value) ?? 0n) !== 0n);
-  if (points.length < 2 || !moved)
+  // Before the account held anything the line is not drawn: the history starts at its first non-zero point.
+  const start = all.findIndex((p) => (dec(p.value) ?? 0n) !== 0n);
+  const points = start < 0 ? [] : all.slice(start);
+  if (points.length < 2)
     return (
-      <div className="hm-chart hm-chart-note" data-testid="home-value-empty">
-        <svg className="hm-chart-flat" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
-          <path d="M8,180 L592,180" vectorEffect="non-scaling-stroke" />
-        </svg>
+      <ChartFrame testId="home-value-empty">
         <p>{t('Value chart empty')}</p>
-      </div>
+      </ChartFrame>
     );
   return (
     <div className="hm-chart" data-testid="home-value-chart">
@@ -82,31 +83,14 @@ export function ValueChart({ range, hidden }: { range: RangeKey; hidden: boolean
   );
 }
 
-/**
- * Where the total sits, by coin: the kit's parts bar with its legend on one row. The four largest coins by value, the
- * rest as Other; every amount stays a decimal string (the kit draws the bar and reconciles the parts to the total).
- */
-export function Allocation({ holdings, hidden }: { holdings: readonly HomeHolding[]; hidden: boolean }) {
-  const { t } = commandCopy.useCopy();
-  const priced = useMemo(
-    () =>
-      holdings
-        .flatMap((h) => (h.usdValue !== null && (compareDecimal(h.usdValue, '0') ?? 0) > 0 ? [{ label: h.asset, value: h.usdValue }] : []))
-        .sort((a, b) => compareDecimal(b.value, a.value) ?? 0),
-    [holdings],
-  );
-  if (priced.length === 0) return null;
+/** The chart's frame with no line in it: the same size as the chart, its guide lines, and the honest words in the middle. */
+function ChartFrame({ testId, children }: { testId: string; children: ReactNode }) {
   return (
-    <div data-testid="home-mix">
-      <Parts
-        label={t('Where it sits')}
-        total={sumDecimals(priced.map((p) => p.value))}
-        parts={priced.slice(0, 4)}
-        asset="USD"
-        otherLabel={t('Other')}
-        hidden={hidden}
-        legend="row"
-      />
+    <div className="hm-chart hm-chart-note" data-testid={testId}>
+      <svg className="hm-chart-flat" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0,50 L600,50 M0,100 L600,100 M0,150 L600,150" vectorEffect="non-scaling-stroke" />
+      </svg>
+      {children}
     </div>
   );
 }

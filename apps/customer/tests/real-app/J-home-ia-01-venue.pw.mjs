@@ -88,6 +88,12 @@ async function withWallet(page) {
   await signIn(page, who);
 }
 
+/** Opens Home's "How this is worked out", where the total's provenance lines sit (closed by default). */
+async function openHow(page) {
+  const how = page.getByTestId('home-how');
+  if ((await how.getAttribute('aria-expanded')) !== 'true') await how.click();
+}
+
 const standingOn = (page) => page.getByTestId('home-standing');
 const partOf = (scope, id) => scope.locator(`[data-testid="standing-part"][data-part="${id}"]`);
 const spoken = (scope) => scope.getByTestId('standing-figure').locator('[data-slot="hero-number"] [role=img]').getAttribute('aria-label');
@@ -259,6 +265,7 @@ test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, an
   await withWallet(page);
   const standing = await openHome(page);
   const amounts = page.locator('main [data-slot="hero-number"], main [data-slot="money"], main [data-slot="amount"]');
+  await openHow(page);
   await expect(standing.getByTestId('standing-part-value').first()).toBeVisible();
   await savedToAccount(page, () => page.getByRole('button', { name: 'Hide balances' }).first().click());
   try {
@@ -367,6 +374,7 @@ test(`with no wallet connected, Home and Assets total the partner account and sa
     await page.goto('/');
     await balancesShown(page);
     const home = page.getByTestId('home-standing-before-wallet');
+    await openHow(page);
     await expect(partOf(home, 'partner')).toBeVisible({ timeout: 30_000 });
     await expect(home.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
     // Only the partner's part, valued at svc-ops' published TEST price: TEST 50 USDT at 1 is $50.00, and so is the total.

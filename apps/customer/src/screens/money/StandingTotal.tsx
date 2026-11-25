@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Tag, heldStateOf, totalFreshness, useFreshnessClock, type HeldState } from '@intafaced/ui/lit';
 import type { UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
 import { useAsOfText } from '../../features/trade/venue/VenueKit';
@@ -81,6 +82,8 @@ export function StandingTotal({
   displayCurrency,
   hidden,
   testId,
+  face,
+  how,
 }: {
   standing: Standing;
   pricesFailed: boolean;
@@ -88,6 +91,14 @@ export function StandingTotal({
   hidden: boolean;
   pro?: boolean;
   testId: string;
+  /** Drawn right under the figure, on the face (Home's one line of today's change). */
+  face?: ReactNode;
+  /**
+   * Home's fold (the owner's pick, 25 Nov 2026): every provenance line (as of, valued at, each part, what is left out)
+   * sits in one block named "How this is worked out", opened by a control the room draws beside the total. Closed, the
+   * block stays in the page, so every line is still there to read once opened. Assets draws them open, without `how`.
+   */
+  how?: { id: string; open: boolean; lead?: ReactNode };
 }) {
   const { t } = standingCopy.useCopy();
   const asOfText = useAsOfText();
@@ -108,44 +119,59 @@ export function StandingTotal({
           </span>
         ) : null}
       </div>
-      {totalUsd === null ? null : <TotalAsOf standing={standing} t={t} asOfText={asOfText} />}
-      <p data-testid="standing-prices" className="lt-hint" data-state={pricesFailed ? 'failed' : prices ? 'published' : 'unpublished'}>
-        {pricesFailed ? (
-          t('Prices failed')
-        ) : !prices ? (
-          t('No price published')
-        ) : (
-          <>
-            {totalUsd === null ? `${t('Nothing priced')} ` : null}
-            {t('Prices source', { source: prices.source })}{' '}
-            <time dateTime={prices.asOf} data-testid="standing-prices-as-of">
-              {asOfText(prices.asOf)}
-            </time>
-          </>
-        )}
-      </p>
+      {face}
+      {/* The unit the figure is in belongs with the figure, on the face. */}
       <UnitNote standing={standing} displayCurrency={displayCurrency} hidden={hidden} t={t} />
-      <ul data-testid="standing-parts" className="lt-rows">
-        {standing.parts.map((part) => (
-          <Part key={part.id} part={part} hidden={hidden} t={t} asOfText={asOfText} />
-        ))}
-      </ul>
-      {standing.unread.length > 0 ? (
-        <p data-testid="standing-unread" role="status" data-parts={standing.unread.join(',')}>
-          {t('Unread note', {
-            parts: standing.parts
-              .filter((part) => part.state === 'unread')
-              .map((part) => partName(part, t))
-              .join(', '),
-          })}
+      <Provenance how={how}>
+        {totalUsd === null ? null : <TotalAsOf standing={standing} t={t} asOfText={asOfText} />}
+        <p data-testid="standing-prices" className="lt-hint" data-state={pricesFailed ? 'failed' : prices ? 'published' : 'unpublished'}>
+          {pricesFailed ? (
+            t('Prices failed')
+          ) : !prices ? (
+            t('No price published')
+          ) : (
+            <>
+              {totalUsd === null ? `${t('Nothing priced')} ` : null}
+              {t('Prices source', { source: prices.source })}{' '}
+              <time dateTime={prices.asOf} data-testid="standing-prices-as-of">
+                {asOfText(prices.asOf)}
+              </time>
+            </>
+          )}
         </p>
-      ) : null}
-      {standing.unpriced.length > 0 && prices ? (
-        <p data-testid="standing-unpriced" data-assets={standing.unpriced.join(',')}>
-          {t('Unpriced note', { assets: standing.unpriced.join(', ') })}
-        </p>
-      ) : null}
+        <ul data-testid="standing-parts" className="lt-rows">
+          {standing.parts.map((part) => (
+            <Part key={part.id} part={part} hidden={hidden} t={t} asOfText={asOfText} />
+          ))}
+        </ul>
+        {standing.unread.length > 0 ? (
+          <p data-testid="standing-unread" role="status" data-parts={standing.unread.join(',')}>
+            {t('Unread note', {
+              parts: standing.parts
+                .filter((part) => part.state === 'unread')
+                .map((part) => partName(part, t))
+                .join(', '),
+            })}
+          </p>
+        ) : null}
+        {standing.unpriced.length > 0 && prices ? (
+          <p data-testid="standing-unpriced" data-assets={standing.unpriced.join(',')}>
+            {t('Unpriced note', { assets: standing.unpriced.join(', ') })}
+          </p>
+        ) : null}
+      </Provenance>
     </section>
+  );
+}
+
+/** The provenance lines: inline (Assets), or Home's fold, hidden while closed and kept in the page. */
+function Provenance({ how, children }: { how?: { id: string; open: boolean; lead?: ReactNode }; children: ReactNode }) {
+  if (!how) return <>{children}</>;
+  return (
+    <div id={how.id} data-slot="how" data-testid="standing-how" data-open={how.open} hidden={!how.open} className="lt-stack">
+      {how.lead}
+      {children}
+    </div>
   );
 }
 

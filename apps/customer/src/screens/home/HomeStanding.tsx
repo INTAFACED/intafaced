@@ -82,8 +82,23 @@ function OwnerRead({ owner, status, chainId, children }: { owner: string; status
   return <StandingContext.Provider value={{ status, owner, standing }}>{children}</StandingContext.Provider>;
 }
 
+/** Where the person stands, as Home's hero reads it (inside a `StandingScope`); null before a wallet or without the launch model. */
+export function useHomeStanding(): ReturnType<typeof useStanding>['standing'] | null {
+  return useContext(StandingContext)?.standing?.standing ?? null;
+}
+
 /** The total where the person stands (inside a `StandingScope`): before a wallet, the partner's part and Connect. */
-export function StandingFigure({ hidden, pro = false }: { hidden: boolean; pro?: boolean }) {
+export function StandingFigure({
+  hidden,
+  pro = false,
+  face,
+  how,
+}: {
+  hidden: boolean;
+  pro?: boolean;
+  face?: ReactNode;
+  how?: { id: string; open: boolean; lead?: ReactNode };
+}) {
   const { t } = standingCopy.useCopy();
   const { displayCurrency } = usePreferences();
   const read = useContext(StandingContext);
@@ -91,7 +106,7 @@ export function StandingFigure({ hidden, pro = false }: { hidden: boolean; pro?:
   if (!read.owner || !read.standing)
     return (
       <>
-        <PartnerBeforeWallet hidden={hidden} pro={pro} />
+        <PartnerBeforeWallet hidden={hidden} pro={pro} how={how} />
         <div data-testid="home-standing-connect" className="lt-stack">
           <p className="lt-hint">{t('Connect first')}</p>
           <WalletBar />
@@ -106,6 +121,8 @@ export function StandingFigure({ hidden, pro = false }: { hidden: boolean; pro?:
       hidden={hidden}
       pro={pro}
       testId="home-standing"
+      face={face}
+      how={how}
     />
   );
 }
@@ -139,7 +156,15 @@ export function HomeStanding({ status, hidden, pro = false }: { status: VenueUp;
  * and the venue account are not in it until a wallet is connected, and the line under it says so. Nothing while the
  * partner holds none of this person's money or its first answer is on its way.
  */
-function PartnerBeforeWallet({ hidden, pro }: { hidden: boolean; pro: boolean }) {
+function PartnerBeforeWallet({
+  hidden,
+  pro,
+  how,
+}: {
+  hidden: boolean;
+  pro: boolean;
+  how?: { id: string; open: boolean; lead?: ReactNode };
+}) {
   const { displayCurrency } = usePreferences();
   const { partner, standing, pricesFailed } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
   if (partner.state === 'none' || partner.state === 'reading') return null;
@@ -151,6 +176,7 @@ function PartnerBeforeWallet({ hidden, pro }: { hidden: boolean; pro: boolean })
       hidden={hidden}
       pro={pro}
       testId="home-standing-before-wallet"
+      how={how}
     />
   );
 }

@@ -56,7 +56,7 @@
 }
 
 .hm-chart {
-  block-size: clamp(11rem, 17vw, 18rem);
+  block-size: clamp(11rem, 17vw, 15.75rem);
   margin-inline: -0.5rem;
   position: relative;
 }
@@ -86,10 +86,12 @@
   block-size: 100%;
 }
 .hm-chart-flat path {
-  stroke: var(--lit-line-strong);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 6;
+  stroke: var(--lit-line);
+  stroke-width: 1;
   fill: none;
+}
+.hm-chart-note p {
+  position: relative;
 }
 
 /* The markets panel. */
@@ -106,10 +108,6 @@
 }
 .hm-side-panel > section {
   margin: 0;
-}
-.hm-room-action {
-  display: flex;
-  justify-content: center;
 }
 
 /* A phone: tighter panels. */
@@ -309,9 +307,11 @@
   .hm .hm-markets {
     order: 3;
   }
-  .hm .hm-side-panel:not(.hm-next),
-  .hm .hm-room-action {
+  .hm .hm-pinned {
     order: 4;
+  }
+  .hm .hm-pin {
+    order: 5;
   }
 }
 
@@ -357,11 +357,6 @@
   font-size: var(--lit-type-label-size);
 }
 
-/* No line to draw: the note keeps a short band, not the chart's full height. */
-.hm-chart.hm-chart-note {
-  block-size: 4.5rem;
-}
-
 /* Where the person stands (the launch model), in the hero: its sources side by side where there is room, each one's
    figure before who reports it. Layout only: the look comes from the kit. */
 .hm-hero [data-standing] > * {
@@ -374,4 +369,147 @@
 }
 .hm-hero [data-testid='standing-parts'] > li > .lt-hint {
   order: 2;
+}
+
+/* "How this is worked out": closed by default, its lines kept in the page; open, one quiet block under the figure. */
+.hm [data-slot='how'][hidden] {
+  display: none;
+}
+.hm [data-slot='how'] {
+  gap: 0.5rem;
+  padding: 1rem 1.125rem;
+  border-radius: var(--lit-radius-tile);
+  box-shadow: inset 0 0 0 1px var(--lit-line);
+}
+.hm-label [aria-expanded='true'] {
+  color: var(--lit-text-1);
+}
+
+/* The split bar: the kit's parts bar, and the parts Home doesn't read on the legend's line. */
+.hm-split {
+  display: grid;
+  gap: 0.625rem;
+}
+.hm-split-rest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-split-rest .hm-split-value {
+  color: var(--lit-text-2);
+}
+
+/* The markets table: Trade on every row, not only on hover (Home A). */
+.hm-markets .lt-market-table .lt-market-action {
+  opacity: 1;
+}
+
+/* Your next step: its action and Later on one line; every step behind All steps. */
+.hm-started-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.hm-next .hm-started + section {
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--lit-line);
+}
+
+/* Pinned: a quiet head, then one widget after another, ruled between. */
+.hm-pinned {
+  display: grid;
+}
+.hm-pinned-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.25rem 0.75rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-pinned-head > :first-child {
+  color: var(--lit-text-2);
+}
+.hm-widget {
+  position: relative;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.125rem 1.25rem;
+  border-block-start: 1px solid var(--lit-line);
+}
+.hm-widget-body {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+.hm-widget .lt-hint {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-person {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 2.625rem;
+  block-size: 2.625rem;
+  border-radius: 50%;
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Pin a widget: a dashed box of chips. */
+.hm-pin {
+  display: grid;
+  gap: 0.75rem;
+  margin-block-start: 1rem;
+  padding: 1rem 1.25rem 1.125rem;
+  border: 1px dashed var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+}
+.hm-pin h2 {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  font-weight: 500;
+}
+.hm-pin-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Pinned widgets' own headings: quiet panel heads, one size. */
+.hm-pinned :is(h2, h3) {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* The markets head: the view tabs at the start, Open the desk at the end. */
+.hm-markets > .lt-panel-head {
+  display: flex;
+}
+.hm-markets > .lt-panel-head > .lt-panel-aside {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
