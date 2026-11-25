@@ -1726,6 +1726,7 @@ function serviceDefs(secrets) {
     CUSTOMER_ORIGIN,
     CUSTOMER_LOCALHOST_ORIGIN,
     INVITATION_ORIGIN,
+    vendorKeys,
     identityFounderEnv,
     opsOutreachEnv,
     localOperatorIds,
@@ -1756,6 +1757,24 @@ function screeningEnv() {
   return { INTAFACED_SANCTIONS_REGIONS: file.regions, INTAFACED_SANCTIONS_LIST_SOURCE: file.source };
 }
 const screeningSet = () => Boolean(screeningEnv().INTAFACED_SANCTIONS_REGIONS);
+
+/**
+ * The owner's vendor keys (his wallet provider's three, his screening vendor's one), from a file that exists only on the
+ * box he allowed them on: `beta-screening-seal.yml` seals them to the box's key and the box decrypts them into
+ * STATE/vendors.local.json (mode 600). The repo never carries a value, and no message here ever names one: a malformed
+ * file is refused by its name alone. A service gets them only when its own switch asks (identity.mjs, pay.mjs).
+ */
+export function vendorKeys(names, file = path.join(STATE, 'vendors.local.json'), why = 'this start') {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    // missing or not JSON: refused below, naming the file only
+  }
+  const missing = names.filter((n) => typeof parsed?.[n] !== 'string' || parsed[n].trim() === '');
+  if (missing.length) throw new Error(`${why} needs ${missing.join(', ')} in ${file} (the owner's keys, sealed onto this box)`);
+  return Object.fromEntries(names.map((n) => [n, parsed[n].trim()]));
+}
 
 // ── Start / status / stop ───────────────────────────────────────────────────
 
