@@ -1,0 +1,223 @@
+/* The signed-out landing page (/): Landing A, "Markets first", with B's balance slab and C's real ticket. Volt tokens only.
+   Measurements follow the picked prototype (project-state design/new-look/first-pages-2026-11-25/landing-A.html). */
+.ld {
+  inline-size: 100%;
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: 1.0714rem;
+  line-height: 1.5714rem;
+}
+.ld h1,
+.ld h2,
+.ld h3,
+.ld p {
+  margin: 0;
+}
+.ld :where(a) {
+  color: inherit;
+  text-decoration: none;
+}
+.ld [data-tone='up'] {
+  color: var(--lit-up-text);
+}
+.ld [data-tone='down'] {
+  color: var(--lit-down-text);
+}
+.ld-pitch {
+  min-inline-size: 0;
+}
+.ld-lead {
+  max-inline-size: 40ch;
+  margin-block-start: 1.5714rem;
+  color: var(--lit-text-2);
+  font-size: clamp(1.2143rem, 1.25vw, 1.5714rem);
+  line-height: 1.45;
+}
+/* The hero's sign-up: one field with Create account inside its box, as the picked landing draws it. */
+.ld-signup {
+  max-inline-size: 34rem;
+  margin-block-start: 2.2857rem;
+}
+.ld-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5714rem;
+  margin-block-start: 0.8571rem;
+}
+.ld a:focus-visible {
+  outline: 2px solid var(--lit-accent);
+  outline-offset: 2px;
+}
+.ld-note {
+  margin-block-start: 0.8571rem;
+  color: var(--lit-text-3);
+  font-size: 0.9286rem;
+  line-height: 1.2857rem;
+}
+.ld-board {
+  padding: 1.2857rem 0.5714rem 0.5714rem;
+}
+.ld-board-note {
+  padding: 2.2857rem 1.1429rem;
+  color: var(--lit-text-3);
+  text-align: center;
+}
+.ld-board-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8571rem 1rem 0.4286rem;
+  color: var(--lit-text-3);
+  font-size: 0.9286rem;
+}
+.ld-board-foot a {
+  color: var(--lit-text-1);
+  font-weight: 600;
+}
+
+
+/* The doors of the one account beside an example long. */
+.ld-desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(2.2857rem, 3.5vw, 3.4286rem);
+  align-items: center;
+  margin-block: clamp(2.2857rem, 5vw, 4.5714rem) 1.7143rem;
+}
+@media (min-width: 1000px) {
+  .ld-desk {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  }
+}
+.ld-desk-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.1429rem;
+}
+.ld-doors {
+  display: grid;
+  margin: 1.1429rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ld-doors li + li {
+  border-block-start: 1px solid var(--lit-line);
+}
+.ld-doors a {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 1.1429rem;
+  padding-block: 0.8571rem;
+}
+.ld-doors strong {
+  font-weight: 500;
+}
+.ld-doors span {
+  grid-column: 1;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-doors .ld-door-arrow {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--lit-text-2);
+  font-size: 1rem;
+}
+.ld-doors a:hover strong {
+  text-decoration: underline;
+}
+.ld-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.2857rem;
+  margin: 0;
+  padding: 1.7143rem;
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+}
+@media (min-width: 900px) {
+  .ld-card {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 18.5714rem);
+  }
+}
+.ld-card-chart {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 1.1429rem;
+  min-block-size: 18rem;
+}
+.ld-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.1429rem;
+  font-size: var(--lit-type-micro-size);
+}
+.ld-card-symbol {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5714rem;
+  font-weight: 600;
+}
+.ld-card-plot {
+  min-block-size: 12rem;
+}
+.ld-card-levels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5714rem;
+  flex-wrap: wrap;
+  font-size: var(--lit-type-micro-size);
+}
+.ld-card-levels span {
+  padding: 0.2143rem 0.5714rem;
+  border: 1px solid currentcolor;
+  border-radius: var(--lit-radius-key);
+}
+.ld-card-side {
+  display: grid;
+  align-content: space-between;
+  gap: 1.1429rem;
+}
+.ld-card-lines {
+  margin: 0;
+}
+.ld-card-lines > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.1429rem;
+  padding-block: 0.8571rem;
+}
+.ld-card-lines dt {
+  color: var(--lit-text-2);
+}
+.ld-card-lines dd {
+  margin: 0;
+  text-align: end;
+}
+.ld-card-note {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+
+/* Closing call. */
+.ld-closing {
+  display: grid;
+  justify-items: center;
+  gap: 1.5714rem;
+  padding-block: 3.4286rem 4rem;
+  text-align: center;
+}
+
+/* At 200% text on a phone every part wraps inside the screen: no track grows past it. */
+.ld-desk > *,
+.ld-card > * {
+  min-inline-size: 0;
+}
+.ld-big-title {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

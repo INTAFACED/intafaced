@@ -10,7 +10,7 @@
  *   format              prettier --check on the changed files                      `pnpm format:check`
  *   dead-code           knip, cached in node_modules/.cache/knip                    the dead-code gate (Doctrine gates)
  *   procedure registry  each package's procedure-registry.mjs --check              procedure-registry.test.ts
- *   volt count, recorded calls, ui tokens, ops-desk catalog: the one test file, after the turbo-cached build its
+ *   recorded calls, ui tokens, ops-desk catalog: the one test file, after the turbo-cached build its
  *                       package's tests need                                       the Tests job
  *   render record       render.compare.tsx, only on the parts the change most likely redraws (at most MAX_PARTS)
  * The lint ratchet, the wire replay, the journey-file scans and the size count stay in the hook itself. No typecheck and
@@ -103,15 +103,6 @@ export function plan({ changed, present, formatExts, registries, has }) {
     cmd: ['pnpm', '--filter', pkg, 'exec', 'vitest', 'run', file, ...extra],
     fix: `${fix}; check again: pnpm --filter ${pkg} exec vitest run ${file}`,
   });
-  if (customer && has('apps/customer/src/app/volt-count.test.ts'))
-    checks.push(
-      vitest(
-        'volt count',
-        '@intafaced/customer',
-        'src/app/volt-count.test.ts',
-        'a room off the kit that volt-off-kit.json does not allow: build it on its template from the kit',
-      ),
-    );
   if ((customer || contracts) && has('apps/customer/src/app/recorded-calls.test.ts'))
     checks.push(
       vitest(

@@ -120,11 +120,17 @@ test.beforeAll(() => {
   );
 });
 
-test(`${J} #1 the tester profile starts healthy services, and its seed service runs once and reports what it made`, async () => {
+test(`${J} #1 the tester profile starts healthy services, and its seed service runs once and reports what it made`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(8 * 60_000);
-  // Every service the stack started answers, and Edge routes to them.
-  const ready = await fetch(`${EDGE}/ready`).then((res) => res.json());
+  // Every service the stack started answers, and Edge routes to them (opened in a browser for the step's picture).
+  const readyRes = await page.goto(`${EDGE}/ready`);
+  expect(readyRes?.status()).toBe(200);
+  const ready = JSON.parse(await page.locator('pre').first().innerText());
   expect(ready.ready).toBe(true);
+  await stepPicture();
   // Each service the stack started, one row each in its own health table, answers its health check.
   const table = run('tooling/scripts/local-test-stack.mjs', ['status'], { LOCAL_STACK_STATE: STATE });
   expect(table.status, table.out).toBe(0);
@@ -149,8 +155,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   for (const [name, health] of rows)
     expect(health, `${name} health`).toMatch(ADAPTERS.includes(name) && name !== 'test-wallet-provider' ? /^(ok|off)\b/ : /^ok\b/);
 
-  // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
-  // seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
+  // The tester profile's seed service: off unless asked, it runs the founder step (enrol the local test pair, pin it
+  // in identity, confirm their emails), the founders' TEST verification, the TEST transfer limits and the test-content seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
@@ -158,8 +164,9 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(seed.block).toMatch(/^ {4}restart: 'no'$/m);
   expect(seed.block).toContain(`'node',\n        '${SEED_ENTRY}',`);
   expect(composeSteps(seed.block)).toEqual([
-    'local-founder-seed.mjs init',
-    'local-founder-seed.mjs enrol',
+    'local-tester-founders.mjs enrol',
+    'local-test-gates.mjs verify',
+    'local-test-gates.mjs terms',
     'local-test-seed.mjs apply',
     'local-test-seed.mjs home',
     'local-test-seed.mjs status',

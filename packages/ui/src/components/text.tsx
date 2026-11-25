@@ -26,7 +26,7 @@ export function Text({ variant, as: Tag = 'p', className, style, ...rest }: Text
     <Tag
       {...rest}
       data-type-role={variant}
-      className={cn('m-0', variant === 'micro' && 'uppercase', (variant === 'hero' || variant === 'figure') && 'tabular-nums', className)}
+      className={cn('m-0', (variant === 'hero' || variant === 'figure') && 'tabular-nums', className)}
       style={{
         fontFamily: FACE[variant],
         fontSize: `var(${v}-size)`,

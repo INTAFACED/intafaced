@@ -14,7 +14,7 @@ import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi, useSession } from '../../session';
-import { Details, Limit } from '../catalogue-parts';
+import { Details, formatBpsPercent, Limit } from '../catalogue-parts';
 import { t as copyText, Text } from '../copy';
 import { filterListings, NO_FILTER, type ListingFilter } from '../market-explorer';
 import { marketListingCopy } from '../market-listing-copy';
@@ -166,7 +166,7 @@ export function MarketRoom() {
             {(p) => (
               <p className="lt-hint">
                 {p.commissionConfigured && p.commissionBps !== null
-                  ? copyText('market.published.house.commission.basis.points.charged.to', { value1: p.commissionBps })
+                  ? copyText('market.published.house.commission.basis.points.charged.to', { value1: formatBpsPercent(p.commissionBps) })
                   : copyText('market.the.house.commission.is.unpublished.the.service')}
               </p>
             )}

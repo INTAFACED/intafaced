@@ -4,6 +4,8 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 /** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts). */
 const PARTNER_BOOK = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+/** The TEST pay-in ramp partner's own record, on loopback (crates/svc-bank/src/ramps/onramp/payin.rs). */
+const RAMP_PARTNER_BOOK = `http://127.0.0.1:${STACK_PORTS.bank}/test-ramp-partner`;
 
 /** What the TEST partner's own book says `userId` holds of `assetId` on their main balance there. */
 export async function partnerMainBalance(userId, assetId = 'USDT') {
@@ -18,6 +20,11 @@ export async function partnerBookMoves(userId) {
 /** Every account the TEST partner holds for `userId`, main balances and spaces, with the amount in each, as its own book lists them. */
 export async function partnerBookAccounts(userId) {
   return (await venueRecord(userId, '/accounts', {}, PARTNER_BOOK, null)).value;
+}
+
+/** The TEST ramp partner's own order report, read on loopback straight from the stand-in: orders by state, health and expiries. */
+export async function rampPartnerReport(readerId) {
+  return (await venueRecord(readerId, '/report', {}, RAMP_PARTNER_BOOK, null)).value;
 }
 
 /**

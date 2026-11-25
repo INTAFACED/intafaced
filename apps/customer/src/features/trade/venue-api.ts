@@ -27,6 +27,7 @@ import {
   venueOrderRecordSchema,
   venueOrderPageSchema,
   venueFillSchema,
+  venueArrivalSchema,
   venuePositionSchema,
   venueLeverageChangeSchema,
   venueIsolatedMarginSchema,
@@ -154,6 +155,8 @@ export interface OrderIntent {
   price: string;
   timeInForce: VenueTimeInForce;
   reduceOnly: boolean;
+  /** Optional trader label stored with the order by our door (J-derivatives-04 #2). */
+  label?: string | null;
   clientOrderKey: string;
   /** Our builder fee is the door's (the owner value), never the browser's. */
   builderFee: null;
@@ -227,6 +230,8 @@ export const keys = {
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
   /** One reverse of a position: its close is `<key>:close` and its open `<key>:open`, each under the one reverse key. */
   reverse: (owner: string, draft: string) => `order:${part(owner)}:reverse:${draft}`,
+  /** One split order batch (J-derivatives-02 #5): children are `<key>:1`, `<key>:2`, ... under this action key. */
+  split: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:split:${draft}`,
   /** The person's own sub-account, by its name: a second press opens the same one (user-venue-door.ts OWN_SUB_ACCOUNT_PREFIX). */
   ownSubAccount: (owner: string, name: string) => `own:sub-account:${part(owner)}:${part(name.trim())}`,
   /** One move between the main account and an own sub-account, by its reviewed draft (OWN_MOVE_PREFIX). */
@@ -384,6 +389,9 @@ export function venueApi(api: ApiClient) {
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
+    /** Credits into the account from outside it (deposits, transfers in), oldest first (J-portfolio-06 #3). */
+    arrivals: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
+      read('/arrivals', asOf(z.array(venueArrivalSchema)), { owner, ...at }, signal),
     /** The positions on one account: the main account, or one of the owner's sub-accounts, on a venue (J-derivatives-05). */
     positions: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/positions', asOf(z.array(venuePositionSchema)), { owner, ...at }, signal),
@@ -494,12 +502,14 @@ export function venueApi(api: ApiClient) {
       actionKey?: string;
       stepUpApprovalId?: string | null;
       venueId?: string;
+      /** Who signs it: the owner's wallet (the default), or a trading session's agent key (session-signer.ts). */
+      signer?: { role: 'owner' | 'agent'; address: string };
     }) =>
       write('/prepare', preparedAnswerSchema, {
         ...(input.venueId ? { venueId: input.venueId } : {}),
         ...(input.subAccount ? { subAccount: input.subAccount } : {}),
         owner: input.owner,
-        signer: { role: 'owner', address: input.owner },
+        signer: input.signer ?? { role: 'owner', address: input.owner },
         intent: input.intent,
         actionKey: input.actionKey ?? null,
         stepUpApprovalId: input.stepUpApprovalId ?? null,

@@ -1,7 +1,7 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
   doorsTitle: 'More in the Market',
-  doorsNote: 'Copy leaders, bots and signals are run by the copy room; each door opens its own section there.',
+  doorsNote: 'Copy trading, bots and signals live in Trade. Choose one below to go straight there.',
   doorSpot: 'Spot copy trading',
   doorSpotNote: 'Follow a spot leader.',
   doorFutures: 'Futures copy trading',
@@ -71,7 +71,7 @@ const en = {
 } as const;
 const es = {
   doorsTitle: 'Más en el Mercado',
-  doorsNote: 'Los líderes de copia, los bots y las señales los gestiona la sala de copia; cada puerta abre su propia sección allí.',
+  doorsNote: 'El copy trading, los bots y las señales están en Trade. Elige uno abajo para ir directamente.',
   doorSpot: 'Copy trading al contado',
   doorSpotNote: 'Sigue a un líder al contado.',
   doorFutures: 'Copy trading de futuros',
@@ -143,7 +143,7 @@ const es = {
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   doorsTitle: 'Plus dans le Marché',
-  doorsNote: 'Les leaders de copie, les bots et les signaux relèvent de la salle de copie ; chaque porte ouvre sa propre section.',
+  doorsNote: 'Le copy trading, les bots et les signaux se trouvent dans Trade. Choisis-en un ci-dessous pour y accéder directement.',
   doorSpot: 'Copy trading au comptant',
   doorSpotNote: 'Suivre un leader au comptant.',
   doorFutures: 'Copy trading sur contrats à terme',

@@ -20,6 +20,8 @@ import {
 import { readStatusFeed, type StatusFeed } from '../../shared/notify-reads';
 import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../shared/market-maintenance';
 import { contractProcedure, readContract } from '../../shared/contract-call';
+import { venueDoorOff, venueModeOf, type VenueMarketStates } from '../../data/venue-market-states';
+import type { Loadable } from '../../data/types';
 
 export type MaintenanceWindow = StatusFeed['maintenance'][number];
 
@@ -64,6 +66,24 @@ export function marketModesFetcher(api: ApiClient): Fetcher<MarketMode[]> {
           maintenance: maintenanceOf(m.upcomingMaintenance),
         })),
     };
+  };
+}
+
+/** The venue's modes while its read answers, today's read where the door is off, and the venue read's own state otherwise. */
+export function modesFrom(venue: Loadable<VenueMarketStates>, own: Loadable<MarketMode[]>): Loadable<MarketMode[]> {
+  if (venueDoorOff(venue)) return own;
+  if (venue.status !== 'ready') return venue as Loadable<MarketMode[]>;
+  const observedAt = venue.data.asOf;
+  return {
+    status: 'ready',
+    asOf: venue.asOf,
+    data: venue.data.value.markets.map((m) => ({
+      symbol: m.symbol,
+      state: venueModeOf(m),
+      reasonCode: null,
+      observedAt,
+      maintenance: maintenanceOf(m.upcomingMaintenance),
+    })),
   };
 }
 

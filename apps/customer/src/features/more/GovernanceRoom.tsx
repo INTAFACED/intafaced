@@ -17,8 +17,10 @@ import { useResource } from '../../shared/resource';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, TextArea } from './common';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { TextAreaField } from '@intafaced/ui/lit/templates';
+import { Details, Limit } from './catalogue-parts';
+import { EmptyNote, KitRead, ScrollTable, Section } from './volt-parts';
 import { governanceRoomCopy } from './governance-room-copy';
 import { TOKEN_VOTING_TYPES, type TokenVotingType } from '@intafaced/contracts/token-governance';
 
@@ -124,11 +126,11 @@ export function GovernanceSpace() {
   const { userId } = useSession();
   const home = useResource((signal) => api.call(TOKEN_GOVERNANCE_HOME, undefined, { signal, accept: homeReads }), `gov-home:${userId}`);
   return (
-    <Panel title={t('space')} aria-label={t('space')}>
-      <Read resource={home.resource} retry={home.reload}>
+    <Section title={t('space')} aria-label={t('space')} className="lt-stack">
+      <KitRead resource={home.resource} retry={home.reload}>
         {(h) => <SpaceCard home={h} t={t} onChanged={home.reload} />}
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }
 
@@ -174,14 +176,13 @@ export function GovernanceProposals({
   );
   const filtered = status !== 'all' || kind !== 'all' || q.trim() !== '';
   return (
-    <Panel
-      title={t('proposals')}
-      actions={
-        <Button variant="secondary" onClick={() => setComposing((open) => !open)} aria-expanded={composing}>
+    <Section className="lt-stack">
+      <div className="lt-toolbar">
+        <h2>{t('proposals')}</h2>
+        <Button tone="secondary" onClick={() => setComposing((open) => !open)} aria-expanded={composing}>
           {t('newProposal')}
         </Button>
-      }
-    >
+      </div>
       {composing && (
         <ProposalForm
           t={t}
@@ -200,7 +201,7 @@ export function GovernanceProposals({
       {cancelling && (
         <CancelForm key={cancelling.id} t={t} proposal={cancelling} onDone={list.reload} onClose={() => setCancelling(null)} />
       )}
-      <div className="more-toolbar">
+      <div className="lt-toolbar">
         <Select
           label={t('status')}
           value={status}
@@ -215,14 +216,17 @@ export function GovernanceProposals({
         />
         <Field label={t('search')} type="search" value={q} onChange={(e) => setQ(e.target.value)} maxLength={200} />
       </div>
-      <Read resource={list.resource} retry={list.reload}>
+      <KitRead resource={list.resource} retry={list.reload}>
         {(rows) =>
           rows.length === 0 ? (
-            <EmptyState title={filtered ? t('emptyFiltered') : t('emptyAll')} />
+            <EmptyNote title={filtered ? t('emptyFiltered') : t('emptyAll')} />
           ) : (
             <>
               <p data-testid="proposals-count">{t('count', { count: String(rows.length), limit: String(limit) })}</p>
-              <DataTable label={t('proposals')} headers={[t('hTitle'), t('hKind'), t('hStatus'), t('hVoting'), t('hVotes'), t('hActions')]}>
+              <ScrollTable
+                label={t('proposals')}
+                headers={[t('hTitle'), t('hKind'), t('hStatus'), t('hVoting'), t('hVotes'), t('hActions')]}
+              >
                 {rows.map((row) => (
                   <tr key={row.id} data-proposal-id={row.id}>
                     <td>{row.title ?? t('untitled')}</td>
@@ -248,9 +252,9 @@ export function GovernanceProposals({
                       })}
                     </td>
                     <td>
-                      <div className="more-inline">
+                      <div className="lt-actions">
                         <Button
-                          variant="ghost"
+                          tone="quiet"
                           aria-label={inspectLabel(row.id)}
                           aria-pressed={selectedId === row.id}
                           aria-controls="token-selected-proposal"
@@ -259,13 +263,13 @@ export function GovernanceProposals({
                           {t('inspect')}
                         </Button>
                         {row.status === 'draft' && row.authorId === userId ? (
-                          <Button variant="ghost" onClick={() => setEditing(row)}>
+                          <Button tone="quiet" onClick={() => setEditing(row)}>
                             {t('edit')}
                           </Button>
                         ) : null}
                         {row.status === 'draft' || row.status === 'open' ? (
                           <Button
-                            variant="ghost"
+                            tone="quiet"
                             aria-label={t('cancelFor', { title: row.title ?? t('untitled') })}
                             onClick={() => setCancelling(row)}
                           >
@@ -276,13 +280,13 @@ export function GovernanceProposals({
                     </td>
                   </tr>
                 ))}
-              </DataTable>
+              </ScrollTable>
               <Limit count={rows.length} limit={limit} cap={PAGE_CAP} onChange={setLimit} />
             </>
           )
         }
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }
 
@@ -303,12 +307,7 @@ function SpaceCard({ home, t, onChanged }: { home: Home; t: T; onChanged: () => 
     <>
       <Details items={[[t('space'), t('spaceName')]]} />
       <p>{t('spaceBody')}</p>
-      <Button
-        variant={home.following ? 'secondary' : 'primary'}
-        aria-pressed={home.following}
-        disabled={busy}
-        onClick={() => void follow()}
-      >
+      <Button tone={home.following ? 'secondary' : 'primary'} aria-pressed={home.following} disabled={busy} onClick={() => void follow()}>
         {home.following ? t('following') : t('follow')}
       </Button>
       <p>
@@ -437,22 +436,22 @@ function ProposalForm({
       )}
       {!editing && votingType !== 'basic' && (
         <>
-          <TextArea label={t('choices')} value={choices} onChange={setChoices} />
+          <TextAreaField label={t('choices')} value={choices} onChange={setChoices} />
           <p className="lt-muted">{t('choicesHint')}</p>
         </>
       )}
       <Field label={t('title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
-      <TextArea label={t('body')} value={body} onChange={setBody} />
+      <TextAreaField label={t('body')} value={body} onChange={setBody} />
       {!editing && <Field label={t('discussion')} type="url" value={discussion} onChange={(e) => setDiscussion(e.target.value)} />}
-      <div className="more-inline">
+      <div className="lt-toolbar">
         <Field label={t('opens')} type="datetime-local" value={opens} onChange={(e) => setOpens(e.target.value)} hint={t('windowHint')} />
         <Field label={t('closes')} type="datetime-local" value={closes} onChange={(e) => setCloses(e.target.value)} />
       </div>
-      <div className="more-toolbar">
-        <Button type="submit" disabled={busy}>
+      <div className="lt-actions">
+        <Button tone="primary" type="submit" disabled={busy}>
           {editing ? t('save') : t('submit')}
         </Button>
-        <Button variant="ghost" onClick={onClose}>
+        <Button tone="quiet" onClick={onClose}>
           {t('close')}
         </Button>
       </div>
@@ -485,13 +484,13 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
     <form aria-label={name} onSubmit={(e) => void submit(e)} className="lt-stack">
       <h3>{name}</h3>
       <p role="note">{t('cancelNote')}</p>
-      <TextArea label={t('cancelReason')} value={reason} onChange={setReason} />
+      <TextAreaField label={t('cancelReason')} value={reason} onChange={setReason} />
       <p className="lt-muted">{t('cancelReasonHint')}</p>
-      <div className="more-toolbar">
-        <Button type="submit" variant="danger" disabled={busy}>
+      <div className="lt-actions">
+        <Button type="submit" tone="down" disabled={busy}>
           {t('cancelSubmit')}
         </Button>
-        <Button variant="ghost" onClick={onClose}>
+        <Button tone="quiet" onClick={onClose}>
           {t('close')}
         </Button>
       </div>
@@ -518,22 +517,22 @@ export function GovernanceDelegation() {
     read.reload();
   }
   return (
-    <Panel title={t('delegation')} aria-label={t('delegation')}>
-      <Read resource={read.resource} retry={read.reload}>
+    <Section title={t('delegation')} aria-label={t('delegation')} className="lt-stack">
+      <KitRead resource={read.resource} retry={read.reload}>
         {() => (
           <p data-testid="delegation-state">
             {t('delegationNone')} {t('delegationBlocked')}
           </p>
         )}
-      </Read>
-      <div className="more-inline">
+      </KitRead>
+      <div className="lt-toolbar">
         <Field label={t('delegatee')} value={delegatee} onChange={(e) => setDelegatee(e.target.value)} maxLength={128} />
-        <Button variant="secondary" disabled={busy} onClick={() => void delegate()}>
+        <Button tone="secondary" disabled={busy} onClick={() => void delegate()}>
           {t('delegate')}
         </Button>
       </div>
       {failure && <p role="alert">{refusalWords(failure, t)}</p>}
-    </Panel>
+    </Section>
   );
 }
 
@@ -544,11 +543,11 @@ export function GovernanceTreasury() {
   const read = useResource((signal) => api.call(TOKEN_TREASURY, undefined, { signal }), `gov-treasury:${userId}`);
   const figure = (value: string | null): ReactNode => value ?? t('notReported');
   return (
-    <Panel title={t('treasury')} aria-label={t('treasury')}>
+    <Section title={t('treasury')} aria-label={t('treasury')} className="lt-stack">
       <p>{t('treasuryBody')}</p>
-      <Read resource={read.resource} retry={read.reload}>
+      <KitRead resource={read.resource} retry={read.reload}>
         {(view) => (
-          <dl className="more-details">
+          <dl className="lt-kv">
             {(
               [
                 ['treasury-minted', t('minted'), figure(view.minted)],
@@ -578,7 +577,7 @@ export function GovernanceTreasury() {
             ))}
           </dl>
         )}
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }

@@ -255,14 +255,45 @@ const gqlOf =
   };
 const restOnly = async (path) => (path.includes('/commits/main') ? { status: 200, text: REF } : { status: 200, text: OWNER });
 
-test("the brief diff's added lines cite project-state decision PRs as #N; other files and bare numbers cite none", () => {
+test("any file's added lines cite project-state decision PRs as #N; rows only in the brief; bare numbers cite none", () => {
   assert.deepEqual(
     citedRows(file(BRIEF_PATH, ['(project-state decision PR #3428, and project-state row d74)'])),
     ['d74', '#3428'],
     'rows first, then PRs',
   );
-  assert.deepEqual(citedRows(file('docs/other.md', ['project-state decision PR #3428'])), []);
+  // The change that carries out a decision cites it itself, with no entry PR in the brief first (#10643, #10644).
+  assert.deepEqual(citedRows(file('tooling/ci/x.mjs', ['// project-state decision PR #3989'])), ['#3989']);
+  assert.deepEqual(citedRows(file('docs/other.md', ['project-state row d74'])), [], 'a row is cited only in the brief');
+  assert.deepEqual(citedRows(file('tooling/ci/x.mjs', ['// project-state decision PR #3989'], '-')), [], 'a removed line cites none');
   assert.deepEqual(citedRows(file(BRIEF_PATH, ['PR #3428 alone is not a citation'])), []);
+});
+
+test('a code change citing a decision PR gets its record; one claiming a decision without citing one gets none', async () => {
+  const run = async (lines) => {
+    const dir = tmp();
+    const diff = file('.github/workflows/daily.yml', lines);
+    let asked = null;
+    await writeReviewInputs(dir, {
+      diff,
+      base: BASE,
+      head: HEAD,
+      pr: 10500,
+      src: srcOf(diff),
+      loadWords: never,
+      ...briefs,
+      loadOwner: async (rows) => {
+        asked = rows;
+        return { text: OWNER, ref: REF, rows: new Map([['#3989', PR().body]]) };
+      },
+    });
+    return { asked, trusted: readFileSync(join(dir, 'prompt.txt'), 'utf8').split('\nBEGIN UNTRUSTED DIFF\n')[0] };
+  };
+  const cited = await run(['# The owner said yes in project-state decision PR #3989.', 'run: trade']);
+  assert.deepEqual(cited.asked, ['#3989']);
+  assert.match(cited.trusted, /Decision PR #3989 \(project-state, merged into main, labelled `decision`; its body\):\nHis words/);
+  const claimed = await run(['# The owner said yes to this (decision 3989).', 'run: trade']);
+  assert.equal(claimed.asked, null, 'no citation, no record read');
+  assert.doesNotMatch(claimed.trusted, /BEGIN OWNER RECORD/);
 });
 
 test('readOwnerRecord takes a cited PR only as it stood when it merged into main, labelled decision; errors stop', async () => {

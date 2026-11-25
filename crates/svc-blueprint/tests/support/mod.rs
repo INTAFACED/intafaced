@@ -24,8 +24,10 @@ use postgres::{Client, NoTls};
 use service_kit::edge;
 use service_kit::json::{self, Json};
 use service_kit::server::Request;
+use svc_blueprint::card::renderer::{CardRenderer, Unconfigured};
 use svc_blueprint::db::{self, Store};
 use svc_blueprint::door::{BlueprintDoor, DoorConfig, Kind};
+use svc_blueprint::env::Settings;
 
 fn admin_url() -> Option<String> {
     let pick = |k: &str| {
@@ -139,12 +141,22 @@ impl TestDb {
     }
 
     pub fn store(&self) -> Store {
-        db::open(&self.url, "svc-blueprint", 2, false).unwrap()
+        db::open(&self.url, "svc-blueprint", 4, false).unwrap()
     }
 
-    /// The Rust door over this database.
+    /// The Rust door over this database, with no card renderer and blank owner settings.
     pub fn door(&self) -> BlueprintDoor {
         door(self.store())
+    }
+
+    /// The Rust door over this database, with this card renderer and blank owner settings.
+    pub fn door_with(&self, renderer: Box<dyn CardRenderer>) -> BlueprintDoor {
+        door_rendering(self.store(), renderer)
+    }
+
+    /// The Rust door over this database, with these owner settings and no card renderer.
+    pub fn door_with_settings(&self, settings: Settings) -> BlueprintDoor {
+        door_configured(self.store(), Box::new(Unconfigured), settings)
     }
 }
 
@@ -161,8 +173,22 @@ impl Drop for TestDb {
 
 pub const SECRET: &str = "a-blueprint-database-suite-edge-secret-long-enough";
 
-/// The door over `store`, in the replay's environment.
+/// The door over `store`, in the replay's environment, with no card renderer and blank settings.
 pub fn door(store: Store) -> BlueprintDoor {
+    door_rendering(store, Box::new(Unconfigured))
+}
+
+/// The door over `store` and `renderer`, in the replay's environment, with blank settings.
+pub fn door_rendering(store: Store, renderer: Box<dyn CardRenderer>) -> BlueprintDoor {
+    door_configured(store, renderer, Settings::default())
+}
+
+/// The door over `store`, `renderer` and `settings`, in the replay's environment.
+pub fn door_configured(
+    store: Store,
+    renderer: Box<dyn CardRenderer>,
+    settings: Settings,
+) -> BlueprintDoor {
     let env: BTreeMap<String, String> = [
         ("APP_ENV", "test"),
         ("INTAFACED_SCREENING_FAIL_CLOSED", "off"),
@@ -177,6 +203,8 @@ pub fn door(store: Store) -> BlueprintDoor {
         env,
         now: svc_blueprint::door::system_now,
         store,
+        renderer,
+        settings,
     })
     .unwrap()
 }

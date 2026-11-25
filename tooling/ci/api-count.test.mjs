@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { countLine } from './api-count.mjs';
+import { countLine, fetchFailure } from './api-count.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -71,4 +71,22 @@ test('#3718 replayed: main-trust.mjs before this change, calling GitHub uncounte
   assert.equal(callsGithub(after) && !counts(after), false);
   // shard-download.mjs's artifact zips: gh api inside its bash script.
   assert.equal(callsGithub('gh api "repos/$0/actions/artifacts/$2/zip"'), true);
+});
+
+test('a read with no answer names its path and the network reason fetch hides, never its query', async () => {
+  // A port nothing listens on: one the kernel picked and freed, so the connection is refused.
+  const { createServer } = await import('node:net');
+  const server = createServer().listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const { port } = server.address();
+  await new Promise((r) => server.close(r));
+  const refused = await fetch(`http://127.0.0.1:${port}/x`).catch((e) => e);
+  assert.equal(refused.message, 'fetch failed', 'what the job printed alone before');
+  assert.match(
+    fetchFailure('/repos/o/r/compare/a...b?branch=secret-name', refused),
+    /^fetch failed on GET \/repos\/o\/r\/compare\/a\.\.\.b: ECONNREFUSED/,
+  );
+  assert.doesNotMatch(fetchFailure('/p?branch=secret-name', refused), /secret-name/);
+  const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+  assert.equal(fetchFailure('/p', timeout), 'The operation was aborted due to timeout on GET /p: no answer in 60 s');
 });

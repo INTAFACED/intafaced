@@ -1,4 +1,4 @@
-import { Badge } from '@intafaced/ui';
+import { Tag } from '@intafaced/ui/lit';
 import { fmtAmount } from './deps';
 import { stamp } from './time';
 import { copiedFeesCopy } from './copied-fees-copy';
@@ -23,12 +23,12 @@ export function CopiedFees() {
   if (read.status === 'empty' || read.status === 'refused') return null;
   return (
     <section aria-labelledby="money-copied-fees-title" data-testid="money-copied-fees" className="lt-stack">
-      <h2 id="money-copied-fees-title">
+      <h2 id="money-copied-fees-title" className="lt-heading">
         {t('Title')}
         {read.status === 'ready' && read.data.venue?.test ? (
           <>
             {' '}
-            <Badge tone="warn">{t('TEST')}</Badge>
+            <Tag tone="warn">{t('TEST')}</Tag>
           </>
         ) : null}
       </h2>
@@ -36,25 +36,27 @@ export function CopiedFees() {
       {read.status === 'loading' ? <p className="lt-muted">{t('Reading')}</p> : null}
       {read.status === 'error' ? <p className="lt-muted">{t('Unread')}</p> : null}
       {read.status === 'ready' ? (
-        <table aria-label={t('Title')} className="money-table money-table--activity">
-          <thead>
-            <tr>
-              <th scope="col">{t('Trade')}</th>
-              <th scope="col" className="money-num">
-                {t('Venue fee')}
-              </th>
-              <th scope="col" className="money-num">
-                {t('Our builder fee')}
-              </th>
-              <th scope="col">{t('Leader’s share of our builder fee')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {read.data.rows.map((row) => (
-              <FillRow key={`${row.followId}:${row.fillId}`} row={row} venue={read.data.venue?.name ?? ''} t={t} zone={timeZone} />
-            ))}
-          </tbody>
-        </table>
+        <div className="lt-table-scroll">
+          <table aria-label={t('Title')} className="lt-table">
+            <thead>
+              <tr>
+                <th scope="col">{t('Trade')}</th>
+                <th scope="col" className="lt-end">
+                  {t('Venue fee')}
+                </th>
+                <th scope="col" className="lt-end">
+                  {t('Our builder fee')}
+                </th>
+                <th scope="col">{t('Leader’s share of our builder fee')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {read.data.rows.map((row) => (
+                <FillRow key={`${row.followId}:${row.fillId}`} row={row} venue={read.data.venue?.name ?? ''} t={t} zone={timeZone} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
     </section>
   );
@@ -103,10 +105,10 @@ function FillRow({
   const words = { amount: exact(row.amount), symbol: row.symbol, price: exact(row.price) };
   const share = shareWords(row, t);
   return (
-    <tr data-testid="money-copied-fill" data-fill={row.fillId} data-share={row.feeShare.state} className="money-act">
-      <td>
-        <div className="money-act__text">
-          <span className="money-act__title">
+    <tr data-testid="money-copied-fill" data-fill={row.fillId} data-share={row.feeShare.state}>
+      <td data-label={t('Trade')}>
+        <div className="lt-stack lt-stack-tight">
+          <span className="lt-strong">
             {row.side === 'buy' ? t('Bought {amount} {symbol} at {price}', words) : t('Sold {amount} {symbol} at {price}', words)}
           </span>
           <span className="lt-hint">{t('Copying {lead}', { lead: row.lead.displayName ?? t('a leader no longer listed') })}</span>
@@ -118,20 +120,20 @@ function FillRow({
           </span>
         </div>
       </td>
-      <td data-testid="money-copied-fill__venue-fee" className="money-num">
-        <div className="money-act__text">
+      <td data-testid="money-copied-fill__venue-fee" data-label={t('Venue fee')} className="lt-end">
+        <div className="lt-stack lt-stack-tight">
           <span>{t('{amount} {asset}', { amount: exact(row.venueFee.amount), asset: row.venueFee.asset })}</span>
           <span className="lt-hint">{t('From {venue}, as it reports it', { venue })}</span>
         </div>
       </td>
-      <td data-testid="money-copied-fill__builder-fee" className="money-num">
-        <div className="money-act__text">
+      <td data-testid="money-copied-fill__builder-fee" data-label={t('Our builder fee')} className="lt-end">
+        <div className="lt-stack lt-stack-tight">
           <span>{t('{amount} {asset}', { amount: exact(row.builderFee.amount), asset: row.builderFee.asset })}</span>
           <span className="lt-hint">{t('From INTAFACED, charged on the venue')}</span>
         </div>
       </td>
-      <td data-testid="money-copied-fill__share">
-        <div className="money-act__text">
+      <td data-testid="money-copied-fill__share" data-label={t('Leader’s share of our builder fee')}>
+        <div className="lt-stack lt-stack-tight">
           {share.amount ? <span>{share.amount}</span> : null}
           <span className="lt-hint">{share.state}</span>
           {share.amount ? <span className="lt-hint">{t('Paid by INTAFACED. Not charged to you.')}</span> : null}

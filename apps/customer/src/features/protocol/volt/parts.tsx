@@ -12,7 +12,7 @@ export { Field };
 /**
  * The Web3 rooms' shared parts, drawn only from the Volt kit: the same names, words, roles and ids as the app's
  * old `shared/ui` parts they replace, so a room moves onto its template without changing what a person or a test reads.
- * A part here is judged by volt-count where it lives; one the kit itself should own moves there once a second area needs it.
+ * One the kit itself should own moves there once a second area needs it.
  */
 
 /** A titled part of a room: its heading, then its body. */

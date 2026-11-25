@@ -78,11 +78,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Checking verification': 'Checking your verification…',
   'Verification unread': 'Your verification could not be read, so no order is sent. Reload to try again.',
   'Not a step': '{field} must be a multiple of {step}.',
-  'Rule unpublished':
-    '{venue} publishes no {rules} for {symbol}, so this order can’t be checked against it and the desk won’t guess one. Nothing was sent.',
-  'Rule name min': 'smallest order value',
-  'Rule name band': 'price band',
-  'Rule name cap': 'open-order cap',
+  'Too small': 'Too small: the smallest order is {min} {quote}. Nothing was previewed or sent.',
 
   // The market's rules, as the venue publishes them (J-cex-spot-04 #2)
   'Rules title': 'Market rules',
@@ -274,4 +270,29 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
     'One file of your venue account’s orders, trades and money movements for the days you pick, as {venue} records them. Nothing moves.',
   'Statement ready': 'Ready: {orders} orders, {trades} trades and {movements} money movements. Statement {id}.',
   'Statement failed': 'We couldn’t make that statement: {reason}.',
+
+  // Market states on the venue spot desk (J-cex-spot-14 #3–#7, #11)
+  'Mode limit only': 'Limit only',
+  'Mode limit only reason': 'This market is taking limit orders only right now.',
+  'Mode cancel only': 'Cancel only, no new orders on this desk',
+  'Mode cancel only ticket': 'This market is cancel-only. New orders are refused, but you can still cancel them.',
+  'Session closed': 'Closed, opens {time}',
+  'Session closed no time': 'Closed',
+  'Session closed note': 'Orders are not queued while it is closed.',
+  'Opening window': 'Opening window',
+  'Opening window rule': 'Limit orders only until {time}',
+  'Opening window reason': 'This market takes limit orders only until its opening window ends.',
+  'Higher risk zone': 'Higher-risk zone',
+  'Higher risk zone rule': 'Limit orders only, up to {cap} {quote} an order',
+  'Higher risk zone rule uncapped': 'Limit orders only',
+  'Higher risk zone reason': 'This market is in the higher-risk zone, which takes limit orders only.',
+  'Maintenance now': 'Maintenance now',
+  'Maintenance in one hour': 'Maintenance in 1 hour',
+  'Maintenance in hours': 'Maintenance in {n} hours',
+  'Maintenance in minutes': 'Maintenance in {n} min',
+  'End time not set': 'End time not set',
+  'Rpi label': 'Retail price improvement',
+  'Rpi unavailable': 'Not available: priority class not specified',
+  'Market analytics': 'Market analytics',
+  'Other order types unavailable': 'Other order types (not available)',
 });

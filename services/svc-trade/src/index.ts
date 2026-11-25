@@ -199,6 +199,8 @@ import { HOUSE_MM_API_KEY_ID } from './spot/auth-attribution.js';
 import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
+import { SqlHistoryDatasets } from './spot/history-datasets.js';
+import { startHistoryJobs } from './spot/history-jobs.js';
 import { FEED_WATCH_INTERVAL_MS, runFeedWatchTick } from './admin/feed-health.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { startFeeTierJobs } from './spot/fee-tier-jobs.js';
@@ -1311,6 +1313,17 @@ const candleJobs = startCandleJobs({
     }
   },
 });
+const historyDatasets = new SqlHistoryDatasets(sql, {
+  bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS,
+});
+const historyJobs = startHistoryJobs({
+  history: historyDatasets,
+  markets: () => trade.markets(MARKETS_LIMIT_MAX),
+  depth: (marketId, limit) => matching.depth(marketId, limit),
+  bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS,
+  buildIntervalMs: env.TRADE_HISTORY_JOBS_INTERVAL_MS,
+  onError: (name, err) => app.log.error({ err, job: name }, 'history job tick failed'),
+});
 const trailingMarkJobs = startTrailingMarkJobs({
   config: {
     enabled: env.TRADE_TRAILING_MARK_JOBS_ENABLED,
@@ -1542,6 +1555,7 @@ registerPublicRest(app, {
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
+  history: historyDatasets,
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   maintenanceBoard: createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL }),
@@ -1572,6 +1586,7 @@ registerPublicRest(app, {
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,
+  ...(userVenue ? { venueSpotMarkets: async () => (await userVenue.markets()).value } : {}),
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
@@ -2103,6 +2118,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       futuresJobs.stop();
       conditionalJobs.stop();
       candleJobs.stop();
+      historyJobs.stop();
       trailingMarkJobs.stop();
       feeTierJobs.stop();
       mmSeedJobs.stop();

@@ -18,6 +18,7 @@ import { venueWalletCopy } from '../venue-wallet/venue-wallet-copy';
 import { venueRefusal } from '../venue-wallet/VenueWalletRoom';
 import { createEmbeddedWalletApi } from './embedded-wallet-api';
 import { embeddedWalletCopy, type EmbeddedWalletCopyKey } from './embedded-wallet-copy';
+import { noteEmbeddedWalletMade } from './EmbeddedWalletAnnouncer';
 import { embeddedWalletClient, type ClientFailure } from './provider-client';
 import { VenueDeposit } from './VenueDeposit';
 import { TradingSession } from './TradingSession';
@@ -130,7 +131,7 @@ export function EmbeddedWalletRoom() {
   const read = status.resource.status === 'ready' ? status.resource.data : null;
   const provider = read?.provider ?? null;
   const wallet = made ?? read?.wallet ?? null;
-  const client = embeddedWalletClient(provider);
+  const client = embeddedWalletClient(provider, wallet);
   const name = providerName(provider, t);
   const listed = connections.resource.status === 'ready' ? connections.resource.data.connections : [];
   const fromServer = wallet ? listed.find((c) => c.address.toLowerCase() === wallet.address.toLowerCase()) : undefined;
@@ -202,6 +203,7 @@ export function EmbeddedWalletRoom() {
       }
       pendingPasskey.current = null;
       setMade(result.data.wallet);
+      noteEmbeddedWalletMade();
     });
 
   const connect = () =>

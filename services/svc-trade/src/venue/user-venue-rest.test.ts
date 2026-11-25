@@ -512,7 +512,7 @@ describe('/api/v1/venue/*', () => {
 
   it("J-derivatives-21: markets carry the venue's listing, rules and feed; a leverage above the cap is trade.venue.leverage_above_cap naming it; a stale feed is trade.venue.feed_stale", async () => {
     // A TEST builder fee, so a perp order is not refused builder_fee_not_published first.
-    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', 50, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const markets = await app.inject({ method: 'GET', url: '/api/v1/venue/markets' });
     expect(markets.statusCode).toBe(200);
     const xau = markets.json().value.find((m: { symbol: string }) => m.symbol === 'XAU-PERP');
@@ -588,7 +588,7 @@ describe('/api/v1/venue/*', () => {
   });
 
   it("J-derivatives-27: a stock perpetual carries the venue's home-market session; off hours an opening market order is trade.venue.market_off_hours in the venue's words", async () => {
-    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', 50, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const read = async () =>
       (await app.inject({ method: 'GET', url: '/api/v1/venue/markets' }))
         .json()
@@ -646,7 +646,7 @@ describe('/api/v1/venue/*', () => {
   });
 
   it("J-derivatives-27 #7 #8: a market's own margin account is read on the main account and funded by the owner's signed move; an open past the deployer's open-interest cap is trade.venue.open_interest_above_cap naming it", async () => {
-    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', 50, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const venueId = ((await (await fetch(`${url}/venue`)).json()) as { venue: { id: string } }).venue.id;
     const control = (path: string, body: unknown) =>
       fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -873,5 +873,138 @@ describe('/api/v1/venue/orders/by-client-id (J-cex-spot-15 #5)', () => {
     });
     expect(random.statusCode, random.body).toBe(422);
     expect(random.json().intafacedCode).toBe('trade.venue.invalid_client_order_key');
+  });
+});
+
+describe('/api/v1/venue/arrivals (J-portfolio-06 #3)', () => {
+  it('returns the credits the venue recorded for the account with decimal amounts and ISO times', async () => {
+    const account = { venueId: sim.venue.id, owner, subAccount: null };
+    const ref = 'chain:rest-arrivals:1';
+    sim.deposit(account, 'USDT', parseAmount('125.5'), ref);
+
+    await mount(door());
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/arrivals?owner=${owner}` });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json();
+    expect(typeof body.asOf).toBe('string');
+    expect(body.value).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          arrivalId: ref,
+          kind: 'deposit',
+          asset: 'USDT',
+          amount: '125.5',
+          arrivedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        }),
+      ]),
+    );
+  });
+});
+
+describe('/api/v1/venue/* requestDeadline (J-cex-spot-04 #7)', () => {
+  it('refuses an expired requestDeadline on preview, prepare and submit before any venue lock, admits a future one, and waives replays', async () => {
+    const account = { venueId: sim.venue.id, owner, subAccount: null };
+    sim.deposit(account, 'USDC', parseAmount('500'), 'chain:rest-deadline:1');
+    await mount(door());
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const baseIntent = (tag: string) => ({
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.001',
+      price: '59000',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: `order:${owner}:btc-usdc:deadline-${tag}`,
+      builderFee: null,
+    });
+    const openBefore = (await sim.openOrders(account)).value.length;
+    const lockedBefore = (await sim.balances(account)).value.find((b) => b.asset === 'USDC')?.locked ?? 0n;
+
+    // 1. Expired on preview and prepare: 400 trade.request_expired, nothing locked.
+    const expPreview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/preview',
+      payload: { owner, intent: baseIntent('prev'), requestDeadline: past },
+    });
+    expect(expPreview.statusCode, expPreview.body).toBe(400);
+    expect(expPreview.json().intafacedCode).toBe('trade.request_expired');
+
+    const expPrepare = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('prep'), requestDeadline: past },
+    });
+    expect(expPrepare.statusCode, expPrepare.body).toBe(400);
+    expect(expPrepare.json().intafacedCode).toBe('trade.request_expired');
+
+    // Malformed deadline refuses 400 trade.venue_request_invalid.
+    const badDeadline = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('bad'), requestDeadline: 'yesterday' },
+    });
+    expect(badDeadline.statusCode, badDeadline.body).toBe(400);
+    expect(badDeadline.json().intafacedCode).toBe('trade.venue_request_invalid');
+
+    // 2. Prepared in time, then submitted after the deadline: 400 trade.request_expired, nothing sent or locked.
+    const prepForSub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('sub'), requestDeadline: future },
+    });
+    expect(prepForSub.statusCode, prepForSub.body).toBe(200);
+    const pSub = prepForSub.json();
+    const sigSub = await key.signTypedData(pSub.prepared.typedData);
+    const expSub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/submit',
+      payload: {
+        actionKey: pSub.actionKey,
+        signature: { digest: pSub.prepared.digest, signature: sigSub, signedBy: owner },
+        requestDeadline: past,
+      },
+    });
+    expect(expSub.statusCode, expSub.body).toBe(400);
+    expect(expSub.json().intafacedCode).toBe('trade.request_expired');
+    expect((await sim.openOrders(account)).value.length).toBe(openBefore);
+    expect((await sim.balances(account)).value.find((b) => b.asset === 'USDC')?.locked ?? 0n).toBe(lockedBefore);
+
+    // 3. Same order with a future deadline prepares, submits and rests; replaying the stored key with a past deadline
+    // still returns the stored answer.
+    const okSub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/submit',
+      payload: {
+        actionKey: pSub.actionKey,
+        signature: { digest: pSub.prepared.digest, signature: sigSub, signedBy: owner },
+        requestDeadline: future,
+      },
+    });
+    expect(okSub.statusCode, okSub.body).toBe(200);
+    expect(okSub.json().outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await sim.openOrders(account)).value.length).toBe(openBefore + 1);
+
+    const replayPrep = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent: baseIntent('sub'), requestDeadline: past },
+    });
+    expect(replayPrep.statusCode, replayPrep.body).toBe(200);
+    expect(replayPrep.json().reused).toBe(true);
+
+    const replaySub = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/submit',
+      payload: {
+        actionKey: pSub.actionKey,
+        signature: { digest: pSub.prepared.digest, signature: sigSub, signedBy: owner },
+        requestDeadline: past,
+      },
+    });
+    expect(replaySub.statusCode, replaySub.body).toBe(200);
+    expect(replaySub.json().replayed).toBe(true);
   });
 });

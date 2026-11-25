@@ -106,6 +106,19 @@ test('the same patch over a main that touched a patched file is reviewed afresh'
   assert.equal(got, null);
 });
 
+test('a review FAIL of a patch citing a project-state decision PR is not carried: the decision may have merged since', async () => {
+  const cites = { 'a.txt': PATCHED.replace('fixed', 'fixed (project-state decision PR #3989)') };
+  const s = scene({ 'b.txt': 'b\nmoved on main\n' }, cites);
+  const runs = [run(1, s.first, '2026-11-22T10:00:00Z')];
+  assert.equal(await carry(s, runs, { 1: [job(s.first, 'failure', 'success')] }), null);
+  assert.deepEqual(await carry(s, runs, { 1: [job(s.first, 'success')] }), { from: s.first.toLowerCase(), review: 'PASS', tests: 'PASS' });
+  assert.deepEqual(await carry(s, runs, { 1: [job(s.first, 'success', 'failure')] }), {
+    from: s.first.toLowerCase(),
+    review: 'PASS',
+    tests: 'FAIL',
+  });
+});
+
 test('a changed patch is reviewed afresh, even by whitespace alone', async () => {
   const s = scene({ 'b.txt': 'b\nmoved on main\n' });
   s.commit({ 'a.txt': PATCHED.replace('fixed', 'fixed ') }, 'a trailing space');

@@ -1,3 +1,4 @@
+import { TradeError } from '../spot/types.js';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { OrderSide } from '../spot/types.js';
@@ -23,6 +24,12 @@ export interface TwapParentRecord {
 
 export interface TwapParentStore {
   save(record: TwapParentRecord, onlyIfMissing?: boolean): Promise<void>;
+  /**
+   * Write an amend of a stored parent (SP-conditional-algo-04). `save` reads a changed schedule on a parent that has
+   * placed nothing yet as a second create under the same id and refuses it; an amend is the owner changing this one, so
+   * it is written as it is. A parent not stored refuses `trade.algo_not_found`.
+   */
+  saveAmend(record: TwapParentRecord): Promise<void>;
   load(id: string): Promise<TwapParentRecord | null>;
   listForUser(userId: string): Promise<TwapParent[]>;
   listActive(): Promise<TwapParentRecord[]>;
@@ -135,6 +142,13 @@ export class SqlTwapParentStore implements TwapParentStore {
     if (decision === 'write') await this.upsert(record);
   }
 
+  async saveAmend(record: TwapParentRecord): Promise<void> {
+    if (!(await this.load(record.parent.id))) {
+      throw new TradeError(`algo ${record.parent.id} not found`, 'trade.algo_not_found');
+    }
+    await this.upsert(record);
+  }
+
   private async remove(id: string): Promise<void> {
     await this.sql`DELETE FROM algo_parents WHERE id = ${id}`;
   }
@@ -212,6 +226,10 @@ export class SqlTwapParentStore implements TwapParentStore {
         misses = EXCLUDED.misses,
         grant_claims = COALESCE(EXCLUDED.grant_claims, algo_parents.grant_claims),
         participation_bps = EXCLUDED.participation_bps,
+        total_qty = EXCLUDED.total_qty,
+        slices_planned = EXCLUDED.slices_planned,
+        trigger_price = EXCLUDED.trigger_price,
+        trigger_above = EXCLUDED.trigger_above,
         lot_size = COALESCE(EXCLUDED.lot_size, algo_parents.lot_size),
         triggered_at = COALESCE(algo_parents.triggered_at, EXCLUDED.triggered_at),
         updated_at = now()
@@ -336,6 +354,11 @@ export class MemoryTwapParentStore implements TwapParentStore {
       },
     });
     if (decision === 'write') this.put(record);
+  }
+
+  async saveAmend(record: TwapParentRecord): Promise<void> {
+    if (!this.byId.has(record.parent.id)) throw new TradeError(`algo ${record.parent.id} not found`, 'trade.algo_not_found');
+    this.put(record);
   }
 
   private put(record: TwapParentRecord): void {

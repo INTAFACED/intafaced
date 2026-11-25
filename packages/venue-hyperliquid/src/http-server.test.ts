@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
-import { encodeVenueWire, USER_VENUE_READS } from '@intafaced/venue-contracts';
-import { answerUserVenue, HL_TESTNET_WALLET_CHAIN_ID, startHyperliquidVenueServer } from './http-server.js';
+import { keccak256, toHex, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { decodeVenueWire, encodeVenueWire, USER_VENUE_READS, type PreparedVenueAction } from '@intafaced/venue-contracts';
+import { answerUserVenue, HL_TESTNET_WALLET_CHAIN_ID, startHyperliquidVenueServer, userVenueAnswerJson } from './http-server.js';
+import { typedDataDigest, type UserSignedTypedData } from './signing.js';
 import { NotRecordedError, parseRecording, replayRecording } from './recorded.js';
 import { loadOrderRecording, RECORDED_ORDER_ACCOUNT, RECORDED_ORDER_NOW_MS, runRecordedOrder } from './recorded-order.js';
 import { HyperliquidTestnetUserVenue } from './venue.js';
@@ -62,7 +65,8 @@ describe('the venue protocol over HTTP (answerUserVenue)', () => {
       label: 'TEST',
       chainId: 421_614,
       deposit: null,
-      venue: { id: 'hyperliquid-testnet', proofLevel: 'partner-sandbox' },
+      // Orders are L1 actions under chain 1337, which no wallet signs on: a trading session's key signs them.
+      venue: { id: 'hyperliquid-testnet', proofLevel: 'partner-sandbox', tradesSignedBy: 'session_key' },
     });
     for (const spec of Object.values(USER_VENUE_READS)) {
       const [s] = await post(venue, spec.path, { account: RECORDED_ORDER_ACCOUNT });
@@ -105,5 +109,76 @@ describe('a running venue names its source and lists its replay misses', () => {
       '/info {"type":"meta"}',
       '/info {"type":"spotMeta"}',
     ]);
+  });
+});
+
+describe('a user-signed action as the running venue sends it to the wallet', () => {
+  it('the typed data names the wallet chain GET /venue names, and its uint64 nonce travels as a decimal string', async () => {
+    const owner = `0x${'ab'.repeat(20)}`;
+    const { server, url } = await startHyperliquidVenueServer({
+      host: '127.0.0.1',
+      port: 0,
+      appEnv: 'test',
+      fetch: replayRecording({ label: 'TEST', note: '', calls: [] }),
+      clock: () => new Date(RECORDED_ORDER_NOW_MS),
+    });
+    try {
+      const res = await fetch(`${url}/prepare`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          encodeVenueWire({
+            account: { venueId: 'hyperliquid-testnet', owner, subAccount: null },
+            signer: { kind: 'owner', address: owner },
+            intent: { kind: 'approve_builder_fee', builder: `0x${'cd'.repeat(20)}`, maxFeeBps: parseAmount('0.5') },
+          }),
+        ),
+      });
+      expect(res.status).toBe(200);
+      const prepared = (await res.json()) as { typedData: { domain: { chainId: number }; message: { nonce: unknown } } };
+      expect(prepared.typedData.domain.chainId).toBe(HL_TESTNET_WALLET_CHAIN_ID);
+      expect(prepared.typedData.message.nonce).toMatch(/^\d+$/);
+      // The server is still up after the answer: a second request is answered.
+      expect((await fetch(`${url}/health`)).status).toBe(200);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe('a user-signed action over HTTP', () => {
+  // The wallet's typed data passes the wire encoding untouched, and a user-signed action's nonce in it is a bigint.
+  it('prepare answers JSON a wallet signs (the nonce as its decimal string), and that signature submits', async () => {
+    const NOW = 1_762_000_000_000;
+    const ownerKey = privateKeyToAccount(keccak256(toHex('intafaced TEST hl http wallet owner')));
+    const agent = privateKeyToAccount(keccak256(toHex('intafaced TEST hl http wallet agent'))).address.toLowerCase();
+    const owner = ownerKey.address.toLowerCase();
+    const sent: unknown[] = [];
+    const venue = new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      clock: () => new Date(NOW),
+      fetch: async (_url, init) => {
+        sent.push(JSON.parse(init.body));
+        return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'ok', response: { type: 'default' } }) };
+      },
+    });
+    const validUntil = new Date(NOW + 8 * 3_600_000);
+    const [status, answer] = await post(venue, '/prepare', {
+      account: { venueId: venue.venue.id, owner, subAccount: null },
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_agent', agentAddress: agent, agentName: 'trading-session', validUntil },
+    });
+    expect(status).toBe(200);
+    const prepared = decodeVenueWire<PreparedVenueAction>(JSON.parse(userVenueAnswerJson(answer)));
+    const typed = prepared.typedData as UserSignedTypedData;
+    expect(typed.message.nonce).toBe(prepared.nonce);
+    expect(typed.message.agentName).toBe(`trading-session valid_until ${validUntil.getTime()}`);
+    // What the wallet signs from the JSON is the digest the venue prepared.
+    expect(typedDataDigest(typed)).toBe(prepared.digest);
+    const signature = { digest: prepared.digest, signature: await ownerKey.sign({ hash: prepared.digest as Hex }), signedBy: owner };
+    const [submitted, outcome] = await post(venue, '/submit', { prepared, signature });
+    expect(submitted).toBe(200);
+    expect(outcome).toMatchObject({ definite: true, accepted: true });
+    expect(sent).toHaveLength(1);
   });
 });

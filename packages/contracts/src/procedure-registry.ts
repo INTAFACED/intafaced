@@ -858,6 +858,17 @@ import { CAMPAIGNS_DISTRIBUTION_MINE } from './campaigns-distribution-procedures
 
 import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from './campaigns-drops-procedures.js';
 
+import {
+  CAMPAIGNS_OPS_CAMPAIGNS_LIST,
+  CAMPAIGNS_OPS_CAMPAIGNS_GET,
+  CAMPAIGNS_OPS_CAMPAIGNS_CREATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_UPDATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION,
+  CAMPAIGNS_OPS_RULES_TEST,
+  CAMPAIGNS_OPS_RULES_LIBRARY_SAVE,
+  CAMPAIGNS_OPS_RULES_LIBRARY_LIST,
+} from './campaigns-ops-procedures.js';
+
 import { CAMPAIGNS_PARTICIPATION_MINE } from './campaigns-participation-procedures.js';
 
 import { CAMPAIGNS_POINTS_PROGRAMME, CAMPAIGNS_POINTS_CONVERT, CAMPAIGNS_POINTS_REDEEM } from './campaigns-points-procedures.js';
@@ -1468,6 +1479,20 @@ import {
   OPS_OUTREACH_ASSIGN,
   OPS_OUTREACH_UPDATE_NEXT_ACTION,
   OPS_OUTREACH_ADD_NOTE,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW_STATUS,
+  OPS_OUTREACH_PRIVACY_PREVIEW,
+  OPS_OUTREACH_PRIVACY_STATUS,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW,
+  OPS_OUTREACH_PRIVACY_BEGIN,
+  OPS_OUTREACH_PRIVACY_ADVANCE,
+  OPS_OUTREACH_CHANGE_STAGE,
+  OPS_OUTREACH_GET_OPPORTUNITY,
+  OPS_OUTREACH_GET_CONTACT_PROVENANCE,
+  OPS_OUTREACH_LIST_OPPORTUNITIES,
+  OPS_OUTREACH_METRICS,
+  OPS_OUTREACH_LIST_DUPLICATES,
+  OPS_OUTREACH_MERGE_CONTACTS,
+  OPS_OUTREACH_EXPORT_SUBMISSIONS,
 } from './ops-outreach-procedures.js';
 
 import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from './ops-preferences-procedures.js';
@@ -1480,6 +1505,7 @@ import {
   OPS_PROTOCOL_LISTING_POOLS_RESTORE,
   OPS_PROTOCOL_LISTING_MARKETS_DELIST,
   OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+  OPS_PROTOCOL_LISTING_REASON_CODES_SET,
 } from './ops-protocol-listing-procedures.js';
 
 import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
@@ -1665,6 +1691,7 @@ import {
   PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
   PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
   PAY_FOUNDER_ADMIN_APPROVALS_LIST,
+  PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST,
 } from './pay-founder-admin-procedures.js';
 
 import { PAY_FRAUD_LIST_OPEN_REVIEWS } from './pay-fraud-procedures.js';
@@ -1685,6 +1712,8 @@ import {
   PAY_KYB_REQUESTS_LIST,
   PAY_KYB_DOCUMENTS_REVIEW,
 } from './pay-kyb-procedures.js';
+
+import { PAY_MANDATE_LIST, PAY_MANDATE_CANCEL, PAY_MANDATE_GET } from './pay-mandate-procedures.js';
 
 import { PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME } from './pay-merchant-analytics-procedures.js';
 
@@ -1709,6 +1738,8 @@ import {
   PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 } from './pay-merchant-catalog-procedures.js';
 
+import { PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW } from './pay-merchant-checkout-methods-procedures.js';
+
 import { PAY_MERCHANT_CHECKOUT_BRANDING_GET } from './pay-merchant-checkout-procedures.js';
 
 import {
@@ -1723,6 +1754,7 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
   PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+  PAY_MERCHANT_CONTROL_TIERS_LIST,
 } from './pay-merchant-control-procedures.js';
 
 import {
@@ -1761,6 +1793,12 @@ import {
   PAY_MERCHANT_OPS_PAYOUTS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
+  PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE,
+  PAY_MERCHANT_OPS_TEAM_INVITE,
+  PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE,
+  PAY_MERCHANT_OPS_TEAM_REMOVE,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ,
 } from './pay-merchant-ops-procedures.js';
 
 import {
@@ -3306,6 +3344,17 @@ const part_campaigns_distribution_procedures: readonly ProcedureRecord[] = [CAMP
 
 const part_campaigns_drops_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM];
 
+const part_campaigns_ops_procedures: readonly ProcedureRecord[] = [
+  CAMPAIGNS_OPS_CAMPAIGNS_LIST,
+  CAMPAIGNS_OPS_CAMPAIGNS_GET,
+  CAMPAIGNS_OPS_CAMPAIGNS_CREATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_UPDATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION,
+  CAMPAIGNS_OPS_RULES_TEST,
+  CAMPAIGNS_OPS_RULES_LIBRARY_SAVE,
+  CAMPAIGNS_OPS_RULES_LIBRARY_LIST,
+];
+
 const part_campaigns_participation_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_PARTICIPATION_MINE];
 
 const part_campaigns_points_procedures: readonly ProcedureRecord[] = [
@@ -3964,6 +4013,20 @@ const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
   OPS_OUTREACH_ASSIGN,
   OPS_OUTREACH_UPDATE_NEXT_ACTION,
   OPS_OUTREACH_ADD_NOTE,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW_STATUS,
+  OPS_OUTREACH_PRIVACY_PREVIEW,
+  OPS_OUTREACH_PRIVACY_STATUS,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW,
+  OPS_OUTREACH_PRIVACY_BEGIN,
+  OPS_OUTREACH_PRIVACY_ADVANCE,
+  OPS_OUTREACH_CHANGE_STAGE,
+  OPS_OUTREACH_GET_OPPORTUNITY,
+  OPS_OUTREACH_GET_CONTACT_PROVENANCE,
+  OPS_OUTREACH_LIST_OPPORTUNITIES,
+  OPS_OUTREACH_METRICS,
+  OPS_OUTREACH_LIST_DUPLICATES,
+  OPS_OUTREACH_MERGE_CONTACTS,
+  OPS_OUTREACH_EXPORT_SUBMISSIONS,
 ];
 
 const part_ops_preferences_procedures: readonly ProcedureRecord[] = [OPS_PREFERENCES_GET, OPS_PREFERENCES_SET];
@@ -3976,6 +4039,7 @@ const part_ops_protocol_listing_procedures: readonly ProcedureRecord[] = [
   OPS_PROTOCOL_LISTING_POOLS_RESTORE,
   OPS_PROTOCOL_LISTING_MARKETS_DELIST,
   OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+  OPS_PROTOCOL_LISTING_REASON_CODES_SET,
 ];
 
 const part_ops_public_procedures: readonly ProcedureRecord[] = [OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS];
@@ -4177,6 +4241,7 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
   PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
   PAY_FOUNDER_ADMIN_APPROVALS_LIST,
+  PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST,
 ];
 
 const part_pay_fraud_procedures: readonly ProcedureRecord[] = [PAY_FRAUD_LIST_OPEN_REVIEWS];
@@ -4203,6 +4268,8 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_DOCUMENTS_REVIEW,
 ];
 
+const part_pay_mandate_procedures: readonly ProcedureRecord[] = [PAY_MANDATE_LIST, PAY_MANDATE_CANCEL, PAY_MANDATE_GET];
+
 const part_pay_merchant_analytics_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME];
 
 const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
@@ -4226,6 +4293,8 @@ const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 ];
 
+const part_pay_merchant_checkout_methods_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_CHECKOUT_METHODS_PREVIEW];
+
 const part_pay_merchant_checkout_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_CHECKOUT_BRANDING_GET];
 
 const part_pay_merchant_control_procedures: readonly ProcedureRecord[] = [
@@ -4240,6 +4309,7 @@ const part_pay_merchant_control_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
   PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+  PAY_MERCHANT_CONTROL_TIERS_LIST,
 ];
 
 const part_pay_merchant_metrics_procedures: readonly ProcedureRecord[] = [
@@ -4278,6 +4348,12 @@ const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_OPS_PAYOUTS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
+  PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE,
+  PAY_MERCHANT_OPS_TEAM_INVITE,
+  PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE,
+  PAY_MERCHANT_OPS_TEAM_REMOVE,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ,
 ];
 
 const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
@@ -5091,6 +5167,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_campaigns_catalogue_procedures,
   ...part_campaigns_distribution_procedures,
   ...part_campaigns_drops_procedures,
+  ...part_campaigns_ops_procedures,
   ...part_campaigns_participation_procedures,
   ...part_campaigns_points_procedures,
   ...part_campaigns_procedures,
@@ -5204,8 +5281,10 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_fraud_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
+  ...part_pay_mandate_procedures,
   ...part_pay_merchant_analytics_procedures,
   ...part_pay_merchant_catalog_procedures,
+  ...part_pay_merchant_checkout_methods_procedures,
   ...part_pay_merchant_checkout_procedures,
   ...part_pay_merchant_control_procedures,
   ...part_pay_merchant_metrics_procedures,

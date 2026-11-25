@@ -1,6 +1,6 @@
 import { useResource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
-import { PortalFailure, PortalLoading, SelectField } from '../components';
+import { Failure, Loading, SelectField } from '../volt/parts';
 import { catalogCopy as c } from './copy';
 import { pricedProductText } from './PriceFact';
 
@@ -30,8 +30,8 @@ export function SubscriptionPricePicker({
     `portal:catalog:subscription-prices:${mandate.id}`,
   );
   if (!monthly) return <p className="lt-muted">{t('subPriceNotMonthly')}</p>;
-  if (resource.status === 'loading') return <PortalLoading />;
-  if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={reload} />;
+  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
   const choices = resource.data?.items ?? [];
   if (choices.length === 0 && !value) return <p className="lt-muted">{t('subPriceNoMatch')}</p>;
   // A create being recovered keeps the price it was sent with, even once that price is no longer offered: the select

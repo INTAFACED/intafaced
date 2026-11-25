@@ -30,13 +30,15 @@ describe('Volt is the default and only look, dark, with no flag', () => {
     expect(page).toContain('<meta name="theme-color" content="#0A0A09" />');
   });
 
-  it("the look's block on the root is Volt's dark: its page, ink and chartreuse spark", () => {
+  it("the look's block on the root is Volt's dark: its black page, ink, chartreuse spark and Manrope (the owner's pick)", () => {
     const dark = block(":root:where([data-look='lit'])");
-    expect(dark['--lit-page']).toBe('#0a0a09');
+    expect(dark['--lit-page']).toBe('#000000');
     expect(dark['--lit-text-1']).toBe('#f3f2ec');
-    expect(dark['--lit-accent']).toBe('#e0f83a');
-    expect(dark['--lit-font-ui']).toMatch(/^'archivo variable'/);
-    expect(lit.page).toBe('#0A0A09');
+    // The chartreuse spark is the one main action's (primary-bg); links, steps and chart lines take the bone accent.
+    expect(dark['--lit-primary-bg']).toBe('#e0f83a');
+    expect(dark['--lit-accent']).toBe('#f3f2ec');
+    expect(dark['--lit-font-ui']).toMatch(/^'manrope variable'/);
+    expect(lit.page).toBe('#000000');
   });
 
   it('light is drawn only under the scheme switch, and the switch is off unless asked for', () => {

@@ -10,6 +10,8 @@ const messages = {
   'Remove {asset} from watchlist': 'Remove {asset} from watchlist',
   // Price card
   '{name} price': '{name} price',
+  'Last trade price': 'Last trade price',
+  'Closing price': 'Closing price',
   'Price in {quote}': 'Price in {quote}',
   'Chart range': 'Chart range',
   'Range 1D': 'Last day',

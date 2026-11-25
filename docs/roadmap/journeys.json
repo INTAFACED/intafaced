@@ -2591,6 +2591,36 @@
     ]
   },
   {
+    "id": "J-charts-desk-20",
+    "title": "I replay a closed trade from my journal, with its entry, stop and exit appearing as the bars reach them",
+    "module": "charts-desk",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-charts-desk-21",
+    "title": "My fills and margin warnings reach me on Telegram, and I check my positions and P&L there without being able to trade",
+    "module": "charts-desk",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
+    ]
+  },
+  {
     "id": "J-copy-bots-otc-01",
     "title": "Follow a lead trader with a fixed amount and see my first copied trade",
     "module": "copy-bots-otc",
@@ -3119,7 +3149,7 @@
     "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-ops-01"], "noSlice": false },
-      { "n": 2, "slices": ["D-ops-01", "D-account-07"], "noSlice": false },
+      { "n": 2, "slices": ["D-ops-01"], "noSlice": false },
       { "n": 3, "slices": ["D-account-07"], "noSlice": false, "deferred": true },
       { "n": 4, "slices": ["D-instruments-03"], "noSlice": false },
       { "n": 5, "slices": ["D-margin-01"], "noSlice": false },
@@ -3656,6 +3686,71 @@
       { "n": 3, "slices": [], "noSlice": true },
       { "n": 4, "slices": [], "noSlice": true },
       { "n": 5, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-32",
+    "title": "I set and move my stop and target by dragging them on the chart, and move my stop to breakeven in one press",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-33",
+    "title": "I flatten everything with one hold and hear \"all clear\" only when the venue confirms it",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-34",
+    "title": "I size a trade from what I am willing to lose and tick my checklist before I open it",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-35",
+    "title": "I set a daily loss limit that warns me or stops new trades, can't be loosened for 24 hours, and never stops an exit",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -7781,6 +7876,38 @@
     ]
   },
   {
+    "id": "J-portfolio-18",
+    "title": "My closed futures trades fill my journal by themselves, with how far each went against and for me and the R I planned and got",
+    "module": "portfolio",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-portfolio-19",
+    "title": "I see what my trading made beside what it would have made had I kept my own rules",
+    "module": "portfolio",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
+    ]
+  },
+  {
     "id": "J-support-public-01",
     "title": "Find an answer in the help centre without signing in",
     "module": "support-public",
@@ -8567,6 +8694,22 @@
       { "n": 3, "slices": [], "noSlice": true },
       { "n": 4, "slices": [], "noSlice": true },
       { "n": 5, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-wallet-26",
+    "title": "When my week's profit hits my target, I'm offered a withdrawal to my own cold wallet, ready to sign",
+    "module": "wallet",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
     ]
   }
 ]

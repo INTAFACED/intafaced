@@ -101,12 +101,13 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(rowFor(path)?.status, path).toBe('live');
       expect(rowFor(path)?.checked, path).toMatch(/Real-app journeys run \d+ .*J-bank-01 #\d/);
     }
+    expect(rowFor('/bank/ramps/new')?.status, '/bank/ramps/new').toBe('live');
+    expect(rowFor('/uc/assets')?.status, '/uc/assets').toBe('live');
     for (const [path, blocker] of [
       ['/bank/earn', /operators/],
       ['/bank/loans', /operators/],
       ['/bank/cards', /bank\.no_card_issuer/],
       ['/bank/ramps', /rail\.bank/],
-      ['/bank/ramps/new', /rail\.bank/],
       ['/bank/analytics', /proves this room/],
       ['/bank/business', /proves this room/],
     ] as const) {
@@ -126,6 +127,9 @@ describe('feature registry (UI-SPEC 3.4)', () => {
     expect(tabHome(featureById('p2p')!)).toBe('/pay');
     expect(tabHome(featureById('more-rooms')!)).toBe('/more');
     expect(tabHome(featureById('promotions-dividends')!)).toBe('/more');
+    expect(tabHome(featureById('notices')!)).toBe('/');
+    expect(tabHome(featureById('official-channels')!)).toBe('/');
+    expect(isFeatureLive('official-channels')).toBe(true);
     expect(tabHome(featureById('public-extras')!)).toBe('/');
     for (const feature of features) expect(isHiddenPath(tabHome(feature)), feature.id).toBe(false);
   });

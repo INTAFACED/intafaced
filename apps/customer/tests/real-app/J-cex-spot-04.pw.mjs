@@ -1,16 +1,20 @@
-// World: book, gates
+// World: book, gates, restart
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, restartService, toUnits, tool } from './stack.mjs';
 import { awayBid, fundedTrader, held, openDesk, openOrders, placements, previewed } from './desk.mjs';
+import { leadVenueAccount } from './copy.mjs';
+import { refusalText, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
 
 // J-cex-spot-04, in the running app (docs/roadmap/journeys.json): a person is told in words what a pair allows. One
 // test per step, titled "J-cex-spot-04 #<n>", run in order on one TEST account funded with TEST USDT through the real
 // ledger. The band and cap are the stack's LOCAL TEST values, set through the operator pair's two-person door
 // (`local-test-gates.mjs limits`); the journey reads them from the public market list and never assumes a number.
 // Step 6 takes BTC/USDC's band and cap away through the same door, and puts them back after.
-// #2 and #6 are venue steps at launch (CUSTODY-DELTA): J-cex-spot-04-venue.pw.mjs alone carries their step titles and
-// checks them against the TEST venue's own record. Here they are titled "J-cex-spot-04, part of #<n>, checked on today's
-// custodial desk", so today's desk keeps its checks and the journeys verdict still judges them (#8327).
+// #2, #3, #5, #6 and #7 are venue steps at launch (CUSTODY-DELTA): J-cex-spot-04-venue.pw.mjs alone carries their step
+// titles and checks them against the TEST venue's own record. Here they are titled "J-cex-spot-04, part of #<n>,
+// checked on today's custodial desk", so today's desk keeps its checks and the journeys verdict still judges them (#8327).
 const J = 'J-cex-spot-04';
 const SYMBOL = 'BTC/USDT';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -55,10 +59,13 @@ const percent = (fraction) => `${fromUnits(toUnits(fraction) * 100n)}%`;
 // refuses them by: spot/risk.ts assertOutsideOpeningWindow and assertZoneOrder).
 const TICKET_TYPES = ['Limit', 'Stop-limit', 'Stop-market', 'OCO', 'Bracket', 'OTO', 'Market'];
 const LIMIT_ONLY_REFUSED = ['Stop-limit', 'Stop-market', 'Market'];
+const LEAD_REFUSED = ['Stop-market', 'Market'];
 const REASON = {
   trailing: 'Not offered: the exchange does not take trailing stops on any market.',
   window: 'This market takes limit orders only until its opening window ends.',
   zone: 'This market is in the higher-risk zone, which takes limit orders only.',
+  lead: 'A lead trade needs a price. Turn Lead trade off to use this type.',
+  region: 'TEST region, not served at launch',
 };
 
 /** The public market list's row for `symbol` (state, opening window, zone), as the desk reads it. */
@@ -67,6 +74,59 @@ async function listing(pick) {
   expect(res.status).toBe(200);
   const body = await res.json();
   return (Array.isArray(body) ? body : (body.markets ?? body.items ?? [])).find(pick);
+}
+
+const LEAD_THRESHOLD = JSON.parse(
+  readFileSync(new URL('../../../../tooling/profiles/test-owner-values/trade.json', import.meta.url), 'utf8'),
+).values.TRADE_COPY_LEAD_MIN_VENUE_USDC.value;
+
+/** Canonical approval hash matching svc-trade `leadApprovalPayload` (copy/lead-applications.ts). */
+function leadApprovalHash({ applicationId, displayName, minTrackRecordDays }) {
+  const payload = JSON.stringify({
+    actionType: 'trade.copy_lead_approve',
+    applicationId,
+    displayName,
+    minTrackRecordDays,
+  });
+  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+/** Approves `who` as a listed lead through the real application and two-founder approval doors. */
+async function approveLead(who, displayName, founders) {
+  await leadVenueAccount(who, `js4-lead-${Date.now()}`, LEAD_THRESHOLD);
+  const trader = await api(who);
+  const applied = await trader.post('/api/trade/trpc/copy.applyToLead', { displayName });
+  const applicationId = applied.body?.result?.data?.applicationId;
+  expect(applicationId, `applyToLead refused: ${JSON.stringify(applied.body).slice(0, 300)}`).toBeTruthy();
+
+  const { ctx, sessions } = await founders.ops();
+  const tokenA = await sessions.a.tradeOpsToken();
+  const tokenB = await sessions.b.tradeOpsToken();
+  const queue = await ctx.edge.query('trade', 'copy.ops.leadDesk.queue', {}, tokenA);
+  let minTrackRecordDays = queue.json?.result?.data?.criteria?.minTrackRecordDays;
+  if (typeof minTrackRecordDays !== 'number') {
+    const set = await ctx.edge.mutate(
+      'trade',
+      'copy.ops.leadDesk.setCriteria',
+      { minTrackRecordDays: 30, clientRequestId: `js4-criteria-${Date.now()}` },
+      tokenA,
+    );
+    minTrackRecordDays = set.json?.result?.data?.minTrackRecordDays;
+    expect(typeof minTrackRecordDays, `setCriteria refused: ${refusalText(set)}`).toBe('number');
+  }
+  const payloadHash = leadApprovalHash({ applicationId, displayName, minTrackRecordDays });
+  const { approvalId, operationId } = await twoPerson(ctx, sessions, {
+    actionType: 'trade.copy_lead_approve',
+    targetService: 'svc-trade',
+    targetId: applicationId,
+    expectedVersion: 'pending',
+    payloadHash,
+    policyVersion: 'trade-copy-lead-v1',
+  });
+  const proposed = await ctx.edge.mutate('trade', 'copy.ops.leadDesk.propose', { applicationId, approvalId }, tokenA);
+  expect(proposed.status, `leadDesk.propose refused: ${refusalText(proposed)}`).toBe(200);
+  const approved = await ctx.edge.mutate('trade', 'copy.ops.leadDesk.approve', { applicationId, approvalId, operationId }, tokenB);
+  expect(approved.status, `leadDesk.approve refused: ${refusalText(approved)}`).toBe(200);
 }
 
 /** The type tabs the ticket offers, and each row of its "not available" menu as [name, reason, disabled]. */
@@ -85,15 +145,17 @@ async function typesShown(page) {
   return { tabs: tabs.map((x) => x.trim()), rows };
 }
 
-test(`${J} #1 opens the order-type menu: only the types this market and account take are selectable; each other type is listed disabled with its own reason`, async ({
+test(`${J} #1 opens the order-type menu: only the types this market, region and account mode allow are selectable; each other type is listed disabled with its own reason`, async ({
   page,
   stepPicture,
+  founders,
 }) => {
+  test.setTimeout(300_000);
   const who = await fundedTrader(page, 'js4', FUNDED);
   run.reset({ account: who });
   const sent = placements(page);
 
-  // An open market, an ordinary account: every ticket type is a tab; trailing stop alone is listed, disabled, with its reason.
+  // An open market, an ordinary account, a served region: every ticket type is a tab; trailing stop alone is listed, disabled, with its reason.
   const plain = await listing((m) => m.symbol === SYMBOL);
   expect(plain.lifecycle?.state ?? 'OPEN').toBe('OPEN');
   expect(plain.zone ?? null).toBeNull();
@@ -117,7 +179,7 @@ test(`${J} #1 opens the order-type menu: only the types this market and account 
   });
   await page.keyboard.press('Escape');
 
-  // A market in the higher-risk zone: the same three, each with the zone's reason. The step's picture is this menu.
+  // A market in the higher-risk zone: the same three, each with the zone's reason.
   const zoned = await listing((m) => m.spot && !m.paper && m.orderable && m.zone === 'higher_risk');
   expect(zoned, 'a market in the higher-risk zone').toBeTruthy();
   await openDesk(page, who, zoned.symbol);
@@ -128,9 +190,52 @@ test(`${J} #1 opens the order-type menu: only the types this market and account 
   // A disabled row picks nothing.
   await page.getByTestId('dk-type-off-market').click({ force: true });
   await expect(page.getByRole('menu')).toBeVisible();
-  await stepPicture();
   await page.keyboard.press('Escape');
   await expect(tab(page, 'Limit')).toHaveAttribute('aria-selected', 'true');
+
+  // Account mode and region:
+  // 1) Approve the trader as a listed lead (needs the TEST venue door while applying), open the desk with Lead trade on:
+  //    Market and Stop-market leave the tabs for the disabled menu with the lead reason; turning Lead trade off restores
+  //    all seven tabs.
+  // 2) Switch to the TEST region AA (not served for trading): no order type is selectable and every ticket type is listed
+  //    disabled with the region's reason.
+  try {
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
+    await approveLead(who, `TEST ${J} #1 lead ${Date.now()}`, founders);
+    await page.goto('/trade/spot/BTC-USDT?lead=1');
+    const leadSwitch = page.getByRole('switch', { name: 'Lead trade', exact: true });
+    await expect(leadSwitch).toBeVisible({ timeout: 20_000 });
+    await expect(leadSwitch).toBeChecked();
+    const offLead = TICKET_TYPES.filter((x) => !LEAD_REFUSED.includes(x));
+    expect(await typesShown(page)).toEqual({
+      tabs: offLead,
+      rows: [...LEAD_REFUSED.map((name) => [name, REASON.lead, 'true']), ['Trailing stop', REASON.trailing, 'true']],
+    });
+    await stepPicture();
+    await page.keyboard.press('Escape');
+    await leadSwitch.uncheck();
+    await expect(leadSwitch).not.toBeChecked();
+    expect(await typesShown(page)).toEqual({ tabs: TICKET_TYPES, rows: [['Trailing stop', REASON.trailing, 'true']] });
+    await page.keyboard.press('Escape');
+
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'off', LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await page.goto('/trade/spot/BTC-USDT');
+    await expect(page.getByTestId('dk-order')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid="dk-order"] [role=tab]')).toHaveCount(0, { timeout: 30_000 });
+    expect(await typesShown(page)).toEqual({
+      tabs: [],
+      rows: [...TICKET_TYPES.map((name) => [name, REASON.region, 'true']), ['Trailing stop', REASON.trailing, 'true']],
+    });
+    await page.getByTestId('dk-type-off-limit').click({ force: true });
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+  } finally {
+    await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'off', LOCAL_STACK_TEST_REGION_SERVED: undefined });
+  }
+  await openDesk(page, who);
+  await expect(page.locator('[data-testid="dk-order"] [role=tab]')).toHaveCount(TICKET_TYPES.length, { timeout: 30_000 });
   expect(sent).toHaveLength(0);
 });
 
@@ -164,7 +269,9 @@ test(`${J}, part of #2, checked on today's custodial desk: reads the pair's rule
   await expect(page.locator('dl[aria-label="Market rules"]').last()).toContainText(`Up to ${rules.protection.openOrdersPerMarket}`);
 });
 
-test(`${J} #3 types an order below the smallest value, or finer than the lot or tick: refused in words, nothing sent`, async ({ page }) => {
+test(`${J}, part of #3, checked on today's custodial desk: types an order below the smallest value, or finer than the lot or tick: refused in words, nothing sent`, async ({
+  page,
+}) => {
   const who = account();
   const rules = await rulesOf();
   await openDesk(page, who);
@@ -233,7 +340,9 @@ test(`${J} #4 types a buy price above the band: refused with the band named; cho
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(before);
 });
 
-test(`${J} #5 reaches the open-order cap: the next order is refused with the cap and how many are open, nothing held`, async ({ page }) => {
+test(`${J}, part of #5, checked on today's custodial desk: reaches the open-order cap: the next order is refused with the cap and how many are open, nothing held`, async ({
+  page,
+}) => {
   const who = account();
   const rules = await rulesOf();
   const cap = Number(rules.protection.openOrdersPerMarket);
@@ -354,7 +463,7 @@ test(`${J}, part of #6, checked on today's custodial desk: trades a pair whose b
   expect([restored.collar, restored.openOrdersPerMarket]).toEqual([published.collar, published.openOrdersPerMarket]);
 });
 
-test(`${J} #7 sends an order whose request deadline has passed: refused as expired before any hold`, async () => {
+test(`${J}, part of #7, checked on today's custodial desk: sends an order whose request deadline has passed: refused as expired before any hold`, async () => {
   const who = account();
   const rules = await rulesOf();
   const trader = await api(who);

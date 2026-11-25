@@ -29,8 +29,8 @@
  *      a PR needs a new push or a merge from main.
  *   D. The check that the CI review passed is itself a step inside the seal job, so it doesn't catch a PR that rewrites
  *      that job: the PR's own seal can drop both the switch step and the review step.
- *   E. Every agent acts as the admin login, so `gh pr merge --admin` passes a pause through the ruleset's admin bypass.
- *      A bounded identity for agents, without admin (the redesign's B1), closes it.
+ *   E. Closed: agents sign in with a GitHub App's user token, which has no admin, and no ruleset on main can be
+ *      bypassed by it, so `gh pr merge --admin` can't pass a pause.
  */
 import { runJobs } from './run-jobs.mjs';
 import { realpathSync } from 'node:fs';

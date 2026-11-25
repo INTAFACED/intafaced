@@ -5,6 +5,7 @@ const id = z
   .string()
   .guid()
   .transform((value) => value.toLowerCase());
+const outputId = z.string().guid();
 const revision = z.number().int().positive();
 const timestamp = z.string().datetime({ offset: true });
 const count = z.number().int().safe().nonnegative();
@@ -16,13 +17,13 @@ export const crmErasureCodeSchema = z.enum([
 export const crmErasurePreviewInputSchema = z.object({ canonicalContactId: id }).strict();
 export const crmErasurePreviewSchema = z
   .object({
-    canonicalContactId: id,
+    canonicalContactId: outputId,
     canonicalRevision: revision,
     contacts: z
-      .array(z.object({ contactId: id, revision }).strict())
+      .array(z.object({ contactId: outputId, revision }).strict())
       .min(1)
       .max(200),
-    submissionIds: z.array(id).max(200),
+    submissionIds: z.array(outputId).max(200),
     counts: z.object({ contacts: count, submissions: count, opportunities: count, tasks: count, messages: count }).strict(),
     snapshot: z.string().regex(/^[a-f0-9]{64}$/),
   })
@@ -41,13 +42,13 @@ export const crmErasureAdvanceInputSchema = z.object({ requestId: id, intentId: 
 export const crmErasureStatusInputSchema = z.union([z.object({ intentId: id }).strict(), z.object({ canonicalContactId: id }).strict()]);
 export const crmErasureStatusSchema = z
   .object({
-    intentId: id,
-    canonicalContactId: id,
+    intentId: outputId,
+    canonicalContactId: outputId,
     revision,
     status: z.enum(['pending_notify', 'complete']),
     /** Legacy manual intents remain founder-attributed; automation never impersonates a founder. */
     actorKind: z.enum(['founder', 'system']).default('founder'),
-    requestedBy: id.nullable(),
+    requestedBy: outputId.nullable(),
     requestedAt: timestamp,
     completedAt: timestamp.nullable(),
     pendingSubmissionCount: count,
@@ -89,11 +90,11 @@ export const crmRetentionReviewInputSchema = z
   .strict();
 export const crmRetentionReviewSchema = z
   .object({
-    reviewId: id,
-    canonicalContactId: id,
+    reviewId: outputId,
+    canonicalContactId: outputId,
     revision,
     state: z.enum(['active', 'inactive']),
-    reviewedBy: id,
+    reviewedBy: outputId,
     reviewedAt: timestamp,
     expiresAt: timestamp.nullable(),
     evidenceRef: z.string().trim().min(1).max(256),

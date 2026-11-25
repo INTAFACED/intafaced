@@ -2,8 +2,9 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { founderCall } from '@/lib/desk/founder-call';
+import { founderRecordRead } from '@/lib/desk/founder-call';
 import { parseReasonCodeLines, reasonCodeRefusalWords } from '@/lib/protocol-listing/model';
+import { OPS_PROTOCOL_LISTING_REASON_CODES_SET } from '@intafaced/contracts/ops-protocol-listing-procedures';
 
 /**
  * Replace the list of reasons a hide or delist may name (svc-ops `protocolListing.reasonCodes.set`). One admin acts; svc-ops needs
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await founderCall(session, 'ops', 'protocolListing.reasonCodes.set', 'POST', { codes: read.codes }, accepted);
+  const result = await founderRecordRead(session, OPS_PROTOCOL_LISTING_REASON_CODES_SET, { codes: read.codes }, accepted);
   switch (result.kind) {
     case 'ok':
       return answer({ ok: true }, 200);

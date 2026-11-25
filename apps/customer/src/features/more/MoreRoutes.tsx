@@ -12,22 +12,23 @@ import { AcademyProgrammeRoom } from './academy-catalogue/AcademyProgrammeRoom';
 import { AcademyDiscussionListRoom, AcademyDiscussionThreadRoom } from './AcademyDiscussion';
 import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { AcademyCourseRoom } from './AcademyCourseRoom';
+import { AcademyAssignmentRoom } from './academy-assignment/AcademyAssignmentRoom';
+import { AcademyVerifyRoom } from './academy-verify/AcademyVerifyRoom';
 import { AcademyReaderRoom } from './academy-reader/AcademyReaderRoom';
 import { AcademyProgressRoom } from './academy-progress/AcademyProgressRoom';
 import { AgentsRoom } from './agents-room/AgentsRoom';
 import { OwnAgentRoom } from './agent-room/OwnAgentRoom';
 import { NewAgent, ownAgentId } from './AgentBuilder';
-import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
 import { AgentApprovalsRoom } from './agent-approvals/AgentApprovalsRoom';
 import { AgentConnect } from './AgentConnect';
-import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
 import { agentRunCopy } from './agent-run-copy';
 import { Blueprint } from './Blueprint';
 import { BlueprintSharedRoom } from './BlueprintSharedCard';
 import { BlueprintRoom } from './blueprint-room/BlueprintRoom';
-import { Campaigns, CampaignsRoom } from './Campaigns';
+import { BlueprintCrewRoom } from './blueprint-room/BlueprintCrewRoom';
+import { CampaignsMineRoom, CampaignsRoom } from './Campaigns';
 import { CampaignDetail } from './campaign-detail/CampaignDetailRoom';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { DropRoom } from './DropRoom';
@@ -36,9 +37,13 @@ import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
 import { MarketRoom } from './market-room/MarketRoom';
+import { MarketMineRoom } from './market-mine/MarketMineRoom';
+import { MarketPurchasesRoom } from './market-purchases/MarketPurchasesRoom';
+import { MarketStrategyRoom } from './market-strategy/MarketStrategyRoom';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { PredictRoom } from './predict-room/PredictRoom';
+import { PredictPositionsRoom } from './predict-positions/PredictPositionsRoom';
 import { PredictSettingsRoom } from './predict-settings/PredictSettingsRoom';
 import { quantRoute } from '../quant';
 import { quantModeRoute } from './quant-mode-route';
@@ -46,9 +51,12 @@ import { Support } from './Support';
 import { SupportChatRoom } from './SupportChat';
 import { Token, selectedFor, type TokenTab } from './Token';
 import { TokenRoom } from './token-room/TokenRoom';
+import { TokenBurnRoom } from './token-burn/TokenBurnRoom';
+import { TokenGovernanceRoom } from './token-governance/TokenGovernanceRoom';
 import { launchCopy } from './launch-copy';
 import { LaunchDetail } from './LaunchCatalogue';
 import { LaunchRoom } from './launch-room/LaunchRoom';
+import { LaunchMineRoom } from './launch-mine/LaunchMineRoom';
 import { miningCopy } from './mining-copy';
 import { MiningRoom } from './mining-room/MiningRoom';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
@@ -58,10 +66,15 @@ import { PaperRoom } from './paper-mode';
 import { preservePaperHref } from './trade-context';
 import { Fragment, type ReactNode } from 'react';
 import { TokenProposalRoom } from './token-proposal/TokenProposalRoom';
+import { LaunchCheckRoom } from './launch-flow/LaunchCheckRoom';
+import { LaunchNewRoom } from './launch-flow/LaunchNewRoom';
 import { LaunchRequirementsRoom } from './launch-requirements/LaunchRequirementsRoom';
 import { TokenEconomyRoom } from './token-economy/TokenEconomyRoom';
+import { MiningRewardsRoom } from './mining-section/MiningRewardsRoom';
+import { MiningSharesRoom } from './mining-section/MiningSharesRoom';
 import { MiningStatusRoom } from './mining-section/MiningStatusRoom';
 import { MiningWorkerRoom } from './mining-section/MiningWorkerRoom';
+import { MiningWorkersRoom } from './mining-section/MiningWorkersRoom';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -114,6 +127,17 @@ function MoreRooms({ path }: { path: string }) {
     volt = <AcademyProgressRoom />;
   } else if (academy?.kind === 'course') {
     volt = <AcademyCourseRoom key={`${p}:${url.search}`} slug={academy.slug} signedIn={Boolean(userId)} />;
+  } else if (academy?.kind === 'assignment') {
+    volt = (
+      <AcademyAssignmentRoom
+        key={`${p}:${url.search}`}
+        slug={academy.slug ?? ''}
+        itemId={academy.itemId ?? ''}
+        signedIn={Boolean(userId)}
+      />
+    );
+  } else if (academy?.kind === 'verify') {
+    volt = <AcademyVerifyRoom key={academy.code ?? ''} code={academy.code} />;
   } else if (
     academy &&
     !academySectionRedirect(p, url.search) &&
@@ -148,12 +172,9 @@ function MoreRooms({ path }: { path: string }) {
   } else if (p === '/agents') {
     volt = <AgentsRoom paper={paper} />;
   } else if (p === '/agents/connect') {
-    title = <agentConnectCopy.Copy k="title" />;
-    description = <agentConnectCopy.Copy k="description" />;
-    content = <AgentConnect />;
+    volt = <AgentConnect />;
   } else if (p === '/agents/new') {
-    title = agentBuilderCopy.t('newAgent');
-    content = <NewAgent />;
+    volt = <NewAgent />;
   } else if (agentRunId(p)) {
     const runId = agentRunId(p)!;
     volt = <AgentRunPage key={runId} runId={runId} />;
@@ -168,9 +189,7 @@ function MoreRooms({ path }: { path: string }) {
   } else if (p === '/campaigns') {
     volt = <CampaignsRoom title={copyText('moreroutes.campaigns')} description={copyText('moreroutes.your.campaign.participation')} />;
   } else if (p === '/campaigns/mine') {
-    title = <campaignCatalogueCopy.Copy k="myCampaigns" />;
-    description = <campaignCatalogueCopy.Copy k="mineTitle" />;
-    content = <Campaigns initial="Mine" />;
+    volt = <CampaignsMineRoom title={campaignCatalogueCopy.t('myCampaigns')} description={campaignCatalogueCopy.t('mineTitle')} />;
   } else if (/^\/campaigns\/cmp_[A-Za-z0-9-]+$/.test(p)) {
     volt = <CampaignDetail key={p} campaignId={decodeURIComponent(p.slice('/campaigns/'.length))} />;
   } else if (p === '/campaigns/drops') {
@@ -180,17 +199,16 @@ function MoreRooms({ path }: { path: string }) {
     volt = <LaunchRoom paper={paper} />;
   } else if (p === '/uc/innovation/myorders') {
     room = 'launch';
-    title = copyText('moreroutes.my.launch.orders');
-    description = <launchCopy.Copy k="scope" />;
-    content = <Launch orders />;
+    volt = <LaunchMineRoom paper={paper} orders />;
   } else if (p === '/market') {
     room = 'market';
     volt = <MarketRoom />;
-  } else if (p === '/market/mine' || p === '/market/strategy') {
+  } else if (p === '/market/strategy') {
     room = 'market';
-    title = p === '/market/mine' ? copyText('moreroutes.my.listings') : copyText('moreroutes.strategy.subscriptions');
-    description = copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace');
-    content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
+    volt = <MarketStrategyRoom />;
+  } else if (p === '/market/mine') {
+    room = 'market';
+    volt = <MarketMineRoom />;
   } else if (p === '/predict') {
     room = 'predict';
     volt = <PredictRoom />;
@@ -221,12 +239,23 @@ function MoreRooms({ path }: { path: string }) {
       const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
-      if (hit.route.pattern === '/predict/settings') volt = <PredictSettingsRoom />;
+      if (hit.route.pattern === '/predict/positions') volt = <PredictPositionsRoom />;
+      else if (hit.route.pattern === '/predict/settings') volt = <PredictSettingsRoom />;
+      else if (hit.route.pattern === '/market/purchases') volt = <MarketPurchasesRoom />;
+      else if (hit.route.pattern === '/launch/new') volt = <LaunchNewRoom paper={paper} />;
+      else if (hit.route.pattern === '/launch/check') volt = <LaunchCheckRoom paper={paper} />;
       else if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.pattern === '/launch/mine') volt = <LaunchMineRoom paper={paper} />;
+      else if (hit.route.pattern === '/token/governance') volt = <TokenGovernanceRoom paper={paper} />;
       else if (hit.route.pattern === '/token/economy') volt = <TokenEconomyRoom paper={paper} />;
+      else if (hit.route.pattern === '/token/burn') volt = <TokenBurnRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/workers') volt = <MiningWorkersRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/shares') volt = <MiningSharesRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/rewards') volt = <MiningRewardsRoom paper={paper} />;
       else if (hit.route.pattern === '/mining/status') volt = <MiningStatusRoom paper={paper} />;
       else if (hit.route.pattern === '/mining/workers/:workerId')
         volt = <MiningWorkerRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
+      else if (hit.route.pattern === '/blueprint/crew') volt = <BlueprintCrewRoom path={path} />;
       else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'token')
         volt = <TokenProposalRoom key={hit.id ?? 'invalid'} proposalId={hit.invalid ? null : (hit.id ?? null)} paper={paper} />;
