@@ -323,8 +323,10 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
         {movers.map((line) => (
           <MoverTile
             key={line.market.symbol}
-            symbol={line.market.base}
-            quote={shared.has(line.market.base) ? (line.perp ? undefined : line.market.quote) : undefined}
+            // A coin listed twice keeps its quote, or its perpetual's name, as on the board's rows.
+            symbol={shared.has(line.market.base) && line.perp ? `${line.market.base}-PERP` : line.market.base}
+            asset={line.market.base}
+            quote={shared.has(line.market.base) && !line.perp ? line.market.quote : undefined}
             price={line.ticker?.last ? priceOf(line) : null}
             change={fmtPct(line.ticker?.changePct24h)}
             trend={sparks.status === 'ready' ? (sparks.data[line.market.symbol] ?? []) : []}
