@@ -45,11 +45,10 @@ import { useHomeLayout } from './tiles-data';
 import { HOME_TILE_IDS, shownTiles, type HomeTileId } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { TestBuildTag } from './TestBuildTag';
+import { SendTo } from './SendTo';
 import { useSession } from '../../features/session/session';
 
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
-// Send to reads the payee book through the money feature, kept out of Home's first load.
-const SendTo = lazy(() => import('./SendTo'));
 const HomePro = lazy(() => import('./HomePro').then((module) => ({ default: module.HomePro })));
 
 /**
@@ -229,7 +228,7 @@ function HomeSimple() {
   const { userId } = useSession();
   const activity = useActivity();
   const activityLimit = useRecentActivityLimit();
-  // The launch model (OWNER 226): with the user-venue door on, the total is where the person stands, as Assets shows it.
+  // The launch model: with the user-venue door on, the total is where the person stands, as Assets shows it.
   const launch = launchStanding(useLaunchVenue(), portfolio);
   const { favorites } = useFavorites(userId);
 
@@ -393,9 +392,7 @@ function HomeSimple() {
                   <RecentActivity activity={activity} limit={activityLimit} hidden={hideBalances} />
                 </Widget>
               ) : null}
-              <Suspense fallback={null}>
-                <SendTo userId={userId} />
-              </Suspense>
+              <SendTo userId={userId} />
               <RoomWidgets />
               {/* Learn is offered in Pin a widget, as the Academy (Home A). */}
             </div>

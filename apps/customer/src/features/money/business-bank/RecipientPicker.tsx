@@ -3,7 +3,7 @@ import { Button, Field } from '@intafaced/ui/lit';
 import { cleanHandle, resolveHandle } from '../../../data/identity';
 import { useActivity } from '../../../data/activity';
 import { useSession } from '../../session';
-import { filterPayees, forgetPayee, identityChanged, readPayees, recentHandles, rememberPayee, type Payee } from '../payees';
+import { filterPayees, forgetPayee, identityChanged, readPayees, recentHandles, rememberPayee, type Payee } from '../../../shared/payees';
 import { recipientCopy } from '../recipient-copy';
 
 type Problem = 'notFound' | 'self' | 'rateLimited' | 'unavailable' | 'failed' | 'malformed' | null;
