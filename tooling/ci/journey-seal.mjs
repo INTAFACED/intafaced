@@ -2112,7 +2112,12 @@ export const isWaitingSeal = (j) =>
 
 /** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
 export const SEAL_INPUTS = [
-  { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
+  // Runs on every pull request (`always`), so none on the head is one still to come, never a finished input: GitHub starts
+  // no pull_request run while the pull request conflicts with its base, and may start one a minute or two after this
+  // asks. Before 25 Nov 2026 the seal read "nothing going" there and judged at once, red on "no CI ran" (ci-jobs-seal.mjs
+  // judgeCiJobs, whose own answer is `wait`): 42 of the 82 heads red on the seal alone in the 48 h to 25 Nov 00:43 UTC,
+  // 36 conflicting with main and 6 sealed before their CI run was created (INTAFACED/project-state#4047).
+  { workflow: 'ci.yml', event: 'pull_request', what: 'CI', always: true },
   { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
   // Runs only when the pull request touches its paths (#8708); with no run on the head nothing waits for it, and
@@ -2172,9 +2177,12 @@ export async function settleRuns(runs, jobsOf) {
   return out;
 }
 
+/** inputsGoing's words for an `always` input with no run on the head (waitStep reads them). */
+export const NO_RUN = 'no run on this head yet';
+
 /**
  * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
- * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
+ * input has finished. An `always` input with no run on the head counts as going (NO_RUN). Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
  * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
  * still going when `needJudge` (readGoing sets it when a pull request's change needs the review's verdict), so its seal waits for the judge exactly as for a review
@@ -2186,10 +2194,12 @@ export async function settleRuns(runs, jobsOf) {
  */
 export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unstarted = true }) {
   const out = [];
-  for (const { workflow, event, what, journeys, judge, down } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge, down, always } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
-    for (const r of runsOf?.[workflow] ?? []) {
-      if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+    const onHead = (runsOf?.[workflow] ?? []).filter((r) => r?.head_sha === sha && (!event || r?.event === event));
+    if (always && !onHead.length)
+      out.push(`${what}: ${NO_RUN} (GitHub starts none while the pull request conflicts with its base: merge main)`);
+    for (const r of onHead) {
       if (judge && !unstarted && UNSTARTED.includes(r?.status)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
       else if (journeys && r?.deferred === true)
@@ -2219,7 +2229,12 @@ export const needsJourneys = (pull, files) => namesSteps(pull?.title ?? '') || j
  * `files` are the change's paths; `headCi` the text of ci.yml at the head (null when it has none); `going` what
  * inputsGoing returns. Pure.
  */
-export function sealNow({ files, headCi, going, verdict = false }) {
+export function sealNow({ files, headCi, going, verdict = false, draft = false }) {
+  // GitHub merges no draft, so nothing a draft's own jobs pass can merge it; `gh pr ready` starts this workflow again
+  // (ready_for_review), and that run seals at once or waits as below. Before 25 Nov 2026 a draft that touched .github/
+  // sealed at once, red on the CI review, which skips drafts: 6 of the 82 heads red on the seal alone in the 48 h to
+  // 25 Nov 00:43 UTC (INTAFACED/project-state#4047).
+  if (draft) return { now: false, why: 'a draft, which GitHub never merges; `gh pr ready` starts the seal' };
   const gh = (files ?? []).filter((f) => f.startsWith('.github/'));
   if (gh.length)
     return {
@@ -2592,10 +2607,9 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
  * merge-seal.yml's first job: whether this attempt seals now or waits for its inputs (sealNow), written to
  * GITHUB_OUTPUT as `now=true|false`. Only a first attempt asks; any error fails this job, and the seal then runs at once.
  */
-async function sealNowStep({ repo, token }) {
+export async function sealNowStep({ repo, token, get = (path) => api(path, token) }) {
   const { HEAD_SHA, PR_NUMBER, GITHUB_OUTPUT } = process.env;
   if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(PR_NUMBER ?? '')) throw new Error('--seal-now needs HEAD_SHA and PR_NUMBER');
-  const get = (path) => api(path, token);
   const pull = await get(`/repos/${repo}/pulls/${PR_NUMBER}`);
   const files = await pullFiles(get, repo, Number(PR_NUMBER));
   let headCi = null;
@@ -2606,7 +2620,13 @@ async function sealNowStep({ repo, token }) {
     if (!/HTTP 404/.test(e.message)) throw e;
   }
   const going = await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull] });
-  const v = sealNow({ files, headCi, going, verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false });
+  const v = sealNow({
+    files,
+    headCi,
+    going,
+    verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false,
+    draft: pull?.draft === true,
+  });
   console.log(`${v.now ? 'seals now' : 'waits'}: ${v.why}`);
   if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `now=${v.now}\n`, { flag: 'a' });
 }
@@ -2623,6 +2643,10 @@ async function sealNowStep({ repo, token }) {
 export function waitStep({ pull, sha, going }) {
   if (pull?.state !== 'open') return { act: 'judge', msg: `#${pull?.number} is no longer open` };
   if (pull?.head?.sha !== sha) return { act: 'judge', msg: `#${pull.number}'s head moved to ${String(pull?.head?.sha).slice(0, 10)}` };
+  // GitHub runs no CI on a pull request that conflicts with its base (inputsGoing `always`), so a seal that runs at once
+  // judges it now, as before, rather than waiting out WAIT_POLLS for a run that never starts.
+  if (pull?.mergeable === false && going.some((g) => g.includes(NO_RUN)))
+    return { act: 'judge', msg: `#${pull.number} conflicts with its base, so no CI runs on it` };
   if (going.length) return { act: 'wait', msg: `waiting for ${going.join(', ')}` };
   return { act: 'judge', msg: 'every input on this head has finished' };
 }

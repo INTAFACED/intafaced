@@ -375,6 +375,7 @@ export function sealProblems(text) {
   const onHead = {
     'a base change': at('bbb', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
     'a reopen': at('bbb', { action: 'reopened' }),
+    'a draft marked ready': at('bbb', { action: 'ready_for_review' }),
   };
   for (const [what, r] of Object.entries(onHead)) {
     if (r.cancel) problems.push(`${what} cancels a running seal on the head being merged`);
