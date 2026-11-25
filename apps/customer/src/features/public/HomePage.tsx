@@ -21,7 +21,7 @@ import {
   type MarketRow as KitMarketRow,
 } from '@intafaced/ui/lit';
 import { AreaChart, Segmented, TestTag } from '@intafaced/ui/lit/templates';
-import { useCandles, useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
+import { useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
 import { compareDecimal, dec, ratio, str, sub, sumOf } from '../../data/decimal';
 import { fmtAmount, fmtPct, fmtPrice, fmtUsd } from '../../data/format';
 import type { Decimal, Loadable, MarketRow, TickerRow } from '../../data/types';
@@ -218,10 +218,22 @@ function MarketBoard({
   );
 }
 
-/** The busiest market, large, with its last two days drawn from its hourly candles. */
+const HOUR_MS = 3_600_000;
+
+/**
+ * A market's last day as chart points: the same hourly closes its board row draws (useSparklines), the last one in the
+ * current hour. Fewer than two closes draw no line (the chart parts leave the area empty), never a line made of fill.
+ */
+function useTrendPoints(symbol: string | undefined): { at: string; value: Decimal }[] {
+  const sparks = useSparklines(symbol ? [symbol] : []);
+  const closes = symbol && sparks.status === 'ready' ? (sparks.data[symbol] ?? []) : [];
+  const lastHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+  return closes.map((value, i) => ({ at: new Date(lastHour - (closes.length - 1 - i) * HOUR_MS).toISOString(), value }));
+}
+
+/** The busiest market, large, with its last day drawn from the same hourly closes as its board row. */
 function Featured({ line, t }: { line: Line; t: T }) {
-  const candles = useCandles(line.market.symbol, '1h', 48);
-  const points = candles.status === 'ready' ? candles.data.map((c) => ({ at: new Date(c.t).toISOString(), value: c.c })) : [];
+  const points = useTrendPoints(line.market.symbol);
   return (
     <FeaturedMarket
       symbol={line.market.base}
@@ -334,8 +346,7 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
   const fee = takerBps === null ? null : (spend * BigInt(takerBps)) / 10_000n;
   const net = fee === null ? spend : sub(spend, fee);
   const amount = price && price > 0n ? ratio(net, price) : null;
-  const candles = useCandles(line?.market.symbol ?? 'BTC/USDT', '1h', 48);
-  const points = line && candles.status === 'ready' ? candles.data.map((c) => ({ at: new Date(c.t).toISOString(), value: c.c })) : [];
+  const points = useTrendPoints(line?.market.symbol);
   return (
     <section className="ld-fees" aria-labelledby="ld-fees-title">
       <header className="ld-section-head ld-fees-head">

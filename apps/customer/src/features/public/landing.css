@@ -173,6 +173,7 @@
   font-size: var(--lit-type-micro-size);
 }
 .ld-slab-total {
+  font-weight: var(--lit-type-figure-weight);
   font-size: clamp(2.8571rem, 5vw, 5.7143rem);
   line-height: 1;
 }
@@ -237,11 +238,13 @@
   font-size: var(--lit-type-micro-size);
 }
 .ld-ticket-big {
+  font-weight: var(--lit-type-figure-weight);
   margin-block-end: 1.1429rem;
   font-size: clamp(2.8571rem, 4vw, 4.5714rem);
   line-height: 1;
 }
 .ld-ticket-get {
+  font-weight: var(--lit-type-figure-weight);
   font-size: clamp(1.7143rem, 2.2vw, 2.5714rem);
 }
 .ld-ticket-chart {
