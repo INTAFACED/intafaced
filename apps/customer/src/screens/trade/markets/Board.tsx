@@ -1,5 +1,16 @@
 import { useMemo, useState } from 'react';
-import { AssetIcon, MoverTile, Tag, TileRow, ToggleChips } from '@intafaced/ui/lit';
+import {
+  ButtonLink,
+  Dim,
+  MarketBoard,
+  MarketBoardSkeleton,
+  MarketHero,
+  MoverTile,
+  PanelHead,
+  Tag,
+  TileRow,
+  ToggleChips,
+} from '@intafaced/ui/lit';
 import { AreaChart } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../../features/session/session';
 import { assetName, marketsCopy } from './copy';
@@ -69,72 +80,57 @@ export function Board({
     [t('Max leverage'), leverageText(perp) ?? '—'],
   ];
 
+  const tone = toneOf(ticker?.changePct24h);
+
   return (
-    <div className="mkt-board" data-testid="mkt-board">
-      <section className="mkt-hero" aria-label={t('{pair} today', { pair })} data-testid="mkt-hero">
-        <div className="mkt-hero__main">
-          {top.length > 1 ? (
-            <div className="mkt-hero__picks">
-              <ToggleChips
-                label={t('Show a market')}
-                options={pickChips(top).map((entry) => ({ value: entry.market.symbol, label: entry.market.base }))}
-                value={hero.market.symbol}
-                onChange={(value) => value && setChosen(value)}
-              />
-            </div>
-          ) : null}
-          <div className="mkt-hero__name">
-            <AssetIcon asset={market.base} size="md" />
-            <span className="mkt-hero__pair">
-              <span className="lt-cell-name">
-                <strong>{pair}</strong>
-                <Tag tone="neutral">{isPerp(hero) ? (leverageText(perp) ?? t('Perp')) : t('Spot')}</Tag>
-              </span>
-              <span className="mkt-dim">{assetName(market.base, copy) ?? market.base}</span>
-            </span>
-          </div>
-          <p className="mkt-hero__price" dir="ltr">
-            {priceText(market, ticker?.last)}
-          </p>
-          <p className="mkt-hero__change">
-            <Pct value={ticker?.changePct24h} /> <span className="mkt-dim">{t('in 24h')}</span>
-          </p>
-          {target ? (
-            <a className="lt-button lt-button-primary mkt-hero__go" href={target}>
-              {mode === 'pro' || isPerp(hero) ? t('Trade {pair}', { pair }) : t('Buy {asset}', { asset: market.base })}
-            </a>
-          ) : null}
-          <dl className="mkt-hero__stats">
-            {stats.map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd dir="ltr">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-        <div className="mkt-hero__chart" data-tone={toneOf(ticker?.changePct24h)}>
-          <span className="mkt-dim">{t('Price, last 24 hours')}</span>
-          {points.length > 1 ? (
-            <AreaChart
-              label={t('{pair}, last 24 hours', { pair })}
-              points={points}
-              asset={market.quote}
-              tone={toneOf(ticker?.changePct24h)}
-              soft
+    <MarketBoard data-testid="mkt-board">
+      <MarketHero
+        data-testid="mkt-hero"
+        label={t('{pair} today', { pair })}
+        picks={
+          top.length > 1 ? (
+            <ToggleChips
+              label={t('Show a market')}
+              options={pickChips(top).map((entry) => ({ value: entry.market.symbol, label: entry.market.base }))}
+              value={hero.market.symbol}
+              onChange={(value) => value && setChosen(value)}
             />
+          ) : undefined
+        }
+        asset={market.base}
+        symbol={pair}
+        tag={<Tag tone="neutral">{isPerp(hero) ? (leverageText(perp) ?? t('Perp')) : t('Spot')}</Tag>}
+        name={assetName(market.base, copy) ?? market.base}
+        price={priceText(market, ticker?.last)}
+        change={
+          <>
+            <Pct value={ticker?.changePct24h} /> <Dim>{t('in 24h')}</Dim>
+          </>
+        }
+        action={
+          target ? (
+            <ButtonLink tone="primary" href={target}>
+              {mode === 'pro' || isPerp(hero) ? t('Trade {pair}', { pair }) : t('Buy {asset}', { asset: market.base })}
+            </ButtonLink>
+          ) : undefined
+        }
+        stats={stats}
+        chartTitle={t('Price, last 24 hours')}
+        tone={tone}
+        chart={
+          points.length > 1 ? (
+            <AreaChart label={t('{pair}, last 24 hours', { pair })} points={points} asset={market.quote} tone={tone} soft />
           ) : (
-            <p className="mkt-dim mkt-hero__nochart">{t('No price history for {pair} here.', { pair })}</p>
-          )}
-        </div>
-      </section>
+            <p>
+              <Dim>{t('No price history for {pair} here.', { pair })}</Dim>
+            </p>
+          )
+        }
+      />
 
       {movers.length > 1 ? (
-        <section className="mkt-moving" aria-labelledby="mkt-moving-title" data-testid="mkt-moving">
-          <header className="mkt-moving__head">
-            <h2 id="mkt-moving-title">{t('What’s moving')}</h2>
-            <span className="mkt-dim">{t('Biggest 24h moves')}</span>
-          </header>
+        <section aria-label={t('What’s moving')} data-testid="mkt-moving">
+          <PanelHead title={t('What’s moving')} aside={t('Biggest 24h moves')} />
           <TileRow min="card">
             {movers.map((entry) => (
               <MoverTile
@@ -151,7 +147,7 @@ export function Board({
           </TileRow>
         </section>
       ) : null}
-    </div>
+    </MarketBoard>
   );
 }
 
@@ -162,14 +158,5 @@ function pickChips(top: readonly Entry[]): Entry[] {
 
 /** The board at its final size while the markets load: the hero panel and a strip of movers, so nothing moves. */
 export function BoardSkeleton() {
-  return (
-    <div className="mkt-board" data-testid="mkt-board" aria-hidden="true">
-      <div className="mkt-hero mkt-skeleton" data-size="hero" />
-      <div className="mkt-moving__list">
-        {[0, 1, 2, 3, 4, 5].map((index) => (
-          <div key={index} className="mkt-mover mkt-skeleton" data-size="tile" />
-        ))}
-      </div>
-    </div>
-  );
+  return <MarketBoardSkeleton data-testid="mkt-board" />;
 }

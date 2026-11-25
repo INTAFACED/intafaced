@@ -452,7 +452,18 @@ export function MarketsList({
           action,
         ]
       : [name, last, change, chart, volume, ...perpColumns, action];
-    return { columns, sorting };
+    // On a phone a market is one tappable line: its name, then its price over its 24h move; the row itself opens it.
+    // On a computer the row's action shows on the row pointed at, as landing's markets panel.
+    const PHONE: Record<string, GridColumn<Entry>['phone']> = {
+      name: 'name',
+      last: 'top',
+      change: 'bottom',
+      chart: 'hide',
+      volume: 'hide',
+      action: 'hide',
+    };
+    const placed = columns.map((column) => ({ ...column, phone: PHONE[column.key], reveal: column.key === 'action' || undefined }));
+    return { columns: placed, sorting };
     // `copy` changes only with the language.
   }, [pro, withPerps, dense, mode, signedIn, favorite, timeZone, pausedNote, statuses, copy.renderedLocale]);
 

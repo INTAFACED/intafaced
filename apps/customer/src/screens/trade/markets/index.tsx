@@ -1,7 +1,7 @@
 // volt-room: /trade
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
-import { Button, FreshnessTag, PageGrid, SearchField, Segmented, StatusNote } from '@intafaced/ui/lit';
+import { Button, FootNotes, FreshnessTag, PageGrid, SearchField, Segmented, StatusNote, ToolbarEnd } from '@intafaced/ui/lit';
 import { CatalogueTemplate, SectionTabs, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
 import {
@@ -22,7 +22,6 @@ import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
 import { Board, BoardSkeleton } from './Board';
-import './markets.css';
 import { TradeAccess } from './TradeAccess';
 import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, visibleEntries, type Chip, type Entry, type Tab } from './select';
 import {
@@ -233,7 +232,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
       }
     >
       <div className="lt-stack" ref={tableTop}>
-        <div data-testid="mkt-tabs" className="mkt-toolbar">
+        <div data-testid="mkt-tabs" className="lt-toolbar">
           <SectionTabs<TabValue>
             label={t('Markets')}
             items={[
@@ -250,7 +249,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
               change(value === 'gainers' || value === 'losers' ? { tab: 'all', chip: value } : { tab: value, chip: 'all' })
             }
           />
-          <div data-testid="mkt-chips" className="mkt-toolbar__chips" hidden={tab === 'perps'}>
+          <div data-testid="mkt-chips" className="lt-toolbar" hidden={tab === 'perps'}>
             {hasPaused || view.status === 'all' ? (
               <Segmented
                 label={t('Filter by status')}
@@ -263,7 +262,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
               />
             ) : null}
           </div>
-          <div className="mkt-toolbar__search">
+          <ToolbarEnd>
             <SearchField
               id={searchId}
               label={t('Search markets')}
@@ -273,7 +272,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
               icon={<Search size={16} aria-hidden="true" />}
               onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
             />
-          </div>
+          </ToolbarEnd>
         </div>
 
         {tickers.status === 'error' ? (
@@ -329,14 +328,14 @@ function NotOffered() {
       <h2 id="mkt-not-offered" className="lt-sr">
         {t('Not offered here')}
       </h2>
-      <ul className="mkt-footnote">
+      <FootNotes>
         <li data-testid="mkt-not-offered-equity">
           <strong>{t('Tokenized equities')}</strong> {t('Not available: licence not named')}
         </li>
         <li data-testid="mkt-not-offered-rpi">
           <strong>{t('Retail price improvement')}</strong> {t('Not available: priority class not specified')}
         </li>
-      </ul>
+      </FootNotes>
     </section>
   );
 }
