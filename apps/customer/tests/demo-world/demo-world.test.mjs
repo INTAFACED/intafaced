@@ -72,6 +72,17 @@ describe('the demo world', () => {
     );
   });
 
+  it("tells one story of the person's verification: the level, the ladder's held level and the case history agree (#10995)", () => {
+    const trpc = (procedure, input) =>
+      read(`/api/identity/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`)?.json
+        .result.data;
+    const level = trpc('kyc.status', { limit: 50 }).tier;
+    expect(trpc('kyc.levels.describe', {}).held).toBe(level);
+    expect(trpc('kyc.levels.describe', {}).levels.find((l) => l.current)?.level).toBe(level);
+    const approved = trpc('kyc.history', { limit: 10 }).cases.filter((c) => c.state === 'approved');
+    expect(approved.map((c) => c.tier)).toContain(level);
+  });
+
   it('answers a read asked at another depth from the same market, and nothing for a market it never saw', () => {
     expect(callKey('GET', '/api/v1/venue/book?symbol=BTC-PERP&depth=10')).toBe('GET /api/v1/venue/book?depth=10&symbol=BTC-PERP');
     expect(recordedAnswer('/api/v1/venue/book?symbol=BTC-PERP&depth=7', 'GET', { signedIn: true })?.json.value.symbol).toBe('BTC-PERP');
