@@ -92,6 +92,8 @@ import {
 import {
   DISPATCH_GROUP_MAX,
   RUN_FILE,
+  betaPick,
+  ownJourneyFiles,
   dispatchCommands,
   journeyTouch,
   mayBeQuiet,
@@ -950,6 +952,12 @@ const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
 // `memo`: each GET fetchInputs makes is made once per seal step, for every run it judges (journey-verdict.mjs fetchInputs).
 const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map(), memo: new Map() });
+
+/** The beta lane's inputs (journey-verdict.mjs offLane) from the default branch's checkout. */
+const sealLane = () => {
+  const { guard, owners, orders } = baseInputs();
+  return { guard, modules: owners, orders };
+};
 
 /**
  * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
@@ -1941,11 +1949,16 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     } catch {
       tooling = null;
     }
+  // A beta pull request is held to the beta lane's journeys, as its run is given them (journey-touch.mjs betaPick).
+  const betaOf = (pick) =>
+    isBetaPull({ headRef: pull.head?.ref, headRepo: pull.head?.repo?.full_name, repo })
+      ? betaPick(pick, io.lane ? io.lane() : sealLane(), ownJourneyFiles(paths, touchAt, named))
+      : pick;
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named, tooling), { atHead: touchAt, reach: inputs, named });
+      : betaOf(pullPick(paths, journeyTouch(paths, touchAt, inputs, named, tooling), { atHead: touchAt, reach: inputs, named }));
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = reverting ? [] : paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));

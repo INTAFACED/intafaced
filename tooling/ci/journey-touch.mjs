@@ -86,9 +86,10 @@ import { githubFetch, githubToken } from './github-fetch.mjs';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
 import { TOUCH_JOB } from './main-first.mjs';
+import { isBetaPull, laneInputsAt, offLane } from './journey-verdict.mjs';
 import {
   REACH_MAP_MODE,
   alwaysRun,
@@ -664,6 +665,36 @@ export function pullPick(paths, touch, { atHead = () => true, reach = null, name
 }
 
 /**
+ * A beta pull request's pick (journey-verdict.mjs isBetaPull, a `beta/` branch): the pick less the journey files no red of
+ * which can hold it (offLane: off the tester path, not Order 1, no money step), so it runs only the beta's own journeys
+ * and every journey holding a money, wallet or sign-in step (project-state decision PRs #4060 and #4061, 25 Nov 2026).
+ * The journeys of the files it changes itself and those its title names (`keep`) still run. Main runs every journey after the merge.
+ * `lane` is laneInputsAt()'s. A pick left with no file runs none. Any other pick, or mode, is returned as it is.
+ */
+/** The journey files a pull request changes at its head, and those its title names (`named`): betaPick's `keep`. */
+export const ownJourneyFiles = (paths, atHead, named) => [
+  ...(paths ?? [])
+    .filter((p) => atHead(p))
+    .map((p) => pathKind(p))
+    .filter((k) => k.kind === 'file')
+    .map((k) => k.file),
+  ...(named?.files ?? []),
+];
+export function betaPick(touch, lane, keep = []) {
+  if (touch?.mode !== 'files' || !lane) return touch;
+  // By journey, so a journey's files run together (withSiblings): one it keeps keeps them all.
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
+  const kept = new Set(keep.map(idOf));
+  const off = (f) => !kept.has(idOf(f)) && offLane(idOf(f), lane);
+  const out = touch.files.filter((f) => !off(f));
+  if (out.length === touch.files.length) return touch;
+  const beta = printable(
+    `a beta pull request: ${touch.files.length - out.length} of its ${touch.files.length} journey files are off the beta lane (off the tester path, not Order 1, no money step) and are left to main's run after the merge`,
+  );
+  return out.length ? { ...touch, files: out, beta } : { ...touch, mode: 'none', files: [], beta };
+}
+
+/**
  * For a change that draws a Customer room or kit part (look-paths.mjs reachesLook; a test draws none), the journey
  * files the map records reaching each product path it can narrow, one path at a time, so a path it can't narrow (a
  * render record, kit-ceilings.json) no longer drops the others' reach. Null for any other change, or one with no path
@@ -1169,7 +1200,14 @@ async function main() {
       tooling = reachOf(checkoutTree(process.cwd()))?.journeys ?? null;
     } catch {}
   // What a pull request runs: never the full suite (pullPick).
-  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named, tooling), { atHead, reach, named });
+  const picked = pullPick(paths, journeyTouch(paths, atHead, reach, named, tooling), { atHead, reach, named });
+  // A beta pull request's run (--reach, as the journeys workflow plans it) runs only the beta lane (betaPick), by this
+  // script's own checkout's journey list (the default branch's, as the seal reads it).
+  const t =
+    args.includes('--reach') && process.env.GITHUB_EVENT_NAME === 'pull_request' && isBetaPull({ headRef: process.env.GITHUB_HEAD_REF })
+      ? betaPick(picked, laneInputsAt(fileURLToPath(new URL('../..', import.meta.url))), ownJourneyFiles(paths, atHead, named))
+      : picked;
+  if (t.beta && args.includes('--json')) console.error(`journey-touch: ${t.beta}`);
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (t.bounded && args.includes('--json')) console.error(`journey-touch: ${t.bounded}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));

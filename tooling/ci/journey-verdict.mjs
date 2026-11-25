@@ -282,13 +282,27 @@ export function betaLane({ beta, guard, modules, orders, mode = BETA_GATE }) {
     const id = journeyOf(k);
     return guard?.[k] === false && outside(id) && (orders?.[id] !== 1 || hidden.has(k));
   };
-  const testOff = (k) => {
-    const id = journeyOf(k);
-    if (!outside(id) || orders?.[id] === 1) return false;
-    const steps = Object.keys(guard ?? {}).filter((s) => journeyOf(s) === id);
-    return steps.length > 0 && steps.every((s) => guard[s] === false);
-  };
+  const testOff = (k) => offLane(journeyOf(k), { guard, modules, orders });
   return { on: true, has: (k) => (isTestKey(k) ? testOff(k) : stepOff(k)) };
+}
+/**
+ * Whether no red of journey `id` can ever hold a beta pull request (betaLane): a journey known to be off the tester path,
+ * not Order 1, with steps the guard knows and none of them money. Such a journey is the only kind a beta pull request's
+ * run leaves out (journey-touch.mjs betaPick), so what runs and what can hold it are one set. Anything unknown is in.
+ */
+export function offLane(id, { guard, modules, orders }) {
+  if (typeof modules?.[id] !== 'string' || TESTER_PATH.has(modules[id]) || orders?.[id] === 1) return false;
+  const steps = Object.keys(guard ?? {}).filter((s) => s.split('#')[0] === id);
+  return steps.length > 0 && steps.every((s) => guard[s] === false);
+}
+/** The beta lane's inputs as a checkout at `root` holds them: the money guard, each journey's module and order. */
+export function laneInputsAt(root) {
+  const journeys = json(join(root, 'docs/roadmap/journeys.json'));
+  return {
+    guard: moneyGuardAt(root),
+    modules: Object.fromEntries(journeys.map((j) => [j.id, j.module])),
+    orders: Object.fromEntries(journeys.map((j) => [j.id, j.order])),
+  };
 }
 /** The beta rule (`rule`, BETA_RULE unless --beta-rule names a stand-in), run as its own process: it loads the app's
  *  TypeScript through tsx. */
