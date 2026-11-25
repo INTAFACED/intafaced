@@ -446,14 +446,14 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   const actions = page.getByTestId('assets-actions');
   for (const [name, href] of [
     ['Trade', /^\/trade\/spot\//],
-    ['Fund your venue account', /^\/wallet\/venue$/],
+    ['Deposit', /^\/wallet\/venue$/],
     ['Activity', /^\/money\/activity$/],
   ])
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${name}$`) })).toHaveAttribute('href', href);
   await stepPicture();
   await actions
     .locator('a')
-    .filter({ hasText: /^Fund your venue account$/ })
+    .filter({ hasText: /^Deposit$/ })
     .click();
   await expect(page).toHaveURL(/\/wallet\/venue$/);
 

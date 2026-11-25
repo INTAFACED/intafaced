@@ -59,7 +59,7 @@ export const whereCopy = defineCopy('money.where', {
   'Split not reported': 'The venue does not say what holds this lock.',
   Actions: 'Quick actions',
   Trade: 'Trade',
-  'Fund venue': 'Fund your venue account',
+  'Fund venue': 'Deposit',
   Activity: 'Activity',
   'Withdraw venue': 'Withdraw',
   Convert: 'Convert',
