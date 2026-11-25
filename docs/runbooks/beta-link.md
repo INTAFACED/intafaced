@@ -93,9 +93,10 @@ run 'node tooling/scripts/local-test-gates.mjs verify'                        # 
 run 'node tooling/scripts/local-test-stack.mjs fund <email> USDT 1000'        # TEST USDT through the real ledger
 ```
 
-**Passkeys** work on the public name only: the beta starts the stack with `LOCAL_STACK_PASSKEY_ORIGIN` set to it, so
-svc-identity's relying party is `beta.intafaced.com` and the TEST wallet provider accepts that origin. A sign-in passkey
-made there does not work on the box's `localhost` page.
+**Passkeys and wallet messages** work on the public name only: the beta starts the stack with
+`LOCAL_STACK_PUBLIC_ORIGIN` set to it, so svc-identity's relying party is `beta.intafaced.com`, and the TEST wallet
+provider and svc-protocol's wallet messages accept that origin. A sign-in passkey made there does not work on the box's
+`localhost` page.
 
 **Known gaps on the public name:** the TEST bank pay-in's return link and the academy's videos point at the box's loopback. On a phone-width screen the desk's order-type
 tabs overlap, so "OTO" covers "Market".

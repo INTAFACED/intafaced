@@ -475,16 +475,16 @@ test("the beta runs its TEST chain with the journeys' pinned anvil image, so the
   assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, undefined);
 });
 
-test("passkeys work on the beta's public name: svc-identity's relying party is its host, and the TEST funds check still passes", async () => {
-  const { localTestServiceEnvs, PLAN_SECRETS, passkeyOrigin } = await import('../scripts/local-test-stack.mjs');
-  const origin = stackEnv(betaPaths('/home/x'), { LOCAL_STACK_PASSKEY_ORIGIN: 'https://other.example.com' }).LOCAL_STACK_PASSKEY_ORIGIN;
+test("passkeys and wallet messages work on the beta's public name: svc-identity's relying party is its host, svc-protocol accepts its origin, and the TEST funds check still passes", async () => {
+  const { localTestServiceEnvs, PLAN_SECRETS, publicOrigin } = await import('../scripts/local-test-stack.mjs');
+  const origin = stackEnv(betaPaths('/home/x'), { LOCAL_STACK_PUBLIC_ORIGIN: 'https://other.example.com' }).LOCAL_STACK_PUBLIC_ORIGIN;
   assert.equal(origin, 'https://beta.intafaced.com', 'the beta wins over a shell');
   const identityEnv = () => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'identity').env;
-  const prior = process.env.LOCAL_STACK_PASSKEY_ORIGIN;
+  const prior = process.env.LOCAL_STACK_PUBLIC_ORIGIN;
   try {
-    delete process.env.LOCAL_STACK_PASSKEY_ORIGIN;
+    delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
     assert.equal(identityEnv().WEBAUTHN_RP_ID, 'localhost', 'unset: the stack keeps its localhost relying party');
-    process.env.LOCAL_STACK_PASSKEY_ORIGIN = origin;
+    process.env.LOCAL_STACK_PUBLIC_ORIGIN = origin;
     const identity = identityEnv();
     assert.equal(identity.WEBAUTHN_RP_ID, 'beta.intafaced.com');
     assert.equal(identity.WEBAUTHN_ORIGIN, 'https://beta.intafaced.com');
@@ -492,10 +492,17 @@ test("passkeys work on the beta's public name: svc-identity's relying party is i
       outsideAddresses(Object.entries(identity), BETA_OWN_HOSTS).filter((a) => a.key.startsWith('WEBAUTHN')),
       [],
     );
+    // Connect to the venue signs a wallet message naming the page's origin (protocol.wallet_session_origin_unlisted).
+    const protocol = localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'protocol').env;
+    assert.ok(protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').includes('https://beta.intafaced.com'));
+    assert.ok(
+      protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').some((o) => /^http:\/\/localhost:\d+$/.test(o)),
+      'the stack keeps its own',
+    );
   } finally {
-    if (prior === undefined) delete process.env.LOCAL_STACK_PASSKEY_ORIGIN;
-    else process.env.LOCAL_STACK_PASSKEY_ORIGIN = prior;
+    if (prior === undefined) delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+    else process.env.LOCAL_STACK_PUBLIC_ORIGIN = prior;
   }
   for (const bad of ['http://beta.intafaced.com', 'https://beta.intafaced.com/', 'https://beta.intafaced.com/app', 'beta.intafaced.com'])
-    assert.throws(() => passkeyOrigin({ LOCAL_STACK_PASSKEY_ORIGIN: bad }), /LOCAL_STACK_PASSKEY_ORIGIN must be one https origin/, bad);
+    assert.throws(() => publicOrigin({ LOCAL_STACK_PUBLIC_ORIGIN: bad }), /LOCAL_STACK_PUBLIC_ORIGIN must be one https origin/, bad);
 });

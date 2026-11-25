@@ -227,13 +227,14 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 /**
- * `LOCAL_STACK_PASSKEY_ORIGIN=<https origin>` on a start: the public origin a person opens this stack on (the hosted
- * beta's name, beta-host.mjs), so passkeys work there. A passkey's signed answer names the page's own origin and host,
- * which no front can rewrite, so svc-identity's relying party becomes that host and the TEST wallet provider accepts that
- * origin beside the stack's own. One plain https origin or nothing: anything else stops the start. Unset: localhost only.
+ * `LOCAL_STACK_PUBLIC_ORIGIN=<https origin>` on a start: the public origin a person opens this stack on (the hosted
+ * beta's name, beta-host.mjs), so what they sign there is accepted. A passkey's answer and a wallet message both name
+ * the page's own origin, which no front can rewrite: svc-identity's relying party becomes that host, and the TEST wallet
+ * provider and svc-protocol's wallet messages accept that origin beside the stack's own. One plain https origin or
+ * nothing: anything else stops the start. Unset: the stack's own origins only.
  */
-export function passkeyOrigin(env = process.env) {
-  const raw = env.LOCAL_STACK_PASSKEY_ORIGIN?.trim();
+export function publicOrigin(env = process.env) {
+  const raw = env.LOCAL_STACK_PUBLIC_ORIGIN?.trim();
   if (!raw) return null;
   let url = null;
   try {
@@ -242,7 +243,7 @@ export function passkeyOrigin(env = process.env) {
     // not a URL: refused below
   }
   if (!url || url.protocol !== 'https:' || url.origin !== raw)
-    throw new Error(`LOCAL_STACK_PASSKEY_ORIGIN must be one https origin like https://beta.example.com, not "${raw}"`);
+    throw new Error(`LOCAL_STACK_PUBLIC_ORIGIN must be one https origin like https://beta.example.com, not "${raw}"`);
   return url.origin;
 }
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
@@ -1744,7 +1745,7 @@ function serviceDefs(secrets) {
     UNUSED,
     CUSTOMER_ORIGIN,
     CUSTOMER_LOCALHOST_ORIGIN,
-    PASSKEY_ORIGIN: passkeyOrigin(),
+    PUBLIC_ORIGIN: publicOrigin(),
     INVITATION_ORIGIN,
     identityFounderEnv,
     opsOutreachEnv,
@@ -2231,7 +2232,7 @@ async function startTestWalletProvider() {
   const pid = startProc(
     'test-wallet-provider',
     [process.execPath, SCRIPT, '__serve-test-wallet-provider'],
-    { ...baseEnv(), APP_ENV: 'dev', ...(passkeyOrigin() ? { LOCAL_STACK_PASSKEY_ORIGIN: passkeyOrigin() } : {}) },
+    { ...baseEnv(), APP_ENV: 'dev', ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}) },
     REPO,
   );
   await waitHealthy('test-wallet-provider', url, pid, 20_000);
@@ -5140,7 +5141,7 @@ async function runCli() {
       host: HOST,
       port: PORTS['test-wallet-provider'],
       appEnv: process.env.APP_ENV,
-      origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, ...(passkeyOrigin() ? [passkeyOrigin()] : [])],
+      origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, ...(publicOrigin() ? [publicOrigin()] : [])],
       stateFile: path.join(STATE, 'test-wallet-provider.json'),
       // The TEST chain, for the page's reads and the person's own signed transactions (J-wallet-24); down: none.
       rpcUrl: `http://${HOST}:${CHAIN_PORTS.anvil}`,
