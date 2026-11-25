@@ -2459,6 +2459,20 @@ button.lt-tab:focus-visible {
   cursor: not-allowed;
 }
 
+/* The app's shared button, disabled: the dark off pill of the kit's own button, never a faded copy of its tone. A faded
+   light pill under the page's dark words fell under 4.5:1 once the page went pure black (look gate, #10890). */
+:where([data-look='lit']) .button:disabled {
+  opacity: 1;
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-2);
+  border-color: var(--lit-line-strong);
+}
+
+/* Code in the look's mono face, never the browser's own monospace. */
+:where([data-look='lit']) :where(code, kbd, samp) {
+  font-family: var(--lit-font-mono);
+}
+
 .lt-hint {
   margin: 0;
   color: var(--lit-text-2);

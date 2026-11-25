@@ -60,19 +60,22 @@ async function freePort(): Promise<number> {
   });
 }
 
-let child: ChildProcess | null = null;
-let base = '';
+interface Booted {
+  child: ChildProcess;
+  base: string;
+}
 
 /** Poll until the process is listening, or give up loudly. */
-async function waitForBoot(url: string, log: () => string): Promise<void> {
+async function waitForBoot(proc: ChildProcess, url: string, log: () => string): Promise<void> {
   const deadline = Date.now() + 60_000;
   let last = '';
   while (Date.now() < deadline) {
-    if (child?.exitCode !== null && child?.exitCode !== undefined) {
-      throw new Error(`svc-edge exited with ${child.exitCode} before listening:\n${log()}`);
+    if (proc.exitCode !== null) {
+      throw new Error(`svc-edge exited with ${proc.exitCode} before listening:\n${log()}`);
     }
     try {
-      const res = await fetch(`${url}/health`);
+      // Bounded: whatever else holds the port may accept and never answer.
+      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2_000) });
       if (res.ok) return;
       last = `status ${res.status}`;
     } catch (err) {
@@ -83,56 +86,118 @@ async function waitForBoot(url: string, log: () => string): Promise<void> {
   throw new Error(`svc-edge never became reachable (${last}):\n${log()}`);
 }
 
+/**
+ * A port from `freePort` is free only until the probe closes; another process on
+ * the runner can take it before the child binds it (EADDRINUSE). Only that
+ * exit boots again on a fresh port; any other exit still fails the run.
+ */
+const isAddressInUse = (output: string): boolean => /\bEADDRINUSE\b/.test(output);
+
+/** Boot the shipped entrypoint, on a fresh port from `pickPort` for each attempt. */
+async function bootEdge(pickPort: () => Promise<number> = freePort, attempts = 5): Promise<Booted> {
+  for (let attempt = 1; ; attempt++) {
+    const port = await pickPort();
+    const url = `http://127.0.0.1:${port}`;
+
+    let output = '';
+    const log = () => output;
+
+    // `--import tsx` keeps this to ONE process, so the kill in `afterAll` cannot
+    // leave an orphan holding the port. `tsx src/index.ts` would spawn a grandchild
+    // that survives killing its parent on Windows.
+    const proc = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
+      cwd: join(HERE, '..'),
+      env: {
+        ...process.env,
+        APP_ENV: 'test',
+        NODE_ENV: 'test',
+        SERVICE_NAME: 'svc-edge',
+        HTTP_HOST: '127.0.0.1',
+        HTTP_PORT: String(port),
+        LOG_LEVEL: 'fatal',
+        // No collector in a unit-test run; a provider that cannot export would
+        // only add retry noise to this process's stderr.
+        OTEL_ENABLED: 'false',
+        JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
+        EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
+        EDGE_RATE_LIMIT_MAX: '300',
+        EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+        EDGE_BODY_LIMIT_BYTES: '1048576',
+        // Listed fixture so the geo-block guard can pass through to the proxy
+        // (unset would 503 as unknown). Placeholder codes only — not counsel content.
+        INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
+        // Kept out of the repo tree so a test run cannot leave a state file behind.
+        EDGE_KILL_STATE_PATH: '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    proc.stdout?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
+    proc.stderr?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
+
+    try {
+      await waitForBoot(proc, url, log);
+      return { child: proc, base: url };
+    } catch (err) {
+      if (proc.exitCode === null) proc.kill();
+      if (attempt >= attempts || proc.exitCode === null || !isAddressInUse(output)) throw err;
+    }
+  }
+}
+
+let child: ChildProcess | null = null;
+let base = '';
+
 beforeAll(async () => {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-
-  let output = '';
-  const log = () => output;
-
-  // `--import tsx` keeps this to ONE process, so the kill in `afterAll` cannot
-  // leave an orphan holding the port. `tsx src/index.ts` would spawn a grandchild
-  // that survives killing its parent on Windows.
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
-    cwd: join(HERE, '..'),
-    env: {
-      ...process.env,
-      APP_ENV: 'test',
-      NODE_ENV: 'test',
-      SERVICE_NAME: 'svc-edge',
-      HTTP_HOST: '127.0.0.1',
-      HTTP_PORT: String(port),
-      LOG_LEVEL: 'fatal',
-      // No collector in a unit-test run; a provider that cannot export would
-      // only add retry noise to this process's stderr.
-      OTEL_ENABLED: 'false',
-      JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
-      EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
-      EDGE_RATE_LIMIT_MAX: '300',
-      EDGE_RATE_LIMIT_WINDOW_MS: '60000',
-      EDGE_BODY_LIMIT_BYTES: '1048576',
-      // Listed fixture so the geo-block guard can pass through to the proxy
-      // (unset would 503 as unknown). Placeholder codes only — not counsel content.
-      INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
-      // Kept out of the repo tree so a test run cannot leave a state file behind.
-      EDGE_KILL_STATE_PATH: '',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  child.stdout?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-  child.stderr?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-
-  await waitForBoot(base, log);
+  ({ child, base } = await bootEdge());
 }, 90_000);
 
 afterAll(async () => {
   child?.kill();
   child = null;
+});
+
+describe('the boot survives its port being taken', () => {
+  it('boots again on a fresh port when another process took the first one', async () => {
+    // Hold a port, as another process on the runner did in the failing run, and
+    // hand exactly that port to the first attempt.
+    const holder = createServer();
+    await new Promise<void>((resolve) => holder.listen(0, '127.0.0.1', resolve));
+    const taken = (holder.address() as AddressInfo).port;
+    const picked: number[] = [];
+    const pickPort = async () => {
+      const port = picked.length === 0 ? taken : await freePort();
+      picked.push(port);
+      return port;
+    };
+
+    let booted: Booted | null = null;
+    try {
+      booted = await bootEdge(pickPort);
+      expect(picked[0]).toBe(taken);
+      expect(picked).toHaveLength(2);
+      expect(booted.base).toBe(`http://127.0.0.1:${picked[1]}`);
+      expect((await fetch(`${booted.base}/health`)).ok).toBe(true);
+    } finally {
+      booted?.child.kill();
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
+    }
+  }, 90_000);
+
+  it('still fails at once when the only port it may use is taken', async () => {
+    const holder = createServer();
+    await new Promise<void>((resolve) => holder.listen(0, '127.0.0.1', resolve));
+    const taken = (holder.address() as AddressInfo).port;
+    try {
+      await expect(bootEdge(async () => taken, 1)).rejects.toThrow(/exited with 1 before listening[\s\S]*EADDRINUSE/);
+    } finally {
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
+    }
+  }, 90_000);
 });
 
 describe('the deployed svc-edge serves /metrics', () => {

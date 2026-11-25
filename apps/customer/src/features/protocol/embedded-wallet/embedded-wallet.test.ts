@@ -53,7 +53,7 @@ describe('the TEST provider client', () => {
     expect(embeddedWalletClient(null)).toBeNull();
   });
 
-  it('the owner’s provider makes the passkey and signs, sends or exports nothing in this build', async () => {
+  it('the owner’s provider makes the passkey; sending, export and a second passkey stay unsupported', async () => {
     const OWNER: ProtocolEmbeddedWalletProvider = {
       id: 'turnkey',
       displayName: 'your wallet provider',
@@ -66,13 +66,7 @@ describe('the TEST provider client', () => {
     const client = ownerProviderClient({ create: async () => made });
     expect(await client.createPasskey()).toBe(made);
     const tx = { chainId: 1, to: '0x0', data: '0x', value: '0x0', nonce: 0 };
-    for (const result of [
-      await client.signMessage('w', 'm'),
-      await client.signTypedData('w', {}),
-      await client.exportKey('w'),
-      await client.addRecoveryPasskey('w'),
-      await client.sendTransaction('w', tx),
-    ])
+    for (const result of [await client.exportKey('w'), await client.addRecoveryPasskey('w'), await client.sendTransaction('w', tx)])
       expect(result).toEqual({ ok: false, failure: 'unsupported' });
     expect(await client.read('eth_chainId', [])).toBeNull();
   });

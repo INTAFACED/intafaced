@@ -1,0 +1,59 @@
+# The one-off live check of the owner's two vendors (#10582), by hand only: svc-identity's own wallet-provider adapter
+# makes ONE TEST wallet, bound to a TEST passkey made in software whose private key never leaves the run, so the wallet
+# can never sign (services/svc-identity/scripts/turnkey-live-check.ts; a second run finds the same wallet, never a
+# second); and svc-pay's own screener makes ONE match call against the four official lists for a TEST name
+# (services/svc-pay/scripts/opensanctions-live-check.ts). Each prints only its outcome; no key reaches a log.
+# The owner allowed these four keys here: project-state decision PR #4050 (his words, 25 Nov 2026: "Yes, CI and the
+# beta may use my Turnkey and OpenSanctions keys").
+#
+# Ends: with one dispatch on main: one run, a few minutes long.
+name: Vendor live check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vendor-live-check
+  cancel-in-progress: false
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  check:
+    name: One TEST wallet and one screening call
+    # The keys are used only from main's own copy of this file and the scripts.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15 # healthy run: a few minutes
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build what the scripts import
+        run: pnpm exec turbo run build --filter=@intafaced/svc-identity^... --filter=@intafaced/svc-pay^...
+
+      - name: Wallet provider (one TEST wallet)
+        env:
+          TURNKEY_ORGANIZATION_ID: ${{ secrets.TURNKEY_ORGANIZATION_ID }}
+          TURNKEY_API_PUBLIC_KEY: ${{ secrets.TURNKEY_API_PUBLIC_KEY }}
+          TURNKEY_API_PRIVATE_KEY: ${{ secrets.TURNKEY_API_PRIVATE_KEY }}
+        run: pnpm --filter @intafaced/svc-identity live-check:wallet-provider
+
+      - name: Screening vendor (one match call)
+        if: ${{ !cancelled() }}
+        env:
+          OPENSANCTIONS_API_KEY: ${{ secrets.OPENSANCTIONS_API_KEY }}
+        run: pnpm --filter @intafaced/svc-pay live-check:screening

@@ -1402,8 +1402,8 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   assert.match(
     headers['Content-Security-Policy'],
-    /connect-src 'self' http:\/\/localhost:14500;/,
-    'the TEST sandbox address stands in for the sandbox API origin',
+    /connect-src 'self' http:\/\/localhost:14500 https:\/\/api\.turnkey\.com;/,
+    'the TEST sandbox address stands in for the sandbox API origin; the wallet provider is the fixed one (#10853)',
   );
   assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
   assert.equal(headers['X-Frame-Options'], 'DENY');
