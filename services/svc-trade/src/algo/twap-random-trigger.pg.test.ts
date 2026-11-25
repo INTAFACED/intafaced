@@ -141,7 +141,8 @@ describe('TWAP random sizes and trigger in the parent store (shared test postgre
     const store = new SqlTwapParentStore(sql);
     await store.save({ parent: parent(), plan });
     const lower = planTwapSlices({ totalQty: parseAmount('0.002'), durationMs: 300_000, sliceIntervalMs: 30_000, lotSize: LOT }).slices;
-    await store.save({
+    // An amend has its own write: `save` reads a changed schedule that has placed nothing as a second create.
+    await store.saveAmend({
       parent: parent({
         totalQty: parseAmount('0.002'),
         slicesPlanned: lower.length,
