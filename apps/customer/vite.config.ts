@@ -105,14 +105,14 @@ export function developerDocs(): Plugin {
   };
 }
 
-const VOLT_COUNT = fileURLToPath(new URL('./src/app/volt-count.ts', import.meta.url));
+const BETA_SCREENS = fileURLToPath(new URL('./src/app/beta-screens.json', import.meta.url));
 const BETA_VOLT = fileURLToPath(new URL('./src/app/beta-volt.ts', import.meta.url));
 const NAVIGATION = fileURLToPath(new URL('./src/app/navigation.ts', import.meta.url));
 
 /**
- * The beta's switch (`INTAFACED_BETA_VOLT_ONLY=1`, set only by tooling/beta/beta-host.mjs): the build reads the Volt count
- * as it stands and gives the app `__BETA_VOLT_ROOMS__`, so the menus and links hide each room not yet in Volt
- * (src/app/beta-volt.ts). Off, nothing is defined and every room shows, as on the test stack and in CI.
+ * The beta's switch (`INTAFACED_BETA_VOLT_ONLY=1`, set only by tooling/beta/beta-host.mjs): the build reads the rooms
+ * Order 1's journey steps showed (src/app/beta-screens.json) and gives the app `__BETA_VOLT_ROOMS__`, so the menus and
+ * links hide every other room (src/app/beta-volt.ts). Off, nothing is defined and every room shows, as on the test stack and in CI.
  */
 export function betaVolt(env: Record<string, string | undefined> = process.env): Plugin {
   const on = env.INTAFACED_BETA_VOLT_ONLY === '1';
@@ -143,10 +143,9 @@ export async function betaVoltDefine(env: Record<string, string | undefined> = p
   if (env.INTAFACED_BETA_VOLT_ONLY !== '1') return {};
   const load = <T>(file: string) =>
     runnerImport<T>(file, { configFile: false, root: fileURLToPath(new URL('.', import.meta.url)), logLevel: 'error' });
-  const { module: count } = await load<typeof import('./src/app/volt-count')>(VOLT_COUNT);
   const { module: beta } = await load<typeof import('./src/app/beta-volt')>(BETA_VOLT);
   const { module: navigation } = await load<typeof import('./src/app/navigation')>(NAVIGATION);
-  return { __BETA_VOLT_ROOMS__: JSON.stringify(beta.betaRoomList(count.voltCount().rooms, navigation.rooms)) };
+  return { __BETA_VOLT_ROOMS__: JSON.stringify(beta.betaRoomList(JSON.parse(readFileSync(BETA_SCREENS, 'utf8')).rooms, navigation.rooms)) };
 }
 
 export default defineConfig(({ mode }) => {

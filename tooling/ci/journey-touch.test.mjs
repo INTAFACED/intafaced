@@ -1158,7 +1158,7 @@ test('--json --files-from: a pull request file list, judged against this checkou
 // fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
 // the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
 test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
-  const path = 'tooling/design/volt-count.mjs';
+  const path = 'tooling/design/volt-prune.mjs';
   assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
   const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
   writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
