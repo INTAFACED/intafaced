@@ -143,11 +143,11 @@
   --lit-text-disabled: #86857f;
   --lit-line: rgba(243, 242, 236, 0.07);
   --lit-line-strong: rgba(243, 242, 236, 0.13);
-  --lit-accent: #e0f83a;
-  --lit-accent-hot: #f2ffb0;
-  --lit-accent-deep: #2f3a05;
+  --lit-accent: #f3f2ec;
+  --lit-accent-hot: #ffffff;
+  --lit-accent-deep: #1c1c1a;
   --lit-accent-pair: #f3f2ec;
-  --lit-accent-text: #e0f83a;
+  --lit-accent-text: #f3f2ec;
   --lit-accent-fill: #e0f83a;
   --lit-accent-fill-2: #cde82a;
   --lit-on-accent: #0a0a09;
@@ -317,9 +317,9 @@
   --lit-status-unknown: #44433e;
   --lit-status-stale: #734000;
   --lit-field: radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.7), transparent 62%);
-  --lit-accent: #e0f83a;
-  --lit-accent-hot: #f2ffb0;
-  --lit-accent-deep: #2f3a05;
+  --lit-accent: #f3f2ec;
+  --lit-accent-hot: #ffffff;
+  --lit-accent-deep: #1c1c1a;
   --lit-accent-pair: #f3f2ec;
   --lit-accent-fill: #e0f83a;
   --lit-accent-fill-2: #cde82a;
