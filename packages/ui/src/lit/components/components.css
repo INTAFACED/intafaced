@@ -205,11 +205,12 @@
   padding-inline: 12px;
   text-align: center;
 }
+/* The chosen segment is lifted in the raised material, never lime: lime is only the screen's one main action. */
 .lit-segmented button[aria-pressed='true'],
 .lit-segmented button[aria-selected='true'] {
-  color: var(--lit-on-accent);
-  background: linear-gradient(180deg, var(--lit-accent-fill), var(--lit-accent-fill-2));
-  box-shadow: var(--lit-fill-shadow);
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
 }
 
 /* Toggle chips: a list's filters, one on at a time; they wrap rather than scroll. */

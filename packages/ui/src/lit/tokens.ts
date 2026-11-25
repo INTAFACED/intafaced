@@ -295,8 +295,8 @@ const litBaseLight: Partial<RoleMap> = {
  *   near-black tiles (`TILES`), a board by `data-panels="tiles"` (PageGrid's `panels`). One material: Pro differs
  *   only in density and tiles.
  */
-const FIGURE_FACE = 'manrope' as 'manrope' | 'inter';
-const CENTS = 'dim' as 'raise' | 'dim';
+const FIGURE_FACE: 'manrope' | 'inter' = 'manrope';
+const CENTS: 'raise' | 'dim' = 'dim';
 
 const FACES = {
   manrope: "'Manrope Variable', Manrope, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
