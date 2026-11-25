@@ -20,10 +20,8 @@ import {
   type MarketRow as KitMarketRow,
 } from '@intafaced/ui/lit';
 import { AreaChart, Segmented, TestTag } from '@intafaced/ui/lit/templates';
-import { useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
-import { useVenueMarketStates, useVenueTickers, venueDoorOff, venueMarketRow, venueTickerRow } from '../../data';
-import type { VenueMarketState } from '../../data';
-import type { VenueTickerRow } from '@intafaced/contracts/trade-venue-door';
+import { useDataEnv, useSource, useSparklines } from '../../data/hooks';
+import { useMarketCatalogue, type MarketCatalogue } from '../../data';
 import { compareDecimal, dec, str, sumOf, type Scaled } from '../../data/decimal';
 import { fmtPct, fmtPrice, fmtUsd } from '../../data/format';
 import type { Decimal, Loadable, MarketRow, TickerRow } from '../../data/types';
@@ -55,36 +53,22 @@ type Traded = { ticker?: { last?: string | null; quoteVolume24h?: string | null 
 const byVolume = (a: Traded, b: Traded) => compareDecimal(b.ticker?.quoteVolume24h ?? '0', a.ticker?.quoteVolume24h ?? '0') ?? 0;
 const byChange = (a: Line, b: Line) => compareDecimal(b.ticker?.changePct24h ?? '0', a.ticker?.changePct24h ?? '0') ?? 0;
 
-/** The venue's open spot and perpetual markets, each priced only by the venue's ticker under its own symbol. */
-export function venueLines(markets: readonly VenueMarketState[], tickers: readonly VenueTickerRow[]): Line[] {
-  const prices: Record<string, TickerRow> = Object.fromEntries(tickers.map((t) => [t.symbol, venueTickerRow(t)]));
-  return markets
-    .filter((m) => m.kind === 'spot' || m.kind === 'perpetual')
-    .map((m) => ({ market: venueMarketRow(m), ticker: prices[m.symbol], perp: m.kind === 'perpetual' }))
-    .filter((line) => line.market.orderable);
+/** The catalogue's open markets, then its open perpetuals, each joined to its price under its own symbol. */
+export function linesOf({ markets, perpetuals, tickers }: Pick<MarketCatalogue, 'markets' | 'perpetuals' | 'tickers'>): Line[] {
+  const prices = tickers.status === 'ready' ? tickers.data : {};
+  const open = (load: Loadable<MarketRow[]>, perp: boolean): Line[] =>
+    load.status === 'ready' ? load.data.filter((m) => m.orderable).map((market) => ({ market, ticker: prices[market.symbol], perp })) : [];
+  return [...open(markets, false), ...open(perpetuals, true)];
 }
 
 /**
- * Open markets joined to their tickers, the one list every part of the page reads. Where the venue door is on, it is the
- * venue's own list, spot and perpetuals, each priced only by the venue's ticker under its own symbol, as on Markets;
- * where the door is off, our own list.
+ * Open markets joined to their prices, the one list every part of the page reads: the one markets catalogue, as on
+ * Markets and Home, with the venue's perpetuals too, so gold and stocks reach the board.
  */
 function useLines(): { lines: Line[]; state: Loadable<unknown> } {
-  const markets = useMarkets();
-  const tickers = useTickers();
-  const venue = useVenueMarketStates();
-  const venueTickers = useVenueTickers();
-  const doorOff = venueDoorOff(venue);
-  const lines = useMemo(() => {
-    if (doorOff) {
-      if (markets.status !== 'ready') return [];
-      const rows = tickers.status === 'ready' ? tickers.data : {};
-      return markets.data.filter((m) => m.orderable).map((market) => ({ market, ticker: rows[market.symbol] }));
-    }
-    if (venue.status !== 'ready') return [];
-    return venueLines(venue.data.value.markets, venueTickers.status === 'ready' ? Object.values(venueTickers.data.value) : []);
-  }, [doorOff, markets, tickers, venue, venueTickers]);
-  return { lines, state: doorOff ? markets : venue };
+  const catalogue = useMarketCatalogue();
+  const lines = useMemo(() => linesOf(catalogue), [catalogue]);
+  return { lines, state: catalogue.markets };
 }
 
 /** The published fee schedule's default taker rate in basis points, or null when nothing is published. */
