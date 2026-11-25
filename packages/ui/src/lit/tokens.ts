@@ -99,6 +99,9 @@ export const flat: RoleMap = {
   'font-ui': v('font-ui'),
   'font-mono': v('font-mono'),
   'font-figure': v('font-ui'),
+  'cents-size': '1em',
+  'cents-shift': '0',
+  'cents-tone': 'currentColor',
   'radius-panel': v('r-lg'),
   'radius-tile': v('r-md'),
   'radius-key': v('r-md'),
@@ -204,6 +207,9 @@ const litBase: RoleMap = {
   'font-ui': "'Geist Variable', Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
   'font-mono': "'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace",
   'font-figure': "'Geist Variable', Geist, ui-sans-serif, system-ui, sans-serif",
+  'cents-size': '0.6em',
+  'cents-shift': '0',
+  'cents-tone': 'var(--lit-text-3)',
   'radius-panel': '24px',
   'radius-tile': '18px',
   'radius-key': '18px',
@@ -281,6 +287,41 @@ const litBaseLight: Partial<RoleMap> = {
 };
 
 /**
+ * Volt's material, as the owner picked it from the premium spec (25 Nov, "1A, 2B, 3A"). Each pick is one line:
+ * - `FIGURE_FACE` (1): type and figures in Manrope, round, light, tabular; Inter is the other face on offer.
+ * - `CENTS` (2): a big figure's cents smaller and dimmed on its line; `raise` lifts them small instead. Tables keep
+ *   full cents.
+ * - Panels (3): a Simple screen draws no panel paint on the black page; the markets board and Pro mode draw flat
+ *   near-black tiles (`TILES`), a board by `data-panels="tiles"` (PageGrid's `panels`). One material: Pro differs
+ *   only in density and tiles.
+ */
+const FIGURE_FACE: 'manrope' | 'inter' = 'manrope';
+const CENTS: 'raise' | 'dim' = 'dim';
+
+const FACES = {
+  manrope: "'Manrope Variable', Manrope, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+  inter: "'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+} as const;
+const CENTS_LOOK = {
+  raise: { 'cents-size': '0.42em', 'cents-shift': '0.95em', 'cents-tone': 'currentColor' },
+  dim: { 'cents-size': '0.6em', 'cents-shift': '0', 'cents-tone': 'var(--lit-text-3)' },
+} as const;
+/** Flat near-black tiles with no lip, shadow or rim (Robinhood Legend's): Pro's panels and the markets board's. */
+const TILES: Partial<RoleMap> = {
+  'solid-bg': '#0D0E0E',
+  'solid-bg-raised': '#151616',
+  'radius-panel': '6px',
+  'radius-tile': '6px',
+  'solid-rim': 'rgba(255, 255, 255, 0)',
+  'solid-rim-dim': 'rgba(255, 255, 255, 0)',
+};
+/** No panel paint: a panel is the black page itself, edged by one even hairline (the solid rim, set in voltDark) as the picked samples draw it (the owner's batch2/15). */
+const NO_PANELS: Partial<RoleMap> = {
+  'solid-bg': '#000000',
+  'solid-bg-raised': '#1A1A1A',
+};
+
+/**
  * Volt: matte black and stone, heavy and tactile, with one electric chartreuse spark used once per screen as light on
  * the one thing that matters. The chartreuse (#E0F83A) is the yellow-green the owner's references share (sampled from
  * them, intafaced issue 9302), replacing the earlier lemon (#FAF33E), which sat 17.5 (CIEDE2000) from warning amber
@@ -289,13 +330,12 @@ const litBaseLight: Partial<RoleMap> = {
  * on a fill its text is ink (14.3:1 at the fill's darkest point). As a ring it passes 3:1 on both pages (the kit page
  * shows the numbers), but the focus ring stays white (ink in light): never the spark, which it must stand out against
  * (contracts.ts). lit.test.ts holds every one of these floors. Today's lime everywhere (pills, ticks, progress) is drawn in ink instead, so the spark is the only
- * colour on a screen. Figures are Archivo at its widest (a wide grotesk).
+ * colour on a screen. Type and figures are Manrope: round, with light figures in tabular digits.
  */
 const voltDark: Partial<RoleMap> = {
-  page: '#0A0A09',
-  'page-2': '#0E0E0D',
-  field:
-    'radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.055), transparent 62%), radial-gradient(80% 50% at 100% 100%, rgba(255, 255, 255, 0.02), transparent 70%)',
+  page: '#000000',
+  'page-2': '#000000',
+  field: 'none',
   'text-1': '#F3F2EC',
   'text-2': '#AAA9A1',
   'text-3': '#8F8E87',
@@ -304,27 +344,30 @@ const voltDark: Partial<RoleMap> = {
   'text-disabled': '#86857F',
   line: 'rgba(243, 242, 236, 0.07)',
   'line-strong': 'rgba(243, 242, 236, 0.13)',
-  accent: '#E0F83A',
-  'accent-hot': '#F2FFB0',
-  'accent-deep': '#2F3A05',
+  // Lime only on the one main action, as the owner's pick draws it: the accent family a
+  // link, the current step, a checked box, a chart line, a split bar's first part or an active chip reads is bone. The
+  // main action's lime is `primary-bg`; `accent-fill` stays lime for the older rooms' primary keys (`--if-lime`).
+  accent: '#F3F2EC',
+  'accent-hot': '#FFFFFF',
+  'accent-deep': '#1C1C1A',
   'accent-pair': '#F3F2EC',
-  'accent-text': '#E0F83A',
+  'accent-text': '#F3F2EC',
   'accent-fill': '#E0F83A',
   'accent-fill-2': '#CDE82A',
   'on-accent': '#0A0A09',
   up: '#3DDC97',
   down: '#FF5E57',
   'up-text': '#3DDC97',
-  'down-text': '#FF7A73',
-  'solid-bg': '#141413',
-  'solid-bg-raised': '#1C1C1A',
-  'solid-bg-sunken': '#080807',
-  'solid-lip': 'inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 0 rgba(0, 0, 0, 0.6)',
-  'solid-rim': 'rgba(255, 255, 255, 0.16)',
-  'solid-rim-dim': 'rgba(255, 255, 255, 0.035)',
+  // One red for losses, lines and errors: a second, lighter red read as a different meaning.
+  'down-text': '#FF5E57',
+  'error-text': '#FF5E57',
+  'solid-bg-sunken': '#0A0A0A',
+  'solid-lip': 'none',
+  'solid-rim': 'rgba(243, 242, 236, 0.1)',
+  'solid-rim-dim': 'rgba(243, 242, 236, 0.1)',
   'solid-wall': '#050505',
-  'solid-shadow': '0 2px 0 0 var(--lit-solid-wall), 0 30px 50px -28px rgba(0, 0, 0, 1)',
-  sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 60%)',
+  'solid-shadow': 'none',
+  sheen: 'linear-gradient(transparent, transparent)',
   'fill-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 18px color-mix(in srgb, var(--lit-accent) 30%, transparent)',
   'corner-glow': 'color-mix(in srgb, var(--lit-accent) 22%, transparent)',
   'glass-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01) 70%), rgba(18, 18, 17, 0.88)',
@@ -334,17 +377,17 @@ const voltDark: Partial<RoleMap> = {
   'glass-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 18px 40px -12px rgba(0, 0, 0, 0.9)',
   scrim: 'rgba(0, 0, 0, 0.72)',
   veil: 'rgba(10, 10, 9, 0.6)',
-  'primary-bg': 'linear-gradient(180deg, #EAFF6A, #E0F83A 45%, #CDE82A)',
+  'primary-bg': '#E0F83A',
   'primary-fg': '#0A0A09',
-  'primary-shadow':
-    'inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -2px 0 rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(224, 248, 58, 0.35), 0 10px 32px -10px rgba(224, 248, 58, 0.45)',
-  'secondary-bg': 'linear-gradient(180deg, #1F1F1D, #161615)',
+  'primary-shadow': 'none',
+  // Keys and secondary buttons are plain #1A1A1A, flat, with no lip or inner rim (the owner's plain-keys pick).
+  'secondary-bg': '#1A1A1A',
   'secondary-fg': '#F3F2EC',
-  'secondary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
-  'key-bg': 'linear-gradient(180deg, #1F1F1D, #161615)',
-  'key-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 0 0 #050505',
-  'key-lit-bg': 'linear-gradient(180deg, #2A2A27, #1E1E1C)',
-  'key-lit-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 0 #050505',
+  'secondary-shadow': 'none',
+  'key-bg': '#1A1A1A',
+  'key-shadow': 'none',
+  'key-lit-bg': '#2A2A27',
+  'key-lit-shadow': 'none',
   'object-bg':
     'radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 55%), linear-gradient(160deg, #1D1D1B, #050505 72%)',
   'object-fg': '#F3F2EC',
@@ -352,7 +395,8 @@ const voltDark: Partial<RoleMap> = {
     'inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 0 0 #000000, 0 30px 50px -24px rgba(0, 0, 0, 1)',
   'object-spark-bg': 'linear-gradient(180deg, #EAFF6A, #E0F83A 45%, #CDE82A)',
   'object-spark-fg': '#0A0A09',
-  'control-bg': '#0E0E0D',
+  // The sunken shade: #0E0E0D sat one step from the Pro tile (#0D0E0E), so a field vanished on a desk tile.
+  'control-bg': '#0A0A0A',
   'control-rim': 'rgba(243, 242, 236, 0.37)',
   'control-rim-active': 'rgba(243, 242, 236, 0.6)',
   focus: '#FFFFFF',
@@ -364,12 +408,15 @@ const voltDark: Partial<RoleMap> = {
   'test-tag-fg': '#AAA9A1',
   'status-done': '#3DDC97',
   'status-unknown': '#AAA9A1',
-  'font-ui': "'Archivo Variable', Archivo, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  'font-figure': "'Archivo Variable', Archivo, ui-sans-serif, system-ui, sans-serif",
+  'font-ui': FACES[FIGURE_FACE],
+  'font-figure': FACES[FIGURE_FACE],
+  ...CENTS_LOOK[CENTS],
   'radius-panel': '28px',
   'radius-tile': '20px',
   'radius-key': '999px',
-  'radius-control': '999px',
+  // Fields are rounded rectangles, not pills; Pro's are 8px (its density block).
+  'radius-control': '16px',
+  ...NO_PANELS,
 };
 
 const volt = {
@@ -452,10 +499,12 @@ const volt = {
     '--if-font-mono': 'var(--lit-font-figure)',
   },
   type: {
-    hero: { size: '56px', line: '56px', weight: '600', tracking: '-0.04em' },
-    figure: { size: '26px', line: '30px', weight: '600', tracking: '-0.02em' },
-    title: { size: '30px', line: '34px', weight: '600', tracking: '-0.025em' },
-    heading: { size: '17px', line: '24px', weight: '600', tracking: '-0.01em' },
+    hero: { size: '56px', line: '56px', weight: '300', tracking: '-0.035em' },
+    figure: { size: '28px', line: '32px', weight: '300', tracking: '-0.02em' },
+    title: { size: '28px', line: '34px', weight: '600', tracking: '-0.025em' },
+    heading: { size: '20px', line: '26px', weight: '600', tracking: '-0.01em' },
+    // The smallest text is 12px in sentence case: boxed tracked caps read as filler.
+    micro: { size: '12px', line: '16px', weight: '500', tracking: '0' },
   },
 };
 
@@ -471,11 +520,13 @@ export const solid: Partial<RoleMap> = {
 
 /** Pro density: more on screen, never smaller than legible. */
 export const pro: Partial<RoleMap> = {
+  ...TILES,
   'gap-section': '16px',
   'gap-item': '8px',
   'pad-panel': '14px',
   'row-h': '40px',
   'control-h': '36px',
+  'radius-control': '8px',
 };
 
 /** Type roles. `flatType` maps to today's text styles. */
@@ -626,6 +677,11 @@ ${decl(roleVars(solid)).replace(/^/gm, '  ')}
 /* Pro density. */
 ${L.replace('])', "][data-mode='pro'])")} {
 ${decl(roleVars(pro))}
+}
+
+/* Flat tiles on a board that asks for them (the markets board): its panels are tiles, in Simple too. */
+:where([data-look='${LIT_LOOK}']) [data-panels='tiles'] {
+${decl(roleVars(TILES))}
 }
 
 /* Today's names in the look's roles (todayInLookRoles). */

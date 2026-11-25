@@ -18,7 +18,7 @@ use crate::errors::Refusal;
 
 /// A Blueprint row's columns, in `BlueprintRow`'s order. `user_id` and the uuids are read as text and the enum as its
 /// label, as the TypeScript driver returns them; `created_at` as its milliseconds, as a `Date` holds it.
-const BLUEPRINT_COLUMNS: &str = "id::text AS id, user_id::text AS user_id, engine_version, profile::text AS profile, \
+pub(crate) const BLUEPRINT_COLUMNS: &str = "id::text AS id, user_id::text AS user_id, engine_version, profile::text AS profile, \
      card_asset_url, visibility::text AS visibility, mentor_available, \
      floor(extract(epoch FROM created_at) * 1000)::bigint AS created_at";
 
@@ -32,7 +32,7 @@ impl From<StoreError> for Refusal {
 }
 
 /// A failure that is not a refusal (a broken recorded tree, a column that is not JSON): a 500 with its message.
-fn internal(message: impl Into<String>) -> Refusal {
+pub(crate) fn internal(message: impl Into<String>) -> Refusal {
     Refusal::Other {
         message: message.into(),
         code: None,
@@ -41,7 +41,7 @@ fn internal(message: impl Into<String>) -> Refusal {
 
 /// `ctx.principal.userId` (`userOf` in `router.ts`): every call here is scope-guarded, so the door has already refused a
 /// caller without one.
-fn user_of(ctx: &Ctx<'_>) -> Result<String, Refusal> {
+pub(crate) fn user_of(ctx: &Ctx<'_>) -> Result<String, Refusal> {
     ctx.principal.map(|p| p.user_id.clone()).ok_or_else(|| {
         Refusal::Trpc(service_kit::trpc::TrpcError::plain(
             "UNAUTHORIZED",
@@ -81,7 +81,7 @@ fn query(store: &Store, sql: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec
 }
 
 /// `<Row>.array().parse(rows)`: the rows as the schema returns them, or the `ZodError` it throws.
-fn checked(row_schema: &str, rows: Vec<Value>) -> Result<Vec<Value>, Refusal> {
+pub(crate) fn checked(row_schema: &str, rows: Vec<Value>) -> Result<Vec<Value>, Refusal> {
     let part = inputs::rows_part(row_schema).map_err(internal)?;
     match inputs::parse_part(part, Value::Array(rows)).map_err(internal)? {
         Ok(Value::Array(rows)) => Ok(rows),
@@ -91,13 +91,13 @@ fn checked(row_schema: &str, rows: Vec<Value>) -> Result<Vec<Value>, Refusal> {
     }
 }
 
-fn text(row: &Row, column: &str) -> Result<Value, Refusal> {
+pub(crate) fn text(row: &Row, column: &str) -> Result<Value, Refusal> {
     let v: Option<String> = row.try_get(column).map_err(StoreError::from)?;
     Ok(v.map_or(Value::Null, Value::String))
 }
 
 /// One `blueprints` row as the driver hands it to `BlueprintRow`.
-fn blueprint_row(row: &Row) -> Result<Value, Refusal> {
+pub(crate) fn blueprint_row(row: &Row) -> Result<Value, Refusal> {
     let profile: String = row.try_get("profile").map_err(StoreError::from)?;
     let profile = service_kit::json::parse(&profile).map_err(|e| internal(e.message))?;
     let mentor_available: bool = row.try_get("mentor_available").map_err(StoreError::from)?;
@@ -133,7 +133,7 @@ fn to_blueprint_record(row: &Value) -> Json {
 }
 
 /// The first Blueprint of `rows`, checked, as its record.
-fn first_blueprint(rows: &[Row]) -> Result<Option<Json>, Refusal> {
+pub(crate) fn first_blueprint(rows: &[Row]) -> Result<Option<Json>, Refusal> {
     let rows = rows.iter().map(blueprint_row).collect::<Result<_, _>>()?;
     Ok(checked("BlueprintRow", rows)?
         .first()

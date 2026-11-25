@@ -19,6 +19,8 @@ import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Panel, Tabs } from '../../shared/ui';
 import { TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
+import { Details as KitDetails, formatBpsPercent } from './catalogue-parts';
+import type { KitAction } from './volt-action';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
 import { BuybackRuns } from './BuybackRuns';
@@ -80,7 +82,7 @@ function ballotFor(actor: string | null): SavedBallot {
     return { status: 'unreadable' };
   }
 }
-function useSavedBallot(actor: string | null) {
+export function useSavedBallot(actor: string | null) {
   const [, update] = useState(0);
   useEffect(() => {
     const storage = (event: StorageEvent) => {
@@ -104,7 +106,7 @@ function saveBallot(ballot: Ballot) {
   // Notify after the shared action has handled its journal, including after a route remount.
   setTimeout(() => window.dispatchEvent(new CustomEvent('intafaced:token:ballot-updated', { detail: ballot.actor })), 0);
 }
-function useOriginalProposal(actor: string | null) {
+export function useOriginalProposal(actor: string | null) {
   const [state, setState] = useState(() => ({ actor, id: selectedFor(actor), saved: true, revision: 0 }));
   useEffect(() => {
     setState({ actor, id: selectedFor(actor), saved: true, revision: 0 });
@@ -135,13 +137,13 @@ function authoredTitle(p: z.infer<typeof proposalSchema>) {
   if (p.title?.trim()) return p.title;
   return typeof p.body.title === 'string' && p.body.title.trim() ? p.body.title : null;
 }
-function proposalTitle(p: z.infer<typeof proposalSchema>) {
+export function proposalTitle(p: z.infer<typeof proposalSchema>) {
   return authoredTitle(p) ?? G.t(p.kind);
 }
-function titleLanguage(p: z.infer<typeof proposalSchema>) {
+export function titleLanguage(p: z.infer<typeof proposalSchema>) {
   return authoredTitle(p) ? 'und' : currentPreferences().language;
 }
-function activeWindow(p: z.infer<typeof governanceProposal>, now: number) {
+export function activeWindow(p: z.infer<typeof governanceProposal>, now: number) {
   return p.status === 'open' && Date.parse(p.opensAt) <= now && now < Date.parse(p.closesAt);
 }
 // Object-key order is not a proposal term. Opaque scalar values and array order are preserved.
@@ -193,6 +195,13 @@ export type TokenTab = 'Staking' | 'Governance' | 'Economy' | 'Burn';
  * The staking view's reads: my token access, my stakes by status within `limit`, and the recorded burned supply. Shared
  * by this room and the /token room on the kit (`token-room/TokenRoom.tsx`).
  */
+/** Shared burned-supply read for `/token/burn`. */
+export function useTokenBurned() {
+  const api = useApi(),
+    { userId } = useSession();
+  return useResource((signal) => api.call(TOKEN_BURNED_SUPPLY, undefined, { signal }), `token-burn:${userId}`);
+}
+
 export function useTokenReads(status: string, limit: number) {
   const api = useApi(),
     { userId } = useSession();
@@ -209,7 +218,7 @@ export function useTokenReads(status: string, limit: number) {
         ),
       `token-stakes:${userId}:${status}:${limit}`,
     ),
-    burned = useResource((signal) => api.call(TOKEN_BURNED_SUPPLY, undefined, { signal }), `token-burn:${userId}`);
+    burned = useTokenBurned();
   return { access, stakes, burned };
 }
 
@@ -253,7 +262,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
                           : copyText('token.asset.identity.unavailable.2', { amount: displayAmount(a.staked) }),
                       ],
                       [copyText('token.access.tier'), tierLabel(a.tier)],
-                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: a.feeDiscountBps })],
+                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: formatBpsPercent(a.feeDiscountBps) })],
                     ]}
                   />
                 )}
@@ -315,9 +324,6 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
             <p className="lt-muted">
               <Text k="token.the.token.asset.is.deployment.configurable.stake" />
             </p>
-            <p className="lt-muted">
-              <Text k="token.your.existing.stake.records.remain.readable.a" />
-            </p>
             {action.feedback}
           </Panel>
         </div>
@@ -378,7 +384,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
     </div>
   );
 }
-function timeValue(value: string) {
+export function timeValue(value: string) {
   return new Date(value).toISOString().replace('T', ' · ').replace('Z', ' UTC');
 }
 function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: string) => void }) {
@@ -424,7 +430,8 @@ function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: str
     </div>
   );
 }
-function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeof useAction>; ballot: SavedBallot }) {
+/** Shared proposal detail, voting power, vote staging and closure logic for `/token/governance` and `Token`. */
+export function useProposalPane(id: string, action: Pick<KitAction, 'stage' | 'disabled'>, ballot: SavedBallot) {
   const api = useApi(),
     { userId } = useSession();
   const [now, setNow] = useState(Date.now);
@@ -477,9 +484,9 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
       success: () => G.t('recorded'),
       reference: id,
       content: () => (
-        <div className="token-ballot-review">
+        <div className="lt-stack">
           <strong lang={titleLanguage(p)}>{proposalTitle(p)}</strong>
-          <Details
+          <KitDetails
             items={[
               [G.t('proposal'), <code lang="zxx">{id}</code>],
               [G.t('requestedChoice'), G.t(choice)],
@@ -575,6 +582,48 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
       done: refresh,
     });
   }
+  function stageClose() {
+    action.stage({
+      title: copyText('token.close.proposal.after.voting'),
+      confirm: copyText('token.close.proposal'),
+      success: copyText('token.proposal.closure.received'),
+      reference: id,
+      content: (
+        <p>
+          <Text k="token.the.service.applies.its.published.quorum.and" />
+        </p>
+      ),
+      run: () =>
+        api.call(
+          TOKEN_CLOSE_PROPOSAL,
+          { proposalId: id },
+          {
+            accept: (closed) =>
+              tokenProposalClosedSchema.extend({ id: proposalIdSchema, tally }).safeParse(closed).success && closed.id === id,
+          },
+        ),
+      done: refresh,
+    });
+  }
+  return {
+    now,
+    version,
+    ballotOutcome,
+    setBallotOutcome,
+    power,
+    detailView,
+    powerView,
+    blocked,
+    canWeigh,
+    refresh,
+    stageVote,
+    stageClose,
+  };
+}
+
+function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeof useAction>; ballot: SavedBallot }) {
+  const { now, version, ballotOutcome, setBallotOutcome, power, detailView, powerView, blocked, canWeigh, refresh, stageVote, stageClose } =
+    useProposalPane(id, action, ballot);
   return (
     <Panel title={G.t('selected')}>
       <div className="token-governance-heading">
@@ -682,30 +731,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                 <Button
                   variant="secondary"
                   disabled={action.disabled || p.status !== 'open' || Date.parse(p.closesAt) > Date.now()}
-                  onClick={() =>
-                    action.stage({
-                      title: copyText('token.close.proposal.after.voting'),
-                      confirm: copyText('token.close.proposal'),
-                      success: copyText('token.proposal.closure.received'),
-                      reference: id,
-                      content: (
-                        <p>
-                          <Text k="token.the.service.applies.its.published.quorum.and" />
-                        </p>
-                      ),
-                      run: () =>
-                        api.call(
-                          TOKEN_CLOSE_PROPOSAL,
-                          { proposalId: id },
-                          {
-                            accept: (closed) =>
-                              tokenProposalClosedSchema.extend({ id: proposalIdSchema, tally }).safeParse(closed).success &&
-                              closed.id === id,
-                          },
-                        ),
-                      done: refresh,
-                    })
-                  }
+                  onClick={stageClose}
                 >
                   <Text k="token.close.voting" />
                 </Button>

@@ -1,5 +1,5 @@
 // volt-room: /trade/risk
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import { Button, Checkbox } from '@intafaced/ui/lit';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
@@ -7,89 +7,18 @@ import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { fmtAmount } from '../../../data/format';
 import { useDataEnv } from '../../../data/hooks';
-import { defaultDeskPair } from '../../../app/navigation';
-import { BusySheet, CloseAllDialog } from '../../../screens/trade/futures/close-all/CloseAllDialog';
+import { CloseAllDialog } from '../../../screens/trade/futures/close-all/CloseAllDialog';
 import type { Loadable } from '../../../data/types';
 import { useOpenPositions } from '../../../screens/trade/futures/data';
 import { closeAllPlan, stateOf } from '../../../screens/trade/futures/model';
 import { futuresRefusal, isPlaneOff } from '../../../screens/trade/futures/refusals';
-import { readStatusFeed } from '../../../shared/notify-reads';
 import { FailureNote, Section, Waiting } from '../../more';
-import { createTradeApi, type Order } from '../trade-api';
-import { OPEN_ORDERS_LIMIT, judgeCancelEverything, openIncidents, summariseOpenOrders, type CancelEverythingVerdict } from './risk-model';
+import { createTradeApi } from '../trade-api';
+import { useVenueMode } from '../use-venue-mode';
+import { VenueRisk } from './VenueRisk';
+import { OPEN_ORDERS_LIMIT, judgeCancelEverything, summariseOpenOrders, type CancelEverythingVerdict } from './risk-model';
 import { riskCopy } from './risk-copy';
-
-type T = ReturnType<typeof riskCopy.useCopy>['t'];
-
-function CancelEverything({
-  count,
-  onSend,
-  onDone,
-  t,
-}: {
-  count: number;
-  onSend: () => Promise<CancelEverythingVerdict>;
-  onDone: () => void;
-  t: T;
-}) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
-  const [verdict, setVerdict] = useState<CancelEverythingVerdict | null>(null);
-  async function confirm() {
-    // One request per confirm, and never a second while the first has no answer.
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    setVerdict(await onSend());
-    busyRef.current = false;
-    setBusy(false);
-    onDone();
-  }
-  function close() {
-    if (busyRef.current) return;
-    setOpen(false);
-    setVerdict(null);
-  }
-  const note =
-    verdict === null
-      ? null
-      : verdict.kind === 'done'
-        ? { tone: 'good', text: t('cancelDone', { count: String(verdict.cancelled) }) }
-        : verdict.kind === 'partial'
-          ? { tone: 'bad', text: t('cancelPartial', { count: String(verdict.cancelled), left: String(verdict.left) }) }
-          : { tone: 'bad', text: t('cancelUncertain') };
-  const good = note?.tone === 'good';
-  return (
-    <>
-      <Button tone="secondary" disabled={count === 0} onClick={() => setOpen(true)}>
-        {t('cancelButton')}
-      </Button>
-      {open ? (
-        <BusySheet title={t('cancelTitle')} busy={busy} onClose={close}>
-          <div className="lt-stack">
-            <p className="lt-hint">{count === 1 ? t('cancelIntroOne') : t('cancelIntro', { count: String(count) })}</p>
-            {note ? (
-              <p className={good ? undefined : 'lt-refusal'} role={good ? 'status' : 'alert'}>
-                {note.text}
-              </p>
-            ) : null}
-            <div className="lt-actions">
-              <Button tone="secondary" disabled={busy} onClick={close}>
-                {verdict ? t('cancelClose') : t('cancelKeep')}
-              </Button>
-              {verdict ? null : (
-                <Button tone="primary" aria-busy={busy || undefined} disabled={busy} onClick={() => void confirm()}>
-                  {t('cancelConfirm')}
-                </Button>
-              )}
-            </div>
-          </div>
-        </BusySheet>
-      ) : null}
-    </>
-  );
-}
+import { CancelEverything, OtherSections, type T } from './risk-parts';
 
 /** The count line of the Exposure section: states the read's real state, never a zero it did not read. */
 function PositionsLine({ positions, t }: { positions: Loadable<Position[]>; t: T }) {
@@ -192,58 +121,17 @@ function Reduce({ positions, t, onChanged }: { positions: Loadable<Position[]>; 
   );
 }
 
-function Incidents({ t }: { t: T }) {
-  const { api } = useSession();
-  const { resource, reload } = useResource((signal) => readStatusFeed(api, signal), 'risk-incidents');
-  if (resource.status === 'loading') return <Waiting label={t('incidentsLoading')} />;
-  if (resource.status === 'failed')
-    return (
-      <div role="alert">
-        <p>{t('incidentsFailed')}</p>
-        <p className="lt-hint">
-          {t('codeLabel')}: <code>{t('incidentsFailedCode')}</code>
-        </p>
-        <Button tone="secondary" onClick={reload}>
-          {t('retry')}
-        </Button>
-      </div>
-    );
-  const incidents = openIncidents(resource.data);
-  return incidents.length === 0 ? (
-    <p>{t('incidentsNone')}</p>
-  ) : (
-    <>
-      <ul className="lt-rows">
-        {incidents.map((incident) => (
-          <li key={incident.id}>
-            <strong>{incident.title}</strong>
-            <span className="lt-hint"> · {t('incidentsOpen', { since: incident.openedAt })}</span>
-          </li>
-        ))}
-      </ul>
-      <a className="lt-link" href="/developers/status">
-        {t('incidentsOpenPage')}
-      </a>
-    </>
-  );
-}
-
 /**
  * One phone-width room for acting on exposure: cancel every open order, close selected positions reduce-only, and see alerts,
- * approvals and incidents. It adds no write path: cancel-all is the service's `DELETE /orders`, a close is the futures desk's
- * own close with its own request identity, and nothing is cached across sessions.
+ * approvals and incidents. Where the user-venue door is on (the launch money model: the person's own venue account holds
+ * the orders and positions), the room reads and acts on the venue (`VenueRisk`); otherwise on our own book, where
+ * cancel-all is the service's `DELETE /orders` and a close is the futures desk's own close. It adds no write path, and
+ * nothing is cached across sessions.
  */
 export function RiskControl() {
   const { t } = riskCopy.useCopy();
-  const { api, userId } = useSession();
-  const tradeApi = useMemo(() => createTradeApi(api), [api]);
-  const env = useDataEnv();
-  const positions = useOpenPositions();
-  const orders = useResource(
-    (signal) =>
-      userId ? tradeApi.orders('open', undefined, OPEN_ORDERS_LIMIT, signal) : Promise.resolve({ ok: true as const, data: [] as Order[] }),
-    `risk-orders:${userId ?? 'out'}`,
-  );
+  const { userId } = useSession();
+  const mode = useVenueMode();
   if (!userId)
     return (
       <MonitorTemplate
@@ -260,6 +148,29 @@ export function RiskControl() {
         explain={<p className="lt-hint">{t('explain')}</p>}
       />
     );
+  if (mode.mode === 'checking')
+    return (
+      <MonitorTemplate
+        title={t('title')}
+        description={t('lead')}
+        state={{ kind: 'loading' }}
+        mode="pro"
+        figures={[]}
+        explain={<p className="lt-hint">{t('explain')}</p>}
+      />
+    );
+  if (mode.mode === 'on' && mode.status.available) return <VenueRisk mode={mode} />;
+  return <OwnBookRisk userId={userId} />;
+}
+
+/** The room on our own order book (the custody layer on): the trade service's orders and the futures desk's positions. */
+function OwnBookRisk({ userId }: { userId: string }) {
+  const { t } = riskCopy.useCopy();
+  const { api } = useSession();
+  const tradeApi = useMemo(() => createTradeApi(api), [api]);
+  const env = useDataEnv();
+  const positions = useOpenPositions();
+  const orders = useResource((signal) => tradeApi.orders('open', undefined, OPEN_ORDERS_LIMIT, signal), `risk-orders:${userId}`);
   const summary = orders.resource.status === 'ready' ? summariseOpenOrders(orders.resource.data) : null;
   async function cancelEverything(): Promise<CancelEverythingVerdict> {
     env.poller.recordExternalRequest();
@@ -316,29 +227,7 @@ export function RiskControl() {
             <p>{t('reduceLead')}</p>
             <Reduce positions={positions} t={t} onChanged={orders.reload} />
           </Section>
-          <Section title={t('alertsHeading')}>
-            <p>{t('alertsLead')}</p>
-            <div className="lt-actions">
-              <a className="lt-link" href="/notifications">
-                {t('alertsOpenNotifications')}
-              </a>
-              <a className="lt-link" href={`/trade/spot/${defaultDeskPair}`}>
-                {t('alertsOpenChart')}
-              </a>
-            </div>
-          </Section>
-          <Section title={t('approvalsHeading')}>
-            <p>{t('approvalsBlocker')}</p>
-            <p className="lt-hint">
-              {t('codeLabel')}: <code>{t('approvalsCode')}</code>
-            </p>
-            <Button tone="secondary" disabled>
-              {t('approvalsButton')}
-            </Button>
-          </Section>
-          <Section title={t('incidentsHeading')}>
-            <Incidents t={t} />
-          </Section>
+          <OtherSections t={t} />
         </div>
       }
     />

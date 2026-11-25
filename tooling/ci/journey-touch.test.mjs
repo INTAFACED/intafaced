@@ -128,6 +128,20 @@ test('pathKind: what needs the full run, what touches only its own journey file,
     kind: 'file',
     file: 'J-ops-console-02-documents.pw.mjs',
   });
+  // A venue journey's recording runs the file named after it; any other recording stays a product path.
+  assert.deepEqual(pathKind('packages/venue-hyperliquid/recordings/J-cex-spot-04-hl-venue.json'), {
+    kind: 'file',
+    file: 'J-cex-spot-04-hl-venue.pw.mjs',
+  });
+  for (const p of ['packages/venue-hyperliquid/recordings/order-btc-perp.json', 'packages/venue-hyperliquid/recordings/J-x-venue.ts'])
+    assert.equal(pathKind(p).kind, 'full', p);
+  assert.deepEqual(
+    journeyTouch([
+      'packages/venue-hyperliquid/recordings/J-cex-spot-04-hl-venue.json',
+      'packages/venue-hyperliquid/recordings/J-derivatives-01-hl-venue.json',
+    ]).files,
+    ['J-cex-spot-04-hl-venue.pw.mjs', 'J-derivatives-01-hl-venue.pw.mjs'],
+  );
   // A look sweep holds no journey steps, so no report's `ran` lists it: a files verdict could never seal it.
   assert.equal(pathKind('apps/customer/tests/real-app/look-sweep-390.pw.mjs').kind, 'full');
   assert.equal(pathKind('apps/customer/tests/real-app/registry-blockers.pw.mjs').kind, 'full');
@@ -1158,7 +1172,7 @@ test('--json --files-from: a pull request file list, judged against this checkou
 // fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
 // the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
 test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
-  const path = 'tooling/design/volt-count.mjs';
+  const path = 'tooling/design/volt-prune.mjs';
   assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
   const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
   writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
@@ -1685,9 +1699,12 @@ test('15 Nov: a run by hand that names one file of a journey runs every file of 
   assert.equal(dispatchTarget('J-derivatives-02.pw.mjs', head), 'J-derivatives-02.pw.mjs', 'a one-file journey stays one file');
   assert.equal(dispatchTarget('nope.txt', head), 'nope.txt', 'a name that is no journey file stays, so the run refuses it');
   assert.equal(dispatchTarget('', head), '');
-  // At this checkout: the real derivatives-01 pair.
+  // At this checkout: the real derivatives-01 files, its Hyperliquid file included.
   const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
-  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(
+    dispatchTarget('J-derivatives-01.pw.mjs', real),
+    'J-derivatives-01-hl-venue.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+  );
 });
 
 test('20 Nov: a run by hand given a bare journey id runs every file of that journey (run 44808167679, #9286)', () => {
@@ -1980,7 +1997,7 @@ test('pullPick: a change that draws a Customer room runs every journey the map r
   assert.match(pullPick([table], over, { reach: wide }).room, /draws a Customer room or kit part .*all 101 journey files/);
   assert.ok(pullPick(['services/svc-bank/src/a.ts'], over, { reach: wide }).files.length <= PR_MAX_FILES);
   // A test of the room draws nothing: a journey test or a unit test beside a full path keeps the bounded set.
-  assert.equal(roomReach(['apps/customer/src/app/volt-count.test.ts', 'Cargo.lock'], reach), null);
+  assert.equal(roomReach(['apps/customer/src/app/beta-volt.test.ts', 'Cargo.lock'], reach), null);
 });
 
 test("the lint config, the lint plugins and the agents' files run no journeys; a crate is its service (project-state#3377 item 3)", () => {

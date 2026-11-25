@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
+import { Button } from '@intafaced/ui/lit';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
+import { FailureNote } from '../../shared/failure-note';
 import { socialSignInCopy } from './social-sign-in-copy';
-import './social-sign-in.css';
 import { IDENTITY_AUTH_OAUTH_START } from '@intafaced/contracts/identity-auth-procedures';
 import { leaveTo } from '../../app/location';
 
@@ -51,20 +51,24 @@ export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> }
 
   const code = (WORDED as readonly string[]).includes(refusal?.code ?? '') ? (refusal!.code as (typeof WORDED)[number]) : undefined;
   return (
-    <div className="public-auth-social">
-      <p className="lt-muted">{t('or')}</p>
-      {(['social', 'wallet'] as const).map((kind) => (
-        <Button key={kind} variant="secondary" disabled={busy !== null} onClick={() => void start(kind)}>
-          {busy === kind ? t('starting') : t(kind)}
-        </Button>
-      ))}
+    <div className="lt-stack">
+      <p className="lt-auth-or">{t('or')}</p>
+      <div className="lt-tile-row" data-min="narrow">
+        {(['social', 'wallet'] as const).map((kind) => (
+          <Button key={kind} tone="secondary" block disabled={busy !== null} onClick={() => void start(kind)}>
+            {busy === kind ? t('starting') : t(kind)}
+          </Button>
+        ))}
+      </div>
       {code ? (
-        <div className="pub-notice" role="alert">
-          <p>{t(code)}</p>
-          <small lang="zxx">{code}</small>
+        <div className="lt-refusal" role="alert">
+          <p className="lt-refusal-body">{t(code)}</p>
+          <small className="lt-ref" lang="zxx">
+            {code}
+          </small>
         </div>
       ) : (
-        refusal && <Failure result={refusal} />
+        refusal && <FailureNote result={refusal} />
       )}
     </div>
   );

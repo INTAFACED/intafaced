@@ -55,7 +55,7 @@ import { reachesLook } from './ci-affected.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
-import { countCall } from './api-count.mjs';
+import { countCall, fetchFailure } from './api-count.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -516,12 +516,51 @@ const sectionPath = (s) => {
 };
 
 /**
+ * A hunk over `cap` that only adds lines (a new file's one hunk is one: `@@ -0,0 +1,N @@`) as several hunks between its
+ * lines, each under `header` and at most `cap` bytes, each a valid hunk at the same old position: `@@ -O,0 +n,k @@`. Its
+ * lines, joined, are the hunk's byte for byte. Null for any other hunk (a removed or context line, a line alone over
+ * `cap`): it stays too large. (Failure it prevents: #10910, a venue recording's new file of 931,787 bytes in one hunk.)
+ */
+function splitAddedHunk(header, hunk, cap) {
+  const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,\d+)? @@[^\n]*\n/.exec(hunk);
+  if (!m || m[2] !== '0') return null;
+  const body = hunk.slice(m[0].length).match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  // `\ No newline at end of file` belongs to the line before it, so it stays with that line.
+  const rows = [];
+  for (const l of body) {
+    if (l.startsWith('+')) rows.push(l);
+    else if (l.startsWith('\\') && rows.length) rows[rows.length - 1] += l;
+    else return null;
+  }
+  const out = [];
+  let start = Number(m[3]);
+  let cur = [];
+  const close = () => {
+    out.push(`${header}@@ -${m[1]},0 +${start},${cur.length} @@\n${cur.join('')}`);
+    start += cur.length;
+    cur = [];
+  };
+  for (const r of rows) {
+    const next = Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},${cur.length + 1} @@\n${cur.join('')}${r}`);
+    if (next > cap) {
+      if (!cur.length) return null;
+      close();
+      if (Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},1 @@\n${r}`) > cap) return null;
+    }
+    cur.push(r);
+  }
+  if (cur.length) close();
+  return out;
+}
+
+/**
  * A diff over MAX_DIFF_BYTES in parts of at most `cap` bytes, in the diff's own order (so a service's files stay
  * together): whole files where they fit, a larger file between its hunks, each piece under its own file header. Nothing
  * is cut or left out. The sections `first` picks (the test part's own files) come first and close their own parts, so
  * when they fit one call, the first part is exactly the diff the test part judges and the one combined call carries it
- * once. Returns { parts }, or { tooLarge } when one hunk alone is over the cap, a file over it has no hunk
- * to split at, or it would take more than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
+ * once. A hunk over the cap that only adds lines splits between its lines (splitAddedHunk). Returns { parts }, or
+ * { tooLarge } when any other hunk alone is over the cap, a file over it has no hunk to split at, or it would take more
+ * than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
  * were the cap alone, 21 on intafaced #7728, a PR of about 420 to 560 KB; project-state #2065.)
  */
 export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, first = () => false) {
@@ -535,9 +574,16 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
       .slice(at)
       .split(/^(?=@@ )/m)
       .map((h) => header + h);
-    const big = units.find((u) => Buffer.byteLength(u) > cap);
-    if (big) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(big)} bytes, over ${cap}` };
-    return { units };
+    const out = [];
+    for (const u of units) {
+      if (Buffer.byteLength(u) <= cap) out.push(u);
+      else {
+        const lines = splitAddedHunk(header, u.slice(header.length), cap);
+        if (!lines) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(u)} bytes, over ${cap}` };
+        out.push(...lines);
+      }
+    }
+    return { units: out };
   };
   const sections = diffSections(diff);
   const parts = [];
@@ -564,7 +610,7 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
 export function partNote(parts, k, bytes) {
   const files = parts.map((p, i) => `part ${i + 1}: ${[...new Set(diffSections(p).map(sectionPath))].join(', ')}`);
   return [
-    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
+    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, and a hunk that only adds lines between its lines, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
     ...files,
   ].join('\n');
 }
@@ -734,7 +780,7 @@ export function reviewSection({ brief, diff, pr, head, stepWords = false, note =
   ].join('\n');
 }
 
-// ── The owner's record, for a pull request that changes the brief ─────────────────────────────────────────────────
+// ── The owner's record, for a pull request that cites it ──────────────────────────────────────────────────────────
 
 /** The brief's own path: a diff that changes it may add an owner decision, which the review checks against his record. */
 export const BRIEF_PATH = 'tooling/ci/ci-review/REVIEW.md';
@@ -763,18 +809,21 @@ export function citedOwnerItems(diff) {
  * the 12 Nov test sentence, so the route could never pass it). Since project-state row d117 (17 Nov) a new decision has
  * no row file: his words stand in the body of a merged project-state PR labelled `decision`, cited as "project-state
  * decision PR #N" and returned as `#N` (intafaced #9186, CI review FAIL on 8b3f6cdc: the 20 Nov look decision had no
- * row to cite, so the route could never pass it).
+ * row to cite, so the route could never pass it). A decision PR is read when an added line of any file cites it, so the
+ * change that carries out a decision cites it itself and needs no entry PR in the brief first (on 24 Nov 2026 the
+ * entry PRs #10643 and #10644 took 40 and 45 minutes to land one line each). Rows stay brief-only.
  */
 export function citedRows(diff) {
   const rows = new Set();
+  const pulls = new Set();
   let inBrief = false;
   for (const l of String(diff).split('\n')) {
     if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
-    if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
-    for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
-    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) rows.add(`#${Number(m[1])}`);
+    if (!l.startsWith('+') || l.startsWith('+++ ')) continue;
+    if (inBrief) for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
+    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) pulls.add(`#${Number(m[1])}`);
   }
-  return [...rows];
+  return [...rows, ...pulls];
 }
 
 /** Each cited item's text in OWNER.md (from its "N. " line to the next item or heading), or null when it has none. */
@@ -791,7 +840,7 @@ export function ownerItems(text, numbers) {
 }
 
 /**
- * The trusted block the review is given with a diff that changes the brief: the cited items as the job read them from
+ * The trusted block the review is given with a diff that cites the owner's record: the cited items as the job read them from
  * project-state OWNER.md, so a new entry's quote is checked against the owner's own record, never taken on its form.
  */
 export function ownerRecordSection({ items, ref, rows = new Map() }) {
@@ -812,7 +861,7 @@ export function ownerRecordSection({ items, ref, rows = new Map() }) {
     .filter(Boolean)
     .join(' and ');
   return [
-    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
+    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines cite (OWNER.md items and rows only in this brief, decision pull requests in any file) from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
     'BEGIN OWNER RECORD',
     ...body,
     'END OWNER RECORD',
@@ -967,6 +1016,8 @@ async function getText(path, accept, token = process.env.GH_TOKEN) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
+  }).catch((e) => {
+    throw new Error(fetchFailure(path, e));
   });
   countCall(res);
   const text = await res.text();
@@ -1166,7 +1217,8 @@ export async function indexHead(dir) {
  * A verdict is the patch read against the briefs of its day, so it carries only while they stand: a head first reviewed
  * before main's newest change to either brief (`CARRY_BRIEFS`) is passed over, and a patch the owner's new decision
  * entry now allows is reviewed again rather than held by the FAIL the entry answers (intafaced#10229 on 23 Nov 2026:
- * the entry merged and the FAIL of the patch it allowed still stood). An unread brief date carries nothing.
+ * the entry merged and the FAIL of the patch it allowed still stood); for the same reason a review FAIL of a patch that
+ * cites a decision PR never carries. An unread brief date carries nothing.
  *
  * `runs` are this workflow's runs on the pull request's branch; `attempts(run)` the jobs of each attempt; `diffOf(sha)`
  * the compare API's diff of base...sha, the same read as `diff`; `baseAtOf(sha)` when that diff's merge base reached
@@ -1217,6 +1269,9 @@ export async function carriedVerdict({ pull, diff, runs, attempts, diffOf, baseA
   }
   if (matched.length === 0) return null;
   const failed = (part) => matched.find((m) => m[part] === 'FAIL');
+  // A review FAIL of a patch that cites a project-state decision PR is not carried: the PR it cites may have merged
+  // since, and the FAIL may be the review saying it had no record yet. A PASS still carries.
+  if (failed('review') && citedRows(diff).some((r) => r.startsWith('#'))) return null;
   const from = (failed('review') ?? failed('tests') ?? matched[0]).from;
   return { from, review: failed('review') ? 'FAIL' : 'PASS', tests: failed('tests') ? 'FAIL' : 'PASS' };
 }
@@ -1300,7 +1355,8 @@ export async function writeReviewInputs(
   },
 ) {
   mkdirSync(dir, { recursive: true });
-  // A diff that adds to the brief: the owner items it cites, read from his record, follow the brief as trusted input.
+  // The owner items and rows the diff's added lines of the brief cite, and the decision PRs any added line cites, read
+  // from his record, follow the brief as trusted input.
   let reviewBrief = briefText;
   const cited = citedOwnerItems(diff);
   const citedRowIds = citedRows(diff);
@@ -1467,14 +1523,16 @@ async function cmdDiff(dir) {
       images = [...images, ...got2.images];
     } else console.log(`look pictures: none (${look.why})`);
   }
-  const loadWords = async () => {
+  // The project-state read token (the App token minted in ci-review.yml): without it, `what` is unreadable.
+  const psToken = (what) => {
     const t = process.env.PROJECT_STATE_READ_TOKEN;
     if (!t)
       throw new Error(
-        'the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the step words are unreadable and nothing is decided',
+        `no project-state read token (the App token minted in ci-review.yml), so ${what} is unreadable and nothing is decided`,
       );
-    return readWordsApi(t);
+    return t;
   };
+  const loadWords = async () => readWordsApi(psToken('the step words'));
   console.log(
     await writeReviewInputs(dir, {
       diff: summarizeDeleted(summarizeGenerated(r.text, { readBlob }), (p) =>
@@ -1488,14 +1546,7 @@ async function cmdDiff(dir) {
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),
       images,
-      loadOwner: (rows) => {
-        const t = process.env.PROJECT_STATE_READ_TOKEN;
-        if (!t)
-          throw new Error(
-            "the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the owner's record is unreadable and nothing is decided",
-          );
-        return readOwnerRecord(t, getText, rows);
-      },
+      loadOwner: (rows) => readOwnerRecord(psToken("the owner's record"), getText, rows),
       revertOf: await automaticRevert({
         repo,
         pull,
@@ -1638,6 +1689,47 @@ export function clearedLines(cleared) {
   return ['', '### Checked and cleared', '', ...cleared.map((c) => `  * ${String(c).replace(/\s+/g, ' ')}`)];
 }
 
+/** The first line of the comment that carries a review's notes to its pull request (#9357). */
+export const NOTES_MARK = '<!-- ci-review-notes -->';
+
+/** A review's non-blocking notes: each finding that starts `note:`, as the reviewer wrote it. */
+export const notesOf = (findings) => (findings ?? []).filter((f) => typeof f === 'string' && /^note:/i.test(f.trim()));
+
+/**
+ * The comment that carries a head's notes to its pull request (#9357): a note written only into the run's summary
+ * reached nobody once the review PASSed, so the problems it named merged (#8823's, #8712's and #8940's notes, now
+ * #9352 to #9355). Posted where the builder's watch wakes; the builder answers each in the PR body, as findings are
+ * (AGENTS.md, How work flows 5). A mention in a note is broken, so it notifies nobody.
+ */
+export function notesComment({ head, notes, run }) {
+  const quiet = (n) =>
+    String(n)
+      .replace(/\s+/g, ' ')
+      .replace(/@(?=[A-Za-z0-9])/g, '@\u200b');
+  return [
+    NOTES_MARK,
+    `**CI review notes on ${head}**: not blocking, and not read by any check. Answer each in the PR body before merge, fixed, or why not, as you answer findings (AGENTS.md, How work flows 5). A real product problem a note names that this PR doesn't fix gets its own \`bug\` issue.`,
+    '',
+    ...notes.map((n) => `- ${quiet(n)}`),
+    ...(run ? ['', `From the CI review run ${run}.`] : []),
+  ].join('\n');
+}
+
+/** The notes job: post the review's notes (env NOTES, a JSON list) on pull request PR_NUMBER, once per head. */
+function cmdNotes() {
+  const { REPO, PR_NUMBER, HEAD_SHA, RUN_URL } = process.env;
+  const notes = notesOf(JSON.parse(process.env.NOTES || '[]'));
+  if (notes.length === 0) return console.log('no notes on this head: nothing to post');
+  const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+  const mine = `${NOTES_MARK}\n**CI review notes on ${HEAD_SHA}**`;
+  const posted = gh(['api', '--paginate', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--jq', '.[].body']);
+  // A re-run of the same head's review posts nothing new: the head's notes are already on the pull request.
+  if (posted.includes(mine)) return console.log(`notes on ${HEAD_SHA} are already on #${PR_NUMBER}`);
+  const body = notesComment({ head: HEAD_SHA, notes, run: RUN_URL });
+  gh(['api', '-X', 'POST', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--input', '-'], JSON.stringify({ body }));
+  console.log(`posted ${notes.length} note(s) on #${PR_NUMBER}`);
+}
+
 /** The FAILs in a row at which the judge says to stop fixing (pstack principle-attack-the-premise: two fixes failed). */
 export const PREMISE_AT = 3;
 
@@ -1749,6 +1841,9 @@ async function cmdJudge(dir) {
   lines.push(...premise);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
+  // The notes leave the run for the notes job, which posts them on the pull request (#9357). One JSON line.
+  const notes = notesOf(v.findings);
+  if (notes.length && process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `notes=${JSON.stringify(notes)}\n`);
   if (v.verdict !== 'PASS') {
     // The classes only: no finding's text, so nothing in it can change how the census reads this run (its classOf).
     console.error(`::error title=${CLASSES_TITLE}::${findingClasses(v.findings).join(' ') || 'other'}`);
@@ -1797,7 +1892,8 @@ async function main() {
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
   if (cmd === 'premise') return cmdPremise(dir, process.argv[4]);
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head]');
+  if (cmd === 'notes') return cmdNotes();
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head] | notes');
   process.exit(2);
 }
 

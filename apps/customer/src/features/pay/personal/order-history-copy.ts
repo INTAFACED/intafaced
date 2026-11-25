@@ -2,7 +2,7 @@ import { defineCopy } from '../../../shared/i18n';
 
 // The P2P order list with the service's own counts and paging, the order history export, and the order receipt.
 const en = {
-  countsNote: 'Counts are all your orders, from the service.',
+  countsNote: 'Counts include all of your orders.',
   shownOfTotal: 'Showing {shown} of {total}',
   loadOlder: 'Load older orders',
   loadingOlder: 'Loading older orders…',
@@ -18,9 +18,9 @@ const en = {
   cancelled_by_timeout: 'Cancelled: payment time ran out',
   cancelled_by_dispute_ruling: 'Cancelled by a dispute ruling',
   exportTitle: 'Export order history',
-  exportBody: 'A CSV file of the orders you opened between two dates, made by the service. Amounts are exact.',
-  exportFrom: 'From (UTC day)',
-  exportTo: 'To (UTC day)',
+  exportBody: 'Download a CSV file of the orders you opened between two dates. Amounts are exact.',
+  exportFrom: 'From',
+  exportTo: 'To',
   exportAction: 'Export CSV',
   exporting: 'Preparing your file…',
   exportReady: 'Saved {file}: {rows} orders.',
@@ -59,7 +59,7 @@ const en = {
 } as const;
 
 const es = {
-  countsNote: 'Los totales son todos tus pedidos, según el servicio.',
+  countsNote: 'Los totales incluyen todos tus pedidos.',
   shownOfTotal: 'Mostrando {shown} de {total}',
   loadOlder: 'Cargar pedidos anteriores',
   loadingOlder: 'Cargando pedidos anteriores…',
@@ -75,9 +75,9 @@ const es = {
   cancelled_by_timeout: 'Cancelado: se agotó el tiempo de pago',
   cancelled_by_dispute_ruling: 'Cancelado por una resolución de disputa',
   exportTitle: 'Exportar historial de pedidos',
-  exportBody: 'Un archivo CSV de los pedidos que abriste entre dos fechas, generado por el servicio. Los importes son exactos.',
-  exportFrom: 'Desde (día UTC)',
-  exportTo: 'Hasta (día UTC)',
+  exportBody: 'Descarga un archivo CSV con los pedidos que abriste entre dos fechas. Los importes son exactos.',
+  exportFrom: 'Desde',
+  exportTo: 'Hasta',
   exportAction: 'Exportar CSV',
   exporting: 'Preparando tu archivo…',
   exportReady: 'Guardado {file}: {rows} pedidos.',
@@ -116,7 +116,7 @@ const es = {
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
-  countsNote: 'Les totaux portent sur toutes vos commandes, selon le service.',
+  countsNote: 'Les totaux incluent toutes vos commandes.',
   shownOfTotal: '{shown} affichées sur {total}',
   loadOlder: 'Charger les commandes plus anciennes',
   loadingOlder: 'Chargement des commandes plus anciennes…',
@@ -132,9 +132,9 @@ const fr = {
   cancelled_by_timeout: 'Annulée : le délai de paiement est écoulé',
   cancelled_by_dispute_ruling: 'Annulée par une décision de litige',
   exportTitle: 'Exporter l’historique des commandes',
-  exportBody: 'Un fichier CSV des commandes ouvertes entre deux dates, produit par le service. Les montants sont exacts.',
-  exportFrom: 'Du (jour UTC)',
-  exportTo: 'Au (jour UTC)',
+  exportBody: 'Téléchargez un fichier CSV des commandes ouvertes entre deux dates. Les montants sont exacts.',
+  exportFrom: 'Du',
+  exportTo: 'Au',
   exportAction: 'Exporter en CSV',
   exporting: 'Préparation de votre fichier…',
   exportReady: '{file} enregistré : {rows} commandes.',

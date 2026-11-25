@@ -1,3 +1,4 @@
+import { keccak256, toHex } from 'viem';
 import { add, compare, div, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   assertSignatureMatches,
@@ -37,6 +38,7 @@ import {
 import { assertSigningAgrees, SigningCrossCheckError } from './cross-check.js';
 import type { MsgpackValue } from './msgpack.js';
 import { NOT_OFFERED, isBuiltIntent } from './not-offered.js';
+import { BUILDER_FEE_CAP_BPS } from './market-terms.js';
 import { HyperliquidReads } from './reads.js';
 import {
   HL_TESTNET_CHAIN,
@@ -49,8 +51,36 @@ import {
   userSignedTypedData,
   type HlTypedData,
   type UserSignedPrimaryType,
+  type UserSignedTypedData,
 } from './signing.js';
 import { bpsToPercentString, bpsToTenths, priceProblem, rateToBps, sizeProblem, toWire } from './wire.js';
+
+/** "The expiration can be at most 180 days in the future." */
+const AGENT_EXPIRY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
+/** Prepared typed data that approves an agent, as the wallet was asked to sign it. */
+function isApproveAgentTypedData(typed: unknown): typed is UserSignedTypedData {
+  return (
+    typeof typed === 'object' &&
+    typed !== null &&
+    'primaryType' in typed &&
+    typed.primaryType === 'HyperliquidTransaction:ApproveAgent' &&
+    'domain' in typed &&
+    'types' in typed &&
+    'message' in typed &&
+    typeof typed.message === 'object' &&
+    typed.message !== null
+  );
+}
+
+/** The expiry the venue reads off the end of an agent's name. */
+const EXPIRY_IN_NAME = / valid_until \d+$/;
+/** How long a revoke's keyless stand-in holds a named agent's slot before the venue prunes it. */
+const REVOKE_STAND_IN_MS = 24 * 60 * 60 * 1000;
+
+/** An address no one holds the key to (a hash, not a public key), new for each revoke: the agent that replaces a revoked one. */
+export function keylessStandIn(revoked: string, nonce: string): string {
+  return `0x${keccak256(toHex(`intafaced hyperliquid revoked agent ${revoked.toLowerCase()} ${nonce}`)).slice(-40)}`;
+}
 
 /**
  * THE HYPERLIQUID TESTNET `UserVenue` — the customer's own testnet account, signed by the customer's wallet.
@@ -302,6 +332,10 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         );
     }
     if (intent.kind === 'place_order' && intent.builderFee) {
+      const cap = BUILDER_FEE_CAP_BPS[(await this.market(intent.symbol)).kind];
+      if (compare(intent.builderFee.feeBps, cap) > 0) {
+        throw refusal(this.venue.id, 'builder_fee_above_cap', `the builder fee is above the venue's cap on this market kind`);
+      }
       const approved = (await this.builderFeeApproval(account, intent.builderFee.builder)).value;
       if (compare(approved, intent.builderFee.feeBps) < 0) {
         throw refusal(this.venue.id, 'builder_fee_not_approved', 'this account has approved less for the builder than the order carries');
@@ -440,15 +474,48 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         );
       }
       case 'approve_agent': {
+        const name = intent.agentName;
+        if (name.trim() === '') throw refusal(venueId, 'venue_rejected', 'an agent needs a name, so it can be listed and replaced');
+        // The venue reads an expiry out of the name, so a name never carries one of its own.
+        if (EXPIRY_IN_NAME.test(name)) throw refusal(venueId, 'venue_rejected', 'an agent name cannot end in "valid_until <ms>"');
+        let wireName = name;
         if (intent.validUntil !== null) {
-          throw refusal(venueId, 'not_offered', 'an agent expiry is not offered by this adapter yet: approve without one');
+          // The venue takes an expiry only in the name: `<name> valid_until <ms>`, at most 180 days ahead
+          // (exchange endpoint, "Approve an API wallet"). Checked against the nonce, so a rebuild at submit agrees.
+          const until = intent.validUntil.getTime();
+          const at = Number(nonce);
+          if (!Number.isSafeInteger(until) || until <= at)
+            throw refusal(venueId, 'venue_rejected', 'an agent expiry must be ahead of the approval');
+          if (until - at > AGENT_EXPIRY_MAX_MS)
+            throw refusal(venueId, 'not_offered', 'an agent expiry is at most 180 days ahead on this venue');
+          wireName = `${name} valid_until ${until}`;
         }
-        if (intent.agentName.trim() === '')
-          throw refusal(venueId, 'venue_rejected', 'an agent needs a name, so it can be listed and replaced');
         return userSigned(
           'HyperliquidTransaction:ApproveAgent',
           'approveAgent',
-          { agentAddress: intent.agentAddress.toLowerCase(), agentName: intent.agentName },
+          { agentAddress: intent.agentAddress.toLowerCase(), agentName: wireName },
+          'nonce',
+        );
+      }
+      case 'revoke_agent': {
+        // The venue has no revoke. An agent is deregistered when another is approved under its name (the account's one
+        // unnamed agent by another unnamed one) ("Nonces and API wallets"). So a revoke approves, under the agent's own
+        // name, an address nobody holds a key for: derived from the revoked address and this nonce, so it is new every
+        // time and never approved again. A named stand-in lapses a day later and frees its slot.
+        // The venue lists agents per owner: a revoke asked for a sub-account could not be checked against its scope.
+        if (account.subAccount !== null)
+          throw refusal(venueId, 'not_offered', 'revoking an agent on a sub-account is not offered by this adapter yet');
+        const address = intent.agentAddress.toLowerCase();
+        const listed = (await this.agents(account)).value.find((a) => a.address === address);
+        if (!listed) throw refusal(venueId, 'venue_rejected', `${address} is not an agent on this account: there is nothing to revoke`);
+        const name = listed.name.replace(EXPIRY_IN_NAME, '');
+        return userSigned(
+          'HyperliquidTransaction:ApproveAgent',
+          'approveAgent',
+          {
+            agentAddress: keylessStandIn(address, nonce),
+            agentName: name === '' ? '' : `${name} valid_until ${Number(nonce) + REVOKE_STAND_IN_MS}`,
+          },
           'nonce',
         );
       }
@@ -484,6 +551,25 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     assertSignatureMatches(prepared, signature);
     this.checkAccount(prepared.account);
     assertSignerMaySign(prepared.account, prepared.signer, prepared.intent);
+    if (prepared.intent.kind === 'revoke_agent') {
+      // A revoke sent again after it landed: its stand-in, which only this signed action approves, is listed. Once the
+      // owner's signature over that approval checks out, it is done, and nothing is posted twice.
+      const standIn = keylessStandIn(prepared.intent.agentAddress, prepared.nonce);
+      const agents = await this.agents(prepared.account);
+      if (agents.value.some((a) => a.address === standIn)) {
+        const typed = prepared.typedData;
+        if (
+          !isApproveAgentTypedData(typed) ||
+          String(typed.message.agentAddress).toLowerCase() !== standIn ||
+          String(typed.message.nonce) !== prepared.nonce ||
+          typedDataDigest(typed).toLowerCase() !== prepared.digest.toLowerCase() ||
+          (await recoverTypedDataSigner(typed, signature.signature)) !== prepared.signer.address.toLowerCase()
+        ) {
+          throw refusal(venueId, 'signature_mismatch', 'the prepared revoke does not match the approval that replaced the agent');
+        }
+        return { definite: true, accepted: true, venueRef: null, order: null, asOf: agents.asOf };
+      }
+    }
     // Rebuild from the intent: the prepared object may have been edited after prepare.
     const built = await this.build(prepared.account, prepared.intent, prepared.nonce);
     const digest = typedDataDigest(built.typedData);

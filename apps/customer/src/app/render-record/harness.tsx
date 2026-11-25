@@ -133,11 +133,11 @@ export async function renderPart(part: Part): Promise<string> {
   const settle = async () => {
     let last = '';
     let still = 0;
-    // A room still loading its code shows the room loader; nothing else says a lazy import is pending.
+    // A room still loading its code shows the room loader (RoomLoading, or a room's own Loading); nothing else says a lazy import is pending.
     for (let i = 0; i < 1500 && still < 8; i++) {
       await tick();
       const now = host.innerHTML;
-      still = inFlight === 0 && now === last && !host.querySelector('.loading--room') ? still + 1 : 0;
+      still = inFlight === 0 && now === last && !host.querySelector('.room-loading, .loading--room') ? still + 1 : 0;
       last = now;
     }
     return still >= 8;

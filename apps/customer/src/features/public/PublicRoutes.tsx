@@ -1,5 +1,5 @@
 import { Suspense, type ComponentType } from 'react';
-import { BrandLockup, BrandMark, BrandWordmark } from '@intafaced/ui';
+import { BrandLockup, BrandWordmark } from '@intafaced/ui';
 import { useSession } from '../session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
@@ -42,21 +42,14 @@ const FOOTER = [
   ['/fees', 'Fees'],
   ['/notice', 'Notices'],
   ['/partner', 'Partners'],
+  ['/about-us', 'About'],
 ] as const;
 
-/** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
+/** The public header carries the horizontal lockup (mark 24 pixels, as the app bar, small drawing); the footer line the wordmark alone. */
 function Brand({ footer }: { footer?: boolean }) {
   return (
     <a href="/" className="brand" aria-label="INTAFACED">
-      {footer ? (
-        <BrandWordmark width={150} />
-      ) : (
-        <>
-          <BrandLockup size={28} title="" className="brand-full" />
-          {/* A phone's bar holds the mark alone, so Menu and the account link fit beside it. */}
-          <BrandMark size={28} className="brand-compact" />
-        </>
-      )}
+      {footer ? <BrandWordmark width={150} /> : <BrandLockup size={24} title="" />}
     </a>
   );
 }
@@ -65,22 +58,25 @@ export function PublicHeader({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
   const { session, restoreFailed } = useSession();
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
-  const authHref = publicAuthHref(publicAuthContext(path, location.search), alternateAuth);
+  const context = publicAuthContext(path, location.search);
+  const authHref = publicAuthHref(context, alternateAuth);
+  // The invitation card carries its own Create account, with the invite token; a second one here would drop the token.
+  const showSignup = !path.startsWith('/login') && path !== '/register' && path !== '/invite';
   return (
-    <header className="public-header">
+    <header className="public-header" data-layer="nav">
       <Brand />
       <nav aria-label={t('Public navigation')}>
-        <a href="/exchange">{t('Trade')}</a>
+        <a href="/trade/markets">{t('Markets')}</a>
+        <a href="/fees">{t('Fees')}</a>
         <a href="/help">{t('Help')}</a>
-        <a href="/about-us">{t('About')}</a>
       </nav>
       {/* On a phone the links above are hidden; the same three sit behind Menu. */}
       <details className="public-menu">
         <summary>{t('Menu')}</summary>
         <nav aria-label={t('Public navigation')}>
-          <a href="/exchange">{t('Trade')}</a>
+          <a href="/trade/markets">{t('Markets')}</a>
+          <a href="/fees">{t('Fees')}</a>
           <a href="/help">{t('Help')}</a>
-          <a href="/about-us">{t('About')}</a>
         </nav>
       </details>
       {session || restoreFailed ? (
@@ -89,9 +85,16 @@ export function PublicHeader({ path }: { path: string }) {
           {t('Open your account')} <span aria-hidden="true">↗</span>
         </a>
       ) : (
-        <a href={authHref} className="public-signin" data-session="signed-out">
-          {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
-        </a>
+        <>
+          <a href={authHref} className="public-signin" data-session="signed-out">
+            {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
+          </a>
+          {showSignup && (
+            <a href={publicAuthHref(context, '/register')} className="public-signup">
+              {t('Create account')}
+            </a>
+          )}
+        </>
       )}
     </header>
   );

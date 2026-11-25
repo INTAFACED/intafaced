@@ -2,8 +2,9 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { fromUnits, journeyState, toUnits } from './stack.mjs';
-import { confirm, reviewSheet, signUp, verify } from './desk.mjs';
+import { ownSpotMarket, venueListingWrite } from './own-market.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, journeyState, toUnits } from './stack.mjs';
+import { confirm, reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -15,16 +16,19 @@ import {
   venueAccount,
   venueBalance,
   venueForThisFile,
+  venueInfo,
   venueRecord,
 } from './venue.mjs';
 
-// J-portfolio-02 #6 on the person's own venue account (docs/roadmap/journeys.json; project-state operation-zero/modules/
-// portfolio/acceptance/journeys.md), in the running app against the stack's TEST venue simulator: "Sells coins that
-// arrived from outside" / "The lot's cost is unknown unless the person enters it, never zero; until then its result is
-// unknown and the realised total stays blank". At launch coins arrive in the person's own venue account, never in our
-// ledger, so the coins here arrive there, by the TEST venue's deposit control. The other steps are J-portfolio-02.pw.mjs's.
-// Every figure is TEST, and every expected figure is a hand count from the venue's own record, never from the lot book.
-// The door is on for this file only.
+// J-portfolio-02, in the running app against the stack's TEST venue simulator (docs/roadmap/journeys.json): "I see what my
+// trades made or lost". At launch a person trades in their own venue account, never through our book, so every trade here
+// is a signed order on the venue desk against a TEST order another TEST trader rests on the venue's book, on TEST spot
+// markets of this file's own (an empty book no other file trades), and every coin sits in the person's own venue account. One
+// test per step, titled "J-portfolio-02 #<n>", run in order: #1 to #5 and #7 on one TEST account funded with TEST USDC in
+// its venue account; #6 ("coins that arrived from outside") on an account of its own, so its arrived coins never share a
+// lot book with the bought ones. Every figure is TEST, and every expected figure is a hand count from the venue's own
+// record (its fills, balances and best prices, read through venueRecord, venueBalance and testVenue), never from the lot
+// book the screen itself reads. The door is on for this file only.
 const J = 'J-portfolio-02';
 const DESK = '/trade/spot/BTC-USDC';
 const SYMBOL = 'BTC-USDC';
@@ -34,7 +38,30 @@ const SOLD = '0.02';
 const LEFT = '0.03';
 /** TEST: the price per BTC the person enters for the arrived coins. */
 const ENTERED = '50000';
+/**
+ * TEST: #1 to #5 trade a TEST coin on a spot market of this file's own (an empty book only these steps trade): another
+ * TEST trader rests a sell at 77, the person buys it, and later sells at 133. A spot buy on the venue pays its fee in the
+ * coin it receives (3.5 bps as taker), so 20 coins arrive as 19.993, a whole number of the market's 0.001 steps: #3 can
+ * sell every coin of the lot and close it.
+ */
+const BUY_PRICE = '77';
+const BOUGHT = '20';
+const SELL_PRICE = '133';
+/** TEST: the other trader's two-sided quote #2 reads the price now from (a sale now gets its bid, 100), around neither trade price. */
+const QUOTE_BID = '100';
+const QUOTE_ASK = '140';
+/** TEST USDC in the person's venue account, enough for #1's buy and #7's. */
+const FUNDS = '5000';
+/**
+ * TEST: #7 buys 2 coins with dollars first (a known cost), then pays 1 of them for 2 of a second TEST coin priced at 0.5 in
+ * the first: 1 is the smallest order the venue takes on that market.
+ */
+const FIRST_FOR_7 = '2';
+const FIRST_PRICE_7 = '77';
+const SECOND_PRICE = '0.5';
+const SECOND_AMOUNT = '2';
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const trades = journeyState(`${J}-venue-trades-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
 
 test.describe.configure({ mode: 'default' });
@@ -73,22 +100,392 @@ function proceedsOf(f) {
 async function pnl(page, query = '') {
   await page.goto(`/money/pnl${query}`);
   const main = page.locator('main').first();
-  await expect(main.getByRole('heading', { name: 'Profit and loss', level: 1 })).toBeVisible();
+  await expect(main.getByRole('heading', { name: 'Profit and loss', level: 1, exact: true })).toBeVisible();
   return main;
 }
 
-/** TEST setup, not a journey step: a verified account and this run's TEST wallet key. */
+/**
+ * TEST setup, not a journey step: two verified accounts, each with this run's TEST wallet key of its own; the trading one
+ * holds TEST USDC in its venue account by the TEST venue's deposit control (keyed by a chain-transfer-shaped reference,
+ * so a replay credits nothing).
+ */
 test.beforeAll(async ({ browser }) => {
-  if (process.env.JOURNEY_RUN_ID && run.read().account) return;
-  test.setTimeout(300_000);
+  if (process.env.JOURNEY_RUN_ID && run.read().account && trades.read().account) return;
+  test.setTimeout(420_000);
   const page = await browser.newPage();
   try {
+    const trader = await signUp(page, 'pf2t');
+    await verify(page, trader);
+    const traderKey = testWalletKey();
+    const owner = privateKeyToAccount(traderKey).address.toLowerCase();
+    expect(await testDeposit(owner, 'USDC', FUNDS, `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+    expect(toUnits((await venueBalance(owner, 'USDC')).free)).toBe(toUnits(FUNDS));
+    trades.reset({ account: trader, walletKey: traderKey });
     const account = await signUp(page, 'pf2v');
     await verify(page, account);
     run.reset({ account, walletKey: testWalletKey() });
   } finally {
     await page.close();
   }
+});
+
+function trader() {
+  const s = trades.read();
+  if (!s.account || !s.walletKey)
+    throw new Error(`${J}'s TEST setup made no trading account and wallet, so this step has no one to act as`);
+  return { ...s, owner: privateKeyToAccount(s.walletKey).address.toLowerCase() };
+}
+
+/** The venue's own best bid and ask on `symbol`, and its tick, read straight from the TEST venue. */
+async function venueBook(symbol) {
+  const { body: markets } = await testVenue('/markets', {});
+  const market = markets.value.find((m) => m.symbol === symbol);
+  expect(market, JSON.stringify(markets).slice(0, 300)).toBeTruthy();
+  const best = await testVenue('/best-prices', { symbol });
+  expect(best.status, JSON.stringify(best.body)).toBe(200);
+  return {
+    tick: toUnits(market.tickSize),
+    bid: best.body.value.bid === null ? null : toUnits(best.body.value.bid),
+    ask: best.body.value.ask === null ? null : toUnits(best.body.value.ask),
+  };
+}
+
+/** Another TEST trader, named for this run and this person, funded on the TEST venue with `amount` of `asset`. */
+async function otherTrader(owner, tag, asset, amount) {
+  const name = `${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 10)}-${tag}`;
+  await testVenue('/test/deposit', {
+    account: await venueAccount(otherTraderKey(name).address),
+    asset,
+    amount,
+    depositRef: `seed:${name}:${asset}`,
+  });
+  return name;
+}
+
+/** The other TEST trader rests a limit order on the venue's book. */
+async function rest(name, symbol, side, amount, price, key) {
+  const rested = await otherTraderRun(name, {
+    kind: 'place_order',
+    symbol,
+    side,
+    type: 'limit',
+    amount,
+    price,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${name}:${key}`,
+    builderFee: null,
+  });
+  expect(rested.definite && rested.accepted, JSON.stringify(rested)).toBe(true);
+}
+
+/** A limit order on the venue desk now open, reviewed once the venue's own preview answers, signed in the wallet. */
+async function deskOrder(page, side, price, amount, coin = 'BTC') {
+  const form = side === 'buy' ? 0 : 1;
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(form).fill(price);
+  const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+  await page.getByRole('textbox', { name: 'Amount', exact: true }).nth(form).fill(amount);
+  expect((await preview).status()).toBe(200);
+  await page.getByRole('button', { name: `${side === 'buy' ? 'Buy' : 'Sell'} ${coin}`, exact: true }).click();
+  const sheet = reviewSheet(page);
+  await expect(sheet).toBeVisible();
+  // A sell carries our builder fee: the wallet approves it first, then Confirm sell signs the order.
+  const approve = sheet.getByRole('button', { name: 'Approve our builder fee in your wallet', exact: true });
+  if (side === 'sell' && (await approve.isVisible())) {
+    await approve.click();
+    await continueInWallet(page);
+    await expect(sheet.getByRole('button', { name: 'Confirm sell', exact: true })).toBeEnabled({ timeout: 20_000 });
+  }
+  await confirm(page, side);
+  await continueInWallet(page);
+}
+
+/** The person's own fills on `symbol` and `side` since `since`, from the venue's own record, oldest first. */
+async function fillsOf(owner, symbol, side, since) {
+  return (await venueRecord(owner, '/fills', { since })).value
+    .filter((f) => f.symbol === symbol && f.side === side)
+    .sort((a, b) => Date.parse(a.filledAt) - Date.parse(b.filledAt) || a.fillId.localeCompare(b.fillId));
+}
+const sumOf = (fills, of) => fills.reduce((sum, f) => sum + of(f), 0n);
+/** What a venue buy paid: price times amount, rounded up as the venue settles it, plus any fee it took in the quote coin. */
+function paidOf(f, quote) {
+  const product = toUnits(f.price) * toUnits(f.amount);
+  const notional = (product + ONE - 1n) / ONE;
+  return notional + (f.feeAsset === quote ? toUnits(f.venueFee) + toUnits(f.builderFee) : 0n);
+}
+/** What a venue buy brought in: the amount less any fee the venue took in the coin received. */
+const gotOf = (f, base) => toUnits(f.amount) - (f.feeAsset === base ? toUnits(f.venueFee) + toUnits(f.builderFee) : 0n);
+/** The venue's own fee on a fill, in whichever coin it took it. */
+const feeOf = (f) => toUnits(f.venueFee) + toUnits(f.builderFee);
+/** fmtPct: the ratio half-up at 4 places, shown as a percent at 2, signed. */
+function pct(num, den) {
+  const negative = num < 0n !== den < 0n;
+  const a = num < 0n ? -num : num;
+  const d = den < 0n ? -den : den;
+  const bp = (a * 10000n * 2n + d) / (2n * d);
+  const text = `${bp / 100n}.${(bp % 100n).toString().padStart(2, '0')}%`;
+  return `${bp === 0n ? '' : negative ? '−' : '+'}${text}`;
+}
+
+/**
+ * TEST setup for #7: a fresh TEST spot market of this file's own between two coins that are not dollars, a second TEST
+ * coin priced in `quote` (the TEST venue's /test/market-add control), listed for INTAFACED through svc-trade's two-person
+ * door as ownSpotMarket lists its own.
+ */
+async function nonDollarMarket(quote) {
+  const base = `PF2Q${randomBytes(3).toString('hex').toUpperCase()}`;
+  const symbol = `${base}-${quote}`;
+  const added = await testVenue('/test/market-add', {
+    symbol,
+    baseAsset: base,
+    quoteAsset: quote,
+    maxOrderQty: null,
+    maxOrderNotional: null,
+  });
+  expect(added.status, JSON.stringify(added.body)).toBe(200);
+  await venueListingWrite(
+    J,
+    symbol,
+    'trade.venue_listing_set',
+    'listingSet',
+    { opensAt: new Date(Date.now() - 60_000).toISOString() },
+    '0',
+  );
+  return { symbol, base };
+}
+
+/** The person's own venue account's row for `asset` on the profit and loss page. */
+async function venueRow(main, owner, asset) {
+  const { id } = await venueInfo();
+  return main.locator(`tr[data-asset="${asset}"][data-venue="venue:${id}:${owner}"]`);
+}
+
+test(`${J} #1 buys a TEST coin on the venue desk, then reads the open lot: quantity, average price and cost with the fee inside`, async ({
+  page,
+}) => {
+  test.setTimeout(420_000);
+  const s = trader();
+  const { symbol, base } = await ownSpotMarket(J, 'PF2', 'A');
+  trades.write({ symbol, base });
+  // Another TEST trader rests a sell of 20 coins at 77 on the market's empty book, so the buy below meets it at once.
+  const seller = await otherTrader(s.owner, 'ask', base, BOUGHT);
+  await rest(seller, symbol, 'sell', BOUGHT, BUY_PRICE, 'pf2-ask');
+
+  const since = new Date(Date.now() - 1_000).toISOString();
+  const wallet = await openVenueDesk(page, s.account, `/trade/spot/${symbol}`, s.walletKey);
+  expect(wallet.address.toLowerCase()).toBe(s.owner);
+  await deskOrder(page, 'buy', BUY_PRICE, BOUGHT, base);
+  const bought = () => fillsOf(s.owner, symbol, 'buy', since);
+  await expect.poll(async () => fromUnits(sumOf(await bought(), (f) => toUnits(f.amount))), { timeout: 30_000 }).toBe(BOUGHT);
+  // By hand from the venue's own fills: what arrived (the amount less the fee taken in the coin) and what it cost.
+  const fills = await bought();
+  const qty = sumOf(fills, (f) => gotOf(f, base));
+  const cost = sumOf(fills, (f) => paidOf(f, 'USDC'));
+  const fee = sumOf(fills, feeOf);
+  expect(fee).toBeGreaterThan(0n);
+  expect(qty).toBe(toUnits(BOUGHT) - fee);
+  expect(cost).toBe((toUnits(BOUGHT) * toUnits(BUY_PRICE)) / ONE);
+  expect(toUnits((await venueBalance(s.owner, base)).total)).toBe(qty);
+  trades.write({ qty: fromUnits(qty), cost: fromUnits(cost) });
+
+  const main = await pnl(page);
+  const row = await venueRow(main, s.owner, base);
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await expect(row.locator('td').first()).toHaveText(fromUnits(qty));
+  await expect(row.locator('[data-col="cost"]')).toHaveText(usd(cost));
+  // The fee came out of the coins received, so the price per coin is what was paid over what arrived: the fee is inside.
+  const average = (cost * ONE) / qty;
+  expect(average).toBeGreaterThan(toUnits(BUY_PRICE));
+  await expect(row.locator('[data-col="average"]')).toHaveText(usd(average));
+  await expect(main).toContainText('The fee on a buy is inside the cost');
+});
+
+test(`${J} #2 reads unrealised profit and loss for the coin, as an amount and a percent of the cost, at the venue's price now`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const s = trader();
+  const { symbol, base } = trades.read();
+  if (!symbol || !base) throw new Error(`${J} #1 bought no TEST coin on its own market, so #2 has no open lot to value`);
+  // Read the open holding and its lot basis straight from the venue's own record (fills and balance).
+  const buys = await fillsOf(s.owner, symbol, 'buy', new Date(0).toISOString());
+  expect(buys.length).toBeGreaterThan(0);
+  const qty = sumOf(buys, (f) => gotOf(f, base));
+  const cost = sumOf(buys, (f) => paidOf(f, 'USDC'));
+  expect(qty).toBeGreaterThan(0n);
+  expect(cost).toBeGreaterThan(0n);
+  expect(toUnits((await venueBalance(s.owner, base)).total)).toBe(qty);
+  // Another TEST trader quotes the coin on both sides of the book, so the venue has a price now: what a sale gets, its bid, 100.
+  const quoter = await otherTrader(s.owner, 'quote', base, '10');
+  await testDeposit(otherTraderKey(quoter).address, 'USDC', '10000', `seed:${quoter}:USDC`);
+  await rest(quoter, symbol, 'buy', '1', QUOTE_BID, 'pf2-quote-bid');
+  await rest(quoter, symbol, 'sell', '1', QUOTE_ASK, 'pf2-quote-ask');
+  const book = await venueBook(symbol);
+  expect([book.bid, book.ask]).toEqual([toUnits(QUOTE_BID), toUnits(QUOTE_ASK)]);
+  await openVenueDesk(page, s.account, `/trade/spot/${symbol}`, s.walletKey);
+  const main = await pnl(page);
+  const row = await venueRow(main, s.owner, base);
+  // By hand: worth now is the open coins at what selling them there would get, the venue's best bid (half-up at 18
+  // places), less the lot's cost.
+  const worth = (qty * book.bid + ONE / 2n) / ONE;
+  const unrealised = worth - cost;
+  await expect(row.locator('[data-col="unrealised"]')).toHaveText(`${usd(unrealised, true)} (${pct(unrealised, cost)})`, {
+    timeout: 30_000,
+  });
+  await expect(row.locator('td').nth(3)).toHaveText(usd(worth));
+  await expect(main.locator('[data-figure="unrealised"]')).toHaveText(usd(unrealised, true));
+  // The venue's book and the person's own balance are as they were: nothing the page read moved them.
+  const after = await venueBook(symbol);
+  expect([after.bid, after.ask]).toEqual([book.bid, book.ask]);
+  expect(toUnits((await venueBalance(s.owner, base)).total)).toBe(qty);
+});
+
+test(`${J} #3 sells the coins on the venue desk: a sale row with what was received, the cost of the lot it used and the realised result; the lot closes`, async ({
+  page,
+}) => {
+  test.setTimeout(420_000);
+  const s = trader();
+  const { symbol, base, qty, cost } = trades.read();
+  // Another TEST trader rests a buy of every coin held at 133, the best bid, so the sale meets it at once.
+  const buyer = await otherTrader(s.owner, 'bid', 'USDC', '10000');
+  await rest(buyer, symbol, 'buy', qty, SELL_PRICE, 'pf2-bid');
+
+  const since = new Date(Date.now() - 1_000).toISOString();
+  await openVenueDesk(page, s.account, `/trade/spot/${symbol}`, s.walletKey);
+  await deskOrder(page, 'sell', SELL_PRICE, qty, base);
+  const sold = () => fillsOf(s.owner, symbol, 'sell', since);
+  await expect.poll(async () => fromUnits(sumOf(await sold(), (f) => toUnits(f.amount))), { timeout: 30_000 }).toBe(qty);
+  // The venue's own record: no coin left, and what the sale paid (price times amount, rounded up, less its USDC fees).
+  await expect.poll(async () => toUnits((await venueBalance(s.owner, base)).total), { timeout: 15_000 }).toBe(0n);
+  const sells = await sold();
+  expect(sells.every((f) => f.price === SELL_PRICE || toUnits(f.price) === toUnits(SELL_PRICE))).toBe(true);
+  const proceeds = sumOf(sells, proceedsOf);
+  // One lot, sold whole: the sale takes all of its cost.
+  const realised = proceeds - toUnits(cost);
+  expect(realised).toBeGreaterThan(0n);
+  trades.write({ realised: fromUnits(realised) });
+
+  const main = await pnl(page);
+  const sale = main.locator('tr[data-sale]').filter({ hasText: base }).first();
+  await expect(sale).toBeVisible({ timeout: 30_000 });
+  await expect(sale.locator('td').nth(0)).toHaveText(qty);
+  await expect(sale.locator('td').nth(1)).toHaveText(usd(proceeds));
+  await expect(sale.locator('td').nth(2)).toHaveText(usd(toUnits(cost)));
+  await expect(sale.locator('[data-col="result"]')).toHaveText(usd(realised, true));
+  await expect(main.locator('[data-figure="realised"]')).toHaveText(usd(realised, true));
+  // Every coin of the lot was sold: the lot is closed and no open row for the coin is left.
+  await expect(main.locator(`tr[data-asset="${base}"]`)).toHaveCount(0);
+});
+
+test(`${J} #4 reads the label: an indicator, not a tax form, with the method FIFO and what it means`, async ({ page }) => {
+  const who = trader().account;
+  await signIn(page, who);
+  const main = await pnl(page);
+  // The step's own words name the label: "Indicator, not tax advice".
+  await expect(main.locator('[data-indicator="true"]')).toContainText('Indicator, not tax advice');
+  const methods = main.getByRole('group', { name: 'Matching method', exact: true });
+  await expect(methods.getByRole('button', { name: 'FIFO: oldest first', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(main).toContainText('Each sale is matched against the lots you bought, one lot at a time, using the method you pick.');
+});
+
+test(`${J} #5 switches to LIFO (one lot: the same result), then asks for an unknown method and is refused`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const s = trader();
+  const who = s.account;
+  const { realised } = trades.read();
+  await openVenueDesk(page, who, DESK, s.walletKey);
+  const main = await pnl(page);
+  await expect(main.locator('[data-figure="realised"]')).toHaveText(usd(toUnits(realised), true), { timeout: 30_000 });
+  const methods = main.getByRole('group', { name: 'Matching method', exact: true });
+  await methods.getByRole('button', { name: 'LIFO: newest first', exact: true }).click();
+  await expect(methods.getByRole('button', { name: 'LIFO: newest first', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(main.locator('[data-figure="realised"]')).toHaveText(usd(toUnits(realised), true));
+
+  // An unknown method in the link: nothing is worked out, the refusal is in words with the service's code.
+  const refused = await pnl(page, '?method=LOFO');
+  await expect(refused).toContainText('That matching method isn’t offered');
+  await expect(page).toHaveURL(/method=LOFO/);
+  await expect(refused.locator('[data-figure="realised"]')).toHaveCount(0);
+  // The service refuses the same method on its own door, so the screen is not the only guard.
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  }).then((r) => r.json());
+  const token = login?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused: ${JSON.stringify(login).slice(0, 300)}`);
+  const res = await fetch(`${EDGE}/api/tax/trpc/lotBook?input=${encodeURIComponent(JSON.stringify({ method: 'LOFO' }))}`, {
+    headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
+  });
+  expect(res.status).toBe(400);
+  // Its typed refusal: a bad request naming the method as the one field refused, with the methods it does offer.
+  const body = await res.json();
+  const refusal = body.error?.json ?? body.error;
+  expect(refusal?.data?.code, JSON.stringify(body).slice(0, 300)).toBe('BAD_REQUEST');
+  const issues = JSON.parse(refusal.message);
+  expect(issues).toEqual([expect.objectContaining({ code: 'invalid_value', path: ['method'] })]);
+  expect(issues[0].values).toEqual(expect.arrayContaining(['FIFO', 'LIFO']));
+  expect(issues[0].values).not.toContain('LOFO');
+  // Picking a method again brings the figures back.
+  await refused
+    .getByRole('group', { name: 'Matching method', exact: true })
+    .getByRole('button', { name: 'FIFO: oldest first', exact: true })
+    .click();
+  await expect(page).toHaveURL(/method=FIFO/);
+  await expect(refused.locator('[data-figure="realised"]')).toHaveText(usd(toUnits(realised), true));
+});
+
+test(`${J} #7 trades between two non-dollar coins on the venue: no dollar figure on either side where none is known`, async ({ page }) => {
+  test.setTimeout(600_000);
+  const s = trader();
+  // TEST: buy a first coin with USDC, so the coin that pays has a known cost; then a second coin priced in the first.
+  const first = await ownSpotMarket(J, 'PF2', 'C');
+  const second = await nonDollarMarket(first.base);
+  const seller = await otherTrader(s.owner, 'ask7', first.base, FIRST_FOR_7);
+  await rest(seller, first.symbol, 'sell', FIRST_FOR_7, FIRST_PRICE_7, 'pf2-ask7');
+  const secondSeller = await otherTrader(s.owner, 'second', second.base, SECOND_AMOUNT);
+  await rest(secondSeller, second.symbol, 'sell', SECOND_AMOUNT, SECOND_PRICE, 'pf2-second');
+
+  const since = new Date(Date.now() - 1_000).toISOString();
+  const wallet = await openVenueDesk(page, s.account, `/trade/spot/${first.symbol}`, s.walletKey);
+  await deskOrder(page, 'buy', FIRST_PRICE_7, FIRST_FOR_7, first.base);
+  await expect
+    .poll(async () => fromUnits(sumOf(await fillsOf(s.owner, first.symbol, 'buy', since), (f) => toUnits(f.amount))), { timeout: 30_000 })
+    .toBe(FIRST_FOR_7);
+  const firstBefore = toUnits((await venueBalance(s.owner, first.base)).total);
+  // Then the second coin bought on its own book, paid in the first: neither leg is in dollars.
+  // The second coin's desk opens in a tab of its own, with the same TEST wallet connected there.
+  const desk = await page.context().newPage();
+  expect((await openVenueDesk(desk, s.account, `/trade/spot/${second.symbol}`, s.walletKey)).address).toBe(wallet.address);
+  await deskOrder(desk, 'buy', SECOND_PRICE, SECOND_AMOUNT, second.base);
+  const bought = () => fillsOf(s.owner, second.symbol, 'buy', since);
+  await expect.poll(async () => fromUnits(sumOf(await bought(), (f) => toUnits(f.amount))), { timeout: 30_000 }).toBe(SECOND_AMOUNT);
+  // By hand from the venue's own fills and balances: the first coin that paid and the second that arrived.
+  const fills = await bought();
+  const paid = sumOf(fills, (f) => paidOf(f, first.base));
+  const got = sumOf(fills, (f) => gotOf(f, second.base));
+  expect(paid).toBeGreaterThan(0n);
+  expect(got).toBeGreaterThan(0n);
+  expect(firstBefore - toUnits((await venueBalance(s.owner, first.base)).total)).toBe(paid);
+  expect(toUnits((await venueBalance(s.owner, second.base)).total)).toBe(got);
+
+  const main = await pnl(page);
+  // The first coin that paid is a sale with no dollar proceeds, so its result is not known; never a made-up price.
+  const sale = main.locator('tr[data-sale]').filter({ hasText: first.base }).first();
+  await expect(sale).toBeVisible({ timeout: 30_000 });
+  await expect(sale.locator('td').nth(0)).toHaveText(fromUnits(paid));
+  await expect(sale.locator('td').nth(1)).toHaveText('Not known');
+  await expect(sale.locator('[data-col="result"]')).not.toContainText('$');
+  // The second coin that arrived is a bought lot with no dollar cost: the lots list, picked for that coin.
+  const lots = main.getByRole('region', { name: 'Lots', exact: true });
+  await lots.getByLabel('Coin for lots', { exact: true }).selectOption(second.base);
+  await expect(page).toHaveURL(new RegExp(`asset=${second.base}`));
+  const lot = lots.locator('tbody tr[data-source="trade"]');
+  await expect(lot).toHaveCount(1, { timeout: 30_000 });
+  await expect(lot.locator('[data-col="qty"]')).toHaveText(fromUnits(got));
+  await expect(lot.locator('[data-col="cost"]')).toHaveText('Cost unknown');
+  await expect((await venueRow(page.locator('main').first(), s.owner, second.base)).locator('[data-col="cost"]')).toHaveText('Not known');
 });
 
 test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown unless the person enters it, never zero, and until then the result is unknown and the realised total blank`, async ({
@@ -145,19 +542,19 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   expect(wallet.address.toLowerCase()).toBe(owner);
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price' }).nth(1).fill(fromUnits(price));
+  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(1).fill(fromUnits(price));
   const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await page.getByRole('textbox', { name: 'Amount' }).nth(1).fill(SOLD);
+  await page.getByRole('textbox', { name: 'Amount', exact: true }).nth(1).fill(SOLD);
   expect((await preview).status()).toBe(200);
-  await page.getByRole('button', { name: 'Sell BTC' }).click();
+  await page.getByRole('button', { name: 'Sell BTC', exact: true }).click();
   const sheet = reviewSheet(page);
   await expect(sheet).toBeVisible();
   // A sell carries our builder fee: the wallet approves it first, then Confirm sell signs the order.
-  const approve = sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' });
+  const approve = sheet.getByRole('button', { name: 'Approve our builder fee in your wallet', exact: true });
   if (await approve.isVisible()) {
     await approve.click();
     await continueInWallet(page);
-    await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
+    await expect(sheet.getByRole('button', { name: 'Confirm sell', exact: true })).toBeEnabled({ timeout: 20_000 });
   }
   await confirm(page, 'sell');
   await continueInWallet(page);
@@ -180,7 +577,7 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   await expect(sale.locator('[data-col="result"] [data-effect="unknown-share"]')).toHaveCount(1);
   // Never a made-up cost: the realised total is blank while one sale's result is unknown.
   await expect(main.locator('[data-figure="realised"]')).toHaveText('Not known');
-  await expect(main.getByRole('list', { name: 'Why some figures are not known' })).toBeVisible();
+  await expect(main.getByRole('list', { name: 'Why some figures are not known', exact: true })).toBeVisible();
   // The 0.03 BTC still held has no recorded cost either: unknown, never zero.
   const btc = main.locator('tr[data-asset="BTC"]');
   await expect(btc).toHaveCount(1);
@@ -192,12 +589,12 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   // held costs $1,500.00; and the realised total is no longer blank: it is that one result.
   const costSold = (toUnits(SOLD) * toUnits(ENTERED)) / ONE;
   const result = proceeds - costSold;
-  const missingCard = main.getByRole('region', { name: 'Missing cost' });
-  await missingCard.getByRole('button', { name: 'Enter a cost' }).click();
-  const form = missingCard.getByRole('form', { name: 'Enter a cost for this lot' });
-  await form.getByLabel('Price you paid per BTC, in USD').fill(ENTERED);
-  await form.getByLabel('Where this price comes from').fill('TEST receipt');
-  await form.getByRole('button', { name: 'Save price' }).click();
+  const missingCard = main.getByRole('region', { name: 'Missing cost', exact: true });
+  await missingCard.getByRole('button', { name: 'Enter a cost', exact: true }).click();
+  const form = missingCard.getByRole('form', { name: 'Enter a cost for this lot', exact: true });
+  await form.getByLabel('Price you paid per BTC, in USD', { exact: true }).fill(ENTERED);
+  await form.getByLabel('Where this price comes from', { exact: true }).fill('TEST receipt');
+  await form.getByRole('button', { name: 'Save price', exact: true }).click();
   await expect(page.getByTestId('basis-notice')).toHaveText('Price saved. The figures use it, marked customer-entered.');
   await expect(sale.locator('td').nth(1)).toHaveText(usd(proceeds));
   await expect(sale.locator('td').nth(2)).toHaveText(usd(costSold));
@@ -209,11 +606,11 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   // Taking the price back, on the lot it was entered for, makes the cost unknown again and the total blank again.
   const btcBook = await pnl(page, '?asset=BTC');
   const pricedLot = btcBook
-    .getByRole('region', { name: 'Lots' })
+    .getByRole('region', { name: 'Lots', exact: true })
     .locator('tbody tr')
     .filter({ has: page.locator('[data-label="customer-entered"]') });
   await expect(pricedLot).toHaveCount(1);
-  await pricedLot.getByRole('button', { name: 'Remove my price' }).click();
+  await pricedLot.getByRole('button', { name: 'Remove my price', exact: true }).click();
   await expect(page.getByTestId('basis-notice')).toHaveText('Price removed. That lot’s cost is unknown again.');
   await expect(pricedLot).toHaveCount(0);
   await pnl(page);

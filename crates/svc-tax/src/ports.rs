@@ -390,7 +390,7 @@ pub struct VenueOwnMove {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VenueArrival {
     pub arrival_id: String,
-    /// `deposit` or `transfer_in`.
+    /// `deposit`, `transfer_in` or `reward`.
     pub kind: String,
     pub asset: String,
     pub amount: String,

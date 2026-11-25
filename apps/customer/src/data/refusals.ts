@@ -63,6 +63,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'No open-order limit is published',
     body: 'Orders that wait on the book are paused here until this market publishes how many you may have open. Nothing was sent.',
   },
+  minNotionalUnset: {
+    title: 'No minimum order value is published',
+    body: 'This market takes no orders until it publishes its smallest order value. Nothing was sent.',
+  },
   protectionUnset: {
     title: 'Price protection isn’t set',
     body: 'A market order needs a price limit it may not pass, and none is published for this market. Use a limit order instead.',

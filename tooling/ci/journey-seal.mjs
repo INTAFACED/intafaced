@@ -83,6 +83,9 @@ import {
   judge,
   manifestsAt,
   moneyRule,
+  NO_LANE,
+  betaLane,
+  isBetaPull,
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
@@ -600,6 +603,13 @@ export async function judgeTouchedRun({
       read.push(
         `${where}: main's money rule disagrees with the baseline on ${v.moneyByHead.join(', ')}, and this head's own rule agrees with the baseline, so each is read under the baseline's flag and any red there counts as money`,
       );
+    if (v.offBeta?.length)
+      read.push(
+        `${where}: ${v.offBeta.length} red step(s) outside the beta's own journeys, money and sign-in hold no beta pull request (the beta lane; main's run after the merge judges them): ${v.offBeta
+          .slice(0, 10)
+          .map((x) => x.step)
+          .join(', ')}${v.offBeta.length > 10 ? `, ${v.offBeta.length - 10} more` : ''}`,
+      );
     // A red this head inherited from main outside this pull request's area stops no one.
     const split = await splitOrAll(inherited, v.red, r);
     read.push(...inheritedLines(split));
@@ -725,6 +735,25 @@ async function listWhole(path, key, token, what) {
   throw new Error(`${what}: more than 1,000 listed, not whole`);
 }
 
+/**
+ * The steps on a screen the hosted beta hides, as the run's own verdict wrote them beside its report (set-aside.json
+ * `notOnBeta`, `betaUnread`): { steps } or { unread }. No file, no list or an unreadable one is unread, so the beta gate
+ * (journey-verdict.mjs betaLane) sets nothing apart and every step gates.
+ */
+export function betaOfArtifact(zip, exec = execFileSync) {
+  let list;
+  try {
+    list = JSON.parse(
+      exec('unzip', ['-p', zip, 'set-aside.json'], { maxBuffer: 64 * 2 ** 20, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }),
+    );
+  } catch {
+    return { unread: 'the run kept no readable set-aside.json' };
+  }
+  if (list?.betaUnread) return { unread: String(list.betaUnread) };
+  if (!Array.isArray(list?.notOnBeta)) return { unread: 'its set-aside.json holds no notOnBeta list' };
+  return { steps: list.notOnBeta };
+}
+
 export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   // One report artifact, downloaded and read: { states, files, ran, artifact }.
@@ -735,7 +764,7 @@ export function makeIo(repo, token) {
       writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
       const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
       const { states, files, ran } = readReport(JSON.parse(text));
-      return { states, files, ran, artifact: art.id };
+      return { states, files, ran, artifact: art.id, beta: betaOfArtifact(zip) };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -939,6 +968,14 @@ export function journeyFilesAt(root) {
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
 export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
   const { baseline, money, reports, memo } = inputs;
+  // The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061): on a beta pull request's
+  // run (a `beta/` branch of this repository), a red outside the beta's own journeys, money and sign-in holds nothing.
+  // Every other run, main's runs read for inherited reds included, keeps every step.
+  const betaPull =
+    run?.event === 'pull_request' &&
+    !isMainRun(run, repo) &&
+    isBetaPull({ headRef: run?.head_branch, headRepo: run?.head_repository?.full_name, repo });
+  const offBeta = betaPull ? betaLane({ beta: report?.beta, guard: inputs.guard, modules: inputs.owners, orders: inputs.orders }) : NO_LANE;
   const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
@@ -968,6 +1005,7 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
     headMoney,
     // The baseline the merge would hold: the head's when the pull request changes it (sealPull), else main's.
     headBaseline: headMoney ? (headBaseline ?? baseline) : null,
+    offBeta,
   });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
@@ -981,7 +1019,7 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
           ? String(baseline?.run?.sha ?? '')
           : null;
   }
-  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [] };
+  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [], offBeta: v.offBeta ?? [] };
 }
 
 /**
@@ -1102,9 +1140,10 @@ export function fileSteps(journey, text) {
  * The steps a pull request that changes a journey test file is judged on: for each changed file, the steps the title
  * names or a strict `Left-or-replaced:` line leaves, if any of them is the file's; otherwise every step the file holds,
  * returned as `derived` for judgeSteps to judge exactly as title steps (passing in a finished Real-app journeys run on
- * the exact head, or left on their own body line). A file with no readable `test(` titled `<journey> #n` fails closed.
- * `touched`: [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head
- * removed). (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so
+ * the exact head, or left on their own body line). A file with no readable `test(` titled `<journey> #n` at the head
+ * or the base fails closed, unless another file of its journey holds its steps (`siblings`).
+ * `touched`: [{ file, journey, steps, from?, siblings? }] from touchedSteps: the steps each file holds at the head (or
+ * at the base, for a file the head removed or one whose head holds none). (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so
  * the seal judged none of their steps; project-state #1249 comment 6681706701. Until 21 Nov 2026 a file whose steps
  * were not named failed the seal, which cost a push for a line the seal could compute; the owner's "yes" of 21 Nov
  * 2026 made it derive them instead.)
@@ -1120,8 +1159,16 @@ export function judgeTouched({ title, body, touched, repo }) {
   const lines = [];
   const derived = new Set();
   let ok = true;
-  for (const { file, journey, steps } of touched) {
+  for (const { file, journey, steps, from, siblings = [] } of touched) {
     if (steps.some((k) => named.has(k))) continue;
+    if (!steps.length && siblings.length) {
+      // Its journey's steps live in another file; this one holds none to judge, and its journeys run must still be
+      // clean on the head (judgeTouchedRun).
+      lines.push(
+        `${file} holds no \`test(\` titled \`${journey} #n\` at the head or the base; ${journey}'s steps live in ${siblings.join(', ')}, so it changes none, and its run on this head must still be clean`,
+      );
+      continue;
+    }
     if (!steps.length) {
       ok = false;
       lines.push(
@@ -1131,7 +1178,7 @@ export function judgeTouched({ title, body, touched, repo }) {
     }
     for (const k of steps) derived.add(k);
     lines.push(
-      `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them, so the seal judges them all on this head`,
+      `${file} ${from === 'base' ? 'retitles out the last of its steps, ' : 'changes the tests of '}${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them, so the seal judges them all on this head`,
     );
   }
   return { ok, lines, derived: [...derived].sort(byStep) };
@@ -1372,17 +1419,46 @@ export async function revertSpent({ io, repo, pull, culprit }) {
     : null;
 }
 
-/** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
- *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
-export async function touchedSteps({ paths, head, base, text }) {
+/**
+ * The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
+ * file). `text(path, ref)` is the file's text, or null when the ref has no such file. A file whose head holds no step
+ * takes the steps its base held (`from: 'base'`): retitling a file's last `<journey> #n` out of it still touches those
+ * steps, so they are judged on the head like any other (#10825 retitled J-derivatives-04.pw.mjs's custodial #1 and #2,
+ * which J-derivatives-04-venue.pw.mjs holds, and the seal failed closed on a file with no step left). A file with no
+ * step at the head or the base lists `siblings`: the other files of its journey at the head (`journeyFiles(ref)`, their
+ * names, as io.journeyFiles gives them) that hold its numbered steps, so a journey's companion file of unnumbered checks
+ * is not refused for holding none; without `journeyFiles` it lists none, and judgeTouched fails it closed.
+ */
+export async function touchedSteps({ paths, head, base, text, journeyFiles = null }) {
   const out = [];
+  let names;
+  const dir = 'apps/customer/tests/real-app';
   for (const file of [...new Set(paths)].sort()) {
     const m = JOURNEY_TEST.exec(file);
     if (!m) continue;
-    let t = await text(file, head);
-    if (t === null) t = await text(file, base);
-    if (t === null) throw new Error(`${file} could not be read at the head or the base`);
-    out.push({ file, journey: m[1], steps: fileSteps(m[1], t) });
+    const atHead = await text(file, head);
+    const atBase = atHead === null || !fileSteps(m[1], atHead).length ? await text(file, base) : null;
+    if (atHead === null && atBase === null) throw new Error(`${file} could not be read at the head or the base`);
+    const steps = fileSteps(m[1], atHead ?? atBase);
+    if (steps.length || atHead === null) {
+      out.push({ file, journey: m[1], steps });
+      continue;
+    }
+    const before = fileSteps(m[1], atBase);
+    if (before.length) {
+      out.push({ file, journey: m[1], steps: before, from: 'base' });
+      continue;
+    }
+    const siblings = [];
+    if (journeyFiles) {
+      names ??= [...(await journeyFiles(head))].sort();
+      for (const n of names) {
+        const f = `${dir}/${n}`;
+        if (f === file || JOURNEY_TEST.exec(f)?.[1] !== m[1]) continue;
+        if (fileSteps(m[1], await text(f, head)).length) siblings.push(f);
+      }
+    }
+    out.push({ file, journey: m[1], steps: [], siblings });
   }
   return out;
 }
@@ -1830,7 +1906,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     if (!texts.has(k)) texts.set(k, Promise.resolve(io.text(f, ref)));
     return texts.get(k);
   };
-  const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
+  const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text, journeyFiles: io.journeyFiles });
   // The revert main-bisect opens (autoRevertScope): it undoes the culprit's journey tests with it, so it names no steps,
   // and it runs the journeys that failed on main and the culprit's own. Anything else on its branch is ordinary.
   const auto = await readAutoRevertScope({ io, repo, pull, number, paths });
@@ -2074,7 +2150,12 @@ export const isWaitingSeal = (j) =>
 
 /** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
 export const SEAL_INPUTS = [
-  { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
+  // Runs on every pull request (`always`), so none on the head is one still to come, never a finished input: GitHub starts
+  // no pull_request run while the pull request conflicts with its base, and may start one a minute or two after this
+  // asks. Before 25 Nov 2026 the seal read "nothing going" there and judged at once, red on "no CI ran" (ci-jobs-seal.mjs
+  // judgeCiJobs, whose own answer is `wait`): 42 of the 82 heads red on the seal alone in the 48 h to 25 Nov 00:43 UTC,
+  // 36 conflicting with main and 6 sealed before their CI run was created (INTAFACED/project-state#4047).
+  { workflow: 'ci.yml', event: 'pull_request', what: 'CI', always: true },
   { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
   // Runs only when the pull request touches its paths (#8708); with no run on the head nothing waits for it, and
@@ -2134,9 +2215,12 @@ export async function settleRuns(runs, jobsOf) {
   return out;
 }
 
+/** inputsGoing's words for an `always` input with no run on the head (waitStep reads them). */
+export const NO_RUN = 'no run on this head yet';
+
 /**
  * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
- * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
+ * input has finished. An `always` input with no run on the head counts as going (NO_RUN). Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
  * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
  * still going when `needJudge` (readGoing sets it when a pull request's change needs the review's verdict), so its seal waits for the judge exactly as for a review
@@ -2148,10 +2232,12 @@ export async function settleRuns(runs, jobsOf) {
  */
 export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unstarted = true }) {
   const out = [];
-  for (const { workflow, event, what, journeys, judge, down } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge, down, always } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
-    for (const r of runsOf?.[workflow] ?? []) {
-      if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+    const onHead = (runsOf?.[workflow] ?? []).filter((r) => r?.head_sha === sha && (!event || r?.event === event));
+    if (always && !onHead.length)
+      out.push(`${what}: ${NO_RUN} (GitHub starts none while the pull request conflicts with its base: merge main)`);
+    for (const r of onHead) {
       if (judge && !unstarted && UNSTARTED.includes(r?.status)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
       else if (journeys && r?.deferred === true)
@@ -2244,8 +2330,12 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
         return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
-    // A seal still waiting for its inputs (WAIT_STEP) reads them all once they finish: re-running it would be a second verdict.
-    if (seal.status !== 'completed' && (seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+    // A seal still waiting for its inputs (WAIT_STEP, or judge-repair.mjs's REPAIR_STEP) reads them all once they finish:
+    // re-running it would be a second verdict.
+    if (
+      seal.status !== 'completed' &&
+      (seal.steps ?? []).some((s) => [WAIT_STEP, REPAIR_STEP].includes(s?.name) && s?.status !== 'completed')
+    )
       return { act: 'done', msg: `the seal in run ${runId} is waiting for its inputs and judges once they finish` };
     if (seal.status !== 'completed')
       return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
@@ -2581,12 +2671,27 @@ async function sealNowStep({ repo, token }) {
 export function waitStep({ pull, sha, going }) {
   if (pull?.state !== 'open') return { act: 'judge', msg: `#${pull?.number} is no longer open` };
   if (pull?.head?.sha !== sha) return { act: 'judge', msg: `#${pull.number}'s head moved to ${String(pull?.head?.sha).slice(0, 10)}` };
+  // GitHub runs no CI on a pull request that conflicts with its base (inputsGoing `always`), so a seal that runs at once
+  // judges it now, as before, rather than waiting out WAIT_POLLS for a run that never starts.
+  // A draft: the CI review skips drafts, so this seal (one that runs at once: a change under .github/) waits as a running
+  // check, which blocks a merge as the seal must, and judges once `gh pr ready` has started the review. Before 25 Nov
+  // 2026 it judged at once, red on the missing review: 6 of the 82 heads red on the seal alone in the 48 h to 25 Nov
+  // 00:43 UTC (INTAFACED/project-state#4047). It never stops holding a check: a pull request's own job named `CI merge
+  // seal` could stand alone in the gap.
+  if (pull?.draft === true) return { act: 'wait', msg: `#${pull.number} is a draft, which the CI review skips: \`gh pr ready\` starts it` };
+  if (pull?.mergeable === false && going.some((g) => g.includes(NO_RUN)))
+    return { act: 'judge', msg: `#${pull.number} conflicts with its base, so no CI runs on it` };
   if (going.length) return { act: 'wait', msg: `waiting for ${going.join(', ')}` };
   return { act: 'judge', msg: 'every input on this head has finished' };
 }
 
 /** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
 export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
+/**
+ * The seal job's step that judges a change to the judges alone (judge-repair.mjs REPAIR_STEP, which this must equal:
+ * judge-repair.test.mjs). Written here, not imported, so the journeys run, which reads this file, never reads that one.
+ */
+export const REPAIR_STEP = 'A change to the judges alone: every other check green, and a PASS from the CI review';
 /**
  * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
  * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on
@@ -2732,7 +2837,9 @@ async function beforePushStep() {
   const base = sh('git', 'merge-base', 'HEAD', 'origin/main').trim();
   const paths = sh('git', 'diff', '--name-only', base, 'HEAD').split('\n').filter(Boolean);
   const text = (f, ref) => { try { return sh('git', 'show', `${ref}:${f}`); } catch { return null; } }; // prettier-ignore
-  const touched = await touchedSteps({ paths, head: 'HEAD', base, text });
+  const dir = 'apps/customer/tests/real-app';
+  const journeyFiles = () => sh('git', 'ls-tree', '--name-only', 'HEAD', `${dir}/`).split('\n').filter(Boolean).map((f) => f.slice(dir.length + 1)); // prettier-ignore
+  const touched = await touchedSteps({ paths, head: 'HEAD', base, text, journeyFiles });
   if (!touched.length) return;
   let pull = null;
   try {

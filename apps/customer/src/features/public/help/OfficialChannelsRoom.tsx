@@ -13,7 +13,7 @@ const copy = defineCopy('public.official-channels', {
   title: 'Official channels',
   intro:
     'The only web addresses, email senders and support channels that are ours. A message from anywhere else is not from us, whatever it looks like.',
-  test: 'TEST list: this stack shows a test list, not the owner’s published channels.',
+  test: 'TEST list: sample channels for this test beta. Official channels will be published before launch.',
   unpublished: 'The owner has not published the official channel list.',
   domainsTitle: 'Our web addresses',
   sendersTitle: 'Who our email comes from',

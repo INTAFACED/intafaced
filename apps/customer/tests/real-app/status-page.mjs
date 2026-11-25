@@ -30,6 +30,12 @@ export async function statusRead() {
   return data(await ctx.edge.query('notify', 'statusPage.read'), 'statusPage.read');
 }
 
+/** The platform's status feed (`notify.statusFeed`), as the app's rooms read it: components, incidents and maintenance. */
+export async function statusFeed(days = 30) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('notify', 'notify.statusFeed', { days }), 'notify.statusFeed');
+}
+
 /** Published postmortems as a signed-out visitor reads them, newest first. */
 export async function publishedPostmortems() {
   const { ctx } = await founders();

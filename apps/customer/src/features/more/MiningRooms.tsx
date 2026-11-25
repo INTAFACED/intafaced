@@ -138,7 +138,8 @@ function MiningOverview({ health }: { health: Health }) {
   );
 }
 
-function Workers() {
+/** Shared data hook for the Mining workers room (`/mining/workers`). */
+export function useMiningWorkers() {
   const api = useApi();
   const [minutes, setMinutes] = useState<WindowMinutes>(60);
   const [filter, setFilter] = useState('');
@@ -156,27 +157,30 @@ function Workers() {
   const pow = useResource((signal) => api.call(MINING_POW, undefined, { signal }), 'mining-pow');
   // Solo credit is the service's own answer; today it is always a typed refusal.
   const soloCredit = useResource((signal) => api.call(MINING_WORKERS_SOLO_CREDIT, undefined, { signal }), 'mining-solo-credit');
-  return (
-    <WorkersView
-      read={read}
-      minutes={minutes}
-      onMinutes={(next) => {
-        setCursor(null);
-        setMinutes(next);
-      }}
-      filter={filter}
-      onFilter={(next) => {
-        setCursor(null);
-        setFilter(next);
-      }}
-      paged={cursor !== null}
-      onPage={setCursor}
-      onSetDifficulty={setDifficulty}
-      onSetMode={setMode}
-      pow={pow}
-      soloCredit={soloCredit}
-    />
-  );
+  return {
+    read,
+    minutes,
+    onMinutes: (next: WindowMinutes) => {
+      setCursor(null);
+      setMinutes(next);
+    },
+    filter,
+    onFilter: (next: string) => {
+      setCursor(null);
+      setFilter(next);
+    },
+    paged: cursor !== null,
+    onPage: setCursor,
+    onSetDifficulty: setDifficulty,
+    onSetMode: setMode,
+    pow,
+    soloCredit,
+  };
+}
+
+function Workers() {
+  const state = useMiningWorkers();
+  return <WorkersView {...state} />;
 }
 
 export function WorkersView({
@@ -481,9 +485,14 @@ function DifficultyForm({
   );
 }
 
-function Shares() {
+/** Shared data hook for the Mining shares room (`/mining/shares`). */
+export function useMiningShares() {
   const api = useApi();
-  const read = useResource((signal) => api.call(MINING_SHARES_MINE, {}, { signal }), 'mining-shares');
+  return useResource((signal) => api.call(MINING_SHARES_MINE, {}, { signal }), 'mining-shares');
+}
+
+function Shares() {
+  const read = useMiningShares();
   return <SharesView read={read} />;
 }
 
@@ -542,7 +551,8 @@ export function SharesView({ read }: { read: Read<MinerShares> }) {
   );
 }
 
-function Rewards() {
+/** Shared data hook for the Mining rewards room (`/mining/rewards`). */
+export function useMiningRewards() {
   const api = useApi();
   const terms = useResource((signal) => api.call(MINING_TERMS, undefined, { signal }), 'mining-terms');
   const pending = useResource((signal) => api.call(MINING_WINDOWS_PENDING, undefined, { signal }), 'mining-pending');
@@ -561,18 +571,21 @@ function Rewards() {
       failed: !result.ok,
     }));
   }
-  return (
-    <RewardsView
-      terms={terms}
-      pending={pending}
-      payouts={firstPage}
-      extra={more?.rows ?? []}
-      hasMore={next !== null}
-      busy={more?.busy ?? false}
-      moreFailed={more?.failed ?? false}
-      onMore={() => void showMore()}
-    />
-  );
+  return {
+    terms,
+    pending,
+    payouts: firstPage,
+    extra: more?.rows ?? [],
+    hasMore: next !== null,
+    busy: more?.busy ?? false,
+    moreFailed: more?.failed ?? false,
+    onMore: () => void showMore(),
+  };
+}
+
+function Rewards() {
+  const state = useMiningRewards();
+  return <RewardsView {...state} />;
 }
 
 export function RewardsView({

@@ -81,9 +81,10 @@ export function readScan(input: string, appChainId: number = APP_CHAIN_ID): Scan
 /** The code the Receive section draws: an EIP-681 address on the app's network, so a scanning wallet picks the right one. */
 export const receivePayload = (address: string, chainId: number = APP_CHAIN_ID) => `ethereum:${address}@${chainId}`;
 
-/** The network's own currency, a fact of each chain (Base Sepolia's is test ETH). An unlisted network has none here. */
+/** The network's own currency, a fact of each chain (Base Sepolia's and 421614's, where the venue's test deposits sit, are test ETH). An unlisted network has none here. */
 const NATIVE: Readonly<Record<number, { symbol: string; decimals: number }>> = {
   84532: { symbol: 'ETH', decimals: 18 },
+  421614: { symbol: 'ETH', decimals: 18 },
   31337: { symbol: 'ETH', decimals: 18 },
 };
 export const nativeCurrency = (chainId: number = APP_CHAIN_ID) => (Object.hasOwn(NATIVE, chainId) ? NATIVE[chainId]! : null);

@@ -168,7 +168,6 @@ const heroText = (page) =>
 /** A Volt kit size token as the room resolves it, in px ("--lit-control-h" is 48). */
 const token = (page, name) =>
   page.evaluate((n) => parseFloat(getComputedStyle(document.querySelector('.lt-room')).getPropertyValue(n)), name);
-/** The page's rem in px (the kit's sizes with no token are written in rem). */
 /** A colour token as the browser draws it: a probe painted with it, read back as rgb(). */
 const tokenColour = (page, name) =>
   page.evaluate((n) => {
@@ -179,6 +178,10 @@ const tokenColour = (page, name) =>
     probe.remove();
     return colour;
   }, name);
+/** The kit's row height (`--lit-row-h`) in px: Activity is drawn in Volt, so its rows and their skeletons take the kit's row. */
+const kitRow = async (page) =>
+  parseFloat(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--lit-row-h')));
+/** The page's rem in px (the kit's sizes with no token are written in rem). */
 const rem = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
 const rowHeight = (page) => token(page, '--lit-row-h');
 const expectHero = (page, text) => expect.poll(() => heroText(page).catch(() => null), { timeout: 7000 }).toBe(text);
@@ -860,18 +863,10 @@ test('activity opens on All, with Trades one tab along', async ({ page }) => {
   await mock(page);
   await open(page, '/money/activity');
   await expect(page.locator('h1')).toHaveText('Activity');
-  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual([
-    'All',
-    'Trades',
-    'Orders',
-    'Deposits',
-    'Transfers',
-    'Fees',
-    'Entries',
-  ]);
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+  expect(await texts(page.locator('[role="tab"]'))).toEqual(['All', 'Trades', 'Orders', 'Deposits', 'Transfers', 'Fees', 'Entries']);
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('All');
   await open(page, '/money/activity?tab=nonsense');
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('All');
 });
 
 test('activity Trades tab is built from fills: one row per trade with price, total and fee (critic H2)', async ({ page }) => {
@@ -882,7 +877,7 @@ test('activity Trades tab is built from fills: one row per trade with price, tot
   const api = await mock(page);
   await open(page, '/money/activity?tab=trades');
   await expect(page.locator('h1')).toHaveText('Activity');
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('Trades');
   expect(await texts(page.getByTestId('money-trade-tab').locator('thead th'))).toEqual(['Time', 'Trade', 'Price', 'Total', 'Fee']);
   const rows = page.getByTestId('money-trade-tab').locator('tbody tr');
   await expect(rows).toHaveCount(2);
@@ -900,7 +895,7 @@ test('activity Trades tab is built from fills: one row per trade with price, tot
     '128.000000 USDT',
     '0.128 USDT',
   ]);
-  expect(Math.round((await rows.first().boundingBox()).height)).toBe(48);
+  expect(Math.round((await rows.first().boundingBox()).height)).toBe(await kitRow(page));
   expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
   // The ledger is not read for this tab, and the same request the desk makes feeds it.
   expect(api.calls('activity.list')).toHaveLength(0);
@@ -945,7 +940,7 @@ test('activity ?asset= narrows Trades and All to one coin, shows a removable chi
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   // Switching tab keeps the coin; removing the chip clears only the coin.
   await open(page, '/money/activity?tab=all&asset=BTC');
-  await page.locator('[data-slot="tabs-tab"]', { hasText: 'Deposits' }).click();
+  await page.locator('[role="tab"]', { hasText: 'Deposits' }).click();
   await expect(page).toHaveURL(/tab=deposits&asset=BTC$/);
   await snap(page, 'activity-asset-chip-1440x900');
   await chip('BTC').click();
@@ -955,7 +950,7 @@ test('activity ?asset= narrows Trades and All to one coin, shows a removable chi
 test('activity Orders tab shows open orders with Cancel and the order history (critic H2)', async ({ page }) => {
   await mock(page);
   await open(page, '/money/activity?tab=orders');
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Orders');
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('Orders');
   expect(await texts(page.getByTestId('money-trade-tab__head'))).toEqual(['Open orders', 'Order history']);
   const tables = page.getByTestId('money-trade-tab').locator('table');
   await expect(tables).toHaveCount(2);
@@ -972,9 +967,9 @@ test('every link that means "my orders" lands on the Orders tab', async ({ page 
   await simple(page);
   await mock(page);
   await open(page, '/money/activity?tab=orders');
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Orders');
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('Orders');
   await open(page, '/money/activity?tab=nonsense');
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('All');
 });
 
 test('All: the lines of one order share an orderId and are one row; a cancelled order is one row (critic H2, N2)', async ({ page }) => {
@@ -1023,12 +1018,12 @@ test('All shows a resting order as one "Set aside" row, never as completed money
   await expect(page.getByTestId('money-act__done')).toHaveCount(0);
 });
 
-test('Pro Activity rows are 40 px', async ({ page }) => {
+test("Pro Activity rows take the kit's row height", async ({ page }) => {
   await mock(page);
   await pro(page);
   await open(page, ALL);
   await expect(page.getByTestId('money-act')).toHaveCount(10);
-  expect(Math.round((await page.getByTestId('money-act').first().boundingBox()).height)).toBe(40);
+  expect(Math.round((await page.getByTestId('money-act').first().boundingBox()).height)).toBe(await kitRow(page));
 });
 
 test('activity: rows in plain words, signed amounts, local time, completed', async ({ page }) => {
@@ -1038,7 +1033,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   const api = await mock(page);
   await open(page, ALL);
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('All');
   const rows = page.getByTestId('money-act');
   // 12 ledger lines on page one are 10 rows: the fill's three lines are one Trade; the loose "other" line is listed.
   await expect(rows).toHaveCount(10);
@@ -1095,7 +1090,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     '7 Oct, 09:00',
   ]);
   expect(new Set(await texts(page.getByTestId('money-act__done')))).toEqual(new Set(['Completed']));
-  expect(Math.round((await rows.first().boundingBox()).height)).toBe(48);
+  expect(Math.round((await rows.first().boundingBox()).height)).toBe(await kitRow(page));
   expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
 
   // Paging: "Load more" asks for the next page with the cursor and appends it.
@@ -1161,7 +1156,7 @@ test('activity tabs filter the rows, keep the address in step, and look further 
 
   // Back and forward follow the tabs.
   await page.goBack();
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Transfers');
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText('Transfers');
 });
 
 test('a coin filter with no match in the pages read keeps Load more and does not claim there is none', async ({ page }) => {
@@ -1286,7 +1281,8 @@ test('activity loading shows 8 final-size skeleton rows; a failed "load more" ke
   const api = await mock(page, { bank: { 'activity.list': null } });
   await open(page, ALL);
   expect(await page.getByTestId('money-act-skeleton__row').count()).toBe(8);
-  expect(Math.round((await page.getByTestId('money-act-skeleton__row').first().boundingBox()).height)).toBe(56);
+  // Final size: a skeleton row is as tall as the row it stands for, so nothing moves when the rows arrive.
+  expect(Math.round((await page.getByTestId('money-act-skeleton__row').first().boundingBox()).height)).toBe(await kitRow(page));
   await shootBoth(page, 'activity-loading');
   await api.release();
   await expect(page.getByTestId('money-act')).toHaveCount(10);
@@ -1421,7 +1417,7 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
   }
   // At 390 px the tab row scrolls on its own, and a link to the last tab opens with that tab in view.
   await open(page, '/money/activity?tab=ledger');
-  const active = page.locator('[data-slot="tabs-tab"][data-active]');
+  const active = page.locator('[role="tab"][aria-selected="true"]');
   await expect(active).toHaveText('Entries');
   const [tabBox, rowBox] = [await active.boundingBox(), await page.getByTestId('money-tabs').boundingBox()];
   // Within a pixel: the row scrolls by whole pixels and the tab edge can sit a fraction past it.

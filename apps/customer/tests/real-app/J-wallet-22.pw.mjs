@@ -94,7 +94,7 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
     const blankDevice = await device(blankPage);
     await openRoom(blankPage, who);
     await expect(panel(blankPage).locator('[data-embedded-provider]')).toHaveCount(0);
-    await blankPage.getByRole('button', { name: 'Create my wallet' }).click();
+    await blankPage.getByRole('button', { name: 'Create my wallet', exact: true }).click();
     await expect(blankPage.getByText('No wallet provider is set', { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(blankPage.getByText('No embedded-wallet provider is set, so no wallet can be made. Nothing was made.')).toBeVisible();
     await expect(blankPage.getByText('wallet.embedded_provider_unset')).toBeVisible();
@@ -117,8 +117,8 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
     const regionDevice = await device(regionPage);
     await openRoom(regionPage, who);
     await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible({ timeout: 20_000 });
-    await regionPage.getByRole('button', { name: 'Create my wallet' }).click();
-    await expect(regionPage.getByRole('button', { name: 'Create my wallet' })).toBeEnabled();
+    await regionPage.getByRole('button', { name: 'Create my wallet', exact: true }).click();
+    await expect(regionPage.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
     await expect(regionPage.getByText(`Your own wallet is not available where you are: ${REGION_REASON}. Nothing was made.`)).toBeVisible();
     await expect(regionPage.getByText('denied.region_blocked')).toBeVisible();
     expect(await regionDevice.held()).toEqual([]);
@@ -135,7 +135,7 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
   // Served, with the provider set: the room names where the key is kept and that only the person can sign with it.
   await openRoom(page, who);
   await expect(panel(page).locator('[data-embedded-provider]')).toHaveText(KEPT_BY);
-  await expect(page.getByRole('button', { name: 'Create my wallet' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
   expect(await phone.held()).toEqual([]);
   expect((await recorded(who)).provider).toEqual({
     id: 'test',
@@ -151,7 +151,7 @@ test(`${J} #2 creates it with a passkey: an address on the venue's network, labe
   const { who } = state();
   const phone = await device(page);
   await openRoom(page, who);
-  await page.getByRole('button', { name: 'Create my wallet' }).click();
+  await page.getByRole('button', { name: 'Create my wallet', exact: true }).click();
   const address = panel(page).locator('[data-embedded-address]');
   await expect(address).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 20_000 });
   await expect(panel(page).locator('[data-test-label]')).toHaveText('TEST');
@@ -458,7 +458,10 @@ async function testVenue(path, body) {
 const venueAccount = async (owner) => ({ venueId: (await testVenue('/venue')).venue.id, owner: owner.toLowerCase(), subAccount: null });
 /** The venue's own list of agents on the person's main account. */
 const venueAgents = async (owner) => (await testVenue('/agents', { account: await venueAccount(owner) })).value;
-const unnamedAgents = async (owner) => (await venueAgents(owner)).filter((a) => a.name === '').map((a) => a.address);
+/** The name svc-trade approves every session key under (session-key.ts `SESSION_KEY_NAME`): the venue takes an expiry
+ * only on a named agent, and a new key under the same name replaces the last. */
+const SESSION_KEY_NAME = 'trading-session';
+const sessionAgents = async (owner) => (await venueAgents(owner)).filter((a) => a.name === SESSION_KEY_NAME).map((a) => a.address);
 
 const sessionPanel = (page) => page.locator('[data-panel="trading-session"]');
 /** Every wallet signature asked of the provider on this page: one passkey prompt each (the challenge is not one). */
@@ -486,10 +489,11 @@ async function startSession(page) {
 test(`${J} #8 starts a trading session and places two orders: one approval after the passkey for a fresh session key that trades and never withdraws, with its expiry; both orders signed by it with no second prompt; signing out or the expiry ends it, and the next session approves a new key, never an old one again`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const s0 = walletState();
-  const { who, address, credential } = s0;
+  const { who, address, walletId, credential } = s0;
   // Trading on the venue needs a verified account (the trade jurisdiction's tier); the journey's person verifies once.
   if (!s0.verified) {
     // verify() acts as the signed-in person, so this fresh page signs in first (it signs out again after).
@@ -508,7 +512,31 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     depositRef: `j-wallet-22:${runId}:${client.userId}:usdc`,
   });
 
-  await device(page, [credential]);
+  const phone = await device(page, [credential]);
+  // Each passkey request the page makes of the browser: one per prompt the person answers. The authenticator's own
+  // count is not one per prompt: with the wallet's two bound passkeys (#5 added the recovery one) Chromium's virtual
+  // authenticator signs twice for a single request, so the prompt is counted where the page asks.
+  await page.addInitScript(() => {
+    const get = navigator.credentials.get.bind(navigator.credentials);
+    window.__passkeyRequests = [];
+    navigator.credentials.get = (options) => {
+      window.__passkeyRequests.push((options?.publicKey?.allowCredentials ?? []).length);
+      return get(options);
+    };
+  });
+  const passkeyRequests = () => page.evaluate(() => window.__passkeyRequests.length);
+  const signCount = async () => (await phone.held()).find((c) => c.credentialId === credential.credentialId).signCount;
+  // The provider signs nothing for this wallet without a passkey assertion.
+  const bare = await page.request.post(`${PASSKEY_ORIGIN}/__test-wallet-provider/client/signtyped`, {
+    data: { walletId, payload: { typedData: {} } },
+  });
+  expect(bare.status(), 'a typed-data signature with no passkey assertion is refused').toBeGreaterThanOrEqual(400);
+  // The device reports its credential id in base64, the page sends it in base64url.
+  const bound = Buffer.from(credential.credentialId, 'base64').toString('base64url');
+  const signedTyped = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/__test-wallet-provider/client/signtyped') signedTyped.push(r.postDataJSON());
+  });
   const prompts = walletPrompts(page);
   const prepares = [];
   const submits = [];
@@ -540,18 +568,28 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
 
   // ── One approval, after the passkey, for a fresh key with its expiry ────────────────────────────────────────────
   prompts.length = 0;
+  signedTyped.length = 0;
+  const passkeysBefore = await signCount();
+  const requestsBefore = await passkeyRequests();
   const startedAt = Date.now();
   const first = await startSession(page);
   expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
   expect(first).toMatch(/^0x[0-9a-f]{40}$/);
+  // After the passkey: the page asked for it once, the device answered, and the one approval the page sent the provider
+  // carried that assertion, from the wallet's bound passkey, over typed data that approves this session key.
+  expect(await passkeyRequests()).toBe(requestsBefore + 1);
+  expect(await signCount()).toBeGreaterThan(passkeysBefore);
+  expect(signedTyped).toHaveLength(1);
+  expect(signedTyped[0]).toMatchObject({ walletId, assertion: { credentialId: bound } });
+  expect(JSON.stringify(signedTyped[0].payload).toLowerCase()).toContain(first.slice(2));
   expect(first).not.toBe(address.toLowerCase());
   await expect(panel.getByText(`Session on. Your session key can trade on ${VENUE_NAME} and can never withdraw.`)).toBeVisible();
   const expiresAt = Date.parse(await panel.getByTestId('session-expires').getAttribute('datetime'));
   expect(expiresAt).toBeGreaterThan(startedAt);
   expect(expiresAt).toBeLessThanOrEqual(Date.now() + 8 * 60 * 60 * 1000);
-  // The venue's own record: the key is approved on the person's account, unnamed, with that expiry.
+  // The venue's own record: the key is approved on the person's account, under the session key's name, with that expiry.
   const listed = (await venueAgents(address)).find((a) => a.address === first);
-  expect(listed).toEqual({ address: first, name: '', validUntil: new Date(expiresAt).toISOString() });
+  expect(listed).toEqual({ address: first, name: SESSION_KEY_NAME, validUntil: new Date(expiresAt).toISOString() });
   // INTAFACED holds the address and the venue's answer, never the key.
   const held = await heldInTab(page, client.userId);
   expect(held.address).toBe(first);
@@ -570,7 +608,9 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     await expect(panel.locator('[data-session-orders] li')).toHaveCount(n, { timeout: 20_000 });
   }
   await expect(panel.getByText(`Order on ${VENUE_NAME}: open. Signed by your session key, with no passkey.`)).toBeVisible();
+  await stepPicture(page);
   expect(prompts).toHaveLength(1);
+  expect(await passkeyRequests(), 'the two orders asked for no passkey').toBe(requestsBefore + 1);
   const orderPrepares = prepares.filter((b) => b.intent?.kind === 'place_order');
   expect(orderPrepares.map((b) => b.signer)).toEqual([
     { role: 'agent', address: first },
@@ -622,12 +662,27 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   // it on, with no second prompt.
   expect(answers.at(-1)?.outcome).toEqual({ definite: false, reason: 'timeout' });
   expect(prompts).toHaveLength(2);
-  expect(await unnamedAgents(address)).toEqual([second]);
+  expect(await sessionAgents(address)).toEqual([second]);
 
   // ── A second device's session replaces the first device's key; the first device says so in words ────────────────
   const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
   try {
     const b = await other.newPage();
+    // The bearer of b's current sign-in, as its own requests send it: an order the test prepares "on b" is b's sign-in's.
+    let bBearer = null;
+    b.on('request', (r) => {
+      const auth = r.headers().authorization;
+      if (auth && new URL(r.url()).pathname.startsWith('/api/v1/venue/')) {
+        bBearer = { url: new URL(r.url()).origin, origin: r.headers().origin ?? new URL(b.url()).origin, auth };
+      }
+    });
+    const asB = async (route, body) => {
+      const res = await b.request.post(`${bBearer.url}${route}`, {
+        headers: { authorization: bBearer.auth, origin: bBearer.origin },
+        data: body,
+      });
+      return { status: res.status(), body: await res.json().catch(() => null) };
+    };
     await device(b, [credential]);
     const bPrompts = walletPrompts(b);
     await openRoom(b, who);
@@ -635,7 +690,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     const third = await startSession(b);
     expect(bPrompts).toEqual(['/__test-wallet-provider/client/signtyped']);
     expect([first, second]).not.toContain(third);
-    expect(await unnamedAgents(address)).toEqual([third]);
+    expect(await sessionAgents(address)).toEqual([third]);
     await page.reload();
     await expect(
       sessionPanel(page).getByText(
@@ -652,9 +707,10 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
       sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
     ).toBeVisible({ timeout: 30_000 });
     expect(bPrompts).toHaveLength(2);
-    expect(await unnamedAgents(address)).toEqual([]);
+    expect(await sessionAgents(address)).toEqual([]);
     expect(await heldInTab(b, client.userId)).toBeNull();
-    const after = await client.post('/api/v1/venue/prepare', {
+    // Prepared in the sign-in that started the session, so the venue itself refuses the revoked key.
+    const after = await asB('/api/v1/venue/prepare', {
       owner: address.toLowerCase(),
       signer: { role: 'agent', address: third },
       intent: {
@@ -676,15 +732,38 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     // ── Signing out ends it for the device: the next sign-in has no session, and starts a new key ─────────────────
     const fourth = await startSession(b);
     expect(bPrompts).toHaveLength(3);
+    const signedOutBearer = bBearer.auth;
     await signOutBrowser(other);
     await openRoom(b, who);
     await expect(sessionPanel(b).getByRole('button', { name: 'Start trading session' })).toBeVisible({ timeout: 20_000 });
     await expect(sessionPanel(b).locator('[data-session-key]')).toHaveCount(0);
     // The key the tab kept from before the sign-out is dropped, never used again.
     await expect.poll(() => heldInTab(b, client.userId)).toBeNull();
+    // The key from before the sign-out signs nothing now, before any new session and while the venue still lists it: an
+    // order signed by it, prepared in the new sign-in, is refused.
+    expect(await sessionAgents(address)).toEqual([fourth]);
+    await expect.poll(() => bBearer.auth !== signedOutBearer || null, { timeout: 20_000 }).toBe(true);
+    const afterSignOut = await asB('/api/v1/venue/prepare', {
+      owner: address.toLowerCase(),
+      signer: { role: 'agent', address: fourth },
+      intent: {
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'buy',
+        type: 'limit',
+        amount: '0.001',
+        price: '59000',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: `order:${client.userId}:j-wallet-22-8:signed-out`,
+        builderFee: null,
+      },
+    });
+    expect(afterSignOut.status, JSON.stringify(afterSignOut.body)).toBe(403);
+    expect(afterSignOut.body.intafacedCode).toBe('trade.venue_session_signed_out');
     const fifth = await startSession(b);
     expect(bPrompts).toHaveLength(4);
-    expect(await unnamedAgents(address)).toEqual([fifth]);
+    expect(await sessionAgents(address)).toEqual([fifth]);
     const used = [first, second, third, fourth, fifth];
     expect(new Set(used).size).toBe(5);
 
@@ -694,7 +773,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
       expect(again.status, JSON.stringify(again.body)).toBe(409);
       expect(again.body.intafacedCode).toBe('trade.venue_session_key_reused');
     }
-    expect(await unnamedAgents(address)).toEqual([fifth]);
+    expect(await sessionAgents(address)).toEqual([fifth]);
     await sessionPanel(b).getByRole('button', { name: 'End trading session' }).click();
     await expect(
       sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
@@ -704,4 +783,109 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   } finally {
     await other.close();
   }
+});
+
+/** The name the page announces the person's TEST wallet under (EIP-6963), for every room that offers a browser wallet. */
+const ANNOUNCED = 'INTAFACED wallet (TEST)';
+
+test(`${J} outside: the wallet is a browser wallet for the rest of the app: Money's wallet panel offers Connect ${ANNOUNCED} and connects it, and the futures desk places and cancels an order it signs after the passkey`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const s0 = walletState();
+  const { who, address, credential } = s0;
+  if (!s0.verified) {
+    await signIn(page, who);
+    await verify(page, who);
+    run.write({ verified: true });
+  }
+  const owner = address.toLowerCase();
+  await device(page, [credential]);
+  const prompts = walletPrompts(page);
+  const submits = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/api/v1/venue/submit') submits.push(r.postDataJSON());
+  });
+  await signIn(page, who);
+
+  // Money, through the menu: its wallet panel offers the person's own wallet by name, and connecting it asks no passkey.
+  await page.getByRole('link', { name: 'Money', exact: true }).first().click();
+  const wallet = page.getByTestId('venue-wallet').first();
+  const connect = wallet.getByRole('button', { name: `Connect ${ANNOUNCED}`, exact: true });
+  await expect(connect).toBeVisible({ timeout: 30_000 });
+  await expect(wallet).not.toContainText('No wallet found in this browser');
+  await connect.click();
+  await expect(wallet.getByTestId('venue-wallet-address')).toHaveText(owner);
+  await stepPicture(page);
+  expect(prompts).toEqual([]);
+
+  // The futures desk finds it connected, with no second Connect, and its order is signed by the wallet after the passkey.
+  await page.goto('/trade/futures');
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('venue-wallet-address').first()).toHaveText(owner, { timeout: 20_000 });
+  const before = (await testVenue('/open-orders', { account: await venueAccount(address) })).value.length;
+  // The contract's leverage is a signed setting on the venue, before the first order: the wallet signs it, after the passkey.
+  const margin = page.getByTestId('venue-margin');
+  const sign = () =>
+    page
+      .getByRole('dialog', { name: 'Check before you sign', exact: true })
+      .getByRole('button', { name: 'Continue in wallet', exact: true })
+      .click();
+  await page
+    .getByRole('button', { name: /^BTC-PERP · / })
+    .first()
+    .click();
+  const leverage = margin.getByTestId('venue-leverage-current');
+  await expect(leverage).toHaveText(/^(None set on the venue|Set on the venue)/, { timeout: 20_000 });
+  if ((await leverage.textContent()).startsWith('None set')) {
+    await margin.locator('[data-mode="isolated"] input').check();
+    await margin.getByRole('textbox', { name: 'Leverage (times)', exact: true }).fill('10');
+    await margin.getByRole('button', { name: 'Sign this leverage setting', exact: true }).click();
+    await sign();
+    await expect(margin.getByTestId('venue-outcome')).toContainText('The venue accepted it.', { timeout: 20_000 });
+    await expect(leverage).toHaveText('Set on the venue: 10x, Isolated', { timeout: 20_000 });
+    expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+    expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+    prompts.length = 0;
+  }
+  const ticket = page.getByTestId('venue-ticket');
+  await page
+    .getByRole('button', { name: /^BTC-PERP · / })
+    .first()
+    .click();
+  await ticket.getByRole('button', { name: 'Long', exact: true }).click();
+  await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
+  await ticket.getByRole('textbox', { name: 'Size (BTC)', exact: true }).fill('0.001');
+  await ticket.getByRole('textbox', { name: 'Price', exact: true }).fill('59000');
+  const asset = ticket.getByRole('combobox', { name: 'Margin asset', exact: true });
+  if (await asset.isVisible()) await asset.selectOption('USDC');
+  await ticket.getByRole('button', { name: 'Review long', exact: true }).click();
+  const review = page.getByTestId('venue-review');
+  // Our builder fee, when this account has not approved it yet: the wallet signs that approval too, after the passkey.
+  const approve = review.getByRole('button', { name: 'Approve in wallet', exact: true });
+  await expect(review.getByRole('button', { name: /^(Open|Place) long/ })).toBeVisible();
+  if (await approve.isVisible()) {
+    await approve.click();
+    await sign();
+    await expect(approve).toHaveCount(0, { timeout: 20_000 });
+    expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+    expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+    prompts.length = 0;
+  }
+  await review.getByRole('button', { name: /^(Open|Place) long/ }).click();
+  await sign();
+  // The person's only BTC-PERP order (#8's two rest on the spot market).
+  const rows = page.getByTestId('venue-open-orders').locator('tbody tr').filter({ hasText: 'BTC-PERP' });
+  await expect(rows).toHaveCount(1, { timeout: 30_000 });
+  expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+  expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+  expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(before + 1);
+
+  // Cancel: one more signature by the wallet, after the passkey, and the venue holds the order no more.
+  await rows.first().getByRole('button', { name: 'Cancel', exact: true }).click();
+  await sign();
+  await expect(rows).toHaveCount(0, { timeout: 30_000 });
+  expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped', '/__test-wallet-provider/client/signtyped']);
+  expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(before);
 });

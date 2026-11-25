@@ -249,6 +249,29 @@ export function traderRecording(calls: readonly HlRecordedCall[], trader: string
     label: 'TEST',
     note,
     trader: TRADER,
-    calls: calls.map((c) => ({ ...c, request: hideTrader(unsigned(c.request), trader), answer: hideTrader(c.answer, trader) })),
+    calls: calls.map((c) => ({
+      ...c,
+      request: hideTrader(unsigned(c.request), trader),
+      answer: hideTrader(withoutTokenIds(c.request, c.answer), trader),
+    })),
   };
+}
+
+/**
+ * A spot listing's answer without each token's `tokenId`, as scripts/record-order.ts keeps it: the adapter never reads it,
+ * and a 32-hex id reads to a secret scanner as a key (Gitleaks finds one per token). `spotMeta` answers
+ * `{ tokens }`, `spotMetaAndAssetCtxs` answers `[{ tokens }, ctxs]`; every other answer is kept as it is.
+ */
+function withoutTokenIds(request: unknown, answer: unknown): unknown {
+  const type = isRecord(request) ? request.type : undefined;
+  const strip = (meta: unknown) =>
+    isRecord(meta) && Array.isArray(meta.tokens)
+      ? {
+          ...meta,
+          tokens: meta.tokens.map((t) => (isRecord(t) ? Object.fromEntries(Object.entries(t).filter(([k]) => k !== 'tokenId')) : t)),
+        }
+      : meta;
+  if (type === 'spotMeta') return strip(answer);
+  if (type === 'spotMetaAndAssetCtxs' && Array.isArray(answer)) return [strip(answer[0]), ...answer.slice(1)];
+  return answer;
 }

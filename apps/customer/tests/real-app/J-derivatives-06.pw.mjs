@@ -264,7 +264,9 @@ test(`${J}, the custodial Later branch, checked on our own book: adding margin t
   expect(toUnits((await me.balances()).USDT.free)).toBe(freeBefore - toUnits(ADD));
 });
 
-test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance level, shown on the position`, async ({ page }) => {
+test(`${J} #5, the custodial Later branch, checked on our own book: a pre-liquidation stop is a close order at the maintenance level, shown on the position`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   const { positionId } = run.read();

@@ -18,7 +18,7 @@ import {
 } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { fundAtPartner, holdAtPartner, partnerBookMoves, partnerMainBalance, withPartner } from './partner.mjs';
+import { fundAtPartner, holdAtPartner, partnerBookAccounts, partnerBookMoves, partnerMainBalance, withPartner } from './partner.mjs';
 
 // J-pay-01, in the running app (docs/roadmap/journeys.json): send TEST money to a person by handle and see it complete.
 // One test per step, titled "J-pay-01 #<n>", run in order on TEST accounts: A sends, B receives. INTAFACED holds none of
@@ -399,30 +399,50 @@ test(`${J} #2 types a handle in To and sees who it is, or a plain answer, and a 
 
 test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note, and sees the exact amount, the note, the source space and the fee line`, async ({
   page,
+  stepPicture,
 }) => {
   const { sender, recipient } = people();
+  const { senderId } = run.read();
+  // The accounts and balances the TEST partner bank's own book holds for A, read on loopback straight from the
+  // stand-in (partner.mjs -> venue.mjs): Send's picker, available balance and source must match them, and the
+  // ledger holds none of it.
+  const partnerUsdt = await partnerMainBalance(senderId, 'USDT');
+  const partnerBtc = await partnerMainBalance(senderId, 'BTC');
+  const partnerAccounts = await partnerBookAccounts(senderId);
+  expect(partnerAccounts).toEqual(
+    expect.arrayContaining([
+      { asset: 'USDT', spaceId: null, amount: partnerUsdt },
+      { asset: 'BTC', spaceId: null, amount: partnerBtc },
+    ]),
+  );
+  expect(await ledgerUsdt(sender)).toBe('0');
+
   await signIn(page, sender);
   await page.goto('/pay');
   await lookUp(page, recipient.handle);
   await expect(page.getByTestId('to-status').getByTestId('recipient-handle')).toHaveText(`@${recipient.handle}`);
 
-  // The picker lists the stablecoin first and starts on it; A also holds BTC, listed after.
+  // The picker lists the stablecoin first and starts on it; A also holds BTC, listed after, each with the partner's balance.
   // The picker is the browser's own select (the Volt kit's SelectField): its options are read and chosen in place.
   const picker = page.getByRole('combobox', { name: 'Asset to send', exact: true });
   const options = picker.getByRole('option');
   await expect(options.first()).toHaveText('USDT');
   await expect(options.filter({ hasText: 'BTC' })).toHaveCount(1);
   await expect(picker.locator('option:checked')).toHaveText('USDT');
-  // A real pick: away to BTC, whose amount the summary then reads in BTC, and back to the stablecoin.
+  await expect(page.getByTestId('pay-available')).toHaveText(`Available ${shown(partnerUsdt)} USDT`);
+  // A real pick: away to BTC, whose balance, amount and source match the partner's BTC account, and back to the stablecoin.
   await picker.selectOption({ label: 'BTC' });
   await expect(picker.locator('option:checked')).toHaveText('BTC');
+  await expect(page.getByTestId('pay-available')).toHaveText(`Available ${shown(partnerBtc)} BTC`);
   await page.getByLabel('Amount to send', { exact: true }).fill('0.005');
   await expect(page.getByTestId('pay-summary-amount')).toHaveText('0.005 BTC');
+  await expect(page.getByTestId('pay-summary-source')).toHaveText(`Your BTC account at ${PARTNER_BANK}`);
   await picker.selectOption({ label: 'USDT' });
   await expect(picker.locator('option:checked')).toHaveText('USDT');
+  await expect(page.getByTestId('pay-available')).toHaveText(`Available ${shown(partnerUsdt)} USDT`);
 
   // The amount is shown in exact units: every digit typed, nothing rounded or padded.
-  const amount = page.getByLabel('Amount to send');
+  const amount = page.getByLabel('Amount to send', { exact: true });
   await amount.fill('25.000001');
   await expect(page.getByTestId('pay-summary-amount')).toHaveText('25.000001 USDT');
   await amount.fill(AMOUNT);
@@ -471,6 +491,14 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   await amount.fill('25.5');
   await amount.fill(AMOUNT);
   await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
+  await expect(page.getByTestId('pay-summary-amount')).toHaveText(`${AMOUNT} USDT`);
+  await expect(page.getByTestId('pay-summary-source')).toHaveText(await mainSpace(sender));
+  await expect(page.getByTestId('pay-summary-note')).toHaveText(NOTE);
+  // Nothing moved on the partner's own book while picking, typing or hitting the refusal.
+  expect(await partnerMainBalance(senderId, 'USDT')).toBe(partnerUsdt);
+  expect(await partnerMainBalance(senderId, 'BTC')).toBe(partnerBtc);
+  expect(await movesOut()).toEqual([]);
+  await stepPicture();
 });
 
 test(`${J} #4 presses Review and sees amount, recipient identity, source, note, fee and today's allowance, with a first-time caution and no test payment`, async ({
