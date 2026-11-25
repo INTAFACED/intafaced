@@ -513,6 +513,18 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   });
 
   const phone = await device(page, [credential]);
+  // Each passkey request the page makes of the browser: one per prompt the person answers. The authenticator's own
+  // count is not one per prompt: with the wallet's two bound passkeys (#5 added the recovery one) Chromium's virtual
+  // authenticator signs twice for a single request, so the prompt is counted where the page asks.
+  await page.addInitScript(() => {
+    const get = navigator.credentials.get.bind(navigator.credentials);
+    window.__passkeyRequests = [];
+    navigator.credentials.get = (options) => {
+      window.__passkeyRequests.push((options?.publicKey?.allowCredentials ?? []).length);
+      return get(options);
+    };
+  });
+  const passkeyRequests = () => page.evaluate(() => window.__passkeyRequests.length);
   const signCount = async () => (await phone.held()).find((c) => c.credentialId === credential.credentialId).signCount;
   // The provider signs nothing for this wallet without a passkey assertion.
   const bare = await page.request.post(`${PASSKEY_ORIGIN}/__test-wallet-provider/client/signtyped`, {
@@ -558,12 +570,14 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   prompts.length = 0;
   signedTyped.length = 0;
   const passkeysBefore = await signCount();
+  const requestsBefore = await passkeyRequests();
   const startedAt = Date.now();
   const first = await startSession(page);
   expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
   expect(first).toMatch(/^0x[0-9a-f]{40}$/);
-  // After the passkey: the device answered for it, and the one approval the page sent the provider carried that
-  // assertion, from the wallet's bound passkey, over typed data that approves this session key.
+  // After the passkey: the page asked for it once, the device answered, and the one approval the page sent the provider
+  // carried that assertion, from the wallet's bound passkey, over typed data that approves this session key.
+  expect(await passkeyRequests()).toBe(requestsBefore + 1);
   expect(await signCount()).toBeGreaterThan(passkeysBefore);
   expect(signedTyped).toHaveLength(1);
   expect(signedTyped[0]).toMatchObject({ walletId, assertion: { credentialId: bound } });
@@ -596,6 +610,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   await expect(panel.getByText(`Order on ${VENUE_NAME}: open. Signed by your session key, with no passkey.`)).toBeVisible();
   await stepPicture(page);
   expect(prompts).toHaveLength(1);
+  expect(await passkeyRequests(), 'the two orders asked for no passkey').toBe(requestsBefore + 1);
   const orderPrepares = prepares.filter((b) => b.intent?.kind === 'place_order');
   expect(orderPrepares.map((b) => b.signer)).toEqual([
     { role: 'agent', address: first },
@@ -710,6 +725,25 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     const fifth = await startSession(b);
     expect(bPrompts).toHaveLength(4);
     expect(await sessionAgents(address)).toEqual([fifth]);
+    // The key from before the sign-out is gone from the venue too: an order signed by it is refused there.
+    const afterSignOut = await client.post('/api/v1/venue/prepare', {
+      owner: address.toLowerCase(),
+      signer: { role: 'agent', address: fourth },
+      intent: {
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'buy',
+        type: 'limit',
+        amount: '0.001',
+        price: '59000',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: `order:${client.userId}:j-wallet-22-8:signed-out`,
+        builderFee: null,
+      },
+    });
+    expect(afterSignOut.status).toBe(422);
+    expect(afterSignOut.body.intafacedCode).toBe('trade.venue.signer_not_authorised');
     const used = [first, second, third, fourth, fifth];
     expect(new Set(used).size).toBe(5);
 
