@@ -1349,8 +1349,9 @@ test(`${J} #11 the retail price improvement layer reads "Not available: priority
   await expect(page.getByTestId('mkt-not-offered-rpi')).toContainText('Not available: priority class not specified');
 
   await openVenueDesk(page, who, `/trade/spot/${mine.open.symbol}`, walletKey);
-  await expect(page.getByTestId('dk-ticker')).toContainText('Retail price improvement');
-  await expect(page.getByTestId('dk-ticker')).toContainText('Not available: priority class not specified');
+  // The line sits in Market details, off the desk's face.
+  await expect(page.getByTestId('dk-rpi')).toContainText('Retail price improvement');
+  await expect(page.getByTestId('dk-rpi')).toContainText('Not available: priority class not specified');
   await stepPicture();
 
   // An order requesting RPI is refused with trade.rpi_unavailable before any venue call or lock.

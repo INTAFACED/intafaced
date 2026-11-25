@@ -76,6 +76,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   Coin: 'Coin',
   'In orders': 'In orders',
   Actions: 'Actions',
+  'Perps margin': 'perps margin',
   'As of': 'As of',
   Deposit: 'Deposit',
   Withdraw: 'Withdraw',

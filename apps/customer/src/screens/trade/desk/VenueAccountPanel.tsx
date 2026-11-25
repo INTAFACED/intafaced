@@ -137,9 +137,20 @@ export function VenueAccountPanel({
   const clock = useClock();
   return (
     <section className="lt-panel" aria-label={t('Venue account')} data-testid="venue-account">
-      <h2 className="lt-panel-title">
-        {t('Balances')} <TestMark test={status.test} />
-      </h2>
+      {/* The head row: the title, then Deposit and Withdraw at its end, as the ref's Balances. */}
+      <div className="lt-row lt-row-between">
+        <h2 className="lt-panel-title">
+          {t('Balances')} <TestMark test={status.test} />
+        </h2>
+        <span className="lt-row">
+          <Button tone="secondary" size="sm" disabled={!owner} onClick={onDeposit}>
+            {t('Deposit')}
+          </Button>
+          <Button tone="secondary" size="sm" disabled={!owner} onClick={onWithdraw}>
+            {t('Withdraw')}
+          </Button>
+        </span>
+      </div>
       <p className="lt-note">{t('Venue account note')}</p>
       <VenueWalletRow />
       {owner && balances ? (
@@ -154,7 +165,17 @@ export function VenueAccountPanel({
             rowKey={(row) => row.asset}
             rowMarks={(row) => ({ 'data-asset': row.asset })}
             columns={[
-              { key: 'coin', label: t('Coin'), cell: (row) => <strong>{row.asset}</strong> },
+              {
+                key: 'coin',
+                label: t('Coin'),
+                cell: (row) => (
+                  <>
+                    <strong>{row.asset}</strong>
+                    {/* A unified venue account lists its perps margin beside the spot coins: named, never passed off as spot. */}
+                    {row.asset.endsWith('-PERP') ? <span className="lt-note"> {t('Perps margin')}</span> : null}
+                  </>
+                ),
+              },
               {
                 key: 'free',
                 label: t('Free'),
@@ -186,14 +207,6 @@ export function VenueAccountPanel({
           />
         </>
       ) : null}
-      <p>
-        <Button tone="secondary" disabled={!owner} onClick={onDeposit}>
-          {t('Deposit')}
-        </Button>{' '}
-        <Button tone="secondary" disabled={!owner} onClick={onWithdraw}>
-          {t('Withdraw')}
-        </Button>
-      </p>
       {withdrawal}
     </section>
   );
@@ -211,8 +224,11 @@ export function VenueWalletRow() {
           <p>
             {t('Connected')}:{' '}
             {/* An address has no spaces: lt-mono wraps anywhere inside the narrow ticket column, unlike lt-num (nowrap). */}
-            <span className="lt-mono" data-testid="venue-wallet-address">
-              {wallet.address.toLowerCase()}
+            <span className="lt-mono" data-testid="venue-wallet-address" title={wallet.address.toLowerCase()}>
+              {/* The whole address stays in the text (copy and checks read it); the desk shows its ends only. */}
+              {wallet.address.toLowerCase().slice(0, 6)}
+              <span data-part="address-middle">{wallet.address.toLowerCase().slice(6, -4)}</span>
+              <span data-part="address-end">{wallet.address.toLowerCase().slice(-4)}</span>
             </span>{' '}
             <Button tone="secondary" onClick={wallet.disconnect}>
               {v('Disconnect')}

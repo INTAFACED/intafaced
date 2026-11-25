@@ -64,7 +64,7 @@ import { useTradeAccess } from './venue-access';
 import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
-import { VenueDeskTicker, venueMaintenanceLine } from './VenueDeskTicker';
+import { VenueDeskTicker, VenueRpiLine, venueMaintenanceLine } from './VenueDeskTicker';
 import { PendingCheck } from './VenuePending';
 import { useCancelledOrders, useFilledOrders } from './venue-order-reads';
 
@@ -493,6 +493,7 @@ export function VenueSpotDesk({
       <Fold title={t('Market details')} data-testid="venue-market-details">
         <div className="lt-stack">
           <VenueLines status={status} feeLine={feeLine} />
+          <VenueRpiLine />
           <FeeCurrencyRow />
           {owner && (
             <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />

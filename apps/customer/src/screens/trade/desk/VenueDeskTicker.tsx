@@ -59,9 +59,16 @@ export function VenueDeskTicker({ market, timeZone }: { market: VenueMarket; tim
       <a className="lt-link" data-testid="dk-analytics-link" href={`/trade/analytics/${market.symbol}`}>
         {t('Market analytics')}
       </a>
-      <span className="lt-hint">
-        {t('Rpi label')}: {t('Rpi unavailable')}
-      </span>
     </div>
+  );
+}
+
+/** The venue's retail price improvement, as a line Market details shows (off the desk's face). */
+export function VenueRpiLine() {
+  const { t } = spotVenueCopy.useCopy();
+  return (
+    <p className="lt-hint" data-testid="dk-rpi">
+      {t('Rpi label')}: {t('Rpi unavailable')}
+    </p>
   );
 }
