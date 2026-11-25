@@ -3,7 +3,8 @@
 # can never sign (services/svc-identity/scripts/turnkey-live-check.ts; a second run finds the same wallet, never a
 # second); and svc-pay's own screener makes ONE match call against the four official lists for a TEST name
 # (services/svc-pay/scripts/opensanctions-live-check.ts). Each prints only its outcome; no key reaches a log.
-# The owner allowed these four keys here (project-state#3975, REVIEW.md entry of 2026-11-24).
+# The owner allowed these four keys here: project-state decision PR #4050 (his words, 25 Nov 2026: "Yes, CI and the
+# beta may use my Turnkey and OpenSanctions keys").
 #
 # Ends: with one dispatch on main: one run, a few minutes long.
 name: Vendor live check

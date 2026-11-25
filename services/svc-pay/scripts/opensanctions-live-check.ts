@@ -1,7 +1,7 @@
 import { OPENSANCTIONS_API_KEY_ENV, createOpenSanctionsScreener } from '../src/screening/opensanctions-screener.js';
 
 /**
- * The one-off live check of the owner's screening vendor (allowed by REVIEW.md, entry of 2026-11-24): the service's own
+ * The one-off live check of the owner's screening vendor (the owner allowed his keys for this check): the service's own
  * screener makes ONE match call against the four official lists, for a TEST name, and prints the answer's category
  * and factor. The key is read from the environment and never printed. An `unavailable` answer fails the run.
  */
