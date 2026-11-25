@@ -55,6 +55,8 @@ describe('the withdrawal approvals room', () => {
     expect(html).toContain('Waiting for approvals');
     expect(html).toContain('1 of 2 approvals');
     expect(html).toContain(`requestId=${id}`);
+    expect(html).toContain('The withdrawals you sent for approval, newest first.');
+    expect(html).not.toContain('shown · up to');
   });
   it('shows an honest empty state, not a made-up row', () => {
     resource = { status: 'ready', data: [] };

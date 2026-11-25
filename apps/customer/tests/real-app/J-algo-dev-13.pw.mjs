@@ -5,6 +5,7 @@ import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { tapeWindow } from './tape.mjs';
+import { criteriaDoor } from './quant-criteria.mjs';
 import { userIdOf } from './copy.mjs';
 
 // J-algo-dev-13, in the running app (docs/roadmap/journeys.json): check disclosures and promotion records before anything
@@ -21,38 +22,6 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const STRATEGY = 'TEST audited strategy';
 
 test.describe.configure({ mode: 'default' });
-
-/** svc-quant's owner-criteria door (AL-lifecycle-01), with the stack's TEST founder's operator token. */
-async function criteriaDoor() {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
-  const token = await founders.a.tradeOpsToken();
-  const data = (res, what) => {
-    const got = res.json?.result?.data;
-    if (!got) throw new Error(`${what} refused: ${res.status} ${res.text.slice(0, 300)}`);
-    return got;
-  };
-  let n = 0;
-  const stamp = `${process.env.JOURNEY_RUN_ID ?? 'local'}:${Date.now()}`;
-  return {
-    async read() {
-      return data(await ctx.edge.query('quant', 'ops.criteria.get', undefined, token), 'ops.criteria.get').criteria;
-    },
-    async set(name, value, toBoot = false) {
-      n += 1;
-      return data(
-        await ctx.edge.mutate(
-          'quant',
-          'ops.criteria.set',
-          { name, value, toBoot, reason: `LOCAL TEST ${J}`, idempotencyKey: `journey:${J}:${stamp}:${n}:${name}` },
-          token,
-        ),
-        'ops.criteria.set',
-      );
-    },
-  };
-}
 
 /** Saves a signal-rules strategy on 1 minute bars of BTC/USDT at version 1, with every risk limit set. TEST inputs. */
 async function saveSignalStrategy(page) {
@@ -117,7 +86,7 @@ const GATE = ['gate.paperMinutes', 'gate.maxDrawdownPercent'];
 
 // The gate's TEST criteria go back to blank whatever happened, so no later file reads this journey's values.
 test.afterAll(async () => {
-  const door = await criteriaDoor();
+  const door = await criteriaDoor(J);
   for (const name of GATE) await door.set(name, null, true);
 });
 
@@ -137,7 +106,7 @@ test(`${J} #3 opens the promotion audit: one stage row and one audit row for eac
   const strategyId = await page.getByTestId('quant-strategy-row').first().getAttribute('data-id');
   expect(strategyId).toBeTruthy();
 
-  const door = await criteriaDoor();
+  const door = await criteriaDoor(J);
   const before = await door.read();
   const window = await tapeWindow(60);
   let backtestRunId;

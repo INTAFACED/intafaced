@@ -1,8 +1,8 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
-  description: 'Cash and crypto rail records',
-  fundingUnavailable: 'Live funding instructions unavailable here.',
+  description: 'Add money by card or bank, and cash out',
+  fundingUnavailable: 'No bank partner is connected, so there are no bank details for adding money.',
   depositShort: 'Deposit availability',
   withdrawalShort: 'Withdrawals',
   refreshShort: 'Refresh',
@@ -43,14 +43,14 @@ const en = {
   empty: 'No transfer records yet',
   emptyNote: 'Nothing here shows a completed deposit or withdrawal.',
   noOther: 'No other records',
-  connections: 'Rail connection details',
+  connections: 'Payment partner details',
   liveUnavailable: 'Live custody is not connected here. No live destination or funding instruction is supplied by this screen.',
   deposit: 'Check deposit availability',
   withdrawal: 'Inspect withdrawals',
 } as const;
 const es = {
-  description: 'Registros de canales de efectivo y cripto',
-  fundingUnavailable: 'Aquí no hay instrucciones de ingreso reales.',
+  description: 'Añade dinero con tarjeta o banco, y retíralo',
+  fundingUnavailable: 'No hay ningún socio bancario conectado, así que no hay datos bancarios para añadir dinero.',
   depositShort: 'Disponibilidad de depósitos',
   withdrawalShort: 'Retiradas',
   refreshShort: 'Actualizar',
@@ -91,14 +91,14 @@ const es = {
   empty: 'Aún no hay registros de transferencias',
   emptyNote: 'Aquí no aparece ningún depósito ni retiro completado.',
   noOther: 'No hay otros registros',
-  connections: 'Detalles de conexión del canal',
+  connections: 'Detalles del socio de pagos',
   liveUnavailable: 'La custodia real no está conectada aquí. Esta pantalla no proporciona un destino ni instrucciones de ingreso reales.',
   deposit: 'Comprobar disponibilidad de depósitos',
   withdrawal: 'Consultar retiradas',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
-  description: 'Enregistrements des canaux fiduciaires et crypto',
-  fundingUnavailable: 'Aucune instruction de dépôt réel ici.',
+  description: 'Ajoutez de l’argent par carte ou banque, et retirez-le',
+  fundingUnavailable: 'Aucun partenaire bancaire n’est connecté, il n’y a donc pas de coordonnées bancaires pour ajouter de l’argent.',
   depositShort: 'Disponibilité des dépôts',
   withdrawalShort: 'Retraits',
   refreshShort: 'Actualiser',
@@ -139,7 +139,7 @@ const fr = {
   empty: 'Aucun enregistrement de virement pour l’instant',
   emptyNote: 'Rien ici n’indique un dépôt ou un retrait terminé.',
   noOther: 'Aucun autre enregistrement',
-  connections: 'Détails de connexion du canal',
+  connections: 'Détails du partenaire de paiement',
   liveUnavailable:
     'La garde réelle n’est pas connectée ici. Cet écran ne fournit ni destination réelle ni instructions d’approvisionnement.',
   deposit: 'Vérifier la disponibilité des dépôts',

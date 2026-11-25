@@ -6,6 +6,7 @@ import {
   assertSignatureMatches,
   assertSignerMaySign,
   refuseTestVenueOutsideTest,
+  tradesSignedByOf,
   venueClientOrderId,
   type PreparedVenueAction,
   isTestVenue,
@@ -112,8 +113,10 @@ describe('assertSignerMaySign', () => {
       'approve_builder_fee',
       'create_sub_account',
       'market_margin_transfer',
+      'move_position',
       'revoke_agent',
       'set_account_mode',
+      'set_position_mode',
       'spot_perps_transfer',
       'staking_delegate',
       'staking_transfer',
@@ -294,6 +297,22 @@ describe('refuseTestVenueOutsideTest', () => {
     expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env))).toBe('test_venue_outside_test');
   });
 
+  it('allows a TEST venue in the beta posture: APP_ENV staging and INTAFACED_BETA_POSTURE test-networks', () => {
+    expect(() => refuseTestVenueOutsideTest(sim, 'staging', 'test-networks')).not.toThrow();
+    expect(() => refuseTestVenueOutsideTest({ ...sim, proofLevel: 'partner-sandbox' }, 'staging', 'test-networks')).not.toThrow();
+  });
+
+  it.each([
+    ['prod', 'test-networks'],
+    ['staging', 'mainnet'],
+    ['staging', ''],
+    ['staging', 'TEST-NETWORKS'],
+    ['staging', undefined],
+    [undefined, 'test-networks'],
+  ])('refuses a TEST venue in APP_ENV %j with the beta switch %j', (env, betaPosture) => {
+    expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env, betaPosture))).toBe('test_venue_outside_test');
+  });
+
   it('counts every proof level but live as TEST', () => {
     expect(isTestVenue(sim)).toBe(true);
     expect(isTestVenue({ ...sim, proofLevel: 'partner-sandbox' })).toBe(true);
@@ -322,5 +341,14 @@ describe('needsReadBack', () => {
     expect(needsReadBack({ definite: true, accepted: false, refusal: { venueId: 'v', code: 'venue_rejected', detail: 'x' }, asOf })).toBe(
       false,
     );
+  });
+});
+
+describe("who signs a venue's trades (tradesSignedByOf)", () => {
+  it("a session key only where the venue declares it; the owner's wallet when it declares nothing or anything else", () => {
+    expect(tradesSignedByOf({ tradesSignedBy: 'session_key' })).toBe('session_key');
+    expect(tradesSignedByOf({ tradesSignedBy: 'owner_wallet' })).toBe('owner_wallet');
+    expect(tradesSignedByOf({})).toBe('owner_wallet');
+    expect(tradesSignedByOf({ tradesSignedBy: 'agent' as never })).toBe('owner_wallet');
   });
 });

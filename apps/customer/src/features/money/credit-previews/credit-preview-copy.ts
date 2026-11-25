@@ -72,7 +72,7 @@ const en = {
   scheduleDescription: 'The repayment schedule of a sample unsecured loan, a date change and the missed-payment policy.',
   schedule: 'Repayment schedule',
   repayment: 'Repayment',
-  repaymentN: 'Repayment {n} of {total}',
+  repaymentN: '{n} of {total}',
   newDate: 'New repayment date',
   missedPolicy: 'Missed-payment policy',
   graceDays: 'Grace days',
@@ -93,6 +93,29 @@ const en = {
   tab_repayment: 'Repayment',
   tab_usage_rules: 'Usage rules and fees',
   tab_statements: 'Statements',
+  // Each rule the bank serves (`creditCard.preview` rows), in words; the bank's item key is never shown.
+  rule_soft_eligibility_check: 'Soft eligibility check, with no mark on your credit file',
+  rule_personalised_rate: 'Your personalised rate',
+  rule_representative_apr: 'Representative APR',
+  rule_credit_card: 'Credit card: pay over time',
+  rule_charge_card: 'Charge card: pay in full each month',
+  rule_credit_limit: 'Your credit limit',
+  rule_change_limit: 'Ask to change your limit',
+  rule_pay_in_full: 'Pay in full',
+  rule_pay_early: 'Pay early',
+  rule_pay_extra: 'Pay extra',
+  rule_choose_date: 'Choose your payment date',
+  'rule_variant:daily': 'Daily repayment',
+  'rule_variant:thirty_day': '30-day repayment',
+  'rule_fee:foreign_transaction': 'Fee on a foreign transaction',
+  'rule_restricted:cash_withdrawal': 'No cash withdrawals',
+  'rule_restricted:gambling': 'No gambling',
+  'rule_restricted:crypto': 'No crypto purchases',
+  'rule_restricted:balance_transfer': 'No balance transfers',
+  'rule_restricted:money_transfer': 'No money transfers',
+  rule_statement: 'Monthly statement',
+  rule_dispute_entry: 'Dispute an entry',
+  rule_zero_liability_notice: 'You are not liable for payments you did not make',
 
   revolvingTitle: 'Revolving credit',
   revolvingDescription: 'A revolving credit line on a card: limit, statements, interest tiers, repayments, reporting and collections.',
@@ -116,5 +139,6 @@ const en = {
   item_missed_payment_steps: 'What happens after a missed payment',
 } as const;
 
+export const creditPreviewWords: Readonly<Record<string, string>> = en;
 export const creditPreviewCopy = defineCopy('money.creditPreview', en);
 export type CreditPreviewCopyKey = keyof typeof en;

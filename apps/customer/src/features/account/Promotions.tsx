@@ -2,7 +2,8 @@
 // volt-room: /uc/invitingmining
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
-import { OverviewTemplate, Sheet } from '@intafaced/ui/lit/templates';
+import { UserPlus } from 'lucide-react';
+import { FirstState, OverviewTemplate, Sheet } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import type { ApiClient } from '../../shared/api';
 import { Empty } from './kit-parts';
@@ -33,6 +34,7 @@ import {
 } from './promotions-guards';
 import { PromotionTabs, promotionsViewFor } from './promotion-tabs';
 import { callAs } from '../../shared/api';
+import { ShortReference } from '../../shared/ShortReference';
 import { IDENTITY_AFFILIATES_CREATE_SHARE, IDENTITY_AFFILIATES_REVOKE_SHARE } from '@intafaced/contracts/identity-affiliates-procedures';
 
 type Intent = {
@@ -370,7 +372,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         rooms={<PromotionTabs view={view} />}
         hero={
           <p data-testid="promotions-owner">
-            <Copy k="owner" /> · <span lang="zxx">{userId}</span>
+            <Copy k="owner" /> · <ShortReference id={userId} />
           </p>
         }
         needsYou={
@@ -509,8 +511,6 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         }
         sections={
           <div className="lt-stack">
-            {view === 'overview' && <WelcomeChecklist />}
-            {view === 'overview' && <RewardsHub />}
             <div className="lt-stack">
               {view !== 'records' && (
                 <section className="lt-stack" aria-label={t('linkTitle')}>
@@ -544,29 +544,31 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                       )}
                     </>
                   ) : (
-                    <>
-                      <h3>
-                        <Copy k="noLink" />
-                      </h3>
-                      <p className="lt-hint">
-                        <Copy k="noLinkBody" />
-                      </p>
+                    <FirstState
+                      icon={<UserPlus size={24} />}
+                      title={t('noLink')}
+                      body={t('noLinkBody')}
+                      points={[t('firstPointShare'), t('firstPointInvitees'), t('firstPointVisits')]}
+                    >
                       <Button tone="primary" disabled={blocked} onClick={() => open('create')}>
                         <Copy k="reviewCreate" />
                       </Button>
-                    </>
+                    </FirstState>
                   )}
                   <p className="lt-hint">
                     <Copy k="lifetime" />
                   </p>
                 </section>
               )}
+              {/* A new account's first step is its link, so the link leads; the checklist and rewards follow it. */}
+              {view === 'overview' && <WelcomeChecklist />}
+              {view === 'overview' && <RewardsHub />}
               {view !== 'records' && <ReferralCode />}
               {view !== 'records' && <ShareSheet />}
               {view === 'overview' && <PartnerProgramme />}
               {view !== 'link' && (
                 <div id="promotion-referrals">
-                  <ReferralInvitees />
+                  <ReferralInvitees first={view === 'records'} />
                   <ReferralRecords />
                 </div>
               )}

@@ -257,7 +257,8 @@ test(`${J} #1 opens the application and picks the loan: its limits and rate, rat
     await page.goto(applyPage(product.id));
     const policy = page.getByTestId('loan-apply-eligibility').locator('[data-key="lending_policy"]');
     await expect(policy).toHaveAttribute('data-state', 'unmet', { timeout: 30_000 });
-    await expect(policy).toContainText('Reference: bank.loans_disabled');
+    await expect(policy).toHaveAttribute('data-code', 'bank.loans_disabled');
+    await expect(policy).not.toContainText('bank.loans_disabled');
     await workOut(page, '1000');
     await expect(page.locator('[role="alert"][data-code="bank.loans_disabled"]')).toContainText('Lending is closed');
     await expect(page.getByRole('button', { name: 'Review and open', exact: true })).toBeDisabled();

@@ -8,6 +8,7 @@
 import { useMemo } from 'react';
 import { z } from 'zod';
 import { useDataEnv, useSource } from '../../data/hooks';
+import { constantSource } from '../../data/source';
 import type { Loadable } from '../../data/types';
 
 const count = z.number().int().positive().nullable();
@@ -17,6 +18,8 @@ export const chartOwnerValuesSchema = z.object({
   drawingCap: count,
   brushPointCap: count,
   delayedBoundarySeconds: count,
+  /** The owner's stale age (row d115): a stream whose newest trade is older reads Stale; blank judges none stale. */
+  staleAgeSeconds: count,
   /** The longest main-thread task the chart may hold while ticks stream, in ms; blank while the owner has not set it. */
   renderBudgetMs: count,
   /** How far from the last price, in basis points, a chart order may be moved before the person confirms the distance. */
@@ -33,20 +36,24 @@ export const OWNER_VALUE_UNSET = 'trade.chart.owner_value_unset' as const;
 
 const OWNER_VALUES_POLL_MS = 60_000;
 
-export function useChartOwnerValues(symbol: string): Loadable<ChartOwnerValues> {
+const OFF_OWNER: Loadable<never> = { status: 'empty' };
+
+export function useChartOwnerValues(symbol: string, enabled = true): Loadable<ChartOwnerValues> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        env.poller.source<ChartOwnerValues>(
-          `chart-owner-values:${symbol}`,
-          (signal) =>
-            env.api.rest('/charts/owner-values', chartOwnerValuesSchema, { query: { symbol }, signal }) as Promise<
-              { ok: true; data: ChartOwnerValues } | { ok: false; reason: string; code?: string; status?: number }
-            >,
-          { intervalMs: OWNER_VALUES_POLL_MS },
-        ),
-      [env, symbol],
+        enabled
+          ? env.poller.source<ChartOwnerValues>(
+              `chart-owner-values:${symbol}`,
+              (signal) =>
+                env.api.rest('/charts/owner-values', chartOwnerValuesSchema, { query: { symbol }, signal }) as Promise<
+                  { ok: true; data: ChartOwnerValues } | { ok: false; reason: string; code?: string; status?: number }
+                >,
+              { intervalMs: OWNER_VALUES_POLL_MS },
+            )
+          : constantSource<ChartOwnerValues>(OFF_OWNER),
+      [env, symbol, enabled],
     ),
   );
 }
@@ -55,20 +62,22 @@ export function useChartOwnerValues(symbol: string): Loadable<ChartOwnerValues> 
  * The owner's counts alone, for a market our engine does not list (a venue market: J-charts-desk-14's venue DOM), so no
  * data class is asked for and an unknown symbol is never sent.
  */
-export function useChartOwnerCounts(): Loadable<ChartOwnerValues> {
+export function useChartOwnerCounts(enabled = true): Loadable<ChartOwnerValues> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        env.poller.source<ChartOwnerValues>(
-          'chart-owner-values',
-          (signal) =>
-            env.api.rest('/charts/owner-values', chartOwnerValuesSchema, { signal }) as Promise<
-              { ok: true; data: ChartOwnerValues } | { ok: false; reason: string; code?: string; status?: number }
-            >,
-          { intervalMs: OWNER_VALUES_POLL_MS },
-        ),
-      [env],
+        enabled
+          ? env.poller.source<ChartOwnerValues>(
+              'chart-owner-values',
+              (signal) =>
+                env.api.rest('/charts/owner-values', chartOwnerValuesSchema, { signal }) as Promise<
+                  { ok: true; data: ChartOwnerValues } | { ok: false; reason: string; code?: string; status?: number }
+                >,
+              { intervalMs: OWNER_VALUES_POLL_MS },
+            )
+          : constantSource<ChartOwnerValues>(OFF_OWNER),
+      [env, enabled],
     ),
   );
 }

@@ -1,22 +1,24 @@
+// volt-room: /pay/approvals
+// volt-room: portal:approvals
 import { useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { useResource } from '../../../../shared/resource';
-import { HaltBanner, SpanText } from '../components';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useMemberNames, useNow, useReadAt } from '../hooks';
 import { portalRefusal } from '../refusal';
 import { approvalStatuses, type Approval } from '../schemas';
 import { DateTime } from '../ui/DateTime';
-import { FilterRow, useListFilters } from '../ui/FilterRow';
-import { Freshness } from '../ui/Freshness';
-import { KpiStrip } from '../ui/Kpi';
-import { MoneyText } from '../ui/MoneyText';
-import { PortalReview } from '../ui/PortalReview';
-import { StatusChip } from '../ui/StatusChip';
+import { useListFilters } from '../ui/FilterRow';
 import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
-import { ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
+import { FilterRow, Freshness, HaltNotice, KpiStrip, MoneyText, SpanText, StatusChip } from '../volt/parts';
+import { RecordListRoom } from '../volt/RecordListRoom';
+import { Review } from '../volt/Review';
+import { ListBody, TestBanner } from './kit-parts';
+import { useListQuery } from './list-query';
+import { payoutName, whoIs } from './money-words';
+import { useTestMode } from './test-mode';
 import { mc } from './copy';
 import { useMoneyReason } from '../access/MoneyAction';
 import { usePayoutPicture } from './payout-picture';
@@ -43,8 +45,17 @@ export function useApprovalDestination() {
     a.destinationMasked ? describeDestination(t, a.destinationKind ?? '', a.destinationMasked, a.railId ?? '') : null;
 }
 
+/** `/pay/approvals` on the record-list template, for the business the access resolved. */
+export function ApprovalsRoom({ portal }: { portal: PortalApi }) {
+  return (
+    <RecordListRoom need="settlements.read">
+      {({ merchantId }) => ({ list: <Approvals portal={portal} merchantId={merchantId} /> })}
+    </RecordListRoom>
+  );
+}
+
 /** `/pay/approvals`: payout requests waiting on a second person. Nobody can approve a payout they asked for. */
-export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Approvals({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -79,7 +90,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
   const name = (a: Approval) => payoutName(t, locale, { createdAt: settledOn.get(a.settlementId) }, a);
   const ageChip = (a: Approval) =>
     a.status === 'pending' ? (
-      <span className="pp-agechip" title={t('ageTip')}>
+      <span className="lt-chip" data-status="pending" title={t('ageTip')}>
         {t('ageWaiting')} <SpanText ms={ageOf(a, now)} />
       </span>
     ) : null;
@@ -89,7 +100,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
   };
   return (
     <div className="lt-stack">
-      <HaltBanner resource={halts.resource} scopes={['payout']} />
+      <HaltNotice resource={halts.resource} scopes={['payout']} />
       <TestBanner />
       <Freshness asOf={readAt} />
       <KpiStrip
@@ -198,26 +209,13 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
           },
           { header: t('colExpires'), cell: (a) => <DateTime value={a.expiresAt} /> },
         ]}
-        card={(a) => ({
-          title: name(a),
-          time:
-            a.status === 'pending' ? (
-              <>
-                {t('ageWaiting')} <SpanText ms={ageOf(a, now)} /> · {destination(a) ?? ''}
-              </>
-            ) : (
-              <DateTime value={a.createdAt} />
-            ),
-          amount: <MoneyText value={a.amount} asset={a.assetCode} test={test} />,
-          status: <StatusChip entity="approval" value={a.status} />,
-        })}
       />
-      <p className="muted pp-note">
+      <p className="lt-hint">
         <a className="lt-link" href="/pay/settings/notifications">
           {t('apvNotify')}
         </a>
       </p>
-      <p className="muted pp-note">{t('apvOpenToDecide')}</p>
+      <p className="lt-hint">{t('apvOpenToDecide')}</p>
     </div>
   );
 }
@@ -275,7 +273,7 @@ export function ApprovalDecision({
     return portalRefusal(result.data.status === 'voided' ? 'rApprovalVoidedResult' : 'rApprovalNotLanded', 'error');
   };
   const review = (verb: string) => (
-    <dl data-testid="pp-facts" className="pp-facts">
+    <dl data-testid="pp-facts" className="lt-kv">
       <div>
         <dt>{t('decisionVerb')}</dt>
         <dd>{verb}</dd>
@@ -307,14 +305,14 @@ export function ApprovalDecision({
     </dl>
   );
   return (
-    <div data-testid="form-stack" className="form-stack pp-form pp-decision">
+    <div data-testid="form-stack" className="lt-stack">
       {isCheckedPending(approval) && (
-        <p className="pp-callout" role="note">
+        <p className="lt-hint" role="note">
           {t('checkedBanner', { who: whoIs(approval.checkerUserId!, me, names, t('mnMe')) })}
         </p>
       )}
       {overWarning && (
-        <p className="pp-callout pp-callout--warn" role="note">
+        <p className="lt-stale" role="note">
           {overWarning}
         </p>
       )}
@@ -324,7 +322,7 @@ export function ApprovalDecision({
         <small>{t('hDecisionReason')}</small>
       </label>
       <div className="lt-actions">
-        <PortalReview
+        <Review
           title={t('approve')}
           variant="primary"
           description={t('approveBody')}
@@ -334,7 +332,7 @@ export function ApprovalDecision({
           disabled={disabled}
           disabledReason={why ?? undefined}
         />
-        <PortalReview
+        <Review
           title={t('reject')}
           variant="sell"
           description={t('rejectBody')}
@@ -346,7 +344,7 @@ export function ApprovalDecision({
         />
       </div>
       {why && (
-        <p className="muted pp-note" role="note">
+        <p className="lt-hint" role="note">
           {why}
         </p>
       )}
@@ -375,18 +373,18 @@ export function CancelRequest({
   if (approval.status !== 'pending') return null;
   const why = !mine ? t('cancelOnlyMaker') : stepReason ? stepReason : !minReasonOk(reason) ? t('reasonNeeded') : undefined;
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
+    <div data-testid="form-stack" className="lt-stack">
       <label className="lt-field">
         <span>{t('cancelReason')} *</span>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={2} disabled={!mine} />
         <small>{t('hDecisionReason')}</small>
       </label>
-      <PortalReview
+      <Review
         stepUp="payout"
         title={t('cancelRequest')}
         description={t('cancelRequestBody')}
         review={
-          <dl data-testid="pp-facts" className="pp-facts">
+          <dl data-testid="pp-facts" className="lt-kv">
             <div>
               <dt>{t('colAmount')}</dt>
               <dd>
@@ -409,7 +407,7 @@ export function CancelRequest({
         disabledReason={why}
       />
       {!mine && (
-        <p className="muted pp-note" role="note">
+        <p className="lt-hint" role="note">
           {t('cancelOnlyMaker')}
         </p>
       )}

@@ -120,6 +120,9 @@ export const JOURNEY_CI = [
   'tooling/ci/journey-touch.mjs',
   'tooling/ci/journey-verdict.mjs',
   'tooling/ci/journey-verdict.test.mjs',
+  // The hosted beta's rule the verdict runs (notOnBeta).
+  'tooling/ci/beta-hides.mjs',
+  'tooling/ci/beta-proof-held.json',
   // The scoreboard's shard download ("Merge the shards").
   'tooling/ci/shard-download.mjs',
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
@@ -128,6 +131,9 @@ export const JOURNEY_CI = [
   // What finds the journeys run's reach among tooling no rule places (quietTooling).
   'tooling/ci/tooling-reach.mjs',
   'tooling/ci/post-merge-trust.mjs',
+  // Which steps the menus reach on the hosted beta's build, from the crawl's record (menu-reach.pw.mjs).
+  'tooling/ci/menu-reach.mjs',
+  'tooling/ci/menu-reach.test.mjs',
   'tooling/ci/review-marker.mjs',
   // The paths that draw a Customer room or kit part, read by the seal's review rule and the journeys pick.
   'tooling/ci/look-paths.mjs',
@@ -204,6 +210,7 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/journey-fail-fast-retries.test.mjs',
   'tooling/scripts/journey-freeze-guard.test.mjs',
   'tooling/scripts/journey-reach.test.mjs',
+  'tooling/scripts/journey-screens.test.mjs',
   'tooling/scripts/journey-world.test.mjs',
   'tooling/scripts/local-founder-seed.test.mjs',
   'tooling/scripts/local-tester-seed.test.mjs',
@@ -369,6 +376,7 @@ export const HELPER = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.mjs)$
  * look-fixtures.mjs; each ran all 32 shards, 14 Nov 2026.)
  */
 export const STACK_HELPERS = [
+  'admin.mjs',
   'agents.mjs',
   'copy.mjs',
   'desk.mjs',

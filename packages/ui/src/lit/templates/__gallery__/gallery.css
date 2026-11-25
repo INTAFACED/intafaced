@@ -22,6 +22,8 @@ body {
   box-sizing: border-box;
   padding: 16px;
   margin-inline: auto;
+  /* No shell around the gallery frame, so the band sticks to the very top. */
+  --lit-topbar-h: 0px;
 }
 
 .gallery-frame *,
@@ -121,11 +123,6 @@ body {
 
 .gallery-matrix a {
   color: var(--lit-accent-text);
-}
-
-/* No shell around the gallery frame, so the band sticks to the very top. */
-.gallery-frame {
-  --lit-topbar-h: 0px;
 }
 
 .gallery-gap {

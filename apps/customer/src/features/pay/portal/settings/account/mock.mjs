@@ -5,6 +5,11 @@ const CHILD_A = hex('c1', 1);
 const CHILD_B = hex('c2', 2);
 const REQ_PENDING = hex('d1', 1);
 
+/** A profile's own fields, without its id, version and second-approval rule (svc-pay's `ProfileFields`). */
+function fieldsOf({ merchantId: _m, version: _v, secondApprovalEnabled: _s, ...fields }) {
+  return fields;
+}
+
 /** The account pages' stand-in: business details, setup progress, activity, team filters and a small platform network. */
 export function createAccountMock(ctx) {
   const { scenario, now, state } = ctx;
@@ -32,13 +37,16 @@ export function createAccountMock(ctx) {
     statementDescriptor: null,
     industry: null,
   };
+  // Each change carries every field before and after it, and the version it was made against, as svc-pay answers.
+  const live = fieldsOf(state.profile);
   state.profileHistory = [
     {
       requestId: REQ_PENDING,
       seq: '3',
       status: 'pending',
-      before: { statementDescriptor: 'TEST SHOP' },
-      after: { statementDescriptor: 'TEST SHOP UK' },
+      before: live,
+      after: { ...live, statementDescriptor: 'TEST SHOP UK' },
+      expectedVersion: '3',
       sensitiveKeys: ['statementDescriptor'],
       changeHash: 'sha256:' + 'ab'.repeat(32),
       makerId: 'b1111111-1111-4111-8111-111111111111',
@@ -53,8 +61,9 @@ export function createAccountMock(ctx) {
       requestId: hex('d1', 2),
       seq: '2',
       status: 'applied',
-      before: { website: null },
-      after: { website: 'https://shop.test' },
+      before: { ...live, website: null },
+      after: live,
+      expectedVersion: '2',
       sensitiveKeys: [],
       changeHash: 'sha256:' + 'cd'.repeat(32),
       makerId: USER_ID,
@@ -70,7 +79,8 @@ export function createAccountMock(ctx) {
       seq: '1',
       status: 'applied_pre_kyb',
       before: emptySide,
-      after: { legalName: 'TEST Shop Ltd' },
+      after: { ...emptySide, legalName: 'TEST Shop Ltd' },
+      expectedVersion: '1',
       sensitiveKeys: ['legalName'],
       changeHash: 'sha256:' + 'ef'.repeat(32),
       makerId: USER_ID,
@@ -246,7 +256,7 @@ export function createAccountMock(ctx) {
           if (input.expectedVersion !== state.profile.version) return refuse(route, 409, 'pay.profile_version_conflict');
           const { merchantId: _m, expectedVersion: _v, reason, ...patch } = input;
           const sensitive = ['legalName', 'address', 'statementDescriptor', 'industry'].filter((k) => k in patch);
-          const before = Object.fromEntries(Object.keys(patch).map((k) => [k, state.profile[k]]));
+          const before = fieldsOf(state.profile);
           const outcome = sensitive.length ? 'pending_review' : 'applied';
           if (!sensitive.length) Object.assign(state.profile, patch);
           state.profile.version = String(Number(state.profile.version) + 1);
@@ -256,7 +266,8 @@ export function createAccountMock(ctx) {
             seq: String(state.profileHistory.length + 1),
             status: outcome === 'applied' ? 'applied' : 'pending_review',
             before,
-            after: patch,
+            after: { ...before, ...patch },
+            expectedVersion: input.expectedVersion,
             sensitiveKeys: sensitive,
             changeHash: 'sha256:' + '12'.repeat(32),
             makerId: USER_ID,

@@ -384,9 +384,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.slippage_tolerance_invalid': { ccxt: 'InvalidOrder', status: 400 },
   /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
   'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
-  /** Operator price band or open-order cap unpublished for the pair — refuse-closed, never a default. */
+  /** Operator price band, open-order cap or minimum order value unpublished for the pair — refuse-closed, never a default. */
   'trade.price_band_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.open_orders_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.min_notional_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Owner pre-trade limits (#4725). The order is well-formed but breaches a
    * published risk limit: InvalidOrder, 422, not retryable unchanged. Shrink
@@ -564,6 +565,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * 400 so a bot does not retry a missing price.
    */
   'trade.circuit_breaker_reference_unset': { ccxt: 'ExchangeError', status: 400 },
+  /** Historical book snapshot interval is blank (RC-cex-spot-05); no book dataset is built until set. */
+  'trade.history_book_interval_unset': { ccxt: 'NotSupported', status: 400 },
+  /** Requested historical dataset id does not exist (RC-cex-spot-05). */
+  'trade.history_dataset_not_found': { ccxt: 'OrderNotFound', status: 404 },
 };
 
 /**

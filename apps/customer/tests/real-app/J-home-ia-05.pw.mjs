@@ -397,7 +397,7 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   const row = popup(page).locator('[data-testid="nf-row"][data-unread]', { hasText: 'Escrow locked' });
   await expect(row).toHaveCount(1);
   expect(await row.innerText()).not.toMatch(rawKey);
-  expect(await row.innerText()).toMatch(/10 USDT locked/);
+  await expect.poll(async () => await row.innerText()).toMatch(/10 USDT locked/);
   await row.click();
   await expect(page).toHaveURL((url) => url.pathname === '/uc/order' && url.searchParams.get('tradeId') === tradeId);
   const p2pOrder = page.getByRole('main');

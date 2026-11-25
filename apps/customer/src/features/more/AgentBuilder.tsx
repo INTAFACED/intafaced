@@ -1,13 +1,15 @@
+// volt-room: /agents/new
 import { useRef, useState } from 'react';
+import { Button } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Panel } from '../../shared/ui';
 import { navigate } from '../../app/location';
-import { Read } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AGENTS_OWN_CATALOGUE, AGENTS_OWN_CREATE } from '@intafaced/contracts/agents-own-procedures';
 import { AssistantPanel } from './AgentIdentity';
 import { Refusal, refusalCode, type Failed } from './agent-room/own-agent';
+import { Failure, Panel, Read } from './agent-room/parts';
 
 /**
  * One of the person's own agents (/agents/<id>) is drawn on the kit in `agent-room/`; these names stay here for the
@@ -41,29 +43,35 @@ export function NewAgent() {
     else setRefused(res);
   }
   return (
-    <div className="more-grid">
-      <Panel title={t('templatesTitle')} role="region" aria-label={t('templatesTitle')}>
-        <p className="lt-muted">{t('templatesIntro')}</p>
-        <div className="depth-card-actions">
-          {/* The starter shows once the service says it offers it; "Start blank" is always offered and needs no read. */}
-          {catalogue.resource.status === 'ready' &&
-          catalogue.resource.data.templates.some((template) => template.id === 'service-starter') ? (
-            <Button disabled={busy} onClick={() => void start('service-starter')}>
-              {t('useServiceStarter')}
-            </Button>
-          ) : null}
-          <Button variant="secondary" disabled={busy} onClick={() => void start('blank')}>
-            {t('startBlank')}
-          </Button>
+    <FlowTemplate
+      title={t('newAgent')}
+      state={{ kind: 'ready' }}
+      step={
+        <div className="lt-stack">
+          <Panel title={t('templatesTitle')} role="region" aria-label={t('templatesTitle')}>
+            <p className="lt-muted">{t('templatesIntro')}</p>
+            <div className="lt-actions">
+              {/* The starter shows once the service says it offers it; "Start blank" is always offered and needs no read. */}
+              {catalogue.resource.status === 'ready' &&
+              catalogue.resource.data.templates.some((template) => template.id === 'service-starter') ? (
+                <Button tone="primary" disabled={busy} onClick={() => void start('service-starter')}>
+                  {t('useServiceStarter')}
+                </Button>
+              ) : null}
+              <Button tone="secondary" disabled={busy} onClick={() => void start('blank')}>
+                {t('startBlank')}
+              </Button>
+            </div>
+            {catalogue.resource.status === 'failed' ? (
+              <Read resource={catalogue.resource} retry={catalogue.reload}>
+                {() => null}
+              </Read>
+            ) : null}
+            {refused ? <Answer failed={refused} /> : null}
+          </Panel>
+          <AssistantPanel />
         </div>
-        {catalogue.resource.status === 'failed' ? (
-          <Read resource={catalogue.resource} retry={catalogue.reload}>
-            {() => null}
-          </Read>
-        ) : null}
-        {refused ? <Answer failed={refused} /> : null}
-      </Panel>
-      <AssistantPanel />
-    </div>
+      }
+    />
   );
 }

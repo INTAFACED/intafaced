@@ -1,7 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
 import { RefusalBox, Sheet, Skeleton } from '@intafaced/ui/lit/templates';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import type { Resource } from '../../../shared/resource';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
 import { payAuthoredMessage, payCopy } from '../copy';
@@ -22,6 +23,7 @@ export function MethodsFailure({ result, retry }: { result: Failed; retry?: () =
   const body = authored ?? (result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message);
   const lang = authored !== undefined ? pay.requestedLocale : result.messageCopy ? languageFor(result.messageCopy.key) : 'und';
   const signIn = result.reason === 'unauthorized';
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div role={result.reason === 'uncertain' ? 'alert' : 'status'} lang={lang}>
       <RefusalBox
@@ -82,7 +84,7 @@ export function MethodsSection({
   children: ReactNode;
 }) {
   return (
-    <section id={id} data-testid="pay-section" aria-labelledby={`${id}-title`}>
+    <section id={id} className="lt-stack" data-testid="pay-section" aria-labelledby={`${id}-title`}>
       <h2 id={`${id}-title`}>{title}</h2>
       {description ? <p className="lt-hint">{description}</p> : null}
       {children}
@@ -112,28 +114,28 @@ export function MethodsPages({
   setLimit: (limit: number) => void;
 }) {
   const full = count === limit;
+  if (!full) return null;
   return (
     <div className="lt-toolbar">
       <p className="lt-hint">
         {payCopy.t('recordsWindow', { count: String(count), limit: String(limit) })}
-        {full ? payCopy.t('moreRecordsMayExist') : ''}
+        {payCopy.t('moreRecordsMayExist')}
       </p>
-      {full && limit < max ? (
+      {limit < max ? (
         <Button tone="secondary" onClick={() => setLimit(max)}>
           {payCopy.t('showRecords', { max: String(max) })}
         </Button>
       ) : null}
-      {full && limit === max ? <p className="lt-hint">{payCopy.t('thisServiceHasNoContinuationCursorThis')}</p> : null}
+      {limit === max ? <p className="lt-hint">{payCopy.t('thisServiceHasNoContinuationCursorThis')}</p> : null}
     </div>
   );
 }
 
 /** A record's state as the service names it ("enabled", "active"), its underscores as spaces. */
 export function MethodStatus({ value }: { value: string }) {
-  // The same four kinds as the rest of Pay: refused, done, waiting, and every other state (enabled, disabled) unmarked.
-  const status = ['failed', 'rejected', 'cancelled'].includes(value)
+  const status = ['failed', 'rejected', 'cancelled', 'disabled'].includes(value)
     ? 'failed'
-    : ['captured', 'settled', 'active', 'approved'].includes(value)
+    : ['captured', 'settled', 'active', 'approved', 'enabled'].includes(value)
       ? 'done'
       : ['pending', 'open'].includes(value)
         ? 'pending'

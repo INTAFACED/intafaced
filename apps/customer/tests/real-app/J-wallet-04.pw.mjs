@@ -1,8 +1,8 @@
 // World: stack, restart
 import { createHash } from 'node:crypto';
-import path from 'node:path';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { ROOT, journeyState, tool } from './stack.mjs';
+import { journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import {
@@ -52,32 +52,17 @@ const testKey = (label) => createHash('sha256').update(`INTAFACED TEST wallet pr
 const WALLET_KEY = testKey('saved wallet');
 const OTHER_KEY = testKey('another wallet');
 
-async function noble() {
-  const { secp256k1 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/curves/secp256k1.js'));
-  const { keccak_256 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/hashes/sha3.js'));
-  return { secp256k1, keccak_256 };
-}
+/** The TEST key as a viem account: an EVM address and a wallet's `personal_sign`. */
+const accountOf = (keyHex) => privateKeyToAccount(`0x${keyHex}`);
 
-/** The EVM address of `keyHex`: the last 20 bytes of the keccak hash of its uncompressed public key. */
+/** The EVM address of `keyHex`: the last 20 bytes of the keccak hash of its uncompressed public key, in lower case. */
 async function addressOf(keyHex) {
-  const { secp256k1, keccak_256 } = await noble();
-  const pub = secp256k1.getPublicKey(Buffer.from(keyHex, 'hex'), false);
-  return `0x${Buffer.from(keccak_256(pub.subarray(1)).subarray(12)).toString('hex')}`;
+  return accountOf(keyHex).address.toLowerCase();
 }
 
-/** What a wallet's `personal_sign` returns for `message` (EIP-191, `r || s || v`), made with the bank's own libraries. */
+/** What a wallet's `personal_sign` returns for `message` (EIP-191, `r || s || v`). */
 async function personalSign(message, keyHex) {
-  const { secp256k1, keccak_256 } = await noble();
-  const body = new TextEncoder().encode(message);
-  const prefix = new TextEncoder().encode(`\x19Ethereum Signed Message:\n${body.length}`);
-  const joined = new Uint8Array(prefix.length + body.length);
-  joined.set(prefix);
-  joined.set(body, prefix.length);
-  const recovered = secp256k1.sign(keccak_256(joined), Buffer.from(keyHex, 'hex'), { prehash: false, format: 'recovered' });
-  const out = new Uint8Array(65);
-  out.set(recovered.subarray(1), 0);
-  out[64] = recovered[0] + 27;
-  return `0x${Buffer.from(out).toString('hex')}`;
+  return accountOf(keyHex).signMessage({ message });
 }
 
 /** Fills the add form and presses Save, then answers "Confirm it's you"; returns the save's own answer from the bank. */

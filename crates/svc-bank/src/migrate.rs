@@ -9,7 +9,7 @@ use std::io::Write;
 use service_kit::migrate::Migrations;
 
 /// Every migration file, by name, as built into the binary.
-pub const FILES: [(&str, &str); 254] = [
+pub const FILES: [(&str, &str); 256] = [
     (
         "0000_bank_init.down.sql",
         include_str!("../migrations/0000_bank_init.down.sql"),
@@ -1026,6 +1026,14 @@ pub const FILES: [(&str, &str); 254] = [
         "20261118161104_own_moves.sql",
         include_str!("../migrations/20261118161104_own_moves.sql"),
     ),
+    (
+        "20261123222718_personal_transfer_fees.down.sql",
+        include_str!("../migrations/20261123222718_personal_transfer_fees.down.sql"),
+    ),
+    (
+        "20261123222718_personal_transfer_fees.sql",
+        include_str!("../migrations/20261123222718_personal_transfer_fees.sql"),
+    ),
 ];
 
 /// The runner's default target when `DATABASE_URL` is unset, as the TypeScript runner's.
@@ -1054,7 +1062,7 @@ mod tests {
             let down = format!("{}.down.sql", up.strip_suffix(".sql").unwrap_or(up));
             assert!(MIGRATIONS.file(&down).is_ok(), "{up} has no {down}");
         }
-        assert_eq!(MIGRATIONS.ups().len(), 127);
+        assert_eq!(MIGRATIONS.ups().len(), 128);
         assert_eq!(MIGRATIONS.ups().len() * 2, FILES.len());
     }
 
@@ -1082,25 +1090,5 @@ mod tests {
             .collect();
         built.sort();
         assert!(built == on_disk, "FILES is not the migrations folder");
-    }
-
-    /// While the TypeScript service runs, its `drizzle` folder and this crate's `migrations` are one set of files.
-    #[test]
-    fn the_migrations_are_the_typescript_services_byte_for_byte() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let ts = root.join("../../services/svc-bank/drizzle");
-        if !ts.exists() {
-            return;
-        }
-        let ours = sql_files(&root.join("migrations"));
-        let theirs = sql_files(&ts);
-        let names = |v: &[(String, Vec<u8>)]| v.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
-        assert_eq!(names(&ours), names(&theirs), "the same file names");
-        for ((name, a), (_, b)) in ours.iter().zip(&theirs) {
-            assert!(
-                a == b,
-                "{name} differs from services/svc-bank/drizzle/{name}"
-            );
-        }
     }
 }

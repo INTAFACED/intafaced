@@ -8,7 +8,7 @@ use postgres::GenericClient;
 
 use crate::db::Store;
 use service_kit::json::Json;
-use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, mul_div_count, parse_amount};
 use service_kit::schema::js_trim;
 
 use super::trail::EFFECTIVE_SCORE;
@@ -37,13 +37,7 @@ pub fn format_fraction(value: i128) -> String {
 
 /// `a * b / d` on scaled fractions, cut toward zero (`divideScaled`).
 fn fraction_mul_div(a: i128, b: i128, d: i128) -> i128 {
-    mul_div(
-        Amount::from_scaled(a),
-        Amount::from_scaled(b),
-        Amount::from_scaled(d),
-        Rounding::Trunc,
-    )
-    .scaled()
+    mul_div_count(a, b, d, Rounding::Trunc)
 }
 
 /// `fractionOf(score, points)`: null when there are no points to divide by.

@@ -80,6 +80,84 @@ export const TRPC = {
     );
     return { ...page, items: input.limit ? items.slice(0, input.limit) : items };
   },
+  // quant: a new developer, as J-algo-dev-01 #1 starts: none of the three quick start steps done, no strategy saved,
+  // none shared with them; the sharing ID is the TEST account's own id.
+  'quant:quickStart': () => ({ strategy: false, backtest: false, paperRun: false }),
+  'quant:studio.list': () => ({ strategies: [], nextCursor: null }),
+  'quant:team.shared': () => ({ accountId: owner, strategies: [] }),
+  'quant:studio.listDeleted': () => ({ strategies: [], nextCursor: null }),
+  // The TEST plan the new developer runs under, its usage and its sandbox limits, as J-algo-dev-12 #4 sets them.
+  'quant:quota.get': () => ({
+    profile: 'TEST developer',
+    source: 'default',
+    resources: [
+      ['strategies', '0', '3'],
+      ['versions', '0', null],
+      ['concurrent_runs', '0', '2'],
+      ['paper_runs', '0', null],
+      ['runs', '0', '5'],
+      ['log_lines', '0', null],
+      ['storage', '0', '10000000'],
+      ['collaborators', '0', '2'],
+      ['notifications', '0', null],
+    ].map(([resource, used, limit]) => ({ resource, used, limit })),
+    asOf: new Date(Date.now()).toISOString(),
+  }),
+  'quant:limits.get': () => ({
+    profile: 'TEST developer',
+    source: 'default',
+    sandbox: [
+      { limit: 'wall_clock_ms', value: '5000' },
+      { limit: 'memory_bytes', value: '1000000' },
+      { limit: 'output_bytes', value: '200000' },
+    ],
+    ceilings: { maxOps: '50000', maxSource: '8000' },
+    asOf: new Date(Date.now()).toISOString(),
+  }),
+  'quant:tier.list': () => ({ current: { profile: 'TEST developer', source: 'default' }, tiers: [] }),
+  'quant:template.list': () => ({ templates: [], nextCursor: null }),
+  'quant:library.browse': () => ({ entries: [], nextCursor: null }),
+  // The sandbox runs strategies; no exchange access is set up for them.
+  'quant:sandbox.capabilities': () => ({
+    isolate: 'wired',
+    languages: ['javascript', 'typescript', 'python'],
+    venueVault: 'unset',
+    refuse: null,
+  }),
+  // The data room: one TEST market recorded for the last hour, with one ten-minute gap in its prices.
+  'quant:lake.catalogue': () => {
+    const at = (minutesAgo) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    const dataset = (kind, gap) => ({
+      kind,
+      rows: 120,
+      first: at(60),
+      last: at(0),
+      coverage: gap
+        ? [
+            { from: at(60), to: at(30) },
+            { from: at(20), to: at(0) },
+          ]
+        : [{ from: at(60), to: at(0) }],
+      gaps: gap ? [{ from: at(30), to: at(20) }] : [],
+      latest: [],
+    });
+    return {
+      captureSeconds: 30,
+      retentionDays: 30,
+      keptFrom: at(30 * 24 * 60),
+      asOf: at(0),
+      symbols: [
+        { symbol: 'TEST-BTC-USDT', capturing: true, datasets: [dataset('tick', true), dataset('book', false), dataset('fill', false)] },
+      ],
+      source: 'INTAFACED exchange public market data',
+    };
+  },
+  // protocol: the one TEST wallet the account connected; the venue account it owns is its trading account (row d115).
+  'protocol:venueWallet.status': () => ({ connections: [venueConnection()] }),
+  // pay: a personal account with no business yet (matches `bank:business.list: () => []`), so business rooms show their
+  // no-business state with one "Open a business account" menu entry and `/pay/onboarding` opens on the first setup step.
+  'pay:merchant.myAccess': () => ({ memberships: [] }),
+  'pay:merchant.me': () => null,
 };
 
 export const REST = {
@@ -90,4 +168,42 @@ export const REST = {
   'account/trades': () => fills(),
   'orders/open': () => openOrders(),
   'orders/closed': () => closedOrders(),
+  // TEST: what the venue reports in that trading account, so Home's Get started has its money step done.
+  'venue/balances': () => ({
+    venueId: 'test-venue',
+    asOf: new Date(Date.now()).toISOString(),
+    value: [{ asset: 'USDC', free: '25', locked: '0', total: '25' }],
+  }),
 };
+
+/**
+ * The REST reads the TEST account's deployment refuses, each with its typed answer: the venue door is off here, so the
+ * venue's market states refuse as off and the Markets list and /status read their own markets (J-cex-spot-14 #1 #2).
+ */
+export const REST_REFUSED = {
+  'venue/market-states': {
+    status: 404,
+    json: { code: 'NotFound', message: 'the user-venue door is off on this deployment', intafacedCode: 'trade.user_venue_off' },
+  },
+  'venue/chart-markets': {
+    status: 404,
+    json: { code: 'NotFound', message: 'the user-venue door is off on this deployment', intafacedCode: 'trade.user_venue_off' },
+  },
+  'venue/analytics': {
+    status: 404,
+    json: { code: 'NotFound', message: 'the user-venue door is off on this deployment', intafacedCode: 'trade.user_venue_off' },
+  },
+};
+
+/** The TEST wallet's connection, as svc-protocol records it: live for a month from the frozen time, never holding a key. */
+function venueConnection() {
+  const now = Date.now();
+  return {
+    address: '0x00000000000000000000000000000000000000a1',
+    chainId: 84532,
+    connectedAt: new Date(now - 86_400_000).toISOString(),
+    expiresAt: new Date(now + 30 * 86_400_000).toISOString(),
+    status: 'live',
+    holdsKey: false,
+  };
+}

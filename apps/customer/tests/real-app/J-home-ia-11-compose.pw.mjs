@@ -1,10 +1,10 @@
 // World: stack
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
+import { HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
 import { ROOT } from './stack.mjs';
 import { COMPOSE, composeSteps, run, seedService } from './tester-compose.mjs';
 
@@ -48,7 +48,8 @@ function compose(args, env, { timeout = 120_000 } = {}) {
 }
 
 /**
- * The last log lines of every compose service that failed on its own: neither running healthy, nor exited 0, nor stopped
+ * The last log lines of every compose service that failed on its own or never turned healthy (a service compose gave up
+ * waiting on still reads `starting`): neither running healthy, nor exited 0, nor stopped
  * by compose's abort (137 or 143, the signals `--abort-on-container-exit` sends), so the red names the culprit.
  */
 function notHealthyLogs(env) {
@@ -59,7 +60,9 @@ function notHealthyLogs(env) {
     .map((line) => line.split('|'))
     .filter(
       ([svc, state, health, code]) =>
-        svc && !(state === 'running' && health !== 'unhealthy') && !(state === 'exited' && ['0', '137', '143'].includes(code)),
+        svc &&
+        !(state === 'running' && (health === '' || health === 'healthy')) &&
+        !(state === 'exited' && ['0', '137', '143'].includes(code)),
     )
     .map(([svc, state, health]) => ({ svc, state: health ? `${state}, ${health}` : state }));
   return bad
@@ -72,9 +75,9 @@ function notHealthyLogs(env) {
 
 // The step's own start: a fresh compose up with the tester profile, from the documented example env and the values
 // `compose-env` writes for this state directory (LOCAL TEST settings and generated keys), on a state directory nothing
-// else has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
-// stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
-test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
+// else has written. The real-app run seeds the `pnpm local:stack` stack too (#1 in J-home-ia-11.pw.mjs); this one
+// passes only when a fresh compose up starts and its seed service runs once and reports what it made.
+test(`${J} #1 a fresh compose up with the tester profile seeds`, async ({ page, stepPicture }) => {
   test.setTimeout(30 * 60_000);
   const state = mkdtempSync(path.join(tmpdir(), 'compose-tester-'));
   const env = { APP_ENV: 'test', LOCAL_STACK_STATE: state };
@@ -120,13 +123,20 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     expect(up.out).toMatch(new RegExp(`seed: done \\(${ran.length} steps\\)$`, 'm'));
     // What it made, as its run reports it and its closing status reads it back from the compose stack's services.
     expect(up.out).toContain(`home notice: ${HOME_NOTICE_TITLE} published`);
-    expect(up.out).toMatch(new RegExp(`home inbox: 1 deposit-credited row for \\S+$`, 'm'));
-    expect(up.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  `);
+    expect(up.out).toMatch(new RegExp(`home inbox: 1 transfer-received row for \\S+$`, 'm'));
+    expect(up.out).toMatch(/ {2}wallet {2}0x[0-9a-f]{40}$/m);
     expect(up.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
-    expect(up.out).toContain(`  inbox  1 deposit-credited row  `);
+    expect(up.out).toContain(`  inbox  1 transfer-received row  `);
     // Once: the seed service has exactly one container, exited 0.
     const runs = compose(['ps', '-a', '--format', '{{.Service}} {{.State}} {{.ExitCode}}', 'seed'], env);
     expect(runs.out.trim().split('\n')).toEqual(['seed exited 0']);
+    // Healthy services as the compose edge reports them in a browser: the step's picture, while the seeded stack is up.
+    const marker = JSON.parse(readFileSync(path.join(state, 'LOCAL-TEST-STACK.json'), 'utf8'));
+    const readyRes = await page.goto(`http://127.0.0.1:${marker.ports.edge}/ready`);
+    expect(readyRes?.status()).toBe(200);
+    const ready = JSON.parse(await page.locator('pre').first().innerText());
+    expect(ready.ready).toBe(true);
+    await stepPicture();
     // The same image, started as staging or production, exits 2 with the typed refusal and seeds nothing.
     for (const appEnv of ['staging', 'production']) {
       const refused = compose(['run', '--rm', '-e', `APP_ENV=${appEnv}`, 'seed'], env);

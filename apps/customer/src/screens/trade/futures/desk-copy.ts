@@ -39,10 +39,9 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Sign in': 'Sign in',
   'Plane off title': 'Futures trading is switched off',
   'Plane off reason':
-    'The platform has switched the futures service off. Open positions stay as they are. Nothing can be opened or changed until it is switched back on.',
+    'Futures trading is currently paused. Open positions stay as they are. Nothing can be opened or changed until it resumes.',
   'No contracts title': 'No futures contract is listed',
-  'No contracts reason':
-    'The platform has not listed a futures contract on this service, so there is nothing to open. Your account and balances are unchanged.',
+  'No contracts reason': 'No futures contract is listed right now, so there is nothing to open. Your account and balances are unchanged.',
   'Empty desk reason': 'No futures contract is listed',
   'No contract': 'No contract',
   Contract: 'Contract',
@@ -69,7 +68,7 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   Candles: 'Candles',
   Line: 'Line',
   'Chart no candles title': 'No chart data for this contract',
-  'Chart no candles reason': 'The service has no price history for this contract, so no chart is drawn.',
+  'Chart no candles reason': 'No price history is available for this contract, so no chart is drawn.',
   'Chart error title': 'Couldn’t load the chart',
   'Position lines': 'Your position lines',
   'Entry line': 'Entry {price}',
@@ -93,7 +92,7 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Worst margin ratio': 'Worst margin ratio',
   'Margin calls open': 'Margin calls',
   'Risk unknown hint':
-    'Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. Shown as — until the service publishes the inputs.',
+    'Margin ratio is maintenance margin divided by margin plus unrealised PnL. Healthy, Watch and Danger mark 50%, 80% and 100%, not the liquidation trigger. Shown as — until live figures are available.',
   'Band ok': 'Healthy',
   'Band watch': 'Watch',
   'Band danger': 'Danger',

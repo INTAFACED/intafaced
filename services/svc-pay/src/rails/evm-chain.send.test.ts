@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { BroadcastClosedError, MemoryBroadcastStore } from './broadcast-store.js';
 import { parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain, EvmSendRevertedError } from './evm-chain.js';
+import { CryptoNativeAdapter, RailOutcomeUnknownError } from './crypto-native.js';
 
 const MNEMONIC = 'test test test test test test test test test test test junk';
 const HOT_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as const;
@@ -221,5 +222,53 @@ describe('EvmLiveChain sendDepth', () => {
   it('tells a reverted receipt apart, with its own depth, so it never counts as confirmed', async () => {
     expect(await depthFor('reverted')).toEqual({ reverted: true, depth: 6 });
     expect(await depthFor('reverted', 10n, 10n)).toEqual({ reverted: true, depth: 1 });
+  });
+});
+
+describe('CryptoNativeAdapter.queryPayout on a send the chain mined', () => {
+  const instruction = {
+    settlementId: 's-1:0',
+    merchantId: 'm-1',
+    amount: parseAmount('1'),
+    assetId: 'ETH',
+    window: '2026-11-23',
+    destination: { kind: 'crypto', ref: DEST },
+  };
+
+  /** The node mines the payout at block 5 with `status`, tip 10 (depth 6); `receipt` replaces the receipt read. */
+  async function paidOut(status: string, railDepth: number, receipt?: () => Promise<object | null>) {
+    const port = chain();
+    stubBroadcast(port, status);
+    const surface = Reflect.get(port, 'public') as {
+      getTransactionReceipt: (args: { hash: Hex }) => Promise<object | null>;
+      getBlockNumber: () => Promise<bigint>;
+    };
+    surface.getTransactionReceipt = receipt ?? (async ({ hash }) => (hash === TX ? { status, blockNumber: 5n } : null));
+    surface.getBlockNumber = async () => 10n;
+    const adapter = new CryptoNativeAdapter({ chain: port, secret: 'test-secret', minConfirmations: railDepth, toleranceSeconds: 300 });
+    if (status === 'success') await adapter.payout(instruction);
+    else await expect(adapter.payout(instruction)).rejects.toBeInstanceOf(RailOutcomeUnknownError);
+    return adapter.queryPayout(adapter.payoutIdempotencyKey(instruction));
+  }
+
+  it('reads a reverted send as reverted, final at the rail depth, never sent: the reconciler must not settle it', async () => {
+    expect(await paidOut('reverted', 6)).toEqual({ status: 'reverted', railRef: TX, depth: 6, final: true });
+  });
+
+  it('a revert shallower than the rail depth is not final', async () => {
+    expect(await paidOut('reverted', 7)).toEqual({ status: 'reverted', railRef: TX, depth: 6, final: false });
+  });
+
+  it('a send with no receipt yet, or a node that cannot read it, answers unknown, so the hold stays', async () => {
+    expect(await paidOut('reverted', 6, async () => null)).toEqual({ status: 'unknown' });
+    expect(
+      await paidOut('reverted', 6, async () => {
+        throw new Error('rpc down');
+      }),
+    ).toEqual({ status: 'unknown' });
+  });
+
+  it('a mined success still reads sent', async () => {
+    expect(await paidOut('success', 6)).toEqual({ status: 'sent', railRef: TX, amount: null, assetId: null });
   });
 });

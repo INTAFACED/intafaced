@@ -7,7 +7,9 @@
  * are on the client clock, because the poller stamps them when it reads. The chart forward-fills quiet intervals up to now
  * (apps/customer/src/screens/trade/chart/candles.ts), so a dead feed still draws bars at the time of reading: the age
  * shown is the newest executed trade's, never the bars'. A candle feed whose last good read is older than two polls is
- * stale; a failed read is down.
+ * stale; a failed read is down. A stream whose newest trade is older than the owner's stale age is stale too (row d115:
+ * the owner's delayed and stale ages, the same on every screen, as the feed desk judges them); a blank stale age judges no
+ * stream stale.
  */
 import type { Loadable } from '../../data/types';
 
@@ -57,6 +59,8 @@ export interface BookHaltView {
 export interface OwnerValuesView {
   dataClass: DataClass | null;
   delayedBoundarySeconds: number | null;
+  /** The owner's stale age in seconds (row d115); null while it is not set. */
+  staleAgeSeconds: number | null;
 }
 
 export interface StatusInputs {
@@ -98,6 +102,10 @@ export interface DataStatus {
   thresholdSeconds: number | null;
   /** Why the chip reads Delayed: the market's data class, or a real-time feed whose newest trade is past the boundary. */
   delayedBy: 'class' | 'age' | null;
+  /** Why the chip reads Stale: the candle reads stopped (`feed`), or the newest trade is past the owner's stale age (`age`). */
+  staleBy: 'feed' | 'age' | null;
+  /** The owner's stale age in seconds, when set. */
+  staleAgeSeconds: number | null;
   /** Order entry from the chart is refused until the market state and the book are read and open. */
   orderEntry: 'open' | 'refused';
   test: boolean;
@@ -156,8 +164,10 @@ export function dataStatus(input: StatusInputs): DataStatus {
     state: life?.state ?? null,
     stateSinceMs: life?.effectiveAt ?? null,
     thresholdSeconds: owner.status === 'ready' ? owner.data.delayedBoundarySeconds : null,
+    staleAgeSeconds: owner.status === 'ready' ? (owner.data.staleAgeSeconds ?? null) : null,
     test: life !== null && life.evidenceRefs.some((ref) => ref.startsWith(TEST_EVIDENCE_PREFIX)),
     delayedBy: null,
+    staleBy: null,
   };
   const result = (value: ChartDataChip, orderEntry: 'open' | 'refused' = 'open'): DataStatus => ({ ...base, chip: value, orderEntry });
 
@@ -167,7 +177,7 @@ export function dataStatus(input: StatusInputs): DataStatus {
   // market state or book is the same outage, so the chip names the feed's state and order entry stays refused.
   if (refusal?.code === 'lifecycle_unavailable' || refusal?.code === 'book_unavailable') {
     if (feed === 'down') return result('down', 'refused');
-    if (feed === 'stale') return result('stale', 'refused');
+    if (feed === 'stale') return { ...result('stale', 'refused'), staleBy: 'feed' };
   }
   if (refusal !== null) {
     if (refusal.code === 'loading') return result('loading', 'refused');
@@ -187,7 +197,7 @@ export function dataStatus(input: StatusInputs): DataStatus {
   }
 
   if (feed === 'down') return result('down');
-  if (feed === 'stale') return result('stale');
+  if (feed === 'stale') return { ...result('stale'), staleBy: 'feed' };
   if (feed === 'loading') return result('loading');
   if (feed === 'empty') return result('no_data');
 
@@ -196,6 +206,11 @@ export function dataStatus(input: StatusInputs): DataStatus {
   const dataClass = owner.data.dataClass;
   if (dataClass === null) return result('class_unset');
   if (dataClass === 'end_of_day') return result('end_of_day');
+  // Past the owner's stale age the stream reads Stale on a real-time or delayed market, as on the feed desk (row d115). Only a
+  // read newest trade is judged; a blank stale age judges none.
+  const staleAge = owner.data.staleAgeSeconds;
+  const pastStaleAge = lastTrade.status === 'ready' && ageSeconds !== null && staleAge !== null && ageSeconds > staleAge;
+  if (pastStaleAge) return { ...result('stale'), staleBy: 'age' };
   if (dataClass === 'delayed') return { ...result('delayed'), delayedBy: 'class' };
 
   // Real-time: the newest trade's age on the server clock against the owner's boundary. A real-time market whose newest trade

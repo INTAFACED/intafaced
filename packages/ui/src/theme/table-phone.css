@@ -1,0 +1,69 @@
+/**
+ * Phone: the older kit Table (`components/table.tsx`) stacks each row as a block, each value beside its column's name
+ * (the cell's `data-label`), the way the new look's table does (`lit/templates/templates.css`). A table wider than the
+ * phone no longer cuts its columns off at the edge or hides them in a sideways scroll.
+ *
+ * Imported after Tailwind's utilities and outside every layer (apps/customer/src/app/redesign.css), so it wins over the
+ * Table's own utility classes; `min-width` is the Table's inline style, so it alone needs !important.
+ */
+@media (max-width: 599px) {
+  [data-slot='table-scroll'] {
+    overflow-x: visible;
+  }
+  [data-slot='table-scroll'] > table {
+    display: block;
+    min-inline-size: 0 !important;
+  }
+  [data-slot='table-scroll'] > table > colgroup {
+    display: none;
+  }
+  /* The header's names stay for assistive tech; each cell shows its own. */
+  [data-slot='table-scroll'] > table > thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  [data-slot='table-scroll'] > table > thead th {
+    clip-path: inset(50%);
+  }
+  [data-slot='table-scroll'] > table > tbody {
+    display: block;
+  }
+  [data-slot='table-scroll'] > table > tbody > tr {
+    display: block;
+    block-size: auto;
+    padding-block: var(--if-space-2);
+    border-block-end: 1px solid var(--if-line);
+  }
+  [data-slot='table-scroll'] > table > tbody > tr > td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--if-space-3);
+    min-block-size: 1.75rem;
+    position: static;
+    padding-inline: 0;
+    border: 0;
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-align: end;
+  }
+  [data-slot='table-scroll'] > table > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    max-inline-size: 50%;
+    color: var(--if-fg-2);
+    text-align: start;
+  }
+  /* An empty, error or loading row's one message reads as one block across the phone, never as a labelled value. */
+  [data-slot='table-scroll'] > table > tbody > tr:is([data-slot='table-empty-row'], [data-slot='table-error-row']) {
+    border-block-end: 0;
+  }
+  [data-slot='table-scroll'] > table > tbody > tr:is([data-slot='table-empty-row'], [data-slot='table-error-row']) > td {
+    display: block;
+    text-align: start;
+  }
+}

@@ -3,7 +3,7 @@
 // and parses tolerantly (unknown keys ignored, an array and a page both accepted).
 import { z } from 'zod';
 import { amount, asset, id, linkSchema } from '../../schemas';
-import * as shared from '../schemas';
+import { evidenceFileSchema } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 const timestamp = z.string().datetime({ offset: true });
 
@@ -76,7 +76,7 @@ export const paymentRefundRowSchema = z.object({
 export type PaymentRefundRow = z.infer<typeof paymentRefundRowSchema>;
 
 /** `merchantOps.activity.list` on main (#4826). Details are an allowlist of short labels and amounts. */
-export const activityItemSchema = z.object({
+const activityItemSchema = z.object({
   id: z.string(),
   occurredAt: timestamp,
   actorId: z.string(),
@@ -88,14 +88,12 @@ export const activityItemSchema = z.object({
 export type ActivityItem = z.infer<typeof activityItemSchema>;
 
 /** `merchantControl.tiers.list` on main: this merchant's own tier, or "not configured". Only the name is read here. */
-export const ownTierSchema = z.union([
+const ownTierSchema = z.union([
   z.object({ status: z.literal('not_configured') }),
   z.object({ status: z.literal('configured'), ownTierId: z.string(), tiers: z.array(z.object({ id: z.string(), name: z.string() })) }),
 ]);
 export type OwnTier = z.infer<typeof ownTierSchema>;
 
-/** `merchantOps.disputes.getEvidence` on main: the evidence row plus its bytes, for a signed-in session only. */
-export const evidenceFileSchema = shared.evidenceSchema.extend({ contentBase64: z.string() });
 export type EvidenceFile = z.infer<typeof evidenceFileSchema>;
 
 /** `merchantOps.customers.series` on main (#4833): captured count and volume per day and asset. */

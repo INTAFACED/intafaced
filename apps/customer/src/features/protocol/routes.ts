@@ -1,3 +1,4 @@
+import { betaHides, betaRooms, type BetaRooms } from '../../app/beta-volt';
 import { matchPath } from '../../app/path-match';
 
 /**
@@ -31,6 +32,10 @@ export const WALLET_SECTIONS = {
   embedded: '/wallet/embedded',
 } as const;
 export type WalletSection = keyof typeof WALLET_SECTIONS;
+/** The wallet's sections this build shows, in order: in the beta, a section whose room it hides gets no tab (beta-volt.ts). */
+export function walletSections(list: BetaRooms | undefined = betaRooms()): WalletSection[] {
+  return (Object.keys(WALLET_SECTIONS) as WalletSection[]).filter((id) => !betaHides(WALLET_SECTIONS[id], list));
+}
 
 export interface Web3Route {
   path: string;

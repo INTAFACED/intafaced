@@ -10,6 +10,39 @@
 //
 // Every vitest config spreads it (`test: { ...TEST_BUDGET, ... }`); tooling/vitest/budget.test.mjs fails a package whose
 // tests run on vitest without it. A package that needs longer says so after the spread, as tooling/pay-sim does.
+import { fileURLToPath } from 'node:url';
 import { localWorkers } from '../scripts/local-jobs.mjs';
+import { RESULTS_ENV } from '../ci/test-results-reporter.mjs';
 
-export const TEST_BUDGET = Object.freeze({ testTimeout: 30_000, hookTimeout: 30_000, ...localWorkers() });
+/**
+ * Node's own Web Storage off in the test workers on Node 25 and later, where it is on by default: with no
+ * --localstorage-file its global `localStorage` is undefined, it stands in place of the DOM environment's (happy-dom,
+ * jsdom), and every test that reads storage fails. On Node 26 the Customer render records failed 203 of 204 at
+ * `localStorage.clear()` and the pre-push hook refused every push until the builder set
+ * NODE_OPTIONS=--no-experimental-webstorage by hand (PR #9819, 23 Nov; #10218 the first time). CI runs Node 22
+ * (.node-version), where it is off already: there this is nothing, and CI's runs are unchanged.
+ */
+export function nodeStorageOff(version = process.versions.node) {
+  return Number(version.split('.')[0]) >= 25 ? { execArgv: ['--no-experimental-webstorage'] } : {};
+}
+
+const RESULTS_REPORTER = fileURLToPath(new URL('../ci/test-results-reporter.mjs', import.meta.url));
+
+/**
+ * When CI's Tests job asks for them (INTAFACED_TEST_RESULTS, a folder), vitest's own reporters plus the one that writes
+ * what the run failed as data (tooling/ci/test-results-reporter.mjs; the Tests job's verdict, tooling/ci/base-failures.mjs,
+ * reads it). Naming any reporter replaces vitest's defaults, so they are named too, as vitest picks them: `default`, and
+ * `github-actions` on GitHub's runners. Unset, nothing: vitest picks its own.
+ */
+export function testResults(env = process.env) {
+  if (!env[RESULTS_ENV]) return {};
+  return { reporters: ['default', ...(env.GITHUB_ACTIONS === 'true' ? ['github-actions'] : []), RESULTS_REPORTER] };
+}
+
+export const TEST_BUDGET = Object.freeze({
+  testTimeout: 30_000,
+  hookTimeout: 30_000,
+  ...localWorkers(),
+  ...nodeStorageOff(),
+  ...testResults(),
+});

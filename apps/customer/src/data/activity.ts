@@ -71,6 +71,11 @@ export interface ActivityItem {
    * a move it made (svc-bank `partner-activity.ts`). Absent on a line of our own ledger.
    */
   heldAt?: { label: string };
+  /**
+   * A payment between two people: its fees as the bank recorded them when it was made. `fee` is ours, `networkFee` what
+   * the book that moved it stated; null is "not known". Absent on every other line.
+   */
+  fees?: { fee: Decimal | null; networkFee: Decimal | null };
 }
 
 const itemSchema = z
@@ -115,6 +120,10 @@ const itemSchema = z
       .object({ label: z.string().min(1) })
       .nullish()
       .transform((value) => (value ? { label: value.label } : undefined)),
+    fees: z
+      .object({ fee: z.string().nullable(), networkFee: z.string().nullable() })
+      .nullish()
+      .transform((value) => (value ? { fee: value.fee, networkFee: value.networkFee } : undefined)),
   })
   .transform(({ note, ...item }) => (note ? { ...item, paymentNote: note } : item));
 

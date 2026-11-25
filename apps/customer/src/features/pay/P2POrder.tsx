@@ -10,14 +10,13 @@ import { id, type Trade } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { orderCopy } from './p2p-order-copy';
 import { OrderRefund } from './p2p-cancel';
-import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './components';
+import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './volt/parts';
 import { shareCopy } from './personal/p2p-share-copy';
 import { TradeStatus } from './personal/P2PDepth';
 import { OrderSettlement } from './personal/Settlement';
 import { percentOf } from './portal/payments/payment-model';
 import { ContactActions } from './personal/ContactActions';
 import { CounterpartyName } from './p2p-counterparty/CounterpartyRoom';
-import './p2p-order.css';
 
 /** The other side of the order by their handle (J-p2p-02 #2), never their account id. */
 function OrderCounterparty({ pay, userId }: { pay: PersonalPayApi; userId: string }) {
@@ -35,7 +34,7 @@ export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }
   const fiat = `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`;
   const quantity = { amount: displayAmount(trade.amount), asset: trade.asset };
   return (
-    <section className="p2p-order-result" aria-label={t('resultTitle')} data-testid="order-result">
+    <section aria-label={t('resultTitle')} data-testid="order-result">
       <h3>{t('resultTitle')}</h3>
       {trade.settledAt === null ? (
         <p className="lt-muted" data-testid="order-result-unsettled">
@@ -166,13 +165,13 @@ export function P2POrder({
     if (result.ok) query.reload();
   }
   return (
-    <div className="p2p-order" lang={languageFor('seller')} dir={directionFor('seller')}>
+    <div className="lt-stack" lang={languageFor('seller')} dir={directionFor('seller')}>
       {locked && (
-        <section className="p2p-original" aria-labelledby="p2p-original-heading">
+        <section className="lt-panel lt-stack" aria-labelledby="p2p-original-heading">
           <h2 id="p2p-original-heading" ref={heading} tabIndex={-1}>
             <Copy k="original" />
           </h2>
-          <p className="p2p-order-reference" lang="zxx" dir="ltr">
+          <p className="lt-wrap" lang="zxx" dir="ltr">
             {reference}
           </p>
           <p className="lt-muted">
@@ -182,7 +181,7 @@ export function P2POrder({
             <PayCopy k={busy ? 'waitingForConfirmation' : 'checkOriginalOrderAction'} />
           </Button>
           {actionResult && !actionResult.ok && (
-            <details className="p2p-outcome-details">
+            <details className="lt-stack">
               <summary>
                 <PayCopy k="orderStatus" />
               </summary>
@@ -193,7 +192,7 @@ export function P2POrder({
       )}
       {recovery &&
         (recovery.ok ? (
-          <section className="p2p-original-result" role="status">
+          <section className="lt-panel lt-stack" role="status">
             <h2>
               <Copy k="checked" />
             </h2>
@@ -217,10 +216,10 @@ export function P2POrder({
           const seller = trade.sellerId === userId;
           const held = ['escrowed', 'fiat_sent', 'disputed'].includes(trade.status);
           return (
-            <div className="p2p-order-columns">
-              <div className="p2p-order-core">
-                <header data-testid="p2p-order-identity" className="p2p-order-identity">
-                  <div className="p2p-order-role">
+            <div className="lt-grid lt-grid-main-side">
+              <div className="lt-col-main lt-stack">
+                <header data-testid="p2p-order-identity" className="lt-stack lt-stack-tight">
+                  <div className="lt-row lt-row-between">
                     <strong>
                       <Copy k={seller ? 'seller' : 'buyer'} />
                     </strong>
@@ -228,7 +227,7 @@ export function P2POrder({
                       <PayCopy k="refreshStatus" />
                     </Button>
                   </div>
-                  <p className="p2p-order-reference" lang="zxx" dir="ltr">
+                  <p className="lt-wrap" lang="zxx" dir="ltr">
                     {trade.id}
                   </p>
                   <p className="lt-muted">
@@ -240,14 +239,14 @@ export function P2POrder({
                     </p>
                   ) : null}
                 </header>
-                <div data-testid="p2p-order-quantities" className="p2p-order-quantities">
-                  <div>
+                <div data-testid="p2p-order-quantities" className="lt-figures" data-count={2}>
+                  <div className="lt-figure-cell">
                     <p className="lt-muted">
                       <Copy k={held ? 'escrow' : 'quantity'} />
                     </p>
                     <PayAmount value={trade.amount} unit={trade.asset} label={t(held ? 'escrow' : 'quantity')} />
                   </div>
-                  <div>
+                  <div className="lt-figure-cell">
                     <p className="lt-muted">
                       <Copy k="payment" />
                     </p>
@@ -266,7 +265,7 @@ export function P2POrder({
                     <Copy k="escrowHeld" /> <PayAmount value={trade.escrowHeld} unit={trade.asset} label={t('escrowHeld')} />
                   </p>
                 ) : null}
-                <p className="muted p2p-order-instruction">
+                <p className="lt-muted">
                   <Copy
                     k={
                       seller && trade.status === 'fiat_sent'
@@ -287,8 +286,8 @@ export function P2POrder({
                 </p>
                 {renderActions(trade, query.reload, locked, outcome)}
               </div>
-              <div className="p2p-order-secondary">
-                <details className="p2p-order-facts">
+              <div className="lt-col-side lt-stack">
+                <details className="lt-stack" data-testid="p2p-order-facts">
                   <summary>
                     <Copy k="details" />
                   </summary>
@@ -304,7 +303,7 @@ export function P2POrder({
                       [
                         t('terms'),
                         trade.terms?.trim() ? (
-                          <span className="p2p-order-terms" data-testid="order-terms" lang="und">
+                          <span className="lt-pre-wrap" data-testid="order-terms" lang="und">
                             {trade.terms}
                           </span>
                         ) : typeof trade.terms === 'string' ? (

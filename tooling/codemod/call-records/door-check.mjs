@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { callsOf } from './door.mjs';
+import { doorRefines } from './door-refine.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 
@@ -39,9 +40,19 @@ const REFINES = {
   "(rule) => rule.mode === 'delayed' || rule.delayMinutes === null": 'only_delayed_has_delay',
   'v=>!(v.course&&v.certificate)': 'course_or_certificate',
 };
-// A refine's source as tsc emits it may differ from tsx's only in spacing: compare without whitespace.
-const squash = (s) => s.replace(/\s+/g, '');
+// A refine's source as tsc emits it may differ from tsx's only in spacing, a one-parameter arrow's parentheses
+// (`(v) => ...` from prettier, `v => ...` from esbuild), and the semicolon a block body's last statement ends with
+// (tsc writes `=== day;\n}`, esbuild `===day}`): compare without any of them.
+const squash = (s) =>
+  s
+    .replace(/\s+/g, '')
+    .replace(/^\(([A-Za-z_$][\w$]*)\)=>/, '$1=>')
+    .replace(/;}/g, '}');
 const REFINE_BY = new Map(Object.entries(REFINES).map(([src, id]) => [squash(src), id]));
+/** A door's own names for its refines (its recorder's table, door-refine.mjs), read beside the ones named above. */
+export const knowRefines = (names) => {
+  for (const [src, id] of names) REFINE_BY.set(squash(src), id);
+};
 
 const LENGTH_WHEN = 'val.length !== undefined';
 
@@ -50,13 +61,15 @@ function checkOf(c) {
   const d = c._zod.def;
   const msg = d.error ? (typeof d.error({}) === 'string' ? d.error({}) : d.error({})?.message) : undefined;
   const out = (k, extra = {}) => ({ k, ...extra, ...(d.abort ? { abort: true } : {}), ...(msg !== undefined ? { msg } : {}) });
-  if (d.when && !(['min_length', 'max_length'].includes(d.check) && d.when.toString().includes(LENGTH_WHEN)))
+  if (d.when && !(['min_length', 'max_length', 'length_equals'].includes(d.check) && d.when.toString().includes(LENGTH_WHEN)))
     return { k: `?when ${d.check}` };
   switch (d.check) {
     case 'min_length':
       return out('min_length', { n: d.minimum });
     case 'max_length':
       return out('max_length', { n: d.maximum });
+    case 'length_equals':
+      return out('length_equals', { n: d.length });
     case 'string_format':
       if (d.format === 'regex') return out('regex', { src: d.pattern.toString() });
       if (d.format === 'starts_with') return out('starts_with', { prefix: d.prefix });
@@ -157,6 +170,18 @@ export const canon = (v) =>
           .join(',')}}`
       : JSON.stringify(v);
 
+/**
+ * The records to hold: with files given (run.mjs passes the ones it wrote), each record those files export, read from the
+ * files themselves, so a record written this run is held before the registry is written again; else every registered one.
+ */
+export function recordsToHold(registry, modules) {
+  if (!modules.length) return Object.values(registry);
+  const out = new Map();
+  for (const mod of modules)
+    for (const v of Object.values(mod)) if (v && typeof v === 'object' && typeof v.name === 'string' && v.transport) out.set(v.name, v);
+  return [...out.values()];
+}
+
 function args(argv) {
   const out = { files: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -172,6 +197,7 @@ function args(argv) {
 async function main() {
   const opts = args(process.argv.slice(2));
   const crate = join(REPO, opts.door);
+  knowRefines(doorRefines(opts.door));
   const { nodes, inputs } = JSON.parse(readFileSync(join(crate, 'src/door/schemas.json'), 'utf8'));
   const rows = new Map();
   const row = (path, module) => {
@@ -181,17 +207,10 @@ async function main() {
   const reg = await import(pathToFileURL(join(REPO, 'packages/contracts/dist/procedure-registry.js')).href);
   const bad = [];
   let held = 0;
-  // Only the records the given files export, when files are given (run.mjs passes the ones it wrote).
-  let only;
-  if (opts.files.length) {
-    only = new Set();
-    for (const f of opts.files) {
-      const mod = await import(pathToFileURL(join(REPO, 'packages/contracts/dist', basename(f).replace(/\.ts$/, '.js'))).href);
-      for (const v of Object.values(mod)) if (v && typeof v === 'object' && v.transport === 'trpc') only.add(v.name);
-    }
-  }
-  for (const r of Object.values(reg.CONTRACT_PROCEDURES)) {
-    if (only && !only.has(r.name)) continue;
+  const modules = [];
+  for (const f of opts.files)
+    modules.push(await import(pathToFileURL(join(REPO, 'packages/contracts/dist', basename(f).replace(/\.ts$/, '.js'))).href));
+  for (const r of recordsToHold(reg.CONTRACT_PROCEDURES, modules)) {
     if (r.service !== opts.service || r.transport !== 'trpc') continue;
     const door = row(r.path, r.module);
     if (!door) {

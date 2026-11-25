@@ -46,7 +46,7 @@ async function relay(db: TestDatabase, fetchImpl: typeof fetch, timeoutMs = 1000
   const app = buildMailboxRelay({ sql: db.sql, credential, sendUrl: 'https://mailbox.fixture/send', sendToken, timeoutMs, fetchImpl });
   const url = await app.listen({ port: 0, host: '127.0.0.1' });
   resources.push(() => app.close());
-  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: 2000 }) };
+  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: timeoutMs + 1000 }) };
 }
 function envelope() {
   return {
@@ -108,7 +108,10 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       const archive = join(dir, 'before-enqueue.dump');
       await run(process.env.PG_DUMP_BIN ?? 'pg_dump', ['--format=custom', '--schema=notify', '--file', archive, '--dbname', first.url]);
       const wire = await upstream();
-      const gateway = await relay(independent, wire.fetchImpl);
+      // Each budget outlasts what it wraps (relay < channel < guest < lease), with room for a slow receipt or guest claim
+      // on a busy runner; this case proves restore replay, not deadlines.
+      const gateway = await relay(independent, wire.fetchImpl, 5_000);
+      const guestBudget = { timeoutMs: 7_000, leaseMs: 12_000 };
       const input = {
         businessKey: `acknowledgement:${randomUUID()}`,
         contactId: randomUUID(),
@@ -116,10 +119,10 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
         recipientEmail: 'local-proof@example.invalid',
         message: { kind: 'enquiry_acknowledgement' as const },
       };
-      const original = await new GuestNotificationService(first.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const original = await new GuestNotificationService(first.sql, gateway.email, guestBudget).send(input);
       expect(original.status).toBe('accepted');
       await run(process.env.PG_RESTORE_BIN ?? 'pg_restore', ['--clean', '--if-exists', '--dbname', restored.url, archive]);
-      const recovered = await new GuestNotificationService(restored.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const recovered = await new GuestNotificationService(restored.sql, gateway.email, guestBudget).send(input);
       expect(recovered.notificationId).not.toBe(original.notificationId);
       expect(recovered).toMatchObject({ status: 'accepted', reference: original.reference });
       expect(original.reference).toMatch(/^relay:[0-9a-f-]{36}$/);
@@ -134,7 +137,7 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
   it('serializes simultaneous attempts, rejects changed delivery, and stores only opaque receipts', async () => {
     const entered = gate(),
       release = gate();

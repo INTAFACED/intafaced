@@ -5,6 +5,7 @@ import { DEVICE_KEY, EDGE, ORIGIN, STACK_PORTS, api as stackApi, fromUnits, jour
 import { signIn, signUp, verify } from './desk.mjs';
 import { venueBalance, venueRecord } from './venue.mjs';
 import { ageRecord } from './test-age.mjs';
+import { DAY, utcDay } from './clock.mjs';
 
 // J-bank-06, in the running app (docs/roadmap/journeys.json): I schedule payments and standing orders. The person's bank
 // money is held at the TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded
@@ -15,7 +16,8 @@ import { ageRecord } from './test-age.mjs';
 // TEST value of 60 minutes. Step 4 (BK-xfer-11): direct debits through the stack's TEST scheme stand-in (`dd-sim`),
 // whose creditors set up mandates and present collections only by its signed job doors, which this file calls as the
 // scheme would; the collection run is its job door too. Step 5 (BK-acct-10): the money calendar over what steps 1 to 4
-// left, read only. Step 6 (BK-acct-10): the payment reminder rule saved under its business key, money-moving rules
+// left, read only, and a monthly bill the person sets up in Bills once their bank rail at the TEST partner is on
+// (`testPartner.set({ bankRail: 'test' })`: the partner pays its own TEST billers); setting it up sends nothing. Step 6 (BK-acct-10): the payment reminder rule saved under its business key, money-moving rules
 // refused while their terms are unpublished, the notification choices read from the account's own settings, and the
 // notices the bank's notice job owes, run with its signed job door as a scheduler would. Step 8: the person's TEST switch
 // (`testPartner.set({ calendarSource })`, svc-bank `partner/test-partner-switches.ts`) fails the direct debits source,
@@ -568,7 +570,9 @@ test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, n
   const failed = page.getByTestId(`dd-collection-${tag}-ten`);
   await expect(failed).toContainText('Failed');
   await expect(failed).toContainText('The partner bank reported too little money in your main balance. Nothing was taken.');
-  await expect(failed).toContainText('bank.partner_insufficient_funds');
+  // A Bank refusal no step names ends in plain words; its code stays on data-code.
+  await expect(failed.locator('[data-code="bank.partner_insufficient_funds"]')).toBeAttached();
+  await expect(failed).not.toContainText('bank.partner_insufficient_funds');
   await expect(failed).toContainText('Not set. No fee was charged.');
   // Its refund path: nothing was taken, and a debit that was taken is asked back from this list.
   await expect(failed).toContainText('Nothing was taken, so nothing needs refunding.');
@@ -616,8 +620,9 @@ async function calendarMonth(page, month) {
   await expect(shown).toHaveAttribute('data-month', month);
 }
 
-test(`${J} #5 opens the calendar: standing orders and direct debits on their dates, each opening its room, and loans and bills say why they show none`, async ({
+test(`${J} #5 opens the calendar: standing orders, direct debits and a monthly bill on their dates, each opening its room; loans say why they show none, and bills until the partner pays them`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const who = person();
@@ -699,17 +704,20 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   // Where the dates come from: loans publish none and bills have no partner, each named; the rest are counted.
   const sources = page.getByTestId('cal-sources');
   await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
-  await expect(sources.getByTestId('cal-source-loans')).toContainText('bank.loan_schedule_unset');
+  await expect(sources.getByTestId('cal-source-loans')).toHaveAttribute('data-code', 'bank.loan_schedule_unset');
+  // A code is the row's attribute, never words a customer reads.
+  await expect(sources).not.toContainText('bank.');
   await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
   await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
   await expect(sources.getByTestId('cal-source-direct_debits')).toHaveAttribute('data-state', 'ok');
 
-  // The list: each run with its status, and a failed one with its reason in words and by code.
+  // The list: each run with its status, and a failed one with its reason in words, its code on the row.
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const failedRow = page.getByTestId(`cal-row-${short}:0`);
   await expect(failedRow).toContainText('Failed');
   await expect(failedRow).toContainText('There was not enough money. Nothing was taken.');
-  await expect(failedRow).toContainText('bank.partner_insufficient_funds');
+  await expect(failedRow.locator('[data-status="failed"]')).toHaveAttribute('data-code', 'bank.partner_insufficient_funds');
+  await expect(failedRow).not.toContainText('bank.partner_insufficient_funds');
   await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
 
   // Filter by kind: direct debits off leaves the standing orders showing.
@@ -733,6 +741,78 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   await calendarMonth(page, ranMonth);
   await page.getByTestId(`cal-open-${due}:0`).click();
   await expect(page).toHaveURL(/\/bank\/transfers$/);
+
+  // Bills: with the person's bank rail at the TEST partner off, Bills says no biller directory is connected.
+  const owner = await userIdOf(who);
+  const movesBefore = await partnerMoves(owner);
+  const heldBefore = await partnerMain(owner);
+  await page.goto('/pay/bills');
+  const bills = page.getByTestId('bills-card');
+  await bills.getByLabel('Biller', { exact: true }).fill('Water');
+  await bills.getByTestId('bills-search').click();
+  await expect(bills.getByTestId('pay-reason')).toContainText('Bill pay isn’t connected');
+  await expect(bills.getByTestId('bills-review')).toBeDisabled();
+
+  // The TEST partner pays billers once the person's bank rail is on there: its own TEST billers answer the search, and
+  // the person sets up a monthly bill from their main balance, first paid on the 1st of next month.
+  const railOn = await api.mutate('testPartner.set', { bankRail: 'test' });
+  expect(railOn.ok, JSON.stringify(railOn.body ?? '')).toBe(true);
+  await page.reload();
+  await bills.getByLabel('Biller', { exact: true }).fill('Water');
+  await bills.getByTestId('bills-search').click();
+  await bills.getByLabel('Choose a biller', { exact: true }).selectOption({ label: 'TEST Water' });
+  await expect(bills.getByTestId('pay-reason')).toHaveCount(0);
+  const reference = `ACC-${randomUUID().slice(0, 8)}`;
+  await bills.getByLabel('Bill reference or account number', { exact: true }).fill(reference);
+  await bills.getByLabel('Amount', { exact: true }).fill('3');
+  const mainSpace = main(await spaces(who));
+  await bills.getByLabel('Pay from', { exact: true }).selectOption(mainSpace.id);
+  // The 1st of next month: the last day of this month, then the day after it.
+  const thisMonthEnd = new Date(`${utcDay(Date.now()).slice(0, 7)}-28T00:00:00.000Z`);
+  const firstOfNext = `${utcDay(thisMonthEnd.getTime() + 4 * DAY).slice(0, 7)}-01`;
+  await bills.getByLabel('First payment on', { exact: true }).fill(firstOfNext);
+  await bills.getByTestId('bills-review').click();
+  await expect(bills.getByTestId('bills-outcome')).toHaveAttribute('data-state', 'ok');
+  const recurring = (await api.query('bills.recurring.list', { limit: 20 })).data.filter((b) => b.reference === reference);
+  expect(recurring).toHaveLength(1);
+  const bill = recurring[0];
+  expect(bill).toMatchObject({
+    billerId: 'test-biller-water',
+    amount: '3',
+    assetId: 'USDT',
+    fromSpaceId: mainSpace.id,
+    cadence: 'monthly',
+    status: 'active',
+    nextRunAt: `${firstOfNext}T00:00:00.000Z`,
+  });
+  await expect(bills.getByTestId(`bill-recurring-${bill.id}`)).toContainText(`TEST Water · ${reference}`);
+  // Setting a bill up sends nothing: the partner's book and the person's balance there are as they were.
+  expect(await partnerMoves(owner)).toEqual(movesBefore);
+  expect(await partnerMain(owner)).toBe(heldBefore);
+
+  // The bank's calendar for that month: the bill on its date, its source with no reason against it.
+  const billMonth = monthOf(firstOfNext);
+  const billView = await read(billMonth);
+  expect(byKey(billView, `${bill.id}:0`)).toMatchObject({
+    source: 'bills',
+    refId: bill.id,
+    date: bill.nextRunAt,
+    label: reference,
+    amount: '3',
+    status: 'upcoming',
+  });
+  expect(billView.sources.find((s) => s.source === 'bills')?.code ?? null).toBeNull();
+
+  // In the app: the bill on its day in that month, and it opens Bills.
+  await page.goto('/bank/calendar');
+  await calendarMonth(page, billMonth);
+  const billItem = day(firstOfNext).getByTestId(`cal-open-${bill.id}:0`);
+  await expect(billItem).toHaveText(`Bill: ${reference}`);
+  await expect(page.getByTestId('cal-sources').getByTestId('cal-source-bills')).not.toContainText('no bill payment partner');
+  await stepPicture();
+  await billItem.click();
+  await expect(page).toHaveURL(/\/pay\/bills$/);
+  await expect(page.getByTestId(`bill-recurring-${bill.id}`)).toContainText(reference);
 
   // Reading the calendar moved nothing.
   expect(main(await spaces(who)).balance).toBe(before);
@@ -787,7 +867,7 @@ test(`${J} #6 saves a payment reminder rule under its business key: a replay is 
   // A rule that moves money: every field there, and saving it is refused with the missing terms. Nothing is stored.
   await page.reload();
   const money = page.getByTestId('rules-money');
-  await expect(page.getByTestId('rules-money-not-set')).toContainText('bank.rule_terms_unset');
+  await expect(page.getByTestId('rules-money-not-set').locator('[data-code="bank.rule_terms_unset"]')).toBeAttached();
   const rows = await spaces(who);
   await money.getByLabel('Rule name').fill('Sweep TEST');
   await money.getByRole('combobox', { name: /^From/ }).selectOption(main(rows).id);
@@ -797,7 +877,7 @@ test(`${J} #6 saves a payment reminder rule under its business key: a replay is 
   await money.getByLabel('Amount to move').fill('10');
   await money.getByRole('button', { name: 'Save rule' }).click();
   await expect(money.getByRole('alert')).toContainText('Not saved: rules that move money by themselves are not open');
-  await expect(money.getByRole('alert')).toContainText('bank.rule_terms_unset');
+  await expect(money.getByRole('alert')).not.toContainText('bank.rule_terms_unset');
   const refused = await api.mutate('rules.createMoneyRule', {
     name: 'Sweep TEST',
     fromSpaceId: main(rows).id,
@@ -928,7 +1008,7 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
       expect(broken.sources.find((s) => s.source === source)).toEqual(whole.sources.find((s) => s.source === source));
     expect(broken.items.find((i) => i.key === `${due}:0`)).toMatchObject({ source: 'standing_orders', status: 'done' });
 
-    // In the app: the failing kind is named in words and by code, and the standing orders still show on their days.
+    // In the app: the failing kind is named in words, its code on the row, and the standing orders still show on their days.
     await signIn(page, who);
     await page.goto('/bank/calendar');
     await calendarMonth(page, ranMonth);
@@ -936,10 +1016,13 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
     const failing = sources.getByTestId('cal-source-direct_debits');
     await expect(failing).toHaveAttribute('data-state', 'unavailable');
     await expect(failing).toContainText('Direct debits could not be read just now. Everything else is shown.');
-    await expect(failing).toContainText('bank.calendar_source_unavailable');
+    await expect(failing).toHaveAttribute('data-code', 'bank.calendar_source_unavailable');
+    await expect(sources).not.toContainText('bank.');
     await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
     await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
-    await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
+    // Bills still show: #5 turned the person's bank rail at the partner on, so no reason stands against them.
+    await expect(sources.getByTestId('cal-source-bills')).toHaveAttribute('data-state', 'ok');
+    await expect(sources.getByTestId('cal-source-bills')).toContainText('Bills: 0 in this month.');
     await expect(page.getByTestId(`cal-open-${due}:0`)).toHaveText('Standing order');
     await page.getByRole('button', { name: 'List', exact: true }).click();
     await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');

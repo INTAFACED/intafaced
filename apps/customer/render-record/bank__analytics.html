@@ -101,7 +101,7 @@
 <header class="lt-title-row">
 <div>
 <h1 class="lt-title">Analytics</h1>
-<p class="lt-description">Ledger movements by asset and date. Movement is not investment performance.</p>
+<p class="lt-description">Money in and out of your account, by asset and date. This is not investment performance.</p>
 </div>
 <div class="lt-room-action">
 <a class="lt-button lt-button-secondary" href="/bank">
@@ -109,13 +109,12 @@
 </a>
 </div>
 </header>
-<div class="lt-body">
-<section class="lt-region" data-region="actions" aria-label="Actions">
+<div class="lt-room-section">
 <div data-testid="money-bank-nav">
 <p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
 </p>
-<nav class="lt-tabs" aria-label="Bank rooms">
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
 <a href="/bank" class="lt-tab">Overview</a>
 <a href="/bank/spaces" class="lt-tab">Spaces</a>
 <a href="/bank/transfers" class="lt-tab">Transfers</a>
@@ -127,14 +126,15 @@
 <a href="/bank/business" class="lt-tab">Business</a>
 </nav>
 </div>
-</section>
+</div>
+<div class="lt-body">
 <div class="lt-grid lt-grid-main-side">
 <div class="lt-col-main">
 <section class="lt-region" data-region="panels" aria-label="Details">
 <div class="lt-stack">
 <section aria-labelledby="_r_3_">
 <h3 id="_r_3_">Budgets</h3>
-<p class="lt-hint">A monthly target for a kind of spending, and the share of it at which you want an alert. Spend is read from your ledger lines.</p>
+<p class="lt-hint">A monthly target for a kind of spending, and the share of it at which you want an alert.</p>
 <div class="lt-stack" data-testid="analytics-budgets">
 <form class="lt-stack" novalidate="">
 <label class="lt-field">
@@ -180,7 +180,7 @@
 </div>
 </section>
 <section>
-<header class="lt-title-row">
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Movement window</h2>
 </div>

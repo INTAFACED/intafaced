@@ -9,6 +9,7 @@ import { answerAfterNavigation } from './navigation.mjs';
 import { createRequire } from 'node:module';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inWords } from './quant-words.mjs';
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
@@ -46,6 +47,23 @@ async function saveSignalStrategy(page, name) {
   await builder.getByLabel('Size', { exact: true }).fill('0.01');
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
+}
+
+/**
+ * Whether a block of code reads whole: the start of its first line (its padding corner) lies inside the block's rounded
+ * corner, as the browser draws it (a radius larger than half the block is scaled down to fit). A pill's radius cuts the
+ * start of every line off. Returns what it measured, so a failure says why.
+ */
+async function codeCorner(block) {
+  return block.evaluate((el) => {
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    const r = Math.min(parseFloat(style.borderStartStartRadius) || 0, box.width / 2, box.height / 2);
+    const x = parseFloat(style.paddingInlineStart) || 0;
+    const y = parseFloat(style.paddingBlockStart) || 0;
+    const inside = x >= r || y >= r || (r - x) ** 2 + (r - y) ** 2 <= r ** 2;
+    return { inside, radius: r, padding: [x, y] };
+  });
 }
 
 /** The saved list's row for a strategy, found by its id so a rename does not lose it. */
@@ -139,6 +157,7 @@ async function saveVersion(page, name, slow, note, version) {
 
 test(`${J} #3 edits, saves and writes release notes on two versions, then compares them: both listed with notes and a diff; the code each past run used is shown`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(10 * 60_000);
   const { strategyId } = run.read();
@@ -190,8 +209,17 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await ran.getByRole('button', { name: 'Show the code (version 2)' }).click();
   const code = versions.getByTestId('quant-run-code');
   await expect(code).toHaveAttribute('data-version', '2');
-  await expect(code.getByTestId('quant-version-source')).toContainText('BTC/USDT');
+  // Version 2's own source: its slow average is 3 bars (saved above), not version 3's 4.
+  const source = code.getByTestId('quant-version-source');
+  await expect(source).toHaveAttribute('data-version', '2');
+  await expect(source).toContainText('const closes = bars("BTC/USDT", "1m").close;');
+  await expect(source).toContainText(/const slow = \w+\(closes, 3\);/);
+  await expect(source).not.toContainText(/const slow = \w+\(closes, 4\);/);
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
+  // Both blocks of code read whole: the diff's rules and the run's source keep the start of each line inside their corner.
+  expect(await codeCorner(rules.locator('pre'))).toMatchObject({ inside: true });
+  expect(await codeCorner(source.locator('pre'))).toMatchObject({ inside: true });
+  await stepPicture();
 });
 
 /** A TEST starter template through the operator's publish door, as the founder console calls it. */
@@ -595,7 +623,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   const plan = usage.getByTestId('quant-usage-plan');
   await expect(plan).toHaveAttribute('data-profile', profile);
   await expect(plan).toHaveAttribute('data-source', assigned ? 'assigned' : 'default');
-  await expect(plan).toContainText(`Plan: ${profile} (${assigned ? 'set for this account' : 'the default plan'})`);
+  await expect(plan).toHaveText(`Plan: ${profile}`);
   const stored = Object.fromEntries((await (await quotaDoor(founders)).profile(profile)).limits.map((row) => [row.resource, row.limit]));
 
   const row = (resource) => usage.locator(`[data-resource="${resource}"]`);
@@ -603,7 +631,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   for (const [resource, label] of [
     ['strategies', 'Saved strategies'],
     ['runs', 'Stored runs'],
-    ['storage', 'Source and result storage (bytes)'],
+    ['storage', 'Code and result storage'],
     ['collaborators', 'Collaborators per strategy'],
   ]) {
     await expect(row(resource)).toHaveCount(1);
@@ -612,7 +640,9 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
     // Against the plan: the limit shown is the one the plan stores, or "not set" when it is blank.
     const limit = stored[resource] ?? null;
     await expect(row(resource)).toHaveAttribute('data-limit', limit ?? '');
-    await expect(row(resource).locator('td').nth(1)).toHaveText(limit ?? 'not set');
+    // In words: storage's bytes in KB or MB, a count with its thousands grouped.
+    const unit = resource === 'storage' ? 'bytes' : 'count';
+    await expect(row(resource).locator('td').nth(1)).toHaveText(limit === null ? 'not set' : inWords(limit, unit));
   }
   // Storage is the bytes of the source of every version this account keeps (the recycle bin's too) and of every stored
   // run's result, each row read from svc-quant's own tables and measured here in UTF-8 bytes.
@@ -627,7 +657,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   });
   expect(bytes).toBeGreaterThan(0);
   await expect(row('storage')).toHaveAttribute('data-used', String(bytes));
-  await expect(row('storage').locator('td').first()).toHaveText(String(bytes));
+  await expect(row('storage').locator('td').first()).toHaveText(inWords(String(bytes), 'bytes'));
 });
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -739,6 +769,7 @@ async function startBacktest(page, slippage) {
 test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refusal naming stored runs with 3 used of 3 allowed; the stored runs are unchanged`, async ({
   page,
   founders,
+  stepPicture,
 }) => {
   test.setTimeout(10 * 60_000);
   const { strategyId } = run.read();
@@ -770,6 +801,8 @@ test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refu
   await expect(refusal).toHaveAttribute('data-kind', 'exceeded');
   await expect(refusal).toContainText('Your plan allows 3 stored runs: 3 used of 3 allowed. Nothing was added.');
   await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+  // The step's screen: the backtest room showing the refusal, before the test goes on to check the stored runs.
+  await stepPicture();
 
   // The stored runs are unchanged: the same three, and the usage view still counts three.
   expect(await storedRuns(page, strategyId)).toEqual(before);

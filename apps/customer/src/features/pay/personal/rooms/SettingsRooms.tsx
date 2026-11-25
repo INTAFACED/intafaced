@@ -39,7 +39,7 @@ function Blocked({ slice, children }: { slice: string; children: ReactNode }) {
 }
 
 /**
- * The room on its template: an index of its sections, the sections, the reason beside them, and the way back to Pay.
+ * The room on its template: an index of its sections when it has more than one, the sections, the reason beside them, and the way back to Pay.
  * The template draws the title.
  */
 function Room({
@@ -62,17 +62,20 @@ function Room({
       description={line}
       state={{ kind: 'ready' }}
       index={
-        <nav aria-label={t('sectionsLabel')}>
-          <ul>
-            {parts.map((part) => (
-              <li key={part.id}>
-                <a className="lt-link" href={`#pay-room-${part.id}`}>
-                  {part.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        // One section needs no index: a column holding a single link to it is a column for nothing (issue 10307).
+        parts.length > 1 ? (
+          <nav aria-label={t('sectionsLabel')}>
+            <ul>
+              {parts.map((part) => (
+                <li key={part.id}>
+                  <a className="lt-link" href={`#pay-room-${part.id}`}>
+                    {part.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : undefined
       }
       sections={
         <>

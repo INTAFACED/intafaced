@@ -1,5 +1,5 @@
 import { Suspense, type ComponentType } from 'react';
-import { BrandLockup, BrandWordmark } from '@intafaced/ui';
+import { BrandLockup, BrandMark, BrandWordmark } from '@intafaced/ui';
 import { useSession } from '../session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
@@ -33,12 +33,30 @@ import { RulebookRoom } from './rulebook/RulebookRoom';
 import { StatusRoom } from './status-room/StatusRoom';
 import { StatusSubscriptionPage } from './StatusSubscription';
 import { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from '../more';
+import { isHiddenPath } from '../../app/feature-registry';
+
+/** The public footer's links; the beta's build drops each one its menus leave out (app/beta-volt.ts). */
+const FOOTER = [
+  ['/help', 'Help'],
+  ['/status', 'Status'],
+  ['/fees', 'Fees'],
+  ['/notice', 'Notices'],
+  ['/partner', 'Partners'],
+] as const;
 
 /** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
 function Brand({ footer }: { footer?: boolean }) {
   return (
     <a href="/" className="brand" aria-label="INTAFACED">
-      {footer ? <BrandWordmark width={150} /> : <BrandLockup size={28} title="" />}
+      {footer ? (
+        <BrandWordmark width={150} />
+      ) : (
+        <>
+          <BrandLockup size={28} title="" className="brand-full" />
+          {/* A phone's bar holds the mark alone, so Menu and the account link fit beside it. */}
+          <BrandMark size={28} className="brand-compact" />
+        </>
+      )}
     </a>
   );
 }
@@ -56,6 +74,15 @@ export function PublicHeader({ path }: { path: string }) {
         <a href="/help">{t('Help')}</a>
         <a href="/about-us">{t('About')}</a>
       </nav>
+      {/* On a phone the links above are hidden; the same three sit behind Menu. */}
+      <details className="public-menu">
+        <summary>{t('Menu')}</summary>
+        <nav aria-label={t('Public navigation')}>
+          <a href="/exchange">{t('Trade')}</a>
+          <a href="/help">{t('Help')}</a>
+          <a href="/about-us">{t('About')}</a>
+        </nav>
+      </details>
       {session || restoreFailed ? (
         // When the service did not answer, /home is where the Retry screen lives; Sign in would wrongly say the person is signed out.
         <a href="/home" className="public-signin" data-session="signed-in">
@@ -73,14 +100,24 @@ export function PublicHeader({ path }: { path: string }) {
  * `SharedResult` is the quant room a backtest result shared by link opens (AL-report-03). The app passes it in, lazily
  * loaded, so the public rooms neither reach inside quant nor load its entry.
  */
-export function PublicRoutes({ path, SharedResult }: { path: string; SharedResult: ComponentType<{ path: string }> }) {
+export function PublicRoutes({
+  path,
+  SharedResult,
+  framed = false,
+}: {
+  path: string;
+  SharedResult: ComponentType<{ path: string }>;
+  /** Drawn inside the app frame for a signed-in person: the app header and its `main` stand, so neither is drawn here. */
+  framed?: boolean;
+}) {
   const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
   const library = helpLibraryPath(path);
+  const Body = framed ? 'div' : 'main';
   return (
     <div className="public-shell">
-      <PublicHeader path={path} />
-      <main id="main">
+      {!framed && <PublicHeader path={path} />}
+      <Body id={framed ? undefined : 'main'}>
         {path === '/' ? (
           <HomePage />
         ) : path === '/register' ? (
@@ -153,15 +190,15 @@ export function PublicRoutes({ path, SharedResult }: { path: string; SharedResul
         ) : (
           <PublicInformation path={path} />
         )}
-      </main>
+      </Body>
       <footer className="public-footer">
         <Brand footer />
         <div>
-          <a href="/help">{t('Help')}</a>
-          <a href="/status">{t('Status')}</a>
-          <a href="/fees">{t('Fees')}</a>
-          <a href="/notice">{t('Notices')}</a>
-          <a href="/partner">{t('Partners')}</a>
+          {FOOTER.filter(([href]) => !isHiddenPath(href)).map(([href, label]) => (
+            <a key={href} href={href}>
+              {t(label)}
+            </a>
+          ))}
         </div>
         <p>{t('Your money. Your decisions.')}</p>
       </footer>

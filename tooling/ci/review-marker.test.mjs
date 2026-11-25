@@ -6,6 +6,7 @@ import {
   REVIEW_WORKFLOW,
   STATUS_CONTEXT,
   groupPulls,
+  missingWhy,
   queueRefPr,
   reviewJob,
   reviewReason,
@@ -34,7 +35,7 @@ const reasonCases = [
   [['packages/ui/src/button.tsx'], true], // a kit part
   [['apps/customer/README.md'], false], // a doc draws nothing
   [['apps/customer/tests/real-app/J-bank-02.pw.mjs'], false], // a test draws nothing: its own judge reads it
-  [['apps/customer/src/app/volt-count.test.ts'], false],
+  [['apps/customer/src/app/beta-volt.test.ts'], false],
   [['.github/CODEOWNERS'], true], // gate files
   [['.github/workflows/ci.yml'], true],
   [['tooling/ci/dependency-audit.mjs'], true],
@@ -148,4 +149,14 @@ test('sealMergeGroup: each queued pull request is held to its own seal, offline'
   const bad = await sealMergeGroup({ commits: [{ commit: { message: 'Merge pull request #4' } }], headRef: ref(4), io });
   assert.equal(bad.ok, false, 'an unreadable group fails closed');
   assert.ok(bad.lines[0].includes('could not be read whole'), 'an unreadable group fails closed');
+});
+
+test('a draft missing its review is told to go ready, never to re-run a review that skips drafts (missingWhy)', () => {
+  const why = 'no CI review on abc passed its Verdict step (it did not finish, or failed before a verdict; re-run it)';
+  assert.equal(missingWhy(why, { number: 12, draft: false }), why);
+  assert.equal(missingWhy(why, null), why, 'not a pull request: as before');
+  const draft = missingWhy(why, { number: 12, draft: true });
+  assert.match(draft, /is a draft and the CI review skips drafts/);
+  assert.match(draft, /run `gh pr ready 12`/);
+  assert.doesNotMatch(draft, /re-run/);
 });

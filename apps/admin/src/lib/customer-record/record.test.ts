@@ -2,13 +2,20 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SUPPORT_DESK_ACCOUNT_STATE } from '@intafaced/contracts/support-desk-procedures';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
+import { IDENTITY_KYC_LIST_DOCUMENTS } from '@intafaced/contracts/identity-kyc-procedures';
 import { readData } from '@/lib/ops-desk';
 import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
-import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, requestIdQuery, tabPlan } from './record';
+import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, kycCasesRead, requestIdQuery, tabPlan } from './record';
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const service = (path: string) => readFileSync(fileURLToPath(new URL(`../../../../../services/${path}`, import.meta.url)), 'utf8');
+/** svc-bank serves each call its crate declares (`crates/svc-bank/src/door/calls.rs`), every query by its path. */
+const bankQuery = (path: string) =>
+  readFileSync(fileURLToPath(new URL('../../../../../crates/svc-bank/src/door/calls.rs', import.meta.url)), 'utf8').includes(
+    `path: "${path}",\n        kind: Kind::Query,`,
+  );
 
 describe('customer record address', () => {
   it('takes an account id from the path, lower-cased, and nothing else', () => {
@@ -30,6 +37,10 @@ describe('customer record address', () => {
 });
 
 describe('what each tab reads', () => {
+  it('a verification case row carries the two-founder approve (kyc.approve), on the documents tab and the case page', () => {
+    expect(tabPlan('documents', USER).reads.find((r) => r.id === 'identity.kyc-cases')?.rowAction).toBe('identity.kyc.approve');
+    expect(kycCasesRead(USER, USER).rowAction).toBe('identity.kyc.approve');
+  });
   it('reads only for the account in the path, and says what it cannot read on every tab without a read', () => {
     for (const tab of CUSTOMER_TABS) {
       const plan = tabPlan(tab, USER);
@@ -37,8 +48,23 @@ describe('what each tab reads', () => {
       for (const read of plan.reads) expect(JSON.stringify(read.input)).toContain(USER);
       for (const u of plan.unwired) expect(u.reason.length).toBeGreaterThan(40);
     }
-    expect(tabPlan('tickets', USER).reads).toEqual([]);
-    expect(tabPlan('tickets', USER).unwired[0]!.reason).toContain('refuses on purpose to answer about an arbitrary account');
+    // Tickets: svc-support's staff queue searched by the account id, keeping only the requests the account itself opened.
+    expect(tabPlan('tickets', USER).reads.map((r) => [r.id, r.module, r.procedure, r.input, r.rowsWhere])).toEqual([
+      ['tickets.list', 'support', 'listAll', { limit: 200, q: USER }, { key: 'userId', equals: USER }],
+    ]);
+    expect(tabPlan('tickets', USER).unwired.map((u) => u.id)).toEqual(['tickets.thread']);
+    // Trade: svc-trade's audited read of the account's orders, then its restriction history.
+    expect(tabPlan('trade', USER).reads.map((r) => [r.id, r.module, r.procedure, r.input, r.rowsKey, r.idKey])).toEqual([
+      ['trade.orders', 'trade', 'admin.customerOrders', { userId: USER, limit: 200 }, 'orders', 'orderId'],
+      [
+        'trade.controls',
+        'trade',
+        'accountControls.history',
+        { target: { area: 'trading', userId: USER }, limit: 50 },
+        undefined,
+        'auditId',
+      ],
+    ]);
     const docs = tabPlan('documents', USER);
     expect(docs.reads.map((r) => [r.module, r.procedure, r.input])).toEqual([
       ['identity', 'kyc.listDocuments', { userId: USER, limit: 50 }],
@@ -57,23 +83,35 @@ describe('what each tab reads', () => {
     expect(words.captureCheck?.not_checked).toContain('no automatic liveness or face-match check');
   });
   it('names procedures the owning services serve today', () => {
-    expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');
+    expect(bankQuery('ops.customerBalances')).toBe(true);
     // The tickets blocker: svc-support's account read goes by ticket, strictly (its record, mounted by svc-support).
     expect(service('svc-support/src/router.ts')).toContain('accountState: mountRecord(\n      SUPPORT_DESK_ACCOUNT_STATE,');
     expect(SUPPORT_DESK_ACCOUNT_STATE.input.safeParse({ ticketId: USER, userId: USER }).success).toBe(false);
-    expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
+    // svc-trade's restriction history: mounted from its record, which asks a signed-in caller as protectedProcedure did.
+    expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: mountRecord\(\s*TRADE_ACCOUNT_CONTROLS_HISTORY,/);
+    expect(TRADE_ACCOUNT_CONTROLS_HISTORY.access).toEqual({ caller: 'signedIn' });
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
-    expect(service('svc-identity/src/router.ts')).toMatch(
-      /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.guid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
-    );
+    expect(service('svc-identity/src/router.ts')).toMatch(/listDocuments: mountRecord\(\s*IDENTITY_KYC_LIST_DOCUMENTS,/);
+    expect(IDENTITY_KYC_LIST_DOCUMENTS.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
+    expect(Object.keys(IDENTITY_KYC_LIST_DOCUMENTS.input.shape)).toEqual(['userId', 'limit']);
+    for (const limit of [undefined, 0, 201])
+      expect(IDENTITY_KYC_LIST_DOCUMENTS.input.safeParse({ userId: USER, limit }).success).toBe(false);
+    expect(IDENTITY_KYC_LIST_DOCUMENTS.input.safeParse({ userId: USER, limit: 200 }).success).toBe(true);
+    for (const field of Object.keys(IDENTITY_KYC_LIST_DOCUMENTS.output.element.shape)) expect(field).not.toMatch(/bytes|ciphertext/i);
     const allowlist = service('svc-pay/src/withdrawals/allowlist/router.ts');
     expect(allowlist).toMatch(/\bmode: founder/);
     expect(allowlist).toMatch(/\bpolicy: founder/);
     expect(service('svc-pay/src/namespaces/founder-admin.ts')).toContain('allowlist: createAllowlistFounderRouter');
-    expect(tabPlan('pay', USER).reads.map((r) => r.procedure)).toEqual(['founderAdmin.allowlist.mode', 'founderAdmin.allowlist.policy']);
+    expect(bankQuery('ops.customerTransfers')).toBe(true);
+    expect(service('svc-trade/src/admin/router.ts')).toContain('customerOrders: operator');
+    expect(tabPlan('pay', USER).reads.map((r) => [r.module, r.procedure])).toEqual([
+      ['bank', 'ops.customerTransfers'],
+      ['pay', 'founderAdmin.allowlist.mode'],
+      ['pay', 'founderAdmin.allowlist.policy'],
+    ]);
   });
   it('reads a trading history row and the allowlist settings as the services send them', () => {
-    const [history] = tabPlan('trade', USER).reads;
+    const [, history] = tabPlan('trade', USER).reads;
     const row = {
       auditId: USER,
       requestId: USER,
@@ -89,12 +127,64 @@ describe('what each tab reads', () => {
     };
     expect(readData(history!, [row])).toMatchObject({ shape: 'list', rows: [{ id: USER }] });
     expect(readData(history!, [])).toMatchObject({ shape: 'list', rows: [] });
-    const [mode, policy] = tabPlan('pay', USER).reads;
+    const [, mode, policy] = tabPlan('pay', USER).reads;
     expect(readData(mode!, { userId: USER, enabled: false, setAt: null })).toMatchObject({ shape: 'record' });
     expect(readData(policy!, { userId: USER, enabled: false, assetId: null, maxAmount: null, setAt: null })).toMatchObject({
       shape: 'record',
     });
     expect(readData(mode!, null)).toBeNull();
+  });
+  it('reads an order, a payment and a support request as the services send them', () => {
+    const [orders] = tabPlan('trade', USER).reads;
+    const order = {
+      orderId: USER,
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'limit',
+      status: 'closed',
+      qty: '0.001',
+      filledQty: '0.001',
+      limitPrice: '50000',
+      rejectCode: null,
+      recoveryRequired: false,
+      createdAt: '2026-10-22T23:00:00.000Z',
+    };
+    expect(readData(orders!, { userId: USER, readAt: order.createdAt, orders: [order], truncated: false })).toMatchObject({
+      shape: 'list',
+      rows: [{ id: USER }],
+    });
+    const [payments] = tabPlan('pay', USER).reads;
+    const payment = {
+      id: 'ops23-pay-0001',
+      direction: 'sent',
+      counterpartyUserId: USER,
+      amount: '5',
+      assetId: 'USDT',
+      status: 'posted',
+      ledgerTxId: 'tx-1',
+      createdAt: '2026-10-22T23:00:00.000Z',
+    };
+    expect(readData(payments!, { userId: USER, transfers: [payment], truncated: false })).toMatchObject({
+      shape: 'list',
+      rows: [{ id: 'ops23-pay-0001' }],
+    });
+    const [tickets] = tabPlan('tickets', USER).reads;
+    const ticket = (userId: string) => ({
+      id: userId === USER ? USER : '1b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+      userId,
+      category: 'account',
+      subject: 'TEST',
+      body: `TEST ${USER}`,
+      status: 'open',
+      assigneeId: null,
+      createdAt: '2026-10-22T23:00:00.000Z',
+      updatedAt: '2026-10-22T23:00:00.000Z',
+    });
+    // A request that only mentions the account id in its words is another account's, and is left out.
+    expect(readData(tickets!, [ticket(USER), ticket('2b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b')])).toMatchObject({
+      shape: 'list',
+      rows: [{ id: USER }],
+    });
   });
 });
 

@@ -4,12 +4,13 @@ import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
 import type { Live } from './live';
 import { isDevBuild } from '../../../app/feature-registry';
+import { isTestBuild } from '../../../shared/test-build';
 import { TradeSubNav } from '../TradeSubNav';
 import './copybots.css';
 
 /** The shared Trade sub-navigation, so every room stays one click away. */
-export function ModeNav({ active }: { active: 'copy' | 'bots' }) {
-  return <TradeSubNav active={active} className="px-0" />;
+export function ModeNav() {
+  return <TradeSubNav />;
 }
 
 /** Where the data on this screen came from and how old it is. Turns Stale by itself; says Unknown before the first read. */
@@ -32,7 +33,7 @@ export function Freshness({ live, staleAfterMs }: { live: Pick<Live<unknown>, 'a
 /** Live money, paper or a TEST build, always visible next to the title (workspace safety, TRD-0090). The build decides: a local-test build never claims real orders. */
 export function AccountBadge({ paper }: { paper: boolean }) {
   const { t } = roomCopy.useCopy();
-  if (isDevBuild()) return <Badge tone="warn">{t('TEST account: no real money')}</Badge>;
+  if (isDevBuild() || isTestBuild(globalThis.document)) return <Badge tone="warn">{t('TEST account: no real money')}</Badge>;
   return paper ? <Badge tone="warn">{t('Paper: no money moves')}</Badge> : <Badge tone="neutral">{t('Live account: real orders')}</Badge>;
 }
 

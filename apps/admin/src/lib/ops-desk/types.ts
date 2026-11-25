@@ -1,4 +1,3 @@
-import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
 import type { DeskModule, Part } from '@/lib/desk';
 import type { CommonDeskId } from './common-sections';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
@@ -66,9 +65,6 @@ export interface Column {
   readonly words?: Readonly<Record<string, string>>;
 }
 
-/** A desk read's call by its written record: a query an app reaches under a desk module. */
-export type DeskReadRecord = ProcedureRecord & TrpcTransport & { readonly kind: 'query'; readonly module: DeskModule };
-
 export interface ReadSpec {
   readonly id: string;
   readonly title: string;
@@ -79,7 +75,7 @@ export interface ReadSpec {
   readonly plainName?: string;
   readonly procedure: string;
   /**
-   * The name of the call's record, when it has one (`readOf` in the catalog sets it with `module` and `procedure`, all from the
+   * The name of the call's record, when it has one (`readOf`, `@/lib/desk-read`, sets it with `module` and `procedure`, all from the
    * record). The spec reaches the browser, so it holds the name, not the schema; the server looks the record up and parses the
    * answer by it, with every caller's checks, before the columns read it. An answer off the record is unreadable.
    */
@@ -171,6 +167,8 @@ export type RowAction =
   | 'identity.kyc_document.open'
   /** Accepting or rejecting one selfie that waits for comparison (`kyc.selfie.decide`), with a second founder's approval. */
   | 'identity.kyc_selfie.decide'
+  /** Approving one pending verification at its level (`kyc.approve`), with a second founder's approval. */
+  | 'identity.kyc.approve'
   /** Freezing one deposit address (one founder), or lifting its freeze with a second founder (svc-pay `founderAdmin.depositFreezes`). */
   | 'pay.deposit_address'
   /** Waiting on the sending platform, or releasing a declared deposit held for the inbound travel rule (one founder each). */

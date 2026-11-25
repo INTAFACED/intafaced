@@ -37,6 +37,7 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
   'auth.agent_scope_forbidden',
+  'identity.rate_limits_unset',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
 

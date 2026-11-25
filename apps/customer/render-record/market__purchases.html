@@ -97,59 +97,26 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Market purchases</h1>
-<p class="lt-muted">Published catalogue terms and your seller workspace.</p>
+<h1 class="lt-title">Market purchases</h1>
+<p class="lt-description">Browse listings or manage what you sell.</p>
 </div>
 </header>
-<div class="more-grid">
-<nav data-slot="sub-nav" aria-label="Catalogue" class="flex flex-wrap items-center gap-1 border-b border-line py-2 px-0">
-<a href="/market" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Catalogue</a>
-<a href="/market/mine" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">My listings</a>
-<a href="/market/strategy" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Publish a strategy subscription</a>
+<div class="lt-body">
+<div class="lt-toolbar">
+<section class="lt-region" data-region="filters">
+<nav class="lt-tabs" aria-label="Catalogue" data-region="section-tabs">
+<a href="/market" class="lt-tab">Catalogue</a>
+<a href="/market/mine" class="lt-tab">My listings</a>
+<a href="/market/strategy" class="lt-tab">Publish a strategy subscription</a>
 </nav>
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+</section>
 </div>
-</div>
-<nav aria-label="More in the Market">
-<p class="lt-hint">Copy leaders, bots and signals are run by the copy room; each door opens its own section there.</p>
-<ul class="lt-stack">
-<li class="lt-stack">
-<a class="lt-link" href="/trade/copy?tab=spot">Spot copy trading</a>
-<small class="lt-hint">Follow a spot leader.</small>
-</li>
-<li class="lt-stack">
-<a class="lt-link" href="/trade/copy?tab=futures">Futures copy trading</a>
-<small class="lt-hint">Follow a futures leader.</small>
-</li>
-<li class="lt-stack">
-<a class="lt-link" href="/trade/copy?tab=bots">Bot marketplace</a>
-<small class="lt-hint">Copy a listed trading bot.</small>
-</li>
-<li class="lt-stack">
-<a class="lt-link" href="/trade/copy?tab=signal">Signal marketplace</a>
-<small class="lt-hint">Follow a listed signal.</small>
-</li>
-</ul>
-</nav>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Browse listings</h2>
-</header>
-<div class="if-panel__body">
-<div class="depth-filters">
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
+<div class="lt-stack">
 <div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">Can’t connect right now</h3>
@@ -157,39 +124,8 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-<p class="lt-muted">Only one-time listings are filed under a category. Strategy subscriptions are not, so a category shows none.</p>
-</div>
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
-</div>
-</div>
-</section>
-<section class="lt-stack">
-<h2>Listed sellers</h2>
-<p class="lt-hint">
-<span lang="en" dir="ltr" data-i18n="more.market.explorer.directoryNote">Sellers appear in registration order. There is no ranking or featured placement.</span>
-</p>
-<div lang="und">
-<div data-testid="failure" class="lt-refusal" role="status">
-<h3 class="lt-refusal-title">Can’t connect right now</h3>
-<p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
-</div>
-</div>
-</section>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Your purchases</h2>
-</header>
-<div class="if-panel__body">
+<section>
+<h2>Your purchases</h2>
 <section class="lt-stack" aria-label="Your purchases" lang="en">
 <p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="more.market-purchases.meaning">Inspect an original receipt. Current subscription access is checked separately.</span>
@@ -215,6 +151,7 @@
 <div class="lt-col-side">
 </div>
 </div>
+</section>
 </section>
 </div>
 </section>

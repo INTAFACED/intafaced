@@ -34,7 +34,7 @@ import {
   academyWithdrawAssignmentInputSchema,
   academyWithdrawLessonInputSchema,
 } from './academy-courses.js';
-import { academyCourseGradebookInputSchema } from './academy-course-gradebook.js';
+import { academyCourseGradebookInputSchema, academyCourseGradebookSchema } from './academy-course-gradebook.js';
 import {
   academyGradeReportFileInputSchema,
   academyGradeReportFileSchema,
@@ -1235,6 +1235,22 @@ export const ACADEMY_ADMIN_REINSTATE_ACCESS = defineProcedure({
         n: 1,
       },
     },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** AC-assignments-04: the grading policy, the course's graded items and each enrolled learner's scores. */
+export const ACADEMY_ADMIN_COURSE_GRADEBOOK = defineProcedure({
+  ...base,
+  name: 'academy.admin.courseGradebook',
+  kind: 'query',
+  path: 'admin.courseGradebook',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.course_not_found': 'NOT_FOUND', 'academy.permission_denied': 'FORBIDDEN', 'academy.role_not_found': 'NOT_FOUND' },
+  input: academyCourseGradebookInputSchema,
+  output: academyCourseGradebookSchema,
+  samples: [
+    { verdict: 'accept', input: { courseId: '33333333-3333-4333-8333-333333333333' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

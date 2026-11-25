@@ -444,6 +444,17 @@ export class ProtocolChain {
   }
 
   /**
+   * Whether a configured paymaster contract is deployed on this chain and holds a positive native float (D-swap-06,
+   * ScopedPaymaster: an empty paymaster is not a pretend sponsor).
+   */
+  async paymasterFunded(address: Address): Promise<boolean> {
+    return this.#read('paymasterFunded', 'chain.paymasterFunded', async () => {
+      const [code, balance] = await Promise.all([this.client.getCode({ address }), this.client.getBalance({ address })]);
+      return Boolean(code && code !== '0x' && balance > 0n);
+    });
+  }
+
+  /**
    * What this node and the configured bundler can actually do, found by asking. `null` means the question could not be put
    * (no bundler configured, no probe timeout published, the node did not answer), never a guess.
    *   · `pendingTag`: the node answers a `pending` block query. A JSON-RPC error reply is "no"; no reply at all is `null`.

@@ -101,19 +101,23 @@
 <header class="lt-title-row">
 <div>
 <h1 class="lt-title">Person-to-person</h1>
-<p class="lt-description">External payment, ledger escrow, and a recorded order status.</p>
+<p class="lt-description">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav class="lt-tabs" aria-label="P2P rooms">
+<div class="lt-room-section">
+<div data-testid="p2p-rooms">
+<nav class="lt-tabs" aria-label="P2P rooms" data-region="section-tabs">
 <a href="/p2p" class="lt-tab">Offers</a>
 <a href="/uc/order" class="lt-tab">Your orders</a>
 <a href="/uc/ad" class="lt-tab">Your offers</a>
 <a href="/p2p/methods" class="lt-tab" aria-current="page">Payment methods</a>
 <a href="/p2p/access" class="lt-tab">Trading access</a>
 </nav>
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
 <nav aria-label="Payment methods sections">
 <ul>
 <li>
@@ -123,14 +127,13 @@
 <a class="lt-link" href="#p2p-methods-add">Add a payment method</a>
 </li>
 <li>
-<a class="lt-link" href="#p2p-methods-saved">Your payment destination labels</a>
+<a class="lt-link" href="#p2p-methods-saved">Your payment methods</a>
 </li>
 </ul>
 </nav>
 </section>
 <section class="lt-region" data-region="sections" aria-label="Settings">
-<div data-testid="payment-methods">
-<section id="p2p-methods-catalogue" data-testid="pay-section" aria-labelledby="p2p-methods-catalogue-title">
+<section id="p2p-methods-catalogue" class="lt-stack" data-testid="pay-section" aria-labelledby="p2p-methods-catalogue-title">
 <h2 id="p2p-methods-catalogue-title">Payment methods by country</h2>
 <p class="lt-hint">What each payment method asks for in each country. Add one below to get paid with it on your ads.</p>
 <div role="status" lang="und">
@@ -143,7 +146,7 @@
 </div>
 </div>
 </section>
-<section id="p2p-methods-add" data-testid="pay-section" aria-labelledby="p2p-methods-add-title">
+<section id="p2p-methods-add" class="lt-stack" data-testid="pay-section" aria-labelledby="p2p-methods-add-title">
 <h2 id="p2p-methods-add-title">Add a payment method</h2>
 <p class="lt-hint">Saved details stay private: a buyer sees them only on an order they placed with you, and every look is logged.</p>
 <div role="status" lang="und">
@@ -156,8 +159,8 @@
 </div>
 </div>
 </section>
-<section id="p2p-methods-saved" data-testid="pay-section" aria-labelledby="p2p-methods-saved-title">
-<h2 id="p2p-methods-saved-title">Your payment destination labels</h2>
+<section id="p2p-methods-saved" class="lt-stack" data-testid="pay-section" aria-labelledby="p2p-methods-saved-title">
+<h2 id="p2p-methods-saved-title">Your payment methods</h2>
 <div role="status" lang="und">
 <div class="lt-refusal" data-refusal="refused">
 <p class="lt-refusal-title">Can’t connect right now</p>
@@ -168,7 +171,6 @@
 </div>
 </div>
 </section>
-</div>
 </section>
 <section class="lt-region" data-region="explain" aria-label="What this means">
 <p>Each method you add or remove is confirmed with a passkey or an authenticator code. Saved details never come back whole: the list shows your own labels, Show details reads them masked, and a buyer sees them only on an order placed with you.</p>

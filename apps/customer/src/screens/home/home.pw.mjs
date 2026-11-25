@@ -31,7 +31,27 @@ const moneyShape = /^[−+]?[$]?[\d,]+(\.\d+)?[%A-Z ]*$|^—$|^••••$/;
  * An override is a wire JSON body or a function returning one, `null` to hold the request until `release()`,
  * 'error' for a 500, or { status, json } for any other answer. No service is contacted.
  */
-// An established account by default: verified, a passkey, an alert, money in and a trade, so Get started is out of the way.
+/** The person's one connected wallet (svc-protocol's record): the venue account it owns is their trading account. */
+const TRADING_OWNER = '0x00000000000000000000000000000000000000a1';
+const venueWallets = (
+  connections = [
+    {
+      address: TRADING_OWNER,
+      chainId: 84532,
+      connectedAt: '2026-11-01T00:00:00.000Z',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      status: 'live',
+      holdsKey: false,
+    },
+  ],
+) => ({ connections });
+/** What the venue reports in that trading account (row d115: Add money follows it, never our own ledger). */
+const venueBalances = (...totals) => ({
+  venueId: 'test-venue',
+  asOf: '2026-11-23T00:00:00.000Z',
+  value: totals.map((total) => ({ asset: 'USDC', free: total, locked: '0', total })),
+});
+// An established account by default: verified, a passkey, an alert, money at the venue and a trade, so Get started is out of the way.
 const defaults = {
   markets: () => markets,
   tickers: () => tickers(),
@@ -41,6 +61,8 @@ const defaults = {
   passkeys: () => passkeyList(1),
   alerts: () => alertList(),
   activity: () => establishedActivity(),
+  venueWallets: () => venueWallets(),
+  'venue/balances': () => venueBalances('25'),
   // Needs you: Home's owner values (svc-ops) and each owner's items, empty for an account with nothing owed.
   homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, recentActivityLimit: 3, revision: 1 }),
   'work:identity': () => ({ items: [] }),
@@ -54,6 +76,7 @@ const procedures = {
   'notify.alerts': 'alerts',
   'activity.list': 'activity',
   'home.config': 'homeConfig',
+  'venueWallet.status': 'venueWallets',
 };
 /** An item identity answers for a person who has not verified yet. */
 const verifyItem = {
@@ -71,6 +94,7 @@ const newAccount = {
   passkeys: () => passkeyList(0),
   alerts: () => alertList([]),
   activity: () => activityPage([]),
+  venueWallets: () => venueWallets([]),
   'work:identity': () => ({ items: [verifyItem] }),
 };
 /** A history page as the bank answers `input`: only the kinds asked for, at most `limit` lines. */
@@ -583,13 +607,14 @@ test('a brand-new account: Get started, honest empty panels, a filled Simple Hom
 });
 
 test('Get started reads the real answers: done, in review, and "not done" until proven', async ({ page }) => {
-  // Verification submitted and waiting, a passkey added, money received, no trade, no alert.
+  // Verification submitted and waiting, a passkey added, money at the venue, no trade, no alert.
   await mock(page, {
     balance: emptyBalances,
     kyc: kycPending,
     passkeys: () => passkeyList(1),
     alerts: () => alertList([]),
-    activity: () => activityPage([activityRow('deposit', 'in', '50')]),
+    activity: () => activityPage([]),
+    'venue/balances': () => venueBalances('50'),
   });
   await open(page);
   const started = page.getByTestId('home-started');
@@ -618,16 +643,33 @@ test('a step that cannot be read is never shown as done', async ({ page }) => {
   await expect(started.getByTestId('home-started__count')).toHaveText('1 of 6 done');
 });
 
-test("an old deposit still counts: Get started follows the bank's cursor past a window with no match", async ({ page }) => {
+test("an old trade still counts: Get started follows the bank's cursor past a window with no match", async ({ page }) => {
   // The bank scans a window of the history per call; a window with no match answers an empty page and a cursor.
   await mock(page, {
     ...newAccount,
-    activity: (input) => (input?.cursor ? activityPage([activityRow('deposit', 'in', '50')]) : activityPage([], 'next-window')),
+    activity: (input) => (input?.cursor ? activityPage([activityRow('trade', 'out', '50')]) : activityPage([], 'next-window')),
   });
   await open(page);
   const started = page.getByTestId('home-started');
-  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'done');
-  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'todo');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'done');
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'todo');
+});
+
+test('Add money follows the venue: a ledger deposit alone is not done, and a venue that gives no answer is unknown', async ({ page }) => {
+  // Row d115: money in INTAFACED's own ledger is no deposit at the venue.
+  await mock(page, {
+    ...newAccount,
+    venueWallets: () => venueWallets(),
+    'venue/balances': () => venueBalances('0'),
+    activity: () => activityPage([activityRow('deposit', 'in', '50')]),
+  });
+  await open(page);
+  const started = page.getByTestId('home-started');
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'todo');
+  await page.unrouteAll();
+  await mock(page, { ...newAccount, venueWallets: () => venueWallets(), 'venue/balances': 'error' });
+  await page.reload();
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'unknown');
 });
 
 test('before verification the bank refuses the history: that reads as "not yet", any other refusal as unknown', async ({ page }) => {
@@ -640,7 +682,8 @@ test('before verification the bank refuses the history: that reads as "not yet",
   await page.unrouteAll();
   await mock(page, { ...newAccount, activity: refusal('Not offered in your region') });
   await page.reload();
-  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'unknown');
+  // Add money reads the venue, not the history: with no connected wallet it stays to do.
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'todo');
   await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'unknown');
 });
 

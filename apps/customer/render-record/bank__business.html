@@ -101,16 +101,18 @@
 <header class="lt-title-row">
 <div>
 <h1 class="lt-title">Business approvals</h1>
-<p class="lt-description">Set approval rules on your own accounts: a second person approves payments at or above a limit. Registered company accounts need business verification, which isn’t connected.</p>
+<p class="lt-description">Have a second person approve payments on your accounts at or above a limit you choose. Accounts for a registered company need business verification, which isn’t offered.</p>
 </div>
 <div class="lt-room-action">
 <a class="lt-button lt-button-secondary" href="/bank">Bank overview</a>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav class="lt-tabs" aria-label="Bank rooms">
+<div class="lt-room-section">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
+</p>
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
 <a href="/bank" class="lt-tab">Overview</a>
 <a href="/bank/spaces" class="lt-tab">Spaces</a>
 <a href="/bank/transfers" class="lt-tab">Transfers</a>
@@ -121,6 +123,11 @@
 <a href="/bank/analytics" class="lt-tab">Analytics</a>
 <a href="/bank/business" class="lt-tab" aria-current="page">Business</a>
 </nav>
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
 <nav aria-label="On this page">
 <ul>
 <li>
@@ -148,9 +155,6 @@
 <div class="lit-empty">
 <div data-part="title">No approval rules yet</div>
 <div>Set up approvals above to have a teammate approve larger payments.</div>
-</div>
-<div class="lt-toolbar">
-<span class="lt-hint">0 shown. That is the whole list.</span>
 </div>
 </section>
 </section>

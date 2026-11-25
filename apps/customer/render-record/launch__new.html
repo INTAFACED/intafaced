@@ -97,123 +97,101 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>New launch</h1>
-<p class="lt-muted">
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.scope">Asset launch tasks and participation records</span>
-</p>
+<h1 class="lt-title">New launch</h1>
+<p class="lt-description">New coins launching here, and the launches you have joined</p>
 </div>
 </header>
-<div class="more-grid">
-<div class="tabs" role="group" aria-label="Launch sections">
-<button type="button" class="" aria-pressed="false">Launches</button>
-<button type="button" class="selected" aria-pressed="true">Issuer journey</button>
-<button type="button" class="" aria-pressed="false">Pre-listing check</button>
-<button type="button" class="" aria-pressed="false">Requirements</button>
-<button type="button" class="" aria-pressed="false">My participation</button>
-</div>
-<div class="more-grid">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Launch an asset: the issuer journey</h2>
-</header>
-<div class="if-panel__body">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
+<nav class="lt-tabs" aria-label="Launch sections" data-region="section-tabs">
+<a href="/launch" class="lt-tab">Launches</a>
+<a href="/launch/new" class="lt-tab" aria-current="page">Issuer journey</a>
+<a href="/launch/check" class="lt-tab">Pre-listing check</a>
+<a href="/launch/requirements" class="lt-tab">Requirements</a>
+<a href="/launch/mine" class="lt-tab">My participation</a>
+</nav>
+<section class="lt-stack">
+<h2>Launch an asset: the issuer journey</h2>
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.journeyIntro">Seven steps from an idea to a sale. Each step shows whether it can run today. A step that cannot run names what is missing, and nothing is sent for it.</span>
 </p>
-<ol class="depth-steps" aria-label="Issuer journey steps">
-<li class="depth-step depth-step--ready">
-<span class="depth-step-index" aria-hidden="true">1</span>
-<div class="depth-step-main">
-<div class="depth-step-head">
-<h3>Check the deployer</h3>
-<span class="depth-pill depth-pill--ready">Available now</span>
+<ol class="lt-stack" aria-label="Issuer journey steps">
+<li class="lt-stack">
+<div class="lt-toolbar">
+<h3>1. Check the deployer</h3>
+<span class="lit-tag" data-tone="up">Available now</span>
 </div>
 <p>Read the deployer’s recorded lock and vesting history before anything else. This is a read-only pattern check.</p>
-<div class="depth-step-action">
-<button type="button" class="button button--secondary ">
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.runCheck">Run check</span>
 </button>
 </div>
-</div>
 </li>
-<li class="depth-step depth-step--paper">
-<span class="depth-step-index" aria-hidden="true">2</span>
-<div class="depth-step-main">
-<div class="depth-step-head">
-<h3>Describe the asset</h3>
-<span class="depth-pill depth-pill--paper">Draft only</span>
+<li class="lt-stack">
+<div class="lt-toolbar">
+<h3>2. Describe the asset</h3>
+<span class="lit-tag" data-tone="accent">Draft only</span>
 </div>
 <p>Set the name, symbol, supply, decimals and the share of supply offered in a sale. Nothing is submitted.</p>
-<div class="depth-step-action">
-<button type="button" class="button button--secondary " aria-expanded="false">
+<div class="lt-actions">
+<button aria-expanded="false" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.detailsOpen">Edit asset terms</span>
 </button>
 </div>
-</div>
 </li>
-<li class="depth-step depth-step--blocked">
-<span class="depth-step-index" aria-hidden="true">3</span>
-<div class="depth-step-main">
-<div class="depth-step-head">
-<h3>Issue the asset</h3>
-<span class="depth-pill depth-pill--blocked">Blocked</span>
+<li class="lt-stack">
+<div class="lt-toolbar">
+<h3>3. Issue the asset</h3>
+<span class="lit-tag" data-tone="neutral">Blocked</span>
 </div>
 <p>Deploy the asset so it exists on the platform.</p>
-<p class="depth-reason">Blocked: issuance is on hold. The issuance template has not been audited, so customers can’t issue assets. This room starts nothing on any chain.</p>
-</div>
+<p class="lt-muted">Blocked: issuance is on hold. The issuance template has not been audited, so customers can’t issue assets. This room starts nothing on any chain.</p>
 </li>
-<li class="depth-step depth-step--blocked">
-<span class="depth-step-index" aria-hidden="true">4</span>
-<div class="depth-step-main">
-<div class="depth-step-head">
-<h3>Compliance review</h3>
-<span class="depth-pill depth-pill--blocked">Blocked</span>
+<li class="lt-stack">
+<div class="lt-toolbar">
+<h3>4. Compliance review</h3>
+<span class="lit-tag" data-tone="neutral">Blocked</span>
 </div>
 <p>Staff review the issuer and the asset before it can be listed or sold.</p>
-<p class="depth-reason">Blocked: customers can’t submit an asset for review. The Risk and Compliance agent only drafts screening support for staff and never approves an issuer.</p>
-</div>
+<p class="lt-muted">Blocked: customers can’t submit an asset for review. The Risk and Compliance agent only drafts screening support for staff and never approves an issuer.</p>
 </li>
-<li class="depth-step depth-step--blocked">
-<span class="depth-step-index" aria-hidden="true">5</span>
-<div class="depth-step-main">
-<div class="depth-step-head">
-<h3>List on a trading market</h3>
-<span class="depth-pill depth-pill--blocked">Blocked</span>
+<li class="lt-stack">
+<div class="lt-toolbar">
+<h3>5. List on a trading market</h3>
+<span class="lit-tag" data-tone="neutral">Blocked</span>
 </div>
 <p>Request a market for the asset so people can trade it.</p>
-<p class="depth-reason">Blocked: a customer asset-listing request and its trading-market record do not exist. Market service listings do not list an asset.</p>
-</div>
+<p class="lt-muted">Blocked: a customer asset-listing request and its trading-market record do not exist. Market service listings do not list an asset.</p>
 </li>
-<li class="depth-step depth-step--blocked">
-<span class="depth-step-index" aria-hidden="true">6</span>
-<div class="depth-step-main">
-<div class="depth-step-head">
-<h3>Open a sale round</h3>
-<span class="depth-pill depth-pill--blocked">Blocked</span>
+<li class="lt-stack">
+<div class="lt-toolbar">
+<h3>6. Open a sale round</h3>
+<span class="lit-tag" data-tone="neutral">Blocked</span>
 </div>
 <p>Publish terms, admit participants and accept subscriptions.</p>
-<p class="depth-reason">Blocked: no sale-round service exists, so rounds, admission and subscription outcomes are unavailable.</p>
-</div>
+<p class="lt-muted">Blocked: no sale-round service exists, so rounds, admission and subscription outcomes are unavailable.</p>
 </li>
-<li class="depth-step depth-step--blocked">
-<span class="depth-step-index" aria-hidden="true">7</span>
-<div class="depth-step-main">
-<div class="depth-step-head">
-<h3>Vesting and allocation</h3>
-<span class="depth-pill depth-pill--blocked">Blocked</span>
+<li class="lt-stack">
+<div class="lt-toolbar">
+<h3>7. Vesting and allocation</h3>
+<span class="lit-tag" data-tone="neutral">Blocked</span>
 </div>
 <p>Lock and release allocations to the team, the sale and the market.</p>
-<p class="depth-reason">Blocked: vesting and allocation need an issued asset and a sale round, and neither is available.</p>
-</div>
+<p class="lt-muted">Blocked: vesting and allocation need an issued asset and a sale round, and neither is available.</p>
 </li>
 </ol>
+</section>
 </div>
 </section>
+</div>
+<div class="lt-col-side">
 </div>
 </div>
 </div>

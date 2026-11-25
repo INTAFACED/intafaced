@@ -220,6 +220,18 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
     await expect(notice(page).locator('small')).toHaveText('identity.registration_closed');
     await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
     await noAccount(who);
+
+    // The owner's invited list (REGISTRATION_EMAIL_ALLOWLIST) opens a closed sign-up to the addresses on it: an invited
+    // address goes on to the code step, and any other address still gets the same refusal.
+    const invited = person();
+    await restartService('identity', { LOCAL_STACK_IDENTITY_REGISTRATION: 'closed', LOCAL_STACK_IDENTITY_INVITED: invited.email });
+    await details(page, who);
+    await expect(notice(page)).toContainText('Sign-up is closed right now. Nothing was created.', { timeout: 15_000 });
+    await expect(notice(page).locator('small')).toHaveText('identity.registration_closed');
+    await noAccount(who);
+    await details(page, invited);
+    await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible();
+    await noAccount(invited);
   } finally {
     await registration(true);
   }
@@ -509,7 +521,7 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
     const alert = page.getByRole('alert');
     await expect(alert).toContainText('open Account and send a new one');
     await expect(alert.getByRole('link', { name: 'Go to Account', exact: true })).toHaveAttribute('href', '/uc/account');
-    await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|409|410|500)\b/);
+    await expect(page.locator('[data-template="flow"]')).not.toContainText(/auth\.|email_confirm|\b(400|404|409|410|500)\b/);
     await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
     expect(await page.content()).not.toContain(token);
   };
@@ -559,7 +571,7 @@ test(`${J} #6 a confirmation link with no token or a wrong one is a page with th
     const notice = page.getByRole('alert');
     await expect(notice).toContainText('Sign in, open Account and send a new one.');
     await expect(notice.getByRole('link', { name: 'Go to Account', exact: true })).toHaveAttribute('href', '/uc/account');
-    await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|500)\b/);
+    await expect(page.locator('[data-template="flow"]')).not.toContainText(/auth\.|email_confirm|\b(400|404|500)\b/);
     await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
   };
   await page.goto('/confirm-email');

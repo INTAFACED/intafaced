@@ -10,6 +10,8 @@ const messages = {
   'Remove {asset} from watchlist': 'Remove {asset} from watchlist',
   // Price card
   '{name} price': '{name} price',
+  'Last trade price': 'Last trade price',
+  'Closing price': 'Closing price',
   'Price in {quote}': 'Price in {quote}',
   'Chart range': 'Chart range',
   'Range 1D': 'Last day',
@@ -53,7 +55,7 @@ const messages = {
   'not published': 'not published',
   Networks: 'Networks',
   'Networks rule': 'The networks you can deposit or withdraw this coin on here, as the platform lists them.',
-  'not read': 'not read',
+  'not read': 'couldn’t load, try again soon',
   'not listed': 'not listed',
   'On {network}': 'On {network}',
   'Network detail rule': 'The contract and links the platform lists for this coin on this network. None is shown where none is known.',

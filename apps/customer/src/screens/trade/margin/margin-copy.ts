@@ -40,7 +40,7 @@ export const marginCopy = defineCopy('trade.margin', {
   'Table error': 'Couldn’t load your positions',
   'Try again': 'Try again',
   'Band note':
-    'Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. A position shows — until the service publishes the inputs.',
+    'Margin ratio is maintenance margin divided by your margin plus unrealised PnL. Healthy, Watch and Danger are guide levels (50%, 80%, 100%), not the liquidation trigger. A dash appears when figures are unavailable.',
   'Margin call called': 'Margin call {n} delivered, health {health}',
 
   // Rules
@@ -52,20 +52,19 @@ export const marginCopy = defineCopy('trade.margin', {
   'Portfolio margin': 'Portfolio margin',
   'Portfolio margin off': 'Not offered. Its offset and floor rules are not published.',
   'Hedge mode': 'Hedge mode',
-  'Hedge mode off': 'No position-mode setting is published. Until the platform sets one, new positions are refused.',
+  'Hedge mode off': 'Hedge mode is not currently enabled.',
   'Collateral class': 'Collateral class',
   'Collateral cash': 'Cash only',
   'Collateral off': 'Yield-bearing, staked and lending balances are refused as margin.',
   'Switch mode': 'Switch margin mode',
-  'Switch mode reason': 'Margin mode is chosen when a position opens. The service does not switch it later, so this control stays off.',
+  'Switch mode reason': 'Margin mode is set when a position opens and cannot be switched afterward.',
   'Rule offered': 'Offered',
   'Rule not offered': 'Not offered',
 
   // Spot margin
   'Spot margin': 'Spot margin and borrowing',
   'Spot margin title': 'Spot margin is not offered',
-  'Spot margin reason':
-    'Borrowing to buy spot has no borrow or repay service, so spot buys are paid in full from your balance. Nothing is borrowed on your behalf.',
+  'Spot margin reason': 'Margin borrowing for spot trades is not offered. Spot orders are funded in full from your available balance.',
   'Trade spot': 'Trade spot',
   'Bank loans': 'See bank loans',
 
@@ -76,6 +75,6 @@ export const marginCopy = defineCopy('trade.margin', {
   'Liquidation point 2': 'While a liquidation step is running, changes to that position are refused.',
   'Liquidation point 3': 'A loss that has been posted is not reversed. A later correction is a new entry.',
   'Liquidation point 4':
-    'If a position cannot be closed at a fair price, the platform’s last-resort steps are published in the ADL notice on the futures desk.',
-  'ADL notice': 'Read the ADL notice',
+    'If a position cannot be closed at a fair price, auto-deleveraging may apply. Details are published in the auto-deleveraging notice on the futures desk.',
+  'ADL notice': 'Read the auto-deleveraging notice',
 });

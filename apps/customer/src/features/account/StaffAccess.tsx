@@ -17,6 +17,7 @@ const copy = defineCopy('staff-access', {
   colWho: 'Staff member',
   colOn: 'On',
   kind_venue_orders_get: 'Looked up one of your routed orders',
+  kind_venue_accounts_get: 'Looked at your venue account’s margin and its history',
   kind_orders_get: 'Looked up one of your orders',
   kind_orders_list: 'Listed your orders',
   kind_other: 'Staff action: {kind}',
@@ -25,27 +26,16 @@ const copy = defineCopy('staff-access', {
   loading: 'Reading who accessed your account…',
   back: 'Security',
   link: 'Staff access: who looked at your trading account',
-  relatedLabel: 'Related rooms',
-  sectionsLabel: 'Staff access sections',
   explain: 'Each row is one time our staff looked at or acted on your trading account, newest first, up to the latest 100.',
 });
 
-/**
- * The Security page's way in to the access list, in its index beside the section links: there its link takes the
- * index's full-height target and wraps on a phone.
- */
+/** The Security page's way in to the access list: the room's one action, beside its title. */
 export function StaffAccessLink() {
   const { t } = copy.useCopy();
   return (
-    <nav aria-label={t('relatedLabel')}>
-      <ul>
-        <li>
-          <a className="lt-link" href="/uc/safe/staff-access" data-testid="staff-access-link">
-            {t('link')}
-          </a>
-        </li>
-      </ul>
-    </nav>
+    <a className="lt-link" href="/uc/safe/staff-access" data-testid="staff-access-link">
+      {t('link')}
+    </a>
   );
 }
 
@@ -62,6 +52,7 @@ type T = ReturnType<typeof copy.useCopy>['t'];
 /** The operator record's kind in the person's own words; a kind with no words of its own is named as it is. */
 function kindWords(t: T, kind: string): string {
   if (kind === 'venue_orders.get') return t('kind_venue_orders_get');
+  if (kind === 'venue_accounts.get') return t('kind_venue_accounts_get');
   if (kind === 'orders.get') return t('kind_orders_get');
   if (kind === 'orders.list') return t('kind_orders_list');
   return t('kind_other', { kind });
@@ -91,17 +82,6 @@ export function StaffAccess() {
         <a className="lt-link" href="/uc/safe">
           {t('back')}
         </a>
-      }
-      index={
-        <nav aria-label={t('sectionsLabel')}>
-          <ul>
-            <li>
-              <a className="lt-link" href="#staff-access-title">
-                {t('title')}
-              </a>
-            </li>
-          </ul>
-        </nav>
       }
       sections={
         <section data-testid="staff-access" aria-labelledby="staff-access-title">

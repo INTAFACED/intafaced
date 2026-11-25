@@ -108,14 +108,14 @@ pub fn spent_today(
 
 /// `assertWithinTerms`: the terms are published, no fee is due, and the amount is within the person's per-transfer
 /// limit and what is left of today's (a granted limit replaces the published one of its kind). Run inside the send's
-/// transaction.
+/// transaction. Answers the published fee it checked, which the send records as its own fee.
 pub fn assert_within_terms(
     c: &mut impl GenericClient,
     user_id: &str,
     asset_id: &str,
     amount: Amount,
     now: Instant,
-) -> Result<(), Refusal> {
+) -> Result<Amount, Refusal> {
     let terms = terms_row(c, asset_id)?.ok_or_else(|| terms_unset(asset_id))?;
     if terms.fee > Amount::ZERO {
         return Err(refuse(
@@ -149,7 +149,7 @@ pub fn assert_within_terms(
             ),
         ));
     }
-    Ok(())
+    Ok(terms.fee)
 }
 
 /// `TransferQuote`.

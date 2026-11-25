@@ -1,6 +1,6 @@
 // World: restart
 import { test, expect } from './journey.mjs';
-import { agentsRun } from './agents.mjs';
+import { agentsRead, agentsRun } from './agents.mjs';
 import { signIn } from './desk.mjs';
 import { tool } from './stack.mjs';
 
@@ -10,7 +10,9 @@ import { tool } from './stack.mjs';
 // usual meter. On the stack the Coach route is the profile's TEST route on the mock engine at a published price of 0
 // (tooling/profiles/test-owner-values/agents.json), so every answer is marked TEST and bills 0.
 // Each step reads the service's own answer to coach.runSession back as well as the screen, so a typed code is checked
-// exactly, not inferred from words. #4 restarts svc-agents with the Coach route unset and restores it in a finally.
+// exactly, not inferred from words. The usual meter is read through usage.summary, the person's sealed usage windows:
+// an answer adds exactly one window, its own session's, settled at 0; a refusal or an uncovered topic adds none. Each
+// step ends on its answer with stepPicture(). #4 restarts svc-agents with the Coach route unset and restores it in a finally.
 const J = 'J-agents-17';
 const agents = agentsRun(J);
 const LESSON = '/academy/foundations-risk-first?path=foundations';
@@ -24,10 +26,13 @@ const coach = (page) => page.getByRole('main').getByRole('region', { name: 'Coac
 /** The tRPC answer's data, whether or not the transport wraps it. */
 const dataOf = (body) => body?.result?.data?.json ?? body?.result?.data;
 
-/** Opens the lesson, asks the Coach `question` in its panel, and returns the answer region with the service's answer. */
 const COST_MISSING = 'The Coach has no route on this deployment, so every question is refused.';
 
-/** Asks once the cost line has read the Coach route: its figures when routed, the missing-route line when not. */
+/** The person's usual meter: every sealed usage window of theirs (usage.summary), all of them on one page. */
+const meter = () => agentsRead(agents, 'usage.summary', { limit: 500 });
+
+/** Opens the lesson, asks the Coach `question` in its panel once the cost line has read the Coach route (its figures
+ *  when routed, the missing-route line when not), and returns the answer region with the service's answer. */
 async function ask(page, question, costLine = (panel) => panel.getByTestId('coach-cost')) {
   await signIn(page, agents.account());
   await page.goto(LESSON);
@@ -51,7 +56,9 @@ test(`${J} starts: a verified TEST account reading a lesson in Academy`, async (
 
 test(`${J} #1 opens the Coach panel and asks about the lesson: an answer citing only curriculum lessons, with working links`, async ({
   page,
+  stepPicture,
 }) => {
+  const before = await meter();
   const { answer, status, body } = await ask(page, 'TEST: why does position size matter more than entry?');
   expect(status).toBe(200);
   const data = dataOf(body);
@@ -70,6 +77,14 @@ test(`${J} #1 opens the Coach panel and asks about the lesson: an answer citing 
   await expect(answer.getByTestId('coach-billed')).toContainText('0');
   await expect(answer.getByTestId('coach-billed')).toContainText('TEST');
 
+  // Billed through the usual meter: exactly one new sealed window, this answer's own session, settled at 0.
+  const after = await meter();
+  expect(after.windowCount).toBe(before.windowCount + 1);
+  const known = new Set(before.windows.map((w) => `${w.sessionId}/${w.windowId}`));
+  const added = after.windows.filter((w) => !known.has(`${w.sessionId}/${w.windowId}`));
+  expect(added).toEqual([expect.objectContaining({ sessionId: data.sessionId, state: 'settled', amount: '0', assetId: data.assetId })]);
+  await stepPicture();
+
   // Every link resolves to the curriculum lesson it names.
   for (const lesson of [SIZING, INVALIDATION]) {
     await page.goto(`/academy/${lesson.slug}`);
@@ -77,16 +92,24 @@ test(`${J} #1 opens the Coach panel and asks about the lesson: an answer citing 
   }
 });
 
-test(`${J} #2 asks about something the curriculum does not cover: says it is not covered and gives no citation`, async ({ page }) => {
+test(`${J} #2 asks about something the curriculum does not cover: says it is not covered and gives no citation`, async ({
+  page,
+  stepPicture,
+}) => {
+  const before = await meter();
   const { answer, status, body } = await ask(page, 'TEST: what will the weather be on Mars next week?');
   expect(status).toBe(200);
   expect(dataOf(body)).toEqual({ status: 'not_covered', citations: [] });
   await expect(answer).toContainText('The curriculum does not cover this.');
   await expect(answer.getByRole('list', { name: 'Lessons cited' })).toHaveCount(0);
   await expect(answer.getByRole('link')).toHaveCount(0);
+  // Nothing was billed: the meter holds exactly what it held before the question.
+  expect(await meter()).toEqual(before);
+  await stepPicture();
 });
 
-test(`${J} #3 asks for a return promise: refused as advice`, async ({ page }) => {
+test(`${J} #3 asks for a return promise: refused as advice`, async ({ page, stepPicture }) => {
+  const before = await meter();
   const { answer, status, body } = await ask(page, 'TEST: promise me 20% a month if I follow this lesson');
   expect(status).toBe(200);
   expect(dataOf(body)).toEqual({ status: 'refused', code: 'agents.advice_forbidden' });
@@ -94,6 +117,9 @@ test(`${J} #3 asks for a return promise: refused as advice`, async ({ page }) =>
   await expect(alert).toContainText('The Coach does not give financial advice.');
   await expect(alert).toHaveAttribute('data-refusal-code', 'agents.advice_forbidden');
   await expect(answer).toHaveCount(0);
+  // Nothing was billed: the meter holds exactly what it held before the question.
+  expect(await meter()).toEqual(before);
+  await stepPicture();
 });
 
 /** svc-agents restarted with the Coach route unset, or back on the profile's TEST route. */
@@ -109,10 +135,11 @@ function coachRoute(published) {
   }
 }
 
-test(`${J} #4 runs the Coach with no model set: a refusal that the Coach engine is unavailable`, async ({ page }) => {
+test(`${J} #4 runs the Coach with no model set: a refusal that the Coach engine is unavailable`, async ({ page, stepPicture }) => {
   test.setTimeout(240_000);
   try {
     coachRoute(false);
+    const before = await meter();
     const { answer, status, body } = await ask(page, 'TEST: explain drawdown', (panel) => panel.getByText(COST_MISSING));
     await expect(coach(page).getByText(COST_MISSING)).toBeVisible();
     await expect(coach(page).getByTestId('coach-cost')).toHaveCount(0);
@@ -122,6 +149,9 @@ test(`${J} #4 runs the Coach with no model set: a refusal that the Coach engine 
     await expect(alert).toContainText('The Coach engine is unavailable');
     await expect(alert).toHaveAttribute('data-refusal-code', 'agents.coach_engine_unavailable');
     await expect(answer).toHaveCount(0);
+    // Nothing was billed: the meter holds exactly what it held before the question.
+    expect(await meter()).toEqual(before);
+    await stepPicture();
   } finally {
     coachRoute(true);
   }

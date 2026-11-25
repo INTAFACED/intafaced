@@ -114,12 +114,15 @@ test(`${J} #1 (I-kyc-compliance-04, withdrawal limits): owner limits not set rea
   // Each level's withdrawal limits are svc-pay's owner-set figures (D-148). The stack's TEST gates set figures for the
   // verified levels only (local-test-gates.mjs TEST_WITHDRAWAL_LIMITS), so level none reads "Limit not set", never a number.
   for (const level of LEVELS)
-    await expect(rung(level).locator('.verification__limits [data-limits]').first()).toHaveAttribute('data-limits', /^(set|unset)$/);
-  const none = rung('none').locator('.verification__limits');
+    await expect(rung(level).locator('[data-testid="verification__limits"] [data-limits]').first()).toHaveAttribute(
+      'data-limits',
+      /^(set|unset)$/,
+    );
+  const none = rung('none').getByTestId('verification__limits');
   await expect(none.locator('[data-limits="unset"]')).toHaveText('Limit not set');
   await expect(none.locator('li')).toHaveCount(0);
   // A level with figures lists each coin's figures as the owner set them (the gates publish TEST figures for basic).
-  await expect(rung('basic').locator('.verification__limits [data-limits="set"] li').first()).toHaveText(
+  await expect(rung('basic').locator('[data-testid="verification__limits"] [data-limits="set"] li').first()).toHaveText(
     /^[A-Z0-9]+: up to \d+(\.\d+)? per withdrawal and \d+(\.\d+)? in 24 hours$/,
   );
 });
@@ -230,6 +233,7 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
 
 test(`${J} #3: with the face check switched off the selfie is kept for manual review; a hand-off link used twice is refused`, async ({
   baseURL,
+  stepPicture,
 }) => {
   test.setTimeout(90_000);
   // A browser whose camera is Chromium's fake device, granted, as a person's would be after they allow it.
@@ -311,6 +315,11 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await expect(refused).toHaveAttribute('data-state', 'used');
     await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
     await expect(again.getByTestId('verification__selfie').getByRole('button', { name: /Open camera/i })).toHaveCount(0);
+    // The same screen still names the face check as off and keeps the phone's selfie for a person: the step's whole state.
+    await expect(again.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');
+    await expect(again.getByTestId('verification__selfie-latest')).toHaveAttribute('data-status', 'provided');
+    // This test opens its own camera browser, so the step's picture is taken of this page by name.
+    await stepPicture(again);
 
     // The service itself refuses the used link, not only the page: a selfie sent straight to identity with it is refused
     // with its one typed code, and a re-read shows the phone's selfie is still the latest, so no second selfie was stored.
@@ -437,7 +446,7 @@ function identityPoaRule(on) {
   }
 }
 
-test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
+test(`${J} #5: proof of address, with honest refusals`, async ({ page, stepPicture }) => {
   test.setTimeout(240_000);
   await atVerification(page);
   const poa = page.getByRole('region', { name: /Proof of address/i });
@@ -498,6 +507,8 @@ test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
   await poa.getByRole('button', { name: 'Send proof of address', exact: true }).click();
   await expect(problem).toHaveAttribute('data-code', 'kyc.poa_too_old');
   await expect(problem).toHaveText('This document is older than 90 days. Send one issued within the last 90 days.');
+  // The step's picture: the old document flagged on submit, before the test goes on to the sends that follow.
+  await stepPicture();
 
   // Recent, from another country than the residence: sent for review, and flagged for the reviewer.
   await poa.getByLabel('Country the document is from', { exact: true }).fill('FR');

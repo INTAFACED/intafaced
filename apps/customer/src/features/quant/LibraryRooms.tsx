@@ -3,7 +3,8 @@ import { QUANT_LIBRARY_TAGS, type QuantLibraryTag } from '@intafaced/contracts/q
 import { QUANT_LIBRARY_BROWSE } from '@intafaced/contracts/quant-library-procedures';
 import { useState } from 'react';
 import { Button, EmptyState, Select } from '@intafaced/ui/lit';
-import { RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { FirstState, RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { Library } from 'lucide-react';
 import { useResource } from '../../shared/resource';
 import { ReadView, RecordTable } from '../../shared/record/record-parts';
 import { preservePaperHref } from '../more';
@@ -25,12 +26,11 @@ export function LibraryRoom({ paper }: { paper: boolean }) {
       title={t('libraryTitle')}
       description={t('libraryIntro')}
       state={{ kind: 'ready' }}
-      filters={<QuantRooms active="strategies" paper={paper} />}
+      section={<QuantRooms paper={paper} />}
       list={
         <section>
           <h2>{t('libraryTitle')}</h2>
           <div data-testid="quant-library" data-tag={tag}>
-            <p className="lt-hint">{t('libraryIntro')}</p>
             <Select
               label={t('filterTag')}
               value={tag}
@@ -84,7 +84,17 @@ function LibraryPage({
       {(data) => (
         <>
           {data.entries.length === 0 && first ? (
-            <EmptyState title={t('empty')} />
+            tag === null ? (
+              <FirstState
+                icon={<Library size={24} />}
+                title={t('emptyAll')}
+                body={t('emptyAllBody')}
+                points={[t('firstPointOldest'), t('firstPointRank'), t('firstPointAdvice')]}
+                action={{ label: t('firstAction'), href: preservePaperHref('/quant/studio', paper) }}
+              />
+            ) : (
+              <EmptyState title={t('empty')} />
+            )
           ) : (
             <RecordTable
               label={t('libraryTitle')}

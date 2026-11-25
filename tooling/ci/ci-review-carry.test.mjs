@@ -70,6 +70,7 @@ const io = (s, jobsByRun) => ({
   attempts: async (r) => [jobsByRun[r.id] ?? []],
   diffOf: s.diffOf,
   baseAtOf: async () => Date.parse('2026-11-22T08:00:00Z'), // main had the merge base before any review here
+  briefsAt: Date.parse('2026-11-22T07:00:00Z'), // and the briefs as they stand
 });
 const carry = async (s, runs, jobsByRun) => carriedVerdict({ ...io(s, jobsByRun), runs, diff: await s.diffOf(s.head) });
 
@@ -103,6 +104,19 @@ test('the same patch over a main that touched a patched file is reviewed afresh'
   );
   const got = await carry(s, [run(1, s.first, '2026-11-22T10:00:00Z')], { 1: [job(s.first, 'success')] });
   assert.equal(got, null);
+});
+
+test('a review FAIL of a patch citing a project-state decision PR is not carried: the decision may have merged since', async () => {
+  const cites = { 'a.txt': PATCHED.replace('fixed', 'fixed (project-state decision PR #3989)') };
+  const s = scene({ 'b.txt': 'b\nmoved on main\n' }, cites);
+  const runs = [run(1, s.first, '2026-11-22T10:00:00Z')];
+  assert.equal(await carry(s, runs, { 1: [job(s.first, 'failure', 'success')] }), null);
+  assert.deepEqual(await carry(s, runs, { 1: [job(s.first, 'success')] }), { from: s.first.toLowerCase(), review: 'PASS', tests: 'PASS' });
+  assert.deepEqual(await carry(s, runs, { 1: [job(s.first, 'success', 'failure')] }), {
+    from: s.first.toLowerCase(),
+    review: 'PASS',
+    tests: 'FAIL',
+  });
 });
 
 test('a changed patch is reviewed afresh, even by whitespace alone', async () => {
@@ -188,4 +202,18 @@ test('an earlier head whose merge base reached main after it was reviewed carrie
     diff: await s.diffOf(s.head),
   });
   assert.equal(got, null);
+});
+
+test('a brief changed on main since the earlier review carries nothing, so a FAIL a new owner entry answers is reviewed again', async () => {
+  // intafaced#10229, 23 Nov 2026: reviewed and FAILed at 05:50 UTC for want of an owner decision; the entry merged into
+  // REVIEW.md at 06:41; the branch merged main at 06:44, and its same patch still carried the 05:50 FAIL.
+  const s = scene({ 'b.txt': 'b\nmoved on main\n' });
+  const runs = [run(1, s.first, '2026-11-23T05:50:00Z')];
+  const jobs = { 1: [job(s.first, 'failure', 'success')] };
+  const diff = await s.diffOf(s.head);
+  const at = (briefsAt) => carriedVerdict({ ...io(s, jobs), runs, diff, briefsAt });
+  assert.equal((await at(Date.parse('2026-11-23T05:00:00Z'))).review, 'FAIL', 'briefs unchanged since: the FAIL stands');
+  assert.equal(await at(Date.parse('2026-11-23T06:41:00Z')), null, 'a brief changed since: reviewed again');
+  assert.equal(await at(NaN), null, 'an unread brief date carries nothing');
+  assert.equal(await at(undefined), null);
 });

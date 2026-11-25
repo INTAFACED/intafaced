@@ -2,7 +2,8 @@ import { useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
-import { PayAmount, PayDetails, PayFailure, PaySection, PayTime, payTimeText } from '../components';
+import { usePreferences } from '../../../shared/preferences';
+import { PayAmount, PayDetails, PayFailure, PaySection, PayTime, payTimeText } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { OrderReceipt as Receipt, Trade } from '../schemas';
 import { csvCell, downloadText } from '../portal/csv';
@@ -24,6 +25,7 @@ export function bpsPercent(bps: number): string {
  */
 export function OrderReceipt({ pay, trade }: { pay: PersonalPayApi; trade: Trade }) {
   const { t, requestedLocale } = orderHistoryCopy.useCopy();
+  const { timeZone } = usePreferences();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult<Receipt> | null>(null);
   const completed = trade.status === 'released';
@@ -34,7 +36,7 @@ export function OrderReceipt({ pay, trade }: { pay: PersonalPayApi; trade: Trade
     setBusy(false);
     setResult(answer);
   };
-  const time = (iso: string) => payTimeText(iso, requestedLocale) ?? iso;
+  const time = (iso: string) => payTimeText(iso, requestedLocale, Date.now(), timeZone) ?? iso;
   const words = result && !result.ok ? historyRefusal(result, t, time) : null;
   return (
     <PaySection title={t('receiptTitle')} description={completed ? t('receiptBody') : undefined}>

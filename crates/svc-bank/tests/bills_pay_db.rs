@@ -34,6 +34,7 @@ use svc_bank::db::Store;
 use svc_bank::door::{self, BankDoor, DoorConfig, Kind, ServiceAuth};
 use svc_bank::partner::custody::{Freeze, FreezeReading};
 use svc_bank::partner::router::Wiring as PartnerWiring;
+use svc_bank::partner::{AccountRef, Funding, TestPartner, payouts_account};
 use svc_bank::spaces::ports::{
     DirError, Directory, Ledger, LedgerAccount, LedgerBalance, LedgerTx, Lookup, Lookups,
     PostFailure, TxEntry,
@@ -398,6 +399,8 @@ struct Mount {
     bills: pay::Wiring,
     step_up: Option<Identity>,
     custody_layer: &'static str,
+    /// The TEST partner bank on the stack (`held` below puts the person's money there).
+    partner: bool,
 }
 
 impl Default for Mount {
@@ -406,6 +409,7 @@ impl Default for Mount {
             bills: pay::Wiring::none(),
             step_up: None,
             custody_layer: "on",
+            partner: false,
         }
     }
 }
@@ -444,7 +448,7 @@ fn mount(m: Mount) -> Option<Bank> {
     })
     .unwrap()
     .with_partner(PartnerWiring {
-        partner: None,
+        partner: m.partner.then(|| TestPartner::new().unwrap()),
         freeze: Box::new(Open),
         custody_layer: m.custody_layer.to_owned(),
         cash_legs: None,
@@ -489,6 +493,44 @@ impl Bank {
         space::with(&self.store, |c| space::ensure_primary(c, user, "USDT"))
             .unwrap()
             .id
+    }
+    /// The TEST partner holds the person's money (`custody: 'off'`), its bank rail as `rail` says, and `amount` USDT
+    /// paid in there; the ledger holds none. Answers the person's main space.
+    fn held(&self, user: &str, rail: &str, amount: &str) -> String {
+        let partner = self.door.partner().partner.as_ref().unwrap();
+        let mut st = partner.lock();
+        let mut sw = st.board.read(user, Clone::clone);
+        "off".clone_into(&mut sw.custody);
+        rail.clone_into(&mut sw.bank_rail);
+        st.board.set(user, sw);
+        st.fund(
+            user,
+            &Funding {
+                fund_id: "bills-fund".to_owned(),
+                asset_id: "USDT".to_owned(),
+                amount: amt(amount),
+            },
+            t("2026-10-01T00:00:00.000Z"),
+        )
+        .unwrap();
+        drop(st);
+        space::with(&self.store, |c| space::ensure_primary(c, user, "USDT"))
+            .unwrap()
+            .id
+    }
+    /// The person's main USDT balance, and the partner's outbound payments, as the partner's own book holds them.
+    fn at_partner(&self, user: &str) -> (Amount, Amount) {
+        let st = self.door.partner().partner.as_ref().unwrap().lock();
+        (
+            st.book.amount(&AccountRef::main(user, "USDT")),
+            st.book.amount(&payouts_account("USDT")),
+        )
+    }
+    fn set_rail(&self, user: &str, rail: &str) {
+        let mut st = self.door.partner().partner.as_ref().unwrap().lock();
+        let mut sw = st.board.read(user, Clone::clone);
+        rail.clone_into(&mut sw.bank_rail);
+        st.board.set(user, sw);
     }
     /// `bank.bills.runDue(limit, now)`.
     fn run_due(&self, limit: f64, now: Instant) -> pay::RunReport {
@@ -1012,6 +1054,142 @@ fn refuses_an_unaffordable_live_bill_before_the_rail_is_told_and_runs_a_recurrin
     assert_eq!(second.settled, 0);
     assert_eq!(b.ledger.transfers(), 1);
     assert_ne!(s(&active, "id"), "null");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Bills at the TEST partner bank (the launch model: the partner holds the money and pays the biller)
+
+fn recur_input(key: &str, biller: &str, amount: &str, space: &str, starts: &str) -> String {
+    format!(
+        r#"{{"idempotencyKey":"{key}","billerId":"{biller}","reference":"ACC-1","amount":"{amount}","fromSpaceId":"{space}","cadence":"monthly","startsAt":"{starts}"}}"#
+    )
+}
+
+#[test]
+fn a_recurring_bill_the_partner_holds_the_money_for_is_one_partner_payment_each_month_and_the_ledger_posts_nothing()
+ {
+    let Some(b) = mount(Mount {
+        custody_layer: "off",
+        partner: true,
+        ..Mount::default()
+    }) else {
+        return;
+    };
+    let space = b.held(USER, "test", "50");
+    let found = b
+        .call(USER, READ, "bills.billers.search", r#"{"query":"water"}"#)
+        .data();
+    let Json::Array(found) = found else { panic!() };
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        (s(&found[0], "id"), s(&found[0], "name")),
+        ("test-biller-water".to_owned(), "TEST Water".to_owned())
+    );
+    // An id the partner does not list is no biller.
+    assert_eq!(
+        b.call(
+            USER,
+            WRITE,
+            "bills.recurring.create",
+            &recur_input(
+                "recur-p-0",
+                "power-de",
+                "10",
+                &space,
+                "2026-10-17T00:00:00.000Z"
+            )
+        )
+        .cause(),
+        "bank.personal_pay_request_invalid"
+    );
+    let bill = b
+        .call(
+            USER,
+            WRITE,
+            "bills.recurring.create",
+            &recur_input(
+                "recur-p-1",
+                "test-biller-water",
+                "10",
+                &space,
+                "2026-10-17T00:00:00.000Z",
+            ),
+        )
+        .data();
+    assert_eq!(
+        (s(&bill, "status"), s(&bill, "nextRunAt")),
+        ("active".to_owned(), "2026-10-17T00:00:00.000Z".to_owned())
+    );
+    let first = b.run_due(10.0, t("2026-10-17T00:00:00.000Z"));
+    let second = b.run_due(10.0, t("2026-10-17T00:00:00.000Z"));
+    assert_eq!((first.settled, second.considered), (1, 0));
+    assert_eq!(b.at_partner(USER), (amt("40"), amt("10")));
+    assert_eq!(b.ledger.posts(), 0);
+    assert_eq!(
+        b.count(
+            "SELECT count(*) FROM bank.bill_payments \
+              WHERE status = 'accepted' AND provider_ref IS NOT NULL AND ledger_tx_id IS NULL"
+        ),
+        1
+    );
+    let listed = b
+        .call(USER, READ, "bills.recurring.list", r#"{"limit":5}"#)
+        .data();
+    let Json::Array(rows) = listed else { panic!() };
+    assert_eq!(s(&rows[0], "nextRunAt"), "2026-11-17T00:00:00.000Z");
+}
+
+#[test]
+fn with_the_partner_rail_off_a_bill_refuses_and_too_little_money_at_the_partner_fails_the_bill_with_nothing_sent()
+ {
+    let Some(b) = mount(Mount {
+        custody_layer: "off",
+        partner: true,
+        ..Mount::default()
+    }) else {
+        return;
+    };
+    let space = b.held(USER, "none", "5");
+    assert_eq!(
+        b.call(USER, READ, "bills.billers.search", r#"{"query":"water"}"#)
+            .cause(),
+        "bank.bills_directory_unset"
+    );
+    assert_eq!(
+        b.call(
+            USER,
+            WRITE,
+            "bills.recurring.create",
+            &recur_input(
+                "recur-p-2",
+                "test-biller-water",
+                "10",
+                &space,
+                "2026-10-17T00:00:00.000Z"
+            )
+        )
+        .cause(),
+        "bank.bills_psp_unset"
+    );
+    b.set_rail(USER, "test");
+    let input = format!(
+        r#"{{"idempotencyKey":"bill-p-3","billerId":"test-biller-energy","reference":"ACC-2","amount":"10","fromSpaceId":"{space}"}}"#
+    );
+    assert_eq!(
+        b.call(USER, WRITE, "bills.pay", &input).cause(),
+        "bank.bills_insufficient_funds"
+    );
+    // The retry reads the failed bill back; the partner is not asked again.
+    assert_eq!(
+        b.call(USER, WRITE, "bills.pay", &input).cause(),
+        "bank.bills_insufficient_funds"
+    );
+    assert_eq!(b.at_partner(USER), (amt("5"), amt("0")));
+    assert_eq!(b.ledger.posts(), 0);
+    assert_eq!(
+        b.count("SELECT count(*) FROM bank.bill_payments WHERE status = 'failed' AND provider_ref IS NULL"),
+        1
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------

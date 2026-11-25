@@ -84,17 +84,21 @@ function bytes(value: string): ArrayBuffer {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
 }
 const random = (n: number) => crypto.getRandomValues(new Uint8Array(n));
+type Transport = NonNullable<EmbeddedWalletPasskey['registration']>['transports'][number];
+const TRANSPORTS: readonly string[] = ['ble', 'internal', 'nfc', 'usb', 'hybrid', 'smart-card'] satisfies readonly Transport[];
+const isTransport = (t: string): t is Transport => TRANSPORTS.includes(t);
 const supported = () => typeof window !== 'undefined' && window.isSecureContext && !!window.PublicKeyCredential && !!navigator.credentials;
 
 /** A new ES256 passkey on this device, for the wallet. The relying party is this page's own host. */
 export async function createWalletPasskey(): Promise<ClientResult<EmbeddedWalletPasskey>> {
   if (!supported()) return { ok: false, failure: 'unsupported' };
   try {
+    const challenge = random(32);
     const credential = await navigator.credentials.create({
       publicKey: {
         rp: { name: 'INTAFACED wallet' },
         user: { id: random(16), name: 'wallet', displayName: 'Your wallet' },
-        challenge: random(32),
+        challenge,
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
         attestation: 'none',
@@ -105,7 +109,22 @@ export async function createWalletPasskey(): Promise<ClientResult<EmbeddedWallet
       return { ok: false, failure: 'passkey' };
     const publicKey = credential.response.getPublicKey();
     if (!publicKey || credential.response.getPublicKeyAlgorithm() !== -7) return { ok: false, failure: 'unsupported' };
-    return { ok: true, data: { credentialId: base64url(credential.rawId), publicKey: base64url(publicKey), algorithm: -7 } };
+    // The registration travels too: a provider that binds a passkey only from its registration checks it there.
+    const transports = (credential.response.getTransports?.() ?? []).filter(isTransport);
+    return {
+      ok: true,
+      data: {
+        credentialId: base64url(credential.rawId),
+        publicKey: base64url(publicKey),
+        algorithm: -7,
+        registration: {
+          challenge: base64url(challenge.buffer),
+          clientDataJson: base64url(credential.response.clientDataJSON),
+          attestationObject: base64url(credential.response.attestationObject),
+          transports,
+        },
+      },
+    };
   } catch {
     return { ok: false, failure: 'passkey' };
   }
@@ -226,8 +245,28 @@ export function testProviderClient(
   };
 }
 
+/**
+ * The owner's provider's client (turnkey). This build carries only making the wallet: the person's passkey, registered
+ * with the provider by svc-protocol. Signing, sending, export and a second passkey run in the provider's own browser flow,
+ * which this page does not carry yet: each answers `unsupported`, so the room says so in words and nothing is signed or
+ * sent. The provider reports export and recovery as not offered, so the room shows no button for them.
+ */
+export function ownerProviderClient(deps: { create?: typeof createWalletPasskey } = {}): EmbeddedWalletClient {
+  const unsupported = async () => ({ ok: false as const, failure: 'unsupported' as const });
+  return {
+    createPasskey: deps.create ?? createWalletPasskey,
+    signMessage: unsupported,
+    signTypedData: unsupported,
+    exportKey: unsupported,
+    addRecoveryPasskey: unsupported,
+    sendTransaction: unsupported,
+    read: async () => null,
+  };
+}
+
 /** The client for the provider svc-protocol names; null for a provider this build has no client for. */
 export function embeddedWalletClient(provider: ProtocolEmbeddedWalletProvider | null): EmbeddedWalletClient | null {
   if (provider?.id === 'test' && provider.test) return testProviderClient();
+  if (provider?.id === 'turnkey' && !provider.test) return ownerProviderClient();
   return null;
 }

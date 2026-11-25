@@ -39,6 +39,9 @@ const messages = {
   passkeyMissing: 'The browser did not return a new passkey.',
   passkeyCreateStopped: 'Passkey creation was cancelled or timed out.',
   passkeyCreateFailed: 'The browser could not create this passkey.',
+  verifyFirstTitle: 'Verify your identity first',
+  verifyFirst: 'Verify your identity to use this.',
+  verifyNow: 'Verify now',
 } as const;
 export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('shared.ui', messages, {
   es: {
@@ -80,6 +83,9 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     passkeyMissing: 'El navegador no devolvió una nueva clave de acceso.',
     passkeyCreateStopped: 'La creación de la clave de acceso se canceló o agotó el tiempo.',
     passkeyCreateFailed: 'El navegador no pudo crear esta clave de acceso.',
+    verifyFirstTitle: 'Verifica primero tu identidad',
+    verifyFirst: 'Verifica tu identidad para usar esto.',
+    verifyNow: 'Verificar ahora',
   },
   fr: {
     unauthorized: 'Connectez-vous pour continuer',
@@ -120,6 +126,9 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     passkeyMissing: 'Le navigateur n’a pas renvoyé de nouvelle clé d’accès.',
     passkeyCreateStopped: 'La création de la clé d’accès a été annulée ou a expiré.',
     passkeyCreateFailed: 'Le navigateur n’a pas pu créer cette clé d’accès.',
+    verifyFirstTitle: 'Vérifiez d’abord votre identité',
+    verifyFirst: 'Vérifiez votre identité pour utiliser ceci.',
+    verifyNow: 'Vérifier maintenant',
   },
 });
 
@@ -147,7 +156,8 @@ type SharedKey =
   | 'passkeySignInFailed'
   | 'passkeyMissing'
   | 'passkeyCreateStopped'
-  | 'passkeyCreateFailed';
+  | 'passkeyCreateFailed'
+  | 'verifyFirst';
 export type UiMessage = { key: SharedKey };
 
 export function uiMessage(message: UiMessage, locale: UiLocale = currentPreferences().language) {

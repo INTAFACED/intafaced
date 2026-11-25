@@ -39,6 +39,7 @@ const SWEEP = {
   'bank-ramps': { at: '/bank/ramps', shows: 'No payment provider is connected.' },
   'bank-analytics': { proof: 'its reason is that no journey proves the room' },
   'bank-business': { at: '/bank/business', shows: 'Registered company accounts need business verification' },
+  'bank-credit-previews': { at: '/bank/loans/overdraft', shows: 'needs a licence we do not hold' },
   'margin-futures-options': { at: '/trade/options', shows: 'The rule for which asset settles an option is not published.' },
   copy: {
     proof:
@@ -57,16 +58,15 @@ const SWEEP = {
   'pay-scan': { at: '/pay/scan', shows: 'A payment code or link from this app opens Send' },
   'pay-bill-detail': { at: '/pay/bills/invoices/TEST-not-a-record', shows: 'there is no biller network behind INTAFACED' },
   'oauth-apps': { at: '/developers/apps', shows: 'The owner has not published the lifetime that signing in with apps needs' },
-  'developer-portal': { at: '/developers', shows: 'No access tiers are published in this build' },
+  'developer-portal': { at: '/developers', shows: 'No separate access tiers are published.' },
   'trade-news-calendar': { at: '/trade/news', shows: 'News needs a news data feed.' },
   p2p: { silent: 'the room does not name the missing instrument encryption provider' },
+  // Status components and support hours are set by other journeys on the shared stack; no journey publishes a rulebook.
+  'owner-blank-pages': { at: '/rulebook', shows: 'The venue has not published its rules, so none are shown here.' },
   'more-rooms': { proof: 'its reason is that it is not a first-release customer path' },
   'promotions-dividends': { proof: 'its reason is that the room is not redesigned' },
   'strategy-subaccounts': { noRoute: true },
-  // Other journeys publish TEST notices on the shared stack (each open up to NOTICE_DRAIN_MINUTES, notices.mjs), so the
-  // feed is checked against what svc-notify publishes when this row runs. Asking for empty alone failed whenever such a
-  // notice was still open (main runs 42178080178 and 42179200864).
-  'public-extras': { at: '/notice', shows: 'No public notices are published', feed: 'notices' },
+  'public-extras': { at: '/lab', shows: 'No Lab entry is published' },
 };
 
 const run = journeyState(`registry-blockers-${process.env.JOURNEY_RUN_ID ?? 'local'}`);

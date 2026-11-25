@@ -21,9 +21,9 @@ export function RoomBarAndRanges() {
   const [section, setSection] = useState<'overview' | 'about'>('overview');
   const [range, setRange] = useState<Range>('1D');
   return (
-    <div className="vk-grid">
+    <div className="lt-stack">
       <RoomBar marks={{ 'data-testid': 'kit-room-bar' }}>
-        <span className="vk-row">
+        <span className="lt-toolbar">
           <AssetIcon asset="BTC" size="lg" />
           <span>TEST Bitcoin</span>
           <span className="vk-type__micro">BTC</span>

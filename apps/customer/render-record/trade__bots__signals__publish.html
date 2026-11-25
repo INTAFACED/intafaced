@@ -96,40 +96,93 @@
 </header>
 <main id="main" tabindex="-1">
 <div class="legacy-room">
-<div data-slot="page" data-width="content" data-density="comfortable" class="w-full min-w-0 px-(--if-gutter) text-fg py-6 mx-auto max-w-(--if-container-max)">
-<header data-slot="page-header" data-density="comfortable" class="flex flex-col gap-3 pb-4">
-<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-<div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-<h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Publish a signal</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-base">Share your trade signals with subscribers, free or for a monthly fee.</p>
-</div>
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Publish a signal</h1>
+<p class="lt-description">Share your trade signals with subscribers, free or for a monthly fee.</p>
 </div>
 </header>
-<nav class="lt-actions" aria-label="Signal sections">
-<a href="/trade/bots/signals">Signals</a>
-<a href="/trade/bots/signals?view=mine">My signals</a>
-<a href="/trade/bots/signals?view=earnings">Earnings</a>
-<a href="/trade/bots/signals/publish" aria-current="page">Publish a signal</a>
+<div class="lt-room-section">
+<nav class="lt-tabs" aria-label="Signal sections" data-region="section-tabs">
+<a href="/trade/bots/signals" class="lt-tab">Signals</a>
+<a href="/trade/bots/signals?view=mine" class="lt-tab">My signals</a>
+<a href="/trade/bots/signals?view=earnings" class="lt-tab">Earnings</a>
+<a href="/trade/bots/signals/publish" class="lt-tab" aria-current="page">Publish a signal</a>
 </nav>
-<section data-slot="page-section" data-density="comfortable" aria-labelledby="_r_3_" class="flex min-w-0 flex-col gap-6">
-<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
-<h2 id="_r_3_" data-slot="page-section-title" class="m-0 min-w-0 font-semibold text-fg text-md">Provider criteria</h2>
-<div data-slot="page-section-actions" class="flex flex-wrap items-center gap-2">
-<span role="status" data-slot="status-chip" data-freshness="unknown" data-density="comfortable" title="Could not be read" class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-fg-2">
-<svg data-shape="dashed" aria-hidden="true" viewBox="0 0 12 12" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5">
-<circle cx="6" cy="6" r="4.5" stroke-dasharray="2 2">
-</circle>
-<path d="M4.9 4.9a1.15 1.15 0 1 1 1.6 1.05c-.35.2-.5.4-.5.8" stroke-linecap="round" stroke-width="1">
-</path>
-<circle cx="6" cy="8.6" r="0.55" fill="currentColor" stroke="none">
-</circle>
-</svg>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<section class="lt-stack" aria-labelledby="publish-signal-title">
+<h2 id="publish-signal-title">Your signal</h2>
+<form class="lt-stack" aria-label="Publish a signal">
+<div class="lit-field-control">
+<label for="_r_3_">Title</label>
+<input required="" maxlength="120" autocomplete="off" id="_r_3_" value="">
+</div>
+<div class="lit-field-control">
+<label for="_r_4_">Description</label>
+<input required="" maxlength="4000" autocomplete="off" id="_r_4_" value="">
+</div>
+<div class="lit-field-control">
+<label for="_r_5_">Asset</label>
+<input required="" maxlength="32" autocomplete="off" id="_r_5_" aria-describedby="_r_5_-hint" value="">
+<span id="_r_5_-hint" data-part="hint">The asset you trade and are paid in, such as USDT.</span>
+</div>
+<div class="lit-field-control">
+<label for="_r_6_">Recommended amount</label>
+<input inputmode="decimal" autocomplete="off" spellcheck="false" id="_r_6_" aria-describedby="_r_6_-hint" value="">
+<span id="_r_6_-hint" data-part="hint">Optional. What you suggest a subscriber trades with.</span>
+</div>
+<fieldset class="lt-stack">
+<legend>Fee model</legend>
+<label class="lt-field">
+<input type="radio" value="free" checked="" name="fee-model">
+<span>
+<span>Free</span> <span class="lt-hint">Anyone can subscribe at no charge.</span>
+</span>
+</label>
+<label class="lt-field">
+<input type="radio" value="monthly" name="fee-model">
+<span>
+<span>Monthly fee</span> <span class="lt-hint">A buyer pays one period at a time, in one asset.</span>
+</span>
+</label>
+<label class="lt-field">
+<input type="radio" value="profit_share" name="fee-model">
+<span>
+<span>Profit share</span> <span class="lt-hint">A share of subscribers’ profit. Not allowed on this platform.</span>
+</span>
+</label>
+<label class="lt-field">
+<input type="radio" value="recurring" name="fee-model">
+<span>
+<span>Recurring subscription</span> <span class="lt-hint">Charged again automatically each period. Not built.</span>
+</span>
+</label>
+</fieldset>
+<div class="lt-actions">
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Publish</button>
+</div>
+</form>
+</section>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<section class="lt-stack" aria-labelledby="provider-criteria-title">
+<div class="lt-toolbar">
+<h2 id="provider-criteria-title">Provider criteria</h2>
+<span class="lt-chip" role="status" data-freshness="unknown" title="Could not be read">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>
 <span>
 <span data-part="word">Unknown</span>
 </span>
-<span class="sr-only">Could not be read</span>
+<span class="lt-sr">Could not be read</span>
 </span>
-</div>
 </div>
 <div class="lt-refusal" role="alert" data-refusal="refused" data-tone="warn">
 <p class="lt-refusal-title">Can’t reach the service</p>
@@ -137,87 +190,10 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
-<section data-slot="page-section" data-density="comfortable" aria-labelledby="_r_4_" class="flex min-w-0 flex-col gap-6">
-<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
-<h2 id="_r_4_" data-slot="page-section-title" class="m-0 min-w-0 font-semibold text-fg text-md">Your signal</h2>
-</div>
-<form class="lt-stack" aria-label="Publish a signal">
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_5_" for="base-ui-_r_6_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Title<span aria-hidden="true" class="ms-0.5 text-fg-2">*</span>
-<span class="sr-only"> required</span>
-</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_6_" maxlength="120" autocomplete="off" required="" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="" aria-labelledby="base-ui-_r_5_">
-</div>
-</div>
-</div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_7_" for="base-ui-_r_8_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Description<span aria-hidden="true" class="ms-0.5 text-fg-2">*</span>
-<span class="sr-only"> required</span>
-</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_8_" maxlength="4000" autocomplete="off" required="" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="" aria-labelledby="base-ui-_r_7_">
-</div>
-</div>
-</div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_9_" for="base-ui-_r_10_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Asset<span aria-hidden="true" class="ms-0.5 text-fg-2">*</span>
-<span class="sr-only"> required</span>
-</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_10_" maxlength="32" autocomplete="off" required="" aria-describedby="_r_11_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="" aria-labelledby="base-ui-_r_9_">
-</div>
-</div>
-<p id="_r_11_-hint" data-slot="field-hint" class="text-xs text-fg-2">The asset you trade and are paid in, such as USDT.</p>
-</div>
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_12_" for="base-ui-_r_13_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Recommended amount</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="decimal" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_13_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" aria-describedby="_r_14_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-end tabular-nums" type="text" value="" aria-labelledby="base-ui-_r_12_">
-</div>
-</div>
-<p id="_r_14_-hint" data-slot="field-hint" class="text-xs text-fg-2">Optional. What you suggest a subscriber trades with.</p>
-</div>
-<fieldset class="cb-fieldset">
-<legend class="cb-label">Fee model</legend>
-<label class="cb-choice">
-<input type="radio" value="free" checked="" name="fee-model">
-<span>Free</span>
-<span class="cb-hint">Anyone can subscribe at no charge.</span>
-</label>
-<label class="cb-choice">
-<input type="radio" value="monthly" name="fee-model">
-<span>Monthly fee</span>
-<span class="cb-hint">A buyer pays one period at a time, in one asset.</span>
-</label>
-<label class="cb-choice">
-<input type="radio" value="profit_share" name="fee-model">
-<span>Profit share</span>
-<span class="cb-hint">A share of subscribers’ profit. Not allowed on this platform.</span>
-</label>
-<label class="cb-choice">
-<input type="radio" value="recurring" name="fee-model">
-<span>Recurring subscription</span>
-<span class="cb-hint">Charged again automatically each period. Not built.</span>
-</label>
-</fieldset>
-<div class="lt-actions">
-<button type="submit" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Publish</button>
-</div>
-</form>
 </section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </main>

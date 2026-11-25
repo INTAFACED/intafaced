@@ -2,7 +2,7 @@
 // The call-records codemod over every service at once, report only: per service and per reason, what it would move and
 // what it would leave, so each kind of gap is fixed once in the script before any service is run for real.
 //
-//   node tooling/codemod/call-records/report.mjs [--deep] [--out report.json]
+//   node tooling/codemod/call-records/report.mjs [--deep] [--service svc-a[,svc-b]] [--out report.json]
 //
 // Every finding of `garden/no-call-by-name` is one site the codemod finds, and each site is counted once, under the
 // service its call names: planned (a TypeScript router, or a door the Rust crate serves, its router read from the commit
@@ -17,6 +17,10 @@
 // call it left, with the export's own reason (.refine, transform, regex lookaround, ...); then the apps are typechecked
 // and the secret scan run over what it wrote, and the checkout is put back exactly as it was before the next service. It
 // starts only on a clean tree, as run.mjs does.
+//
+// --service plans (and with --deep runs) only the services it names: each row is the one the full report gives, but there
+// are no totals, which add up to the rule's count only over every service. For work on one service; the count is the
+// full report's.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,6 +38,7 @@ export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
     [/which depends on @intafaced\/contracts, so contracts can't import it/, 'schema from a package that depends on contracts (it stays)'],
+    [/reads process\.env, so its schema changes/, "schema picked by the service's settings (one record: field optional, handler refuses)"],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
     [/has a record form its callers move to one by one/, 'tool kept while a caller is left (each caller named under its own reason)'],
@@ -49,6 +54,7 @@ export function reasonOf(why) {
     [/has no procedure/, 'procedure the codemod cannot find'],
     [/two procedures under one path/, 'two procedures under one path (a switch router)'],
     [/clashes with another/, 'helper name clash (in its record file and its sub-area file)'],
+    [/an import cycle/, 'record that would close an import cycle between two contracts files'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
     [/which a record cannot name|does not map to a record's/, 'door access a record cannot name (Pre::CoachRun, Settle, ...)'],
@@ -243,6 +249,16 @@ function checksAfter() {
   return { typeErrors, untouchedTypeErrors, secretLiterals };
 }
 
+/** The services a run covers: every one, or those --service names (an error naming the rest when one is no service). */
+export function chosen(all, argv) {
+  if (!argv.includes('--service')) return { rows: all };
+  const only = (argv[argv.indexOf('--service') + 1] ?? '').split(',').filter(Boolean);
+  const unknown = only.filter((s) => !all.includes(s));
+  if (!only.length || unknown.length)
+    return { error: `--service takes names from: ${all.join(', ')} (not: ${unknown.join(', ') || 'none given'})` };
+  return { rows: all.filter((s) => only.includes(s)), only };
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const out = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : undefined;
@@ -251,11 +267,16 @@ function main() {
     console.error(`commit or put back these first, so the report can put back exactly what it wrote:\n${dirty}`);
     process.exit(1);
   }
+  const pick = chosen(services(), argv);
+  if (pick.error) {
+    console.error(pick.error);
+    process.exit(1);
+  }
   // Each site the rule counts, once (a call named by a `? :` or a closed set is one finding, and one site per value).
   const nodes = new Map();
   for (const s of findSites(REPO)) if (!nodes.has(s.node)) nodes.set(s.node, s);
   const named = count([...nodes.values()].map((s) => s.module ?? ''));
-  const rows = services().map((service) => {
+  const rows = pick.rows.map((service) => {
     const how = howToPlan(service);
     const found = named[service.slice(4)] ?? 0;
     if (how.refused) return { service, sites: found, refused: how.refused };
@@ -274,6 +295,13 @@ function main() {
       left: count(s.hand.map((h) => reasonOf(h.why))),
     };
   });
+  if (pick.only) {
+    if (argv.includes('--deep')) deep(rows);
+    const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), only: pick.only, services: rows };
+    if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
+    console.log(JSON.stringify({ services: rows }, null, 2));
+    return;
+  }
   // Sites no service run sees, each kind named: a module no service has, or no module named at all.
   const planned = new Set(rows.map((r) => r.service.slice(4)));
   const noService = {};

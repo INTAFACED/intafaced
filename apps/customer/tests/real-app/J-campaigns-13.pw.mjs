@@ -218,11 +218,12 @@ test(`${J} #1 opens /uc/paydividends with no distribution: the honest empty hist
   await expect(empty).toHaveAttribute('data-kind', 'airdrop');
   await expect(empty).toContainText('No records yet');
   await expect(empty).toContainText('An airdrop you join is listed here once its snapshot time comes.');
-  await expect(page.getByText('not a statement that you were owed one or paid nothing')).toBeVisible();
+  await expect(page.getByText('That doesn’t mean you were owed one or paid nothing.')).toBeVisible();
 });
 
 test(`${J} #2 opens it after an airdrop ran: my record with the snapshot, my amount, and its chain reference once paid`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const { ann, ben } = state('ann', 'ben');
@@ -290,9 +291,10 @@ test(`${J} #2 opens it after an airdrop ran: my record with the snapshot, my amo
   await expect(row).toHaveAttribute('data-standing', 'counted');
   await expect(row.getByTestId('dividend-snapshot')).toHaveAttribute('data-at', snapshotAt);
   await expect(row.getByTestId('dividend-amount')).toHaveText(`${ANN_SHARE} ${ASSET}`);
-  await expect(row.getByTestId('dividend-source')).toContainText(`by your venue equity of ${ANN_EQUITY} ${ASSET} at the snapshot`);
+  await expect(row.getByTestId('dividend-source')).toContainText(`by your trading account value of ${ANN_EQUITY} ${ASSET} at the snapshot`);
   await expect(row.getByTestId('dividend-chain-tx')).toHaveAttribute('data-tx', annTx);
   await expect(row.getByTestId('dividend-payment')).toContainText(`Paid to ${ann.wallet} on the chain`);
+  await stepPicture(page);
   run.write({ ...run.read(), airdropId: airdrop.id });
 });
 
@@ -336,7 +338,7 @@ test(`${J} #3 opens a dividend record while the owner decision is open: the refu
   await expect(page.getByTestId('dividends-kind').getByRole('button', { name: 'Dividends' })).toHaveAttribute('aria-pressed', 'true');
   const refusal = page.getByTestId('dividends-refusal');
   await expect(refusal).toHaveAttribute('data-code', 'owner.decision', { timeout: 30_000 });
-  await expect(refusal).toHaveText(`No dividend is paid. Dividends wait for an owner decision: ${DIVIDEND_QUESTION}`);
+  await expect(refusal).toHaveText(`No dividend is paid. INTAFACED still has to decide: ${DIVIDEND_QUESTION}`);
   await expect(page.getByTestId('dividends-empty')).toHaveAttribute('data-kind', 'dividend');
   await expect(page.getByTestId('dividends-empty')).toHaveText('No dividend records');
   await expect(page.getByTestId('dividend-record')).toHaveCount(0);
@@ -346,6 +348,7 @@ test(`${J} #3 opens a dividend record while the owner decision is open: the refu
 
 test(`${J} #4 opens a pool campaign at /campaigns/<id>: my share for each settled day, the per-user cap, and "nothing today" below the minimum balance, read from the venue with its as-of time`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const { ann, ben } = state('ann', 'ben');
@@ -418,10 +421,11 @@ test(`${J} #4 opens a pool campaign at /campaigns/<id>: my share for each settle
   await expect(benRow.getByTestId('pool-day-share')).toContainText(
     `Nothing that day: your venue balance of ${BEN_EQUITY} ${ASSET}, read at`,
   );
+  await stepPicture(benPage);
   run.write({ ...run.read(), poolId: pool.id, poolSince: since, annPoolKey: day1.mine.rewardKey });
 });
 
-test(`${J} #5 a day settles twice: each share paid once to the connected wallet`, async ({ browser }) => {
+test(`${J} #5 a day settles twice: each share paid once to the connected wallet`, async ({ browser, stepPicture }) => {
   test.setTimeout(600_000);
   const { ann, ben, poolId, poolSince, annPoolKey } = state('ann', 'ben', 'poolId', 'poolSince', 'annPoolKey');
   const { ctx, pair } = await operators();
@@ -452,4 +456,5 @@ test(`${J} #5 a day settles twice: each share paid once to the connected wallet`
   const row = room.locator('[data-testid="pool-day"][data-day="1"]');
   await expect(row).toHaveAttribute('data-state', 'paid', { timeout: 30_000 });
   await expect(row.getByTestId('pool-day-chain-tx')).toHaveAttribute('data-tx', tx);
+  await stepPicture(page);
 });

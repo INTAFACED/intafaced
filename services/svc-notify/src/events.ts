@@ -25,6 +25,7 @@ import {
   kycApproved,
   ledgerFreezeUpdated,
   venueDelistingScheduled,
+  venueRiskAlerted,
   orderUpdated,
   p2pEscrowLocked,
   p2pEscrowRefunded,
@@ -1207,6 +1208,36 @@ export async function subscribeNotificationEvents(
     await attach(bus, 'venueDelistingScheduled', venueDelistingScheduled.subject, 'notify-venue-delisting', async (payload) => {
       // One dated notice for everyone, filed under the delisting's own key; the venue id is never shown.
       await noticeVenueDelisting(notify, { symbol: payload.symbol, delistsAt: payload.delistsAt, noticeKey: payload.noticeKey });
+    }),
+  );
+
+  // A margin alert, margin call or liquidation alert on the person's own venue position (J-derivatives-06 #6): svc-trade
+  // publishes each crossing once, on its business key, and republishes until it is sent, so the person gets one inbox
+  // row per crossing however often it arrives. It asks them to act, so it goes out of app on every channel they
+  // confirmed. The venue is never named.
+  attachments.push(
+    await attach(bus, 'venueRiskAlerted', venueRiskAlerted.subject, 'notify-venue-risk-alert', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: `trade.risk.${payload.kind}`,
+          titleKey: `notify.trade.risk.${payload.kind}.title`,
+          bodyKey: `notify.trade.risk.${payload.kind}.body`,
+          params: {
+            symbol: payload.symbol,
+            asset: payload.asset,
+            level: payload.level,
+            margin: payload.marginWithResult,
+            ratio: payload.marginRatio ?? '',
+            asked: payload.asked ?? '',
+          },
+          href: '/trade/positions',
+          severity: 'action',
+          sourceSubject: venueRiskAlerted.subject,
+          sourceIdempotencyKey: payload.alertKey,
+          outOfApp: true,
+        }),
+      );
     }),
   );
 

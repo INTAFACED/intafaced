@@ -192,6 +192,7 @@ export class UserVenueRouter {
       test: boolean;
       health: VenueHealth;
       positionModes?: readonly VenuePositionMode[];
+      positionMoves?: boolean;
     }[]
   > {
     const out = [];
@@ -205,8 +206,9 @@ export class UserVenueRouter {
           displayName: v.venue.displayName,
           test: isTestVenue(v.venue),
           health: this.health.get(id)!,
-          // J-derivatives-05 #3: the position modes the venue offers.
+          // J-derivatives-05 #3 #7: the position modes the venue offers, and whether it moves an open position between accounts.
           positionModes: positionModesOf(v.venue),
+          positionMoves: v.venue.positionMoves === true,
         });
       } catch (err) {
         const reason = err instanceof VenueRefusalError ? err.refusal.detail : (err as Error).message;
@@ -428,11 +430,19 @@ export class UserVenueRouter {
   }
 
   async submit(principal: Principal, actionKey: string, signature: VenueSignature): Promise<SubmitAnswer> {
-    const row = await this.deps.store.find(principal.userId, (actionKey ?? '').trim());
+    return this.submitRequest(principal, { actionKey, signature });
+  }
+
+  async submitRequest(
+    principal: Principal,
+    req: { readonly actionKey: string; readonly signature: VenueSignature; readonly requestDeadline?: string | null },
+  ): Promise<SubmitAnswer> {
+    const row = await this.deps.store.find(principal.userId, (req.actionKey ?? '').trim());
     const d = row ? await this.door(row.prepared.venueId) : this.primary;
     const venueId = row?.prepared.venueId ?? null;
     try {
-      const answer = await d.submit(principal, actionKey, signature);
+      const caller = req.requestDeadline === undefined ? undefined : { requestDeadline: req.requestDeadline };
+      const answer = await d.submit(principal, req.actionKey, req.signature, caller);
       if (venueId) this.observe(venueId, true, null);
       return answer;
     } catch (err) {

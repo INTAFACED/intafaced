@@ -1,6 +1,7 @@
 /**
  * EXACT REVERT: whether a pull request undoes one commit and does nothing else. No imports, so main's copy of the
- * test-diff guard can take it beside itself (ci.yml); lint-ratchet and look-drift read autoRevertOf below, and the CI
+ * test-diff guard can take it beside itself (ci.yml); lint-ratchet, look-drift and the kit-ceilings
+ * test (judgedCopy) read autoRevertOf below, and the CI
  * review (ci-review.mjs automaticRevert) reads the same rules. Two proofs, either enough:
  *   exactReverse        the diff alone: every hunk of the commit undone, context lines included, moved together.
  *   revertTreeMatches   git: the head is exactly `git revert <commit>` made on its own parent (same tree, no conflict),
@@ -155,3 +156,37 @@ export const autoRevertOf = (env, base, read) =>
     base,
     read,
   );
+
+/** `a` and `b` together, the larger at each entry: lists joined (a's order, then what only b holds), tables key by key,
+ *  numbers the higher. Either missing (null or undefined): the other. */
+function widest(a, b) {
+  if (a == null || b == null) return a ?? b;
+  if (Array.isArray(a) && Array.isArray(b)) return [...a, ...b.filter((x) => !a.includes(x))];
+  if (typeof a === 'number' && typeof b === 'number') return Math.max(a, b);
+  if (typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b))
+    return Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map((k) => [k, widest(a[k], b[k])]));
+  return a;
+}
+
+/**
+ * A committed JSON list or table that may only shrink or fall (kit-ceilings.json, or a list), as the change is
+ * judged against: its copy at `fork`, where the change left main, and for main-bisect's proven revert of X (autoRevertOf)
+ * widest of that and X^'s copy, the tree the revert restores. So the revert may put back what X^ held, never more, and
+ * every other change is judged against main alone (project-state#3697: 13 of 18 reverts in a week closed unmerged, most
+ * on these lists). A ref without the file counts as none; null when no ref holds it. `read(args)`: git's output, throwing.
+ */
+export function judgedCopy(path, { env, main, fork, read }) {
+  const culprit = autoRevertOf(env, main, read);
+  let out = null;
+  for (const at of culprit ? [fork, `${culprit}^`] : [fork]) {
+    let text;
+    try {
+      text = read(['show', `${at}:${path}`]);
+    } catch (e) {
+      if (/does not exist|exists on disk, but not in/u.test(String(e.stderr ?? e.message))) continue;
+      throw e;
+    }
+    out = widest(out, JSON.parse(text));
+  }
+  return out;
+}

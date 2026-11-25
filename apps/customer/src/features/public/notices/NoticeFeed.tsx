@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { Skeleton } from '@intafaced/ui/lit/templates';
+import { FirstState, Skeleton } from '@intafaced/ui/lit/templates';
+import { Megaphone } from 'lucide-react';
 import { useSession } from '../../session';
 import { useRead } from '../../developers';
 import { noticeFeedCopy } from '../notice-feed-copy';
@@ -70,9 +71,16 @@ export function NoticeList({ notices }: { notices: readonly Notice[] }) {
   const rows = feedNotices(notices);
   if (rows.length === 0)
     return (
-      <section className="lt-empty" role="status">
-        <h2 className="lt-empty-title">{t('none')}</h2>
-        <p className="lt-empty-body">{t('noneBody')}</p>
+      // The feed's first state: what it carries and where to see the service right now.
+      <section role="status">
+        <FirstState
+          level={2}
+          icon={<Megaphone size={24} />}
+          title={t('none')}
+          body={t('noneBody')}
+          points={[t('firstPointAnnouncements'), t('firstPointMaintenance'), t('firstPointIncidents')]}
+          action={{ label: t('firstAction'), href: '/status' }}
+        />
       </section>
     );
   return (

@@ -1,9 +1,10 @@
 // volt-room: /copy/lead/apply
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Button, Field, Input } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, formatMoney } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { verifyFirstRefusal } from '../../../shared/verify-first';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { leadApplyCopy } from './lead-apply-copy';
@@ -140,6 +141,8 @@ export function LeadApplyRoom() {
         },
       };
     if (mine.resource.status === 'loading') return { kind: 'loading' };
+    if (mine.resource.status === 'failed' && isVerifyFirst(mine.resource.failure))
+      return { kind: 'refused', refusal: verifyFirstRefusal() };
     if (mine.resource.status === 'failed')
       return {
         kind: 'refused',
@@ -169,14 +172,17 @@ export function LeadApplyRoom() {
       description={t('description')}
       state={state}
       step={
-        <div className="lead-apply">
+        <div className="lt-stack">
           {sent ? <p role="status">{t('sent')}</p> : null}
           {!sent && (current?.state === 'submitted' || current?.state === 'under_review') ? (
             <p>{t('waiting', { name: current.displayName })}</p>
           ) : null}
           {current?.state === 'approved' ? (
             <p>
-              {t('approved', { name: current.displayName })} <a href="/trade/copy">{t('openCopy')}</a>
+              {t('approved', { name: current.displayName })}{' '}
+              <a className="lt-link" href="/trade/copy">
+                {t('openCopy')}
+              </a>
             </p>
           ) : null}
           {current?.state === 'disapproved' ? <p>{t('rejected', { name: current.displayName, reason: current.reason ?? '' })}</p> : null}
@@ -189,19 +195,27 @@ export function LeadApplyRoom() {
             </p>
           ) : null}
           {canApply ? (
-            <form aria-label={t('title')} onSubmit={(e) => void apply(e)}>
-              <Field label={t('nameLabel')} hint={t('nameHint')}>
-                <Input id={nameId} value={name} onValueChange={setName} maxLength={80} autoComplete="nickname" />
-              </Field>
-              <Button type="submit" variant="primary" loading={busy} disabled={busy}>
-                {t('apply')}
-              </Button>
+            <form className="lt-stack" aria-label={t('title')} onSubmit={(e) => void apply(e)}>
+              <Field
+                id={nameId}
+                label={t('nameLabel')}
+                hint={t('nameHint')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={80}
+                autoComplete="nickname"
+              />
+              <div className="lt-actions">
+                <Button type="submit" tone="primary" disabled={busy} aria-busy={busy || undefined}>
+                  {t('apply')}
+                </Button>
+              </div>
             </form>
           ) : null}
         </div>
       }
       summary={
-        <div>
+        <div className="lt-stack">
           {userId ? <LeadTerms terms={eligibility} failed={terms.resource.status === 'failed'} t={t} /> : null}
           <h2>{t('summaryTitle')}</h2>
           <p>{t('summaryReview')}</p>
@@ -217,7 +231,7 @@ function LeadTerms({ terms, failed, t }: { terms: Eligibility | null; failed: bo
   if (!terms) return failed ? <p>{t('termsFailed')}</p> : null;
   const venue = terms.venue;
   return (
-    <section aria-label={t('termsTitle')}>
+    <section className="lt-stack" aria-label={t('termsTitle')}>
       <h2>{t('termsTitle')}</h2>
       <KeyValue
         label={t('termsTitle')}
@@ -240,7 +254,7 @@ function LeadTerms({ terms, failed, t }: { terms: Eligibility | null; failed: bo
             : {
                 label: t('termsVenue'),
                 value: venue.state === 'unreadable' ? t('termsVenueUnreadable') : t('termsVenueNone'),
-                unset: true,
+                unset: venue.state === 'unreadable',
               },
         ]}
       />
