@@ -29,7 +29,7 @@ describe('AreaChart soft', () => {
     expect(out).toContain('class="lt-chart-soft-top"');
     expect(out).toContain('class="lt-chart-soft-bottom"');
     // the data stays readable as a table, as every chart's does
-    expect(out).toContain('<caption>Balance</caption>');
+    expect(out).toContain('<caption class="lt-sr">Balance</caption>');
   });
 
   it('two soft charts on one page never share a gradient', () => {

@@ -28,7 +28,7 @@
 </header>
 <main id="main">
 <div class="lt-page" data-scale="auto">
-<div data-template="sign-up" class="lt-page-grid" data-layout="even">
+<div data-template="sign-up" data-stage="start" class="lt-page-grid" data-layout="even">
 <div class="lt-page-col">
 <div data-testid="auth-form" class="lit-surface lt-stack lt-auth-panel" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
 <ol class="lt-stepper" aria-label="Step 1 of 3">
@@ -38,7 +38,6 @@
 </ol>
 <header class="lt-stack">
 <h1 class="lt-title">Open your account</h1>
-<p class="lt-description">About a minute. Then a code to your email, and your account opens.</p>
 </header>
 <form method="post" class="lt-stack" aria-label="Account">
 <fieldset class="lt-group lt-tile-row" data-min="narrow">
@@ -46,14 +45,19 @@
 <label class="lt-choice-tile">
 <input type="radio" value="individual" checked="" name="accountType">
 <span class="lt-choice-tile__title">Personal</span>
-<small class="lt-choice-tile__detail">For you, in your own name.</small>
+<small class="lt-choice-tile__detail">In your own name</small>
 </label>
 <label class="lt-choice-tile">
 <input type="radio" value="business" name="accountType">
 <span class="lt-choice-tile__title">Business</span>
-<small class="lt-choice-tile__detail">For a company. After the code, you go on to business verification.</small>
+<small class="lt-choice-tile__detail">For a company, verified after the code</small>
 </label>
 </fieldset>
+<div class="lt-tile-row">
+<div class="lit-field-control">
+<label for="_r_1_">Email address</label>
+<input autocomplete="email" maxlength="320" required="" id="_r_1_" type="email" name="email">
+</div>
 <fieldset class="lt-group lt-stack">
 <legend>Sign up with</legend>
 <div class="lt-radio-track">
@@ -67,9 +71,6 @@
 </label>
 </div>
 </fieldset>
-<div class="lit-field-control">
-<label for="_r_1_">Email address</label>
-<input autocomplete="email" maxlength="320" required="" id="_r_1_" type="email" name="email">
 </div>
 <div class="lt-tile-row">
 <div class="lit-field-control">
@@ -636,11 +637,13 @@
 <button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg" data-block="true">Create account</button>
 </form>
 <div class="lt-stack">
-<p class="lt-muted">Or</p>
+<p class="lt-auth-or">Or</p>
+<div class="lt-tile-row" data-min="narrow">
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a social account</button>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a wallet</button>
 </div>
-<p class="lt-muted" data-testid="auth-form-links">Already have an account? <a class="lt-link" href="/login">Sign in</a>
+</div>
+<p class="lt-muted lt-auth-foot" data-testid="auth-form-links">Already have an account? <a class="lt-link" href="/login">Sign in</a>
 </p>
 </div>
 </div>
@@ -664,8 +667,10 @@
 <span class="lt-wallet-card__value">Made after the code</span>
 </div>
 </div>
-<h2 class="lt-hero-line">Your keys. Your wallet. Look around first.</h2>
-<p class="lt-description">Your own wallet is made with a passkey after the code: no seed phrase to write down. Verify only when you want to trade.</p>
+<h2 class="lt-display">
+<span class="lt-display-line">Your keys. Your wallet. Look around first.</span>
+</h2>
+<p class="lt-description">Open an account in a minute. Your own wallet is made with a passkey after the code, no seed phrase. Verify only when you want to trade.</p>
 <div class="lt-tile-row" data-min="narrow">
 <div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
 <strong>Your own wallet</strong>

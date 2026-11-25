@@ -28,7 +28,7 @@
 </header>
 <main id="main">
 <div class="lt-page" data-scale="auto">
-<div data-template="sign-in" class="lt-page-grid" data-layout="even">
+<div data-template="sign-in" data-stage="start" class="lt-page-grid" data-layout="even">
 <div class="lt-page-col">
 <div data-testid="auth-form" lang="en" class="lit-surface lt-stack lt-auth-panel" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
 <header class="lt-stack">
@@ -77,9 +77,11 @@
 </form>
 </section>
 <div class="lt-stack">
-<p class="lt-muted">Or</p>
+<p class="lt-auth-or">Or</p>
+<div class="lt-tile-row" data-min="narrow">
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a social account</button>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md" data-block="true">Continue with a wallet</button>
+</div>
 </div>
 </div>
 </div>
@@ -103,7 +105,9 @@
 <span class="lt-wallet-card__value">Use a passkey</span>
 </div>
 </div>
-<h2 class="lt-hero-line">Welcome back.</h2>
+<h2 class="lt-display">
+<span class="lt-display-line">Welcome back.</span>
+</h2>
 <p class="lt-description">Money, trading and payments. One place to keep perspective.</p>
 <div class="lt-field" data-language-menu="true">
 <label for="_r_6_" lang="en">Language</label>

@@ -19,6 +19,7 @@ export const venueCopy = defineCopy('trade.venue', {
   'Your wallet': 'Your wallet',
   'Connect wallet': 'Connect {name}',
   'No wallet': 'No wallet found in this browser. Open a wallet that supports browser connections, then reload.',
+  'Make wallet': 'Make your INTAFACED wallet: a passkey on this device, no seed phrase.',
   'Connected address': 'Connected address',
   Network: 'Network',
   'Switch network': 'Switch network',

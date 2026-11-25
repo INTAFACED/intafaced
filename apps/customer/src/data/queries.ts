@@ -197,7 +197,7 @@ export function sparklinesSource(env: DataEnv, symbols: readonly string[]): Sour
                 fineSnap && fineSnap.status === 'ready'
                   ? closesOf(fineSnap.data, TIMEFRAME_MS[FINE_SPARKLINE.timeframe], FINE_SPARKLINE.limit, nowOf(env))
                   : null;
-              const points = sparklineFor(rawSnap.data[symbol], stats.get(symbol) ?? null, fine);
+              const points = sparklineFor(tickerOf(rawSnap.data, symbol), stats.get(symbol) ?? null, fine);
               if (points) out[symbol] = points;
             }
             return { status: 'ready', data: out, asOf: newestAsOf(all) };
@@ -205,6 +205,14 @@ export function sparklinesSource(env: DataEnv, symbols: readonly string[]): Sour
         },
       ),
   );
+}
+
+/**
+ * A symbol's raw ticker. `/tickers` keys a spot pair with a slash (`BTC/USDC`) while the venue's market states key it
+ * with a dash (`BTC-USDC`), so a dash symbol with no ticker of its own reads its pair's.
+ */
+function tickerOf(raw: Readonly<Record<string, RawTicker>>, symbol: string): RawTicker | undefined {
+  return raw[symbol] ?? (symbol.includes('-') ? raw[symbol.replace('-', '/')] : undefined);
 }
 
 function needSparkline(raw: Readonly<Record<string, RawTicker>>, wanted: readonly string[], markets: readonly MarketRow[]): string[] {

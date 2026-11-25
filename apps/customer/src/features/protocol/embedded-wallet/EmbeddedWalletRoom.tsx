@@ -18,6 +18,7 @@ import { venueWalletCopy } from '../venue-wallet/venue-wallet-copy';
 import { venueRefusal } from '../venue-wallet/VenueWalletRoom';
 import { createEmbeddedWalletApi } from './embedded-wallet-api';
 import { embeddedWalletCopy, type EmbeddedWalletCopyKey } from './embedded-wallet-copy';
+import { noteEmbeddedWalletMade } from './EmbeddedWalletAnnouncer';
 import { embeddedWalletClient, type ClientFailure } from './provider-client';
 import { VenueDeposit } from './VenueDeposit';
 import { TradingSession } from './TradingSession';
@@ -202,6 +203,7 @@ export function EmbeddedWalletRoom() {
       }
       pendingPasskey.current = null;
       setMade(result.data.wallet);
+      noteEmbeddedWalletMade();
     });
 
   const connect = () =>

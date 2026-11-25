@@ -265,6 +265,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_none'
   | 'trade.venue_session_unavailable'
   | 'trade.venue_session_superseded'
+  | 'trade.venue_session_signed_out'
   | 'trade.venue_own_key_misused'
   | 'trade.venue_sub_account_not_own'
   // J-derivatives-12 #4 #5: the eligibility level for the venue's perpetuals (venue-eligibility.ts), and the builder-fee read.
@@ -1934,6 +1935,7 @@ export class UserVenueDoor {
         detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
       });
     }
+    if (req.signer.role === 'agent') await this.assertSessionKeyOfThisSignIn(principal, req.signer.address);
     // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
     // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
     // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
@@ -2131,6 +2133,29 @@ export class UserVenueDoor {
     return this.deps.store.listByPrefix(principal.userId, prefix);
   }
 
+  /**
+   * A trading session's key signs only in the sign-in that started it (J-wallet-22 #8: the key "ends at its expiry, when
+   * you end the session, or when you sign out"). A sign-out cannot revoke it at the venue without the owner's wallet, so
+   * the door ends it here: an agent key approved under `session-key:<user>:<venue>:<fam>.<n>` is refused for any other
+   * sign-in (`fam`), or a credential with none, before anything is stored or sent. Other agents (a named key the
+   * owner approved through the plain door) are not session keys and are not bound to a sign-in.
+   */
+  private async assertSessionKeyOfThisSignIn(principal: Principal, signerAddress: string): Promise<void> {
+    const address = (signerAddress ?? '').toLowerCase();
+    const signIns = (await this.deps.store.agentApprovals(principal.userId, address))
+      .filter((row) => row.businessKey.startsWith(SESSION_KEY_PREFIX))
+      .map((row) => /:([A-Za-z0-9_-]+)\.\d+$/.exec(row.businessKey)?.[1]);
+    if (signIns.length === 0) return;
+    const fam = (principal.fam ?? '').trim();
+    if (!fam || !signIns.includes(fam)) {
+      throw new UserVenueDoorError(
+        'this trading session ended when its sign-in did: its key signs nothing now; start a new session',
+        'trade.venue_session_signed_out',
+        403,
+      );
+    }
+  }
+
   async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
     const deadlineAt = parseRequestDeadline(caller?.requestDeadline);
     const key = (actionKey ?? '').trim();
@@ -2175,6 +2200,10 @@ export class UserVenueDoor {
           409,
         );
       }
+    }
+    // An action a session key was to sign, never sent, and now asked to be sent from another sign-in: refused.
+    if (!row.signature && row.prepared.signer.role === 'agent') {
+      await this.assertSessionKeyOfThisSignIn(principal, row.prepared.signer.address);
     }
     if (
       !signature ||
