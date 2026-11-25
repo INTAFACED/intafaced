@@ -170,6 +170,14 @@ export function seededAccount(calls, { now, venueId }) {
     '/api/v1/venue/account-mode': asOf({ mode: 'standard', spot: null, perps: null, actions: null }),
     // The builder fee the trader approved for us, in percent as the venue holds it (TEST).
     '/api/v1/venue/builder-fee-approval': asOf('0.01'),
+    // The venue's own fee schedule and a fresh account's rates on it, as the recorder read them from the venue (no volume
+    // yet, so every account's): null where the recording has none, and the call is then refused as unanswered.
+    ...(calls['GET /api/v1/venue/fee-tier'] ? { '/api/v1/venue/fee-tier': calls['GET /api/v1/venue/fee-tier'] } : {}),
+    // No trading session started on this device yet: the desk offers to start one.
+    '/api/v1/venue/session': (u) => ({
+      status: 200,
+      json: { venueId, owner: (u.searchParams.get('owner') ?? '').toLowerCase(), current: null, asOf: at(0) },
+    }),
     '/api/v1/venue/account-summary': asOf({
       asset: 'USDC',
       equity: dec(equity, 2),

@@ -8,6 +8,8 @@ import {
   venueBestPricesReadSchema,
   venueBookReadSchema,
   venueCandlesReadSchema,
+  venueFeeTierSchema,
+  venuePublicFeesSchema,
   venueFillSchema,
   venueHistoryPageSchema,
   venueLeverageSchema,
@@ -16,6 +18,7 @@ import {
   venueStatusSchema,
   venueTradesReadSchema,
 } from '@intafaced/contracts/trade-venue-door';
+import { tradingSessionStatusSchema } from '@intafaced/contracts/protocol-trading-session';
 import { DEMO_NOW, RECORDING, callKey, demoAnswer, recordedAnswer } from './index.mjs';
 
 // The demo world is only worth its pictures while the app reads it: every answer a desk draws from is parsed here with
@@ -70,6 +73,17 @@ describe('the demo world', () => {
     expect(recordedAnswer('/api/v1/venue/book?symbol=BTC-PERP&depth=7', 'GET', { signedIn: true })?.json.value.symbol).toBe('BTC-PERP');
     expect(recordedAnswer('/api/v1/venue/book?symbol=DOGE-PERP&depth=10', 'GET', { signedIn: true })).toBeNull();
     expect(recordedAnswer('/api/v1/venue/book?symbol=BTC-PERP&depth=10', 'POST', { signedIn: true })).toBeNull();
+  });
+
+  it("answers the trader's fee tier, trading session and the venue's fees, a read naming the recorded venue included", () => {
+    const owner = '0x31ab745d6806e512dfff8b1c30b5ec53eabbe157';
+    expect(venueFeeTierSchema.parse(read(`/api/v1/venue/fee-tier?owner=${owner}`).json).value.schedule).not.toBeNull();
+    expect(tradingSessionStatusSchema.parse(read(`/api/v1/venue/session?owner=${owner}`).json)).toMatchObject({ owner, current: null });
+    const venueId = RECORDING.calls.signedIn['GET /api/v1/venue/status'].json.venue.id;
+    expect(
+      venuePublicFeesSchema.parse(recordedAnswer(`/api/v1/venue/fees?venueId=${venueId}`, 'GET', { signedIn: true }).json),
+    ).toBeTruthy();
+    expect(recordedAnswer('/api/v1/venue/fees?venueId=another-venue', 'GET', { signedIn: true })).toBeNull();
   });
 
   it('keeps nothing about the tester the recording was made with', () => {
