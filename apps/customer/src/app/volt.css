@@ -93,6 +93,13 @@
   background: var(--lit-text-1);
   color: var(--lit-page);
 }
+/* A phone keeps the whole brand in one row: the header's Create account steps aside beside Sign in, since the page's
+   first button is Create your account. On /login, where Create account is the only link, it stays. */
+@media (max-width: 29.9375rem) {
+  :root .public-signin + .public-signup {
+    display: none;
+  }
+}
 :root .tb-nav {
   align-self: center;
 }
@@ -145,12 +152,6 @@
 }
 @media (max-width: 47.9375rem) {
   /* Phone: the brand keeps its name, the controls close up, and signed out the search waits in the page. */
-  :root .tb .brand-bar__wide {
-    display: inline-flex;
-  }
-  :root .tb .brand-bar__compact {
-    display: none;
-  }
   :root .tb-right {
     gap: 0.7143rem;
   }

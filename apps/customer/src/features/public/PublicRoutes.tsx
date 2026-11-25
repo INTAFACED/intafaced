@@ -1,5 +1,5 @@
 import { Suspense, type ComponentType } from 'react';
-import { BrandLockup, BrandMark, BrandWordmark } from '@intafaced/ui';
+import { BrandLockup, BrandWordmark } from '@intafaced/ui';
 import { useSession } from '../session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
@@ -48,15 +48,7 @@ const FOOTER = [
 function Brand({ footer }: { footer?: boolean }) {
   return (
     <a href="/" className="brand" aria-label="INTAFACED">
-      {footer ? (
-        <BrandWordmark width={150} />
-      ) : (
-        <>
-          <BrandLockup size={24} title="" className="brand-full" />
-          {/* A phone's bar holds the mark alone, so Menu and the account link fit beside it. */}
-          <BrandMark size={24} className="brand-compact" />
-        </>
-      )}
+      {footer ? <BrandWordmark width={150} /> : <BrandLockup size={24} title="" />}
     </a>
   );
 }
