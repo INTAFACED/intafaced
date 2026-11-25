@@ -1,8 +1,8 @@
 // volt-room: /trade
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
-import { Button, FreshnessTag, SearchField, Segmented, StatusNote, ToggleChips } from '@intafaced/ui/lit';
-import { CatalogueTemplate, TabList, type SortState } from '@intafaced/ui/lit/templates';
+import { Button, FootNotes, FreshnessTag, PageGrid, SearchField, Segmented, StatusNote, ToolbarEnd } from '@intafaced/ui/lit';
+import { CatalogueTemplate, SectionTabs, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
 import {
   refusalCopy,
@@ -12,6 +12,7 @@ import {
   useVenueMarketStates,
   useVenueTickers,
   venueListingStatuses,
+  venueMarketRow,
   type Loadable,
   type MarketData,
   type TickerRow,
@@ -21,15 +22,12 @@ import { KitState } from '../kit-parts';
 import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
-import { TopCards, TopCardsSkeleton } from './TopCards';
+import { Board, BoardSkeleton } from './Board';
 import { TradeAccess } from './TradeAccess';
-import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, topCards, visibleEntries, type CardId, type Chip } from './select';
+import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, visibleEntries, type Chip, type Entry, type Tab } from './select';
 import {
   applyAddress,
   browserStorage,
-  clearView,
-  DEFAULT_VIEW,
-  isDefaultView,
   isSortColumn,
   queryFromAddress,
   readView,
@@ -43,7 +41,8 @@ import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import type { ScreenProps } from '../../../app/screen-types';
 
-const CHIPS: readonly Chip[] = ['all', 'gainers', 'losers', 'new'];
+/** The list's one row of tabs, as the pick: which markets (Favorites, All, Spot, Perps), then which way they moved. */
+type TabValue = Tab | 'gainers' | 'losers';
 /** Prices older than this read Stale (they are polled every 10 s). */
 const STALE_AFTER_MS = 30_000;
 
@@ -112,24 +111,45 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   // Upcoming and delisting listings stay on the list with their state named (J-cex-spot-14 #1); they never trade.
   const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry) || isAnnounced(entry.market)), [everyEntry]);
   const hasPaused = openEntries.length < everyEntry.length;
-  const pool = view.status === 'open' ? openEntries : everyEntry;
+  // The venue's perpetuals: on All and their own tab, never on the default Spot tab (J-cex-spot-14 #1 reads every row
+  // there as a listed spot market). A price, volume and 24h move show only from a ticker under the contract's own symbol,
+  // never a spot pair's; funding, open interest and the maximum leverage only where the venue read carries them.
+  const perpEntries = useMemo<Entry[]>(
+    () =>
+      venueStates.status === 'ready'
+        ? venueStates.data.value.markets
+            .filter((m) => m.kind === 'perpetual')
+            .map((m) => ({
+              market: venueMarketRow(m),
+              ticker: tickerMap?.[m.symbol],
+              perp: { maxLeverage: m.maxLeverage ?? null, funding1h: m.funding1h ?? null, openInterest: m.openInterest ?? null },
+            }))
+        : [],
+    [venueStates, tickerMap],
+  );
+  // The board draws from every open market, spot and perpetual.
+  const boardEntries = useMemo(() => [...openEntries, ...perpEntries], [openEntries, perpEntries]);
+  const tab: Tab = view.tab === 'perps' && perpEntries.length === 0 ? 'spot' : view.tab;
+  const spotPool = view.status === 'open' ? openEntries : everyEntry;
+  const allPool = useMemo(() => [...spotPool, ...perpEntries], [spotPool, perpEntries]);
+  const pool = tab === 'perps' ? perpEntries : tab === 'spot' ? spotPool : allPool;
   const quotes = useMemo(() => quotesOf(pool.map((entry) => entry.market)), [pool]);
   const showNew = useMemo(() => anyListed(pool), [pool]);
 
-  // A saved choice the data no longer offers (a currency that left, no listing dates) is not applied.
+  // A saved choice the data no longer offers (a currency that left, no listing dates) is not applied. New has no tab of
+  // its own in the pick: `?filter=new` still filters, and choosing any tab clears it.
   const quote = quotes.length > 1 && view.quote && quotes.includes(view.quote) ? view.quote : null;
   const chip: Chip = view.chip === 'new' && !showNew ? 'all' : view.chip;
+  const tabValue: TabValue = chip === 'gainers' || chip === 'losers' ? chip : tab;
+  const favoriteCount = useMemo(() => allPool.filter((entry) => favorites.includes(entry.market.symbol)).length, [allPool, favorites]);
   const density: Density = view.density ?? (layoutMode === 'pro' ? 'compact' : 'comfortable');
   const sort: SortState | null = view.sort;
 
   const rows = useMemo(
-    () => visibleEntries(pool, { tab: view.tab, chip, quote, query, sort: null, favorites }, (base) => assetName(base, copy)),
+    () => visibleEntries(pool, { tab, chip, quote, query, sort: null, favorites }, (base) => assetName(base, copy)),
     // `copy` changes only with the language.
-    [pool, view.tab, chip, quote, query, favorites, copy.renderedLocale],
+    [pool, tab, chip, quote, query, favorites, copy.renderedLocale],
   );
-  // Cards are all prices and changes: without prices they would be rows of dashes, so they wait for them.
-  const cards = useMemo(() => (tickerMap ? topCards(openEntries) : []), [openEntries, tickerMap]);
-
   const signedIn = userId != null;
   const signIn = `/login?redirect=${encodeURIComponent(path + search)}`;
   const favorite = useCallback(
@@ -138,22 +158,6 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     [signedIn, isFavorite, toggle, signIn],
   );
 
-  const seeAll = (id: CardId) => {
-    // Looking at a card's full list is not a saved choice.
-    setView((current) => ({
-      ...current,
-      tab: 'spot',
-      chip: id === 'new' ? 'new' : id === 'gainers' ? 'gainers' : 'all',
-      quote: null,
-      sort: id === 'popular' ? { columnId: 'volume', direction: 'desc' } : null,
-    }));
-    setQuery('');
-    tableTop.current?.scrollIntoView({ block: 'start' });
-  };
-  const resetView = () => {
-    clearView(browserStorage(), storageKey);
-    setView({ ...DEFAULT_VIEW });
-  };
   const changeSort = (next: SortState | null) =>
     change({ sort: next && isSortColumn(next.columnId) ? { columnId: next.columnId, direction: next.direction } : null });
 
@@ -195,7 +199,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         <KitState
           kind="empty"
           title={t('Star a market to keep it here.')}
-          action={{ label: t('Browse markets'), onClick: () => change({ tab: 'spot' }) }}
+          action={{ label: t('Browse markets'), onClick: () => change({ tab: 'all', chip: 'all' }) }}
         />
       ) : (
         <KitState kind="empty" title={t('Log in to keep your favorites here.')} action={{ label: t('Log in'), href: signIn }} />
@@ -220,81 +224,60 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     );
   })();
 
-  const featured = marketsLoading ? (
-    <TopCardsSkeleton />
-  ) : cards.length > 0 ? (
-    <TopCards cards={cards} mode={layoutMode} onSeeAll={seeAll} />
-  ) : null;
+  const featured = marketsLoading ? <BoardSkeleton /> : <Board entries={boardEntries} mode={layoutMode} />;
 
   return (
-    <Frame meta={meta} featured={featured}>
+    <Frame
+      meta={meta}
+      featured={featured}
+      description={
+        perpEntries.length > 0
+          ? t('{count} markets, spot and perpetuals. Open any row to trade.', { count: allPool.length })
+          : t('{count} markets. Open any row to trade.', { count: allPool.length })
+      }
+    >
       <div className="lt-stack" ref={tableTop}>
         <div data-testid="mkt-tabs" className="lt-toolbar">
-          <TabList
+          <SectionTabs<TabValue>
             label={t('Markets')}
             items={[
-              { value: 'favorites', label: t('Favorites') },
+              { value: 'favorites', label: t('Favorites {count}', { count: favoriteCount }) },
+              { value: 'all', label: t('All {count}', { count: allPool.length }) },
               { value: 'spot', label: t('Spot') },
+              ...(perpEntries.length > 0 ? [{ value: 'perps' as const, label: t('Perps') }] : []),
+              { value: 'gainers', label: t('Gainers') },
+              { value: 'losers', label: t('Losers') },
             ]}
-            value={view.tab}
-            onChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : 'spot' })}
+            value={tabValue}
+            onChange={(value) =>
+              // Gainers and Losers look across every market; the others name which markets, with no move filter.
+              change(value === 'gainers' || value === 'losers' ? { tab: 'all', chip: value } : { tab: value, chip: 'all' })
+            }
           />
-          <SearchField
-            id={searchId}
-            label={t('Search markets')}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('Search by coin or name')}
-            icon={<Search size={16} aria-hidden="true" />}
-            onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-          />
-        </div>
-
-        <div data-testid="mkt-chips" className="lt-toolbar">
-          <ToggleChips
-            label={t('Filter by change')}
-            options={CHIPS.filter((value) => value !== 'new' || showNew).map((value) => ({
-              value,
-              label: t(value === 'all' ? 'All' : value === 'gainers' ? 'Gainers' : value === 'losers' ? 'Losers' : 'New'),
-            }))}
-            value={chip}
-            onChange={(value) => change({ chip: CHIPS.find((item) => item === value) ?? 'all' })}
-          />
-          {quotes.length > 1 ? (
-            // Pressing the chosen currency again turns the filter off.
-            <ToggleChips
-              label={t('Filter by currency')}
-              options={quotes.map((value) => ({ value, label: value }))}
-              value={quote}
-              onChange={(value) => change({ quote: value })}
-              clearable
+          <div data-testid="mkt-chips" className="lt-toolbar" hidden={tab === 'perps'}>
+            {hasPaused || view.status === 'all' ? (
+              <Segmented
+                label={t('Filter by status')}
+                options={[
+                  { value: 'open', label: t('Open only') },
+                  { value: 'all', label: t('Include paused') },
+                ]}
+                value={view.status}
+                onChange={(value) => change({ status: value === 'all' ? 'all' : 'open' })}
+              />
+            ) : null}
+          </div>
+          <ToolbarEnd>
+            <SearchField
+              id={searchId}
+              label={t('Search markets')}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('Search by coin or name')}
+              icon={<Search size={16} aria-hidden="true" />}
+              onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
             />
-          ) : null}
-          {!isDefaultView(view, layoutMode === 'pro' ? 'compact' : 'comfortable') ? (
-            <Button tone="quiet" onClick={resetView}>
-              {t('Reset view')}
-            </Button>
-          ) : null}
-          {hasPaused || view.status === 'all' ? (
-            <Segmented
-              label={t('Filter by status')}
-              options={[
-                { value: 'open', label: t('Open only') },
-                { value: 'all', label: t('Include paused') },
-              ]}
-              value={view.status}
-              onChange={(value) => change({ status: value === 'all' ? 'all' : 'open' })}
-            />
-          ) : null}
-          <Segmented
-            label={t('Row size')}
-            options={[
-              { value: 'comfortable', label: t('Comfortable') },
-              { value: 'compact', label: t('Compact') },
-            ]}
-            value={density}
-            onChange={(value) => change({ density: value === 'compact' ? 'compact' : 'comfortable' })}
-          />
+          </ToolbarEnd>
         </div>
 
         {tickers.status === 'error' ? (
@@ -314,6 +297,11 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
           </StatusNote>
         ) : null}
 
+        {tab === 'perps' && perpEntries.every((entry) => entry.ticker === undefined) ? (
+          <StatusNote data-testid="mkt-perps-note" tone="neutral" title={t('The venue publishes no perpetual prices to this list.')}>
+            {t('Open one to trade it on the futures desk.')}
+          </StatusNote>
+        ) : null}
         <MarketsList
           label={t('Markets')}
           entries={rows}
@@ -342,18 +330,17 @@ function NotOffered() {
   const { t } = marketsCopy.useCopy();
   return (
     <section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" className="lt-stack">
-      <h2 id="mkt-not-offered" className="lt-empty-title">
+      <h2 id="mkt-not-offered" className="lt-sr">
         {t('Not offered here')}
       </h2>
-      <ul className="lt-rows">
+      <FootNotes>
         <li data-testid="mkt-not-offered-equity">
-          <strong>{t('Tokenized equities')}</strong> <span className="lt-hint">{t('Not available: licence not named')}</span>
+          <strong>{t('Tokenized equities')}</strong> {t('Not available: licence not named')}
         </li>
         <li data-testid="mkt-not-offered-rpi">
-          <strong>{t('Retail price improvement')}</strong>{' '}
-          <span className="lt-hint">{t('Not available: priority class not specified')}</span>
+          <strong>{t('Retail price improvement')}</strong> {t('Not available: priority class not specified')}
         </li>
-      </ul>
+      </FootNotes>
     </section>
   );
 }
@@ -393,18 +380,29 @@ function Freshness({ tickers }: { tickers: Loadable<Record<string, TickerRow>> }
  * The room on the catalogue template: the title with the prices' freshness, the person's trading access, the top cards
  * (Popular, New listings, Top gainers) and the list with its tabs, search and filters.
  */
-function Frame({ children, meta, featured }: { children: ReactNode; meta: ReactNode; featured?: ReactNode }) {
+function Frame({
+  children,
+  meta,
+  featured,
+  description,
+}: {
+  children: ReactNode;
+  meta: ReactNode;
+  featured?: ReactNode;
+  description?: ReactNode;
+}) {
   const { t } = marketsCopy.useCopy();
   return (
-    <div data-testid="if-markets">
+    <PageGrid layout="full" panels="tiles" data-testid="if-markets">
       <CatalogueTemplate
         title={t('Markets')}
+        description={description}
         roomAction={meta}
         state={{ kind: 'ready' }}
         filters={<TradeAccess />}
         featured={featured}
         items={<div className="lt-stack">{children}</div>}
       />
-    </div>
+    </PageGrid>
   );
 }

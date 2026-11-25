@@ -12,7 +12,16 @@ import type { Column, DataMarks } from './b2-table.js';
 export interface GridColumn<Row> extends Column<Row> {
   /** The header says its name to assistive tech only (an action column needs no visible heading). */
   quietLabel?: boolean;
+  /**
+   * Where the cell goes when the grid is a phone's one-line rows (any column setting it makes it so, under 600px of the
+   * room's width): `name` the start, `top` and `bottom` stacked at the end, `hide` left for a wider screen.
+   */
+  phone?: 'name' | 'top' | 'bottom' | 'hide';
+  /** On a device that hovers, the cell shows on the row pointed at or moved to (a row's action). */
+  reveal?: boolean;
 }
+
+const cellPlace = <Row,>(c: GridColumn<Row>) => ({ 'data-phone': c.phone, 'data-reveal': c.reveal || undefined });
 
 export interface GridTableProps<Row> {
   /** The grid's accessible name. */
@@ -65,13 +74,21 @@ export function GridTable<Row>({
   };
   return (
     <div className="lt-table-scroll" tabIndex={0}>
-      <table className="lt-table" role="grid" aria-label={caption} data-mode={mode} aria-busy={loading || undefined}>
+      <table
+        className="lt-table"
+        role="grid"
+        aria-label={caption}
+        data-mode={mode}
+        data-phone={columns.some((c) => c.phone) ? 'line' : undefined}
+        aria-busy={loading || undefined}
+      >
         <thead>
           <tr {...headMarks}>
             {columns.map((c, i) => (
               <th
                 style={pin(i)}
                 {...c.headMarks}
+                {...cellPlace(c)}
                 key={c.key}
                 scope="col"
                 data-align={c.align ?? 'start'}
@@ -105,7 +122,7 @@ export function GridTable<Row>({
             ? Array.from({ length: loadingRows }, (_, index) => (
                 <tr key={`ghost-${index}`} data-row="" data-ghost="">
                   {columns.map((c, i) => (
-                    <td key={c.key} style={pin(i)} data-label={c.label} data-align={c.align ?? 'start'}>
+                    <td key={c.key} {...cellPlace(c)} style={pin(i)} data-label={c.label} data-align={c.align ?? 'start'}>
                       <Skeleton shape="text" count={1} />
                     </td>
                   ))}
@@ -122,7 +139,14 @@ export function GridTable<Row>({
             : rows.map((row) => (
                 <tr {...rowMarks?.(row)} key={rowKey(row)} data-row="" onClick={onRowActivate ? activate(row) : undefined}>
                   {columns.map((c, i) => (
-                    <td {...c.cellMarks?.(row)} key={c.key} style={pin(i)} data-label={c.label} data-align={c.align ?? 'start'}>
+                    <td
+                      {...c.cellMarks?.(row)}
+                      {...cellPlace(c)}
+                      key={c.key}
+                      style={pin(i)}
+                      data-label={c.label}
+                      data-align={c.align ?? 'start'}
+                    >
                       {c.cell(row)}
                     </td>
                   ))}
