@@ -164,44 +164,9 @@
 </svg>
 <p>Value over time can’t be read right now. Your total above is current.</p>
 </div>
-<div data-testid="home-split" class="hm-split" title="Cash is your dollars and stablecoins, Crypto your other coins. Home does not read Trading, Earn or Web3, so they add nothing here.">
-<figure class="lt-parts" aria-label="Where your money sits" data-legend="row">
-<div class="lt-parts-bar" aria-hidden="true">
-<span data-part="0" style="flex-grow: 0.328475;">
-</span>
-<span data-part="1" style="flex-grow: 0.671525;">
-</span>
-</div>
-<ul class="lt-parts-list">
-<li>
-<span class="lt-parts-swatch" data-part="0" aria-hidden="true">
-</span>
-<span>Cash</span>
-<span class="lt-parts-value" dir="ltr" data-ltr="">$4,100.00</span>
-</li>
-<li>
-<span class="lt-parts-swatch" data-part="1" aria-hidden="true">
-</span>
-<span>Crypto</span>
-<span class="lt-parts-value" dir="ltr" data-ltr="">$8,381.91</span>
-</li>
-</ul>
-</figure>
-<ul class="hm-split-rest" aria-label="Where your money sits">
-<li data-split="trading" data-read="false">
-<span>Trading</span> <span class="hm-split-value">not read</span>
-</li>
-<li data-split="earn" data-read="false">
-<span>Earn</span> <span class="hm-split-value">not read</span>
-</li>
-<li data-split="web3" data-read="false">
-<span>Web3</span> <span class="hm-split-value">not read</span>
-</li>
-</ul>
-</div>
 <nav data-testid="home-actions" aria-label="Trade" data-count="4">
 <div class="lt-action-row">
-<a class="lt-action" data-primary="true" href="/uc/recharge">
+<a class="lt-action" href="/uc/recharge" data-primary="true">
 <span class="lt-action-icon" aria-hidden="true">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-down-to-line" aria-hidden="true">
 <path d="M12 17V3">
@@ -263,11 +228,10 @@
 </h2>
 <div class="lt-panel-aside">
 <div class="lt-segmented" role="radiogroup" aria-label="Markets view">
-<button type="button" role="radio" aria-checked="false" class="lt-segment">Positions 3</button>
 <button type="button" role="radio" aria-checked="true" class="lt-segment">Popular</button>
 <button type="button" role="radio" aria-checked="false" class="lt-segment">Movers</button>
 </div>
-<a class="hm-link" href="/trade/spot/BTC-USDT">Open the desk</a>
+<a class="hm-link" href="/trade">All 6 markets</a>
 </div>
 </div>
 <div class="lt-market-table">
@@ -557,7 +521,7 @@
 </div>
 </div>
 <div data-testid="home-side" class="lt-page-col hm-side">
-<div data-testid="home-next" class="lit-surface hm-side-panel hm-next" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<section class="hm-rail-sec hm-next" data-testid="home-next" aria-label="Your next step">
 <div class="hm-started" data-testid="home-next-head">
 <div class="hm-started-head">
 <h2>Your next step</h2>
@@ -584,13 +548,44 @@
 <span lang="en" dir="ltr" data-i18n="customer.home.Work nothing">Nothing needs you right now.</span>
 </p>
 </section>
+</section>
+<section class="hm-rail-sec" data-testid="home-open" aria-labelledby="home-open-title">
+<div class="hm-rail-head">
+<h2 id="home-open-title">Open positions and orders</h2>
+<a class="hm-link" href="/trade/positions">Open the desk</a>
 </div>
-<div class="hm-pinned" data-testid="home-pinned">
-<div class="hm-pinned-head">
-<span>Pinned</span>
-<span>Unpin or add any widget</span>
+<p class="lt-hint" data-state="failed">Your positions and orders can’t be read right now.</p>
+</section>
+<section class="hm-rail-sec" data-testid="home-agent" aria-labelledby="home-agent-title">
+<div class="hm-rail-head">
+<h2 id="home-agent-title">Agent</h2>
+<a class="hm-link" href="/agents">Set one up</a>
 </div>
-<div class="hm-widget" data-widget="activity">
+<p class="lt-hint" data-state="failed">Your agents can’t be read right now.</p>
+</section>
+<section class="hm-rail-sec" data-testid="home-levels" aria-labelledby="home-levels-title">
+<div class="hm-rail-head">
+<h2 id="home-levels-title">Your levels</h2>
+<a class="hm-link" href="/fees/my-tier">Fees</a>
+</div>
+<dl class="hm-rail-kv">
+<div>
+<dt>Verification</dt>
+<dd>
+<span class="lt-chip" data-slot="status-tag" data-status="done" data-tag="filled">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Verified</span>
+</dd>
+</div>
+<div>
+<dt>Fee tier</dt>
+<dd>
+<span class="lt-hint">Not read</span>
+</dd>
+</div>
+</dl>
+</section>
+<div class="hm-rail-sec">
 <section class="lt-stack" aria-labelledby="home-activity-title">
 <div class="lt-title-row">
 <h2 id="home-activity-title">Recent activity</h2>
@@ -671,47 +666,7 @@
 </div>
 </section>
 </div>
-<section class="hm-widget" data-widget="send-to" data-testid="home-send-to" aria-labelledby="home-widget-send-to">
-<h2 id="home-widget-send-to">Send to</h2>
-<ul class="hm-people">
-<li>
-<a class="hm-person" data-new="" href="/pay/send" aria-label="Send to someone new">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus" aria-hidden="true">
-<path d="M5 12h14">
-</path>
-<path d="M12 5v14">
-</path>
-</svg>
-</a>
-</li>
-</ul>
-<p class="lt-hint">No one is saved on this device.</p>
-</section>
-<section class="hm-widget hm-widget-row" data-widget="agent" data-state="not-read" aria-labelledby="home-widget-agent">
-<h2 id="home-widget-agent">Agent</h2>
-<span class="lt-hint">Not read on Home</span>
-<a class="hm-link" href="/agents/approvals" aria-label="Open Agents">Open</a>
-</section>
-<section class="hm-widget hm-widget-row" data-widget="bots" data-state="not-read" aria-labelledby="home-widget-bots">
-<h2 id="home-widget-bots">Bots running</h2>
-<span class="lt-hint">Not read on Home</span>
-<a class="hm-link" href="/trade/bots" aria-label="Open Bots">Open</a>
-</section>
-<section class="hm-widget hm-widget-row" data-widget="prediction" data-state="not-read" aria-labelledby="home-widget-prediction">
-<h2 id="home-widget-prediction">Your prediction</h2>
-<span class="lt-hint">Not read on Home</span>
-<a class="hm-link" href="/predict/positions" aria-label="Open Predictions">Open</a>
-</section>
-<section class="hm-widget hm-widget-row" data-widget="copy" data-state="not-read" aria-labelledby="home-widget-copy">
-<h2 id="home-widget-copy">Copy trading</h2>
-<span class="lt-hint">Not read on Home</span>
-<a class="hm-link" href="/trade/copy" aria-label="Open Copy trading">Open</a>
-</section>
-</div>
-<section class="hm-pin" data-testid="home-pin" aria-labelledby="home-pin-title">
-<h2 id="home-pin-title">Pin a widget</h2>
-<div class="hm-pin-chips">
-<a href="/academy" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Academy</a>
+<div class="hm-rail-foot">
 <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sliders-horizontal" aria-hidden="true">
 <path d="M10 5H3">
@@ -734,7 +689,6 @@
 </path>
 </svg>Customise Home</button>
 </div>
-</section>
 </div>
 </div>
 </div>
