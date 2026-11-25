@@ -9928,6 +9928,66 @@
           },
           "asOf": "2026-11-25T04:35:23.112Z"
         }
+      },
+      "GET /api/v1/venue/fee-tier": {
+        "status": 200,
+        "json": {
+          "venueId": "hyperliquid-testnet",
+          "value": {
+            "schedule": {
+              "tiers": [
+                {
+                  "name": "Tier 0",
+                  "fromVolume": "0",
+                  "spot": { "makerFeeBps": { "known": true, "value": "4" }, "takerFeeBps": { "known": true, "value": "7" } },
+                  "perpetual": { "makerFeeBps": { "known": true, "value": "1.5" }, "takerFeeBps": { "known": true, "value": "4.5" } }
+                },
+                {
+                  "name": "Tier 1",
+                  "fromVolume": "5000000",
+                  "spot": { "makerFeeBps": { "known": true, "value": "3" }, "takerFeeBps": { "known": true, "value": "6" } },
+                  "perpetual": { "makerFeeBps": { "known": true, "value": "1.2" }, "takerFeeBps": { "known": true, "value": "4" } }
+                },
+                {
+                  "name": "Tier 2",
+                  "fromVolume": "25000000",
+                  "spot": { "makerFeeBps": { "known": true, "value": "2" }, "takerFeeBps": { "known": true, "value": "5" } },
+                  "perpetual": { "makerFeeBps": { "known": true, "value": "0.8" }, "takerFeeBps": { "known": true, "value": "3.5" } }
+                },
+                {
+                  "name": "Tier 3",
+                  "fromVolume": "100000000",
+                  "spot": { "makerFeeBps": { "known": true, "value": "1" }, "takerFeeBps": { "known": true, "value": "4" } },
+                  "perpetual": { "makerFeeBps": { "known": true, "value": "0.4" }, "takerFeeBps": { "known": true, "value": "3" } }
+                },
+                {
+                  "name": "Tier 4",
+                  "fromVolume": "500000000",
+                  "spot": { "makerFeeBps": { "known": true, "value": "0" }, "takerFeeBps": { "known": true, "value": "3.5" } },
+                  "perpetual": { "makerFeeBps": { "known": true, "value": "0" }, "takerFeeBps": { "known": true, "value": "2.8" } }
+                },
+                {
+                  "name": "Tier 5",
+                  "fromVolume": "2000000000",
+                  "spot": { "makerFeeBps": { "known": true, "value": "0" }, "takerFeeBps": { "known": true, "value": "3" } },
+                  "perpetual": { "makerFeeBps": { "known": true, "value": "0" }, "takerFeeBps": { "known": true, "value": "2.6" } }
+                },
+                {
+                  "name": "Tier 6",
+                  "fromVolume": "7000000000",
+                  "spot": { "makerFeeBps": { "known": true, "value": "0" }, "takerFeeBps": { "known": true, "value": "2.5" } },
+                  "perpetual": { "makerFeeBps": { "known": true, "value": "0" }, "takerFeeBps": { "known": true, "value": "2.4" } }
+                }
+              ],
+              "volumeAsset": "USDC",
+              "volumeDays": 14
+            },
+            "account": null
+          },
+          "asOf": "2026-11-25T05:30:36.635Z",
+          "reportedAt": null,
+          "test": true
+        }
       }
     },
     "trpc": {
