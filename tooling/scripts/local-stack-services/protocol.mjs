@@ -60,7 +60,7 @@ function swapPaymaster() {
   return JSON.parse(readFileSync(file, 'utf8')).swapPaymaster ?? null;
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, PUBLIC_ORIGIN }) => ({
   name: 'protocol',
   env: () => {
     const chain = testChain?.() ?? null;
@@ -100,7 +100,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, UNUSED, testChain, CUSTOMER_O
       // the address book refuses protocol.wallet_session_unset until the owner sets all three.
       PROTOCOL_WALLET_SESSION_SECRET: `TEST-${createHash('sha256').update(`protocol wallet session\0${secrets.internal}`).digest('hex')}`,
       PROTOCOL_WALLET_SESSION_TTL_SECONDS: '3600',
-      PROTOCOL_WALLET_SESSION_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
+      PROTOCOL_WALLET_SESSION_ORIGINS: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, ...(PUBLIC_ORIGIN ? [PUBLIC_ORIGIN] : [])].join(','),
       // LOCAL TEST only (same profile): the venue wallet connection (J-wallet-09). A one-minute lifetime, so the journey's
       // expiry step waits a minute, and a wallet sanctions list of one TEST address the journey derives from a TEST seed.
       // Production stays blank and connecting refuses protocol.venue_connection_ttl_unset / protocol.wallet_sanctions_unset.

@@ -2196,7 +2196,7 @@ export async function setWithdrawFee(ctx, networkId, value) {
  * through svc-trade's own door (admin.risk.set) with a second operator's approval, as a new version on top of what is
  * there; the other limits on the row are kept as they are.
  */
-export const TEST_RISK_LIMITS = { collar: '0.1', throttle: '20' };
+export const TEST_RISK_LIMITS = { collar: '0.1', throttle: '20', minNotional: '1' };
 /**
  * LOCAL TEST open-interest limits on the TEST perpetual (D-margin-05), not owner values: 1000 BTC of open interest and
  * half of it per account, far above what the journeys and the TEST market maker hold, so only a journey step that
@@ -2210,6 +2210,7 @@ export const RISK_LIMIT_FIELDS = [
   'slippageCap',
   'throttle',
   'circuitBreaker',
+  'minNotional',
   'oiLimit',
   'oiShareBps',
   'priceRangeMax',
@@ -2286,14 +2287,19 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   return { symbol, marketId: market.id, version: row.version, changed: true, limits };
 }
 
-/** Publish the TEST band and cap on every openable market that does not carry them yet. */
+/** Publish the TEST band, cap and minimum on every openable market that does not carry them yet. */
 export async function publishPairRisk(ctx) {
   const markets = openableMarkets(await listMarkets(ctx));
   if (markets.length === 0) return [];
   const sessions = await approverSessions(ctx);
   const out = [];
-  for (const m of markets)
-    out.push(await setPairRisk(ctx, m.symbol, m.swap ? { ...TEST_RISK_LIMITS, ...TEST_FUTURES_OI_LIMITS } : TEST_RISK_LIMITS, sessions));
+  for (const m of markets) {
+    const base = {
+      ...TEST_RISK_LIMITS,
+      minNotional: m.limits?.cost?.min ?? (m.quote === 'BTC' ? '0.0001' : '5'),
+    };
+    out.push(await setPairRisk(ctx, m.symbol, m.swap ? { ...base, ...TEST_FUTURES_OI_LIMITS } : base, sessions));
+  }
   return out;
 }
 

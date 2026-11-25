@@ -192,6 +192,9 @@ export abstract class HyperliquidCore {
       // b2 change 6: how old this venue's balance and position figures may be before they show as old. Hyperliquid
       // publishes no such limit, so this adapter declares ours: a minute, the same as the TEST venue's.
       figureStaleAfterMs: 60_000,
+      // An order, cancel or leverage change is an L1 action whose EIP-712 domain names chain 1337 (signing.ts L1_DOMAIN),
+      // which no wallet signs on: it is signed by the trading session's agent key, approved once by the owner's wallet.
+      tradesSignedBy: 'session_key',
     };
     refuseTestVenueOutsideTest(this.venue, options.appEnv, options.betaPosture);
     this.fetchImpl = options.fetch ?? (globalThis.fetch as unknown as FetchLike);

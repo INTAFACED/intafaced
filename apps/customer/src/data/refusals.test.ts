@@ -123,12 +123,16 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     expect(refusalCopy('trade.protection_unset').title).toBe('Price protection isn’t set');
     expect(refusalCopy('trade.protection_unset').body).toContain('Use a limit order instead.');
   });
-  it('a band or open-order cap the market has not published: named, never defaulted', () => {
+  it('a band, open-order cap or minimum the market has not published: named, never defaulted', () => {
     expect(refusalCopy('trade.price_band_unset')).toEqual({
       title: 'No price band is published',
       body: 'This market takes no priced orders until it publishes the range of prices it accepts. Nothing was sent.',
     });
     expect(refusalCopy('trade.open_orders_cap_unset').title).toBe('No open-order limit is published');
+    expect(refusalCopy('trade.min_notional_unset')).toEqual({
+      title: 'No minimum order value is published',
+      body: 'This market takes no orders until it publishes its smallest order value. Nothing was sent.',
+    });
   });
   it('price band: the edges when the screen has them, the rule in words when it does not', () => {
     expect(refusalCopy('trade.price_band', { low: '90.00', high: '110.00' })).toEqual({

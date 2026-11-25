@@ -12,7 +12,6 @@ import {
   BETA_OWN_HOSTS,
   BETA_SLOT,
   MAILBOX_PORT,
-  UPDATE_EVERY_MS,
   anvilLauncher,
   betaPaths,
   decide,
@@ -279,20 +278,15 @@ test('decide: no screening file builds nothing; a moved main updates; the same c
   assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
 });
 
-test('decide: a moved main updates at most once every 2 hours; between, the round only launches', () => {
-  const now = Date.parse('2026-11-23T08:00:00Z');
-  const ago = (ms) => new Date(now - ms).toISOString();
-  assert.equal(UPDATE_EVERY_MS, 2 * 3600_000);
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(30 * 60_000), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS - 1), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS), now }), 'update');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: undefined, now }), 'update');
-  assert.equal(decide({ screening: false, head: 'a', target: 'b', updatedAt: ago(1), now }), 'blocked');
+test('decide: every round moves to a moved main; the same commit only launches', () => {
+  assert.equal(decide({ screening: true, head: 'a', target: 'b' }), 'update');
+  assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
+  assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');
 });
 
 test('the page names the commit served, and the newer main it waits for', () => {
   const html = mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'bbbbbbbbb222' } });
-  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta updates at most every 2 hours\)/);
+  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta moves to it in its next round\)/);
   assert.doesNotMatch(mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'aaaaaaaaa111' } }), /main is at/);
 });
 
@@ -473,4 +467,36 @@ test("the beta runs its TEST chain with the journeys' pinned anvil image, so the
   );
   assert.equal(fs.existsSync(paths.anvil), false);
   assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, undefined);
+});
+
+test("passkeys and wallet messages work on the beta's public name: svc-identity's relying party is its host, svc-protocol accepts its origin, and the TEST funds check still passes", async () => {
+  const { localTestServiceEnvs, PLAN_SECRETS, publicOrigin } = await import('../scripts/local-test-stack.mjs');
+  const origin = stackEnv(betaPaths('/home/x'), { LOCAL_STACK_PUBLIC_ORIGIN: 'https://other.example.com' }).LOCAL_STACK_PUBLIC_ORIGIN;
+  assert.equal(origin, 'https://beta.intafaced.com', 'the beta wins over a shell');
+  const identityEnv = () => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'identity').env;
+  const prior = process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+  try {
+    delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+    assert.equal(identityEnv().WEBAUTHN_RP_ID, 'localhost', 'unset: the stack keeps its localhost relying party');
+    process.env.LOCAL_STACK_PUBLIC_ORIGIN = origin;
+    const identity = identityEnv();
+    assert.equal(identity.WEBAUTHN_RP_ID, 'beta.intafaced.com');
+    assert.equal(identity.WEBAUTHN_ORIGIN, 'https://beta.intafaced.com');
+    assert.deepEqual(
+      outsideAddresses(Object.entries(identity), BETA_OWN_HOSTS).filter((a) => a.key.startsWith('WEBAUTHN')),
+      [],
+    );
+    // Connect to the venue signs a wallet message naming the page's origin (protocol.wallet_session_origin_unlisted).
+    const protocol = localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'protocol').env;
+    assert.ok(protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').includes('https://beta.intafaced.com'));
+    assert.ok(
+      protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').some((o) => /^http:\/\/localhost:\d+$/.test(o)),
+      'the stack keeps its own',
+    );
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+    else process.env.LOCAL_STACK_PUBLIC_ORIGIN = prior;
+  }
+  for (const bad of ['http://beta.intafaced.com', 'https://beta.intafaced.com/', 'https://beta.intafaced.com/app', 'beta.intafaced.com'])
+    assert.throws(() => publicOrigin({ LOCAL_STACK_PUBLIC_ORIGIN: bad }), /LOCAL_STACK_PUBLIC_ORIGIN must be one https origin/, bad);
 });

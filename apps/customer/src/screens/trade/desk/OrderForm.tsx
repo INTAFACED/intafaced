@@ -1380,9 +1380,10 @@ export const OrderPanel = memo(function OrderPanel({
   const leadMode = useLeadMode();
   const [leadOn, setLeadOn] = useState(() => new URLSearchParams(window.location.search).get('lead') === '1');
   const lead = leadMode.isLead ? leadOn : undefined;
-  // The types this market, its state and this account's mode refuse (J-cex-spot-04 #1) are not tabs; a pick that became
-  // refused (the mode changed, Lead trade turned on) shows as a limit order. A limit is never refused.
-  const refused = refusedTypes(market, { lead }, Date.now());
+  // The types this market, region, state and account mode refuse (J-cex-spot-04 #1) are not tabs; a pick that became
+  // refused (the mode changed, Lead trade turned on) shows as a limit order.
+  const refused = refusedTypes(market, { lead, regionBlocked: leadMode.regionBlocked }, Date.now());
+  const selectableTypes = SPOT_TICKET_ORDER_TYPES.filter((kind) => !refused.has(kind));
   // Flatten (Assets) keeps its market sell, so its own review says what the market takes.
   const flattening = suggestion?.flatten === true && pickedType === 'market';
   const type: OrderType = refused.has(pickedType) && !flattening ? 'limit' : pickedType;
@@ -1412,7 +1413,7 @@ export const OrderPanel = memo(function OrderPanel({
   const free = (asset: string): string | null => (balances.status === 'ready' ? (balances.data[asset]?.free ?? '0') : null);
 
   const pendingValue: Pending | null = pending.state === 'pending' ? pending.value : null;
-  const blocked = pending.state !== 'none';
+  const blocked = pending.state !== 'none' || leadMode.regionBlocked;
 
   async function check() {
     if (!pendingValue || pendingValue.kind !== 'place' || !userId || checkingRef.current || isInFlight(pendingValue.id)) return;
@@ -1504,23 +1505,25 @@ export const OrderPanel = memo(function OrderPanel({
   return (
     <div data-testid="dk-order" className="lt-panel">
       <div className="lt-row">
-        <Tabs
-          id="dk-type"
-          label={t('Order type')}
-          items={SPOT_TICKET_ORDER_TYPES.filter((kind) => !refused.has(kind)).map((kind) => ({
-            value: kind,
-            label: t(TYPE_TAB_KEY[kind]),
-          }))}
-          value={type}
-          onChange={(value) => {
-            setType(value as OrderType);
-            // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
-            if (value === 'bracket') setTif('IOC');
-            // An OTO buy waits on the book for its price by default; its close is placed when it fills.
-            if (value === 'oto') setTif('GTC');
-          }}
-        />
-        <MoreOrderTypes refused={refused} />
+        {selectableTypes.length > 0 ? (
+          <Tabs
+            id="dk-type"
+            label={t('Order type')}
+            items={selectableTypes.map((kind) => ({
+              value: kind,
+              label: t(TYPE_TAB_KEY[kind]),
+            }))}
+            value={type}
+            onChange={(value) => {
+              setType(value as OrderType);
+              // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
+              if (value === 'bracket') setTif('IOC');
+              // An OTO buy waits on the book for its price by default; its close is placed when it fills.
+              if (value === 'oto') setTif('GTC');
+            }}
+          />
+        ) : null}
+        <MoreOrderTypes refused={refused} regionReason={leadMode.regionReason} />
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}
         {market.open && tif === 'GTD' ? (
           <label className="lt-field">

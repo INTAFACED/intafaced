@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { draftSaved } from './agent-builder.mjs';
-import { BROWSER_HOOK_TIMEOUT, launchTestBrowser } from './test-browser.mjs';
+import { BROWSER_HOOK_TIMEOUT, BROWSER_TEST_TIMEOUT, launchTestBrowser } from './test-browser.mjs';
 
 // The builder's save answer on planted pages in a real Chromium, as J-agents-02 #6 met it on main in run 45279452197:
 // the "Tool shapes" group still loading, its own status beside "Draft saved." in the same form. Playwright's own
@@ -23,7 +23,7 @@ async function builderOf(inside) {
   return { builder: page.getByRole('form', { name: 'Agent builder' }), close: () => page.close() };
 }
 
-describe('the agent builder save answer', () => {
+describe('the agent builder save answer', { timeout: BROWSER_TEST_TIMEOUT }, () => {
   it('finds "Draft saved." while the tool shapes still load, where the form\'s one status is ambiguous', async (t) => {
     if (!browser) return t.skip(`no Chromium to drive: ${why}`);
     const { builder, close } = await builderOf(LOADING + SAVED);
