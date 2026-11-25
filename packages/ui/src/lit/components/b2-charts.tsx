@@ -36,17 +36,21 @@ function scale(points: readonly Point[]) {
 
 function DataTable({ caption, rows, asset }: { caption: string; rows: readonly { label: string; value: DecimalString }[]; asset: string }) {
   return (
-    <table className="lt-sr">
-      <caption>{caption}</caption>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.label}>
-            <th scope="row">{r.label}</th>
-            <td>{formatMoney({ value: r.value, asset })}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    // Hidden in a box rather than on the table itself: a table ignores the hidden box's 1px height, so its rows would
+    // still stretch the page by their full height.
+    <div className="lt-sr">
+      <table>
+        <caption>{caption}</caption>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <th scope="row">{r.label}</th>
+              <td>{formatMoney({ value: r.value, asset })}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
