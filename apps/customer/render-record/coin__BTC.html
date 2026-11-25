@@ -158,12 +158,24 @@
 </div>
 </div>
 <div data-testid="coin-ranges" class="lit-segmented" role="group" aria-label="Chart range">
-<button type="button" aria-pressed="true" aria-label="Last day" title="Last day">1D</button>
-<button type="button" aria-pressed="false" aria-label="Last week" title="Last week">1W</button>
-<button type="button" aria-pressed="false" aria-label="Last month" title="Last month">1M</button>
-<button type="button" aria-pressed="false" aria-label="Last six months" title="Last six months">6M</button>
-<button type="button" aria-pressed="false" aria-label="Last year" title="Last year">1Y</button>
-<button type="button" aria-pressed="false" aria-label="All time" title="All time">All</button>
+<button type="button" aria-pressed="true" aria-label="Last day" title="Last day">
+<span class="lit-segmented-label">1D</span>
+</button>
+<button type="button" aria-pressed="false" aria-label="Last week" title="Last week">
+<span class="lit-segmented-label">1W</span>
+</button>
+<button type="button" aria-pressed="false" aria-label="Last month" title="Last month">
+<span class="lit-segmented-label">1M</span>
+</button>
+<button type="button" aria-pressed="false" aria-label="Last six months" title="Last six months">
+<span class="lit-segmented-label">6M</span>
+</button>
+<button type="button" aria-pressed="false" aria-label="Last year" title="Last year">
+<span class="lit-segmented-label">1Y</span>
+</button>
+<button type="button" aria-pressed="false" aria-label="All time" title="All time">
+<span class="lit-segmented-label">All</span>
+</button>
 </div>
 <p class="lt-hint" data-testid="updated">
 </p>
@@ -267,8 +279,12 @@
 <div class="lt-stack">
 <div data-testid="buy-form__top">
 <div class="lit-segmented" role="group" aria-label="Buy or sell">
-<button type="button" aria-pressed="true">Buy</button>
-<button type="button" aria-pressed="false">Sell</button>
+<button type="button" aria-pressed="true">
+<span class="lit-segmented-label">Buy</span>
+</button>
+<button type="button" aria-pressed="false">
+<span class="lit-segmented-label">Sell</span>
+</button>
 </div>
 </div>
 <div class="lt-stack">
