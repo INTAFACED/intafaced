@@ -2446,6 +2446,7 @@ a.lit-button {
    phone one-line rows and hover-revealed cells. */
 .lt-market-board {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--lit-gap-section);
 }
 .lt-market-board > section + section {
@@ -2580,7 +2581,7 @@ a.lit-button {
 }
 @media (max-width: 56rem) {
   .lt-market-hero {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     padding: 1.25rem;
     gap: 1.25rem;
   }
@@ -2659,7 +2660,7 @@ a.lit-button {
   }
   .lt-table[data-phone='line'] tr[data-row] {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: 'name top' 'name bottom';
     align-items: center;
     column-gap: 0.75rem;
@@ -2674,7 +2675,8 @@ a.lit-button {
   .lt-table[data-phone='line'] :is(td, th)[data-phone='name'] {
     grid-area: name;
     min-inline-size: 0;
-    white-space: nowrap;
+    /* The name takes what the figures leave, wrapping inside it at large text sizes rather than widening the row. */
+    overflow-wrap: anywhere;
   }
   /* A tag beside the name (Spot, 40x) waits for a wider screen: the line keeps the name whole. */
   .lt-table[data-phone='line'] :is(td, th)[data-phone='name'] .lit-tag {
