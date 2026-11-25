@@ -444,7 +444,7 @@ test('the fix issue job holds issues: write, needs the review, and Start the sea
   assert.match(job, /\n      issues: write /);
   assert.doesNotMatch(job, /\n      (contents|actions|statuses|checks|id-token): write/);
   assert.match(job, /run: node tooling\/ci\/judge-down\.mjs merged "CI review" issue/);
-  assert.match(WF, /\n    needs: \[review, read, after-merge\]\n/);
+  assert.match(WF, /\n    needs: \[review, read, after-merge, notes\]\n/);
 });
 
 test('judgeDownNeed: a head whose CI review was down needs the judge, whatever it changes; a pass, a FAIL, a review never run do not', () => {
