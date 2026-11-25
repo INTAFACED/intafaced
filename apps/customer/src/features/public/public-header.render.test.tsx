@@ -68,4 +68,14 @@ describe('public header follows the session', () => {
     expect(html).toContain('href="/help"');
     expect(html).toContain('href="/about-us"');
   });
+
+  it('leaves Create account off an invitation, whose card carries it with the token, and keeps the invite elsewhere', () => {
+    const token = '22222222-2222-4222-8222-222222222222';
+    vi.stubGlobal('location', { search: `?token=${token}`, pathname: '/invite', hash: '' });
+    const invite = renderToString(<PublicHeader path="/invite" />);
+    expect(invite).not.toContain('public-signup');
+    vi.stubGlobal('location', { search: `?invite=${token}`, pathname: '/help', hash: '' });
+    const help = renderToString(<PublicHeader path="/help" />);
+    expect(help).toContain(`href="/register?invite=${token}" class="public-signup"`);
+  });
 });
