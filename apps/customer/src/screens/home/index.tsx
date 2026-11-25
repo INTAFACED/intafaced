@@ -1,8 +1,12 @@
 // volt-room: /home
 import { Suspense, lazy, useMemo, useState } from 'react';
-import { ChevronRight, Eye, EyeOff } from 'lucide-react';
-import { Button } from '@intafaced/ui/lit';
-import { OverviewTemplate, Skeleton } from '@intafaced/ui/lit/templates';
+import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ChevronRight, Eye, EyeOff, QrCode, Send, TrendingUp } from 'lucide-react';
+import { Button, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
+import { Skeleton } from '@intafaced/ui/lit/templates';
+import { commandCopy } from './command-copy';
+import { Allocation, ValueChart, ValueRanges, useValueRange } from './ValueChart';
+import { HomeMarkets } from './HomeMarkets';
+import './command.css';
 import { clockTime } from './clock';
 import { homeCopy } from './copy';
 import {
@@ -43,7 +47,7 @@ import { VoltStack } from './VoltStack';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
-import { shownTiles } from './tiles';
+import { shownTiles, type HomeTileId } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { TestBuildTag } from './TestBuildTag';
 import { useSession } from '../../features/session/session';
@@ -51,49 +55,47 @@ import { useSession } from '../../features/session/session';
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
 const HomePro = lazy(() => import('./HomePro').then((module) => ({ default: module.HomePro })));
 
-/** Simple Home: Buy and Sell open the Buy card (Pro Home goes to the desk, `HomePro.tsx`). */
+/**
+ * Simple Home's keys (the owner's Home A): Deposit leads as the one main key, then Withdraw, Convert and Trade. An empty
+ * account gets what it can do first (Deposit, Receive, Buy); a paused account only Receive.
+ */
 const ACTIONS = [
-  { label: 'Add money', href: HOME_LINKS.deposit },
-  { label: 'Buy', href: '/trade/buy' },
-  { label: 'Sell', href: '/trade/buy?side=sell' },
-  { label: 'Convert', href: '/trade/convert' },
-  { label: 'Send', href: '/pay/send' },
-  { label: 'Receive', href: '/pay/receive' },
+  { label: 'Deposit', href: HOME_LINKS.deposit, icon: ArrowDownToLine },
+  { label: 'Withdraw', href: '/uc/withdraw', icon: ArrowUpFromLine },
+  { label: 'Convert', href: '/trade/convert', icon: ArrowLeftRight },
+  { label: 'Trade', href: '/trade/buy', icon: TrendingUp },
+  { label: 'Buy', href: '/trade/buy', icon: TrendingUp },
+  { label: 'Send', href: '/pay/send', icon: Send },
+  { label: 'Receive', href: '/pay/receive', icon: QrCode },
 ] as const;
 
 type ActionLabel = (typeof ACTIONS)[number]['label'];
-/** Which pills make sense for the account: nothing to spend, nothing to trade, or a paused account. */
+/** Which keys make sense for the account: nothing to spend, nothing to trade, or a paused account. */
 type ActionMode = 'normal' | 'empty' | 'noMarkets' | 'emptyNoMarkets' | 'refused';
-const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
-  normal: null,
-  empty: ['Add money', 'Receive', 'Buy'],
-  noMarkets: ['Send', 'Receive'],
-  emptyNoMarkets: ['Receive'],
+const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[]> = {
+  normal: ['Deposit', 'Withdraw', 'Convert', 'Trade'],
+  empty: ['Deposit', 'Receive', 'Buy'],
+  noMarkets: ['Deposit', 'Withdraw', 'Send', 'Receive'],
+  emptyNoMarkets: ['Deposit', 'Receive'],
   refused: ['Receive'],
 };
 
-function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) {
-  const { t } = homeCopy.useCopy();
-  const wanted = ACTIONS_FOR[mode];
-  // Add money leads the pills of an empty account; an account that holds money reaches Deposit from Money.
-  const live = (
-    wanted
-      ? wanted.map((label) => ACTIONS.find((action) => action.label === label)!)
-      : ACTIONS.filter((action) => action.label !== 'Add money')
-  ).filter((action) => !isHiddenPath(action.href.split('?')[0]!));
-  // While loading, the keys' placeholder row is the whole tray, not one more key beside the others.
-  const tray = loading ? undefined : 'lt-actions';
+function ActionKeys({ loading, mode }: { loading: boolean; mode: ActionMode }) {
+  const { t } = commandCopy.useCopy();
+  const live = ACTIONS_FOR[mode]
+    .map((label) => ACTIONS.find((action) => action.label === label)!)
+    .filter((action) => !isHiddenPath(action.href.split('?')[0]!));
   return (
-    <nav data-testid="home-actions" className={tray} aria-label={t('Actions')}>
+    <nav data-testid="home-actions" className="hm-keys" aria-label={t('Trade')} data-count={live.length}>
       {loading ? (
         <Skeleton shape="keys" count={live.length} />
       ) : (
         live.map((action, index) => {
-          // The first action is the one main key.
-          const look = index === 0 ? 'lt-button lt-button-primary' : 'lt-button lt-button-secondary';
+          const Icon = action.icon;
           return (
-            <a key={action.label} className={look} href={action.href}>
-              {t(action.label)}
+            <a key={action.label} className="hm-key" data-primary={(index === 0 && mode !== 'refused') || undefined} href={action.href}>
+              <Icon aria-hidden="true" />
+              <span>{t(action.label)}</span>
             </a>
           );
         })
@@ -211,7 +213,9 @@ function HomeSimple() {
   const cardSymbols = useMemo(() => new Set(cards.map((card) => card.symbol)), [cards]);
   // Popular skips the coins already shown as Markets cards, so a short market list is not repeated (critic N3).
   const watchItems = popular ? all.filter((item) => !cardSymbols.has(item.symbol)).slice(0, 8) : favoriteItems;
-  const sparkSymbols = useMemo(() => [...new Set([...cards, ...watchItems].map((item) => item.symbol))], [cards, watchItems]);
+  // Popular on Home A's table: the busiest markets, cards included (the table replaces the cards).
+  const popularRows = useMemo(() => topCards(all, tickerData, 8), [all, tickerData]);
+  const sparkSymbols = useMemo(() => [...new Set([...popularRows, ...watchItems].map((item) => item.symbol))], [popularRows, watchItems]);
   const sparklines = useSparklines(sparkSymbols);
 
   const baseOf = useMemo(() => {
@@ -225,6 +229,7 @@ function HomeSimple() {
     [movers, markets, baseOf],
   );
 
+  const moverListings = useMemo(() => moverItems.flatMap((m) => all.filter((item) => item.base === m.base).slice(0, 1)), [moverItems, all]);
   // "No orderable markets": Markets, Top movers and Watchlist are omitted, not shown empty.
   const noMarkets = markets.status === 'empty' || (markets.status === 'ready' && all.length === 0);
   const marketsLoading = markets.status === 'loading';
@@ -252,139 +257,113 @@ function HomeSimple() {
   const started = useStartedTile(side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
-  // The total and its label: the template's hero, one stack the template keeps at one height (heroReserve). The actions
-  // are its own region.
+  const [range, setRange] = useValueRange();
+  // The total, its label and the value over time: the panel Home A leads with. The eye, the rule and Assets stay beside
+  // the label (J-home-ia-01).
   const hero = (
-    <div className="lt-stack">
-      <div data-testid="home-label" className="lt-actions">
-        <span>{t('Est. total value')}</span>
-        <Button
-          tone="quiet"
-          onClick={() => savePreferences({ hideBalances: !hideBalances })}
-          aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
-        >
-          {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-        </Button>
-        <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
-        {isHiddenPath('/money') ? null : (
-          <a className="lt-link" href="/money">
-            {t('Assets')}
-            <ChevronRight size={14} aria-hidden="true" />
-          </a>
-        )}
+    <Surface className="hm-hero" data-testid="home-hero">
+      <div className="hm-hero-top">
+        <div className="hm-hero-figure">
+          <div data-testid="home-label" className="hm-label">
+            <span>{t('Est. total value')}</span>
+            <Button
+              tone="quiet"
+              onClick={() => savePreferences({ hideBalances: !hideBalances })}
+              aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
+            >
+              {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+            </Button>
+            <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+            {isHiddenPath('/money') ? null : (
+              <a className="hm-link" href="/money">
+                {t('Assets')}
+                <ChevronRight size={14} aria-hidden="true" />
+              </a>
+            )}
+          </div>
+          {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
+        </div>
+        {portfolio.status === 'refused' ? null : <ValueRanges range={range} onRange={setRange} />}
       </div>
-      {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
-    </div>
+      {portfolio.status === 'refused' ? null : <ValueChart range={range} />}
+      {portfolio.status === 'ready' && !launch ? <Allocation holdings={portfolio.data.holdings} hidden={hideBalances} /> : null}
+      <ActionKeys loading={portfolio.status === 'loading'} mode={actionMode} />
+    </Surface>
   );
 
-  const tile = (id: (typeof main)[number]) => {
+  const marketsPanel = showMarkets ? (
+    <HomeMarkets
+      watch={popular ? popularRows : favoriteItems}
+      popular={popular}
+      movers={moverListings}
+      tickers={tickers}
+      sparklines={sparklines}
+      loading={marketsLoading}
+      broken={marketsBroken}
+      retry={markets.status === 'error' ? markets.retry : undefined}
+    />
+  ) : null;
+
+  const tile = (id: HomeTileId) => {
     switch (id) {
       case 'work':
-        return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
-      case 'holdings':
-        // Volt draws the holdings as its card stack. On the launch model the holdings are the parts of the
-        // total above, each read from its own source.
-        return launch ? null : <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />;
-      case 'markets':
-        return showMarkets ? (
-          <section key={id} className="lt-stack" aria-labelledby="home-markets-title">
-            <div className="lt-title-row">
-              <h2 id="home-markets-title">{t('Markets')}</h2>
-              {pricesAsOf !== null ? (
-                <p data-testid="home-fresh" className="lt-hint">
-                  {t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}
-                </p>
-              ) : null}
-            </div>
-            {marketsLoading ? (
-              <MarketsSkeleton count={all.length || 4} />
-            ) : marketsBroken ? (
-              <MarketsFailure retry={markets.status === 'error' ? markets.retry : undefined} />
-            ) : (
-              <MarketsRow cards={cards} tickers={tickers} sparklines={sparklines} favoriting={favoriting} />
-            )}
-          </section>
-        ) : null;
-      case 'movers':
-        return showMovers ? (
-          <section key={id} className="lt-stack">
-            <MoversHeading />
-            {marketsLoading || movers.status === 'loading' ? <MoversSkeleton /> : <MoversRow movers={moverItems} />}
-          </section>
-        ) : null;
+        return (
+          <Surface key={id} className="hm-side-panel">
+            <WorkList hidden={hideBalances} onShown={setNeedsYou} />
+          </Surface>
+        );
       case 'activity':
-        return <RecentActivity key={id} activity={activity} limit={activityLimit} hidden={hideBalances} />;
+        return (
+          <Surface key={id} className="hm-side-panel">
+            <RecentActivity activity={activity} limit={activityLimit} hidden={hideBalances} />
+          </Surface>
+        );
+      case 'started':
+        return started.show ? (
+          <Surface key={id} className="hm-side-panel hm-next">
+            <GetStarted steps={started.steps} onHide={started.hide} />
+          </Surface>
+        ) : null;
       case 'learn':
-        return <LearnStrip key={id} />;
+        // Learn opens the Academy; a build that hides the Academy (the beta) shows no Learn.
+        return isHiddenPath(HOME_LINKS.academy) ? null : (
+          <Surface key={id} className="hm-side-panel">
+            <LearnStrip />
+          </Surface>
+        );
+      case 'your-crypto':
+        return launch || portfolio.status !== 'ready' || portfolio.data.holdings.length === 0 ? null : (
+          <Surface key={id} className="hm-side-panel">
+            <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} />
+          </Surface>
+        );
       default:
         return null;
     }
   };
-  // "Needs you" takes the template's own region when it leads the person's order; otherwise every tile keeps its place
-  // in the order they chose, under the actions.
-  const lead = main[0] === 'work' ? main[0] : null;
-  const rest = lead ? main.slice(1) : main;
-  const showSide = showMarkets && !marketsBroken;
-  const watching =
-    started.show || showSide ? (
-      <>
-        {started.show ? <GetStarted steps={started.steps} onHide={started.hide} /> : null}
-        {showSide ? (
-          <aside data-testid="home-side" className="lt-stack">
-            {side.map((id) =>
-              id === 'your-crypto' ? (
-                launch ? null : portfolio.status === 'loading' ? (
-                  <YourCryptoSkeleton key={id} />
-                ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
-                  <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />
-                ) : null
-              ) : id === 'watchlist' && (marketsLoading || !popular || watchItems.length > 0) ? (
-                <Watchlist
-                  key={id}
-                  items={watchItems}
-                  popular={popular}
-                  tickers={tickers}
-                  sparklines={sparklines}
-                  loading={marketsLoading}
-                  favoriting={favoriting}
-                />
-              ) : null,
-            )}
-          </aside>
-        ) : null}
-      </>
-    ) : undefined;
+  // The side column, in the person's order: the next step, what needs them, what happened, then the rest.
+  const shown = new Set<HomeTileId>([...main, ...side]);
+  const SIDE: readonly HomeTileId[] = ['started', 'work', 'activity', 'learn'];
+  const sideTiles = SIDE.filter((id) => shown.has(id));
 
   return (
-    <div data-testid="if-home">
-      <OverviewTemplate
-        title={t('Home')}
-        state={{ kind: 'ready' }}
-        mode="simple"
-        roomAction={<CustomiseHome home={home} mode="simple" />}
-        rooms={
-          <>
-            <HomeNotices />
-            <HomeInbox needsYou={needsYou} />
-          </>
-        }
-        hero={hero}
-        // The label row, the figure and two lines under it (a unit note and today's change): one height while loading
-        // and once loaded, so nothing below moves when the balance arrives.
-        // A refused balance is a final answer with its own box and button, so it keeps only its own height: holding the
-        // figure's room under it left an empty band.
-        heroReserve={portfolio.status === 'refused' ? undefined : 2}
-        actions={<ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />}
-        needsYou={lead ? tile(lead) : undefined}
-        sections={
-          rest.length > 0 ? (
-            <div data-testid="home-main" className="lt-stack">
-              {rest.map(tile)}
-            </div>
-          ) : undefined
-        }
-        watching={watching}
-      />
+    <div data-testid="if-home" className="hm">
+      <PageGrid layout="split">
+        <PageColumn span="all" className="hm-band">
+          <HomeNotices />
+          <HomeInbox needsYou={needsYou} />
+        </PageColumn>
+        <PageColumn className="hm-main">
+          {hero}
+          {shown.has('markets') ? marketsPanel : null}
+        </PageColumn>
+        <PageColumn className="hm-side" data-testid="home-side">
+          {sideTiles.map(tile)}
+          <div className="hm-room-action">
+            <CustomiseHome home={home} mode="simple" />
+          </div>
+        </PageColumn>
+      </PageGrid>
     </div>
   );
 }

@@ -85,18 +85,31 @@ function Row({ step }: { step: Step }) {
 export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => void }) {
   const { t } = homeCopy.useCopy();
   const count = progress(steps);
+  // The next step (Home A): the first one not done, large, with the steps' progress under it.
+  const next = steps.find((step) => step.status === 'todo') ?? steps.find((step) => step.status === 'review' || step.status === 'unknown');
   return (
-    <section data-testid="home-started" className="lt-stack" aria-labelledby="home-started-title">
-      <div className="lt-title-row">
+    <section data-testid="home-started" className="hm-started" aria-labelledby="home-started-title">
+      <div className="hm-started-head">
         <h2 id="home-started-title">{t('Get started')}</h2>
-        <span data-testid="home-started__count" className="lt-hint">
+        <span data-testid="home-started__count">
           {count.settled ? t('Steps done', { done: count.done, total: count.total }) : <Ghost shape="text" count={1} />}
         </span>
         <Button tone="quiet" onClick={onHide} aria-label={t('Hide Get started')}>
           <X size={16} aria-hidden="true" />
         </Button>
       </div>
-      <ul className="lt-rows">
+      {next ? (
+        <a className="hm-started-next" href={next.href} aria-hidden="true" tabIndex={-1}>
+          <span className="hm-started-headline">{t(TITLE[next.id])}</span>
+          <span className="hm-started-hint">{t(next.status === 'review' ? 'Step verify review' : HINT[next.id])}</span>
+        </a>
+      ) : null}
+      <div className="hm-progress" aria-hidden="true">
+        {steps.map((step) => (
+          <i key={step.id} data-done={step.status === 'done' || undefined} />
+        ))}
+      </div>
+      <ul className="hm-started-list">
         {steps.map((step) => (
           <Row key={step.id} step={step} />
         ))}

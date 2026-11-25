@@ -1,3 +1,4 @@
+import { AssetIcon } from '@intafaced/ui/lit';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import {
@@ -92,7 +93,8 @@ export function RecentActivity({
               const when = dayTime(item.postedAt, timeZone);
               return (
                 <li key={group.id}>
-                  <a data-testid="home-activity__row" className="lt-row-link" href={detailHref(group)}>
+                  <a data-testid="home-activity__row" className="lt-row-link" href={detailHref(group)} data-dir={item.direction}>
+                    <AssetIcon asset={item.asset} />
                     <span className="lt-lines">
                       <span data-testid="home-activity__kind">{t(LABEL[item.kind])}</span>
                       {when ? (
