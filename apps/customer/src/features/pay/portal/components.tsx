@@ -2,8 +2,7 @@ import { createContext, useContext, useEffect, useId, useRef, type ReactNode } f
 import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
 import { Button, StateBlock } from '@intafaced/ui';
-import { DateTime } from './ui/DateTime';
-import { activeHalts, type PayoutState } from './model';
+import type { PayoutState } from './model';
 import { portalCopy } from './copy';
 import { StatusChip } from './ui/StatusChip';
 import { CopyReference } from './ui/CopyReference';
@@ -11,7 +10,6 @@ import { uiCopy } from './ui/copy';
 import type { ChipKind } from './ui/status-vocabulary';
 import { NotLiveCard } from './chrome/NotLiveCard';
 import { isNotLive, notLiveReason, refusalText, refusalTitle } from './refusal';
-import type { AssetAmount, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -94,25 +92,6 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
   );
 }
 
-/** One line per asset. Two assets are never added together; an empty list is "nothing yet", not zero. */
-export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[]; emptyLabel?: string }) {
-  const { t } = portalCopy.useCopy();
-  if (items.length === 0)
-    return (
-      <span className="lt-muted" title={emptyLabel ?? t('noPaymentsInPeriod')}>
-        —
-      </span>
-    );
-  return (
-    <span className="pp-lines">
-      {items.map((item) => (
-        <span key={item.assetCode}>
-          <MoneyDisplay value={item.amount} asset={item.assetCode} unit={item.assetCode} />
-        </span>
-      ))}
-    </span>
-  );
-}
 export function Money({ value, asset }: { value: string; asset: string }) {
   return (
     <span className="numeric pp-money">
@@ -153,91 +132,6 @@ export function SelectField({
       </select>
       {hint && <small>{hint}</small>}
     </label>
-  );
-}
-
-/** A summary line of key facts (B5): label and value pairs, ids copyable by selection. */
-export function Facts({ items }: { items: ReadonlyArray<readonly [string, ReactNode]> }) {
-  return (
-    <dl data-testid="pp-facts" className="pp-facts">
-      {items.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-/** Loading and refusal for one read that is not a list. */
-export function Gate<T>({
-  resource,
-  retry,
-  rows,
-  children,
-}: {
-  resource: import('../../../shared/resource').Resource<T>;
-  retry: () => void;
-  rows?: number;
-  children: (data: T) => ReactNode;
-}) {
-  if (resource.status === 'loading') return <PortalLoading rows={rows} />;
-  if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={retry} />;
-  return <>{children(resource.data)}</>;
-}
-
-// ---- W3b -------------------------------------------------------------------------------------------------
-
-/** A figure or setting nobody has configured. It is never a zero and never a default. */
-export function NotConfigured({ children }: { children?: ReactNode }) {
-  const { t } = portalCopy.useCopy();
-  return <span className="pp-notconf">{children ?? t('notConfigured')}</span>;
-}
-
-/** Operation pauses (B11): which operation is paused and since when. An unreadable pause store counts as paused. */
-export function HaltBanner({
-  resource,
-  scopes,
-}: {
-  resource: import('../../../shared/resource').Resource<HaltStatus>;
-  scopes: readonly HaltScope[];
-}) {
-  const { t } = portalCopy.useCopy();
-  if (resource.status === 'loading') return null;
-  // A refused or failed read (a team member's read is refused too) is not "nothing is paused": say we could not check.
-  if (resource.status === 'failed')
-    return (
-      <p className="pp-callout pp-callout--warn" role="alert">
-        {t('haltCheckFailed', { ops: scopes.map((s) => t(`haltOpName_${s}` as 'haltOpName_intake')).join(t('haltOr')) })}
-      </p>
-    );
-  const { unreadable, halts } = activeHalts(resource.data, scopes);
-  if (unreadable)
-    return (
-      <p className="pp-callout pp-callout--warn" role="alert">
-        {t('haltUnreadable')}
-      </p>
-    );
-  if (halts.length === 0) return null;
-  return (
-    <div className="pp-callout pp-callout--warn" role="alert">
-      {halts.map((h) => {
-        const where =
-          h.level === 'merchant' ? t('haltYours') : h.level === 'rail' ? t('haltRail', { rail: h.railId ?? '' }) : t('haltGlobal');
-        return (
-          <p key={`${h.scope}:${h.level}:${h.railId ?? ''}`}>
-            <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
-            {h.changedAt ? (
-              <>
-                {t('haltSince')} <DateTime value={h.changedAt} />.{' '}
-              </>
-            ) : null}
-            {t('haltEffect')}
-          </p>
-        );
-      })}
-    </div>
   );
 }
 

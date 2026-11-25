@@ -107,7 +107,7 @@ export function Review<T>({
           closeLang={uiLanguage('closeDialog')}
           onClose={close}
         >
-          <div data-testid="form-stack">
+          <div data-testid="form-stack" className="lt-stack">
             <p className="lt-hint">{description}</p>
             {review === undefined ? null : <ExactMoneyScope>{review}</ExactMoneyScope>}
             {stepUp && <StepUpNote kind={stepUp} />}

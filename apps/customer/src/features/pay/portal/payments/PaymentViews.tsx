@@ -9,15 +9,16 @@ import {
   type PaymentViewColumn,
   type PaymentViewFilters,
 } from '@intafaced/contracts/pay-payment-views';
-import { Field } from '../../ui-kit';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
+import { TextAreaField } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../../shared/resource';
-import { PortalFailure, SelectField } from '../components';
+import { Failure, SelectField } from '../volt/parts';
+import { Review } from '../volt/Review';
 import { readyAccess, useOptionalMerchantAccess } from '../access/MerchantAccess';
 import type { PortalApi } from '../api';
 import { useUrlParam } from '../hooks';
 import type { Payment } from '../schemas';
 import type { ListFilters } from '../ui/FilterRow';
-import { PortalReview } from '../ui/PortalReview';
 import { portalCopy as c } from './copy';
 
 /** The columns the list draws, as the address holds them (`cols=amount,status`). Unknown names are dropped; none means the default set. */
@@ -84,10 +85,10 @@ export function PaymentViewsBar({
   const chosen = items.find((v) => v.id === viewId) ?? null;
   const columnLabel = (col: PaymentViewColumn) => t(`pv_col_${col}`);
   return (
-    <div className="pp-filterbar">
-      <div className="pp-filter-row">
+    <div className="lt-stack">
+      <div className="lt-field-row">
         {views.resource.status === 'failed' ? (
-          <PortalFailure result={views.resource.failure} retry={views.reload} />
+          <Failure result={views.resource.failure} retry={views.reload} />
         ) : (
           <SelectField
             label={t('pv_views')}
@@ -104,7 +105,7 @@ export function PaymentViewsBar({
             ]}
           />
         )}
-        <PortalReview
+        <Review
           title={t('pv_save')}
           description={t('pv_saveBody')}
           ready={name.trim().length > 0}
@@ -112,15 +113,14 @@ export function PaymentViewsBar({
           review={
             <>
               <Field label={t('pv_name')} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
-              <label className="lt-field">
-                <span>
-                  <input type="checkbox" checked={mayShare && shared} disabled={!mayShare} onChange={(e) => setShared(e.target.checked)} />{' '}
+              <div>
+                <Checkbox checked={mayShare && shared} disabled={!mayShare} onCheckedChange={setShared}>
                   {t('pv_share')}
-                </span>
-                {!mayShare && <small>{t('pv_shareAdminOnly')}</small>}
-              </label>
-              <p className="muted pp-note">{t('pv_keeps', { columns: columns.map(columnLabel).join(', ') })}</p>
-              {filters.date === 'custom' && <p className="muted pp-note">{t('pv_customLeftOut')}</p>}
+                </Checkbox>
+                {!mayShare && <small className="lt-hint">{t('pv_shareAdminOnly')}</small>}
+              </div>
+              <p className="lt-hint">{t('pv_keeps', { columns: columns.map(columnLabel).join(', ') })}</p>
+              {filters.date === 'custom' && <p className="lt-hint">{t('pv_customLeftOut')}</p>}
             </>
           }
           perform={() =>
@@ -139,7 +139,7 @@ export function PaymentViewsBar({
           }}
         />
         {chosen?.editable && (
-          <PortalReview
+          <Review
             title={t('pv_remove')}
             description={t('pv_removeBody', { name: chosen.name })}
             perform={() => portal.deletePaymentView(chosen.id)}
@@ -151,31 +151,29 @@ export function PaymentViewsBar({
         )}
       </div>
       <div>
-        <button type="button" className="lt-link" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Button tone="quiet" aria-expanded={open} onClick={() => setOpen(!open)}>
           {t('pv_columns')}
-        </button>
+        </Button>
         {open && (
-          <fieldset className="pp-filter-row">
+          <fieldset className="lt-actions">
             <legend className="lt-muted">{t('pv_columnsLegend')}</legend>
             {PAYMENT_VIEW_COLUMNS.map((col) => {
               const on = columns.includes(col);
               const last = on && columns.length === 1;
               return (
-                <label key={col} title={last ? t('pv_lastColumn') : undefined}>
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    disabled={last}
-                    onChange={(e) =>
-                      setColumns(
-                        e.target.checked
-                          ? PAYMENT_VIEW_COLUMNS.filter((x) => x === col || columns.includes(x))
-                          : columns.filter((x) => x !== col),
-                      )
-                    }
-                  />{' '}
+                <Checkbox
+                  key={col}
+                  checked={on}
+                  disabled={last}
+                  title={last ? t('pv_lastColumn') : undefined}
+                  onCheckedChange={(checked) =>
+                    setColumns(
+                      checked ? PAYMENT_VIEW_COLUMNS.filter((x) => x === col || columns.includes(x)) : columns.filter((x) => x !== col),
+                    )
+                  }
+                >
                   {columnLabel(col)}
-                </label>
+                </Checkbox>
               );
             })}
           </fieldset>
@@ -202,17 +200,20 @@ export function PayerEmailCell({ portal, payment }: { portal: PortalApi; payment
     <span className="lt-actions">
       <span data-testid="payer-email-masked">{masked}</span>
       {canUnmask && (
-        <PortalReview
+        <Review
           title={t('pay_unmask')}
           description={t('pay_unmaskBody')}
           ready={reason.trim().length >= PAYMENT_UNMASK_REASON_MIN}
           notReadyReason={t('pay_unmaskReasonShort')}
           review={
-            <label className="lt-field">
-              <span>{t('pay_unmaskReason')} *</span>
-              <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={3} />
-              <small>{t('pay_unmaskReasonHint')}</small>
-            </label>
+            <TextAreaField
+              label={`${t('pay_unmaskReason')} *`}
+              value={reason}
+              onChange={setReason}
+              maxLength={500}
+              rows={3}
+              hint={t('pay_unmaskReasonHint')}
+            />
           }
           perform={() => portal.unmaskPayment({ paymentId: payment.id, field: 'customerEmail', reason: reason.trim() })}
           onConfirmed={(out) => {

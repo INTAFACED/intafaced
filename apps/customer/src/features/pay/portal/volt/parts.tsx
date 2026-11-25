@@ -387,9 +387,9 @@ export function Chip({ kind, value }: { kind: ChipKind; value: string }) {
 export function Timeline({ items, label }: { items: readonly TimelineEvent[]; label: string }) {
   const { t } = uiCopy.useCopy();
   return (
-    <ol aria-label={label}>
+    <ol className="lt-list" aria-label={label}>
       {items.map((item, i) => (
-        <li key={`${item.at ?? 'unrecorded'}:${i}`}>
+        <li key={`${item.at ?? 'unrecorded'}:${i}`} className="lt-lines">
           <strong>{item.title}</strong>
           {item.detail && <p className="lt-hint">{item.detail}</p>}
           <small className="lt-hint">{item.at ? <DateTime value={item.at} /> : t('timeNotRecorded')}</small>
@@ -405,25 +405,26 @@ const KPI_LIMIT = 8;
 /** Figures that each open the list holding the same numbers, and name their period. */
 export function KpiStrip({ label, tiles }: { label: string; tiles: readonly KpiTileProps[] }) {
   return (
-    <ul className="lt-kv" role="group" aria-label={label}>
-      {tiles.slice(0, KPI_LIMIT).map((tile) => (
-        <li key={`${tile.label}:${tile.period}`} data-tone={tile.tone}>
-          <a className="lt-row-link" href={tile.href}>
-            <span>
-              {tile.label} <em>{tile.period}</em>
-            </span>{' '}
-            {/* The old tile's value hook, as a test id: the merchant journeys read a figure by it. */}
-            <strong data-testid="pp-kpi-value">{tile.value}</strong>
-            {tile.note && (
-              <>
-                {' '}
-                <small className="lt-hint">{tile.note}</small>
-              </>
-            )}
-          </a>
-        </li>
-      ))}
-    </ul>
+    <div role="group" aria-label={label}>
+      <ul className="lt-list lt-list-rule">
+        {tiles.slice(0, KPI_LIMIT).map((tile) => (
+          <li key={`${tile.label}:${tile.period}`} data-tone={tile.tone}>
+            <a className="lt-row-link" data-span="row" href={tile.href}>
+              <span className="lt-lines">
+                <span>
+                  {tile.label} <em className="lt-muted">{tile.period}</em>
+                </span>
+                {tile.note && <small className="lt-hint">{tile.note}</small>}
+              </span>
+              <span data-part="figures">
+                {/* The old tile's value hook, as a test id: the merchant journeys read a figure by it. */}
+                <strong data-testid="pp-kpi-value">{tile.value}</strong>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -454,9 +455,9 @@ export function Kpi({ label, period, value, note }: { label: string; period?: st
 /** A named group of `Kpi` figures (`KpiGrid` in `../components`). */
 export function KpiGrid({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <ul className="lt-kv" role="group" aria-label={label}>
-      {children}
-    </ul>
+    <div role="group" aria-label={label}>
+      <ul className="lt-list lt-list-rule">{children}</ul>
+    </div>
   );
 }
 
