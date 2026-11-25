@@ -62,7 +62,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   // Which listed markets are their own group (FX) and which are shut for the session; null if that read fails.
   const ownStatuses = useListingStatus();
   const statuses = useMemo(
-    () => (venueStates.status === 'ready' ? venueListingStatuses(venueStates.data) : ownStatuses),
+    () => (venueStates.status === 'ready' ? { ...ownStatuses, ...venueListingStatuses(venueStates.data) } : ownStatuses),
     [venueStates, ownStatuses],
   );
 

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { SessionProvider } from '../../../features/session/session';
 import { createPoller, setDefaultPoller } from '../../../data/poll';
+import { savePreferences } from '../../../shared/preferences';
 import TradeMarketsScreen from './index';
 
 // Renders Markets (/trade), signed out, against the three beta responses:
@@ -218,6 +219,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  savePreferences({ layoutMode: 'simple' });
   setDefaultPoller(createPoller());
   host = document.createElement('div');
   document.body.append(host);
@@ -227,6 +229,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  savePreferences({ layoutMode: 'simple' });
   setDefaultPoller(null);
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -265,7 +268,7 @@ describe('Markets (/trade) on the beta responses (#10835)', () => {
   });
 
   it('in Pro layout, draws BTC/USDC with unknown venue status as open, not Paused', async () => {
-    localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ layoutMode: 'pro' }));
+    savePreferences({ layoutMode: 'pro' });
     stubBetaFetch(null);
     await mountScreen();
 

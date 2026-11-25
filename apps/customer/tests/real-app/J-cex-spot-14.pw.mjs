@@ -258,26 +258,45 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
   await expect(action(downRow)).toBeDisabled();
   await expect(rowOf(mine.cancelOnly)).toHaveCount(0);
 
+  const ownMarketsRes = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(ownMarketsRes.status).toBe(200);
+  const ownSpot = (await ownMarketsRes.json()).filter((m) => m.spot && !m.paper && m.degrade?.separateFromSpot !== true);
   const spot = states.value.markets.filter((m) => m.kind === 'spot');
   const rows = grid.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker') });
   const drawn = await rows.count();
   expect(drawn, 'the list draws rows').toBeGreaterThan(0);
   const seen = new Set();
+  const seenPairs = new Set();
   for (let i = 0; i < drawn; i++) {
     const row = rows.nth(i);
     const name = (await row.getByTestId('mkt-name__ticker').innerText()).trim();
     const m = spot.find((x) => `${x.baseAsset}/${x.quoteAsset}` === name);
-    expect(m, `${name} is a venue spot market we list`).toBeTruthy();
-    seen.add(m.symbol);
+    const own = ownSpot.find((x) => `${x.base}/${x.quote}` === name);
+    expect(m ?? own, `${name} is a listed real spot market`).toBeTruthy();
+    if (m) seen.add(m.symbol);
+    seenPairs.add(name);
     const button = action(row);
     await expect(button, name).toHaveCount(1);
-    const trades = tradeable(m);
+    const trades = m
+      ? tradeable(m)
+      : own.orderable &&
+        own.sessionOpen !== false &&
+        (!own.lifecycle || own.lifecycle.state === 'OPEN') &&
+        own.listing !== 'upcoming' &&
+        own.listing !== 'delisting';
     await expect(button, `${name} ${trades ? 'trades' : 'is not a tradeable row'}`).toBeEnabled({ enabled: trades });
     await expect
       .poll(() => button.getAttribute('href'), { message: `${name}'s link` })
       .toEqual(trades ? expect.stringMatching(/\/trade\/|\/coin\//) : null);
   }
   for (const x of [mine.open, mine.upcoming, mine.delisting]) expect(seen.has(x.symbol), `${x.symbol} is drawn`).toBe(true);
+  const venuePairs = new Set(spot.map((x) => `${x.baseAsset}/${x.quoteAsset}`));
+  for (const o of ownSpot) {
+    const pairName = `${o.base}/${o.quote}`;
+    if (venuePairs.has(pairName)) continue;
+    const open = o.orderable && (!o.lifecycle || o.lifecycle.state === 'OPEN');
+    if (open) expect(seenPairs.has(pairName), `${pairName} from /api/v1/markets is drawn`).toBe(true);
+  }
   await stepPicture();
   await rowOf(mine.upcoming).click();
   await expect(page).toHaveURL(/\/trade(\?.*)?$/);

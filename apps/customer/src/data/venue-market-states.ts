@@ -52,11 +52,17 @@ export function venueModeOf(m: VenueMarketState): VenueModeKey | null {
   return 'OPEN';
 }
 
-/** The listing state the markets list names on a row: open, upcoming, delisting (dated), delisted, or paused (halted). */
+/**
+ * The listing state the markets list names on a row: open, upcoming, delisting (dated), delisted, or paused (halted).
+ * When a venue publishes no status enum (`status: null`), an open, routing, non-closed listing is not treated as paused.
+ */
 export function venueListingOf(m: VenueMarketState): ListingState {
   if (!m.listing.open) return 'upcoming';
   if (m.listing.delisted || m.status === 'delisted') return 'delisted';
   if (m.listing.delistsAt !== null) return 'delisting';
+  if (m.listing.routing === 'stop' || m.listing.routing === 'close_only') return 'halted';
+  if (m.session.known && m.session.value.state === 'closed') return 'halted';
+  if (m.status === null) return 'open';
   return venueModeOf(m) === 'OPEN' ? 'open' : 'halted';
 }
 

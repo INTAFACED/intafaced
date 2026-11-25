@@ -72,9 +72,12 @@ describe('venueMarketRow', () => {
     const delisting = venueMarketRow(market({}, { delistsAt: '2026-12-01T00:00:00.000Z' }));
     expect(delisting).toMatchObject({ orderable: false, listing: 'delisting', delistsAt: '2026-12-01T00:00:00.000Z' });
   });
-  it('pauses a market the venue halted, takes cancels only on, or reports no state for', () => {
-    for (const status of ['halted', 'cancel_only', null] as const)
+  it('pauses a market the venue halted or takes cancels only on, and leaves an unknown venue status open on an open listing', () => {
+    for (const status of ['halted', 'cancel_only'] as const)
       expect(venueMarketRow(market({ status }))).toMatchObject({ orderable: false, listing: 'halted' });
+    expect(venueMarketRow(market({ status: null }))).toMatchObject({ orderable: true, listing: 'open' });
+    expect(venueMarketRow(market({ status: null }, { routing: 'stop' }))).toMatchObject({ orderable: false, listing: 'halted' });
+    expect(venueMarketRow(market({ status: null }, { routing: 'close_only' }))).toMatchObject({ orderable: false, listing: 'halted' });
     expect(venueListingOf(market({ status: 'delisted' }))).toBe('delisted');
   });
 });
@@ -89,17 +92,46 @@ const states = (markets: VenueMarketState[]) =>
       value: { venue: { id: 'v', displayName: 'TEST' }, markets, test: true },
     },
   }) as const;
+const ownRow = (base: string, quote: string): MarketRow => ({
+  symbol: `${base}/${quote}`,
+  base,
+  quote,
+  orderable: true,
+  tickSize: '0.01',
+  lotSize: '0.0001',
+  minAmount: null,
+  listedAt: null,
+});
 const own: Loadable<MarketRow[]> = { status: 'ready', asOf: 1, data: [] };
 
 describe('pickSource (the markets list)', () => {
-  it("lists the venue's spot markets with no prices of our own book while the venue answers", () => {
-    const picked = pickSource(states([market(), market({ symbol: 'BTC-PERP', kind: 'perpetual' })]), own, {
-      status: 'ready',
-      asOf: 1,
-      data: {},
-    });
-    expect(picked.markets.status === 'ready' && picked.markets.data.map((m) => m.symbol)).toEqual(['BTC-USDC']);
-    expect(picked.tickers.status).toBe('empty');
+  it('merges venue spot markets with non-overlapping API spot markets, keeps venue state on overlap, and aligns slash tickers', () => {
+    const btcTicker = {
+      symbol: 'BTC/USDC',
+      last: '65213.84',
+      bid: null,
+      ask: null,
+      open24h: '64000.00',
+      high24h: '66000.00',
+      low24h: '63500.00',
+      change24h: '1213.84',
+      changePct24h: '0.0189',
+      baseVolume24h: '10',
+      quoteVolume24h: '650000',
+      windowStart: null,
+      source: 'server' as const,
+    };
+    const picked = pickSource(
+      states([market({ status: null }), market({ symbol: 'BTC-PERP', kind: 'perpetual' })]),
+      { status: 'ready', asOf: 2, data: [ownRow('BTC', 'USDC'), ownRow('ETH', 'USDT')] },
+      { status: 'ready', asOf: 3, data: { 'BTC/USDC': btcTicker } },
+    );
+    expect(picked.markets.status === 'ready' && picked.markets.data.map((m) => m.symbol)).toEqual(['BTC-USDC', 'ETH/USDT']);
+    expect(picked.tickers.status).toBe('ready');
+    if (picked.tickers.status === 'ready') {
+      expect(picked.tickers.data['BTC-USDC']?.last).toBe('65213.84');
+      expect(picked.tickers.data['BTC/USDC']?.last).toBe('65213.84');
+    }
   });
   it('keeps the own read where the venue door is off, and shows the venue read otherwise', () => {
     const tickers = { status: 'ready', asOf: 1, data: {} } as const;
@@ -109,6 +141,7 @@ describe('pickSource (the markets list)', () => {
       code: 'trade.venue.venue_down',
     });
     expect(pickSource({ status: 'loading' }, own, tickers).markets.status).toBe('loading');
+    expect(pickSource(states([market()]), { status: 'loading' }, tickers).markets.status).toBe('loading');
   });
 });
 
