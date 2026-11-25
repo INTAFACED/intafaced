@@ -65,8 +65,10 @@ describe('public header follows the session', () => {
 
   it('keeps the public navigation', () => {
     const html = renderToString(<PublicHeader path="/help" />);
+    // The family pages' one top bar (25 Nov): Markets, Fees and Help. About is in the footer.
+    expect(html).toContain('href="/trade/markets"');
+    expect(html).toContain('href="/fees"');
     expect(html).toContain('href="/help"');
-    expect(html).toContain('href="/about-us"');
   });
 
   it('leaves Create account off an invitation, whose card carries it with the token, and keeps the invite elsewhere', () => {

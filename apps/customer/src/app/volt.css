@@ -12,7 +12,7 @@
 }
 
 /* The top bar, the app's and the public pages' alike, as the owner picked it (25 Nov 12:17 WITA, "1A, 2B, 3A"): the
-   page's own black with no rule under it, the open door underlined at the bar's edge (the root is 14px, so 1rem = 14px). Its inline padding is the page gutter of the kit's PageGrid, so the bar's edges line
+   page's own black with no rule under it, the open door a pill (the family pages' one top bar, 25 Nov) (the root is 14px, so 1rem = 14px). Its inline padding is the page gutter of the kit's PageGrid, so the bar's edges line
    up with the panels below; from 2000px of screen it draws 1.2 times larger, as PageGrid's page does. */
 :root :is(.tb, .public-header) {
   position: sticky;
@@ -104,6 +104,9 @@
   gap: 0.2857rem;
 }
 :root .tb-tab {
+  align-self: center;
+  block-size: 2.4286rem;
+  border-radius: 50rem;
   padding-inline: 0.8571rem;
   color: var(--lit-text-2);
   font-size: 1rem;
@@ -118,9 +121,11 @@
 }
 :root .tb-tab[aria-current='page'] {
   color: var(--lit-text-1);
+  background: var(--lit-secondary-bg);
 }
+/* The open door is a pill (the family pages' one top bar, 25 Nov), not an underline. */
 :root .tb-tab[aria-current='page']::after {
-  background: var(--lit-text-1);
+  display: none;
 }
 :root .tb-right {
   gap: 1.7143rem;
