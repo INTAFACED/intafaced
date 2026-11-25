@@ -78,6 +78,13 @@
   color: var(--lit-text-1);
   text-decoration: none;
 }
+/* Assets on the figure's line: a quiet link at that line's own size. */
+.hm-change .hm-link {
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+  font-weight: var(--lit-type-label-weight);
+  color: var(--lit-text-2);
+}
 .hm-link:hover {
   color: var(--lit-accent-text);
 }
@@ -494,4 +501,13 @@
 /* Spendable now's own "How this is worked out": closed, each source line and note stays in the page, unseen. */
 .hm [data-how='closed'] :is([data-how-line], [data-part-source]) {
   display: none;
+}
+
+/* Spendable now reads as one heading with rows under it: Locked in trades and Pay yourself keep their heading role
+   (J-bank-31 finds them by it) at the body's size and weight. */
+.hm-spendable :is([data-testid='locked-in-trades'], [data-testid='pay-yourself']) > :is(h2, h3) {
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+  font-weight: var(--lit-type-body-weight);
+  letter-spacing: var(--lit-type-body-tracking);
 }
