@@ -3,8 +3,10 @@ import { useMemo, useState } from 'react';
 import { BrandLockup } from '@intafaced/ui';
 import {
   Amount,
+  Button,
   ButtonLink,
   Display,
+  Field,
   FeaturedMarket,
   LiveDot,
   MarketTable,
@@ -94,11 +96,24 @@ export function HomePage() {
         <PageColumn className="ld-pitch">
           <Display second={t('heroLine2')}>{t('heroLine1')}</Display>
           <p className="ld-lead">{t('heroLead')}</p>
+          {/* The email goes to sign-up, which opens with it filled in; sign-up asks for the rest. */}
+          <form className="ld-signup" action="/register" method="get">
+            <Field
+              label={t('emailLabel')}
+              name="email"
+              type="email"
+              autoComplete="email"
+              placeholder={t('emailPlaceholder')}
+              maxLength={320}
+              after={
+                <Button type="submit" tone="primary" size="lg">
+                  {t('createShort')}
+                </Button>
+              }
+            />
+          </form>
           <div className="ld-actions">
-            <ButtonLink tone="primary" size="lg" href="/register">
-              {t('createAccount')}
-            </ButtonLink>
-            <ButtonLink size="lg" href="/trade/markets">
+            <ButtonLink size="sm" href="/trade/markets">
               {t('seeMarkets')}
             </ButtonLink>
           </div>
@@ -122,7 +137,9 @@ export function HomePage() {
             label={t('trustFees')}
             cells={[
               { key: 'wallet', title: t('trustPasskeys'), body: t('trustPasskeysBody') },
+              { key: 'passkeys', title: t('trustSignIn'), body: t('trustSignInBody') },
               { key: 'fees', title: t('trustFees'), body: t('trustFeesBody') },
+              { key: 'agents', title: t('trustAgents'), body: t('trustAgentsBody') },
             ]}
           />
           <Slab t={t} />
@@ -132,7 +149,7 @@ export function HomePage() {
               <span id="ld-closing-title">{t('closingTitle')}</span>
             </SectionTitle>
             <ButtonLink tone="secondary" size="lg" href="/register">
-              {t('openAccount')}
+              {t('createAccount')}
             </ButtonLink>
           </section>
         </PageColumn>
@@ -369,7 +386,7 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
           />
           <div className="ld-ticket-chart" hidden={points.length < 2}>
             {line ? (
-              <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} soft live fit />
+              <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} tone="ink" soft fit />
             ) : null}
           </div>
         </div>

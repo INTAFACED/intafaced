@@ -33,11 +33,16 @@
   font-size: clamp(1.2143rem, 1.25vw, 1.5714rem);
   line-height: 1.45;
 }
+/* The hero's sign-up: one field with Create account inside its box, as the picked landing draws it. */
+.ld-signup {
+  max-inline-size: 34rem;
+  margin-block-start: 2.2857rem;
+}
 .ld-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5714rem;
-  margin-block-start: 2.2857rem;
+  margin-block-start: 0.8571rem;
 }
 .ld a:focus-visible {
   outline: 2px solid var(--lit-accent);
@@ -197,7 +202,7 @@
   background: var(--lit-line-strong);
 }
 .ld-slab-part:first-child .ld-slab-bar {
-  background: var(--lit-accent);
+  background: var(--lit-text-1);
 }
 
 /* C's ticket with its fees. */
@@ -248,7 +253,7 @@
   font-size: clamp(1.7143rem, 2.2vw, 2.5714rem);
 }
 .ld-ticket-chart {
-  block-size: 13.7143rem;
+  block-size: 8.5714rem;
   margin-block-start: 1.7143rem;
 }
 .ld-ticket-lines {
@@ -293,7 +298,7 @@
   display: grid;
   justify-items: center;
   gap: 1.5714rem;
-  padding-block: 4.5714rem 5.7143rem;
+  padding-block: 3.4286rem 4rem;
   text-align: center;
 }
 .ld-slab-section,
