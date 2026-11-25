@@ -14,7 +14,7 @@
 
   .mkt-hero {
     display: grid;
-    grid-template-columns: minmax(18rem, 26rem) 1fr;
+    grid-template-columns: minmax(20rem, 32rem) 1fr;
     gap: 2rem;
     padding: 1.75rem;
     border-radius: var(--lit-radius-panel);
@@ -47,7 +47,8 @@
   .mkt-hero__price {
     margin: 0;
     font-family: var(--lit-font-figure);
-    font-size: clamp(3rem, 4.6vw, 5.25rem);
+    font-size: clamp(2.5rem, 3.4vw, 4.5rem);
+    white-space: nowrap;
     font-weight: 600;
     font-stretch: 125%;
     letter-spacing: -0.02em;
@@ -312,5 +313,21 @@
 @container room (max-width: 599px) {
   [data-testid='if-markets'] .lt-tile-row[data-min='card'] {
     grid-auto-columns: 64%;
+  }
+}
+
+/* On a phone the hero is the market and its day in one glance, so the list is near: no stat row, a short line. */
+@container room (max-width: 599px) {
+  [data-testid='if-markets'] .mkt-hero__stats,
+  [data-testid='if-markets'] .mkt-hero__chart > .mkt-dim {
+    display: none;
+  }
+  [data-testid='if-markets'] .mkt-hero__chart,
+  [data-testid='if-markets'] .mkt-hero__chart .lt-chart svg {
+    min-block-size: 5.5rem;
+    max-block-size: 6.5rem;
+  }
+  [data-testid='if-markets'] .mkt-hero {
+    gap: 0.75rem;
   }
 }
