@@ -533,3 +533,12 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
+
+/* The chart's intervals keep each label's width and wrap onto a second row when large text needs it, so no interval is
+   squeezed under its neighbour's label. */
+.xd [data-testid='venue-chart'] .lit-segmented {
+  flex-wrap: wrap;
+}
+.xd [data-testid='venue-chart'] .lit-segmented > button {
+  flex: 1 0 auto;
+}
