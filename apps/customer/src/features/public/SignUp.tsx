@@ -328,7 +328,7 @@ export function SignUp() {
                 />
               ) : (
                 <div>
-                  <Button tone="secondary" size="sm" disabled={busy} onClick={() => setShowNationality(true)}>
+                  <Button tone="quiet" size="sm" disabled={busy} onClick={() => setShowNationality(true)}>
                     {t('addNationality')}
                   </Button>
                 </div>
