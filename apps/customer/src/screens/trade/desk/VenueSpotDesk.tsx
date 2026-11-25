@@ -458,8 +458,8 @@ export function VenueSpotDesk({
           id="venue-bottom"
           label={v('Open orders')}
           items={[
-            { value: 'balances', label: t('Balances') },
             { value: 'open', label: v('Open orders') },
+            { value: 'balances', label: t('Balances') },
             { value: 'history', label: v('Trade history') },
             { value: 'positions', label: v('Positions') },
           ]}
