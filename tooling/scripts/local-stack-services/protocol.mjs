@@ -60,7 +60,7 @@ function swapPaymaster() {
   return JSON.parse(readFileSync(file, 'utf8')).swapPaymaster ?? null;
 }
 
-export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, PUBLIC_ORIGIN }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, PUBLIC_ORIGIN }) => ({
   name: 'protocol',
   env: () => {
     const chain = testChain?.() ?? null;
@@ -119,14 +119,17 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // provider this stack runs (local-test-wallet-provider.mjs), on loopback. Production stays blank and Create my wallet
       // refuses wallet.embedded_provider_unset. `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=off` on a restart leaves it blank, so
       // that refusal can be seen too (J-wallet-22 #1); `=no-export` sets TEST:test-no-export, the same TEST provider
-      // standing in for one whose plan offers no key export (J-wallet-22 #5).
+      // standing in for one whose plan offers no key export (J-wallet-22 #5); `=turnkey` names the owner's provider, reached
+      // through svc-identity, which then holds his keys from the box's sealed file (identity.mjs).
       ...(process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'off'
         ? {}
-        : {
-            PROTOCOL_EMBEDDED_WALLET_PROVIDER:
-              process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'no-export' ? 'TEST:test-no-export' : 'TEST:test',
-            PROTOCOL_EMBEDDED_WALLET_TEST_URL: `http://127.0.0.1:${PORTS['test-wallet-provider']}`,
-          }),
+        : process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'turnkey'
+          ? { PROTOCOL_EMBEDDED_WALLET_PROVIDER: 'turnkey', IDENTITY_URL: urlOf('identity') }
+          : {
+              PROTOCOL_EMBEDDED_WALLET_PROVIDER:
+                process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'no-export' ? 'TEST:test-no-export' : 'TEST:test',
+              PROTOCOL_EMBEDDED_WALLET_TEST_URL: `http://127.0.0.1:${PORTS['test-wallet-provider']}`,
+            }),
       // LOCAL TEST only: `LOCAL_STACK_PROTOCOL_NETWORKS=published` on a restart serves the TEST network registry beside this
       // file (protocol-test-networks.json: a TEST RPC address, currency and faucet on .invalid hosts) instead of the owner's
       // deployments/networks.json, so a journey sees what Add to wallet offers once a network is published

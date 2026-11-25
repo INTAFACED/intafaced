@@ -58,7 +58,9 @@ const holdsGrant = (amount) => units(amount) >= units(TESTNET_GRANT.amount);
 
 /**
  * The accounts that may get a testnet send now: owned by a recorded token, holding Full (or institutional), with no
- * send record of their own, and under the per-person cap counting every record that person's accounts already have.
+ * send record of their own, and under the per-person cap counting every send record that person's accounts already
+ * have. Candidates themselves take no place under the cap: one with no wallet yet would otherwise keep that person's
+ * later account from ever being sent (testnetStep checks the cap again as it picks the one to send).
  * `users` [{ id, email }], `approved` Map userId -> Set of tiers, `tokens` Set, `accounts` the file's records.
  */
 export function testnetCandidates({ users, approved, tokens, accounts }) {
@@ -74,9 +76,9 @@ export function testnetCandidates({ users, approved, tokens, accounts }) {
     if (!token || has.has(u.id)) continue;
     const tiers = approved.get(u.id) ?? new Set();
     if (!(tiers.has('full') || tiers.has('institutional'))) continue;
-    const n = perPerson.get(token) ?? 0;
-    if (n >= MAX_FUNDED_PER_PERSON) continue;
-    perPerson.set(token, n + 1);
+    // Only send records count: an account with no wallet yet takes no place under the cap (testnetStep holds it as
+    // it sends, one send per pass, each recorded before its dispatch).
+    if ((perPerson.get(token) ?? 0) >= MAX_FUNDED_PER_PERSON) continue;
     out.push({ userId: u.id, email: u.email, token });
   }
   return out;
@@ -148,7 +150,9 @@ export async function testnetStep({ file, candidates, deps, log, now = () => Dat
   // 2. The next send: a failed one due again first, then a new account with a wallet.
   let next = Object.values(doc.accounts).find((r) => r.state === 'failed' && r.tries < MAX_TRIES && age(r) >= RETRY_AFTER_MS);
   if (!next) {
+    const records = (token) => Object.values(doc.accounts).filter((r) => r.token === token).length;
     for (const c of candidates) {
+      if (records(c.token) >= MAX_FUNDED_PER_PERSON) continue;
       const address = await deps.walletOf(c.userId);
       if (!address) continue;
       if (!ADDRESS_RE.test(address)) {
