@@ -43,7 +43,7 @@ const messages = {
   'Net worth': 'Net worth',
   'How this is worked out': 'How this is worked out',
   today: 'today',
-  'Change not known': 'Today’s change isn’t known yet.',
+  'Change not known': 'Today’s change is not known.',
   'Value pill': 'Now',
   'Split label': 'Where your money sits',
   'Split Cash': 'Cash',
@@ -54,11 +54,11 @@ const messages = {
   'Split not read': 'not read',
   'Split none': 'none',
   'Split note':
-    'Cash is your partner account, Crypto your own wallet, Trading your venue account. Earn and Web3 are not read on Home yet, so they add nothing here.',
+    'Cash is your partner account, Crypto your own wallet, Trading your venue account. Home does not read Earn or Web3, so they add nothing here.',
   'Split note ledger':
-    'Cash is your dollars and stablecoins, Crypto your other coins. Trading, Earn and Web3 are not read on Home yet, so they add nothing here.',
+    'Cash is your dollars and stablecoins, Crypto your other coins. Home does not read Trading, Earn or Web3, so they add nothing here.',
   Positions: 'Positions',
-  'Positions none': 'You hold no coin with a market yet. Your coins show here once you do.',
+  'Positions none': 'You hold no coin that has a market here.',
   'Your next step': 'Your next step',
   Later: 'Later',
   'Step go verify': 'Verify now',
@@ -71,7 +71,7 @@ const messages = {
   'Bots running': 'Bots running',
   'Your prediction': 'Your prediction',
   'Copy trading': 'Copy trading',
-  'Widget not read': 'Home doesn’t read this yet, so nothing is shown here.',
+  'Widget not read': 'Home does not read this room, so it shows nothing here.',
   'Widget open {room}': 'Open {room}',
   'Room Agents': 'Agents',
   'Room Bots': 'Bots',
@@ -79,7 +79,7 @@ const messages = {
   'Room Copy': 'Copy trading',
   'Send to new': 'Send to someone new',
   'Send to {handle}': 'Send to {handle}',
-  'Send to none': 'No one saved on this device yet.',
+  'Send to none': 'No one is saved on this device.',
   'Pin {tile}': 'Pin {tile}',
 } as const;
 

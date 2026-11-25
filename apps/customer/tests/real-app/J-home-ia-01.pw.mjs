@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, ORIGIN, restartService, restartWithSetting, toUnits } from './stack.mjs';
-import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
+import { fundedTrader, openOrders, openHow, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { CHAIN_ID } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
@@ -81,12 +81,6 @@ const usd = (summary) => (summary.totalUsd === null ? null : `$${grouped(summary
  * The TEST market maker keeps moving BTC's price, so the page is compared with the bank's reads just before and just after
  * it loads: the page must show one of those two valuations exactly.
  */
-/** Opens Home's "How this is worked out", where the total's provenance lines sit (closed by default). */
-async function openHow(page) {
-  const how = page.getByTestId('home-how');
-  if ((await how.getAttribute('aria-expanded')) !== 'true') await how.click();
-}
-
 async function showsBankTotal(page, path, scope, expected, input) {
   await expect
     .poll(

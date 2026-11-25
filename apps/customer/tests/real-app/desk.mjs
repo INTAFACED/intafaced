@@ -192,3 +192,9 @@ export function placements(page) {
   });
   return sent;
 }
+
+/** Opens Home's "How this is worked out", where the total's provenance lines sit (closed by default). */
+export async function openHow(page) {
+  const how = page.getByTestId('home-how');
+  if ((await how.getAttribute('aria-expanded')) !== 'true') await how.click();
+}

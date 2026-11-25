@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, restartWithSetting } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { openHow, signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
@@ -86,12 +86,6 @@ async function withWallet(page) {
   const { account: who, walletKey } = state();
   await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
   await signIn(page, who);
-}
-
-/** Opens Home's "How this is worked out", where the total's provenance lines sit (closed by default). */
-async function openHow(page) {
-  const how = page.getByTestId('home-how');
-  if ((await how.getAttribute('aria-expanded')) !== 'true') await how.click();
 }
 
 const standingOn = (page) => page.getByTestId('home-standing');
