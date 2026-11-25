@@ -1,4 +1,5 @@
 // World: book, market, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { openFold, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
@@ -179,6 +180,8 @@ async function notOfferedSignsNothing(page, wallet) {
   const m = await market();
   const sent = writes(page);
   const asked = wallet.requests.length;
+  // The order types and time in force sit in the ticket's Order options.
+  await ticketOptions(page);
   const types = page.getByTestId('venue-order-types');
   const TYPE_NAMES = { stop_limit: 'Stop limit', stop: 'Stop', take_profit: 'Take profit', trailing_stop: 'Trailing stop' };
   const missingTypes = Object.keys(TYPE_NAMES).filter((x) => !m.orderTypes.includes(x));
@@ -217,6 +220,7 @@ async function notOfferedSignsNothing(page, wallet) {
 
 /** Picks a time in force the venue offers from the desk's picker. */
 async function pickTif(page, name) {
+  await ticketOptions(page);
   await orderTab(page, 'Limit').click();
   await tifTrigger(page).click();
   await page.getByRole('option', { name, exact: true }).click();
@@ -405,7 +409,7 @@ test(`${J} #2 reviews the market buy: the fee and the price protection show befo
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
   await form.getByRole('textbox', { name: 'Spend' }).fill('100');
   const preview = await (await answer).json();
-  await form.getByRole('button', { name: 'Buy BTC' }).click();
+  await form.getByRole('button', { name: keyName('Buy BTC') }).click();
   const review = reviewSheet(page);
   await expect(review).toBeVisible();
   // Before confirming: the price protection in words, inside the owner's bound, and the venue's fee.
@@ -462,8 +466,8 @@ test(`${J} #3 asks for a market sell: offered where the protection is published,
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
   await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
   expect((await answer).status()).toBe(200);
-  await expect(form.getByRole('button', { name: 'Sell BTC' })).toBeEnabled();
-  await form.getByRole('button', { name: 'Sell BTC' }).click();
+  await expect(form.getByRole('button', { name: keyName('Sell BTC') })).toBeEnabled();
+  await form.getByRole('button', { name: keyName('Sell BTC') }).click();
   const review = reviewSheet(page);
   const text = await line(review, 'protection').innerText();
   const shown = /won.t sell for less than ([\d,.]+) USDC per BTC \(50 bps below the best bid\)/.exec(text);
@@ -642,12 +646,14 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
     const expires = enginePage.getByLabel('Expires');
     await expires.fill(localField(Date.now() - 3600_000));
     await expect(enginePage.getByText('Pick a time in the future.')).toBeVisible();
-    await expect(buyForm(enginePage).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    await expect(buyForm(enginePage).getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
 
     // The next whole minute at least 60 seconds away: the field is to the minute.
     const at = Math.ceil((Date.now() + 60_000) / 60_000) * 60_000;
     await previewed(enginePage, () => expires.fill(localField(at)));
-    await buyForm(enginePage).getByRole('button', { name: 'Buy BTC' }).click();
+    await buyForm(enginePage)
+      .getByRole('button', { name: keyName('Buy BTC') })
+      .click();
     const review = reviewSheet(enginePage);
     await expect(review).toContainText('Good till date');
     // The review's Expires row is the time that was picked, as this browser writes it.
@@ -695,7 +701,7 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
   const asked = wallet.requests.length;
   await expires.fill(localField(Date.now() - 3600_000));
   await expect(page.getByText('Pick a time in the future.', { exact: true })).toBeVisible();
-  const buy = form.getByRole('button', { name: 'Buy BTC', exact: true });
+  const buy = form.getByRole('button', { name: keyName('Buy BTC', true) });
   await expect(buy).toBeDisabled();
   await buy.click({ force: true });
   await expect(reviewSheet(page)).toHaveCount(0);
@@ -876,7 +882,7 @@ test(`${J} #9 adds a client tag and types the order in value: the tag shows on t
   // The tag, shown in the review and kept with the order.
   const tag = `js3-${randomBytes(3).toString('hex')}`;
   await (await openFold(form, 'dk-tag-fold')).getByRole('textbox', { name: 'Tag (optional)' }).fill(tag);
-  await form.getByRole('button', { name: 'Buy BTC' }).click();
+  await form.getByRole('button', { name: keyName('Buy BTC') }).click();
   await expect(line(reviewSheet(page), 'tag')).toHaveText(tag);
   await confirmAndSign(page, wallet, 'buy');
   await expect.poll(async () => (await openOrders(owner)).length, { timeout: 20_000 }).toBe(1);

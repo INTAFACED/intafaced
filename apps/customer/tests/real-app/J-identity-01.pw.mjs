@@ -1,4 +1,5 @@
 // World: book, restart, stack
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -648,7 +649,7 @@ test(`${J} #8 a verified, funded account with an email never proved is stopped a
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   await page.getByRole('textbox', { name: 'Price', exact: true }).nth(0).fill(price);
   await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).nth(0).fill('0.01'));
-  await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC', true) }).click();
   await expect(reviewSheet(page)).toBeVisible();
   const placed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
@@ -678,12 +679,12 @@ test(`${J} #8 a verified, funded account with an email never proved is stopped a
 
   // Proved: the notice is gone and the same order now rests.
   await page.goto(deskPath());
-  await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC', true) })).toBeVisible();
   await expect(page.getByRole('region', { name: /Confirm your email to place orders/i })).toHaveCount(0);
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   await page.getByRole('textbox', { name: 'Price', exact: true }).nth(0).fill(price);
   await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).nth(0).fill('0.01'));
-  await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC', true) }).click();
   await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   await expect(reviewSheet(page)).toHaveCount(0);
   await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);

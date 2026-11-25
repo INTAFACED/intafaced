@@ -1,4 +1,5 @@
 // World: book, restart
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -320,7 +321,7 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
   const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
   await page.getByRole('textbox', { name: 'Amount' }).first().fill(SECOND.amount);
   expect((await preview).status()).toBe(200);
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click();
   await confirm(page, 'buy');
   await continueInWallet(page);
   const outcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
@@ -473,7 +474,7 @@ test(`${J} #3 buys with a card and with a bank pull through the partner, then op
     const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
     await page.getByRole('textbox', { name: 'Amount' }).first().fill(THIRD.amount);
     expect((await preview).status()).toBe(200);
-    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    await page.getByRole('button', { name: keyName('Buy BTC') }).click();
     await confirm(page, 'buy');
     await continueInWallet(page);
     const outcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');

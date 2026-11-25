@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { marketDetails } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -309,7 +310,7 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
     expect(sameDecimal(maker.value.venueFee.value.amount, fromUnits((toUnits('150') * toUnits(makerRate)) / toUnits('10000')))).toBe(true);
     expect(sameDecimal(maker.value.builderFee.value.amount, builderOn('150'))).toBe(true);
     await sellForm(page)
-      .getByRole('button', { name: `Sell ${market.base}`, exact: true })
+      .getByRole('button', { name: keyName(`Sell ${market.base}`, true) })
       .click();
     let sheet = reviewSheet(page);
     await expect(sheet).toBeVisible();
@@ -337,7 +338,7 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
     expect(sameDecimal(taker.value.venueFee.value.amount, fromUnits((toUnits('99.8') * toUnits(takerRate)) / toUnits('10000')))).toBe(true);
     expect(sameDecimal(taker.value.builderFee.value.amount, builderOn('99.8'))).toBe(true);
     await sellForm(page)
-      .getByRole('button', { name: `Sell ${market.base}`, exact: true })
+      .getByRole('button', { name: keyName(`Sell ${market.base}`, true) })
       .click();
     sheet = reviewSheet(page);
     await expect(sheet).toBeVisible();
@@ -462,7 +463,7 @@ test(`${J} #3 trades where our builder fee is not set: refused "builder fee not 
     const refused = page.getByTestId('venue-ticket-refused');
     await expect(refused).toContainText('Builder fee not set', { timeout: 20_000 });
     await expect(refused).toHaveAttribute('data-code', 'trade.venue.builder_fee_not_published');
-    const sell = sellForm(page).getByRole('button', { name: `Sell ${market.base}`, exact: true });
+    const sell = sellForm(page).getByRole('button', { name: keyName(`Sell ${market.base}`, true) });
     await expect(sell).toBeDisabled();
     await sell.click({ force: true });
     await expect(reviewSheet(page)).toHaveCount(0);
@@ -835,7 +836,7 @@ test(`${J} #10 receives a fee-change notice before a new schedule version takes 
 
     // Because v2 raised our builder fee past the wallet's 2 bps approval, the review asks to approve 3 bps before Confirm.
     await sellForm(page)
-      .getByRole('button', { name: `Sell ${market.base}`, exact: true })
+      .getByRole('button', { name: keyName(`Sell ${market.base}`, true) })
       .click();
     const sheet = reviewSheet(page);
     await expect(sheet).toBeVisible();

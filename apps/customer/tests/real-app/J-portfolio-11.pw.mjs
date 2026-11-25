@@ -1,4 +1,5 @@
 // World: book, restart
+import { keyName } from './key-name.mjs';
 import { createHash, createHmac, hkdfSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -129,7 +130,7 @@ test.beforeAll(async ({ browser }) => {
   await openDesk(page, who);
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
   await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001'));
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click();
   await expect(reviewSheet(page)).toBeVisible();
   await confirm(page, 'buy');
   await expect

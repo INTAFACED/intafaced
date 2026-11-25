@@ -16,6 +16,7 @@ import type { ChartApi, ChartOrderHost, ChartSeries } from '../../charts/chart-h
 import {
   fillMarkers,
   legendValues,
+  shownTick,
   movingAverage,
   planUpdate,
   priceFormat,
@@ -126,7 +127,20 @@ export function tickMark(seconds: number, kind: number, zone: Zone): string {
   return stamp(seconds, zone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
 
-export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderLines, fills, timeZone, labels, onHost }: PriceChartProps) {
+export function PriceChart({
+  candles,
+  mode,
+  interval,
+  resetKey,
+  tickSize: marketTick,
+  orderLines,
+  fills,
+  timeZone,
+  labels,
+  onHost,
+}: PriceChartProps) {
+  // Prices draw at the market's tick, at most five significant figures; orders on the chart keep the market's tick.
+  const tickSize = shownTick(marketTick, candles.at(-1)?.c ?? null);
   const { upColor, language } = usePreferences();
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
@@ -261,10 +275,10 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
           });
     // The axis follows the first series on it (the averages were added first), so they carry the price format too.
     averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles', priceFormat: priceFormat(tickSize, language) }));
-    if (host.current) handHost.current?.({ chart: api, main: main.current, element: host.current, tickSize });
+    if (host.current) handHost.current?.({ chart: api, main: main.current, element: host.current, tickSize: marketTick });
     setReady((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, tickSize, language, ready === 0]);
+  }, [mode, tickSize, marketTick, language, ready === 0]);
 
   // Feed candles: `update` for the newest ones, a full reset only when the window moved.
   useEffect(() => {

@@ -1,4 +1,5 @@
 // World: book, freeze, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import {
@@ -167,7 +168,7 @@ test.beforeAll(async ({ browser }) => {
   for (const amount of ['0.001', '0.002']) {
     await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
     await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill(amount));
-    await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
+    await page.getByRole('button', { name: keyName('Buy BTC', true) }).click();
     await expect(reviewSheet(page)).toBeVisible();
     await confirm(page, 'buy');
   }

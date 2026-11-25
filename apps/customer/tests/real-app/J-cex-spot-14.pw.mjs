@@ -1,4 +1,5 @@
 // World: book, gates, restart
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -478,7 +479,7 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     const buyForm = page.locator('form[data-testid="dk-form"][data-side="buy"]');
     await buyForm.getByRole('textbox', { name: 'Price', exact: true }).fill('95');
     await buyForm.getByRole('textbox', { name: 'Amount', exact: true }).fill('0.5');
-    await buyForm.getByRole('button', { name: `Buy ${lim.base}`, exact: true }).click();
+    await buyForm.getByRole('button', { name: keyName(`Buy ${lim.base}`, true) }).click();
     await reviewSheet(page).getByRole('button', { name: 'Confirm buy', exact: true }).click();
     await continueInWallet(page);
 
@@ -526,7 +527,7 @@ test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`,
     await expect(buyForm).toContainText('This market is cancel-only');
     await expect(buyForm).toContainText('you can still cancel them');
     await expect(buyForm).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/);
-    await expect(buyForm.getByRole('button', { name: `Buy ${lim.base}`, exact: true })).toBeDisabled();
+    await expect(buyForm.getByRole('button', { name: keyName(`Buy ${lim.base}`, true) })).toBeDisabled();
     await page.waitForTimeout(1000);
     expect(writes).toHaveLength(0);
 
@@ -694,7 +695,7 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
   await expect(page.getByTestId('dk-ticker')).toContainText('Closed, opens', { timeout: UNBUILT_MS });
   await expect(page.getByTestId('dk-ticker')).toContainText('Orders are not queued while it is closed');
   await expect(
-    page.locator('form[data-testid="dk-form"][data-side="buy"]').getByRole('button', { name: `Buy ${shut.base}`, exact: true }),
+    page.locator('form[data-testid="dk-form"][data-side="buy"]').getByRole('button', { name: keyName(`Buy ${shut.base}`, true) }),
   ).toBeDisabled();
   await stepPicture();
 });

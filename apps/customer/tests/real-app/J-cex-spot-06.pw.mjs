@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -764,7 +765,7 @@ test(`${J} #7 reads one order in each state on the desk, in history and on its d
   const previewed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
   await form.getByRole('textbox', { name: 'Amount' }).fill('0.2');
   expect((await previewed).status()).toBe(200);
-  await page.getByRole('button', { name: `Buy ${s.base}` }).click();
+  await page.getByRole('button', { name: keyName(`Buy ${s.base}`) }).click();
   await expect(reviewSheet(page)).toBeVisible();
   const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Confirm buy' }).click();

@@ -1,4 +1,5 @@
 // World: book
+import { keyName } from './key-name.mjs';
 import { test, expect } from './journey.mjs';
 import { chosePro, confirm, fundedTrader, openDesk, previewed, reviewSheet, signIn } from './desk.mjs';
 import { api, EDGE, ORIGIN, toUnits } from './stack.mjs';
@@ -52,7 +53,7 @@ test.beforeAll(async ({ browser }) => {
   for (const amount of ['0.001', '0.002']) {
     await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
     await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill(amount));
-    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    await page.getByRole('button', { name: keyName('Buy BTC') }).click();
     await expect(reviewSheet(page)).toBeVisible();
     await confirm(page, 'buy');
   }
@@ -409,7 +410,7 @@ test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin ch
     await expect(page).toHaveURL((url) => url.pathname === '/trade/spot/BTC-USDT');
     // The spot desk drew for that pair: its pair reads BTC/USDT and its ticket buys BTC.
     await expect(page.getByTestId('dk-pair')).toHaveText('BTC/USDT');
-    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
   } finally {
     await pro.close();
   }

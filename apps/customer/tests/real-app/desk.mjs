@@ -1,3 +1,4 @@
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { expect } from './journey.mjs';
 import { actedAs, api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, signOutBrowser } from './stack.mjs';
@@ -99,7 +100,7 @@ export async function openDesk(page, who, symbol = 'BTC/USDT') {
   page.on('requestfailed', failed);
   try {
     await page.goto(deskPath(symbol));
-    await expect(page.getByRole('button', { name: `Buy ${symbol.split('/')[0]}` })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName(`Buy ${symbol.split('/')[0]}`) })).toBeVisible();
   } catch (err) {
     err.message += `\nmarket list reads: ${reads.join(', ') || 'none'}`;
     throw err;

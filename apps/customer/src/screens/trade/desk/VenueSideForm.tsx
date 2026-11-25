@@ -220,7 +220,13 @@ export function VenueSideForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, signature, venue]);
 
-  const verb = side === 'buy' ? d('Buy asset', { asset: market.baseAsset }) : d('Sell asset', { asset: market.baseAsset });
+  // The key names what it sends once a size is in: "Buy 0.10283 BTC"; before that, "Buy BTC".
+  const keySize = /^\d*\.?\d+$/.test(sizedAmount.trim()) && /[1-9]/.test(sizedAmount) ? sizedAmount.trim() : null;
+  const verb = keySize
+    ? t(side === 'buy' ? 'Buy size' : 'Sell size', { amount: keySize, asset: market.baseAsset })
+    : side === 'buy'
+      ? d('Buy asset', { asset: market.baseAsset })
+      : d('Sell asset', { asset: market.baseAsset });
   // The venue's own figures: what this order locks against what the venue account has free (J-cex-spot-02 #6).
   // In standard mode a spot order pays from the spot balance, apart from perps (J-derivatives-29 #2): the shortfall is
   // judged against spot, as the venue reports it.

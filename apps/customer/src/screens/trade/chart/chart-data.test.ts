@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../../../data/types';
-import { fillMarkers, legendValues, movingAverage, planUpdate, priceFormat, toBar, toVolumeBar } from './chart-data';
+import { fillMarkers, legendValues, movingAverage, planUpdate, priceFormat, shownTick, toBar, toVolumeBar } from './chart-data';
 
 const candle = (t: number, o: string, h: string, l: string, c: string, v = '1'): Candle => ({ t, o, h, l, c, v, filled: false });
 const MIN = 60_000;
@@ -100,5 +100,15 @@ describe('planUpdate', () => {
     expect(planUpdate(series, series.slice(1))).toEqual({ kind: 'reset' });
     const changed = [candle(0, '10', '12', '9', '11.5'), ...series.slice(1)];
     expect(planUpdate(series, changed)).toEqual({ kind: 'reset' });
+  });
+});
+
+describe('shownTick', () => {
+  it('draws a coin priced by significant figures at five of them, never finer than its tick', () => {
+    expect(shownTick('0.00000001', '4.5342')).toBe('0.0001');
+    expect(shownTick('0.1', '58847')).toBe('1');
+    expect(shownTick('0.00000001', '0.0021840')).toBe('0.0000001');
+    expect(shownTick('0.01', '4.5342')).toBe('0.01');
+    expect(shownTick('0.00000001', null)).toBe('0.00000001');
   });
 });

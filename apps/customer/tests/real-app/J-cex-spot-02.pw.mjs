@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -99,7 +100,7 @@ async function typeLimitBuy(page, price, amount) {
 async function reviewLimitBuy(page, price, amount = AMOUNT) {
   const { form, preview } = await typeLimitBuy(page, price, amount);
   expect(preview.status()).toBe(200);
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click();
   const review = reviewSheet(page);
   await expect(review).toBeVisible();
   const id = (await review.getByTestId('client-order-id').innerText()).trim();
@@ -263,7 +264,7 @@ test(`${J} #3 loses the answer after pressing Confirm: the desk says it is check
   const cloid = await pending.locator('[data-pending]').getAttribute('data-pending');
   await expect(pending).toContainText(`by its client id ${cloid}`);
   // While it checks, no second placement is offered: the ticket's Buy is off and says why, and nothing is sent again.
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
   await expect(pending).toContainText('New orders wait until the venue has answered about this order.');
   await expect(pending.getByRole('button', { name: 'Send the same order again' })).toHaveCount(0);
   release();
@@ -282,7 +283,7 @@ test(`${J} #3 loses the answer after pressing Confirm: the desk says it is check
   expect(sameDecimal(placed.price, price)).toBe(true);
   expect(await venueOpen(owner)).toHaveLength(before.length + 1);
   // The draft was let go once the venue named the order: the ticket is free for a new order.
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeEnabled();
   expect(await page.evaluate((o) => sessionStorage.getItem(`if.venue.pending.${o}`), owner)).toBe('[]');
 });
 
@@ -323,8 +324,8 @@ test(`${J} #4 reloads the page while an answer is still unknown, then tries a ne
   // A new order is typed: it waits. Buy is off, and nothing is prepared or signed.
   const door = doorCalls(page);
   await typeLimitBuy(page, await awayBid(86), AMOUNT);
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Buy BTC' }).click({ force: true });
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click({ force: true });
   await expect(reviewSheet(page)).toHaveCount(0);
   expect(door.of('prepare')).toHaveLength(0);
   expect(signatures(wallet)).toBe(asked + 1);
@@ -340,7 +341,7 @@ test(`${J} #4 reloads the page while an answer is still unknown, then tries a ne
   expect(door.of('submit')).toHaveLength(1);
   expect(door.of('submit')[0].body.actionKey).toBe(sent[0].actionKey);
   expect(door.of('submit')[0].body.signature).toEqual(sent[0].signature);
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeEnabled();
   // One venue order for that draft, and none for the one that waited.
   const after = await venueOpen(owner);
   expect(after).toHaveLength(before.length + 1);
@@ -407,9 +408,9 @@ test(`${J} #6 types an order bigger than the venue's free balance: refused in wo
   await expect(short).toHaveText(
     `Not enough USDC free on your venue account: this order locks ${Number(lock.amount).toLocaleString('en-US', { maximumFractionDigits: 8 })} USDC and ${Number(free).toLocaleString('en-US', { maximumFractionDigits: 8 })} USDC is free.`,
   );
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
   await expect(form).not.toContainText(/[a-z_]+\.[a-z_]+/); // no raw code
-  await page.getByRole('button', { name: 'Buy BTC' }).click({ force: true });
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click({ force: true });
   await expect(reviewSheet(page)).toHaveCount(0);
   expect(door.of('prepare')).toHaveLength(0);
   expect(door.of('submit')).toHaveLength(0);
@@ -447,7 +448,7 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     const res = await answer;
     expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
   }).toPass({ timeout: 30_000, intervals: [2_000] });
-  await page.getByRole('button', { name: `Buy ${market.base}` }).click();
+  await page.getByRole('button', { name: keyName(`Buy ${market.base}`) }).click();
   const review = reviewSheet(page);
   await expect(review).toBeVisible();
   await expect.poll(async () => (await review.getByTestId('client-order-id').innerText()).trim()).toMatch(/^\S+$/);
@@ -548,7 +549,7 @@ async function restingBuy(page, wallet, owner, symbol, base) {
     const res = await answer;
     expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
   }).toPass({ timeout: 30_000, intervals: [2_000] });
-  await page.getByRole('button', { name: `Buy ${base}` }).click();
+  await page.getByRole('button', { name: keyName(`Buy ${base}`) }).click();
   await expect(reviewSheet(page)).toBeVisible();
   await page.getByRole('button', { name: 'Confirm buy' }).click();
   await continueInWallet(page);
@@ -569,8 +570,8 @@ async function refusedNaming(page, wallet, owner, symbol, base, who) {
   const refusal = form.getByTestId('venue-ticket-refused');
   await expect(refusal).toHaveText(who, { timeout: 20_000 });
   await expect(form).not.toContainText(/[a-z_]+\.[a-z_]+_[a-z_]+/); // no raw code
-  await expect(page.getByRole('button', { name: `Buy ${base}` })).toBeDisabled();
-  await page.getByRole('button', { name: `Buy ${base}` }).click({ force: true });
+  await expect(page.getByRole('button', { name: keyName(`Buy ${base}`) })).toBeDisabled();
+  await page.getByRole('button', { name: keyName(`Buy ${base}`) }).click({ force: true });
   await expect(reviewSheet(page)).toHaveCount(0);
   expect(door.of('prepare')).toHaveLength(0);
   expect(signatures(wallet)).toBe(asked);

@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -531,7 +532,10 @@ async function sellOnDesk(page, owner) {
     .getByRole('textbox', { name: 'Amount', exact: true })
     .fill(SELL.amount);
   expect((await preview).status()).toBe(200);
-  await page.locator('form[data-testid="dk-form"][data-side="sell"]').getByRole('button', { name: 'Sell BTC', exact: true }).click();
+  await page
+    .locator('form[data-testid="dk-form"][data-side="sell"]')
+    .getByRole('button', { name: keyName('Sell BTC', true) })
+    .click();
   // A sell carries the builder fee: the review asks the wallet to approve it first, and Confirm sell waits for that.
   const sheet = reviewSheet(page);
   await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet', exact: true }).click();

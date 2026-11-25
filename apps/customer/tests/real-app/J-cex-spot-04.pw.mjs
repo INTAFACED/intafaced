@@ -1,4 +1,5 @@
 // World: book, gates, restart
+import { keyName } from './key-name.mjs';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -281,7 +282,7 @@ test(`${J}, part of #3, checked on today's custodial desk: types an order below 
   await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
   await buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(rules.lot);
   await expect(buyForm(page)).toContainText(`The smallest order is ${rules.minNotional} USDT`);
-  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  await expect(buyForm(page).getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
   // Finer digits than the tick or the lot cannot be typed.
   const priceBox = buyForm(page).getByRole('textbox', { name: 'Price' });
   await priceBox.fill('');
@@ -321,7 +322,7 @@ test(`${J} #4 types a buy price above the band: refused with the band named; cho
   const high = /buy prices up to ([\d,.]+)/.exec(await note.innerText())[1].replaceAll(',', '');
   expect(toUnits(high)).toBeLessThan(toUnits(above));
   expect(toUnits(high)).toBeGreaterThan(toUnits(ask));
-  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+  await expect(buyForm(page).getByRole('button', { name: keyName('Buy BTC', true) })).toBeDisabled();
   expect(sent).toHaveLength(0);
 
   // The person chooses to amend: the price moves to the band's buy edge, and the ticket flags it as adjusted.
@@ -333,7 +334,7 @@ test(`${J} #4 types a buy price above the band: refused with the band named; cho
     `Adjusted: your price ${above} was moved to the band edge, ${high} USDT.`,
   );
   await expect(buyForm(page).getByTestId('dk-note--bad')).toHaveCount(0);
-  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC', exact: true })).toBeEnabled();
+  await expect(buyForm(page).getByRole('button', { name: keyName('Buy BTC', true) })).toBeEnabled();
   await stepPicture();
   // Amending sends nothing and holds nothing: the order goes only when the person reviews and confirms it.
   expect(sent).toHaveLength(0);
@@ -376,7 +377,7 @@ test(`${J}, part of #5, checked on today's custodial desk: reaches the open-orde
     const note = buyForm(page).getByTestId('dk-note--bad');
     await expect(note).toContainText('Too many open orders');
     await expect(note).toContainText(`You have ${cap} open orders here and this market allows ${cap}.`);
-    await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    await expect(buyForm(page).getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
     expect(sent).toHaveLength(0);
 
     // The service refuses the same send on its own, before any hold.
@@ -440,7 +441,7 @@ test(`${J}, part of #6, checked on today's custodial desk: trades a pair whose b
     const note = buyForm(page).getByTestId('dk-note--bad');
     await expect(note).toContainText('No price band is published');
     await expect(note).not.toContainText('trade.');
-    await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    await expect(buyForm(page).getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
     expect(sent).toHaveLength(0);
 
     // The service refuses on its own, naming the rule, before any hold.

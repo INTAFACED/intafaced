@@ -1,4 +1,5 @@
 // World: book, restart, stack
+import { keyName } from './key-name.mjs';
 import { test, expect } from './journey.mjs';
 import { openDesk, openOrders, signIn } from './desk.mjs';
 import {
@@ -195,7 +196,7 @@ test(`${J} #2 with the TEST list back, a person whose account was made before th
     await page.getByRole('textbox', { name: 'Price', exact: true }).first().fill('1000');
     await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('0.01');
     await expect(page.locator('#dk-reason-buy')).toContainText('Verify your identity first');
-    await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: keyName('Buy BTC', true) })).toBeDisabled();
     const order = await session.post('/api/v1/orders', {
       symbol: 'BTC/USDT',
       type: 'limit',

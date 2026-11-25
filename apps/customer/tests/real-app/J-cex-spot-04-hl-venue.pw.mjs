@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { test, expect } from './journey.mjs';
 import { journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
@@ -88,7 +89,7 @@ test(`${J} #3 types an amount below the smallest order, or finer than the lot or
   expect((toUnits(priceOnTick) * toUnits(own.lotSize)) / one).toBeLessThan(toUnits(own.minOrderNotional));
   const note = buyForm(page).getByTestId('venue-ticket-below-min');
   await expect(note).toHaveText(`Too small: the smallest order is ${own.minOrderNotional} USDC. Nothing was previewed or sent.`);
-  await expect(buyForm(page).getByRole('button', { name: `Buy ${BASE}`, exact: true })).toBeDisabled();
+  await expect(buyForm(page).getByRole('button', { name: keyName(`Buy ${BASE}`, true) })).toBeDisabled();
   await stepPicture();
 
   // Nothing was previewed, prepared, signed or locked on the venue itself, read straight from it.

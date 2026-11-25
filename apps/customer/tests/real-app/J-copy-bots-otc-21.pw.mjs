@@ -1,4 +1,5 @@
 // World: book, stack
+import { keyName } from './key-name.mjs';
 import { test, expect } from './journey.mjs';
 import { journeyState, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
@@ -48,7 +49,9 @@ test(`${J} #1 tries to create a signal bot from an unpurchased listing: refused 
 
 test(`${J} #2 purchases the listing and creates the bot twice with one key: one bot`, async ({ page }) => {
   await signals(page);
-  await listing(page).getByRole('button', { name: 'Buy access' }).click();
+  await listing(page)
+    .getByRole('button', { name: keyName('Buy access') })
+    .click();
   await page.getByRole('dialog').getByRole('button', { name: 'Buy' }).click();
   await listing(page).getByRole('button', { name: 'Create a bot' }).dblclick();
   await page.goto('/trade/bots?tab=mine');

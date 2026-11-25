@@ -1,4 +1,5 @@
 // World: book, restart, gates, stack
+import { keyName } from './key-name.mjs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createPublicClient, http } from 'viem';
@@ -176,11 +177,11 @@ async function venueDesk(page, { signedIn = false, wallet: installed } = {}) {
   const wallet = installed ?? (await personWallet(page));
   if (signedIn) {
     await page.goto(deskPath(DESK_SYMBOL));
-    await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy BTC', true) })).toBeVisible();
   } else if (run.read().secret) {
     await signInNow(page);
     await page.goto(deskPath(DESK_SYMBOL));
-    await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: keyName('Buy BTC', true) })).toBeVisible({ timeout: 30_000 });
   } else await openDesk(page, state().who, DESK_SYMBOL);
   const panel = venuePanel(page);
   await expect(panel).toBeVisible();

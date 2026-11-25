@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -424,7 +425,7 @@ async function placeLimitBuy(page, wallet, owner, price, amount) {
   const preview = nextPreview(page);
   await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
   expect((await preview).status()).toBe(200);
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click();
   const review = reviewSheet(page);
   await expect(review).toBeVisible();
   const asked = signatures(wallet);

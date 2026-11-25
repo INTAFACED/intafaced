@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { marketDetails } from './futures-desk.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -303,7 +304,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   await expect((await ruleRow(page, 'cap')).locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
   await buyForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('20');
   await buyForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1');
-  const buyButton = buyForm(page).getByRole('button', { name: `Buy ${base}`, exact: true });
+  const buyButton = buyForm(page).getByRole('button', { name: keyName(`Buy ${base}`, true) });
   await expect(buyButton).toBeEnabled({ timeout: 20_000 });
   await buyButton.click();
   const sheet = reviewSheet(page);
@@ -344,7 +345,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
     expect(previewBody.intafacedCode).toBe('trade.venue.order_above_venue_max');
     const refusedNote = buyForm(refusedPage).getByTestId('venue-ticket-refused');
     await expect(refusedNote).toContainText(venueRefusalText, { timeout: 20_000 });
-    await expect(buyForm(refusedPage).getByRole('button', { name: `Buy ${noBandBase}`, exact: true })).toBeDisabled();
+    await expect(buyForm(refusedPage).getByRole('button', { name: keyName(`Buy ${noBandBase}`, true) })).toBeDisabled();
   } finally {
     await refusedPage.context().close();
   }
@@ -367,7 +368,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
       await expect(buyForm(desk).locator('[data-code="trade.slippage_cap_unset"]')).toHaveText(
         'Market orders are closed: protection not set, so nothing bounds the price they fill at.',
       );
-      await expect(buyForm(desk).getByRole('button', { name: `Buy ${ruledBase}`, exact: true })).toBeDisabled();
+      await expect(buyForm(desk).getByRole('button', { name: keyName(`Buy ${ruledBase}`, true) })).toBeDisabled();
       expect(second.requests).toHaveLength(0);
       await stepPicture(desk);
     } finally {
@@ -431,7 +432,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
       const bandNote = buyForm(ownDesk).getByTestId('dk-note--bad');
       await expect(bandNote).toContainText('No price band is published');
       await expect(bandNote).not.toContainText('trade.');
-      await expect(buyForm(ownDesk).getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+      await expect(buyForm(ownDesk).getByRole('button', { name: keyName('Buy BTC', true) })).toBeDisabled();
       expect(sentOwn).toHaveLength(0);
 
       // 1. Blank owner band: 503 trade.price_band_unset naming price band.
@@ -457,7 +458,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
       const minNote = buyForm(ownDesk).getByTestId('dk-note--bad');
       await expect(minNote).toContainText('No minimum order value is published');
       await expect(minNote).not.toContainText('trade.');
-      await expect(buyForm(ownDesk).getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+      await expect(buyForm(ownDesk).getByRole('button', { name: keyName('Buy BTC', true) })).toBeDisabled();
       const noMinRes = await sendOwn('min');
       expect(noMinRes.status).toBe(503);
       expect(noMinRes.body.intafacedCode).toBe('trade.min_notional_unset');
@@ -529,7 +530,7 @@ test(`${J} #3 types an amount below the smallest order, or finer than the lot or
   // Buy disabled, and nothing previewed or sent.
   const note = buyForm(page).getByTestId('venue-ticket-below-min');
   await expect(note).toHaveText(`Too small: the smallest order is ${own.minOrderNotional} USDC. Nothing was previewed or sent.`);
-  await expect(buyForm(page).getByRole('button', { name: `Buy ${base}`, exact: true })).toBeDisabled();
+  await expect(buyForm(page).getByRole('button', { name: keyName(`Buy ${base}`, true) })).toBeDisabled();
   await stepPicture();
 
   // Nothing was previewed, prepared, signed or locked on the TEST venue itself.
@@ -573,7 +574,7 @@ test(`${J} #5 reaches the open-order cap: refused with the cap and how many are 
     const note = buyForm(page).getByTestId('venue-ticket-refused');
     await expect(note).toBeVisible({ timeout: 15_000 });
     await expect(note).toContainText(`this account has ${cap} open orders and ${venue.displayName} allows ${cap}`);
-    await expect(buyForm(page).getByRole('button', { name: `Buy ${base}`, exact: true })).toBeDisabled();
+    await expect(buyForm(page).getByRole('button', { name: keyName(`Buy ${base}`, true) })).toBeDisabled();
     expect(writes).toEqual([]);
     expect(wallet.requests).toHaveLength(0);
     await stepPicture();

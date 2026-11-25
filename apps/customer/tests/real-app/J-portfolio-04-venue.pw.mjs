@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { marketDetails } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -174,7 +175,7 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
     const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
     await page.getByRole('textbox', { name: 'Amount' }).first().fill(buy.amount);
     expect((await preview).status()).toBe(200);
-    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    await page.getByRole('button', { name: keyName('Buy BTC') }).click();
     await confirm(page, 'buy');
     await continueInWallet(page);
     await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText('Filled on the venue.');

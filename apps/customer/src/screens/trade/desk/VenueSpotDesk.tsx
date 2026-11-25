@@ -383,40 +383,44 @@ export function VenueSpotDesk({
             {maintenance.endsAt === null ? ` · ${t('End time not set')}` : ''}
           </p>
         ) : null}
+        <h2 className="lt-panel-title">{t('New order')}</h2>
         <TicketSideSwitch side={ticketSide} onSide={setTicketSide} />
-        <div className="lt-panel-head">
-          <Tabs
-            id="venue-type"
-            label={t('Order type')}
-            items={offeredTypes.map((x) => ({ value: x, label: x === 'limit' ? d('Limit') : d('Market') }))}
-            value={activeType}
-            onChange={(value) => setType(value as VenueOrderType)}
-          />
-          <NotOfferedTypes market={market} marketDisabledReason={marketDisabledReason} />
-        </div>
-        <div className="lt-row">
-          {activeType === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
-          {activeType === 'limit' && tif === 'GTD' ? (
-            <label className="lt-field">
-              <span>{t('Expires')}</span>
-              <DateInput
-                type="datetime-local"
-                value={expiry}
-                onChange={(event) => setExpiry(event.target.value)}
-                aria-label={t('Expires')}
-                aria-invalid={expiry !== '' && expireAt === null}
-              />
-              {expiry !== '' && expireAt === null ? (
-                <span className="lt-note lt-note-bad" role="note">
-                  {t('Expiry past')}
-                </span>
-              ) : null}
-            </label>
-          ) : null}
-        </div>
-        {/* What the venue does when an order meets the person's own: there when asked for, off the ticket's face. */}
+        <Tabs
+          id="venue-type"
+          label={t('Order type')}
+          items={offeredTypes.map((x) => ({ value: x, label: x === 'limit' ? d('Limit') : d('Market') }))}
+          value={activeType}
+          onChange={(value) => setType(value as VenueOrderType)}
+        />
+        {/* The order's finer terms (time in force, what the venue does when it meets your own order) and the kinds this
+            venue doesn't offer: there when asked for, off the ticket's face. */}
         <Fold title={t('Order options')} data-testid="venue-ticket-options">
-          <VenueSelfTradeSelect market={market} />
+          <div className="lt-stack">
+            <NotOfferedTypes market={market} marketDisabledReason={marketDisabledReason} />
+            {activeType === 'limit' ? (
+              <div className="lt-row">
+                <VenueTifSelect market={market} tif={tif} onTif={setTif} />
+                {tif === 'GTD' ? (
+                  <label className="lt-field">
+                    <span>{t('Expires')}</span>
+                    <DateInput
+                      type="datetime-local"
+                      value={expiry}
+                      onChange={(event) => setExpiry(event.target.value)}
+                      aria-label={t('Expires')}
+                      aria-invalid={expiry !== '' && expireAt === null}
+                    />
+                    {expiry !== '' && expireAt === null ? (
+                      <span className="lt-note lt-note-bad" role="note">
+                        {t('Expiry past')}
+                      </span>
+                    ) : null}
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+            <VenueSelfTradeSelect market={market} />
+          </div>
         </Fold>
         <TabPanel id="venue-type" value={activeType} current={activeType}>
           <div className="lt-stack">

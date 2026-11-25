@@ -44,6 +44,21 @@ export function movingAverage(candles: readonly Candle[], period: number): Array
 }
 
 /**
+ * The step a chart draws prices at: the market's tick, but never finer than `figures` significant figures of the price
+ * (a venue that prices by significant figures may publish a tick of 0.00000001 for a 4.53 coin, which would draw
+ * "4.53420000"). Only the drawing uses it; an order on the chart still keeps to the market's own tick.
+ */
+export function shownTick(tick: Decimal, price: Decimal | null, figures = 5): Decimal {
+  const places = fractionDigits(tick) ?? 0;
+  if (price === null || !/^-?\d+(\.\d+)?$/.test(price)) return tick;
+  const [whole = '', frac = ''] = price.replace('-', '').split('.');
+  const digits = whole.replace(/^0+/, '').length;
+  const want = digits > 0 ? Math.max(0, figures - digits) : (/^0*/.exec(frac)?.[0].length ?? 0) + figures;
+  if (want >= places) return tick;
+  return want === 0 ? '1' : `0.${'0'.repeat(want - 1)}1`;
+}
+
+/**
  * Axis price format from the market's tick: "0.01" draws two decimals and moves by 0.01. The digits are grouped and
  * pointed as the person's locale writes them ("65 000,00" in French).
  */

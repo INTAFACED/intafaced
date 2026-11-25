@@ -1,4 +1,5 @@
 // World: book, restart, gates, stack
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import path from 'node:path';
@@ -266,7 +267,7 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   await expect(short).not.toContainText(/[a-z]+_[a-z_]+/);
   await expect(reason).not.toContainText('Verify your identity first');
   await expect(reason).not.toContainText('Verify now');
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
   expect(wallet.requests.length).toBe(asked);
   expect(await venueOpenOrders(who, owner)).toHaveLength(0);
   // Our place door accepts this order from the verified person: the exact intent the desk previewed, prepared under this
@@ -313,7 +314,7 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
     await hitPage.locator('[role=tab]', { hasText: /^Limit$/ }).click();
     await hitPage.getByRole('textbox', { name: 'Price' }).first().fill('1000');
     await hitPage.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
-    await expect(hitPage.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    await expect(hitPage.getByRole('button', { name: keyName('Buy BTC') })).toBeDisabled();
     await expect(hitPage.locator('#dk-reason-buy')).not.toContainText(/screen|sanction/i);
     // The hold, not the empty venue account, is what refuses: the desk shows no money-check refusal, and our place door
     // refuses this person's same order before it is ever signed or sent to the venue, which the verified person's passes.
@@ -411,7 +412,7 @@ async function venueDesk(page, { signedIn = false } = {}) {
   if (signedIn) {
     // This browser is already signed in (with a second factor, which openDesk's sign-in cannot give).
     await page.goto(deskPath(DESK_SYMBOL));
-    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
   } else await openDesk(page, account(), DESK_SYMBOL);
   const panel = await connectWallet(page, wallet);
   return { wallet, owner: wallet.address.toLowerCase(), panel };
@@ -748,7 +749,7 @@ test(`${J} #6 types a limit buy of TEST 0.1 BTC and reviews: the venue's lock, t
   expect(sent.intent.clientOrderKey.endsWith(id), `${sent.intent.clientOrderKey} names ${id}`).toBe(true);
   await review.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(reviewSheet(page)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click();
   await expect(reviewSheet(page).getByTestId('client-order-id')).toHaveText(id);
   // No builder-fee approval is asked for an order that carries no builder fee, and the review signs nothing.
   await expect(page.getByText(/approve (our |the )?builder fee/i)).toHaveCount(0);
@@ -895,7 +896,7 @@ test(`${J} #9 places a market buy: it fills on the venue inside its slippage lim
   const bound = (((ask * (10_000n + STACK_PROTECTION_BPS)) / 10_000n + tick - 1n) / tick) * tick;
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('button', { name: keyName('Buy BTC') }).click();
   await expect(reviewSheet(page)).toBeVisible();
   // The review shows the worst price the order accepts, and it is inside that bound.
   const shown = shownUnits(await reviewSheet(page).locator('[data-line="worst"]').innerText());

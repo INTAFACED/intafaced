@@ -1,4 +1,5 @@
 // World: none
+import { keyName } from './key-name.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -689,7 +690,7 @@ test(`${J} #9 uses the 50 percent shortcut in the quick ticket: the amount is ha
   await page.goto(`/dex/tokens/${TOKEN_A.address}`);
   const ticket = page.getByRole('form', { name: 'Quick trade' });
   await expect(ticket).toBeVisible(UNBUILT);
-  await expect(ticket.getByRole('button', { name: 'Buy TESTA' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(ticket.getByRole('button', { name: keyName('Buy TESTA') })).toHaveAttribute('aria-pressed', 'true');
   await ticket.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   const balance = await chain.readContract({ address: TOKEN_B.address, abi: erc20, functionName: 'balanceOf', args: [owner] });
   expect(balance > 0n).toBe(true);

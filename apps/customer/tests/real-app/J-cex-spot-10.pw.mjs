@@ -1,4 +1,5 @@
 // World: book, market
+import { keyName } from './key-name.mjs';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -326,7 +327,7 @@ test(`${J}, part of #3, checked on today's custodial desk: orders on a market wh
     expect(check.refusals.map((r) => r.code)).toContain('trade.fee_schedule_blank');
     expect(check.feeBps).toBeNull();
     await expect(buyForm(page)).toContainText('Fee schedule not set');
-    await expect(buyForm(page).getByRole('button', { name: 'Buy IFC' })).toBeDisabled();
+    await expect(buyForm(page).getByRole('button', { name: keyName('Buy IFC') })).toBeDisabled();
 
     // Sent anyway, straight to the API: refused by name, and nothing is held or rests.
     const client = await api(who);
@@ -386,7 +387,7 @@ test(`${J}, part of #4, checked on today's custodial desk: fills on a zero-fee p
     // The ticket says what a resting order earns, from the order check: a rebate, not a fee and not a minus sign.
     // Already signed in from the ETH/USDC desk, so the person opens the next market straight away.
     await page.goto(deskPath('IFC/USDT'));
-    await expect(page.getByRole('button', { name: 'Buy IFC' })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy IFC') })).toBeVisible();
     await page.mouse.move(0, 600);
     await tab(page, 'Limit').click();
     await page.getByRole('combobox', { name: 'Time in force' }).click();
@@ -450,7 +451,7 @@ test(`${J}, part of #4, checked on today's custodial desk: fills on a zero-fee p
 
     // The trade history shows it as a rebate, never as a negative fee (a fresh desk reads the settled fills at once).
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Buy IFC' })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy IFC') })).toBeVisible();
     await tab(page, 'Trade history').click();
     const row = page.locator(`tr[data-fill="${fills[0].id}"]`);
     await expect(row.locator('[data-fee=zero]')).toContainText('Zero fee');
@@ -538,7 +539,7 @@ test(`${J}, part of #6, checked on today's custodial desk: crosses the threshold
   const { version, snapshotAt } = await publishTiers(150_000, `TEST tier programme, VIP from ${VIP_FROM}, snapshot due`);
   const deskCheck = async () => {
     await page.goto(deskPath());
-    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
     await page.mouse.move(0, 600);
     await tab(page, 'Limit').click();
     await page.getByRole('combobox', { name: 'Time in force' }).click();
@@ -1023,7 +1024,7 @@ test(`${J}, part of #9, checked on today's custodial desk: chooses to pay tradin
     await expect(row).toContainText(/If your IFC is short when it fills, the fee comes out of the BTC instead\./);
 
     const before = await client.balances();
-    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    await page.getByRole('button', { name: keyName('Buy BTC') }).click();
     const review = reviewSheet(page);
     await expect(review).toBeVisible();
     await expect(review.locator('[data-review-fee-currency=IFC]')).toContainText(`IFC, ${pct(2000)} off with your stake`);
@@ -1061,7 +1062,7 @@ test(`${J}, part of #9, checked on today's custodial desk: chooses to pay tradin
 
     // Trade history shows the fee posting in IFC.
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
     await tab(page, 'Trade history').click();
     await expect(page.locator(`tr[data-fill="${fills[0].id}"] > td`).last()).toContainText(/^0\.0\d+ IFC/);
   } finally {
@@ -1192,7 +1193,7 @@ test(`${J}, part of #11, checked on today's custodial desk: reads the fee and vo
     // The desk shows the same rates, and its order check prices a resting order at the same maker rate.
     await signIn(page, who);
     await page.goto(deskPath());
-    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+    await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
     await expect(buyForm(page).getByTestId('dk-fees-mine')).toHaveText(
       `Your rates: maker ${pct(mine.makerBps)} · taker ${pct(mine.takerBps)}`,
     );

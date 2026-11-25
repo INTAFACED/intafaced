@@ -1,4 +1,5 @@
 // World: book, restart
+import { ticketOptions } from './futures-desk.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
@@ -172,6 +173,8 @@ test(`${J} #4 reads which order types the API accepts: the same list the ticket 
   await expect(tabs.first()).toBeVisible();
   const ticketNames = (await tabs.allInnerTexts()).map((name) => name.trim());
   expect(ticketNames, 'the API lists exactly the venue ticket’s types, in the ticket’s order').toEqual(docNames);
+  // The kinds it doesn't offer sit in the ticket's Order options.
+  await ticketOptions(ticket);
   const notOffered = ticket.getByTestId('venue-order-types').getByRole('button');
   await expect(notOffered).toHaveCount(docRefused.length);
   for (const btn of await notOffered.all()) await expect(btn).toBeDisabled();

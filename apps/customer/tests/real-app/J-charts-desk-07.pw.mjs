@@ -1,4 +1,5 @@
 // World: book
+import { keyName } from './key-name.mjs';
 import { test, expect } from './journey.mjs';
 import { chosePro, signIn, signUp } from './desk.mjs';
 import { ORIGIN } from './stack.mjs';
@@ -44,7 +45,7 @@ const layoutsMenu = () => page.getByRole('dialog', { name: 'Desk layout' });
 
 async function openDesk() {
   await page.goto(DESK);
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
 }
 
 test(`${J} #1 opens the desk in Classic and picks Advanced from Layouts; the widget set changes and the choice is kept on this device`, async () => {
@@ -62,7 +63,7 @@ test(`${J} #1 opens the desk in Classic and picks Advanced from Layouts; the wid
   await expect(widget('trades').getByRole('heading', { name: 'Market trades' })).toBeVisible();
   // Kept on this device: a reload opens Advanced again.
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
   await expect(desk()).toHaveAttribute('data-preset', 'advanced');
   await expect.poll(widgetIds).toEqual(['markets', 'chart', 'book', 'trades']);
 });
@@ -90,7 +91,7 @@ test(`${J} #2 drags a widget, resizes it, then resets the desk; the layout follo
   await expect.poll(async () => (await width('markets')) - presetWidth).toBeGreaterThan(48);
   // The arrangement is kept on this device.
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
   await expect.poll(widgetIds).toEqual(['book', 'chart', 'markets', 'trades']);
   expect((await width('markets')) - presetWidth).toBeGreaterThan(48);
   // Reset asks first, then returns the Advanced preset: its order and its widths.
@@ -249,14 +250,14 @@ test(`${J} #5 copies, exports and deletes a layout, then recovers the deleted on
   const elsewhere = savedInterval === '1h' ? '4h' : '1h';
   await page.keyboard.press('Escape');
   await page.goto('/trade/spot/ETH-USDT');
-  await expect(page.getByRole('button', { name: 'Buy ETH' })).toBeVisible();
+  await expect(page.getByRole('button', { name: keyName('Buy ETH') })).toBeVisible();
   const intervals = page.getByTestId('dk-chart').getByRole('group', { name: 'Chart intervals' });
   await intervals.getByRole('button', { name: label(elsewhere), exact: true }).click();
   await expect(intervals.getByRole('button', { name: label(elsewhere), exact: true })).toHaveAttribute('aria-pressed', 'true');
   await layouts().click();
   await row('Scalp').getByRole('button', { name: 'Open' }).click();
   await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT$/);
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+  await expect(page.getByRole('button', { name: keyName('Buy BTC') })).toBeVisible();
   await expect(widget('chart')).toBeVisible();
   if (MAIN_CHIPS.includes(savedInterval)) {
     await expect(intervals.getByRole('button', { name: label(savedInterval), exact: true })).toHaveAttribute('aria-pressed', 'true');

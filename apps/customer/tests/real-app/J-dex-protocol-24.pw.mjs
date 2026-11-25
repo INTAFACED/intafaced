@@ -1,4 +1,5 @@
 // World: book, gates
+import { keyName } from './key-name.mjs';
 import { test, expect } from './journey.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, oneAmount } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
@@ -122,7 +123,7 @@ test(`${J} #4 buys on a bonding curve until it graduates: tokens follow the curv
   await sign(page);
   // Selling everything held returns at most the 20 paid.
   const sell = curve.getByRole('form', { name: 'Sell on the curve' });
-  await sell.getByRole('button', { name: 'Sell all' }).click();
+  await sell.getByRole('button', { name: keyName('Sell all') }).click();
   expect(oneAmount(await sell.getByTestId('curve-return').innerText())).toBeLessThanOrEqual(toUnits('20'));
   // A TEST curve token of the stack that already reached its raise target.
   const graduated = main(page).getByRole('region', { name: 'TEST graduated token' });

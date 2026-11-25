@@ -1,4 +1,5 @@
 // World: book, restart
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -200,8 +201,8 @@ test(`${J} #2 in standard mode, with all the USDC in perps, opens a spot buy of 
   await expect(offer).toContainText('Nothing is bought until it lands.');
   await expect(offer.getByTestId('spot-short-move')).toHaveText(`Sign the move of ${await offer.getAttribute('data-needed')} USDC`);
   // Nothing is bought: the buy can't be reviewed, nothing was prepared or signed, and the venue holds none of the coin for them.
-  await expect(page.getByRole('button', { name: `Buy ${market().base}`, exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: `Buy ${market().base}`, exact: true }).click({ force: true });
+  await expect(page.getByRole('button', { name: keyName(`Buy ${market().base}`, true) })).toBeDisabled();
+  await page.getByRole('button', { name: keyName(`Buy ${market().base}`, true) }).click({ force: true });
   expect(calls.of('prepare')).toHaveLength(0);
   expect(signatures(wallet)).toBe(asked);
   expect(await modeOf(owner)).toMatchObject({ spot: before.spot, perps: before.perps });
@@ -249,7 +250,7 @@ test(`${J} #3 signs the move: the venue moves the USDC once; perps falls and spo
   );
   // Nothing was bought by the move; the buy can be reviewed now that spot covers it.
   expect(sameDecimal(coin(after.spot, market().base).total, '0')).toBe(true);
-  await expect(page.getByRole('button', { name: `Buy ${market().base}`, exact: true })).toBeEnabled({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: keyName(`Buy ${market().base}`, true) })).toBeEnabled({ timeout: 20_000 });
   run.write({ moved: { needed, after } });
   expect(await ledgerOf()).toEqual(state().ledger);
 });
@@ -294,7 +295,7 @@ test(`${J} #5 signs the buy: it fills from spot, by the venue's figures`, async 
   const before = await modeOf(owner);
   const since = new Date(Date.now() - 1_000).toISOString();
   await typeBuy(page, ASK, BUY);
-  await page.getByRole('button', { name: `Buy ${market().base}`, exact: true }).click();
+  await page.getByRole('button', { name: keyName(`Buy ${market().base}`, true) }).click();
   const asked = signatures(wallet);
   await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   await continueInWallet(page);
@@ -459,7 +460,7 @@ test(`${J} #10 with the venue refusing orders for the daily action limit, signs 
   // A small TEST limit buy under the one ask, so it would rest if the venue took it.
   const price = '16000';
   await typeBuy(page, price, '0.001');
-  await page.getByRole('button', { name: `Buy ${market().base}`, exact: true }).click();
+  await page.getByRole('button', { name: keyName(`Buy ${market().base}`, true) }).click();
   const asked = signatures(wallet);
   await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   await continueInWallet(page);

@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { keyName } from './key-name.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -555,7 +556,10 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
   await page.locator('form[data-testid="dk-form"][data-side="sell"]').getByRole('textbox', { name: 'Amount', exact: true }).fill(SOLD);
   expect((await preview).status()).toBe(200);
-  await page.locator('form[data-testid="dk-form"][data-side="sell"]').getByRole('button', { name: 'Sell BTC', exact: true }).click();
+  await page
+    .locator('form[data-testid="dk-form"][data-side="sell"]')
+    .getByRole('button', { name: keyName('Sell BTC', true) })
+    .click();
   const sheet = reviewSheet(page);
   await expect(sheet).toBeVisible();
   // A sell carries our builder fee: the wallet approves it first, then Confirm sell signs the order.

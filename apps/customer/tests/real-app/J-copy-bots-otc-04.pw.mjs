@@ -1,4 +1,5 @@
 // World: book, restart
+import { keyName } from './key-name.mjs';
 import { readFileSync } from 'node:fs';
 import { keccak256, toHex } from 'viem';
 import { test, expect } from './journey.mjs';
@@ -98,7 +99,7 @@ async function leadOrderOnScreen(page, { symbol = BOOK_PATH, price, amount, post
   const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
   await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
   await form.getByRole('textbox', { name: 'Amount', exact: true }).fill(amount);
-  await page.getByRole('button', { name: `Buy ${symbol.split('-')[0]}`, exact: true }).click();
+  await page.getByRole('button', { name: keyName(`Buy ${symbol.split('-')[0]}`, true) }).click();
   const sent = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/v1/orders' && res.request().method() === 'POST');
   await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   const answer = await sent;
