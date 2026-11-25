@@ -668,6 +668,21 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
   try {
     const b = await other.newPage();
+    // The bearer of b's current sign-in, as its own requests send it: an order the test prepares "on b" is b's sign-in's.
+    let bBearer = null;
+    b.on('request', (r) => {
+      const auth = r.headers().authorization;
+      if (auth && new URL(r.url()).pathname.startsWith('/api/v1/venue/')) {
+        bBearer = { url: new URL(r.url()).origin, origin: r.headers().origin ?? new URL(b.url()).origin, auth };
+      }
+    });
+    const asB = async (route, body) => {
+      const res = await b.request.post(`${bBearer.url}${route}`, {
+        headers: { authorization: bBearer.auth, origin: bBearer.origin },
+        data: body,
+      });
+      return { status: res.status(), body: await res.json().catch(() => null) };
+    };
     await device(b, [credential]);
     const bPrompts = walletPrompts(b);
     await openRoom(b, who);
@@ -694,7 +709,8 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     expect(bPrompts).toHaveLength(2);
     expect(await sessionAgents(address)).toEqual([]);
     expect(await heldInTab(b, client.userId)).toBeNull();
-    const after = await client.post('/api/v1/venue/prepare', {
+    // Prepared in the sign-in that started the session, so the venue itself refuses the revoked key.
+    const after = await asB('/api/v1/venue/prepare', {
       owner: address.toLowerCase(),
       signer: { role: 'agent', address: third },
       intent: {
@@ -716,17 +732,18 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     // ── Signing out ends it for the device: the next sign-in has no session, and starts a new key ─────────────────
     const fourth = await startSession(b);
     expect(bPrompts).toHaveLength(3);
+    const signedOutBearer = bBearer.auth;
     await signOutBrowser(other);
     await openRoom(b, who);
     await expect(sessionPanel(b).getByRole('button', { name: 'Start trading session' })).toBeVisible({ timeout: 20_000 });
     await expect(sessionPanel(b).locator('[data-session-key]')).toHaveCount(0);
     // The key the tab kept from before the sign-out is dropped, never used again.
     await expect.poll(() => heldInTab(b, client.userId)).toBeNull();
-    const fifth = await startSession(b);
-    expect(bPrompts).toHaveLength(4);
-    expect(await sessionAgents(address)).toEqual([fifth]);
-    // The key from before the sign-out is gone from the venue too: an order signed by it is refused there.
-    const afterSignOut = await client.post('/api/v1/venue/prepare', {
+    // The key from before the sign-out signs nothing now, before any new session and while the venue still lists it: an
+    // order signed by it, prepared in the new sign-in, is refused.
+    expect(await sessionAgents(address)).toEqual([fourth]);
+    await expect.poll(() => bBearer.auth !== signedOutBearer || null, { timeout: 20_000 }).toBe(true);
+    const afterSignOut = await asB('/api/v1/venue/prepare', {
       owner: address.toLowerCase(),
       signer: { role: 'agent', address: fourth },
       intent: {
@@ -742,8 +759,11 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
         builderFee: null,
       },
     });
-    expect(afterSignOut.status).toBe(422);
-    expect(afterSignOut.body.intafacedCode).toBe('trade.venue.signer_not_authorised');
+    expect(afterSignOut.status, JSON.stringify(afterSignOut.body)).toBe(403);
+    expect(afterSignOut.body.intafacedCode).toBe('trade.venue_session_signed_out');
+    const fifth = await startSession(b);
+    expect(bPrompts).toHaveLength(4);
+    expect(await sessionAgents(address)).toEqual([fifth]);
     const used = [first, second, third, fourth, fifth];
     expect(new Set(used).size).toBe(5);
 
