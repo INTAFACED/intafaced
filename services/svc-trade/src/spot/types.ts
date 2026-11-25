@@ -598,6 +598,8 @@ export type TradeErrorCode =
   | 'trade.price_band_unset'
   /** No operator open-order cap is published for the pair: an order that can rest is refused, never capped by a default. */
   | 'trade.open_orders_cap_unset'
+  /** No operator minimum order value is published for the pair: orders are refused, never floored by a default. */
+  | 'trade.min_notional_unset'
   /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.

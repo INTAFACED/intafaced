@@ -1,6 +1,6 @@
 {
   "label": "TEST",
-  "at": "2026-11-25T02:41:11.845Z",
+  "at": "2026-11-25T04:35:30.992Z",
   "source": "the venue's public feed for BTC-PERP (TEST venue: testnet)",
   "calls": {
     "GET /api/v1/venue/book?depth=10&symbol=BTC-PERP": {
@@ -10,32 +10,32 @@
         "value": {
           "symbol": "BTC-PERP",
           "bids": [
-            { "price": "58777", "amount": "0.00315" },
-            { "price": "58767", "amount": "0.00255" },
-            { "price": "58761", "amount": "0.0102" },
-            { "price": "58742", "amount": "0.00308" },
-            { "price": "58737", "amount": "0.00472" },
-            { "price": "58733", "amount": "0.00363" },
-            { "price": "58723", "amount": "0.00035" },
-            { "price": "58719", "amount": "0.00171" },
-            { "price": "58708", "amount": "0.00255" },
-            { "price": "58664", "amount": "0.00035" }
+            { "price": "58791", "amount": "0.0034" },
+            { "price": "58786", "amount": "0.00255" },
+            { "price": "58781", "amount": "0.00035" },
+            { "price": "58780", "amount": "0.02" },
+            { "price": "58774", "amount": "0.0102" },
+            { "price": "58767", "amount": "0.00051" },
+            { "price": "58759", "amount": "0.00073" },
+            { "price": "58754", "amount": "0.00033" },
+            { "price": "58752", "amount": "0.00442" },
+            { "price": "58744", "amount": "0.00664" }
           ],
           "asks": [
-            { "price": "58817", "amount": "0.00694" },
-            { "price": "58822", "amount": "0.0071" },
-            { "price": "58827", "amount": "0.00255" },
-            { "price": "58835", "amount": "0.00073" },
-            { "price": "58841", "amount": "0.00036" },
-            { "price": "58842", "amount": "0.0034" },
-            { "price": "58851", "amount": "0.00204" },
-            { "price": "58857", "amount": "0.01286" },
-            { "price": "58860", "amount": "0.01446" },
-            { "price": "58868", "amount": "0.01486" }
+            { "price": "58843", "amount": "0.00718" },
+            { "price": "58846", "amount": "0.00255" },
+            { "price": "58849", "amount": "0.00691" },
+            { "price": "58863", "amount": "0.0034" },
+            { "price": "58864", "amount": "0.00022" },
+            { "price": "58878", "amount": "0.001" },
+            { "price": "58900", "amount": "0.00035" },
+            { "price": "58901", "amount": "0.01406" },
+            { "price": "58905", "amount": "0.00255" },
+            { "price": "58915", "amount": "0.01339" }
           ]
         },
-        "asOf": "2026-11-25T02:41:06.847Z",
-        "reportedAt": "2026-11-25T02:41:06.847Z",
+        "asOf": "2026-11-25T04:35:24.441Z",
+        "reportedAt": "2026-11-25T04:35:24.441Z",
         "test": true
       }
     },
@@ -46,32 +46,32 @@
         "value": {
           "symbol": "BTC-PERP",
           "bids": [
-            { "price": "58777", "amount": "0.00315" },
-            { "price": "58767", "amount": "0.00255" },
-            { "price": "58761", "amount": "0.0102" },
-            { "price": "58742", "amount": "0.00308" },
-            { "price": "58737", "amount": "0.00472" },
-            { "price": "58733", "amount": "0.00363" },
-            { "price": "58723", "amount": "0.00035" },
-            { "price": "58719", "amount": "0.00171" },
-            { "price": "58708", "amount": "0.00255" },
-            { "price": "58664", "amount": "0.00035" }
+            { "price": "58786", "amount": "0.00255" },
+            { "price": "58781", "amount": "0.00035" },
+            { "price": "58780", "amount": "0.02" },
+            { "price": "58774", "amount": "0.0102" },
+            { "price": "58767", "amount": "0.00051" },
+            { "price": "58759", "amount": "0.00073" },
+            { "price": "58754", "amount": "0.00033" },
+            { "price": "58752", "amount": "0.00442" },
+            { "price": "58744", "amount": "0.00664" },
+            { "price": "58737", "amount": "0.00658" }
           ],
           "asks": [
-            { "price": "58817", "amount": "0.00694" },
-            { "price": "58822", "amount": "0.0071" },
-            { "price": "58827", "amount": "0.00255" },
-            { "price": "58835", "amount": "0.00073" },
-            { "price": "58841", "amount": "0.00036" },
-            { "price": "58842", "amount": "0.0034" },
-            { "price": "58851", "amount": "0.00204" },
-            { "price": "58857", "amount": "0.01286" },
-            { "price": "58860", "amount": "0.01446" },
-            { "price": "58868", "amount": "0.01486" }
+            { "price": "58843", "amount": "0.00718" },
+            { "price": "58846", "amount": "0.00255" },
+            { "price": "58849", "amount": "0.00691" },
+            { "price": "58863", "amount": "0.0034" },
+            { "price": "58864", "amount": "0.00022" },
+            { "price": "58878", "amount": "0.001" },
+            { "price": "58900", "amount": "0.00035" },
+            { "price": "58901", "amount": "0.01406" },
+            { "price": "58905", "amount": "0.00255" },
+            { "price": "58915", "amount": "0.01339" }
           ]
         },
-        "asOf": "2026-11-25T02:41:06.847Z",
-        "reportedAt": "2026-11-25T02:41:06.847Z",
+        "asOf": "2026-11-25T04:35:24.959Z",
+        "reportedAt": "2026-11-25T04:35:24.959Z",
         "test": true
       }
     },
@@ -82,52 +82,52 @@
         "value": {
           "symbol": "BTC-PERP",
           "bids": [
-            { "price": "58777", "amount": "0.00315" },
-            { "price": "58767", "amount": "0.00255" },
-            { "price": "58761", "amount": "0.0102" },
-            { "price": "58742", "amount": "0.00308" },
-            { "price": "58737", "amount": "0.00472" },
-            { "price": "58733", "amount": "0.00363" },
+            { "price": "58786", "amount": "0.00255" },
+            { "price": "58781", "amount": "0.00035" },
+            { "price": "58780", "amount": "0.02" },
+            { "price": "58774", "amount": "0.0102" },
+            { "price": "58767", "amount": "0.00051" },
+            { "price": "58759", "amount": "0.00073" },
+            { "price": "58754", "amount": "0.00033" },
+            { "price": "58752", "amount": "0.00442" },
+            { "price": "58744", "amount": "0.00664" },
+            { "price": "58737", "amount": "0.00658" },
+            { "price": "58727", "amount": "0.00255" },
             { "price": "58723", "amount": "0.00035" },
-            { "price": "58719", "amount": "0.00171" },
-            { "price": "58708", "amount": "0.00255" },
-            { "price": "58664", "amount": "0.00035" },
-            { "price": "58659", "amount": "0.00022" },
-            { "price": "58652", "amount": "0.02284" },
-            { "price": "58633", "amount": "0.00658" },
-            { "price": "58628", "amount": "0.00204" },
-            { "price": "58605", "amount": "0.00035" },
-            { "price": "58579", "amount": "0.00033" },
-            { "price": "58547", "amount": "0.00035" },
-            { "price": "58539", "amount": "0.0012" },
-            { "price": "58530", "amount": "0.00658" },
-            { "price": "58500", "amount": "0.00152" }
+            { "price": "58721", "amount": "0.00203" },
+            { "price": "58693", "amount": "0.001" },
+            { "price": "58690", "amount": "0.00085" },
+            { "price": "58666", "amount": "0.01078" },
+            { "price": "58664", "amount": "0.01284" },
+            { "price": "58656", "amount": "0.00085" },
+            { "price": "58642", "amount": "0.00207" },
+            { "price": "58633", "amount": "0.00658" }
           ],
           "asks": [
-            { "price": "58817", "amount": "0.00694" },
-            { "price": "58822", "amount": "0.0071" },
-            { "price": "58827", "amount": "0.00255" },
-            { "price": "58835", "amount": "0.00073" },
-            { "price": "58841", "amount": "0.00036" },
-            { "price": "58842", "amount": "0.0034" },
-            { "price": "58851", "amount": "0.00204" },
-            { "price": "58857", "amount": "0.01286" },
-            { "price": "58860", "amount": "0.01446" },
-            { "price": "58868", "amount": "0.01486" },
-            { "price": "58886", "amount": "0.00255" },
-            { "price": "58890", "amount": "0.0102" },
-            { "price": "58899", "amount": "0.00085" },
+            { "price": "58843", "amount": "0.00718" },
+            { "price": "58846", "amount": "0.00255" },
+            { "price": "58849", "amount": "0.00691" },
+            { "price": "58863", "amount": "0.0034" },
+            { "price": "58864", "amount": "0.00022" },
+            { "price": "58878", "amount": "0.001" },
             { "price": "58900", "amount": "0.00035" },
-            { "price": "58923", "amount": "0.01317" },
-            { "price": "58930", "amount": "0.00033" },
-            { "price": "58935", "amount": "0.00207" },
-            { "price": "58938", "amount": "0.01408" },
+            { "price": "58901", "amount": "0.01406" },
+            { "price": "58905", "amount": "0.00255" },
+            { "price": "58915", "amount": "0.01339" },
+            { "price": "58917", "amount": "0.0102" },
+            { "price": "58935", "amount": "0.01815" },
             { "price": "58944", "amount": "0.00658" },
-            { "price": "58959", "amount": "0.00035" }
+            { "price": "58949", "amount": "0.001" },
+            { "price": "58959", "amount": "0.00035" },
+            { "price": "58981", "amount": "0.00203" },
+            { "price": "59004", "amount": "0.01483" },
+            { "price": "59005", "amount": "0.01609" },
+            { "price": "59018", "amount": "0.00035" },
+            { "price": "59048", "amount": "0.00658" }
           ]
         },
-        "asOf": "2026-11-25T02:41:07.359Z",
-        "reportedAt": "2026-11-25T02:41:07.359Z",
+        "asOf": "2026-11-25T04:35:24.959Z",
+        "reportedAt": "2026-11-25T04:35:24.959Z",
         "test": true
       }
     },
@@ -138,52 +138,52 @@
         "value": {
           "symbol": "BTC-PERP",
           "bids": [
-            { "price": "58777", "amount": "0.00315" },
-            { "price": "58767", "amount": "0.00255" },
-            { "price": "58761", "amount": "0.0102" },
-            { "price": "58742", "amount": "0.00308" },
-            { "price": "58737", "amount": "0.00472" },
-            { "price": "58733", "amount": "0.00363" },
+            { "price": "58786", "amount": "0.00255" },
+            { "price": "58781", "amount": "0.00035" },
+            { "price": "58780", "amount": "0.02" },
+            { "price": "58774", "amount": "0.0102" },
+            { "price": "58767", "amount": "0.00051" },
+            { "price": "58759", "amount": "0.00073" },
+            { "price": "58754", "amount": "0.00033" },
+            { "price": "58752", "amount": "0.00442" },
+            { "price": "58744", "amount": "0.00664" },
+            { "price": "58737", "amount": "0.00658" },
+            { "price": "58727", "amount": "0.00255" },
             { "price": "58723", "amount": "0.00035" },
-            { "price": "58719", "amount": "0.00171" },
-            { "price": "58708", "amount": "0.00255" },
-            { "price": "58664", "amount": "0.00035" },
-            { "price": "58659", "amount": "0.00022" },
-            { "price": "58652", "amount": "0.02284" },
-            { "price": "58633", "amount": "0.00658" },
-            { "price": "58628", "amount": "0.00204" },
-            { "price": "58605", "amount": "0.00035" },
-            { "price": "58579", "amount": "0.00033" },
-            { "price": "58547", "amount": "0.00035" },
-            { "price": "58539", "amount": "0.0012" },
-            { "price": "58530", "amount": "0.00658" },
-            { "price": "58500", "amount": "0.00152" }
+            { "price": "58721", "amount": "0.00203" },
+            { "price": "58693", "amount": "0.001" },
+            { "price": "58690", "amount": "0.00085" },
+            { "price": "58666", "amount": "0.01078" },
+            { "price": "58664", "amount": "0.01284" },
+            { "price": "58656", "amount": "0.00085" },
+            { "price": "58642", "amount": "0.00207" },
+            { "price": "58633", "amount": "0.00658" }
           ],
           "asks": [
-            { "price": "58817", "amount": "0.00694" },
-            { "price": "58822", "amount": "0.0071" },
-            { "price": "58827", "amount": "0.00255" },
-            { "price": "58835", "amount": "0.00073" },
-            { "price": "58841", "amount": "0.00036" },
-            { "price": "58842", "amount": "0.0034" },
-            { "price": "58851", "amount": "0.00204" },
-            { "price": "58857", "amount": "0.01286" },
-            { "price": "58860", "amount": "0.01446" },
-            { "price": "58868", "amount": "0.01486" },
-            { "price": "58886", "amount": "0.00255" },
-            { "price": "58890", "amount": "0.0102" },
-            { "price": "58899", "amount": "0.00085" },
+            { "price": "58843", "amount": "0.00718" },
+            { "price": "58846", "amount": "0.00255" },
+            { "price": "58849", "amount": "0.00691" },
+            { "price": "58863", "amount": "0.0034" },
+            { "price": "58864", "amount": "0.00022" },
+            { "price": "58878", "amount": "0.001" },
             { "price": "58900", "amount": "0.00035" },
-            { "price": "58923", "amount": "0.01317" },
-            { "price": "58930", "amount": "0.00033" },
-            { "price": "58935", "amount": "0.00207" },
-            { "price": "58938", "amount": "0.01408" },
+            { "price": "58901", "amount": "0.01406" },
+            { "price": "58905", "amount": "0.00255" },
+            { "price": "58915", "amount": "0.01339" },
+            { "price": "58917", "amount": "0.0102" },
+            { "price": "58935", "amount": "0.01815" },
             { "price": "58944", "amount": "0.00658" },
-            { "price": "58959", "amount": "0.00035" }
+            { "price": "58949", "amount": "0.001" },
+            { "price": "58959", "amount": "0.00035" },
+            { "price": "58981", "amount": "0.00203" },
+            { "price": "59004", "amount": "0.01483" },
+            { "price": "59005", "amount": "0.01609" },
+            { "price": "59018", "amount": "0.00035" },
+            { "price": "59048", "amount": "0.00658" }
           ]
         },
-        "asOf": "2026-11-25T02:41:07.359Z",
-        "reportedAt": "2026-11-25T02:41:07.359Z",
+        "asOf": "2026-11-25T04:35:24.959Z",
+        "reportedAt": "2026-11-25T04:35:24.959Z",
         "test": true
       }
     },
@@ -191,9 +191,9 @@
       "status": 200,
       "json": {
         "venueId": "hyperliquid-testnet",
-        "value": { "symbol": "BTC-PERP", "bid": "58777", "ask": "58817" },
-        "asOf": "2026-11-25T02:41:07.359Z",
-        "reportedAt": "2026-11-25T02:41:07.359Z",
+        "value": { "symbol": "BTC-PERP", "bid": "58786", "ask": "58843" },
+        "asOf": "2026-11-25T04:35:24.959Z",
+        "reportedAt": "2026-11-25T04:35:24.959Z",
         "test": true,
         "slippageCapBps": { "known": false },
         "spreadLimitBps": { "known": false }
@@ -205,88 +205,88 @@
         "venueId": "hyperliquid-testnet",
         "value": [
           {
-            "tradeId": "194231838415117",
+            "tradeId": "775447820932393",
             "symbol": "BTC-PERP",
-            "price": "58777",
-            "amount": "0.00025",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:41:01.983Z"
-          },
-          {
-            "tradeId": "794253413077334",
-            "symbol": "BTC-PERP",
-            "price": "58818",
+            "price": "58847",
             "amount": "0.00019",
             "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:40:44.128Z"
+            "tradedAt": "2026-11-25T04:34:34.697Z"
           },
           {
-            "tradeId": "413701345286503",
+            "tradeId": "797203082777598",
+            "symbol": "BTC-PERP",
+            "price": "58859",
+            "amount": "0.00352",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "281717655956745",
+            "symbol": "BTC-PERP",
+            "price": "58857",
+            "amount": "0.00255",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "786197664321355",
+            "symbol": "BTC-PERP",
+            "price": "58856",
+            "amount": "0.00666",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "304153769583645",
+            "symbol": "BTC-PERP",
+            "price": "58847",
+            "amount": "0.00019",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "991748392492180",
+            "symbol": "BTC-PERP",
+            "price": "58841",
+            "amount": "0.00022",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "937096765743035",
+            "symbol": "BTC-PERP",
+            "price": "58841",
+            "amount": "0.0002",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:20.800Z"
+          },
+          {
+            "tradeId": "585037339032518",
             "symbol": "BTC-PERP",
             "price": "58798",
             "amount": "0.00025",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:40:19.869Z"
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:34:14.303Z"
           },
           {
-            "tradeId": "106251410258094",
+            "tradeId": "1103981871801381",
             "symbol": "BTC-PERP",
-            "price": "58797",
-            "amount": "0.00017",
+            "price": "58839",
+            "amount": "0.00101",
             "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:39:32.026Z"
+            "tradedAt": "2026-11-25T04:33:32.240Z"
           },
           {
-            "tradeId": "446100211160117",
+            "tradeId": "580951435081441",
             "symbol": "BTC-PERP",
             "price": "58780",
-            "amount": "0.00021",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:39:20.008Z"
-          },
-          {
-            "tradeId": "682255427593686",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00022",
+            "amount": "0.00025",
             "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:39:11.652Z"
-          },
-          {
-            "tradeId": "1053553187944319",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00098",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:39:08.375Z"
-          },
-          {
-            "tradeId": "979261137431983",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00041",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:38:30.146Z"
-          },
-          {
-            "tradeId": "593554467766180",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00041",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:38:30.146Z"
-          },
-          {
-            "tradeId": "25622932293361",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00004",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:38:13.782Z"
+            "tradedAt": "2026-11-25T04:33:20.981Z"
           }
         ],
-        "asOf": "2026-11-25T02:41:01.983Z",
-        "reportedAt": "2026-11-25T02:41:01.983Z",
+        "asOf": "2026-11-25T04:34:34.697Z",
+        "reportedAt": "2026-11-25T04:34:34.697Z",
         "test": true
       }
     },
@@ -296,88 +296,88 @@
         "venueId": "hyperliquid-testnet",
         "value": [
           {
-            "tradeId": "194231838415117",
+            "tradeId": "775447820932393",
             "symbol": "BTC-PERP",
-            "price": "58777",
-            "amount": "0.00025",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:41:01.983Z"
-          },
-          {
-            "tradeId": "794253413077334",
-            "symbol": "BTC-PERP",
-            "price": "58818",
+            "price": "58847",
             "amount": "0.00019",
             "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:40:44.128Z"
+            "tradedAt": "2026-11-25T04:34:34.697Z"
           },
           {
-            "tradeId": "413701345286503",
+            "tradeId": "797203082777598",
+            "symbol": "BTC-PERP",
+            "price": "58859",
+            "amount": "0.00352",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "281717655956745",
+            "symbol": "BTC-PERP",
+            "price": "58857",
+            "amount": "0.00255",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "786197664321355",
+            "symbol": "BTC-PERP",
+            "price": "58856",
+            "amount": "0.00666",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "304153769583645",
+            "symbol": "BTC-PERP",
+            "price": "58847",
+            "amount": "0.00019",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "991748392492180",
+            "symbol": "BTC-PERP",
+            "price": "58841",
+            "amount": "0.00022",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:29.638Z"
+          },
+          {
+            "tradeId": "937096765743035",
+            "symbol": "BTC-PERP",
+            "price": "58841",
+            "amount": "0.0002",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-25T04:34:20.800Z"
+          },
+          {
+            "tradeId": "585037339032518",
             "symbol": "BTC-PERP",
             "price": "58798",
             "amount": "0.00025",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:40:19.869Z"
+            "takerSide": "sell",
+            "tradedAt": "2026-11-25T04:34:14.303Z"
           },
           {
-            "tradeId": "106251410258094",
+            "tradeId": "1103981871801381",
             "symbol": "BTC-PERP",
-            "price": "58797",
-            "amount": "0.00017",
+            "price": "58839",
+            "amount": "0.00101",
             "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:39:32.026Z"
+            "tradedAt": "2026-11-25T04:33:32.240Z"
           },
           {
-            "tradeId": "446100211160117",
+            "tradeId": "580951435081441",
             "symbol": "BTC-PERP",
             "price": "58780",
-            "amount": "0.00021",
-            "takerSide": "buy",
-            "tradedAt": "2026-11-25T02:39:20.008Z"
-          },
-          {
-            "tradeId": "682255427593686",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00022",
+            "amount": "0.00025",
             "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:39:11.652Z"
-          },
-          {
-            "tradeId": "1053553187944319",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00098",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:39:08.375Z"
-          },
-          {
-            "tradeId": "979261137431983",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00041",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:38:30.146Z"
-          },
-          {
-            "tradeId": "593554467766180",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00041",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:38:30.146Z"
-          },
-          {
-            "tradeId": "25622932293361",
-            "symbol": "BTC-PERP",
-            "price": "58737",
-            "amount": "0.00004",
-            "takerSide": "sell",
-            "tradedAt": "2026-11-25T02:38:13.782Z"
+            "tradedAt": "2026-11-25T04:33:20.981Z"
           }
         ],
-        "asOf": "2026-11-25T02:41:01.983Z",
-        "reportedAt": "2026-11-25T02:41:01.983Z",
+        "asOf": "2026-11-25T04:34:34.697Z",
+        "reportedAt": "2026-11-25T04:34:34.697Z",
         "test": true
       }
     },
@@ -386,70 +386,6 @@
       "json": {
         "venueId": "hyperliquid-testnet",
         "value": [
-          {
-            "openAt": "2026-11-22T14:30:00.000Z",
-            "openPrice": "62087",
-            "highPrice": "62469",
-            "lowPrice": "61922",
-            "closePrice": "62419",
-            "baseVolume": "0.11992"
-          },
-          {
-            "openAt": "2026-11-22T14:45:00.000Z",
-            "openPrice": "62454",
-            "highPrice": "62470",
-            "lowPrice": "62165",
-            "closePrice": "62313",
-            "baseVolume": "0.12476"
-          },
-          {
-            "openAt": "2026-11-22T15:00:00.000Z",
-            "openPrice": "62415",
-            "highPrice": "62506",
-            "lowPrice": "62027",
-            "closePrice": "62349",
-            "baseVolume": "0.13746"
-          },
-          {
-            "openAt": "2026-11-22T15:15:00.000Z",
-            "openPrice": "62348",
-            "highPrice": "62491",
-            "lowPrice": "62288",
-            "closePrice": "62443",
-            "baseVolume": "0.05911"
-          },
-          {
-            "openAt": "2026-11-22T15:30:00.000Z",
-            "openPrice": "62394",
-            "highPrice": "62413",
-            "lowPrice": "62041",
-            "closePrice": "62226",
-            "baseVolume": "0.04455"
-          },
-          {
-            "openAt": "2026-11-22T15:45:00.000Z",
-            "openPrice": "62226",
-            "highPrice": "62482",
-            "lowPrice": "62226",
-            "closePrice": "62355",
-            "baseVolume": "0.11234"
-          },
-          {
-            "openAt": "2026-11-22T16:00:00.000Z",
-            "openPrice": "62290",
-            "highPrice": "62514",
-            "lowPrice": "62227",
-            "closePrice": "62498",
-            "baseVolume": "0.1879"
-          },
-          {
-            "openAt": "2026-11-22T16:15:00.000Z",
-            "openPrice": "62504",
-            "highPrice": "62770",
-            "lowPrice": "62232",
-            "closePrice": "62546",
-            "baseVolume": "0.26442"
-          },
           {
             "openAt": "2026-11-22T16:30:00.000Z",
             "openPrice": "62539",
@@ -2302,12 +2238,76 @@
             "openAt": "2026-11-25T02:30:00.000Z",
             "openPrice": "58668",
             "highPrice": "58857",
-            "lowPrice": "58648",
-            "closePrice": "58777",
-            "baseVolume": "0.05611"
+            "lowPrice": "57703",
+            "closePrice": "58609",
+            "baseVolume": "0.45384"
+          },
+          {
+            "openAt": "2026-11-25T02:45:00.000Z",
+            "openPrice": "58664",
+            "highPrice": "58737",
+            "lowPrice": "58591",
+            "closePrice": "58622",
+            "baseVolume": "0.06018"
+          },
+          {
+            "openAt": "2026-11-25T03:00:00.000Z",
+            "openPrice": "58622",
+            "highPrice": "59056",
+            "lowPrice": "58495",
+            "closePrice": "58975",
+            "baseVolume": "0.52302"
+          },
+          {
+            "openAt": "2026-11-25T03:15:00.000Z",
+            "openPrice": "58975",
+            "highPrice": "59119",
+            "lowPrice": "58921",
+            "closePrice": "58921",
+            "baseVolume": "0.11093"
+          },
+          {
+            "openAt": "2026-11-25T03:30:00.000Z",
+            "openPrice": "58918",
+            "highPrice": "59038",
+            "lowPrice": "58881",
+            "closePrice": "58916",
+            "baseVolume": "0.08092"
+          },
+          {
+            "openAt": "2026-11-25T03:45:00.000Z",
+            "openPrice": "58899",
+            "highPrice": "58959",
+            "lowPrice": "58788",
+            "closePrice": "58882",
+            "baseVolume": "0.11156"
+          },
+          {
+            "openAt": "2026-11-25T04:00:00.000Z",
+            "openPrice": "58882",
+            "highPrice": "59088",
+            "lowPrice": "58660",
+            "closePrice": "58840",
+            "baseVolume": "0.24096"
+          },
+          {
+            "openAt": "2026-11-25T04:15:00.000Z",
+            "openPrice": "58840",
+            "highPrice": "59382",
+            "lowPrice": "58839",
+            "closePrice": "58872",
+            "baseVolume": "0.27421"
+          },
+          {
+            "openAt": "2026-11-25T04:30:00.000Z",
+            "openPrice": "58869",
+            "highPrice": "58890",
+            "lowPrice": "58780",
+            "closePrice": "58847",
+            "baseVolume": "0.04686"
           }
         ],
-        "asOf": "2026-11-25T02:41:08.386Z",
+        "asOf": "2026-11-25T04:35:25.963Z",
         "reportedAt": null,
         "test": true
       }
@@ -2317,22 +2317,6 @@
       "json": {
         "venueId": "hyperliquid-testnet",
         "value": [
-          {
-            "openAt": "2026-11-15T03:00:00.000Z",
-            "openPrice": "62313",
-            "highPrice": "63734",
-            "lowPrice": "62313",
-            "closePrice": "63120",
-            "baseVolume": "0.18124"
-          },
-          {
-            "openAt": "2026-11-15T04:00:00.000Z",
-            "openPrice": "63120",
-            "highPrice": "63270",
-            "lowPrice": "63014",
-            "closePrice": "63211",
-            "baseVolume": "0.06537"
-          },
           {
             "openAt": "2026-11-15T05:00:00.000Z",
             "openPrice": "63211",
@@ -4233,12 +4217,28 @@
             "openAt": "2026-11-25T02:00:00.000Z",
             "openPrice": "58646",
             "highPrice": "58875",
-            "lowPrice": "58502",
-            "closePrice": "58777",
-            "baseVolume": "0.46164"
+            "lowPrice": "57703",
+            "closePrice": "58622",
+            "baseVolume": "0.91955"
+          },
+          {
+            "openAt": "2026-11-25T03:00:00.000Z",
+            "openPrice": "58622",
+            "highPrice": "59119",
+            "lowPrice": "58495",
+            "closePrice": "58882",
+            "baseVolume": "0.82643"
+          },
+          {
+            "openAt": "2026-11-25T04:00:00.000Z",
+            "openPrice": "58882",
+            "highPrice": "59382",
+            "lowPrice": "58660",
+            "closePrice": "58847",
+            "baseVolume": "0.56203"
           }
         ],
-        "asOf": "2026-11-25T02:41:08.515Z",
+        "asOf": "2026-11-25T04:35:26.091Z",
         "reportedAt": null,
         "test": true
       }
@@ -4248,14 +4248,6 @@
       "json": {
         "venueId": "hyperliquid-testnet",
         "value": [
-          {
-            "openAt": "2026-10-16T04:00:00.000Z",
-            "openPrice": "81805",
-            "highPrice": "81994",
-            "lowPrice": "81644",
-            "closePrice": "81982",
-            "baseVolume": "7.45483"
-          },
           {
             "openAt": "2026-10-16T08:00:00.000Z",
             "openPrice": "81982",
@@ -6164,12 +6156,20 @@
             "openAt": "2026-11-25T00:00:00.000Z",
             "openPrice": "59193",
             "highPrice": "59953",
-            "lowPrice": "58493",
-            "closePrice": "58777",
-            "baseVolume": "4.40502"
+            "lowPrice": "57703",
+            "closePrice": "58882",
+            "baseVolume": "5.68936"
+          },
+          {
+            "openAt": "2026-11-25T04:00:00.000Z",
+            "openPrice": "58882",
+            "highPrice": "59382",
+            "lowPrice": "58660",
+            "closePrice": "58847",
+            "baseVolume": "0.56203"
           }
         ],
-        "asOf": "2026-11-25T02:41:08.724Z",
+        "asOf": "2026-11-25T04:35:26.299Z",
         "reportedAt": null,
         "test": true
       }
@@ -8095,12 +8095,12 @@
             "openAt": "2026-11-25T00:00:00.000Z",
             "openPrice": "59193",
             "highPrice": "59953",
-            "lowPrice": "58493",
-            "closePrice": "58777",
-            "baseVolume": "4.40502"
+            "lowPrice": "57703",
+            "closePrice": "58847",
+            "baseVolume": "6.25139"
           }
         ],
-        "asOf": "2026-11-25T02:41:08.933Z",
+        "asOf": "2026-11-25T04:35:26.433Z",
         "reportedAt": null,
         "test": true
       }
