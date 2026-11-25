@@ -4,6 +4,10 @@ import { defineCopy } from '../../../shared/i18n';
 // features/trade/venue/venue-copy.ts, and the ticket's own words are today's desk's (copy.ts).
 export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Spot on venue': '{symbol} spot',
+  Pairs: 'Pairs',
+  'To spend': '{asset} to spend',
+  Held: '{asset} held',
+  'Connect to see': 'Connect your wallet',
   'Order ticket': 'Order ticket',
   Buy: 'Buy',
   'Ticket side': 'Buy or sell',
@@ -68,6 +72,10 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Venue account verify': 'Your own account on the venue. Verify for trading to see the venue’s figures, deposit and withdraw.',
   Free: 'Free',
   Used: 'Used',
+  Balances: 'Balances',
+  Coin: 'Coin',
+  'In orders': 'In orders',
+  Actions: 'Actions',
   'As of': 'As of',
   Deposit: 'Deposit',
   Withdraw: 'Withdraw',

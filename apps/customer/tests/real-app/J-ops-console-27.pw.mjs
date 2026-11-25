@@ -198,10 +198,13 @@ async function panelEqualsVenue(page, step) {
   let shown;
   await expect(async () => {
     venue = await venueBalance(owner, 'USDC');
-    shown = { free: shownUnits(await listed(panel, /^Free$/).innerText()), used: shownUnits(await listed(panel, /^Used$/).innerText()) };
+    shown = {
+      free: shownUnits(await panel.locator('tr[data-asset="USDC"] [data-cell="free"]').innerText()),
+      used: shownUnits(await panel.locator('tr[data-asset="USDC"] [data-cell="used"]').innerText()),
+    };
     expect(shown.free, 'free').toBe(toUnits(venue.free));
     expect(shown.used, 'used').toBe(toUnits(venue.locked));
-    await expect(listed(panel, /^As of$/)).toHaveText(/\d{1,2}:\d{2}/, { timeout: 1_000 });
+    await expect(panel.getByTestId('venue-balances-as-of')).toHaveText(/\d{1,2}:\d{2}/, { timeout: 1_000 });
   }).toPass({ timeout: 30_000 });
   keepShown(step, 'venue USDC free on the desk, from the venue', fromUnits(shown.free), venue.free);
   keepShown(step, 'venue USDC used on the desk, from the venue', fromUnits(shown.used), venue.locked);

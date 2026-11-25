@@ -1,6 +1,6 @@
-import { Fragment, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
-import { Sheet } from '@intafaced/ui/lit/templates';
+import { Sheet, Table } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
@@ -100,7 +100,19 @@ export function flattenable(free: string, lot: string): string | null {
   return formatAmount((f / l) * l);
 }
 
-/** The person's venue account, the venue's figures only. */
+type BalanceRow = { asset: string; free: string; locked: string };
+
+/** The market's quote and base coins first, always, then every other coin the account holds. */
+function balanceRows(held: readonly VenueBalance[], market: VenueMarket): BalanceRow[] {
+  const of = (asset: string): BalanceRow => {
+    const row = held.find((b) => b.asset === asset);
+    return { asset, free: row?.free ?? '0', locked: row?.locked ?? '0' };
+  };
+  const first = [market.quoteAsset, market.baseAsset];
+  return [...first.map(of), ...held.filter((b) => !first.includes(b.asset)).map((b) => of(b.asset))];
+}
+
+/** The person's venue account, the venue's figures only: its coins as one Balances table. */
 export function VenueAccountPanel({
   status,
   market,
@@ -123,62 +135,57 @@ export function VenueAccountPanel({
   const v = venueCopy.useCopy().t;
   const owner = useOwner();
   const clock = useClock();
-  const rowOf = (asset: string) => balances?.value.find((b) => b.asset === asset) ?? null;
   return (
     <section className="lt-panel" aria-label={t('Venue account')} data-testid="venue-account">
       <h2 className="lt-panel-title">
-        {t('Venue account')} <TestMark test={status.test} />
+        {t('Balances')} <TestMark test={status.test} />
       </h2>
       <p className="lt-note">{t('Venue account note')}</p>
       <VenueWalletRow />
-      {owner && balances
-        ? [market.quoteAsset, market.baseAsset].map((asset) => {
-            const row = rowOf(asset);
-            const flattenAmount = asset === market.baseAsset ? flattenable(row?.free ?? '0', market.lotSize) : null;
-            return (
-              <Fragment key={asset}>
-                <dl className="lt-kv" data-asset={asset}>
-                  <div>
-                    <dt>{v('Asset')}</dt>
-                    <dd>{asset}</dd>
-                  </div>
-                  <div>
-                    <dt>{t('Free')}</dt>
-                    {/* Only the figure keeps to one line: the asset wraps under it in a narrow column, so the panel never widens the desk. */}
-                    <dd data-cell="free">
-                      <span>
-                        <span className="lt-num">{displayAmount(row?.free ?? '0')}</span> {asset}
-                      </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t('Used')}</dt>
-                    <dd data-cell="used">
-                      <span>
-                        <span className="lt-num">{displayAmount(row?.locked ?? '0')}</span> {asset}
-                      </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t('As of')}</dt>
-                    <dd className="lt-num">{clock(balances.asOf)}</dd>
-                  </div>
-                </dl>
-                {flattenAmount ? (
-                  <>
-                    {/* Stacked below the key/value list so the note and button fit the narrow ticket column. */}
-                    <p className="lt-note">{t('Flatten note', { asset })}</p>
-                    <p>
-                      <Button tone="secondary" onClick={() => onFlatten(flattenAmount)}>
-                        {t('Flatten', { asset })}
-                      </Button>
-                    </p>
-                  </>
-                ) : null}
-              </Fragment>
-            );
-          })
-        : null}
+      {owner && balances ? (
+        <>
+          <p className="lt-note" data-testid="venue-balances-as-of">
+            {t('As of')} <span className="lt-num">{clock(balances.asOf)}</span>
+          </p>
+          <Table<BalanceRow>
+            caption={t('Balances')}
+            dense
+            rows={balanceRows(balances.value, market)}
+            rowKey={(row) => row.asset}
+            rowMarks={(row) => ({ 'data-asset': row.asset })}
+            columns={[
+              { key: 'coin', label: t('Coin'), cell: (row) => <strong>{row.asset}</strong> },
+              {
+                key: 'free',
+                label: t('Free'),
+                align: 'end',
+                cellMarks: () => ({ 'data-cell': 'free' }),
+                cell: (row) => <span className="lt-num">{displayAmount(row.free)}</span>,
+              },
+              {
+                key: 'used',
+                label: t('In orders'),
+                align: 'end',
+                cellMarks: () => ({ 'data-cell': 'used' }),
+                cell: (row) => <span className="lt-num">{displayAmount(row.locked)}</span>,
+              },
+              {
+                key: 'act',
+                label: t('Actions'),
+                align: 'end',
+                cell: (row) => {
+                  const amount = row.asset === market.baseAsset ? flattenable(row.free, market.lotSize) : null;
+                  return amount ? (
+                    <Button tone="secondary" size="sm" title={t('Flatten note', { asset: row.asset })} onClick={() => onFlatten(amount)}>
+                      {t('Flatten', { asset: row.asset })}
+                    </Button>
+                  ) : null;
+                },
+              },
+            ]}
+          />
+        </>
+      ) : null}
       <p>
         <Button tone="secondary" disabled={!owner} onClick={onDeposit}>
           {t('Deposit')}

@@ -473,9 +473,9 @@ async function panelEqualsVenue(page, who, owner) {
   let venue;
   await expect(async () => {
     venue = await venueBalance(who, owner, 'USDC');
-    expect(shownUnits(await listed(panel, /^Free$/).innerText()), 'free').toBe(wireUnits(venue.free));
-    expect(shownUnits(await listed(panel, /^Used$/).innerText()), 'used').toBe(wireUnits(venue.locked));
-    await expect(listed(panel, /^As of$/)).toHaveText(/\d{1,2}:\d{2}/, { timeout: 1_000 });
+    expect(shownUnits(await panel.locator('tr[data-asset="USDC"] [data-cell="free"]').innerText()), 'free').toBe(wireUnits(venue.free));
+    expect(shownUnits(await panel.locator('tr[data-asset="USDC"] [data-cell="used"]').innerText()), 'used').toBe(wireUnits(venue.locked));
+    await expect(panel.getByTestId('venue-balances-as-of')).toHaveText(/\d{1,2}:\d{2}/, { timeout: 1_000 });
   }).toPass({ timeout: 20_000 });
   return venue;
 }

@@ -1,6 +1,7 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import './exchange-desk.css';
+import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { maintenanceOf } from '../../../shared/market-maintenance';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -12,6 +13,8 @@ import {
   ReadProblem,
   VENUE_POLL_MS,
   VenueHeader,
+  VenueLines,
+  TestMark,
   heldKeys,
   heldTags,
   useOwner,
@@ -25,7 +28,7 @@ import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueOrdersCopy } from '../../../features/trade/orders/venue-orders-copy';
 import { deskCopy } from './copy';
-import { Button, DateInput, Fold } from '@intafaced/ui/lit';
+import { Button, DateInput, Fold, StatStrip } from '@intafaced/ui/lit';
 import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useDeviceSetting } from '../../../features/trade/hooks';
@@ -235,6 +238,7 @@ export function VenueSpotDesk({
   };
   // One-click close: every free lot of the base sold as a limit at the venue's best bid, the price the button shows.
   const freeBase = account.balances.data?.value.find((b) => b.asset === market.baseAsset)?.free ?? null;
+  const freeQuote = account.balances.data ? (account.balances.data.value.find((b) => b.asset === market.quoteAsset)?.free ?? '0') : null;
   const closable = freeBase === null ? null : (flattenable(freeBase, market.lotSize) ?? '');
   const notOffered: RefusedChartType[] = OTHER_ORDER_TYPES.filter((x) => !market.orderTypes.includes(x)).map((x) => ({
     id: x,
@@ -484,6 +488,7 @@ export function VenueSpotDesk({
       {/* The fee coin, sub-accounts and the venue's rules: there when asked for, never on the desk's face. */}
       <Fold title={t('Market details')} data-testid="venue-market-details">
         <div className="lt-stack">
+          <VenueLines status={status} feeLine={feeLine} />
           <FeeCurrencyRow />
           {owner && (
             <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
@@ -577,7 +582,53 @@ export function VenueSpotDesk({
         state={{ kind: 'ready' }}
         instrument={
           <>
-            <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+            {/* The header is the top strip itself: the pairs as tiles and what the person can trade with; the venue's
+                lines are in Market details. */}
+            <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine}>
+              <div className="xd-top">
+                <ul className="xd-contracts" aria-label={t('Pairs')} data-testid="dk-pair-tiles">
+                  {(spotMarkets.length > 0 ? spotMarkets : [market]).slice(0, 6).map((m) => (
+                    <li key={m.symbol}>
+                      <Button
+                        tone="secondary"
+                        aria-pressed={m.symbol === market.symbol}
+                        onClick={() => m.symbol !== market.symbol && navigate(`/trade/spot/${m.symbol}`)}
+                      >
+                        <span className="xd-tile-symbol">
+                          {m.baseAsset}/{m.quoteAsset}
+                        </span>
+                        {/* A spot pair has no published mark: the tile shows its name only, never a dash for a price. */}
+                        {m.mark.known ? <span className="lt-num xd-tile-price">{displayAmount(m.mark.value)}</span> : null}
+                      </Button>
+                    </li>
+                  ))}
+                  <li>
+                    <TestMark test={status.test} />
+                  </li>
+                </ul>
+                <div className="xd-risk-row">
+                  <StatStrip
+                    dense
+                    cells={[
+                      {
+                        key: 'spend',
+                        label: t('To spend', { asset: market.quoteAsset }),
+                        value: freeQuote === null ? t('Connect to see') : `${displayAmount(freeQuote)} ${market.quoteAsset}`,
+                        num: freeQuote !== null,
+                        'data-testid': 'dk-to-spend',
+                      },
+                      {
+                        key: 'held',
+                        label: t('Held', { asset: market.baseAsset }),
+                        value: freeBase === null ? t('Connect to see') : `${displayAmount(freeBase)} ${market.baseAsset}`,
+                        num: freeBase !== null,
+                        'data-testid': 'dk-held',
+                      },
+                    ]}
+                  />
+                </div>
+              </div>
+            </VenueHeader>
             <VenueDeskTicker market={market} timeZone={timeZone} />
             <ActionLimitWarning venueName={status.venue.displayName} />
           </>
@@ -586,8 +637,8 @@ export function VenueSpotDesk({
         ticket={ticket}
         orders={
           <div className="xd-under">
-            {bottom}
             {accountSide}
+            {bottom}
           </div>
         }
       />

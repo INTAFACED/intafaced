@@ -675,7 +675,7 @@ test(`${J} #7 sends an order whose request deadline has passed: refused as expir
 
   // On the desk, the venue account shows zero locked USDC matching the venue's own record.
   await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
-  const usedCell = page.getByTestId('venue-account').locator('dl[data-asset="USDC"] [data-cell="used"]');
+  const usedCell = page.getByTestId('venue-account').locator('tr[data-asset="USDC"] [data-cell="used"]');
   await expect(usedCell).toBeVisible();
   await expect.poll(async () => sameDecimal((await usedCell.innerText()).replace(/\s*USDC\s*$/, ''), finalOwn.locked)).toBe(true);
   await stepPicture();
