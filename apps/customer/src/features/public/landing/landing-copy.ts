@@ -70,7 +70,7 @@ const messages = {
   'You get, about': 'You get, about',
   'Our fee, {rate}': 'Our fee, {rate}',
   'Our fee': 'Our fee',
-  'Not set yet: no order is taken until it is': 'Not set yet: no order is taken until it is',
+  'No fee is set, so no order is taken': 'No fee is set, so no order is taken',
   'Arrives in': 'Arrives in',
   'Your account, once filled': 'Your account, once filled',
   'You pay in total': 'You pay in total',

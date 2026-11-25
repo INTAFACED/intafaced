@@ -397,7 +397,7 @@ function FeePreview({
           <div>
             <dt>{typeof takerBps === 'number' ? t('Our fee, {rate}', { rate: bpsAsPercent(takerBps) }) : t('Our fee')}</dt>
             <dd className="landing-num">
-              {fee !== null ? fmtUsd(toFixedString(fee, 2)) : takerBps === null ? t('Not set yet: no order is taken until it is') : '—'}
+              {fee !== null ? fmtUsd(toFixedString(fee, 2)) : takerBps === null ? t('No fee is set, so no order is taken') : '—'}
             </dd>
           </div>
           <div>
