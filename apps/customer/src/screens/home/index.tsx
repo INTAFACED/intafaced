@@ -328,32 +328,39 @@ function HomeSimple() {
   // in the order they chose, under the actions.
   const lead = main[0] === 'work' ? main[0] : null;
   const rest = lead ? main.slice(1) : main;
-  const showSide = showMarkets && !marketsBroken;
+  // The side column draws only the tiles that have something to show; with none, no column, so no empty frame.
+  const sideTiles =
+    showMarkets && !marketsBroken
+      ? side
+          .map((id) =>
+            id === 'your-crypto' ? (
+              launch ? null : portfolio.status === 'loading' ? (
+                <YourCryptoSkeleton key={id} />
+              ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
+                <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />
+              ) : null
+            ) : id === 'watchlist' && (marketsLoading || !popular || watchItems.length > 0) ? (
+              <Watchlist
+                key={id}
+                items={watchItems}
+                popular={popular}
+                tickers={tickers}
+                sparklines={sparklines}
+                loading={marketsLoading}
+                favoriting={favoriting}
+              />
+            ) : null,
+          )
+          .filter((tile) => tile !== null)
+      : [];
+  const showSide = sideTiles.length > 0;
   const watching =
     started.show || showSide ? (
       <>
         {started.show ? <GetStarted steps={started.steps} onHide={started.hide} /> : null}
         {showSide ? (
           <aside data-testid="home-side" className="lt-stack">
-            {side.map((id) =>
-              id === 'your-crypto' ? (
-                launch ? null : portfolio.status === 'loading' ? (
-                  <YourCryptoSkeleton key={id} />
-                ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
-                  <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />
-                ) : null
-              ) : id === 'watchlist' && (marketsLoading || !popular || watchItems.length > 0) ? (
-                <Watchlist
-                  key={id}
-                  items={watchItems}
-                  popular={popular}
-                  tickers={tickers}
-                  sparklines={sparklines}
-                  loading={marketsLoading}
-                  favoriting={favoriting}
-                />
-              ) : null,
-            )}
+            {sideTiles}
           </aside>
         ) : null}
       </>
