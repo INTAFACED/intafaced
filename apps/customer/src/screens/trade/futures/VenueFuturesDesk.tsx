@@ -1,9 +1,9 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
-import { VenueMarketPanel } from '../desk/VenueMarketData';
+import { VenueMarketPanel, useLastPrint } from '../desk/VenueMarketData';
 import '../desk/exchange-desk.css';
-import { Button, Field, Fold, Menu, PageGrid, Segmented, Switch } from '@intafaced/ui/lit';
+import { Button, Field, Fold, MarketTile, Menu, PageGrid, Segmented, Switch } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -248,6 +248,7 @@ function Contracts({
   const account = useVenueAccount(owner, { positions: true });
   // A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's live key.
   const session = useDeskSession(owner, status);
+  const last = useLastPrint(market.symbol);
   // No live session on a venue whose orders it signs: no order can go, so starting it is the ticket's one key.
   const needsSession = session.on && session.read && sessionLine(session.current, session.held).offer === 'start';
   const { run, resend } = useVenueActions(owner, session.signing);
@@ -275,15 +276,21 @@ function Contracts({
                   <ul className="xd-contracts" aria-label={t('Contracts')} data-testid="venue-contract-list">
                     {perps.map((m) => (
                       <li key={m.symbol}>
-                        <Button
-                          tone="secondary"
-                          aria-pressed={m.symbol === market.symbol}
+                        {/* A contract's price: its published mark, else the venue's last print for the one on screen. */}
+                        <MarketTile
+                          symbol={m.symbol}
+                          price={
+                            m.mark.known
+                              ? displayAmount(m.mark.value)
+                              : m.symbol === market.symbol && last !== null
+                                ? displayAmount(last)
+                                : null
+                          }
+                          change={null}
+                          selected={m.symbol === market.symbol}
                           aria-label={t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-                          onClick={() => setChosen(m.symbol)}
-                        >
-                          <span className="xd-tile-symbol">{m.symbol}</span>
-                          {m.mark.known ? <span className="lt-num xd-tile-price">{displayAmount(m.mark.value)}</span> : null}
-                        </Button>
+                          onSelect={() => setChosen(m.symbol)}
+                        />
                       </li>
                     ))}
                     {/* One TEST mark for the whole list, not one per contract. */}

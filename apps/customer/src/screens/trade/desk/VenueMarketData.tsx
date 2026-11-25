@@ -316,3 +316,10 @@ export function VenueMarketPanel({
     </section>
   );
 }
+
+/** The pair's last print on the venue, read on its own for a tile beside the desk, or null before the venue reports one. */
+export function useLastPrint(symbol: string): string | null {
+  const venue = useVenueApi();
+  const read = usePolled((signal) => venue.trades(symbol, 1, signal), `venue-last:${symbol}`, VENUE_POLL_MS);
+  return read.data?.value[0]?.price ?? null;
+}

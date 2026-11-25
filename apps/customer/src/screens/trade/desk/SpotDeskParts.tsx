@@ -1,4 +1,5 @@
-import { Button, DateInput, Fold, StatStrip } from '@intafaced/ui/lit';
+import { DateInput, Fold, MarketTile, StatStrip } from '@intafaced/ui/lit';
+import { useLastPrint } from './VenueMarketData';
 import { navigate } from '../../../app/location';
 import { displayAmount } from '../../../shared/money';
 import type { VenueMarket, VenueUp } from '../../../features/trade/venue-api';
@@ -24,22 +25,20 @@ export function SpotTopStrip({
   freeBase: string | null;
 }) {
   const { t } = spotVenueCopy.useCopy();
+  const last = useLastPrint(market.symbol);
   return (
     <div className="xd-top">
       <ul className="xd-contracts" aria-label={t('Pairs')} data-testid="dk-pair-tiles">
         {(markets.length > 0 ? markets : [market]).slice(0, 6).map((m) => (
           <li key={m.symbol}>
-            <Button
-              tone="secondary"
-              aria-pressed={m.symbol === market.symbol}
-              onClick={() => m.symbol !== market.symbol && navigate(`/trade/spot/${m.symbol}`)}
-            >
-              <span className="xd-tile-symbol">
-                {m.baseAsset}/{m.quoteAsset}
-              </span>
-              {/* A spot pair has no published mark: the tile shows its name only, never a dash for a price. */}
-              {m.mark.known ? <span className="lt-num xd-tile-price">{displayAmount(m.mark.value)}</span> : null}
-            </Button>
+            {/* A pair's price is the venue's last print, read for the pair on screen only; another pair shows its name. */}
+            <MarketTile
+              symbol={`${m.baseAsset}/${m.quoteAsset}`}
+              price={m.symbol === market.symbol && last !== null ? displayAmount(last) : null}
+              change={null}
+              selected={m.symbol === market.symbol}
+              onSelect={() => m.symbol !== market.symbol && navigate(`/trade/spot/${m.symbol}`)}
+            />
           </li>
         ))}
         <li>

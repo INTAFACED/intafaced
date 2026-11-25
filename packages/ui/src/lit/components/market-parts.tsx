@@ -291,6 +291,8 @@ export interface MarketTileProps {
   selected?: boolean;
   onSelect?: () => void;
   className?: string;
+  /** The tile's full name where its words are short ("BTC-PERP on the venue"); its words name it otherwise. */
+  'aria-label'?: string;
   'data-testid'?: string;
 }
 
@@ -298,13 +300,23 @@ export interface MarketTileProps {
  * One market in a desk's strip of pairs: a flat tile with the symbol and its 24h change on top and the last price under
  * them, pressed to switch the desk to it. A figure the venue does not publish is left out, never drawn as a dash.
  */
-export function MarketTile({ symbol, price, change, selected, onSelect, className, 'data-testid': testId }: MarketTileProps) {
+export function MarketTile({
+  symbol,
+  price,
+  change,
+  selected,
+  onSelect,
+  className,
+  'aria-label': name,
+  'data-testid': testId,
+}: MarketTileProps) {
   return (
     <button
       type="button"
       className={clsx('lt-market-tile', className)}
       aria-pressed={selected ?? false}
       onClick={onSelect}
+      aria-label={name}
       data-testid={testId}
     >
       <span className="lt-market-tile-top">
