@@ -107,7 +107,7 @@
 </header>
 <div class="lt-body">
 <section class="lt-region" data-region="rooms">
-<nav class="lt-tabs" aria-label="Promotion sections">
+<nav class="lt-tabs" aria-label="Promotion sections" data-region="section-tabs">
 <a href="/uc/promotion" class="lt-tab" aria-current="page">Overview</a>
 <a href="/uc/promotion/mycards" class="lt-tab">Invitation link</a>
 <a href="/uc/promotion/mypromotion" class="lt-tab">Referral records</a>
@@ -119,11 +119,44 @@
 <div class="lt-col-main">
 <section class="lt-region" data-region="hero" aria-label="Balance">
 <p data-testid="promotions-owner">
-<span lang="en" dir="ltr" data-i18n="account.promotions.owner">Personal account</span> · <span lang="zxx">00000000-0000-4000-8000-000000000001</span>
+<span lang="en" dir="ltr" data-i18n="account.promotions.owner">Personal account</span> · <span lang="zxx" title="00000000-0000-4000-8000-000000000001" data-reference="00000000-0000-4000-8000-000000000001">00000000</span>
 </p>
 </section>
 <section class="lt-region" data-region="sections" aria-label="Activity">
 <div class="lt-stack">
+<div class="lt-stack">
+<section class="lt-stack" aria-label="Your invitation link">
+<h2 tabindex="-1">
+<span lang="en" dir="ltr" data-i18n="account.promotions.linkTitle">Your invitation link</span>
+</h2>
+<div class="lt-empty" data-first="" data-kind="empty">
+<span class="lt-first-mark" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user-plus" aria-hidden="true">
+<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2">
+</path>
+<circle cx="9" cy="7" r="4">
+</circle>
+<line x1="19" x2="19" y1="8" y2="14">
+</line>
+<line x1="22" x2="16" y1="11" y2="11">
+</line>
+</svg>
+</span>
+<h3 class="lt-empty-title">No link to show yet</h3>
+<p class="lt-empty-body">Review a request to get your existing live link, or create one if you don’t have one.</p>
+<ul class="lt-first-points">
+<li>One link to share with friends</li>
+<li>Friends who join with it are listed as your invitees</li>
+<li>Visits are counted; a visit is not a sign-up</li>
+</ul>
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
+<span lang="en" dir="ltr" data-i18n="account.promotions.reviewCreate">Review link request</span>
+</button>
+</div>
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="account.promotions.lifetime">The link stays in this tab and is discarded when account access changes. Getting a link can create one, so it isn’t a read-only status check.</span>
+</p>
+</section>
 <section class="lt-stack" aria-label="Welcome checklist" data-testid="welcome-checklist" data-state="failed">
 <div class="lt-stack">
 <h2>Welcome checklist</h2>
@@ -144,7 +177,7 @@
 <section class="lt-stack" aria-label="My rewards" data-testid="rewards-hub" data-state="failed">
 <div class="lt-stack">
 <h2>My rewards</h2>
-<p class="lt-hint">Every campaign reward on your account, read from the campaigns service each time you open this page.</p>
+<p class="lt-hint">Every campaign reward on your account, up to date each time you open this page.</p>
 <div data-testid="rewards-failed">
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
@@ -157,24 +190,6 @@
 </div>
 </div>
 </div>
-</section>
-<div class="lt-stack">
-<section class="lt-stack" aria-label="Your invitation link">
-<h2 tabindex="-1">
-<span lang="en" dir="ltr" data-i18n="account.promotions.linkTitle">Your invitation link</span>
-</h2>
-<h3>
-<span lang="en" dir="ltr" data-i18n="account.promotions.noLink">No link to show yet</span>
-</h3>
-<p class="lt-hint">
-<span lang="en" dir="ltr" data-i18n="account.promotions.noLinkBody">Review a request to get your existing live link, or create one if you don’t have one.</span>
-</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="account.promotions.reviewCreate">Review link request</span>
-</button>
-<p class="lt-hint">
-<span lang="en" dir="ltr" data-i18n="account.promotions.lifetime">The link stays in this tab and is discarded when account access changes. Getting a link can create one, so it isn’t a read-only status check.</span>
-</p>
 </section>
 <section class="lt-stack" aria-label="Your referral code">
 <h2>

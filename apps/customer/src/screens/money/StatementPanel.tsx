@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Download } from 'lucide-react';
-import { Button } from './ui-deps';
+import { Button, Field } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
 import { refusalCopy } from './deps';
 import { moneyCopy } from './copy';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from './statement-model';
@@ -60,14 +61,14 @@ export function StatementPanel() {
 
   return (
     <form
-      className="money-statement"
+      className="lt-stack"
       aria-label={t('Statement')}
       onSubmit={(event) => {
         event.preventDefault();
         void download();
       }}
     >
-      <h2 className="money-statement__h">{t('Statement')}</h2>
+      <h2 className="lt-heading">{t('Statement')}</h2>
       <p className="lt-hint">{t('Statement hint')}</p>
       <p className="lt-hint">
         <a className="lt-link" href="/bank/statements">
@@ -75,19 +76,24 @@ export function StatementPanel() {
         </a>{' '}
         {centre.t('activityLinkHint')}
       </p>
-      <div className="money-statement__row">
-        <label className="money-bar__field">
-          <span>{t('Statement month')}</span>
-          <input type="month" value={month} max={lastFullMonth(new Date())} onChange={(event) => setMonth(event.target.value)} />
-        </label>
-        <label className="money-bar__field">
-          <span>{t('Statement format')}</span>
-          <select value={format} onChange={(event) => setFormat(event.target.value as 'pdf' | 'csv')}>
-            <option value="pdf">PDF</option>
-            <option value="csv">CSV</option>
-          </select>
-        </label>
-        <Button type="submit" variant="secondary" size={40} disabled={busy || problem !== null}>
+      <div className="lt-toolbar">
+        <Field
+          type="month"
+          label={t('Statement month')}
+          value={month}
+          max={lastFullMonth(new Date())}
+          onChange={(event) => setMonth(event.target.value)}
+        />
+        <SelectField
+          label={t('Statement format')}
+          value={format}
+          options={[
+            { value: 'pdf', label: 'PDF' },
+            { value: 'csv', label: 'CSV' },
+          ]}
+          onChange={(value) => setFormat(value as 'pdf' | 'csv')}
+        />
+        <Button type="submit" tone="secondary" disabled={busy || problem !== null}>
           <Download size={16} aria-hidden="true" />
           {t('Download statement')}
         </Button>

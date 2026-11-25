@@ -177,7 +177,7 @@ test(`${J} #2 sends a timestamp just outside the owner window: the stale code; a
   await page.goto('/developers/authentication');
   const shown = page.getByTestId('developers-sign-window');
   await expect(shown, 'the page shows the window (portal PR of DV-auth-01)').toBeVisible(UNBUILT);
-  expect(Number((await shown.textContent())?.match(/\d+/)?.[0])).toBe(windowSeconds);
+  await expect.poll(async () => Number((await shown.textContent())?.match(/\d+/)?.[0])).toBe(windowSeconds);
 });
 
 test(`${J} #3 sends a request with two invalid fields: one typed body listing both, with a request id and a docs link`, async () => {

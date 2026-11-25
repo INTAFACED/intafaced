@@ -24,6 +24,7 @@ export type RefusalKind =
   | 'openOrdersCap'
   | 'priceBandUnset'
   | 'openOrdersCapUnset'
+  | 'minNotionalUnset'
   | 'insufficient'
   | 'destMissing'
   | 'recipientNoAccount'
@@ -127,9 +128,10 @@ export const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.price_band': 'priceBand',
   'trade.operator_throttle': 'openOrdersCap',
   'trade.limit_max_open_orders': 'openOrdersCap',
-  // A pair whose band or open-order cap is not published: refused, never a default rule.
+  // A pair whose band, open-order cap or minimum order value is not published: refused, never a default rule.
   'trade.price_band_unset': 'priceBandUnset',
   'trade.open_orders_cap_unset': 'openOrdersCapUnset',
+  'trade.min_notional_unset': 'minNotionalUnset',
   'trade.no_book': 'noBook',
   // An operator halt: new orders stop, open orders stay and can be cancelled. Not the same as a closed market.
   'trade.market_halted': 'marketHalted',
@@ -263,6 +265,8 @@ export const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.below_min_qty': 'belowMinimum',
 
   'trade.market_not_found': 'notFound',
+  'trade.history_dataset_not_found': 'notFound',
+  'trade.history_book_interval_unset': 'notSetUp',
   'bank.space_not_found': 'notFound',
   'pay.payment_not_found': 'notFound',
   'pay.link_not_found': 'notFound',

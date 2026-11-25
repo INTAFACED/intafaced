@@ -10,6 +10,7 @@ import type { EventBus } from '@intafaced/events';
 import { VenueRefusalError } from '@intafaced/venue-contracts';
 import type { ServiceAuthMode, ServiceSigner, ServiceVerifier, StepUpCheck } from '@intafaced/contracts';
 import { env } from '../env.js';
+import { createMarketMaintenanceReader } from '../market-maintenance-read.js';
 import type { RankPerksSource } from '../spot/rank-perks.js';
 import { builderFeesAt } from './builder-fee-versions.js';
 import { createFeeSaverClient } from './fee-saver-client.js';
@@ -76,6 +77,7 @@ export function wireUserVenue(deps: {
   const feeSaverCoupons = env.CAMPAIGNS_URL.trim()
     ? createFeeSaverClient(env.CAMPAIGNS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s)
     : null;
+  const maintenanceBoard = createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL });
   const userVenueDoors = userVenueUrls.map(
     (url, i) =>
       new UserVenueDoor({
@@ -85,7 +87,9 @@ export function wireUserVenue(deps: {
           return venue;
         },
         listings: new StoreVenueRoutingGate(venueListings),
+        maintenanceBoard,
         appEnv: process.env.APP_ENV,
+        betaPosture: process.env.INTAFACED_BETA_POSTURE,
         store: userVenueStore,
         stepUp,
         builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),

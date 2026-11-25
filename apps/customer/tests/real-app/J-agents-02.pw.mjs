@@ -1,6 +1,6 @@
 // World: gates, restart
 import { test, expect } from './journey.mjs';
-import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
+import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, saveDraft, tableIn } from './agents.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -70,8 +70,7 @@ async function setAgentCap(page, cap) {
   await pages(page).getByRole('button', { name: 'Build', exact: true }).click();
   const builder = page.getByRole('form', { name: 'Agent builder' });
   await builder.getByRole('textbox', { name: /^Spend cap per session/ }).fill(cap);
-  await builder.getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder.getByRole('status')).toHaveText('Draft saved.');
+  await saveDraft(builder);
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
 }
 
@@ -320,6 +319,7 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
 
 test(`${J} #4 asks for a run when the payment method's available amount, as the partner or the chain reports it, is below the worst case: a refusal naming the payment method and its figure with its source and as-of time; the engine is never called, nothing is billed; with that figure unreadable the run does not start and says why`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   // A passkey belongs to the stack's relying party, `localhost` (an IP address cannot be one), so this step's page is
@@ -391,6 +391,8 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   await expect(runs.nth(1).getByTestId('run-cost')).toHaveText('0 USDT');
   await expect(runs.nth(1).getByTitle(address)).toContainText(`block ${block}`);
   expect(await ledgerBalances(payer)).toEqual(before);
+  // Picture while the wallet's funds refusal (wallet, chain figure, block and time) is on screen, before switching accounts.
+  await stepPicture(page);
 
   // With the chain unreachable (its gate closed) the figure cannot be read: the run does not start and says why, naming
   // the wallet. The engine is never called and nothing is billed.
@@ -813,7 +815,7 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
     const usage = tableIn(main(page), 'Usage by agent, day and task');
     // The usage view lists every agent the person built, by name, and nothing else.
     const rows = usage.locator('tbody tr');
-    expect(new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
+    await expect.poll(async () => new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
     const mine = rows.filter({ has: page.getByRole('cell', { name, exact: true }) });
     await expect(mine).toHaveCount(1);
     // The day is the UTC day the agent's window opened on (its window id starts with it), not the test's clock.

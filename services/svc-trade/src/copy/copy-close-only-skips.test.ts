@@ -258,6 +258,59 @@ describe('the skip log (CB-copy-11)', () => {
     expect((await stopped.svc.skipLog(principal, { followId: b })).items.map((i) => i.reason)).toEqual(['paused']);
   });
 
+  it('passes followId to listLeaderFillsSince while paused and when flushing paused skips (venue follows)', async () => {
+    const venueFill = 'venue:0x1111111111111111111111111111111111111111:1795500000000:sim-fill-1';
+    const seenFollowIds: Array<string | undefined> = [];
+    const makeSvc = () =>
+      new CopyService(new MemoryLedger(), {
+        accountAdmission: readyTestAdmission(),
+        feeShareLaw: fee,
+        jurisdictionLaw: jur,
+        placeMirrorEnabled: true,
+        now: () => NOW,
+        inspectMarket: async () => ({ paper: false, lotSize: parseAmount('0.00001') }),
+        placeFollowerOrder: async () => ({ orderId: 'order-1' }),
+        lookupLeaderFill: async () => null,
+        // Mirrors svc-trade/src/index.ts: a venue follow reads venue fills only when followId is passed.
+        listLeaderFillsSince: async (_leaderId, after, _limit, followId) => {
+          seenFollowIds.push(followId);
+          if (!followId) return [];
+          const at = new Date(NOW.getTime() + 1000);
+          return at.getTime() > after.at.getTime() ? [{ fillId: venueFill, marketId: 'BTC-USDC', at }] : [];
+        },
+      });
+    const followOn = async (svc: CopyService) => {
+      const made = await svc.follow(principal, {
+        leaderId: LEADER,
+        region: 'SG',
+        permittedMarkets: ['BTC-USDC'],
+        maxNotionalPerOrder: '100',
+        maxAggregateExposure: '500',
+        fixedOrderSize: '20',
+        expiresAt: '2026-12-01T00:00:00.000Z',
+      });
+      await svc.grantSessionKey(principal, { followId: made.followId });
+      return made.followId;
+    };
+
+    const swept = makeSvc();
+    const a = await followOn(swept);
+    await swept.pause(principal, { followId: a });
+    await swept.runMirrorSweep();
+    expect((await swept.skipLog(principal, { followId: a })).items).toEqual([
+      { leaderFillId: venueFill, reason: 'paused', at: expect.any(String) },
+    ]);
+
+    const flushed = makeSvc();
+    const b = await followOn(flushed);
+    await flushed.pause(principal, { followId: b });
+    await flushed.stop(principal, { followId: b, closeOnly: true });
+    expect((await flushed.skipLog(principal, { followId: b })).items).toEqual([
+      { leaderFillId: venueFill, reason: 'paused', at: expect.any(String) },
+    ]);
+    expect(seenFollowIds).toEqual([a, b]);
+  });
+
   it('names the reason of a refused copy, never the raw code', async () => {
     // At 3,000,000 a unit, 20 USDT buys less than one lot: the copy is refused.
     const ctx = setup([fill(BUY, { qty: parseAmount('0.00001'), notional: parseAmount('30'), price: parseAmount('3000000') })]);

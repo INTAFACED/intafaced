@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import { deviceListSchema } from '@intafaced/contracts/identity-account-room';
 
-export const deviceList = deviceListSchema;
+const deviceList = deviceListSchema;
 export type DeviceList = z.infer<typeof deviceList>;
 export type Device = DeviceList['sessions'][number];
 

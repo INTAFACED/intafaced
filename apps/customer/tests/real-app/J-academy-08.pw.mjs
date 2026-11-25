@@ -332,6 +332,7 @@ test(`${J} #5 a message to the course team is in my inbox; with no mail provider
 
 test(`${J} #6 staff reply: I see it and the unread marker clears on read; a learner who is not enrolled is refused`, async ({
   browser,
+  stepPicture,
 }) => {
   needs('me', 'conversation');
   await staff('mutate', 'admin.replyCourseMessage', {
@@ -360,5 +361,7 @@ test(`${J} #6 staff reply: I see it and the unread marker clears on read; a lear
   await form.getByRole('button', { name: 'Send to the course team', exact: true }).click();
   await expect(form.getByTestId('course-team-outcome')).toHaveAttribute('data-code', 'academy.enrolment_required');
   await expect(form.getByTestId('course-team-outcome')).toContainText('Enrol in this course to message its course team.');
+  // The step ends on the stranger's refused form: the whole page, from the top, so the outcome under the send button is in it.
+  await stepPicture(stranger);
   await stranger.context().close();
 });

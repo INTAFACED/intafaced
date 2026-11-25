@@ -227,32 +227,54 @@ function Part({ part, hidden, t, asOfText }: { part: ValuedPart; hidden: boolean
       data-held={held ?? undefined}
       data-value-usd={part.valueUsd ?? ''}
     >
-      <span data-testid="standing-part-label">{partName(part, t)}</span>
-      {part.test ? (
-        <>
-          {' '}
-          <span className="lt-test">{t('TEST')}</span>
-        </>
-      ) : null}
-      {' · '}
-      <span data-testid="standing-part-source">{t(PART_SOURCE[part.id])}</span>
-      {held !== null && held !== 'unknown' && part.asOf ? (
-        <>
-          {' · '}
-          <Held state={held} asOf={part.asOf} asOfText={asOfText(part.asOf)} t={t} timeTestId="standing-part-as-of" />
-        </>
-      ) : null}
-      {': '}
+      {/* Each row of `.lt-rows` stacks its children, so each line is one element: the name, then who reports it and when,
+          then the figure. A bare separator between them would stand on a line of its own. */}
+      <span>
+        <span data-testid="standing-part-label">{partName(part, t)}</span>
+        {part.test ? (
+          <>
+            {' '}
+            <span className="lt-test" data-testid="standing-part-test">
+              {t('TEST')}
+            </span>
+          </>
+        ) : null}
+      </span>
+      <span className="lt-hint">
+        <span data-testid="standing-part-source">{t(PART_SOURCE[part.id])}</span>
+        {/* A TEST part names the TEST adapter its figures come from (J-home-ia-11 #3): the source's own name. */}
+        {part.test && part.label ? (
+          <>
+            {', '}
+            <span data-testid="standing-part-adapter">{t('Source TEST adapter', { name: part.label })}</span>
+          </>
+        ) : null}
+        {held !== null && held !== 'unknown' && part.asOf ? (
+          <>
+            {' · '}
+            <Held state={held} asOf={part.asOf} asOfText={asOfText(part.asOf)} t={t} timeTestId="standing-part-as-of" />
+          </>
+        ) : null}
+      </span>
       {part.state === 'reading' ? (
         <span className="lt-hint">{t('Part reading')}</span>
       ) : part.state === 'unread' ? (
-        <>
+        <span>
           <Held state="unknown" t={t} /> <span data-testid="standing-part-unread">{t('Part unread')}</span>
-        </>
+        </span>
       ) : part.rows.length === 0 ? (
         <span className="lt-hint">{t('Part empty')}</span>
       ) : part.valueUsd === null ? (
-        <span className="lt-hint">{t('Part not valued')}</span>
+        <span>
+          {/* Nothing here has a published price, so each amount is shown as its source reports it. */}
+          <Shown
+            testId="standing-part-amounts"
+            slot="amount"
+            text={part.rows.map((row) => `${row.amount} ${row.asset}`).join(', ')}
+            hidden={hidden}
+          />{' '}
+          <span className="lt-hint">{t('Part not valued')}</span>
+        </span>
       ) : (
         <Shown testId="standing-part-value" text={dollars(part.valueUsd)} hidden={hidden} />
       )}

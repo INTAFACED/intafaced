@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button } from '../../shared/ui';
+import { Button, Panel } from '../../shared/ui';
 import { preservePaperHref } from '../more';
 import { useApi, useSession } from '../session';
 import { QuantRooms } from './QuantRooms';
@@ -65,17 +65,16 @@ function PreviewRefusalAlert({ refusal }: { refusal: ReturnType<typeof useEngine
   );
 }
 
-/** The shell every Preview room shares: the label, the sample note, and the room switch. */
+/** The shell every Preview room shares: the label and the room switch. The sample note is the room's description, said once. */
 function PreviewShell({ room, paper, children }: { room: PreviewRoomId; paper: boolean; children: ReactNode }) {
   const { t } = previewCopy.useCopy();
   return (
     <>
-      <QuantRooms active={room} paper={paper} />
+      <QuantRooms paper={paper} />
       <div data-testid="quant-preview" data-room={room} className="quant-preview">
         <p className="badge" role="note">
           <strong>{t('label')}</strong>
         </p>
-        <p className="lt-muted">{t('sampleNote')}</p>
         {children}
       </div>
     </>
@@ -100,10 +99,9 @@ function EnginePanel({ name, children }: { name: string; children: ReactNode }) 
 
 function Region({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <section aria-label={name} className="panel">
-      <h3>{name}</h3>
+    <Panel title={name} aria-label={name}>
       {children}
-    </section>
+    </Panel>
   );
 }
 
@@ -190,7 +188,7 @@ export function EditorRoom({ paper }: { paper: boolean }) {
                     aria-pressed={state.breakpoints.includes(line)}
                     onClick={() => save({ ...state, breakpoints: toggle(state.breakpoints, line) })}
                   >
-                    {state.breakpoints.includes(line) ? '●' : '○'}
+                    <span aria-hidden="true">{state.breakpoints.includes(line) ? '●' : line}</span>
                   </button>
                   {opens && (
                     <button
@@ -262,12 +260,21 @@ export function TesterRoom({ paper }: { paper: boolean }) {
   // Kept in memory only: a reload starts the sample replay again from the start at 1x.
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(true);
-  const [frame, setFrame] = useState(0);
+  // The frame follows the clock: `speed` frames every 100 ms since the replay last started or changed speed, on top of
+  // the frames before. Under a frozen clock it holds still, so a drawing of the room is the same every time.
+  const [clock, setClock] = useState(() => ({ base: 0, since: Date.now() }));
+  const [now, setNow] = useState(() => Date.now());
+  const frame = playing ? clock.base + Math.floor(Math.max(0, now - clock.since) / 100) * speed : clock.base;
+  const restart = (base: number) => {
+    const at = Date.now();
+    setClock({ base, since: at });
+    setNow(at);
+  };
   useEffect(() => {
     if (!playing) return undefined;
-    const id = setInterval(() => setFrame((n) => n + speed), 100);
+    const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
-  }, [playing, speed]);
+  }, [playing]);
   const tick = (frame % TICKS) + 1;
   return (
     <PreviewShell room="tester" paper={paper}>
@@ -288,18 +295,30 @@ export function TesterRoom({ paper }: { paper: boolean }) {
             value={speed}
             aria-label={t('speed')}
             aria-valuetext={`${speed}x`}
-            onChange={(event) => setSpeed(Number(event.currentTarget.value))}
+            onChange={(event) => {
+              restart(frame);
+              setSpeed(Number(event.currentTarget.value));
+            }}
           />
         </label>
-        <Button variant="secondary" onClick={() => setPlaying((p) => !p)}>
-          {playing ? t('pause') : t('play')}
-        </Button>
-        <Button disabled={engine.waiting} onClick={() => void act('start')}>
-          {t('start')}
-        </Button>
-        <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
-          {t('backtest')}
-        </a>
+        {/* The local replay's control and the engine's Start are one row of equal buttons; the real backtest's link sits apart. */}
+        <div className="lt-actions preview-controls">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              restart(frame);
+              setPlaying(!playing);
+            }}
+          >
+            {playing ? t('pause') : t('play')}
+          </Button>
+          <Button variant="secondary" disabled={engine.waiting} onClick={() => void act('start')}>
+            {t('start')}
+          </Button>
+          <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
+            {t('backtest')}
+          </a>
+        </div>
       </Region>
       <PreviewRefusalAlert refusal={engine.refusal} />
     </PreviewShell>
@@ -362,9 +381,13 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
             <option value="loss">{t('lossPasses')}</option>
           </select>
         </label>
+        <EnginePanel name={t('bestParameters')}>
+          <p lang="zxx">TEST {t('bestRow', { fast: 10, slow: 30 })}</p>
+        </EnginePanel>
         <p role="note">{t('sortNote')}</p>
-        <EnginePanel name={t('passes')}>
-          <table aria-label={t('passes')}>
+        {/* The passes are sample rows the person filters and sorts here, so they stay readable; only the engine's output is blurred. */}
+        <div data-testid="optimise-passes">
+          <table aria-label={t('passes')} className="preview-passes">
             <thead>
               <tr>
                 <th scope="col" aria-sort={sort ?? 'none'}>
@@ -394,7 +417,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
               ))}
             </tbody>
           </table>
-        </EnginePanel>
+        </div>
         <Button variant="secondary" onClick={() => setWalkOpen((open) => !open)}>
           {t('walkForward')}
         </Button>

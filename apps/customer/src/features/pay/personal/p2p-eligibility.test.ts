@@ -21,7 +21,7 @@ describe('P2P take requirements', () => {
     const region = (reason: string) => eligibilityReason(t, { id: 'jurisdiction', state: 'not_met', reason, fix: null });
     expect(region('denied.region_blocked')).toBe('P2P is closed in your region.');
     expect(region('denied.screening_unconfigured')).toContain('screening is not set up');
-    expect(region('denied.module_blocked')).toBe('The service refused this requirement.');
+    expect(region('denied.module_blocked')).toBe('This requirement was not met.');
   });
 
   it('a refused take for contact is its own kind, and proof nothing was placed', () => {

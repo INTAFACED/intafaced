@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
 import { BrandIris, Panel } from '@intafaced/ui';
-import { isServiceNotConnected, type ApiResult } from './api';
+import { DateOrInput } from '@intafaced/ui/lit';
+import { isServiceNotConnected, isVerifyFirst, type ApiResult } from './api';
+import { VerifyFirstNote } from './verify-first';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
 import { canTryAgain, failureRawCode } from './failure-words';
@@ -26,7 +28,7 @@ export function Field({
   return (
     <label className="lt-field" htmlFor={id}>
       <span id={`${id}-label`}>{label}</span>
-      <input
+      <DateOrInput
         {...input}
         id={id}
         aria-labelledby={input['aria-label'] ? undefined : `${id}-label`}
@@ -95,6 +97,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
       </div>
     );
   }
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   const rawCode = failureRawCode(result);
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.

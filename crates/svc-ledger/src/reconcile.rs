@@ -1409,7 +1409,7 @@ pub fn read_last_verified(store: &Store) -> Result<LastVerified, StoreError> {
             "SELECT floor(extract(epoch FROM finished_at) * 1000)::bigint, through_seq::text
                FROM ledger.reconcile_runs
               WHERE outcome = 'ok'
-              ORDER BY through_seq DESC, id DESC
+              ORDER BY reconcile_runs.through_seq DESC, id DESC
               LIMIT 1",
             &[],
         )?;

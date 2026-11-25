@@ -379,6 +379,7 @@ fn take_hold(
             released: Amount::ZERO,
             refunded: Amount::ZERO,
             expired: false,
+            drawn: false,
         },
     );
 }

@@ -23,7 +23,7 @@ pub mod sim;
 
 use service_kit::json::Json;
 use service_kit::schema::Value;
-use service_kit::server::{Request, Response};
+use service_kit::server::{Reply, Request, Response};
 use service_kit::trpc::TrpcError;
 
 use crate::door::{BankDoor, Ctx};
@@ -424,14 +424,14 @@ const PAGE_BASE: &str = "/test/payin-sim/pay/";
 
 /// The TEST page and its approve button. Mounted only with the pay-in partner.
 ///
-/// GAP: the kit's `Response` carries a status and a body only, so the page goes without its `text/html` content type,
-/// `cache-control: no-store` and content security policy, and the approve's 303 without its `Location`.
+/// The page goes as `text/html` with `cache-control: no-store` and its content security policy (the approve form posts
+/// here and is redirected to the app, so the app's origin is a form target too); the approve answers 303 to the app.
 fn page_door(
     door: &BankDoor,
     partner: &payin::PayinSim,
     req: &Request<'_>,
     path: &str,
-) -> Option<Response> {
+) -> Option<Reply> {
     let rest = path.strip_prefix(PAGE_BASE)?;
     let (raw, approve) = match rest.strip_suffix("/approve") {
         Some(id) => (id, true),
@@ -450,12 +450,12 @@ fn page_door(
                 .starts_with("application/x-www-form-urlencoded")
         });
         if !form && let Err(res) = crate::door::rest::read_body(req) {
-            return Some(res);
+            return Some(res.into());
         }
     }
     let id = decoded(raw);
     if !shape::uuid(&id) {
-        return Some(reply(400, "not a payment id", "bank.validation_failed"));
+        return Some(reply(400, "not a payment id", "bank.validation_failed").into());
     }
     let now = door.now();
     let res = door.ramps_deps(now, |d| {
@@ -468,12 +468,25 @@ fn page_door(
     });
     let answer = match res {
         Ok(a) => a,
-        Err(e) => return Some(page_refuse(e)),
+        Err(e) => return Some(page_refuse(e).into()),
     };
     if !approve {
-        return Some(Response {
-            status: 200,
-            body: page(partner.label(), &answer.viewed, &answer.return_url),
+        return Some(Reply {
+            response: Response {
+                status: 200,
+                body: page(partner.label(), &answer.viewed, &answer.return_url),
+            },
+            content_type: Some("text/html; charset=utf-8"),
+            headers: vec![
+                ("cache-control", "no-store".to_owned()),
+                (
+                    "content-security-policy",
+                    format!(
+                        "default-src 'none'; form-action 'self' {}; frame-ancestors 'none'",
+                        partner.return_origin()
+                    ),
+                ),
+            ],
         });
     }
     partner.book().approved(&id, now);
@@ -481,9 +494,13 @@ fn page_door(
         // The TS delivers after the reply; here it delivers before it. A failure leaves the request pending.
         deliver(door, partner, &answer.viewed);
     }
-    Some(Response {
-        status: 303,
-        body: String::new(),
+    Some(Reply {
+        response: Response {
+            status: 303,
+            body: String::new(),
+        },
+        content_type: None,
+        headers: vec![("location", answer.return_url)],
     })
 }
 
@@ -558,5 +575,14 @@ pub fn doors(door: &BankDoor, req: &Request<'_>, peer: &str) -> Option<Response>
     let partner = door.ramps().onramp.partner.as_ref()?;
     let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
     page_door(door, partner, req, path)
+        .map(|r| r.response)
         .or_else(|| record_door(partner, req, path, peer, door.now()))
+}
+
+/// The TEST page and its approve, with the content type and headers they send beside the body; `None` for every
+/// other request.
+pub fn page_reply(door: &BankDoor, req: &Request<'_>) -> Option<Reply> {
+    let partner = door.ramps().onramp.partner.as_ref()?;
+    let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
+    page_door(door, partner, req, path)
 }

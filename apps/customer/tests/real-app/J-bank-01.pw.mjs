@@ -263,39 +263,42 @@ test(`${J} #3 adds a currency once, and removing one the partner reports with a 
     await expect(page.getByTestId('currency-in-use')).toContainText('bank.currency_in_use');
     await expect(page.getByTestId('currency-USDC')).toBeVisible();
   };
-  // A hold: a TEST card purchase the TEST card partner holds in USDC, until the partner lets the hold run out.
+  // A hold: a TEST card purchase of TEST 5 USDC, which the TEST card holds from the person's USDC account at the partner:
+  // TEST 5 USDC paid in there first (a fresh fund id each attempt), so the hold leaves the account at 0 again.
+  const paid = await own.mutate('testPartner.fund', { fundId: `jb01-usdc-${randomUUID()}`, assetId: 'USDC', amount: '5' });
+  expect(paid, JSON.stringify(paid.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  expect(await partnerMain(userId, 'USDC')).toBe('5');
   const issued = await own.mutate('cards.issue', { cardId: randomUUID(), assetId: 'USDC', perAuthorizationLimit: '50' });
   expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
   const bought = { cardId: issued.data.id, authorizationRef: `jb01-${randomUUID()}`, amount: '5' };
   expect(await cardEvent('bank.card_authorize', 'ops.cardAuthorize', { ...bought, merchant: 'TEST Shop' }, bought)).toMatchObject({
     decision: 'approved',
   });
-  // The hold is the card partner's own: its book holds the 5 USDC open.
+  // The hold is the card partner's own: its book holds the 5 USDC open, taken from the USDC account, which reads 0.
   expect(await cardPartnerHeld(userId, 'USDC')).toBe('5');
+  expect(await partnerMain(userId, 'USDC')).toBe('0');
   await refusedInUse();
-  // The partner lets the hold run out (it reads it as past its hold time from the next read on), and the step puts it
-  // back to its own hold time at its end.
-  expect(await own.mutate('testPartner.set', { cardHold: 'expired' })).toMatchObject({ ok: true });
-  try {
-    // An open order: the TEST partner reports one open TEST order reserving USDC.
-    expect(await own.mutate('testPartner.set', { openOrder: 'USDC' })).toMatchObject({ ok: true, data: { openOrder: 'USDC' } });
-    // The open order is the partner's own: its book lists one open order reserving USDC.
-    expect(await partnerBook(userId, '/open-orders')).toEqual([{ id: expect.any(String), asset: 'USDC' }]);
-    try {
-      await refusedInUse();
-    } finally {
-      expect(await own.mutate('testPartner.set', { openOrder: null })).toMatchObject({ ok: true, data: { openOrder: null } });
-    }
-    expect(await partnerBook(userId, '/open-orders')).toEqual([]);
+  // The purchase settles: the partner captures the 5, so nothing is held and the account still reads 0.
+  expect(await cardEvent('bank.card_capture', 'ops.cardCapture', bought, bought)).toMatchObject({ heldBy: 'partner' });
+  expect(await cardPartnerHeld(userId, 'USDC')).toBe('0');
+  expect(await partnerMain(userId, 'USDC')).toBe('0');
 
-    // An empty currency, with no hold and no order in it, comes off.
-    await page.reload();
-    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
-    await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
-    await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+  // An open order: the TEST partner reports one open TEST order reserving USDC.
+  expect(await own.mutate('testPartner.set', { openOrder: 'USDC' })).toMatchObject({ ok: true, data: { openOrder: 'USDC' } });
+  // The open order is the partner's own: its book lists one open order reserving USDC.
+  expect(await partnerBook(userId, '/open-orders')).toEqual([{ id: expect.any(String), asset: 'USDC' }]);
+  try {
+    await refusedInUse();
   } finally {
-    expect(await own.mutate('testPartner.set', { cardHold: 'live' })).toMatchObject({ ok: true });
+    expect(await own.mutate('testPartner.set', { openOrder: null })).toMatchObject({ ok: true, data: { openOrder: null } });
   }
+  expect(await partnerBook(userId, '/open-orders')).toEqual([]);
+
+  // An empty currency, with no hold and no order in it, comes off.
+  await page.reload();
+  await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
+  await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
+  await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
 
   // Where the partner has no currency accounts (the TEST partner switched to offer none): "not offered by the partner",
   // and no currency account is opened.
@@ -586,8 +589,12 @@ test(`${J} #7 switches to a business profile: every bank read carries it, and a 
   // A business has no account of its own: no company terms, currencies or details, and no personal money shown as its own.
   const home = page.getByTestId('account-home');
   await expect(home.getByText('No company account')).toHaveCount(2);
-  await expect(home).toContainText('bank.company_account_unwired');
-  await expect(page.getByTestId('account-details-company')).toContainText('bank.company_account_unwired');
+  // A Bank refusal no step names ends in plain words; its code stays on data-code.
+  await expect(home.locator('[data-code="bank.company_account_unwired"]').first()).toBeAttached();
+  await expect(home).not.toContainText('bank.company_account_unwired');
+  const details = page.getByTestId('account-details-company');
+  await expect(details.locator('[data-code="bank.company_account_unwired"]').first()).toBeAttached();
+  await expect(details).not.toContainText('bank.company_account_unwired');
   await expect(page.getByTestId('currency-USDT')).toHaveCount(0);
   await expect(page.getByTestId('account-terms')).toHaveCount(0);
 

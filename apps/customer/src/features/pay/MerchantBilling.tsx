@@ -1,20 +1,15 @@
 import { createSubscriptionWithRecovery } from './portal/payments/subscription-recovery';
-import { useUnsavedForm } from './portal/useUnsavedForm';
-import { SelectField } from './portal/components';
-import { DEFAULT_ASSET, useAssetChoices } from './portal/payments/asset-choices';
-import type { PortalApi } from './portal/api';
-import { extensionCopy } from './portal/extension-copy';
+import { DEFAULT_ASSET } from './portal/payments/asset-choices';
 import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
-import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
-import { DateTime } from './portal/ui/DateTime';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation } from './BusinessPay';
+import { CreateMandate } from './volt/CreateMandate';
 import * as s from './schemas';
 import {
   PAY_SUBSCRIPTION_LIST,
@@ -25,6 +20,7 @@ import {
   PAY_SUBSCRIPTION_RESUME,
   PAY_SUBSCRIPTION_CANCEL,
 } from '@intafaced/contracts/pay-subscription-procedures';
+import { PAY_MANDATE_LIST, PAY_MANDATE_CANCEL } from '@intafaced/contracts/pay-mandate-procedures';
 
 export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoices: boolean }) {
   const merchantId = pay.authority!.merchantId;
@@ -34,15 +30,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
   const [path, setPath] = useState('');
   const [projectedEnd, setProjectedEnd] = useState<string | null | undefined>();
   const mandates = useResource(
-    (signal) =>
-      pay
-        .query(
-          'mandate.list',
-          { merchantId, limit },
-          z.object({ items: z.array(s.mandateSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_MANDATE_LIST, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:mandates:${merchantId}:${limit}`,
   );
   const subscriptions = useResource(
@@ -237,7 +225,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                               />
                             }
                             perform={() =>
-                              pay.mutate('mandate.cancel', { mandateId: mandate.id }, s.mandateSchema, 'pay:write', `mandate:${mandate.id}`)
+                              pay.mutateRecord(PAY_MANDATE_CANCEL, { mandateId: mandate.id }, 'pay:write', `mandate:${mandate.id}`)
                             }
                             onConfirmed={refresh}
                             disabled={Boolean(pay.access('pay:write'))}
@@ -266,11 +254,6 @@ export function cadenceWord(cadence: string): string {
         ? payCopy.t('monthly')
         : cadence;
 }
-/** A time picked in a datetime-local field, shown the way every other date in the portal is. */
-function localTime(value: string) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? <DateTime value={date.toISOString()} /> : value;
-}
 /** Has the person typed anything? The asset starts on the default, so only a different asset counts: an untouched form never warns. */
 export function mandateFormDirty(form: {
   customer: string;
@@ -285,164 +268,51 @@ export function mandateFormDirty(form: {
   const { asset, ...typed } = form;
   return asset !== DEFAULT_ASSET || Object.values(typed).some(Boolean);
 }
-export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; refresh: () => void; portal?: PortalApi }) {
-  const [expanded, setExpanded] = useState(false);
-  const [customer, setCustomer] = useState('');
-  const [asset, setAsset] = useState(DEFAULT_ASSET);
-  const assets = useAssetChoices(portal, pay.authority?.merchantId, asset);
-  const [amount, setAmount] = useState('');
-  const [ceiling, setCeiling] = useState('');
-  const [cadence, setCadence] = useState('monthly');
-  const [starts, setStarts] = useState('');
-  const [ends, setEnds] = useState('');
-  const [rail, setRail] = useState('');
-  const [reference, setReference] = useState('');
-  const [created, setCreated] = useState('');
-  useUnsavedForm(
-    expanded && mandateFormDirty({ customer, asset, amount, ceiling, starts, ends, rail, reference }),
-    extensionCopy.t('draftWarning'),
-  );
-  return (
-    <PaySection
-      title={payCopy.t('recordACustomerMandate')}
-      description={payCopy.t('recordExistingCustomerAuthorizationThisFormDoes')}
-      action={
-        <Button variant="secondary" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-          {expanded ? payCopy.t('hideForm') : payCopy.t('newMandate')}
-        </Button>
-      }
-    >
-      {expanded && (
-        <div className="form-stack pay-form">
-          <Field
-            label={payCopy.t('authorizedCustomerId')}
-            value={customer}
-            onChange={(event) => setCustomer(event.target.value)}
-            maxLength={128}
-          />
-          <div className="form-row">
-            <Field
-              label={payCopy.t('authorizedAmount')}
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-            />
-            <SelectField label={payCopy.t('asset')} value={asset} onChange={setAsset} options={assets.map((a) => [a, a] as const)} />
-          </div>
-          <Field
-            label={payCopy.t('authorizedCeilingOptional')}
-            inputMode="decimal"
-            value={ceiling}
-            onChange={(event) => setCeiling(event.target.value)}
-          />
-          <label className="lt-field">
-            <PayCopy k="cadence" />
-            <select value={cadence} onChange={(event) => setCadence(event.target.value)}>
-              <option value="daily">{payCopy.t('daily')}</option>
-              <option value="weekly">{payCopy.t('weekly')}</option>
-              <option value="monthly">{payCopy.t('monthly')}</option>
-            </select>
-          </label>
-          <div className="form-row">
-            <Field
-              label={payCopy.t('authorizationStarts')}
-              type="datetime-local"
-              value={starts}
-              onChange={(event) => setStarts(event.target.value)}
-            />
-            <Field
-              label={payCopy.t('authorizationEndsOptional')}
-              type="datetime-local"
-              value={ends}
-              onChange={(event) => setEnds(event.target.value)}
-            />
-          </div>
-          <Field
-            label={payCopy.t('existingMandateRailOptional')}
-            value={rail}
-            onChange={(event) => setRail(event.target.value)}
-            maxLength={64}
-          />
-          <Field
-            label={payCopy.t('existingRailMandateReferenceOptional')}
-            value={reference}
-            onChange={(event) => setReference(event.target.value)}
-            maxLength={256}
-          />
-          <ReviewedAction
-            title={payCopy.t('recordMandate')}
-            description={payCopy.t('storeTheSuppliedAuthorizedTermsChangingAmount')}
-            review={
-              <PayDetails
-                values={[
-                  [payCopy.t('customer'), customer],
-                  [payCopy.t('amountCeiling'), `${amount} / ${ceiling || payCopy.t('notSupplied')} ${asset}`],
-                  [payCopy.t('cadence'), cadenceWord(cadence)],
-                  [
-                    payCopy.t('authorizationWindow'),
-                    <>
-                      {localTime(starts)} → {ends ? localTime(ends) : payCopy.t('openEnded')}
-                    </>,
-                  ],
-                ]}
-              />
-            }
-            perform={() =>
-              validatedMutation(
-                pay,
-                'mandate.create',
-                {
-                  merchantId: pay.authority!.merchantId,
-                  customerId: customer,
-                  assetId: asset,
-                  amount,
-                  cadence,
-                  startsAt: starts ? new Date(starts).toISOString() : '',
-                  ...(ends ? { endsAt: new Date(ends).toISOString() } : {}),
-                  ...(ceiling ? { ceiling } : {}),
-                  ...(rail ? { railAdapter: rail } : {}),
-                  ...(reference ? { railMandateRef: reference } : {}),
-                },
-                z.object({
-                  merchantId: s.id,
-                  customerId: z.string().min(1).max(128),
-                  assetId: s.asset,
-                  amount: s.positiveAmount,
-                  ceiling: s.amount.optional(),
-                  cadence: z.enum(['daily', 'weekly', 'monthly']),
-                  startsAt: z.string().datetime({ offset: true }),
-                  endsAt: z.string().datetime({ offset: true }).optional(),
-                  railAdapter: z.string().max(64).optional(),
-                  railMandateRef: z.string().max(256).optional(),
-                }),
-                s.mandateSchema,
-                'pay:write',
-                'mandate-create',
-              )
-            }
-            disabled={!customer || !amount || !asset || !starts || Boolean(pay.access('pay:write'))}
-            onConfirmed={(data) => {
-              setCreated(data.id);
-              setCustomer('');
-              setAsset(DEFAULT_ASSET);
-              setAmount('');
-              setCeiling('');
-              setStarts('');
-              setEnds('');
-              setRail('');
-              setReference('');
-              refresh();
-              setExpanded(false);
-            }}
-          />
-        </div>
-      )}
-      {created && (
-        <p className="pay-confirmed" role="status">
-          <PayCopy k="mandateRecorded" />
-        </p>
-      )}
-    </PaySection>
+/** Sends the validated `mandate.create` mutation for `CreateMandate`, keeping the call site in this file. */
+export function submitCreateMandate(
+  pay: BusinessPayApi,
+  form: {
+    customer: string;
+    asset: string;
+    amount: string;
+    ceiling: string;
+    cadence: string;
+    starts: string;
+    ends: string;
+    rail: string;
+    reference: string;
+  },
+) {
+  return validatedMutation(
+    pay,
+    'mandate.create',
+    {
+      merchantId: pay.authority!.merchantId,
+      customerId: form.customer,
+      assetId: form.asset,
+      amount: form.amount,
+      cadence: form.cadence,
+      startsAt: form.starts ? new Date(form.starts).toISOString() : '',
+      ...(form.ends ? { endsAt: new Date(form.ends).toISOString() } : {}),
+      ...(form.ceiling ? { ceiling: form.ceiling } : {}),
+      ...(form.rail ? { railAdapter: form.rail } : {}),
+      ...(form.reference ? { railMandateRef: form.reference } : {}),
+    },
+    z.object({
+      merchantId: s.id,
+      customerId: z.string().min(1).max(128),
+      assetId: s.asset,
+      amount: s.positiveAmount,
+      ceiling: s.amount.optional(),
+      cadence: z.enum(['daily', 'weekly', 'monthly']),
+      startsAt: z.string().datetime({ offset: true }),
+      endsAt: z.string().datetime({ offset: true }).optional(),
+      railAdapter: z.string().max(64).optional(),
+      railMandateRef: z.string().max(256).optional(),
+    }),
+    s.mandateSchema,
+    'pay:write',
+    'mandate-create',
   );
 }
 function SubscriptionDetail({

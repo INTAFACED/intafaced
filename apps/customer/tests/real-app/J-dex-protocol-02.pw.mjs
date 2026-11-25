@@ -1,10 +1,13 @@
-// World: none
+// World: restart
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { createPublicClient, decodeEventLog, http, parseAbi, parseUnits } from 'viem';
+import { createPublicClient, createWalletClient, decodeEventLog, defineChain, getAddress, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
-import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { withMiningPaused } from './chain-node.mjs';
+import { restartService } from './stack.mjs';
+import { chainBalance } from './venue.mjs';
 
 // J-dex-protocol-02, in the running app (docs/roadmap/journeys.json): swap one token for another. One test per step,
 // titled "J-dex-protocol-02 #<n>", run in order with one TEST wallet on Base Sepolia holding TEST token A and no
@@ -111,6 +114,72 @@ function shown(units, decimals, places = 6) {
   return `${whole}${fraction ? `.${fraction}` : ''}`;
 }
 
+/** Uncached client on the stack's TEST chain for reads right after an on-chain write (revoke, reset-token approve, feeHistory). */
+const chainFresh = createPublicClient({ transport: http(GATE_URL), cacheTime: 0 });
+const poolDetailAbi = parseAbi([
+  'function token0() view returns (address)',
+  'function token1() view returns (address)',
+  'function feeBps() view returns (uint16)',
+  'function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)',
+  'function getAmountOut(uint256 amountIn, address tokenIn) view returns (uint256)',
+]);
+const erc20AllowanceAbi = parseAbi([
+  'function balanceOf(address owner) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+]);
+const TEST_THIN = { address: '0x00000000000000000000000000000000000071a0', decimals: 18 };
+const TEST_RESET = { address: '0x0000000000000000000000000000000000007e57', name: 'TEST Reset', decimals: 6 };
+const USD_SCALE = 10n ** 18n;
+const MIN_RESERVE_USD = 1_000n;
+const STALE_SURPLUS_BPS = 100n;
+const TEST_SLIPPAGE_CEILING_BPS = 300n;
+const shortContract = (address) => `${address.slice(0, 6)}…${address.slice(-4)}`;
+const toGwei = (wei) => shown(wei, 9, 9);
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Half-up USD formatting matching SwapForm (`formatUsd(usdText(price18))`). */
+function formatUsd18(price18) {
+  const whole = (price18 / USD_SCALE).toString();
+  const fraction = (price18 % USD_SCALE).toString().padStart(18, '0').replace(/0+$/, '');
+  const lead = /^0*/.exec(fraction)[0].length;
+  const places = whole === '0' && lead >= 2 ? lead + 6 : 2;
+  const scale = 10n ** BigInt(places);
+  const digits = BigInt(whole + fraction.padEnd(places + 1, '0').slice(0, places + 1));
+  const rounded = (digits + 5n) / 10n;
+  const shownWhole = (rounded / scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  let shownFraction = (rounded % scale).toString().padStart(places, '0');
+  if (places > 2) shownFraction = shownFraction.replace(/0+$/, '');
+  return `$${shownWhole}.${shownFraction}`;
+}
+
+/** A token's USD price from its deepest on-chain pool against TEST USD with at least MIN_RESERVE_USD on the USD side. */
+async function poolUsdPrice(tokenAddress, tokenDecimals) {
+  const pools = await poolsOf(tokenAddress, TEST_USD.address);
+  let chosen = null;
+  for (const pool of pools) {
+    const [t0, [r0, r1]] = await Promise.all([
+      chainFresh.readContract({ address: pool, abi: poolDetailAbi, functionName: 'token0' }),
+      chainFresh.readContract({ address: pool, abi: poolDetailAbi, functionName: 'getReserves' }),
+    ]);
+    const tokenIs0 = same(t0, tokenAddress);
+    const mine = tokenIs0 ? r0 : r1;
+    const usd = tokenIs0 ? r1 : r0;
+    const depth = (usd * USD_SCALE) / 10n ** BigInt(TEST_USD.decimals);
+    if (mine === 0n || depth < MIN_RESERVE_USD * USD_SCALE) continue;
+    const price = (usd * USD_SCALE * 10n ** BigInt(tokenDecimals)) / (mine * 10n ** BigInt(TEST_USD.decimals));
+    if (!chosen || depth > chosen.depth) chosen = { price, depth };
+  }
+  expect(chosen, `${tokenAddress} has a TEST USD pool above the minimum reserve`).not.toBeNull();
+  return formatUsd18(chosen.price);
+}
+
+function floorMean(values) {
+  let sum = 0n;
+  for (const value of values) sum += value;
+  return sum / BigInt(values.length);
+}
+
 /** Opens /dex's Swap form with the run's wallet connected. */
 async function openSwap(page) {
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
@@ -188,16 +257,34 @@ test(`${J} #1 opens the swap form as a new viewer: Simple mode, no advanced cont
 
 test(`${J} #2 picks token A in and token B out: a USD price with its as-of time for each; a token with too little reserve shows no price and the reason`, async ({
   page,
+  stepPicture,
 }) => {
   await openSwap(page);
+  const [usdA, usdB, thinPools] = await Promise.all([
+    poolUsdPrice(TOKEN_A.address, TOKEN_A.decimals),
+    poolUsdPrice(TOKEN_B.address, TOKEN_B.decimals),
+    poolsOf(TOKEN_A.address, TEST_THIN.address),
+  ]);
+  expect(thinPools.length, 'TEST Thin has a seeded pool on the TEST chain').toBeGreaterThan(0);
+  const [thinT0, [thinR0, thinR1]] = await Promise.all([
+    chainFresh.readContract({ address: thinPools[0], abi: poolDetailAbi, functionName: 'token0' }),
+    chainFresh.readContract({ address: thinPools[0], abi: poolDetailAbi, functionName: 'getReserves' }),
+  ]);
+  const thinSideA = same(thinT0, TOKEN_A.address) ? thinR0 : thinR1;
+  expect(thinSideA, 'TEST Thin pool holds less than the $1,000 reserve floor').toBeLessThan(
+    MIN_RESERVE_USD * 10n ** BigInt(TOKEN_A.decimals),
+  );
+
+  const asOfRe = (usd) => new RegExp(`^${escapeRe(usd)} · as of (?:[A-Z][a-z]{2} \\d{1,2} )?\\d{2}:\\d{2}:\\d{2}$`);
   await tokenIn(page).selectOption({ label: 'TEST Token A' }, UNBUILT);
   await tokenOut(page).selectOption({ label: 'TEST Token B' });
-  for (const side of ['pay', 'receive']) {
-    await expect(swap(page).getByTestId(`price-${side}`)).toHaveText(/^\$[\d,.]+ · as of \d{2}:\d{2}/);
-  }
-  // A thin token has no price, and says why rather than showing $0.
+  await expect(swap(page).getByTestId('price-pay')).toHaveText(asOfRe(usdA));
+  await expect(swap(page).getByTestId('price-receive')).toHaveText(asOfRe(usdB));
+  // A thin token has no price, and says why rather than showing $0, while token A keeps its exact pool USD price.
   await tokenOut(page).selectOption({ label: 'TEST Thin' });
+  await expect(swap(page).getByTestId('price-pay')).toHaveText(asOfRe(usdA));
   await expect(swap(page).getByTestId('price-receive')).toHaveText('No price: too little reserve to price this token.');
+  await stepPicture();
 });
 
 test(`${J} #3 types an amount: a quote with a countdown; when it expires "Quote expired" and Swap is off until refreshed`, async ({
@@ -215,19 +302,72 @@ test(`${J} #3 types an amount: a quote with a countdown; when it expires "Quote 
 
 test(`${J} #4 opens the route options and excludes the better pool: legs listed best first with why the other lost; a stale pool reads "unavailable: stale"`, async ({
   page,
+  stepPicture,
 }) => {
   await openSwap(page);
   await chooseManual(page);
   await tokenIn(page).selectOption({ label: 'TEST Token A' }, UNBUILT);
   await quoteAB(page);
+
+  // Read every factory A/B pool directly from the chain: its reserves, held token balances, fee and exact getAmountOut.
+  const tenA = 10n * 10n ** BigInt(TOKEN_A.decimals);
+  const pools = await poolsOf(TOKEN_A.address, TOKEN_B.address);
+  const isStale = (held, reserve) => held < reserve || (held - reserve) * 10_000n > reserve * STALE_SURPLUS_BPS;
+  const legs = await Promise.all(
+    pools.map(async (pool) => {
+      const [t0, t1, [r0, r1], feeBps] = await Promise.all([
+        chainFresh.readContract({ address: pool, abi: poolDetailAbi, functionName: 'token0' }),
+        chainFresh.readContract({ address: pool, abi: poolDetailAbi, functionName: 'token1' }),
+        chainFresh.readContract({ address: pool, abi: poolDetailAbi, functionName: 'getReserves' }),
+        chainFresh.readContract({ address: pool, abi: poolDetailAbi, functionName: 'feeBps' }),
+      ]);
+      const [held0, held1] = await Promise.all([
+        chainFresh.readContract({ address: t0, abi: erc20AllowanceAbi, functionName: 'balanceOf', args: [pool] }),
+        chainFresh.readContract({ address: t1, abi: erc20AllowanceAbi, functionName: 'balanceOf', args: [pool] }),
+      ]);
+      const stale = isStale(held0, r0) || isStale(held1, r1);
+      const out = stale
+        ? null
+        : await chainFresh.readContract({ address: pool, abi: poolDetailAbi, functionName: 'getAmountOut', args: [tenA, TOKEN_A.address] });
+      return { pool, feeBps: Number(feeBps), stale, out };
+    }),
+  );
+  const usable = legs.filter((l) => !l.stale).sort((a, b) => (a.out > b.out ? -1 : a.out < b.out ? 1 : 0));
+  const staleLegs = legs.filter((l) => l.stale);
+  expect(usable, 'two usable A/B pools on the TEST chain').toHaveLength(2);
+  expect(staleLegs, 'one stale A/B pool on the TEST chain').toHaveLength(1);
+  const [best, second] = usable;
+  const [stale] = staleLegs;
+  expect(best.out).toBeGreaterThan(second.out);
+  const shortfall = best.out - second.out;
+
   await swap(page).getByRole('button', { name: 'Route options' }).click();
   const routes = page.getByRole('region', { name: 'Routes' }).getByRole('table');
   const rows = routes.getByRole('row');
-  await expect(rows.nth(1)).toContainText('Best');
-  await expect(rows.nth(2)).toContainText(/Lost: /);
-  await expect(routes).toContainText('unavailable: stale');
+  await expect(rows).toHaveCount(1 + pools.length);
+  // Row 1: best pool from the chain; row 2: losing pool with its exact shortfall; row 3: stale pool never dropped.
+  await expect(rows.nth(1).getByRole('cell').nth(0)).toHaveText(shortContract(best.pool));
+  await expect(rows.nth(1).getByRole('cell').nth(2)).toHaveText(`${shown(best.out, TOKEN_B.decimals)} TEST Token B`);
+  await expect(rows.nth(1).getByRole('cell').nth(3)).toHaveText('Best');
+  await expect(rows.nth(2).getByRole('cell').nth(0)).toHaveText(shortContract(second.pool));
+  await expect(rows.nth(2).getByRole('cell').nth(2)).toHaveText(`${shown(second.out, TOKEN_B.decimals)} TEST Token B`);
+  await expect(rows.nth(2).getByRole('cell').nth(3)).toHaveText(
+    `Lost: ${shown(shortfall, TOKEN_B.decimals)} TEST Token B less than the best`,
+  );
+  await expect(rows.nth(3).getByRole('cell').nth(0)).toHaveText(shortContract(stale.pool));
+  await expect(rows.nth(3).getByRole('cell').nth(2)).toHaveText('—');
+  await expect(rows.nth(3).getByRole('cell').nth(3)).toHaveText(
+    'unavailable: stale (its token balances differ from the reserves it prices from)',
+  );
+  await expect(swap(page).getByTestId('amount-out')).toHaveText(`${shown(best.out, TOKEN_B.decimals)} TEST Token B`);
+
+  // Excluding the better pool moves Best and the swap quote to the second pool; the stale pool stays listed.
   await rows.nth(1).getByRole('checkbox', { name: 'Exclude' }).check();
-  await expect(rows.nth(1)).toContainText('Excluded');
+  await expect(rows.nth(1).getByRole('cell').nth(3)).toHaveText('Excluded');
+  await expect(rows.nth(2).getByRole('cell').nth(3)).toHaveText('Best');
+  await expect(rows.nth(3).getByRole('cell').nth(3)).toContainText('unavailable: stale');
+  await expect(swap(page).getByTestId('amount-out')).toHaveText(`${shown(second.out, TOKEN_B.decimals)} TEST Token B`);
+  await stepPicture();
 });
 
 test(`${J} #5 sets slippage to 1 percent, then above the ceiling: the derived minimum shown; above the ceiling refused by name; a thin pool warns of price impact`, async ({
@@ -254,8 +394,21 @@ test(`${J} #5 sets slippage to 1 percent, then above the ceiling: the derived mi
 
 test(`${J} #6 presses Swap with no allowance: one approve step for the exact amount (or a reset pair where needed), then the swap`, async ({
   page,
+  browser,
+  stepPicture,
 }) => {
   const wallet = await openSwap(page);
+  const owner = privateKeyToAccount(dex.key()).address;
+  const tenA = 10n * 10n ** BigInt(TOKEN_A.decimals);
+  const abPools = await poolsOf(TOKEN_A.address, TOKEN_B.address);
+  for (const pool of abPools) {
+    expect(
+      await chainFresh.readContract({ address: TOKEN_A.address, abi: erc20AllowanceAbi, functionName: 'allowance', args: [owner, pool] }),
+    ).toBe(0n);
+  }
+  const expectedOutA = await bestOut(abPools, TOKEN_A.address, tenA);
+  const expectedMinA = (expectedOutA * (10_000n - TEST_SLIPPAGE_CEILING_BPS)) / 10_000n;
+
   await tokenIn(page).selectOption({ label: 'TEST Token A' }, UNBUILT);
   await quoteAB(page, '10');
   await swapButton(page).click();
@@ -263,26 +416,156 @@ test(`${J} #6 presses Swap with no allowance: one approve step for the exact amo
   // Exactly two steps: one approve for the exact amount (TEST Token A needs no reset pair), then the swap of that amount.
   await expect(steps.getByRole('listitem')).toHaveCount(2);
   await expect(steps.getByRole('listitem').first()).toHaveText('Approve exactly 10 TEST Token A');
-  await expect(steps.getByRole('listitem').last()).toHaveText(/^Swap 10 TEST Token A for at least [\d,.]+ TEST Token B$/);
+  await expect(steps.getByRole('listitem').last()).toHaveText(
+    `Swap 10 TEST Token A for at least ${shown(expectedMinA, TOKEN_B.decimals)} TEST Token B`,
+  );
   // Nothing is signed or sent before the person continues in the wallet.
   expect(wallet.requests).toHaveLength(0);
   expect(wallet.sends).toHaveLength(0);
+  await stepPicture(page);
+
+  // Reset-pair branch: a second TEST wallet holding TEST Reset (which reverts on a non-zero to non-zero approve) with an
+  // existing 1 TEST Reset allowance to the pool presses Swap for 10 TEST Reset and sees [Reset to 0, Approve 10, Swap].
+  const record = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  expect(record.resetToken && record.resetPool, 'the TEST chain seeded TEST Reset and its pool').toBeTruthy();
+  const resetDex = dexRun(`${J}-reset`);
+  resetDex.start({}, { funding: 'reset' });
+  const resetAccount = privateKeyToAccount(resetDex.key());
+  const localChain = defineChain({
+    id: CHAIN_ID,
+    name: 'LOCAL TEST',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [GATE_URL] } },
+  });
+  const resetClient = createWalletClient({ account: resetAccount, chain: localChain, transport: http(GATE_URL) });
+  const oneReset = 1n * 10n ** BigInt(TEST_RESET.decimals);
+  const tenReset = 10n * 10n ** BigInt(TEST_RESET.decimals);
+  const approveHash = await resetClient.writeContract({
+    address: TEST_RESET.address,
+    abi: erc20AllowanceAbi,
+    functionName: 'approve',
+    args: [record.resetPool, oneReset],
+  });
+  const approveReceipt = await chainFresh.waitForTransactionReceipt({ hash: approveHash });
+  expect(approveReceipt.status).toBe('success');
+  expect(
+    await chainFresh.readContract({
+      address: TEST_RESET.address,
+      abi: erc20AllowanceAbi,
+      functionName: 'allowance',
+      args: [resetAccount.address, record.resetPool],
+    }),
+  ).toBe(oneReset);
+  await expect(
+    chainFresh.simulateContract({
+      address: TEST_RESET.address,
+      abi: erc20AllowanceAbi,
+      functionName: 'approve',
+      args: [record.resetPool, tenReset],
+      account: resetAccount.address,
+    }),
+  ).rejects.toThrow(/ResetRequired|revert/i);
+  const resetOut = await chainFresh.readContract({
+    address: record.resetPool,
+    abi: poolDetailAbi,
+    functionName: 'getAmountOut',
+    args: [tenReset, TEST_RESET.address],
+  });
+  const resetMin = (resetOut * (10_000n - TEST_SLIPPAGE_CEILING_BPS)) / 10_000n;
+
+  const resetCtx = await browser.newContext();
+  try {
+    const resetPage = await resetCtx.newPage();
+    const resetWallet = await connectWallet(resetPage, resetDex);
+    await resetPage.goto('/dex');
+    await expect(swap(resetPage)).toBeVisible(UNBUILT);
+    await tokenIn(resetPage).selectOption({ label: TEST_RESET.name });
+    await tokenOut(resetPage).selectOption({ label: 'TEST Token B' });
+    await amountIn(resetPage).fill('10');
+    await swapButton(resetPage).click();
+    await acceptRepresentation(resetPage);
+    const resetSteps = resetPage.getByRole('list', { name: 'Swap steps', exact: true });
+    await expect(resetSteps.getByRole('listitem')).toHaveCount(3);
+    await expect(resetSteps.getByRole('listitem').nth(0)).toHaveText(
+      `Reset the allowance for ${TEST_RESET.name} to 0 first (this token requires it)`,
+    );
+    await expect(resetSteps.getByRole('listitem').nth(1)).toHaveText(`Approve exactly 10 ${TEST_RESET.name}`);
+    await expect(resetSteps.getByRole('listitem').nth(2)).toHaveText(
+      `Swap 10 ${TEST_RESET.name} for at least ${shown(resetMin, TOKEN_B.decimals)} TEST Token B`,
+    );
+    expect(resetWallet.sends, 'nothing sent before continuing in the wallet').toHaveLength(0);
+  } finally {
+    await resetCtx.close();
+  }
 });
 
 test(`${J} #7 chooses a network fee level and reads the fee line: three levels from the last blocks; a custom value over the cap refused; who pays named`, async ({
   page,
+  stepPicture,
 }) => {
-  await openSwap(page);
+  test.setTimeout(240_000);
+  await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
   const fees = swap(page).getByRole('radiogroup', { name: 'Network fee' });
+
+  // Pause block mining while the page reads `amm.feeLevels` so the page and this test read the exact same last 20 blocks.
+  const expected = await withMiningPaused(async () => {
+    await page.goto('/dex');
+    await expect(swap(page)).toBeVisible(UNBUILT);
+    await expect(swap(page).getByTestId('fee-line')).toHaveText('You pay the network fee');
+    const history = await chainFresh.getFeeHistory({ blockCount: 20, rewardPercentiles: [10, 50, 90] });
+    const base = history.baseFeePerGas[history.baseFeePerGas.length - 1];
+    const col = (i) => (history.reward ?? []).map((row) => row[i]).filter((v) => v !== undefined);
+    const slow = floorMean(col(0));
+    const normal = floorMean(col(1));
+    const fast = floorMean(col(2));
+    return {
+      slow: { max: base * 2n + slow, priority: slow },
+      normal: { max: base * 2n + normal, priority: normal },
+      fast: { max: base * 2n + fast, priority: fast },
+    };
+  });
+
   await expect(fees.getByRole('radio')).toHaveCount(4, UNBUILT);
-  for (const level of ['Slow', 'Normal', 'Fast', 'Custom'])
-    await expect(fees.getByRole('radio', { name: new RegExp(`^${level}`) })).toBeVisible();
+  for (const [label, level] of [
+    ['Slow', expected.slow],
+    ['Normal', expected.normal],
+    ['Fast', expected.fast],
+  ]) {
+    await expect(fees.locator('label').filter({ hasText: new RegExp(`^${label}\\b`) })).toHaveText(
+      `${label} at most ${toGwei(level.max)} gwei per gas, ${toGwei(level.priority)} gwei priority`,
+    );
+  }
+  await expect(fees.locator('label').filter({ hasText: /^Custom\b/ })).toHaveText('Custom your own most per gas');
+  await expect(swap(page)).toContainText(/Levels from the priority fees paid in the last 20 blocks, read at /);
+
+  await quoteAB(page, '10');
   await fees.getByRole('radio', { name: /^Custom/ }).check();
   await swap(page)
     .getByRole('textbox', { name: /^Custom fee/ })
     .fill('100000');
-  await expect(swap(page).getByRole('alert')).toContainText('above the fee cap');
-  await expect(swap(page).getByTestId('fee-line')).toHaveText(/You pay the network fee|Network fee sponsored/);
+  await expect(swap(page).getByRole('alert')).toHaveText('That fee is above the fee cap of 100 gwei per gas. Choose a lower one.');
+  await expect(swapButton(page)).toBeDisabled();
+  await expect(swap(page).getByTestId('fee-line')).toHaveText('You pay the network fee');
+  await stepPicture();
+
+  await fees.getByRole('radio', { name: /^Normal/ }).check();
+  await expect(swap(page).getByRole('alert')).toHaveCount(0);
+  await expect(swapButton(page)).toBeEnabled();
+
+  // Sponsored gas branch: point svc-protocol at the seeded funded ScopedPaymaster on the TEST chain, verify on chain that
+  // it holds a positive ETH float, and confirm the fee line switches to "Network fee sponsored"; then restore the default.
+  const record = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  expect(record.swapPaymaster, 'the TEST chain seeded a swap paymaster').toMatch(/^0x[0-9a-fA-F]{40}$/);
+  expect(await chainFresh.getCode({ address: record.swapPaymaster })).not.toBe('0x');
+  expect(await chainFresh.getBalance({ address: record.swapPaymaster })).toBeGreaterThan(0n);
+  await restartService('protocol', { LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER: 'on' });
+  try {
+    await page.reload();
+    await expect(swap(page)).toBeVisible(UNBUILT);
+    await expect(swap(page).getByTestId('fee-line')).toHaveText('Network fee sponsored');
+  } finally {
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER: null });
+  }
 });
 
 test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the card's input, output and gas match the Swap event`, async ({
@@ -323,6 +606,12 @@ test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the c
   await expect(fact('You paid')).toHaveText(`${shown(paidIn, TOKEN_A.decimals, TOKEN_A.decimals)} TEST Token A`);
   await expect(fact('You received')).toHaveText(`${shown(gotOut, TOKEN_B.decimals)} TEST Token B`);
   await expect(fact('Network fee')).toHaveText(`${shown(receipt.gasUsed * receipt.effectiveGasPrice, 18, 9)} ETH`);
+  // The chain's own record of the wallet agrees with the event: across the swap's block, token A fell by exactly what the
+  // card says was paid and token B rose by exactly what it says was received.
+  const owner = privateKeyToAccount(dex.key()).address;
+  const [before, after] = [receipt.blockNumber - 1n, receipt.blockNumber];
+  expect((await chainBalance(TOKEN_A.address, owner, before)) - (await chainBalance(TOKEN_A.address, owner, after))).toBe(paidIn);
+  expect((await chainBalance(TOKEN_B.address, owner, after)) - (await chainBalance(TOKEN_B.address, owner, before))).toBe(gotOut);
   // The swap was sent by the wallet itself (the TEST wallet keeps sent transactions in `sends`, signatures in `requests`).
   expect(wallet.sends.length).toBeGreaterThan(0);
 });
@@ -378,16 +667,50 @@ test(`${J} #9 retries after the price moved: failed with the reason in a sentenc
 
 test(`${J} #10 opens the approvals list and revokes the allowance: spender and amount listed; revoke sets it to zero and the row goes`, async ({
   page,
+  stepPicture,
 }) => {
+  const owner = privateKeyToAccount(dex.key()).address;
+  const abPools = await poolsOf(TOKEN_A.address, TOKEN_B.address);
+  const allowances = await Promise.all(
+    abPools.map(async (pool) => ({
+      pool,
+      value: await chainFresh.readContract({
+        address: TOKEN_A.address,
+        abi: erc20AllowanceAbi,
+        functionName: 'allowance',
+        args: [owner, pool],
+      }),
+    })),
+  );
+  const live = allowances.filter((entry) => entry.value > 0n);
+  expect(live, 'one live TEST Token A allowance left from #9').toHaveLength(1);
+  const [{ pool: spender, value: beforeAllowance }] = live;
+  expect(beforeAllowance).toBe(10n * 10n ** BigInt(TOKEN_A.decimals));
+
   await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
   await walletSection(page, 'Approvals');
   const approvals = page.getByRole('region', { name: 'Approvals' }).getByRole('table');
   const row = approvals.getByRole('row').filter({ hasText: 'TEST Token A' });
-  await expect(row).toBeVisible(UNBUILT);
-  await expect(row).toContainText('10');
+  await expect(row).toHaveCount(1, UNBUILT);
+  await expect(row.getByRole('cell').nth(0)).toContainText('TEST Token A');
+  await expect(row.getByRole('cell').nth(0)).toContainText(shortContract(getAddress(TOKEN_A.address)));
+  await expect(row.getByRole('cell').nth(1)).toHaveText(`Pool TESTA/TESTB · ${shortContract(getAddress(spender))}`);
+  await expect(row.getByRole('cell').nth(2)).toHaveText(`${shown(beforeAllowance, TOKEN_A.decimals, TOKEN_A.decimals)} TESTA`);
   await row.getByRole('button', { name: 'Revoke' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(row).toHaveCount(0, { timeout: 60_000 });
+  await expect(approvals).toContainText(
+    'No live approvals: this wallet has not allowed anyone to move the tokens the network’s pools trade.',
+  );
+  expect(
+    await chainFresh.readContract({
+      address: TOKEN_A.address,
+      abi: erc20AllowanceAbi,
+      functionName: 'allowance',
+      args: [owner, spender],
+    }),
+  ).toBe(0n);
+  await stepPicture();
 });
 
 test(`${J} #11 swaps from a wallet holding only TEST USD and no native currency, paying the fee in TEST USD at the oracle rate plus the published markup; an off-list token or a stale oracle is refused and the fee is paid in native currency instead`, async ({

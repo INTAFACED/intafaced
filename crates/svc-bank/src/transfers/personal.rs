@@ -383,6 +383,74 @@ pub fn held_send(d: &Deps<'_>, user_id: &str, transfer_id: &str) -> Result<HeldV
     }
 }
 
+/// `transfers.sent`: the sender's own send by its id, Confirming while reserved and Completed once posted. A reserved
+/// send whose money the partner holds is settled from the partner's record when the partner answers: the move under
+/// the send's key, when it is this send, is adopted (as the send's own retry adopts it). Nothing found leaves it
+/// Confirming: a young reservation may still be on its way, so a read never lets a send go (the stale sweep does).
+/// A send on our own ledger settles on its retry or the stale sweep. A stranger gets the same not-found as a missing id.
+pub fn sent_status(d: &Deps<'_>, user_id: &str, transfer_id: &str) -> Result<Json, Refusal> {
+    let mut row = with(d.store, |c| by_id(c, transfer_id))?
+        .filter(|r| r.from_user_id == user_id)
+        .ok_or_else(|| transfer_not_found(transfer_id))?;
+    if row.status == "reserved"
+        && let Some(p) = d.custody.bank_for(user_id)
+        && assert_partner_answering(d, user_id).is_ok()
+        && let Some(moved) = p.move_by_key(&send_key(transfer_id))
+    {
+        if partner_move_is_send(
+            d,
+            &moved,
+            &row.from_space_id,
+            &row.to_user_id,
+            &row.asset_id,
+            row.amount,
+        )? {
+            row = mark_posted(d, transfer_id, "partner_move_id", &moved.id)?;
+            if row.status == "posted" && row.announced_at.is_none() {
+                announce_posted(d, &row);
+            }
+        } else {
+            log_adopt_mismatch(&row, &moved.id, None);
+        }
+    }
+    let completed = row.status == "posted";
+    let partner_move = match (&row.partner_move_id, completed) {
+        (Some(id), true) => Json::obj([
+            ("id", Json::str(id.clone())),
+            ("label", Json::str(partner_label(d, &row.from_user_id))),
+        ]),
+        _ => Json::Null,
+    };
+    Ok(Json::obj([
+        ("transferId", Json::str(row.transfer_id.clone())),
+        (
+            "status",
+            Json::str(if completed { "completed" } else { "confirming" }),
+        ),
+        ("amount", Json::str(format_amount(row.amount))),
+        ("assetId", Json::str(row.asset_id.clone())),
+        ("note", opt(row.note.as_ref())),
+        ("toHandle", opt(row.to_handle.as_ref())),
+        ("partnerMove", partner_move),
+        (
+            "ledgerTxId",
+            if completed {
+                opt(row.ledger_tx_id.as_ref())
+            } else {
+                Json::Null
+            },
+        ),
+        ("createdAt", Json::str(row.created_at.iso())),
+        (
+            "postedAt",
+            match (row.posted_at, completed) {
+                (Some(t), true) => Json::str(t.iso()),
+                _ => Json::Null,
+            },
+        ),
+    ]))
+}
+
 /// `abandon`: a send that never posted is let go, and its claim on a request with it.
 pub fn abandon(d: &Deps<'_>, transfer_id: &str, request_id: Option<&str>) -> Result<(), Refusal> {
     with(d.store, |c| {
@@ -663,6 +731,16 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
 
     sweep_stale(d, i.actor_user_id)?;
 
+    // The network fee the moving book states for this send, recorded with it: "0" on our own book, which crosses no
+    // network; the partner's stated send fee for money it holds; none when the partner gives none ("not known").
+    let network_fee = match &partner {
+        Some(p) if partner_fee_known(d, i.actor_user_id) => {
+            p.limits(i.actor_user_id, &from.asset_id, now)?.send_fee
+        }
+        Some(_) => None,
+        None => Some(Amount::ZERO),
+    };
+
     let reserved = in_tx(d.store, |tx| {
         lock_sender(tx, i.actor_user_id, &from.asset_id)?;
         if let Some(existing) = by_id(tx, i.transfer_id)? {
@@ -685,16 +763,16 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
                 },
             )?;
         }
-        terms::assert_within_terms(tx, i.actor_user_id, &from.asset_id, i.amount, now)?;
+        let fee = terms::assert_within_terms(tx, i.actor_user_id, &from.asset_id, i.amount, now)?;
         let (from_handle, to_handle) = snapshot_handles(d, i.actor_user_id, to_user_id);
         let rows = tx
             .query(
                 &format!(
                     "INSERT INTO bank.personal_transfers ( \
                        transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, note, reference, \
-                       from_handle, to_handle, request_id, status, created_at \
+                       from_handle, to_handle, request_id, status, created_at, fee, network_fee \
                      ) VALUES ($1, $2, $3::text::uuid, $4, $5, $6::text::numeric, $7, $8, $9, $10, $11::text::uuid, \
-                       'reserved', {}) \
+                       'reserved', {}, $13::text::numeric, $14::text::numeric) \
                      RETURNING {COLS}",
                     at("$12")
                 ),
@@ -711,6 +789,8 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
                     &to_handle,
                     &request_id,
                     &now.0,
+                    &format_amount(fee),
+                    &network_fee.map(format_amount),
                 ],
             )
             .map_err(|e| pg(&e))?;
@@ -1508,13 +1588,27 @@ pub fn answer(d: &Deps<'_>, ctx: &crate::door::Ctx<'_>) -> Option<Result<Json, R
     Some(match ctx.call.path {
         "transfers.get" => get(d, user, text(input, "ledgerTxId")).map(|v| v.receipt()),
         "transfers.held" => held_send(d, user, text(input, "transferId")).map(|v| v.json()),
+        "transfers.sent" => sent_status(d, user, text(input, "transferId")),
         "transfers.quote" => (|| {
             let asset = text(input, "assetId");
             let amount = parse_amount(text(input, "amount")).map_err(Refusal::Other)?;
             let q = with(d.store, |c| {
                 super::terms::quote(c, user, asset, amount, d.now)
             })?;
-            Ok(q.json((!partner_fee_known(d, user)).then_some(Json::Null)))
+            // The network fee: what the partner holding the sender's money says a send costs (null when it gives
+            // none), "0" on our own book, which crosses no network; null whenever the partner's fee is not known.
+            let network_fee = match d.custody.bank_for(user) {
+                Some(p) => p
+                    .limits(user, asset, d.now)?
+                    .send_fee
+                    .map_or(Json::Null, |f| Json::str(format_amount(f))),
+                None => Json::str("0"),
+            };
+            Ok(q.json(Some(if partner_fee_known(d, user) {
+                network_fee
+            } else {
+                Json::Null
+            })))
         })(),
         "transfers.toUser" => to_user(d, ctx),
         "transfers.settleWithdrawal" => (|| {

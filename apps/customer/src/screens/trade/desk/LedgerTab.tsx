@@ -4,22 +4,15 @@ import type { LedgerEntry, StatementJob } from '../../../features/trade/trade-ap
 import { usePreferences } from '../../../shared/preferences';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Amount,
-  Button,
-  fmtAmount,
-  refusalCopy,
-  StateBlock,
-  type Loadable,
-} from './deps';
+import { Amount, Button, StateBlock, DateInput } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { fmtAmount, refusalCopy, type Loadable } from './deps';
 import { ledgerKindKey, sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
 import { clockMinutes, dayTime } from './time';
+
+/** A note's classes by its tone, and a ledger change's by its direction. */
+const NOTE = { pending: 'lt-note', finished: 'lt-note', failed: 'lt-note lt-note-bad' } as const;
+const CHANGE = { in: 'lt-end lt-num lt-up', out: 'lt-end lt-num lt-down' } as const;
 
 const PAGE = 50;
 
@@ -72,10 +65,10 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
   }, [load]);
 
   return (
-    <div className="dk-ledger">
-      <div className="dk-ledger-head">
+    <div className="lt-stack">
+      <div className="lt-row lt-row-between">
         <Statement />
-        <Button variant="secondary" size={32} onClick={() => void load(null, null)}>
+        <Button tone="secondary" size="sm" onClick={() => void load(null, null)}>
           {t('Ledger reload')}
         </Button>
       </div>
@@ -87,40 +80,42 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
         <StateBlock kind="empty" title={t('Ledger empty')} />
       ) : (
         <>
-          <table data-testid="dk-table" className="dk-table" aria-label={t('Ledger history')}>
-            <thead>
-              <tr>
-                <th>{t('Time')}</th>
-                <th>{t('Asset')}</th>
-                <th className="dk-num">{t('Ledger change')}</th>
-                <th>{t('Ledger kind')}</th>
-                <th>{t('Ledger reference')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {read.entries.map((e) => (
-                <tr key={e.id} data-entry={e.id}>
-                  <td>{dayTime(e.timestamp, timeZone)}</td>
-                  <td>{e.currency}</td>
-                  <td className={`dk-num if-num ${e.direction === 'in' ? 'dk-buy' : 'dk-sell'}`}>
-                    {e.direction === 'in' ? '+' : '−'}
-                    <Amount value={fmtAmount(e.amount, { places: 8 })} />
-                  </td>
-                  <td>{t(ledgerKindKey(e))}</td>
-                  <td data-testid="dk-ledger-ref" className="dk-ledger-ref" title={t('Ledger entry', { id: e.id })}>
-                    {e.referenceId}
-                  </td>
+          <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Ledger history')}>
+            <table data-testid="dk-table" className="lt-table lt-table-dense" aria-label={t('Ledger history')}>
+              <thead>
+                <tr>
+                  <th>{t('Time')}</th>
+                  <th>{t('Asset')}</th>
+                  <th className="lt-end">{t('Ledger change')}</th>
+                  <th>{t('Ledger kind')}</th>
+                  <th>{t('Ledger reference')}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {read.entries.map((e) => (
+                  <tr key={e.id} data-entry={e.id}>
+                    <td>{dayTime(e.timestamp, timeZone)}</td>
+                    <td>{e.currency}</td>
+                    <td className={CHANGE[e.direction]}>
+                      {e.direction === 'in' ? '+' : '−'}
+                      <Amount value={fmtAmount(e.amount, { places: 8 })} />
+                    </td>
+                    <td>{t(ledgerKindKey(e))}</td>
+                    <td data-testid="dk-ledger-ref" className="lt-mono" title={t('Ledger entry', { id: e.id })}>
+                      {e.referenceId}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {read.failed ? (
-            <p data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
+            <p data-testid="dk-note--bad" className="lt-note lt-note-bad" role="alert">
               {t('Ledger more failed')}
             </p>
           ) : null}
           {read.next ? (
-            <Button variant="secondary" size={32} loading={read.more} onClick={() => void load(read.entries, read.next)}>
+            <Button busy={read.more} tone="secondary" size="sm" onClick={() => void load(read.entries, read.next)}>
               {t('Ledger more')}
             </Button>
           ) : (
@@ -137,33 +132,39 @@ function Totals({ entries, balances }: { entries: LedgerEntry[]; balances: Loada
   const { t } = deskCopy.useCopy();
   const sums = sumByAsset(entries);
   return (
-    <table data-testid="dk-table" className="dk-table" aria-label={t('Ledger totals')}>
-      <thead>
-        <tr>
-          <th>{t('Asset')}</th>
-          <th className="dk-num">{t('Ledger lines add up to')}</th>
-          <th className="dk-num">{t('Available2')}</th>
-          <th>{t('Ledger check')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {[...sums].map(([asset, sum]) => {
-          const free = balances.status === 'ready' ? (balances.data[asset]?.free ?? '0') : null;
-          return (
-            <tr key={asset} data-asset={asset}>
-              <td>{asset}</td>
-              <td className="dk-num if-num">
-                <Amount value={fmtAmount(sum, { places: 18 })} />
-              </td>
-              <td className="dk-num if-num">{free === null ? '—' : <Amount value={fmtAmount(free, { places: 18 })} />}</td>
-              <td>
-                {free === null ? t('Ledger check unknown') : sameAmount(sum, free) ? t('Ledger check matches') : t('Ledger check differs')}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Ledger totals')}>
+      <table data-testid="dk-table" className="lt-table lt-table-dense" aria-label={t('Ledger totals')}>
+        <thead>
+          <tr>
+            <th>{t('Asset')}</th>
+            <th className="lt-end">{t('Ledger lines add up to')}</th>
+            <th className="lt-end">{t('Available2')}</th>
+            <th>{t('Ledger check')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...sums].map(([asset, sum]) => {
+            const free = balances.status === 'ready' ? (balances.data[asset]?.free ?? '0') : null;
+            return (
+              <tr key={asset} data-asset={asset}>
+                <td>{asset}</td>
+                <td className="lt-end lt-num">
+                  <Amount value={fmtAmount(sum, { places: 18 })} />
+                </td>
+                <td className="lt-end lt-num">{free === null ? '—' : <Amount value={fmtAmount(free, { places: 18 })} />}</td>
+                <td>
+                  {free === null
+                    ? t('Ledger check unknown')
+                    : sameAmount(sum, free)
+                      ? t('Ledger check matches')
+                      : t('Ledger check differs')}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -217,8 +218,8 @@ function Statement() {
   return (
     <>
       <Button
-        variant="secondary"
-        size={32}
+        tone="secondary"
+        size="sm"
         onClick={() => {
           setAsOf(new Date());
           setAsked({ status: 'idle' });
@@ -228,64 +229,62 @@ function Statement() {
       >
         {t('Statement open')}
       </Button>
-      <AlertDialog open={open} onOpenChange={(next) => setOpen(next)}>
-        {open ? (
-          <AlertDialogContent className="dk-review">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Statement title')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Statement intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="dk-statement-days">
-              <label>
-                <span>{t('Statement from')}</span>
-                <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
-              </label>
-              <label>
-                <span>{t('Statement to')}</span>
-                <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
-              </label>
-            </div>
-            <p className="lt-hint">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
-            {asked.status === 'refused' ? (
-              <p data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
-                {asked.text}
-              </p>
-            ) : null}
-            {job ? (
-              <p
-                data-testid={job.status === 'failed' ? 'dk-note--bad' : undefined}
-                className={job.status === 'failed' ? 'dk-note dk-note--bad' : 'dk-note'}
-                role="status"
-              >
-                {job.status === 'finished' && job.rows
-                  ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, ledger: job.rows.ledger, id: job.id })
-                  : job.status === 'failed'
-                    ? t('Statement too large')
-                    : t('Statement pending')}
-              </p>
-            ) : null}
-            {job?.sha256 ? <p className="dk-note dk-note-ref">{t('Statement fingerprint', { sha: job.sha256 })}</p> : null}
-            {saved ? (
-              <p className="lt-hint" role="status">
-                {saved}
-              </p>
-            ) : null}
-            <AlertDialogFooter>
-              <Button variant="secondary" size={40} onClick={() => setOpen(false)}>
+      {open ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Statement title')}
+          description={t('Statement intro')}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <Button tone="secondary" size="md" onClick={() => setOpen(false)}>
                 {t('Dead man close')}
               </Button>
               {job?.status === 'finished' ? (
-                <Button variant="secondary" size={40} onClick={() => void save(job)}>
+                <Button tone="secondary" size="md" onClick={() => void save(job)}>
                   {t('Statement download')}
                 </Button>
               ) : null}
-              <Button variant="primary" shape="pill" size={40} loading={asked.status === 'busy'} onClick={() => void ask()}>
+              <Button busy={asked.status === 'busy'} tone="primary" size="md" onClick={() => void ask()}>
                 {job?.status === 'pending' ? t('Statement check again') : t('Statement request')}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            </>
+          }
+        >
+          <div className="lt-cols-2">
+            <label className="lt-field">
+              <span>{t('Statement from')}</span>
+              <DateInput type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
+            </label>
+            <label className="lt-field">
+              <span>{t('Statement to')}</span>
+              <DateInput type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
+            </label>
+          </div>
+          <p className="lt-note">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
+          {asked.status === 'refused' ? (
+            <p data-testid="dk-note--bad" className="lt-note lt-note-bad" role="alert">
+              {asked.text}
+            </p>
+          ) : null}
+          {job ? (
+            <p data-testid={job.status === 'failed' ? 'dk-note--bad' : undefined} className={NOTE[job.status]} role="status">
+              {job.status === 'finished' && job.rows
+                ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, ledger: job.rows.ledger, id: job.id })
+                : job.status === 'failed'
+                  ? t('Statement too large')
+                  : t('Statement pending')}
+            </p>
+          ) : null}
+          {job?.sha256 ? <p className="lt-note lt-mono">{t('Statement fingerprint', { sha: job.sha256 })}</p> : null}
+          {saved ? (
+            <p className="lt-note" role="status">
+              {saved}
+            </p>
+          ) : null}
+        </Sheet>
+      ) : null}
     </>
   );
 }

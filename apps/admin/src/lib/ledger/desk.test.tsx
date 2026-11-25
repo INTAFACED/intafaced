@@ -240,6 +240,8 @@ describe('the desk on the page', () => {
           balanceAfter: '25',
         },
       ],
+      reversedBy: null,
+      reverses: null,
     };
     const html = renderToStaticMarkup(<TransactionView transaction={transaction} readAt="2026-10-24T12:01:00.000Z" />);
     expect(html).toContain('data-testid="ledger-lookup-seq">51<');

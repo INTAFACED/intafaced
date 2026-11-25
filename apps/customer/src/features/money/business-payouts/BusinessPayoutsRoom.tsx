@@ -2,7 +2,7 @@
 // volt-room: /bank/business/contractor-join
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DateInput } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   businessBulkRunSchema,
@@ -148,7 +148,10 @@ const copy = defineCopy('money.business-payouts', {
   railCrypto: 'No chain rail is connected here (rail.crypto): your own wallet sends the signed run. INTAFACED holds no vault.',
   joinFor: 'Add your details for {name}',
   joinClosed: 'This link was already used or the business is closed.',
-  joinNoToken: 'This page needs an onboarding link.',
+  joinNoTokenTitle: 'Open your onboarding link',
+  joinNoToken:
+    'This page opens from an onboarding link. A business that pays you through INTAFACED makes one in its Business room and sends it to you; open that link to add your payout details here.',
+  joinBack: 'Go to Business',
   join: 'Add my details',
   joined: 'You are now a contractor of {name}.',
 });
@@ -660,7 +663,7 @@ function ContractorRow({ c, change, t }: { c: BusinessContractor; change: Change
         </label>
         <label className="lt-field">
           <span>{t('invoiceDue')}</span>
-          <input type="date" value={inv.due} onChange={(e) => setInv({ ...inv, due: e.target.value })} />
+          <DateInput type="date" value={inv.due} onChange={(e) => setInv({ ...inv, due: e.target.value })} />
         </label>
         <Button tone="primary" type="submit" disabled={change.busy || !inv.number.trim() || !inv.amount.trim()}>
           {t('storeInvoice')}
@@ -964,7 +967,14 @@ export function ContractorJoinRoom({ search }: { search: string }) {
   const [joined, setJoined] = useState<string | null>(null);
   let state: RoomState = { kind: 'ready' };
   if (!userId) state = signedOutState(t, path);
-  else if (!token) state = { kind: 'refused', refusal: { variant: 'refused', title: t('joinTitle'), body: t('joinNoToken') } };
+  else if (!token)
+    // Nothing is wrong here: the page waits for its link, so it is the room's first state, not a refusal.
+    state = {
+      kind: 'empty',
+      title: t('joinNoTokenTitle'),
+      body: t('joinNoToken'),
+      action: { label: t('joinBack'), href: '/bank/business' },
+    };
   else if (info.resource.status === 'failed')
     state = { kind: 'refused', refusal: { variant: 'refused', title: t('readFailedTitle'), body: info.resource.failure.message } };
   else if (info.resource.status !== 'ready') state = { kind: 'loading' };

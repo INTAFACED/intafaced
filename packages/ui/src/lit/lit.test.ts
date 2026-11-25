@@ -139,6 +139,7 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     'text-1',
     'text-2',
     'text-3',
+    'text-disabled',
     'accent-text',
     'up-text',
     'down-text',
@@ -306,5 +307,79 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
       const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");
     }
+  });
+  it('every Volt family draws arrows, shapes and check marks from its own symbol faces, not a system fallback', () => {
+    const faces = [...fonts.matchAll(/@font-face\s*{([^}]*)}/g)].map((m) => m[1] ?? '');
+    for (const family of ['Archivo Variable', 'Geist Variable', 'Geist Mono Variable']) {
+      const own = faces.filter((f) => f.includes(`font-family: '${family}'`));
+      const ranges = own.map((f) => /unicode-range:\s*([^;]+);/.exec(f)?.[1] ?? '').join(',');
+      // → ↗ ← ↔ ↙ ↘ ↕ ↻ ▲ ▼ ▾ ▸ ○ ● ✓ ✕: every symbol the Customer app types today.
+      for (const ch of '→↗←↔↙↘↕↻▲▼▾▸○●✓✕') {
+        const cp = ch.codePointAt(0)!;
+        const covered = ranges.split(',').some((r) => {
+          const [a = '', b = a] = r.trim().replace(/^U\+/, '').split('-');
+          return cp >= parseInt(a, 16) && cp <= parseInt(b, 16);
+        });
+        expect(covered, `${family} draws ${ch}`).toBe(true);
+      }
+      for (const f of own) {
+        const file = /url\(\.\/(fonts\/[^)]+)\)/.exec(f)?.[1];
+        expect(file && statSync(join(here, file)).size).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('one part per role', () => {
+  /**
+   * Names main's kit exports that are defined in two files under src/lit: Segmented and RefusalBox twice on main, and
+   * Select (a combobox beside main's native one) and Checkbox beside main's. Folding a name main exports changes every
+   * layer that imports it, so these are the kit owner's to fold. The list only shrinks: a folded name fails the second
+   * test until it comes off.
+   */
+  const mainOwned = ['Checkbox', 'RefusalBox', 'Segmented', 'Select'];
+
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return name === '__gallery__' ? [] : files(path);
+      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+    });
+  const definedTwice = () => {
+    const where = new Map<string, string[]>();
+    for (const file of files(here)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/^export (?:function|const|class) ([A-Z][A-Za-z0-9]*)\b/gm)) {
+        const name = m[1]!;
+        where.set(name, [...(where.get(name) ?? []), file.slice(here.length)]);
+      }
+    }
+    return [...where].filter(([, at]) => at.length > 1);
+  };
+
+  it('no other part is defined twice in the kit: each exported name lives in one file under src/lit', () => {
+    expect(definedTwice().filter(([name]) => !mainOwned.includes(name))).toEqual([]);
+  });
+
+  it("every name on the kit owner's list is still defined twice (a folded name comes off the list)", () => {
+    expect(mainOwned.filter((name) => !definedTwice().some(([n]) => n === name))).toEqual([]);
+  });
+});
+
+describe('the kit draws the arrows its faces lack', () => {
+  // Archivo and Geist carry no ▲ ▼ → ← ↗ (look gate run 45061471946: ▲ in WenQuanYi Zen Hei); fonts.css now gives each
+  // family symbol faces for typed text, and the kit's own parts still draw theirs: lt-arrow-up, lt-arrow-down,
+  // lt-arrow-go, lt-arrow-back, lt-arrow-out.
+  it('no kit component types one outside a comment', () => {
+    const typed = walk(here)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .flatMap((f) =>
+        readFileSync(f, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ''))
+          .split('\n')
+          .map((line, i) => ({ at: `${f.slice(here.length)}:${i + 1}`, code: line.replace(/\/\/.*$/, '') }))
+          .filter(({ code }) => /[▲▼→←↗]/.test(code))
+          .map(({ at }) => at),
+      );
+    expect(typed).toEqual([]);
   });
 });

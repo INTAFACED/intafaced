@@ -105,6 +105,16 @@ pub struct Item {
     pub address: Option<String>,
     /// `heldAt.label`: on a line the partner bank reports.
     pub held_at: Option<String>,
+    /// `fees`: what a personal send cost, as the bank recorded it when the send was made. `None` on every other line.
+    pub fees: Option<Fees>,
+}
+
+/// A personal send's recorded fees: our fee and the network fee the moving book stated. `None` is "not recorded" (our
+/// fee) or "not known" (the network fee).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fees {
+    pub fee: Option<String>,
+    pub network_fee: Option<String>,
 }
 
 fn opt(fields: &mut Vec<(String, Json)>, key: &str, v: Option<&String>) {
@@ -162,6 +172,16 @@ impl Item {
             f.push((
                 "heldAt".to_owned(),
                 Json::obj([("label", Json::str(label.clone()))]),
+            ));
+        }
+        if let Some(fees) = &self.fees {
+            let figure = |v: &Option<String>| v.clone().map_or(Json::Null, Json::String);
+            f.push((
+                "fees".to_owned(),
+                Json::obj([
+                    ("fee", figure(&fees.fee)),
+                    ("networkFee", figure(&fees.network_fee)),
+                ]),
             ));
         }
         Json::Object(f)
@@ -264,6 +284,8 @@ pub struct Fact {
     pub note: Option<String>,
     pub reference: Option<String>,
     pub counterparty_handle: Option<String>,
+    /// The send's recorded fees.
+    pub fees: Fees,
 }
 
 /// `ActivityTransferFacts.forTransfers`: a personal send's note, reference and the other person's handle, by tx id.
@@ -1304,6 +1326,7 @@ impl Feed<'_> {
                 dispute: None,
                 address: None,
                 held_at: None,
+                fees: None,
             };
             items.extend(with_own_fee(line, e.fee.as_ref()));
         }
@@ -1501,6 +1524,7 @@ fn apply_facts(
         if let Some(r) = fact.reference.as_ref().filter(|r| !r.is_empty()) {
             i.reference = Some(r.clone());
         }
+        i.fees = Some(fact.fees.clone());
     }
 }
 

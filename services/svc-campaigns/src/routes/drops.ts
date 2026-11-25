@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
 import { router } from '@intafaced/contracts/trpc';
 import {
   dropCreateInputSchema,
@@ -24,7 +25,7 @@ export function dropRoutes({ drops }: CampaignServices) {
           CAMPAIGNS_DROPS_ROOM,
           async ({ ctx }) => {
             try {
-              return await drops.room(ctx.principal!.userId);
+              return await drops.room(ctx.principal!.userId, forwardedPrincipalHeaders(ctx));
             } catch (err) {
               mapError(err);
             }
@@ -37,7 +38,11 @@ export function dropRoutes({ drops }: CampaignServices) {
           CAMPAIGNS_DROPS_CLAIM,
           async ({ ctx, input }) => {
             try {
-              return await drops.claim({ dropId: input.dropId, accountId: ctx.principal!.userId });
+              return await drops.claim({
+                dropId: input.dropId,
+                accountId: ctx.principal!.userId,
+                forwarded: forwardedPrincipalHeaders(ctx),
+              });
             } catch (err) {
               mapError(err);
             }

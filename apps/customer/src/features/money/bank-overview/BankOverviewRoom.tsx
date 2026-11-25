@@ -15,6 +15,7 @@ import { spaceTotals } from '../holdings';
 import { recoveryClaimCopy } from '../recovery-claim-copy';
 import { AccountHome } from './AccountHome';
 import { OnboardingBanner } from './OnboardingBanner';
+import { isHiddenPath } from '../../../app/feature-registry';
 
 const bankServices = [
   { href: '/bank/spaces', label: 'nav.spaces', note: 'overview.spaces.note' },
@@ -70,7 +71,7 @@ export function BankOverview() {
       title={copyText('index.bank')}
       description={copyText('overview.description')}
       state={{ kind: 'ready' }}
-      rooms={<BankTabs current="Overview" />}
+      section={<BankTabs />}
       actions={
         <div className="lt-actions">
           <a className="lt-button lt-button-primary" href="/bank/spaces">
@@ -279,21 +280,23 @@ export function BankOverview() {
           <BankSection title={copyText('overview.services')}>
             <nav aria-label={copyText('overview.services')}>
               <ul className="lt-rows">
-                {bankServices.map((service) => (
-                  <li key={service.href}>
-                    <a className="lt-row-link" data-span="row" href={service.href}>
-                      <span className="lt-lines">
-                        <strong>
-                          <Text k={service.label} />
-                        </strong>
-                        <small className="lt-hint">
-                          <Text k={service.note} />
-                        </small>
-                      </span>
-                      <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
-                    </a>
-                  </li>
-                ))}
+                {bankServices
+                  .filter((service) => !isHiddenPath(service.href))
+                  .map((service) => (
+                    <li key={service.href}>
+                      <a className="lt-row-link" data-span="row" href={service.href}>
+                        <span className="lt-lines">
+                          <strong>
+                            <Text k={service.label} />
+                          </strong>
+                          <small className="lt-hint">
+                            <Text k={service.note} />
+                          </small>
+                        </span>
+                        <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+                      </a>
+                    </li>
+                  ))}
                 <RecoveryClaimLink />
               </ul>
             </nav>

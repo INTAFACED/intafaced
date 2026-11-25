@@ -732,9 +732,11 @@ test.describe('recovery keys', () => {
     const asked = `staff-${owner.handle}`;
     // A one-key plan: the number of keys that must sign, not a screenshot tolerance.
     const oneKey = 1;
+    // Where each service declares its recovery doors: the bank's door lists each call by its path, identity's router
+    // declares each as a procedure or mounts it from its record.
     const RECOVERY_ROUTERS = [
-      ['bank', 'services/svc-bank/src/recovery/recovery.router.ts'],
-      ['identity', 'services/svc-identity/src/recovery-keys-router.ts'],
+      ['bank', 'crates/svc-bank/src/door/calls.rs', /^\s+path: "recovery\./gm],
+      ['identity', 'services/svc-identity/src/recovery-keys-router.ts', /^\s+\w+:\s*(?:\w*[pP]rocedure\b|mountRecord\()/gm],
     ];
     const RECOVERY_DOORS = [
       ['bank', 'query', 'recovery.estates', undefined, 'bank.recovery_staff_forbidden'],
@@ -770,8 +772,8 @@ test.describe('recovery keys', () => {
       ],
     ];
     // Every door is on the list exactly once: the list matches the procedures the two recovery routers declare.
-    for (const [service, file] of RECOVERY_ROUTERS) {
-      const declared = (readFileSync(path.join(ROOT, file), 'utf8').match(/^\s+\w+:\s*\w*[pP]rocedure\b/gm) ?? []).length;
+    for (const [service, file, declares] of RECOVERY_ROUTERS) {
+      const declared = (readFileSync(path.join(ROOT, file), 'utf8').match(declares) ?? []).length;
       const listed = RECOVERY_DOORS.filter(([s]) => s === service).map(([, , procedure]) => procedure);
       expect(new Set(listed).size, `${service}: each recovery door once`).toBe(listed.length);
       expect(listed.length, `${service}: the list holds every door ${file} declares`).toBe(declared);

@@ -1,5 +1,7 @@
+// volt-room: /money/balance/:asset
 import { ArrowLeft, Check } from 'lucide-react';
-import { Amount, Button, Skeleton, StateBlock } from './ui-deps';
+import { Amount, Button, Segmented, StateBlock } from '@intafaced/ui/lit';
+import { RecordListTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/templates';
 import { fmtAmount, navigate, refusalCopy } from './deps';
 import { moneyCopy } from './copy';
 import { stamp } from './time';
@@ -10,6 +12,10 @@ import { useNamedAccounts } from './portfolio-source';
 import { SetAside } from './SetAside';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
+
+/** The switch's value for every account at once (no `account` in the address). */
+const ALL = '*all';
+const READY: RoomState = { kind: 'ready' };
 
 const accountLabel = (accountId: string, names: ReadonlyMap<string, string>, copy: Copy) =>
   accountId === 'main' ? copy.t('Entries main account') : (names.get(accountId) ?? copy.t('Entries other account'));
@@ -30,6 +36,7 @@ function Row({
   const copy = moneyCopy.useCopy();
   const signed = signedOf(row);
   const up = row.direction === 'debit';
+  const amountClass = up ? 'lt-up' : 'lt-down';
   return (
     <tr>
       <td>
@@ -37,15 +44,11 @@ function Row({
       </td>
       <td>{up ? copy.t('Money in direction') : copy.t('Money out direction')}</td>
       <td>{accountLabel(row.accountId, names, copy)}</td>
-      <td className="money-num">
-        <Amount
-          value={signed === null ? '—' : `${up ? '+' : '−'}${fmtAmount(row.amount)}`}
-          hidden={hidden}
-          className={up ? 'text-up-text' : 'text-down-text'}
-        />
+      <td className="lt-num">
+        <Amount value={signed === null ? '—' : `${up ? '+' : '−'}${fmtAmount(row.amount)}`} hidden={hidden} className={amountClass} />
       </td>
       <td>
-        <code className="money-code">{row.txId}</code>
+        <code className="lt-mono">{row.txId}</code>
       </td>
       <td data-testid="entry-state">{row.state === 'completed' ? copy.t('Completed') : '—'}</td>
       <td data-testid="entry-fee">
@@ -73,22 +76,6 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
   const spaces = named.status === 'ready' ? named.data : [];
   const names = new Map(spaces.map((space) => [space.id, space.name]));
 
-  const scope = (target: string | null, label: string) => (
-    <a
-      key={target ?? 'all'}
-      className="money-alloc__opt"
-      aria-current={accountId === target ? 'true' : undefined}
-      href={balanceEntriesHref(asset, target ?? undefined)}
-      onClick={(event) => {
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-        event.preventDefault();
-        navigate(balanceEntriesHref(asset, target ?? undefined));
-      }}
-    >
-      {label}
-    </a>
-  );
-
   let body: React.ReactNode;
   if (asset === '') {
     body = (
@@ -100,9 +87,8 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
     );
   } else if (state.status === 'loading') {
     body = (
-      <div aria-busy="true" role="status" aria-label={t('Loading entries')} className="money-detail__skeleton">
-        <Skeleton width={260} height={28} className="bg-field" />
-        <Skeleton width={200} height={20} className="bg-field" />
+      <div aria-busy="true" role="status" aria-label={t('Loading entries')} className="lt-stack">
+        <Skeleton shape="rows" count={3} />
       </div>
     );
   } else if (state.status === 'error') {
@@ -119,8 +105,8 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
   } else {
     body = (
       <>
-        <p className="money-detail__status" role="status">
-          <span data-testid="money-act__done" className="money-act__done">
+        <p className="lt-hint" role="status">
+          <span data-testid="money-act__done" className="lt-chip">
             <Check size={14} aria-hidden="true" />
             {t('Entries check label')}
           </span>
@@ -133,14 +119,14 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
                 asset,
               })}
         </p>
-        <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Balance entries title', { asset })}>
-          <table data-testid="money-table" className="money-table money-table--activity">
+        <section data-testid="money-card" className="lt-table-scroll" aria-label={t('Balance entries title', { asset })}>
+          <table data-testid="money-table" className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('Entries column when')}</th>
                 <th scope="col">{t('Entries column what')}</th>
                 <th scope="col">{t('Entries column account')}</th>
-                <th scope="col" className="money-num">
+                <th scope="col" className="lt-num">
                   {t('Entries column amount')}
                 </th>
                 <th scope="col">{t('Entries column reference')}</th>
@@ -164,7 +150,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
         </section>
         {state.moreFailed && <p className="lt-hint">{t('Couldn’t load more')}</p>}
         {state.hasMore && (
-          <Button variant="secondary" size={40} onClick={state.loadMore} disabled={state.loadingMore}>
+          <Button tone="secondary" onClick={state.loadMore} disabled={state.loadingMore}>
             {t('Load more')}
           </Button>
         )}
@@ -173,30 +159,44 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
   }
 
   return (
-    <div data-testid="if-money" className="if-money if-money--activity money-detail">
-      <a
-        className="money-back"
-        href="/money"
-        onClick={(event) => {
-          if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-          event.preventDefault();
-          navigate('/money');
-        }}
-      >
-        <ArrowLeft size={16} aria-hidden="true" />
-        {t('Back to your money')}
-      </a>
-      <header className="money-detail__head">
-        <h1 className="money-title">{t('Balance entries title', { asset })}</h1>
-        <p className="lt-hint">{t('Balance entries intro', { asset })}</p>
-      </header>
-      <div className="money-alloc__switch" role="group" aria-label={t('Entries account scope')}>
-        {scope(null, t('Entries all accounts'))}
-        {scope('main', t('Entries main account'))}
-        {spaces.map((space) => scope(space.id, space.name))}
-      </div>
-      {body}
-      {asset !== '' && <SetAside asset={asset} hidden={hideBalances} />}
+    <div data-testid="if-money">
+      <RecordListTemplate
+        title={t('Balance entries title', { asset })}
+        description={t('Balance entries intro', { asset })}
+        state={READY}
+        roomAction={
+          <a
+            className="lt-button lt-button-secondary"
+            href="/money"
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+              event.preventDefault();
+              navigate('/money');
+            }}
+          >
+            <ArrowLeft size={16} aria-hidden="true" />
+            {t('Back to your money')}
+          </a>
+        }
+        filters={
+          <Segmented
+            label={t('Entries account scope')}
+            value={accountId ?? ALL}
+            options={[
+              { value: ALL, label: t('Entries all accounts') },
+              { value: 'main', label: t('Entries main account') },
+              ...spaces.map((space) => ({ value: space.id, label: space.name })),
+            ]}
+            onChange={(target) => navigate(balanceEntriesHref(asset, target === ALL ? undefined : target))}
+          />
+        }
+        list={
+          <div className="lt-stack">
+            {body}
+            {asset !== '' && <SetAside asset={asset} hidden={hideBalances} />}
+          </div>
+        }
+      />
     </div>
   );
 }

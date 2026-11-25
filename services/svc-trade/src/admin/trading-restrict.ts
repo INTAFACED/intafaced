@@ -3,9 +3,8 @@
  * This gate runs only when IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL is on.
  * Off: the apply path is unchanged and an approval id is not required.
  */
-import { z } from 'zod';
 import type { AccountControlResult, AccountControlState } from '@intafaced/contracts';
-import { accountControlInputSchema, accountControlResultSchema } from '@intafaced/contracts/account-controls';
+import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
 import { consumeApproval, payloadHash, type ApprovalBook } from './common.js';
 
 let bound: ApprovalBook | null = null;
@@ -24,12 +23,6 @@ export function tradingRestrictRequiresApproval(): boolean {
   if (typeof raw !== 'string') return false;
   const text = raw.trim().toLowerCase();
   return text === 'true' || text === '1' || text === 'on';
-}
-
-/** Flag off: the shared strict schema, so a caller-supplied approvalId is still rejected. */
-export function tradeRestrictInputSchema() {
-  if (!tradingRestrictRequiresApproval()) return accountControlInputSchema;
-  return accountControlInputSchema.extend({ approvalId: z.string().trim().min(1).max(128) }).strict();
 }
 
 export async function tradingRestrictGate(input: {

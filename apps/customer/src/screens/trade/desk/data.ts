@@ -51,19 +51,21 @@ export function useDeskApi(): TradeApi {
 }
 
 /** Every real spot market with its rules. Polled slowly: rules rarely change. */
-export function useDeskMarkets(): Loadable<DeskMarket[]> {
+export function useDeskMarkets(enabled = true): Loadable<DeskMarket[]> {
   const env = useDataEnv();
   const source = useMemo(
     () =>
-      env.poller.source<DeskMarket[]>(
-        'desk-markets',
-        async (signal) => {
-          const result = await env.api.rest('/markets', z.array(deskListingSchema), { query: { limit: 500 }, signal });
-          return result.ok ? { ok: true, data: toDeskMarkets(result.data) } : result;
-        },
-        { intervalMs: DESK_INTERVALS.markets },
-      ),
-    [env],
+      enabled
+        ? env.poller.source<DeskMarket[]>(
+            'desk-markets',
+            async (signal) => {
+              const result = await env.api.rest('/markets', z.array(deskListingSchema), { query: { limit: 500 }, signal });
+              return result.ok ? { ok: true, data: toDeskMarkets(result.data) } : result;
+            },
+            { intervalMs: DESK_INTERVALS.markets },
+          )
+        : constantSource<DeskMarket[]>(OFF),
+    [env, enabled],
   );
   return useSource(source);
 }

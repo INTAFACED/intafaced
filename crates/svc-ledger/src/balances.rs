@@ -114,7 +114,7 @@ pub fn balances(
             "SELECT id::text, asset_id, kind::text, purpose, balance::text
                FROM accounts
               WHERE owner_type = $1::text::owner_type AND owner_id = $2
-              ORDER BY asset_id, kind, purpose",
+              ORDER BY asset_id, accounts.kind, purpose",
             &[&owner_type, &owner_id],
         )
         .map_err(fault)?;
@@ -184,7 +184,7 @@ fn claimed(c: &mut impl GenericClient, rows: &[postgres::Row]) -> Result<Option<
     let entries = c
         .query(
             "SELECT account_id::text, asset_id, direction::text, amount::text, balance_after::text, id::text
-               FROM ledger_entries WHERE tx_id = $1::text::uuid ORDER BY id ASC",
+               FROM ledger_entries WHERE tx_id = $1::text::uuid ORDER BY ledger_entries.id ASC",
             &[&id],
         )
         .map_err(fault)?

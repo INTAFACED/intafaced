@@ -1,12 +1,6 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
-import { academyLmsCopy as copy } from './academy-lms-copy';
-import { academyRefusalText } from './academy-flows';
-import type { CertificateState, LessonStatus } from './academy-lms';
+import type { ReactNode } from 'react';
+import { Button } from '../../shared/ui';
 import './academy-lms.css';
-
-export { pathLabel } from './academy-labels';
 
 /**
  * A bar is only drawn from a real ratio. Callers pass null when nothing is tracked and get text instead.
@@ -26,76 +20,6 @@ export function ProgressBar({ percent, label }: { percent: number; label: string
       aria-label={label}
     >
       <span style={{ width: `${value}%` }} />
-    </div>
-  );
-}
-
-const statusKeys = { recorded: 'statusRecorded', pending: 'statusPending', open: 'statusOpen' } as const;
-export function StatusChip({ status }: { status: LessonStatus }) {
-  const { Copy } = copy.useCopy();
-  return (
-    <span className="academy-lms-chip" data-status={status}>
-      <Copy k={statusKeys[status]} />
-    </span>
-  );
-}
-
-const stateKeys = {
-  earned: 'stateEarned',
-  ready: 'stateReady',
-  issuing: 'stateIssuing',
-  revoked: 'stateRevoked',
-  'in-progress': 'stateInProgress',
-  'not-started': 'stateNotStarted',
-} as const;
-export function CertificateChip({ state }: { state: CertificateState }) {
-  const { Copy } = copy.useCopy();
-  return (
-    <span className="academy-lms-chip" data-status={state}>
-      <Copy k={stateKeys[state]} />
-    </span>
-  );
-}
-
-/**
- * A failed Academy request. The service's typed refusals are worded here in plain language; anything else (a dropped
- * connection, a sign-in problem) goes to the shared failure panel, which words those.
- */
-export function AcademyRefusal({ failure, retry }: { failure: Extract<ApiResult<never>, { ok: false }>; retry?: () => void }) {
-  const { t } = copy.useCopy();
-  const words = academyRefusalText(failure, t);
-  if (words === null) return <Failure result={failure} retry={retry} />;
-  return (
-    <div data-testid="failure" className="lt-refusal" role="status">
-      <p>{words}</p>
-    </div>
-  );
-}
-
-/**
- * A button that states why it is off. The reason sits next to the button, not in a tooltip, and the button points at it,
- * so a screen reader hears it with the button. When the button is on, no reason is shown.
- */
-export function GuardedButton({
-  reason,
-  reasonId,
-  children,
-  ...props
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'disabled'> & {
-  reason: ReactNode | null;
-  reasonId: string;
-  variant?: 'primary' | 'secondary';
-}) {
-  return (
-    <div className="academy-lms-disabled">
-      <Button {...props} disabled={reason !== null} aria-describedby={reason !== null ? reasonId : undefined}>
-        {children}
-      </Button>
-      {reason !== null && (
-        <small id={reasonId} className="lt-muted">
-          {reason}
-        </small>
-      )}
     </div>
   );
 }

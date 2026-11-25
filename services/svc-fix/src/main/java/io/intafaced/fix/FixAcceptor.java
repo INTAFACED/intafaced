@@ -35,8 +35,17 @@ public final class FixAcceptor implements AutoCloseable {
 
     public static FixAcceptor start(
             FixAcceptorConfig config, FixSessionApplication application, String storePath) throws Exception {
+        return start(config, application, storePath, "");
+    }
+
+    /** As above, accepting on {@code host} only; a blank host accepts on every interface. */
+    public static FixAcceptor start(
+            FixAcceptorConfig config, FixSessionApplication application, String storePath, String host) throws Exception {
         String path = storePath == null ? "" : storePath.trim();
         SessionSettings settings = config.toSessionSettings(path);
+        if (host != null && !host.isBlank()) {
+            settings.setString(quickfix.Acceptor.SETTING_SOCKET_ACCEPT_ADDRESS, host.trim());
+        }
         MessageStoreFactory stores = path.isEmpty() ? new MemoryStoreFactory() : new FileStoreFactory(settings);
         ThreadedSocketAcceptor acceptor = new ThreadedSocketAcceptor(
                 application,
@@ -51,6 +60,15 @@ public final class FixAcceptor implements AutoCloseable {
     /** The sessions this acceptor holds, as QuickFIX/J configured them. */
     public java.util.List<quickfix.SessionID> sessions() {
         return acceptor.getSessions();
+    }
+
+    /** The addresses this acceptor's sockets are bound to. */
+    public java.util.List<java.net.SocketAddress> listenAddresses() {
+        java.util.List<java.net.SocketAddress> out = new java.util.ArrayList<>();
+        for (org.apache.mina.core.service.IoAcceptor endpoint : acceptor.getEndpoints()) {
+            out.addAll(endpoint.getLocalAddresses());
+        }
+        return out;
     }
 
     @Override

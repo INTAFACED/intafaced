@@ -86,6 +86,8 @@ test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about a
   await expect
     .poll(() => page.getByTestId('price').evaluate((node) => node.querySelector('[role="img"]')?.getAttribute('aria-label') ?? null))
     .toMatch(/^\$[\d,]+\.\d{2}$/);
+  // The big number says which price it is: the last trade, not a buy or sell quote.
+  await expect(page.getByTestId('price-label')).toHaveText('Last trade price');
   await expect(page.getByTestId('chart-area').getByTestId('coin-chart')).toBeVisible();
   // The range pills: all six, in order, the default 1D the one pressed.
   const pills = page.getByTestId('coin-ranges').locator('button');
@@ -136,7 +138,7 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await expect(pills.filter({ hasText: /^6M$/ })).toBeVisible();
   // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
   // report (ALL); the words the page holds are what the step's order is about.
-  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  await expect.poll(async () => await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Six months of daily candles: the chart asks for daily candles, 180 of them, and draws what came back.
   const asked = page.waitForResponse(
     (res) => res.url().includes('/ohlcv/') && /timeframe=1d/.test(res.url()) && /limit=180\b/.test(res.url()),
@@ -162,7 +164,7 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await expect(page.getByTestId('chart-empty')).toHaveCount(0);
   // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
   // report (ALL); the words the page holds are what the step's order is about.
-  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  await expect.poll(async () => await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Arrow keys move between the pills.
   await pills.filter({ hasText: /^6M$/ }).focus();
   await page.keyboard.press('ArrowRight');
@@ -270,10 +272,12 @@ test(`${J} #4 reads "Your position": quantity, average price, cost basis and res
   expect(asset.openCostUsd).not.toBeNull();
   await expect(position.locator('[data-figure="quantity"]')).toContainText(`${Number(asset.openQty)} BTC`);
   // To the cent, half up, from the book's exact figures.
-  expect(units(await position.locator('[data-figure="cost-basis"]').innerText())).toBe(cents(toUnits(asset.openCostUsd)));
+  await expect
+    .poll(async () => units(await position.locator('[data-figure="cost-basis"]').innerText()))
+    .toBe(cents(toUnits(asset.openCostUsd)));
   // Divided as the app divides: half up at the 18th place, then to the cent.
   const average = (2n * toUnits(asset.openCostUsd) * ONE + toUnits(asset.openQty)) / (2n * toUnits(asset.openQty));
-  expect(units(await position.locator('[data-figure="average-price"]').innerText())).toBe(cents(average));
+  await expect.poll(async () => units(await position.locator('[data-figure="average-price"]').innerText())).toBe(cents(average));
   // The result is those open lots at the live price less their cost: the same price values the holding shown above it
   // (every BTC held is in those lots), so the result is that value less the cost basis, to the cent (each side is
   // rounded to the cent on the page, so they may differ by one cent).
@@ -368,6 +372,20 @@ test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin ch
     await expect(review).toContainText('Review your buy');
     await expect(review.getByTestId('review-get')).toContainText(/BTC/);
     await expect(review).toContainText(/per BTC/);
+    // The review shows the book's best bid and best ask, the spread between them, and the fee in dollars beside
+    // its own unit. A buy is priced at the ask, so the price per BTC is the ask shown.
+    const bidText = await review.getByTestId('review-bid').innerText();
+    const askText = await review.getByTestId('review-ask').innerText();
+    expect(bidText).toMatch(/^\$[\d,]+\.\d{2}$/);
+    expect(askText).toMatch(/^\$[\d,]+\.\d{2}$/);
+    expect(dollars(askText)).toBeGreaterThanOrEqual(dollars(bidText));
+    await expect(review).toContainText(`${askText} per BTC`);
+    const spreadText = await review.getByTestId('review-spread').innerText();
+    expect(spreadText).toMatch(/^\$[\d,]+\.\d{2} \(\d+\.\d{3}%\)$/);
+    // The spread is the ask less the bid, to the cent.
+    expect(Math.round(dollars(spreadText.split(' ')[0]) * 100)).toBe(Math.round((dollars(askText) - dollars(bidText)) * 100));
+    await expect(review.getByTestId('review-fee')).toHaveText(/^[\d.]+ (BTC|USDT)$/);
+    await expect(review.getByTestId('review-fee-usd')).toHaveText(/^ ?\(about \$[\d,.]+\)$/);
     // The step's picture: the coin room's own Buy card, BTC chosen, at its review (the Pro half below ends on the desk).
     await stepPicture(page);
     // Leaving the review places nothing.

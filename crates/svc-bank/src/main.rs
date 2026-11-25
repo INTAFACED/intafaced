@@ -60,6 +60,8 @@ fn main() -> ExitCode {
             args.iter().any(|a| a == "--down"),
             &mut std::io::stdout(),
         )
+    } else if args.first().map(String::as_str) == Some("test-seed") {
+        test_seed(args.get(1).map_or("", String::as_str))
     } else {
         run()
     };
@@ -68,6 +70,30 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("{e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// `svc-bank test-seed <op>`: one seed operation on a TEST stack's bank schema (`test_seed`), its input on stdin and
+/// its answer on stdout.
+fn test_seed(op: &str) -> Result<(), String> {
+    let raw: BTreeMap<String, String> = std::env::vars().collect();
+    svc_bank::test_seed::allowed(&raw)?;
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).map_err(|e| e.to_string())?;
+    let url = raw
+        .get("DATABASE_URL")
+        .cloned()
+        .unwrap_or_else(|| migrate::DEFAULT_URL.to_owned());
+    let store = db::open(&url, "svc-bank-test-seed", 1, false)?;
+    match svc_bank::test_seed::run(store, raw, op, &input) {
+        Ok(answer) => {
+            println!("{}", answer.compact());
+            Ok(())
+        }
+        Err(refused) => {
+            println!("{}", refused.compact());
+            Err(format!("svc-bank test-seed {op} refused"))
         }
     }
 }
@@ -235,6 +261,7 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
         batch_size: env.int("TRANSFER_BATCH_SIZE"),
         producer: env.str("SERVICE_NAME").unwrap_or("svc-bank").to_owned(),
         business_invite_minutes: owned("BANK_BUSINESS_INVITE_MINUTES"),
+        bill_reader: env.str("BANK_BILL_READER").map(str::to_owned),
     };
     let bus: Box<dyn transfers::ports::Bus> = Box::new(JetStreamBus(bus.clone()));
     Ok(match env.str("IDENTITY_URL") {
@@ -338,6 +365,13 @@ fn recovery_jobs<'a>(
                 door.bank_api_deps(door.now(), |d| {
                     bank_api::drain(d, i64::from(batch)).map_err(|e| format!("{e:?}"))
                 })
+            }),
+        ),
+        // Slice `partner-account`: cash-outs left before their hold or the partner's acceptance, driven on.
+        (
+            "bank.recovery.redrive_cash_outs",
+            Box::new(move |batch| {
+                svc_bank::partner_account::cash_out::recovery(&door.partner_account(), batch)
             }),
         ),
     ]

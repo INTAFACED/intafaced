@@ -3,14 +3,18 @@
 // the reference for what they hold):
 //
 // - `src/door/schemas.json`: the `postRecipe` input and the `postRecipeReply` output, as the record
-//   (`post-recipe-record.ts`) writes them, in the tree of zod 4 parts the kit's schema engine runs. Every other part is
-//   kept as recorded; a part nothing names any more is dropped.
+//   (`post-recipe-record.ts`) writes them, in the tree of zod 4 parts the kit's schema engine runs; and the
+//   `operatorReverse` input and `operatorReverseReply` output from that door's record (`operator-reverse-record.ts`),
+//   a door the TypeScript service never had. Every other part is kept as recorded; a part nothing names any more is
+//   dropped.
 // - `tests/fixtures/input-parity.golden.json`: zod's verdict on each `postRecipe` and `postRecipeReply` input there,
-//   and on the record's own samples.
+//   and on the record's own samples; the same for the `operatorReverse` record's samples.
 // - `tests/fixtures/post-recipe-bank.golden.jsonl`: what the door answers each caller for bodies made to reach each
 //   check of svc-bank's recipes (`bankTransfer`, `payReceivedHold`, `payReceivedRelease`, `payReceivedReturn`,
 //   `earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`): its refusal on the wire, or the post it hands the
 //   ledger. Same shape as `post-recipe.golden.jsonl`.
+// - `tests/fixtures/post-recipe-bank-2.golden.jsonl`: the same for svc-bank's other recipes (`BANK_RECIPES_2`: loans,
+//   business approvals and payroll, ramps and card holds, cashback), in its own file so each stays reviewable.
 //
 // The door is `handleS2sPostRecipe` as the deleted service ran it up to `ledger.post` (read it in git history:
 // `git show 653924e16^:services/svc-ledger/src/s2s-http.ts`), over this package's own record, gate and recipes. Before
@@ -37,6 +41,7 @@ if (process.env.TZ !== 'UTC') {
 
 // Literal paths, so the dead-code scan (knip.jsonc) sees what this reads.
 const record = await import('../../../packages/ledger-client/src/post-recipe-record.ts');
+const { LEDGER_OPERATOR_REVERSE } = await import('../../../packages/ledger-client/src/operator-reverse-record.ts');
 const gate = await import('../../../packages/ledger-client/src/gate/index.ts');
 const { LedgerError, postRequestSchema } = await import('../../../packages/ledger-client/src/types.ts');
 const { ledgerPostWire } = await import('../../../packages/ledger-client/src/http-client.ts');
@@ -114,6 +119,39 @@ function answer(caller, body) {
   }
 }
 
+const BANK_RECIPES = [
+  'bankTransfer',
+  'payReceivedHold',
+  'payReceivedRelease',
+  'payReceivedReturn',
+  'earnDeposit',
+  'earnWithdraw',
+  'earnPoolFund',
+  'earnInterest',
+];
+const BANK_RECIPES_2 = [
+  'loanCollateralLock',
+  'loanCollateralRelease',
+  'loanDraw',
+  'loanRepay',
+  'loanReserveFund',
+  'loanLiquidate',
+  'loanBadDebt',
+  'businessApprovalHold',
+  'businessApprovalRelease',
+  'businessApprovalSettle',
+  'businessPayroll',
+  'deposit',
+  'withdrawHold',
+  'withdrawSettle',
+  'withdrawReverse',
+  'rewardPay',
+  'sweepFeesToRewards',
+];
+// A frozen body that names one of svc-bank's recipes (the deleted service did not post `deposit`) is held by svc-bank's
+// recording instead: the frozen answer was the door before it took the recipe.
+const SUPERSEDED = [];
+
 // ── The frozen recording, replayed ─────────────────────────────────────────────────────────────────────────────────
 
 const FROZEN = `${CRATE}tests/fixtures/post-recipe.golden.jsonl`;
@@ -124,6 +162,10 @@ const FROZEN = `${CRATE}tests/fixtures/post-recipe.golden.jsonl`;
   for (const line of lines) {
     const [text, said] = JSON.parse(line);
     const body = text === null ? undefined : JSON.parse(text);
+    if (isRecord(body) && [...BANK_RECIPES, ...BANK_RECIPES_2].includes(body.recipe)) {
+      SUPERSEDED.push(body);
+      continue;
+    }
     callers.forEach((caller, i) => {
       const got = answer(caller, body);
       if (got !== answers[said[i]]) {
@@ -136,21 +178,11 @@ const FROZEN = `${CRATE}tests/fixtures/post-recipe.golden.jsonl`;
       replayed++;
     });
   }
-  console.log(`${replayed} frozen answers replayed, all the same`);
+  console.log(`${replayed} frozen answers replayed, all the same; ${SUPERSEDED.length} bodies held by svc-bank's recording`);
 }
 
 // ── svc-bank's bodies ──────────────────────────────────────────────────────────────────────────────────────────────
 
-const BANK_RECIPES = [
-  'bankTransfer',
-  'payReceivedHold',
-  'payReceivedRelease',
-  'payReceivedReturn',
-  'earnDeposit',
-  'earnWithdraw',
-  'earnPoolFund',
-  'earnInterest',
-];
 const CALLERS = [
   { kind: 'bound', service: 'svc-bank' },
   { kind: 'bound', service: 'svc-academy' },
@@ -384,27 +416,241 @@ for (const [recipe, base] of [
   BODIES.push({ recipe, input: { ...base, extra: 1 } }, { recipe, input: base, idempotencyKey: 'mine' });
 }
 
-const answers = [];
-const answerIndex = new Map();
-const cases = [];
-const seen = new Set();
-for (const body of BODIES) {
-  const text = JSON.stringify(body);
-  if (seen.has(text)) continue;
-  seen.add(text);
-  const said = CALLERS.map((caller) => {
-    const a = answer(caller, JSON.parse(text));
-    if (!answerIndex.has(a)) answerIndex.set(a, answers.push(a) - 1);
-    return answerIndex.get(a);
-  });
-  cases.push([text, said]);
+// svc-bank's loans (`loans/service.rs`, `loans/sweep.rs`), business (`business/service.rs`), ramps and card holds
+// (`ramps/`, `cards/moves/`, `partner_account/cash_out/ledger.rs`) and cashback (`cards/moves/cashback.rs`), as it
+// sends them.
+const LOAN = '55555555-5555-4555-8555-555555555555';
+// Shorter lists than the earlier recipes' (the schema engine is held field by field by the zod verdicts): each still
+// reaches the record's bound, a value the recipe refuses, and one the book cannot hold.
+const SEQUENCES = [1, 2_147_483_648, -1, '0'];
+const ASSETS = ['BTC', 'U'.repeat(16), 'U'.repeat(17), ' USDC', ''];
+const SOME_AMOUNTS = ['0', '12.50', '0.000000000000000001', MAX, `1${'0'.repeat(20)}`, '-1', 12.5];
+const SOME_IDS = [USER.toUpperCase(), 'x', null];
+const COLLATERAL = { loanId: LOAN, userId: USER, collateralAssetId: 'BTC', amount: '0.5', sequence: 0 };
+const DRAW = { loanId: LOAN, userId: USER, debtAssetId: 'USDT', principal: '1000' };
+const REPAY = { ...DRAW, principal: '100', interest: '1.25', sequence: 1 };
+const RESERVE = { fundingId: 'treasury-2026-11', debtAssetId: 'USDT', amount: '50000' };
+const mm = (assetId) => ({ ownerType: 'house', ownerId: 'market-maker', assetId, kind: 'available' });
+const LIQUIDATE = {
+  loanId: LOAN,
+  userId: USER,
+  tranche: 0,
+  collateralAssetId: 'BTC',
+  collateralSold: '0.1',
+  debtAssetId: 'USDT',
+  proceeds: '6000',
+  principalRepaid: '5000',
+  interestRepaid: '10',
+  penalty: '300',
+  surplusToBorrower: '690',
+  buyer: { collateralTo: mm('BTC'), proceedsFrom: mm('USDT') },
+  markPrice: '60000',
+};
+const BAD_DEBT = { loanId: LOAN, debtAssetId: 'USDT', shortfall: '12.5' };
+const APPROVAL = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const APPROVE = { approvalId: APPROVAL, from: user(USER), amount: '250' };
+const SETTLE = { ...APPROVE, to: space(SPACE) };
+const PAYROLL = {
+  payrollId: APPROVAL,
+  from: user(USER),
+  recipients: [
+    { to: space(SPACE), amount: '100' },
+    { to: user(PAYEE), amount: '50' },
+  ],
+};
+const DEPOSIT = { userId: USER, assetId: 'USDC', amount: '25', rail: 'bank-crypto-ledger', railRef: '0xabc' };
+const WITHDRAW = { userId: USER, assetId: 'USDC', amount: '25', rail: 'bank-crypto-ledger', withdrawalId: SPACE };
+const REWARD = { rewardId: `bank.card.cashback:${SPACE}`, userId: USER, assetId: 'USDC', amount: '0.25', reason: 'bank.card.cashback' };
+const SWEEP = { windowId: 'bank.card:2026-11', sourceModule: 'bank', assetId: 'USDC', amount: '10' };
+const SPACE_ACCOUNTS = [
+  space(SPACE),
+  user(USER, 'USDT'),
+  rail('card-sandbox'),
+  { ...user(PAYEE), ownerType: 'house', ownerId: 'fees:bank' },
+  { ...user(PAYEE), kind: 'hold', purpose: 'x' },
+  null,
+];
+const RAILS = ['card-sim', 'crypto-native:base', 'r'.repeat(123), 'r'.repeat(124), 'a b', 'a:', ''];
+FIELDS.loanCollateralLock = { loanId: SOME_IDS, userId: SOME_IDS, collateralAssetId: ASSETS, amount: SOME_AMOUNTS, sequence: SEQUENCES };
+FIELDS.loanCollateralRelease = FIELDS.loanCollateralLock;
+FIELDS.loanDraw = { loanId: SOME_IDS, userId: SOME_IDS, debtAssetId: ASSETS, principal: SOME_AMOUNTS };
+FIELDS.loanRepay = { ...FIELDS.loanDraw, interest: SOME_AMOUNTS, sequence: SEQUENCES };
+FIELDS.loanReserveFund = {
+  fundingId: FIELDS.earnPoolFund.fundingId,
+  debtAssetId: ASSETS,
+  amount: SOME_AMOUNTS,
+  from: [{ ownerType: 'house', ownerId: 'fees:bank', assetId: 'USDT', kind: 'available' }],
+};
+FIELDS.loanLiquidate = {
+  loanId: ['x'],
+  userId: ['x'],
+  tranche: SEQUENCES,
+  collateralAssetId: ['USDT', 'U'.repeat(17), ''],
+  collateralSold: ['0', '1.0000000000000000001', MAX],
+  debtAssetId: ['BTC', ''],
+  proceeds: ['6001', '0', '-1', 6000],
+  principalRepaid: ['5001', '6000', MAX],
+  interestRepaid: ['9', MAX],
+  penalty: ['301', MAX],
+  surplusToBorrower: ['691', '0'],
+  buyer: [
+    { collateralTo: mm('USDT'), proceedsFrom: mm('USDT') },
+    { collateralTo: mm('BTC'), proceedsFrom: mm('BTC') },
+    { collateralTo: user(USER, 'BTC'), proceedsFrom: mm('USDT') },
+    { collateralTo: mm('BTC'), proceedsFrom: { ...mm('USDT'), ownerId: 'fees:bank' } },
+    { collateralTo: mm('BTC') },
+    { collateralTo: mm('BTC'), proceedsFrom: mm('USDT'), extra: 1 },
+    null,
+  ],
+  markPrice: ['0', 60000],
+};
+FIELDS.loanBadDebt = { loanId: SOME_IDS, debtAssetId: ASSETS, shortfall: SOME_AMOUNTS };
+FIELDS.businessApprovalHold = { approvalId: SOME_IDS, from: SPACE_ACCOUNTS, amount: SOME_AMOUNTS };
+FIELDS.businessApprovalRelease = FIELDS.businessApprovalHold;
+FIELDS.businessApprovalSettle = { ...FIELDS.businessApprovalHold, to: [user(USER), ...SPACE_ACCOUNTS] };
+const line = (to, amount) => ({ to, amount });
+FIELDS.businessPayroll = {
+  payrollId: [APPROVAL.toUpperCase(), ...SOME_IDS],
+  from: SPACE_ACCOUNTS,
+  recipients: [
+    [],
+    [line(user(USER), '1')],
+    [line(space(SPACE), '1'), line(space(SPACE), '2')],
+    [line(space(SPACE), '0')],
+    [line(user(PAYEE, 'USDT'), '1')],
+    [line(space(SPACE), MAX), line(user(PAYEE), MAX)],
+    [line(space(SPACE), MAX)],
+    [line(space(SPACE), '-1')],
+    [line(user(PAYEE.toUpperCase()), '1')],
+    [line(rail('card-sandbox'), '1')],
+    [{ to: space(SPACE) }],
+    [{ ...line(space(SPACE), '1'), extra: 1 }],
+    [null],
+    'x',
+    null,
+  ],
+};
+FIELDS.deposit = {
+  userId: SOME_IDS,
+  assetId: ASSETS,
+  amount: SOME_AMOUNTS,
+  rail: RAILS,
+  railRef: ['tx 0xabc', `cash-out-return:${SPACE}`, 'r'.repeat(256), 'r'.repeat(257), '', 7, null],
+  subAccountId: [SPACE],
+  confirmed: [true, false],
+};
+FIELDS.withdrawHold = {
+  userId: SOME_IDS,
+  assetId: ASSETS,
+  amount: SOME_AMOUNTS,
+  rail: RAILS,
+  withdrawalId: [`cash-out:${SPACE}`, 'w'.repeat(119), 'w'.repeat(120), 'a b', ''],
+  fee: ['0', '1'],
+};
+FIELDS.withdrawSettle = FIELDS.withdrawHold;
+FIELDS.withdrawReverse = FIELDS.withdrawHold;
+FIELDS.rewardPay = {
+  rewardId: ['r', 'r'.repeat(160), 'r'.repeat(161), 'a b', '', 7, null],
+  userId: SOME_IDS,
+  assetId: ASSETS,
+  amount: SOME_AMOUNTS,
+  reason: ['staking.yield', 'Cash Back', '', 'r'.repeat(65), 7, null],
+};
+FIELDS.sweepFeesToRewards = {
+  windowId: ['w', 'w'.repeat(128), 'w'.repeat(129), 'a b', '', 7, null],
+  sourceModule: ['trade', 'Bank', '', null],
+  assetId: ASSETS,
+  amount: SOME_AMOUNTS,
+};
+
+const BODIES_2 = [
+  // svc-bank's own shapes for the rest: a repayment of only interest or only principal, a liquidation with no house share
+  // or no surplus, a release from a named space, the widest payroll run, a card hold on its issuer's rail.
+  { recipe: 'loanRepay', input: { ...REPAY, principal: '0' } },
+  { recipe: 'loanRepay', input: { ...REPAY, interest: '0' } },
+  { recipe: 'loanRepay', input: { ...REPAY, principal: '0', interest: '0' } },
+  { recipe: 'loanRepay', input: { ...REPAY, principal: MAX, interest: '1' } },
+  { recipe: 'loanLiquidate', input: { ...LIQUIDATE, interestRepaid: '0', penalty: '0', principalRepaid: '5310' } },
+  { recipe: 'loanLiquidate', input: { ...LIQUIDATE, surplusToBorrower: '0', principalRepaid: '5690' } },
+  { recipe: 'loanLiquidate', input: { ...LIQUIDATE, principalRepaid: '0', surplusToBorrower: '5690' } },
+  { recipe: 'businessApprovalRelease', input: { ...APPROVE, from: space(SPACE) } },
+  { recipe: 'businessApprovalSettle', input: { ...SETTLE, from: space(SPACE), to: user(USER) } },
+  { recipe: 'businessApprovalSettle', input: { ...SETTLE, to: space(SPACE, 'USDT') } },
+  { recipe: 'withdrawHold', input: { ...WITHDRAW, rail: 'card-sim' } },
+  { recipe: 'deposit', input: { ...DEPOSIT, railRef: `cash-out-return:${SPACE}` } },
+  { recipe: 'deposit', input: { ...DEPOSIT, rail: 'r'.repeat(60), railRef: 'r'.repeat(131) } },
+  { recipe: 'deposit', input: { ...DEPOSIT, rail: 'r'.repeat(60), railRef: 'r'.repeat(132) } },
+  // One recipe's inputs under another's name.
+  { recipe: 'loanDraw', input: COLLATERAL },
+  { recipe: 'loanCollateralLock', input: DRAW },
+  { recipe: 'withdrawHold', input: DEPOSIT },
+  { recipe: 'deposit', input: WITHDRAW },
+  { recipe: 'businessApprovalSettle', input: APPROVE },
+  // The frozen bodies that name one of these recipes.
+  ...SUPERSEDED,
+];
+/** Each recipe's own body, then each field missing and each of its values, then an extra field and a key of its own. */
+function fuzz(bodies, recipe, base) {
+  bodies.push({ recipe, input: base });
+  for (const [field, values] of Object.entries(FIELDS[recipe])) {
+    const without = { ...base };
+    delete without[field];
+    bodies.push({ recipe, input: without });
+    for (const v of values) bodies.push({ recipe, input: { ...base, [field]: v } });
+  }
+  bodies.push({ recipe, input: { ...base, extra: 1 } }, { recipe, input: base, idempotencyKey: 'mine' });
 }
-const posts = answers.filter((a) => a.startsWith('{"post"')).length;
-for (const recipe of BANK_RECIPES) {
-  if (!POST_RECIPE_NAMES.includes(recipe)) throw new Error(`${NAME}: the door does not post ${recipe}`);
-  const booked = cases.some(([text, said]) => JSON.parse(text).recipe === recipe && answers[said[0]].startsWith('{"post"'));
-  if (!booked) throw new Error(`${NAME}: no body books ${recipe} for svc-bank`);
+for (const [recipe, base] of [
+  ['loanCollateralLock', COLLATERAL],
+  ['loanCollateralRelease', COLLATERAL],
+  ['loanDraw', DRAW],
+  ['loanRepay', REPAY],
+  ['loanReserveFund', RESERVE],
+  ['loanLiquidate', LIQUIDATE],
+  ['loanBadDebt', BAD_DEBT],
+  ['businessApprovalHold', APPROVE],
+  ['businessApprovalRelease', APPROVE],
+  ['businessApprovalSettle', SETTLE],
+  ['businessPayroll', PAYROLL],
+  ['deposit', DEPOSIT],
+  ['withdrawHold', WITHDRAW],
+  ['withdrawSettle', WITHDRAW],
+  ['withdrawReverse', WITHDRAW],
+  ['rewardPay', REWARD],
+  ['sweepFeesToRewards', SWEEP],
+]) {
+  fuzz(BODIES_2, recipe, base);
 }
+
+/** Each distinct body's answer for each caller; every recipe must book for svc-bank at least once. */
+function recording(recipes, bodies) {
+  const answers = [];
+  const answerIndex = new Map();
+  const cases = [];
+  const seen = new Set();
+  for (const body of bodies) {
+    const text = JSON.stringify(body);
+    if (seen.has(text)) continue;
+    seen.add(text);
+    const said = CALLERS.map((caller) => {
+      const a = answer(caller, JSON.parse(text));
+      if (!answerIndex.has(a)) answerIndex.set(a, answers.push(a) - 1);
+      return answerIndex.get(a);
+    });
+    cases.push([text, said]);
+  }
+  for (const recipe of recipes) {
+    if (!POST_RECIPE_NAMES.includes(recipe)) throw new Error(`${NAME}: the door does not post ${recipe}`);
+    const booked = cases.some(([text, said]) => JSON.parse(text).recipe === recipe && answers[said[0]].startsWith('{"post"'));
+    if (!booked) throw new Error(`${NAME}: no body books ${recipe} for svc-bank`);
+  }
+  const posts = answers.filter((a) => a.startsWith('{"post"')).length;
+  // One line each: the recipes, the callers and the distinct answers, then one body a line (`[body, [answer per caller]]`).
+  const text = `${[JSON.stringify({ recipes, callers: CALLERS, answers }), ...cases.map((c) => JSON.stringify(c))].join('\n')}\n`;
+  return { cases: cases.length, posts, text };
+}
+const bank = recording(BANK_RECIPES, BODIES);
+const bank2 = recording(BANK_RECIPES_2, BODIES_2);
 
 // ── The record's schemas, in the door's tree ───────────────────────────────────────────────────────────────────────
 
@@ -498,6 +744,8 @@ function node(s) {
 
 tree.inputs.postRecipe = node(LEDGER_POST_RECIPE.input);
 tree.inputs.postRecipeReply = node(LEDGER_POST_RECIPE.output);
+tree.inputs.operatorReverse = node(LEDGER_OPERATOR_REVERSE.input);
+tree.inputs.operatorReverseReply = node(LEDGER_OPERATOR_REVERSE.output);
 
 // Drop the parts no input reaches any more, keeping the order of the rest.
 const reached = new Set();
@@ -550,7 +798,12 @@ function verdict(schema, text) {
 }
 const PARITY = `${CRATE}tests/fixtures/input-parity.golden.json`;
 const parity = JSON.parse(readFileSync(PARITY, 'utf8'));
-const SCHEMA_OF = { postRecipe: LEDGER_POST_RECIPE.input, postRecipeReply: LEDGER_POST_RECIPE.output };
+const SCHEMA_OF = {
+  postRecipe: LEDGER_POST_RECIPE.input,
+  postRecipeReply: LEDGER_POST_RECIPE.output,
+  operatorReverse: LEDGER_OPERATOR_REVERSE.input,
+  operatorReverseReply: LEDGER_OPERATOR_REVERSE.output,
+};
 const parityCases = parity.cases.map(([door, text, i]) => [door, text, SCHEMA_OF[door] ? null : parity.verdicts[i]]);
 const known = new Set(parityCases.filter(([door]) => door === 'postRecipe').map(([, text]) => text));
 for (const { input } of LEDGER_POST_RECIPE.samples) {
@@ -558,6 +811,37 @@ for (const { input } of LEDGER_POST_RECIPE.samples) {
   if (known.has(text)) continue;
   parityCases.push(['postRecipe', text, null]);
   known.add(text);
+}
+// The operatorReverse door's record: its samples, the edges of each field, and replies the door may and may not give.
+const REVERSE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const reverseBase = { originalTxId: REVERSE_ID, ordinal: '1', reason: 'LOCAL TEST', caseRef: 'case-1' };
+const replyBase = {
+  txId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  idempotencyKey: `ops:reversal:${REVERSE_ID}:1`,
+  postedAt: '2026-11-24T00:00:00.000Z',
+  reverses: REVERSE_ID,
+};
+const reverseCases = [
+  ...LEDGER_OPERATOR_REVERSE.samples.map(({ input }) => ['operatorReverse', input]),
+  ['operatorReverse', null],
+  ['operatorReverse', {}],
+  ['operatorReverse', { ...reverseBase, ordinal: '12345678901234567890' }],
+  ['operatorReverse', { ...reverseBase, ordinal: 1 }],
+  ['operatorReverse', { ...reverseBase, reason: 'r'.repeat(500) }],
+  ['operatorReverse', { ...reverseBase, reason: 'r'.repeat(501) }],
+  ['operatorReverse', { ...reverseBase, caseRef: 'c'.repeat(129) }],
+  ['operatorReverse', { ...reverseBase, originalTxId: `${REVERSE_ID}0` }],
+  ['operatorReverseReply', replyBase],
+  ['operatorReverseReply', { ...replyBase, extra: 1 }],
+  ['operatorReverseReply', { ...replyBase, txId: replyBase.txId.toUpperCase() }],
+  ['operatorReverseReply', { ...replyBase, idempotencyKey: 'deposit:x:1' }],
+];
+const knownReverse = new Set(parityCases.filter(([door]) => door.startsWith('operatorReverse')).map(([door, text]) => `${door} ${text}`));
+for (const [door, input] of reverseCases) {
+  const text = JSON.stringify(input);
+  if (knownReverse.has(`${door} ${text}`)) continue;
+  parityCases.push([door, text, null]);
+  knownReverse.add(`${door} ${text}`);
 }
 const verdictsOut = [];
 const verdictIndex = new Map();
@@ -574,11 +858,8 @@ const pretty = (file, text) => execFileSync(PRETTIER, ['--stdin-filepath', file]
 const outputs = [
   [SCHEMAS, pretty(SCHEMAS, `${JSON.stringify({ nodes: nodesOut, inputs: inputsOut })}\n`)],
   [PARITY, pretty(PARITY, `${JSON.stringify({ verdicts: verdictsOut, cases: casesOut })}\n`)],
-  // One line each: the recipes, the callers and the distinct answers, then one body a line (`[body, [answer per caller]]`).
-  [
-    `${CRATE}tests/fixtures/post-recipe-bank.golden.jsonl`,
-    `${[JSON.stringify({ recipes: BANK_RECIPES, callers: CALLERS, answers }), ...cases.map((c) => JSON.stringify(c))].join('\n')}\n`,
-  ],
+  [`${CRATE}tests/fixtures/post-recipe-bank.golden.jsonl`, bank.text],
+  [`${CRATE}tests/fixtures/post-recipe-bank-2.golden.jsonl`, bank2.text],
 ];
 let stale = 0;
 for (const [file, text] of outputs) {
@@ -594,6 +875,6 @@ for (const [file, text] of outputs) {
   } else writeFileSync(file, text);
 }
 console.log(
-  `${cases.length} svc-bank bodies (${posts} distinct posts) for ${CALLERS.length} callers, ${nodesOut.length} schema parts, ${casesOut.length} input cases`,
+  `${bank.cases} + ${bank2.cases} svc-bank bodies (${bank.posts} + ${bank2.posts} distinct posts) for ${CALLERS.length} callers, ${nodesOut.length} schema parts, ${casesOut.length} input cases`,
 );
 if (stale) process.exit(1);

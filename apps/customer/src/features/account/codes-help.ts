@@ -1,6 +1,4 @@
-import { SERVER_TIME_PROCEDURE, TOTP_STEP_SECONDS, serverTimeSchema, type ServerTime } from '@intafaced/contracts/identity';
-
-export { SERVER_TIME_PROCEDURE, serverTimeSchema, type ServerTime };
+import { TOTP_STEP_SECONDS } from '@intafaced/contracts/identity';
 
 /** A device clock this far from ours, either way, can make codes fail near the change of a code: half a code's life. */
 export const DRIFT_LIMIT_SECONDS = TOTP_STEP_SECONDS / 2;

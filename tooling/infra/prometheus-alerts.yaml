@@ -1,0 +1,78 @@
+# The hosted beta's alert rules (#10211), loaded by prometheus.yaml's `rule_files`. Each rule is checked by promtool and
+# shown to fire, and to stay quiet, by tooling/infra/prometheus-alerts.test.yaml (run by backup/pg-backup.test.mjs).
+#
+# Where an alert goes: nowhere yet. This Prometheus has no Alertmanager, so a firing alert shows on its Alerts page
+# (http://127.0.0.1:9090/alerts on the host) and in Grafana. Sending it to a person is a contact channel the owner sets.
+groups:
+  - name: intafaced-beta
+    rules:
+      # A service down for two minutes: a scraped process that answers no scrape, or any app service whose health probe
+      # (prometheus.yaml's `app-health` job) fails: crashed, hung or its container stopped. A probed service is named by
+      # its `service` label, a scraped one by its job.
+      - alert: ServiceDown
+        expr: up{job!~"prometheus|app-health"} == 0 or probe_success{job="app-health"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ or $labels.service $labels.job }} is down'
+          description: '{{ $labels.instance }} has answered no scrape or health probe for 2 minutes.'
+
+      # A process that fails a boot check exits before it listens, and compose restarts it, so it never answers a
+      # scrape or a probe at all. Not up at any moment in 15 minutes is a boot loop, not a blip: read the container's log.
+      - alert: BootCheckFailed
+        expr: max_over_time(up{job!~"prometheus|app-health"}[15m]) == 0 or max_over_time(probe_success{job="app-health"}[15m]) == 0
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ or $labels.service $labels.job }} has not come up in 15 minutes'
+          description: '{{ $labels.instance }} answered no scrape or health probe in 15 minutes: it is failing its boot checks. `docker compose logs {{ or $labels.service $labels.job }}` names the check.'
+
+      # The blackbox exporter itself answers no scrape, so no app service is being checked at all.
+      - alert: HealthProberDown
+        expr: sum(up{job="app-health"}) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: 'The health prober is down: no app service is being checked'
+          description: '`docker compose logs blackbox-exporter` names why.'
+
+      # The host's disks, from node-exporter (compose profile `beta`). Postgres stops writing when its disk is full.
+      - alert: DiskAlmostFull
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) < 0.10
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: 'Disk {{ $labels.mountpoint }} is over 90% full'
+          description: '{{ $labels.mountpoint }} has {{ $value | humanizePercentage }} free. Postgres stops at full.'
+
+      # The nightly backup (tooling/infra/backup/pg-backup.sh) writes its result for node-exporter's textfile collector.
+      - alert: BackupFailed
+        expr: intafaced_backup_last_attempt_success == 0
+        labels:
+          severity: page
+        annotations:
+          summary: 'The last database backup failed'
+          description: '`docker compose logs pg-backup` names the step.'
+
+      # No complete backup in 26 hours: the nightly run missed a night, whatever the reason.
+      - alert: BackupStale
+        expr: time() - intafaced_backup_last_success_timestamp_seconds > 26 * 3600
+        labels:
+          severity: page
+        annotations:
+          summary: 'No complete database backup in 26 hours'
+          description: 'The last complete backup is {{ $value | humanizeDuration }} old.'
+
+      # The backup service is up but has never finished a backup (a fresh host, or every attempt failed before writing).
+      - alert: BackupNeverRan
+        expr: up{job="node-exporter"} == 1 unless on() intafaced_backup_last_success_timestamp_seconds
+        for: 26h
+        labels:
+          severity: page
+        annotations:
+          summary: 'No database backup has ever completed on this host'
+          description: 'node-exporter has run for 26 hours and has read no backup result.'

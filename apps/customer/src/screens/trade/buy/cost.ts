@@ -2,7 +2,8 @@
  * The all-in cost of a Buy or Sell, worked out with exact decimals (no floats). Everything the card and the review
  * dialog say about cost comes from here, so the two can never disagree. A part that cannot be known is null ("—").
  */
-import { ceilPlaces, dec, mulDown, mulUp, str, toPlaces } from './trade-math';
+import { PAR_ASSETS } from '../../../data/derive';
+import { ceilPlaces, dec, divDown, mulDown, mulUp, str, toPlaces } from './trade-math';
 
 /** Coin amount times price, rounded down: what the order is worth at the price it was sized from. */
 export function aboutValue(base: string, price: string): string | null {
@@ -25,6 +26,45 @@ export function afterQuoteFee(value: string | null, fee: string | null, feeAsset
   const amount = dec(value);
   const taken = dec(fee);
   return amount === null || taken === null || taken > amount ? null : str(amount - taken);
+}
+
+/**
+ * What a fee is worth in dollars, so a fee in the coin and a fee in the paying money read the same way. A fee in a dollar
+ * coin (USDT, USDC) is that many dollars; a fee in the coin is counted at `price`, the price of the order it was charged
+ * on, when that price is in a dollar coin. Null when it cannot be counted in dollars.
+ */
+export function feeUsd(
+  fee: string | null,
+  feeAsset: string | null,
+  baseAsset: string,
+  quoteAsset: string,
+  price: string | null,
+): string | null {
+  const taken = dec(fee);
+  if (taken === null || feeAsset === null) return null;
+  if (PAR_ASSETS.has(feeAsset.toUpperCase())) return str(taken);
+  if (feeAsset !== baseAsset || !PAR_ASSETS.has(quoteAsset.toUpperCase())) return null;
+  const unit = dec(price);
+  return unit === null || unit <= 0n ? null : str(mulUp(taken, unit));
+}
+
+export interface Spread {
+  bid: string;
+  ask: string;
+  /** Ask less bid, in the paying money. */
+  width: string;
+  /** The width as a share of the middle of bid and ask ("0.0029" is 0.29%). */
+  ratio: string;
+}
+
+/** The best bid, the best ask and the gap between them; null unless both are known and the ask is not below the bid. */
+export function spreadOf(bid: string | null, ask: string | null): Spread | null {
+  const low = dec(bid);
+  const high = dec(ask);
+  if (low === null || high === null || low <= 0n || high < low) return null;
+  const width = high - low;
+  const share = divDown(width * 2n, low + high);
+  return share === null ? null : { bid: str(low), ask: str(high), width: str(width), ratio: str(share) };
 }
 
 /**
@@ -85,7 +125,8 @@ export interface CostInput {
 export interface CostRows {
   /** About what the coins are worth, in the paying money. */
   estimated: string | null;
-  fee: { amount: string; asset: string | null } | null;
+  /** The fee in its own asset, and what it is worth in dollars (null when that cannot be counted). */
+  fee: { amount: string; asset: string | null; usd: string | null } | null;
   /** What the customer ends up with, about: coins after the fee (buy) or money after the fee (sell). */
   get: { kind: 'coin'; amount: string; afterFee: boolean } | { kind: 'money'; amount: string } | null;
   /** The most they pay (buy) or the least they get (sell), in whole cents. */
@@ -96,7 +137,9 @@ export function costRows(input: CostInput): CostRows {
   const { side, base, price, baseAsset, quoteAsset, preview } = input;
   const estimated = price === null ? null : aboutValue(base, price);
   const feeAmount = preview?.estimatedFee ?? null;
-  const fee = feeAmount === null ? null : { amount: feeAmount, asset: preview?.feeAsset ?? null };
+  const feeAsset = preview?.feeAsset ?? null;
+  const fee =
+    feeAmount === null ? null : { amount: feeAmount, asset: feeAsset, usd: feeUsd(feeAmount, feeAsset, baseAsset, quoteAsset, price) };
   let get: CostRows['get'] = null;
   if (preview) {
     if (side === 'buy') {

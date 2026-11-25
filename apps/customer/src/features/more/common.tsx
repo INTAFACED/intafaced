@@ -5,6 +5,7 @@ import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
 import { renderAuthoredCopy } from '../../shared/i18n';
+import { FirstState, type FirstStateProps } from '@intafaced/ui/lit/templates';
 import { uiDirection } from '../../shared/locale';
 
 export { actionFailurePresentation, presentActionFailure } from './action-state';
@@ -13,11 +14,14 @@ export function Read<T>({
   resource,
   retry,
   empty,
+  first,
   children,
 }: {
   resource: Resource<T>;
   retry: () => void;
   empty?: string;
+  /** With `empty`: the room's first state (what it is for and one action) in place of the bare line. */
+  first?: Omit<FirstStateProps, 'title'>;
   children: (data: T) => ReactNode;
 }) {
   if (resource.status === 'loading') return <Loading />;
@@ -28,7 +32,7 @@ export function Read<T>({
       </div>
     );
   if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0)))
-    return <EmptyState title={empty} />;
+    return first ? <FirstState title={empty} {...first} /> : <EmptyState title={empty} />;
   return <>{children(resource.data)}</>;
 }
 export function Select({
@@ -74,6 +78,7 @@ export function TextArea({
   );
 }
 export function Limit({ count, limit, cap, onChange }: { count: number; limit: number; cap: number; onChange: (limit: number) => void }) {
+  if (count < limit) return null;
   return (
     <div className="more-continuation">
       <small>

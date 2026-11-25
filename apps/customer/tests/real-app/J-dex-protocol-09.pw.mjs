@@ -33,6 +33,8 @@ const J = 'J-dex-protocol-09';
 const UNBUILT = { timeout: 5_000 };
 const UNKNOWN_TX = `0x${'ab'.repeat(32)}`;
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
+const ZERO = '0x0000000000000000000000000000000000000000';
+const DEAD = '0x000000000000000000000000000000000000dEaD';
 
 test.describe.configure({ mode: 'default' });
 
@@ -162,8 +164,14 @@ async function reorgedBlock(page) {
 
 test(`${J} #2 opens the blocks list and a block: rows down from the finalized height with its marker and as-of time, a reorged block badged, a missing block named, and the gas tracker`, async ({
   page,
+  stepPicture,
 }) => {
   const orphan = await reorgedBlock(page);
+  // While anvil_reorg runs, anvil can answer eth_getCode with 0x for the long-deployed venue, so an indexer pass in
+  // that window records indexer.venue_not_deployed and the list refuses until a later pass. Wait for the
+  // block mined after the reorg: a pass that read 0x failed before that block existed, and the indexer answers it
+  // only once it is stored and a later pass has finished clean.
+  await indexedTo(Number(orphan.height) + 1);
   await page.goto('/chain/blocks');
   const table = tableIn(page, 'Blocks');
   const rows = bodyRows(table);
@@ -192,6 +200,8 @@ test(`${J} #2 opens the blocks list and a block: rows down from the finalized he
   const gas = page.getByRole('region', { name: 'Gas tracker' });
   await expect(gas.getByTestId('gas-base-fee')).toHaveText(/^[\d.]+ gwei$/);
   await expect(gas.getByTestId('gas-used-share')).toHaveText(/^\d+ of \d+ \([\d.]+%\)$/);
+  // The blocks list holds what the step names: rows from the finalized height, the reorged one badged, the gas tracker.
+  await stepPicture();
   const opened = await firstLink(page, 'Blocks', /^\d+$/);
   const height = await opened.innerText();
   await opened.click();
@@ -423,6 +433,7 @@ test(`${J} #5 opens the address page: summary, transactions, holdings with unpri
 
 test(`${J} #6 adds a watch with a tag and a private note: listed for this person only, adding again changes nothing, another account cannot read it, and the page says the explorer holds no funds`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const watched = { address: ADDRESS.toLowerCase(), tag: 'TEST cold wallet', note: 'TEST note' };
@@ -466,6 +477,8 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText(watched.tag);
   await expect(rows.first()).toContainText(watched.note);
+  // The person's own list, with the entry's tag and private note.
+  await stepPicture();
 
   // adding again changes nothing: the stored record keeps its version and value, and the list still has one row
   await page.goto(`/chain/address/${ADDRESS}`);
@@ -497,6 +510,7 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
 
 test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell rows, holders; an address that is not a pool reads "not a pool"`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const chain = testChain();
@@ -580,31 +594,108 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
   await expect(tradeRow(buy)).toContainText(`Buy ${symbol0}`);
   await expect(tradeRow(sell)).toContainText(`Sell ${symbol0}`);
 
-  // candles
-  const chart = page.getByRole('img', { name: /^Price chart: / });
-  await expect(chart).toBeVisible();
-  expect(await chart.getByTestId('pool-candle').count()).toBeGreaterThan(0);
-
-  // volume: the last day's swaps, at least the two mined here
-  const volume = page.getByTestId('pool-volume');
-  await expect(volume).toContainText(/in the last 24 hours, \d+ swaps$/);
-  expect(Number(/(\d+) swaps$/.exec(await volume.innerText())[1])).toBeGreaterThanOrEqual(2);
-
-  // the reserves shown are the pool's own getReserves() at the block the page names
+  // The block the page reads the pool at: its reserves are the pool's own getReserves() there.
   const reservesLabel = page.getByText(/^Reserves after block \d+$/);
   await expect(reservesLabel).toBeVisible();
   const height = BigInt(/(\d+)$/.exec(await reservesLabel.innerText())[1]);
   const [r0, r1] = await reader.readContract({ address: poolAddress, abi: poolAbi, functionName: 'getReserves', blockNumber: height });
+  const symbol1 = await reader.readContract({ address: token1, abi: erc20, functionName: 'symbol' });
   await expect(reservesLabel.locator('xpath=following-sibling::dd')).toHaveText(
-    `${formatUnits(r0, decimals0)} ${symbol0} · ${formatUnits(r1, decimals1)} ${await reader.readContract({ address: token1, abi: erc20, functionName: 'symbol' })}`,
+    `${formatUnits(r0, decimals0)} ${symbol0} · ${formatUnits(r1, decimals1)} ${symbol1}`,
   );
 
-  // a token page: holders
+  // The pool's own day, read from the chain up to that block: every Swap and Sync it logged in the last 24 hours.
+  const events = parseAbi([
+    'event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)',
+    'event Sync(uint112 reserve0, uint112 reserve1)',
+  ]);
+  const since = BigInt(Math.floor(Date.now() / 1000) - 24 * 3600);
+  const times = new Map();
+  const timeOf = async (blockNumber) => {
+    if (!times.has(blockNumber)) times.set(blockNumber, (await reader.getBlock({ blockNumber })).timestamp);
+    return times.get(blockNumber);
+  };
+  const dayLogs = async (eventName) => {
+    const logs = await reader.getLogs({
+      address: poolAddress,
+      event: events.find((e) => e.name === eventName),
+      fromBlock: 0n,
+      toBlock: height,
+    });
+    const timed = [];
+    for (const log of logs) {
+      const time = await timeOf(log.blockNumber);
+      if (time >= since) timed.push({ ...log.args, time });
+    }
+    return timed;
+  };
+  const daySwaps = await dayLogs('Swap');
+  const daySyncs = (await dayLogs('Sync')).filter((sync) => sync.reserve0 > 0n);
+
+  // volume: the day's swaps on the chain, each counted once, and their TEST Token B side summed
+  const volume1 = daySwaps.reduce((sum, swap) => sum + swap.amount1In + swap.amount1Out, 0n);
+  expect(daySwaps.length, 'the chain holds the buy and the sell mined here').toBeGreaterThanOrEqual(2);
+  await expect(page.getByTestId('pool-volume')).toHaveText(
+    `${formatUnits(volume1, decimals1)} ${symbol1} in the last 24 hours, ${daySwaps.length} swaps`,
+  );
+
+  // candles: one 1-hour candle for each hour the pool's reserves changed in, the newest closing at the reserves after
+  // the sell mined here, with the swaps timed in that hour; and each drawn inside the chart, not past its edge.
+  const chart = page.getByRole('img', { name: `Price chart: ${symbol0} in ${symbol1}, last 24 hours, 1 hour candles`, exact: true });
+  await expect(chart).toBeVisible();
+  const hour = (time) => time - (time % 3600n);
+  const hours = [...new Set(daySyncs.map((sync) => hour(sync.time)))];
+  const candles = chart.getByTestId('pool-candle');
+  await expect(candles).toHaveCount(hours.length);
+  const newest = hours.at(-1);
+  const newestSwaps = daySwaps.filter((swap) => hour(swap.time) === newest).length;
+  const last = await candles.last().locator('title').textContent();
+  const closing = /close ([\d.]+), (\d+) swaps$/.exec(last);
+  expect(closing, `the newest candle names its close and its swaps: ${last}`).not.toBeNull();
+  expect(Number(closing[2])).toBe(newestSwaps);
+  const price = Number(formatUnits(r1, decimals1)) / Number(formatUnits(r0, decimals0));
+  expect(Math.abs(Number(closing[1]) - price) / price).toBeLessThan(1e-12);
+  const [, , chartWidth] = (await chart.getAttribute('viewBox')).split(' ').map(Number);
+  for (const body of await candles.locator('rect').all()) {
+    const x = Number(await body.getAttribute('x'));
+    const width = Number(await body.getAttribute('width'));
+    expect(x, 'a candle starts inside the chart').toBeGreaterThanOrEqual(0);
+    expect(x + width, 'a candle ends inside the chart').toBeLessThanOrEqual(chartWidth);
+  }
+
+  // The pool page holds what the step names: its candles, its volume and its buy and sell rows.
+  await stepPicture();
+
+  // a token page: holders. The pool's TEST Token A, opened from the pool page; its holders are read at the block the
+  // token page names, and checked against the token contract at that block: the supply less burned, the holders adding
+  // up to it, and this step's trader and the pool itself each listed at the balance the chain holds for them.
   await page
     .getByRole('link', { name: /TEST Token A/ })
     .first()
     .click();
-  await expect(page.getByRole('tab', { name: 'Holders' })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/dex/tokens/${TOKEN_A.address}$`, 'i'));
+  await page.getByRole('tab', { name: 'Holders', exact: true }).click();
+  const holders = page.getByRole('tabpanel', { name: 'Holders', exact: true });
+  const asOf = page.getByTestId('token-as-of');
+  await expect(asOf).toHaveText(/^as of \d{2}:\d{2}, block \d+$/);
+  const tokenBlock = BigInt(/block (\d+)$/.exec(await asOf.textContent())[1]);
+  const tokenAbi = parseAbi(['function totalSupply() view returns (uint256)', 'function balanceOf(address) view returns (uint256)']);
+  const tokenRead = (functionName, args) =>
+    reader.readContract({ address: TOKEN_A.address, abi: tokenAbi, functionName, args, blockNumber: tokenBlock });
+  const supply = await tokenRead('totalSupply');
+  const burned = (await tokenRead('balanceOf', [ZERO])) + (await tokenRead('balanceOf', [DEAD]));
+  const units = async (locator) => (await locator.evaluateAll((items) => items.map((i) => i.getAttribute('data-units')))).map(BigInt);
+  expect(await units(holders.getByTestId('total-supply'))).toEqual([supply]);
+  expect(await units(holders.getByTestId('burned'))).toEqual([burned]);
+  expect(await units(holders.getByTestId('supply-less-burned'))).toEqual([supply - burned]);
+  const holderTable = tableIn(holders, 'Holders');
+  const held = await units(holderTable.getByTestId('holder-amount'));
+  expect(held.reduce((a, b) => a + b, 0n)).toBe(supply - burned);
+  for (const who of [trader.address, poolAddress]) {
+    const row = bodyRows(holderTable).filter({ has: page.locator(`th[title="${who.toLowerCase()}"]`) });
+    await expect(row).toHaveCount(1);
+    expect(await units(row.getByTestId('holder-amount'))).toEqual([await tokenRead('balanceOf', [who])]);
+  }
 
   // an address that is not a pool reads "not a pool"
   await page.goto(`/dex/pools/${ADDRESS.toLowerCase()}`);
@@ -805,15 +896,67 @@ test(`${J} #8 opens a contract's source status and the Read tab: exact, similar 
 test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third share, and a protocol fee request with the policy blank refuses`, async ({
   page,
 }) => {
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no pool can be read').toBe('running');
+  const reader = createPublicClient({ transport: http(chain.gateUrl) });
+  // The 1.00% TEST Token A / TEST Token B pool, by its address from the factory (as #7), opened from the Pools tab.
+  const { factory } = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  const poolAddress = getAddress(
+    await reader.readContract({
+      address: factory,
+      abi: parseAbi(['function getPool(address, address, uint16) view returns (address)']),
+      functionName: 'getPool',
+      args: [TOKEN_A.address, TOKEN_B.address, 100],
+    }),
+  );
   await page.goto('/dex/pools');
-  const pool = tableIn(page, 'Pools').getByRole('link').first();
-  await expect(pool).toBeVisible(UNBUILT);
-  await pool.click();
-  const fees = page.getByRole('region', { name: 'Fees' });
-  await expect(fees).toContainText(/Swap fee [\d.]+ ?%/);
-  await expect(fees).toContainText('There is no third share');
-  await fees.getByRole('button', { name: 'Request a protocol fee' }).click();
-  await expect(page.getByRole('alert')).toContainText('protocol fee policy is not set');
+  const listed = tableIn(page, 'Pools')
+    .getByRole('link', { name: 'TESTA / TESTB', exact: true })
+    .and(page.locator(`[href$="/${poolAddress}" i]`));
+  await expect(listed).toBeVisible(UNBUILT);
+  await listed.click();
+
+  // "The fee fields as the contract holds them": the swap fee is the pool contract's own feeBps() at the block the panel
+  // names, and the one share listed is all of it to the liquidity providers.
+  const fees = page.getByRole('region', { name: 'Fees', exact: true });
+  const readAt = fees.getByText(/^Read from the pool contract at block \d+\.$/);
+  await expect(readAt).toBeVisible();
+  const block = BigInt(/block (\d+)\.$/.exec(await readAt.innerText())[1]);
+  const feeBps = await reader.readContract({
+    address: poolAddress,
+    abi: parseAbi(['function feeBps() view returns (uint16)']),
+    functionName: 'feeBps',
+    blockNumber: block,
+  });
+  expect(feeBps, 'the 1.00% pool holds a 100 basis point fee').toBe(100);
+  const percent = `${Math.trunc(feeBps / 100)}.${String(feeBps % 100).padStart(2, '0')}`;
+  await expect(fees.getByTestId('pool-fee')).toHaveText(
+    `Swap fee ${percent}% of each swap’s input, fixed in the pool contract when it was created.`,
+  );
+  await expect(fees.getByRole('list', { name: 'Who gets the swap fee', exact: true }).getByRole('listitem')).toHaveText([
+    'Liquidity providers, kept in the pool: 100.00% of the swap fee',
+  ]);
+  // "the statement that there is no third share"
+  await expect(fees.getByTestId('pool-fee-third')).toHaveText(
+    'There is no third share: no creator, platform or governance share. The pool contract has no fee recipient.',
+  );
+
+  // "a protocol fee request with the policy blank shows its refusal": the protocol service refuses by its code, the
+  // page words it, and nothing changed: the pool still holds the same fee.
+  const answered = page.waitForResponse((res) => res.url().includes('/api/protocol/trpc/amm.requestProtocolFee'));
+  await fees.getByRole('button', { name: 'Request a protocol fee', exact: true }).click();
+  const answer = await answered;
+  expect(answer.status()).toBe(412);
+  expect(JSON.stringify(await answer.json())).toContain('protocol.fee_policy_unset: the protocol fee policy is not set.');
+  await expect(fees.getByRole('alert')).toHaveText(
+    'Not requested: the protocol fee policy is not set. The owner has not published the share, the pools it applies to, the collector or the release rules.',
+  );
+  expect(
+    await reader.readContract({ address: poolAddress, abi: parseAbi(['function feeBps() view returns (uint16)']), functionName: 'feeBps' }),
+  ).toBe(feeBps);
+  await expect(fees.getByTestId('pool-fee')).toHaveText(
+    `Swap fee ${percent}% of each swap’s input, fixed in the pool contract when it was created.`,
+  );
 });
 
 /** One JSON-RPC call to a TEST network's gate. */
@@ -895,6 +1038,7 @@ test(`${J} #10 searches a hash that exists on two networks: both are listed, and
 
 test(`${J} #11 requests a token info update with the token owner's signature: the proof is stored; a replayed challenge, a non-owner and an ownerless token each refuse with their own reason`, async ({
   page,
+  stepPicture,
 }) => {
   const chain = testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no token can name an owner').toBe('running');
@@ -946,12 +1090,30 @@ test(`${J} #11 requests a token info update with the token owner's signature: th
   await dialog.getByRole('button', { name: 'Sign with your wallet' }).click();
   // a fresh wallet accepts the representation once before its first signing action
   await acceptRepresentation(page);
+  const verified = page.waitForResponse((res) => res.url().includes('/api/protocol/trpc/listing.verifyOwnership'));
   await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+  // The protocol service's own answer is the proof it stored: this token, the owner as signer, and the block the
+  // owner was read at, which is the block the page names and at which the chain's owner() is that signer.
+  const stored = await verified;
+  expect(stored.status()).toBe(200);
+  const proof = (await stored.json()).result.data;
+  expect(getAddress(proof.token)).toBe(getAddress(token));
+  expect(getAddress(proof.signer)).toBe(owner);
   const proven = dialog.getByRole('status');
   await expect(proven).toContainText(
-    new RegExp(`^Ownership proven: ${getAddress(owner)} owns this token \\(read at block \\d+\\)\\. The proof is stored\\.`),
+    `Ownership proven: ${getAddress(owner)} owns this token (read at block ${proof.blockNumber}). The proof is stored.`,
   );
+  expect(
+    await reader.readContract({
+      address: token,
+      abi: parseAbi(['function owner() view returns (address)']),
+      functionName: 'owner',
+      blockNumber: BigInt(proof.blockNumber),
+    }),
+  ).toBe(owner);
   expect(wallet.requests.filter((r) => r.method === 'personal_sign').length).toBeGreaterThanOrEqual(1);
+  // The dialog holds the stored proof, the step's outcome; the refusals below are each checked by their own words.
+  await stepPicture();
 
   // a replayed challenge: the same nonce with the owner's own signature, sent again, is refused as used
   const signature = await privateKeyToAccount(ownerKey).signMessage({ message: first.text });

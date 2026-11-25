@@ -516,7 +516,7 @@ test('existing unknown owner journal remains unchanged by shared card, export fa
   await open(page);
   await expect(image(page)).toBeVisible();
   expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(original);
-  await page.getByRole('button', { name: 'Export Blueprint JSON', exact: true }).click();
+  await page.getByRole('button', { name: 'Download your Blueprint data', exact: true }).click();
   await expect(page.getByText('Qualified isolated refusal', { exact: true })).toBeVisible();
   expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(original);
   await page.getByRole('button', { name: 'Open person menu', exact: true }).click();

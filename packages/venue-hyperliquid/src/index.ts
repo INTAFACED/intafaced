@@ -6,3 +6,6 @@ export * from './msgpack.js';
 export * from './signing.js';
 export * from './wire.js';
 export * from './venue.js';
+export * from './recorded.js';
+export * from './http-server.js';
+export * from './recorded-order.js';

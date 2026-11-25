@@ -618,3 +618,118 @@ export const onrampOutput = z.object({
   ledgerTxId: z.string().nullable(),
   createdAt: z.string(),
 });
+
+export const PERSONAL_PROFILE = 'personal';
+
+export const BUSINESS_PROFILE = /^business:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+/** Optional on the wire, so a caller that sends none is Personal, as every call was before profiles. */
+export const profileField = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .refine((value) => value === PERSONAL_PROFILE || BUSINESS_PROFILE.test(value), 'Expected "personal" or "business:<account id>"')
+  .optional();
+
+export const forProfile = z.object({ profile: profileField }).strict();
+
+export const currency = z.object({ assetId: assetIdSchema, spaceId: z.string(), balance: z.string() });
+
+export const assetId = z.string().trim().min(1).max(16);
+
+/**
+ * `bank.addMoney.methods/start/requests` (BK-xfer-04, BK-xfer-05, J-bank-02). The ways to pay in with their quotes, and the
+ * customer's add-money requests, kept whether the rail opens them or refuses them, with where each stands. Nothing here
+ * posts to the ledger: only the partner's signed "paid" call credits (`./add-money.ts`).
+ */
+export const amount = z
+  .string()
+  .trim()
+  .regex(/^\d+(\.\d{1,18})?$/)
+  .refine((value) => /[1-9]/.test(value), 'The amount must be above zero');
+
+export const country = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z]{2}$/);
+
+export const quote = z.object({
+  quoteId: z.string(),
+  assetId: assetIdSchema,
+  amount: z.string(),
+  method: z.enum(ONRAMP_METHODS),
+  country: z.string(),
+  payAmount: z.string(),
+  fee: z.string(),
+  rate: z.string(),
+  payCurrency: z.string(),
+  expiresAt: z.string(),
+  deliveryEstimate: z.string().nullable(),
+  simulated: z.literal(true),
+});
+
+export const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'a fee or minimum is an unsigned decimal string (max 18dp)');
+
+export const termsSchema = z
+  .object({
+    /** The tier's name, shown as published. */
+    tier: z.string().trim().min(1).max(64),
+    /** Which publication this is, so a support conversation can name it. */
+    version: z.string().trim().min(1).max(64),
+    /** The asset every figure below is in. */
+    currency: z.string().regex(/^[A-Z0-9]{2,16}$/),
+    monthlyFee: decimal,
+    minimumBalance: decimal,
+    /** Null when the tier has no overdraft at all, which is different from an overdraft that costs nothing. */
+    overdraftFee: decimal.nullable(),
+    /** What the tier includes, in the owner's words. */
+    included: z.array(z.string().trim().min(1).max(140)).min(1).max(20),
+  })
+  .strict();
+
+/**
+ * Why a plan's overdraft cannot be used in this build (J-bank-02 #8). A published overdraft fee says the plan allows a
+ * negative balance, but no overdraft engine exists: the ledger refuses any user balance below zero, and lending without
+ * collateral needs its own engine and licence (spec BK-loan-08, preview only). So a payment above the balance is refused
+ * `bank.insufficient_funds` on every plan, and a plan that publishes an overdraft names this blocker instead of claiming
+ * a negative balance the bank cannot book.
+ */
+export const OVERDRAFT_SWITCHED_OFF = 'bank.overdraft_switched_off' as const;
+
+export const accountTermsOutput = termsSchema.extend({
+  /** Null when the plan has no overdraft (nothing is switched off); the blocker when it publishes one. */
+  overdraftBlocker: z.literal(OVERDRAFT_SWITCHED_OFF).nullable(),
+});
+
+export const profileOutput = z.object({
+  profile: z.string(),
+  kind: z.enum(['personal', 'business']),
+  business: z.object({ accountId: z.string(), name: z.string(), role: z.string() }).nullable(),
+});
+
+export const ACCOUNT_DETAIL_REQUEST_STATES = ['pending_user', 'requirements_fulfilled', 'done'] as const;
+
+/**
+ * `bank.salary.*` (J-bank-30): the account details salary is paid to with the employer form (BK-salary-01), and the
+ * person's salary credits with their split, returns and reversals (BK-salary-03). Reads only: the split is the income
+ * sorter's (`bank.sorter.*`, BK-salary-02), and credits and reversals are the payroll network's signed job calls. While no
+ * network is wired every call refuses `rail.bank`. Nothing here posts to the ledger.
+ */
+export const detailSet = z.object({
+  id: z.string(),
+  accountNumber: z.string().nullable(),
+  sortCode: z.string().nullable(),
+  routingNumber: z.string().nullable(),
+  bsb: z.string().nullable(),
+  iban: z.string().nullable(),
+  bic: z.string().nullable(),
+  partnerBank: z.string(),
+  restrictions: z.array(z.string()),
+});
+
+export const currencyDetails = z.object({
+  currency: z.string(),
+  state: z.enum(['unavailable', ...ACCOUNT_DETAIL_REQUEST_STATES]),
+  blocker: z.literal('rail.bank').nullable(),
+  sets: z.array(detailSet),
+});

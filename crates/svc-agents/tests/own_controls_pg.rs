@@ -2037,3 +2037,43 @@ fn analytics_counts_live_runs_by_outcome_and_test_runs_only_when_asked() {
         "agents.own.not_found"
     );
 }
+
+/// intafaced#10107, the hunt's own test: `own.usageLimits.get` published the person's pending alerts before
+/// `usage_limits::get` caught up a missing alert row, so the caught-up alert was answered as crossed and left
+/// unpublished. The read now publishes after it reads. The fault is staged as it happens: neither the alert's row nor
+/// its event was ever written (the outbox keeps an event's key once it is sent, so a staged fault that kept the event
+/// would find it already sent).
+#[test]
+fn hunt4_a_read_that_catches_up_a_missing_usage_alert_row_publishes_it_on_the_same_read() {
+    let w = world_or_skip!();
+    let door = w.door();
+    let rt = w.runtime(Box::new(Ample), true);
+    let (id, session) = ready(&w, &door, &rt);
+    data(&usage_limits(&door, &id, Some(TINY), None, true));
+    run(&w, &rt, &session, "usage-catchup-1").unwrap();
+    // The fault: the commit's alert write never happened, so neither its row nor its outbox event exists.
+    w.db.client()
+        .execute("DELETE FROM agents.own_agent_usage_alerts", &[])
+        .unwrap();
+    w.db.client()
+        .execute(
+            "DELETE FROM agents.event_outbox WHERE subject = $1::text",
+            &[&USAGE_ALERT_CROSSED],
+        )
+        .unwrap();
+    w.bus.sent.lock().unwrap().clear();
+
+    let view = data(&query(
+        &door,
+        "own.usageLimits.get",
+        Some(&id_of(&id)),
+        &person(USER),
+    ));
+    assert_eq!(view.get("alertCrossed"), Some(&Json::Bool(true)));
+    assert_eq!(alert_rows(&w).len(), 1);
+    assert!(
+        alert_rows(&w)[0].1,
+        "caught-up alert row was left with published_at = NULL"
+    );
+    assert_eq!(w.bus.emitted(USAGE_ALERT_CROSSED).len(), 1);
+}

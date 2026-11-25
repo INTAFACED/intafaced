@@ -105,7 +105,10 @@ export function assertLocalTestFounderTarget({ marker, stateDir, edgeUrl }) {
   if (edgePort === undefined || edgePort === null || String(edgePort).trim() === '') {
     throw new GuardError('refusing: the local test stack marker has no edge port');
   }
-  if (String(edgePort) === DOCKER_EDGE_PORT) {
+  // The Docker stack's own founders (local-founder-seed.mjs) live on its edge at 4000. The tester compose stack runs the
+  // same edge, and its compose marker (runtime compose, a stack id only that stack's database holds) says this pair is
+  // its own, so there 4000 is this stack's edge.
+  if (String(edgePort) === DOCKER_EDGE_PORT && marker.runtime !== 'compose') {
     throw new GuardError('refusing: port 4000 is the Docker stack edge. This seed only talks to the local test stack.');
   }
   let url;

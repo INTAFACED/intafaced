@@ -21,7 +21,7 @@ export const docsCopy = defineCopy(
     restErrors:
       'A refusal answers with its HTTP status and a JSON body that names it in code (a few trade price refusals name it in error instead). Most trade refusals also carry message and intafacedCode. Branch on the code, never on the wording of a message.',
     restPaging:
-      'Lists page by since and limit today. Cursor paging (starting_after, ending_before and a next link) waits for DV-rest-01’s trade service change, and the default and largest page size wait for the owner.',
+      'Lists page by since and limit today. Cursor paging (starting_after, ending_before and a next link) is unavailable, and default and maximum page sizes are not published.',
     // Reference
     referenceLead:
       'Every trading REST route and WebSocket stream, under its product, with the permission a key needs. A route marked public also answers without a key.',
@@ -230,7 +230,7 @@ export const docsCopy = defineCopy(
       restErrors:
         'Un rechazo responde con su estado HTTP y un cuerpo JSON que lo nombra en code (unos pocos rechazos de precio de trading lo nombran en error). La mayoría de los rechazos de trading también llevan message e intafacedCode. Decide según el código, nunca según el texto de un mensaje.',
       restPaging:
-        'Hoy las listas se paginan con since y limit. La paginación por cursor (starting_after, ending_before y un enlace next) espera al cambio del servicio de trading de DV-rest-01, y el tamaño de página por defecto y el máximo esperan al propietario.',
+        'Hoy las listas se paginan con since y limit. La paginación por cursor (starting_after, ending_before y un enlace next) no está disponible, y los tamaños de página por defecto y máximo no están publicados.',
       referenceLead:
         'Cada ruta REST de trading y cada flujo WebSocket, bajo su producto, con el permiso que necesita una clave. Una ruta marcada pública también responde sin clave.',
       product_general: 'General',
@@ -439,7 +439,7 @@ export const docsCopy = defineCopy(
       restErrors:
         'Un refus répond avec son statut HTTP et un corps JSON qui le nomme dans code (quelques refus de prix du trading le nomment dans error). La plupart des refus du trading portent aussi message et intafacedCode. Décidez selon le code, jamais selon le texte d’un message.',
       restPaging:
-        'Aujourd’hui, les listes se paginent avec since et limit. La pagination par curseur (starting_after, ending_before et un lien next) attend la modification du service de trading de DV-rest-01, et la taille de page par défaut et maximale attendent le propriétaire.',
+        'Aujourd’hui, les listes se paginent avec since et limit. La pagination par curseur (starting_after, ending_before et un lien next) n’est pas disponible, et les tailles de page par défaut et maximale ne sont pas publiées.',
       referenceLead:
         'Chaque route REST de trading et chaque flux WebSocket, sous son produit, avec l’autorisation dont une clé a besoin. Une route marquée publique répond aussi sans clé.',
       product_general: 'Général',

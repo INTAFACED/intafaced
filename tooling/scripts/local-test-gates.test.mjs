@@ -70,6 +70,8 @@ import {
   isCancelOf,
   TRADE_CANCELS,
   gatesUsage,
+  personToken,
+  PERSON_TEST_PARTNER_SCOPES,
 } from './local-test-gates.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -103,17 +105,6 @@ const sourceDir = mkdtempSync(join(tmpdir(), 'local-test-gates-source-'));
 writeFileSync(join(sourceDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { paths: sourcePaths } }));
 const source = register({ namespace: 'local-test-gates', tsconfig: join(sourceDir, 'tsconfig.json') });
 const load = (rel) => source.import(pathToFileURL(join(root, rel)).href, import.meta.url);
-// A consumer that records what a door asked to consume, then refuses, so nothing behind the door runs.
-const recordingConsumer = (ConsumeError) => {
-  const asked = [];
-  return {
-    asked,
-    consume: async (...args) => {
-      asked.push(args.at(-1));
-      throw new ConsumeError('LOCAL TEST: recorded, not consumed', 'action_approval.consume_failed');
-    },
-  };
-};
 const boundTo = (p) => ({
   payloadHash: p.payloadHash,
   targetService: p.targetService,
@@ -336,23 +327,18 @@ assert.equal(
   bankPayloadHash('bank.ops.publishTransferTerms', { fee: '0', assetId: 'USDT' }),
   sha({ actionType: 'bank.ops.publishTransferTerms', fields: { assetId: 'USDT', fee: '0' } }),
 );
-const bankConsume = await load('services/svc-bank/src/action-approval-consume.ts');
-for (const fields of [{ fee: '0', assetId: 'USDT' }, { reason: 'LOCAL TEST: x', address: '0xabc', network: '*' }, {}]) {
-  assert.equal(
-    bankPayloadHash('bank.ops.x', fields),
-    bankConsume.bankActionPayloadHash('bank.ops.x', fields),
-    'bank hash recipe changed; update bankPayloadHash',
-  );
+// What svc-bank (crates/svc-bank) binds an ops approval to, as its own test writes and holds it
+// (crates/svc-bank/tests/ops_approval_golden.rs).
+const bankBinds = JSON.parse(readFileSync(join(root, 'crates/svc-bank/tests/fixtures/ops-approval.golden.json'), 'utf8'));
+for (const v of bankBinds.hashes) {
+  assert.equal(bankPayloadHash(v.actionType, v.fields), v.payloadHash, 'bank hash recipe changed; update bankPayloadHash');
 }
-// What svc-bank's ops doors ask identity to consume for an action and its fields.
-const bankAsks = async (actionType, fields) => {
-  const approvals = recordingConsumer(bankConsume.ActionApprovalConsumeError);
-  await assert.rejects(
-    bankConsume.consumeBankOpsApprovalPair(approvals, { approvalId: 'appr-1', operationId: 'op-1' }, actionType, fields),
-  );
-  assert.equal(approvals.asked.length, 1);
-  return askedOf(approvals.asked[0]);
-};
+const bankBound = (actionType, payloadHash) => ({
+  payloadHash,
+  targetService: bankBinds.consume.targetService,
+  targetId: actionType,
+  expectedVersion: bankBinds.consume.expectedVersion,
+});
 const terms = termsProposal(TEST_TRANSFER_TERMS[0]);
 assert.deepEqual(
   [terms.actionType, terms.targetService, terms.targetId, terms.expectedVersion, terms.policyVersion],
@@ -360,11 +346,16 @@ assert.deepEqual(
 );
 // svc-bank's publish door binds its action and the fields it normalises from the figures; each TEST row's proposal is
 // exactly what it asks to consume.
-const { PUBLISH_TRANSFER_TERMS_ACTION, publishTransferTermsFields } = await load('services/svc-bank/src/transfers/transfer-terms.ts');
-assert.equal(terms.actionType, PUBLISH_TRANSFER_TERMS_ACTION, 'terms action renamed; update termsProposal');
-for (const t of TEST_TRANSFER_TERMS) {
+assert.deepEqual(
+  bankBinds.transferTerms.map((t) => t.input),
+  TEST_TRANSFER_TERMS.map((t) => ({ assetId: t.assetId, perTransferLimit: t.perTransferLimit, dailyLimit: t.dailyLimit, fee: t.fee })),
+  'the TEST transfer terms changed; update crates/svc-bank/tests/ops_approval_golden.rs and rewrite its golden',
+);
+for (const [i, t] of TEST_TRANSFER_TERMS.entries()) {
+  const bound = bankBinds.transferTerms[i];
+  assert.equal(terms.actionType, bound.actionType, 'terms action renamed; update termsProposal');
   assert.deepEqual(
-    await bankAsks(PUBLISH_TRANSFER_TERMS_ACTION, publishTransferTermsFields(t)),
+    bankBound(bound.actionType, bound.payloadHash),
     boundTo(termsProposal(t)),
     `${t.assetId}: the terms proposal is not what svc-bank consumes`,
   );
@@ -375,22 +366,15 @@ for (const t of TEST_TRANSFER_TERMS)
 
 // The TEST fraud list (W-withdraw-03): the approval is bound to the fields svc-bank normalises (lower-case EVM address, `*` or a
 // lower-case network, the next revision, the reason), so the hash the stack signs is the one svc-bank recomputes.
-const bankFraud = await load('services/svc-bank/src/ramps/fraud-list.ts');
-assert.equal(SET_FRAUD_LISTING_ACTION, bankFraud.SET_FRAUD_LISTING_ACTION, 'fraud listing action renamed; update the stack');
-for (const input of [
-  { network: '*', address: '0x7E5700000000000000000000000000000000FA1D', listed: true, expectedRevision: 0, reason: ' LOCAL TEST: x ' },
-  { network: 'Base', address: 'bc1Qx', listed: false, expectedRevision: 2, reason: 'LOCAL TEST: y' },
-  ...TEST_FRAUD_LIST.map((listed) => ({ ...listed, listed: true, expectedRevision: 0 })),
-]) {
-  assert.deepEqual(
-    fraudListingFields(input),
-    bankFraud.fraudListingFields(input),
-    'fraud listing approval fields changed; update fraudListingFields',
-  );
-  assert.equal(
-    (await bankAsks(bankFraud.SET_FRAUD_LISTING_ACTION, bankFraud.fraudListingFields(input))).payloadHash,
-    bankPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(input)),
-  );
+assert.deepEqual(
+  bankBinds.fraudList.slice(2).map((f) => f.input),
+  TEST_FRAUD_LIST.map((listed) => ({ ...listed, listed: true, expectedRevision: 0 })),
+  'the TEST fraud list changed; update crates/svc-bank/tests/ops_approval_golden.rs and rewrite its golden',
+);
+for (const bound of bankBinds.fraudList) {
+  assert.equal(SET_FRAUD_LISTING_ACTION, bound.actionType, 'fraud listing action renamed; update the stack');
+  assert.deepEqual(fraudListingFields(bound.input), bound.fields, 'fraud listing approval fields changed; update fraudListingFields');
+  assert.equal(bankPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(bound.input)), bound.payloadHash);
 }
 assert.deepEqual(
   fraudListingFields({
@@ -539,14 +523,14 @@ assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'instituti
   assert.equal(payEnv.PAY_TEST_CHAIN_SEND_DELAY_MS, '6000');
   assert.equal(payEnv.PAY_TEST_CHAIN_REFUSE_AMOUNT, '13');
 }
-// The TEST custody policy allows only wallet transfers on the crypto-native rail, labelled TEST, with no approval group, and
+// The TEST custody policy allows only wallet transfers on the TEST withdrawal networks (chain networks, not the rail id), labelled TEST, with no approval group, and
 // asks one approval of the second founder for its own config task.
 assert.equal(TEST_CUSTODY_POLICY_RULES.length, 1);
 assert.match(TEST_CUSTODY_POLICY_RULES[0].id, /^TEST-/);
 assert.deepEqual(JSON.parse(JSON.stringify(TEST_CUSTODY_POLICY_RULES[0])), {
   id: 'TEST-allow-wallet-sends',
   action: 'allow',
-  match: { networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] },
+  match: { networks: ['ethereum', 'base'], destinationKinds: ['crypto'], txTypes: ['transfer'] },
 });
 assert.deepEqual({ ...TEST_CUSTODY_CONFIG_QUORUM }, { kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
@@ -983,6 +967,12 @@ for (const [args, usage] of [
   [['engine-drop', 'BTC/USDT'], /usage: local-test-gates\.mjs engine-drop <SYMBOL> <orderId>/],
   [['trade-audit', '--kind', 'orders.get'], /usage: local-test-gates\.mjs trade-audit --kind <kind> --account <userId>/],
   [['trade-audit', '--account', 'u-1'], /usage: local-test-gates\.mjs trade-audit --kind <kind> --account <userId>/],
+  // chart-count (J-charts-desk-02 #2): only a TEST charts count, only a whole number above zero.
+  [['chart-count'], /usage: local-test-gates\.mjs chart-count <compareCap\|/],
+  [['chart-count', 'staleAgeSeconds'], /usage: local-test-gates\.mjs chart-count </],
+  [['chart-count', 'staleAgeSeconds', '0'], /usage: local-test-gates\.mjs chart-count </],
+  [['chart-count', 'staleAgeSeconds', '1.5'], /usage: local-test-gates\.mjs chart-count </],
+  [['chart-count', 'dataClass', '5'], /usage: local-test-gates\.mjs chart-count </],
 ]) {
   const r = spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: tmpdir() }, encoding: 'utf8' });
   assert.equal(r.status, 2, r.stderr);
@@ -1059,9 +1049,19 @@ for (const [args, usage] of [
   assert.ok(sql.includes("c.follow_id = 'follow-1' AND c.leader_id = f.leader"), "only that follow, and only of the fill's leader");
   assert.ok(sql.includes("date_trunc('milliseconds', created_at)"), "the driver's own millisecond order");
   assert.ok(sql.includes('p.id::text < f.id::text'), 'the cursor lands just before the fill, so the fill is tried again');
+  const venueFill = 'venue:0x1111111111111111111111111111111111111111:1795500000123:sim-fill-7';
+  const venueSql = copyCursorRewindSql('follow-1', venueFill);
+  assert.ok(
+    venueSql.includes("TIMESTAMPTZ 'epoch' + (1795500000123::bigint * INTERVAL '1 millisecond')"),
+    'venue fill rewinds to its exact ms',
+  );
+  assert.ok(venueSql.includes('copy_cursor_fill = NULL'), 'venue fill clears cursor fill so the fill at that ms is read again');
+  assert.ok(venueSql.includes("c.follow_id = 'follow-1' AND v.follow_id = c.follow_id"), 'only a venue-bound follow moves');
   for (const [followId, fillId] of [
     ["x'; DROP TABLE trade.copy_follows; --", fill],
     ['follow-1', "0b9f2c1e-4a5d-4e6f-8a7b-9c0d1e2f3a4b' OR '1'='1"],
+    ['follow-1', "venue:0x1111111111111111111111111111111111111111:1795500000123:x'; DROP TABLE trade.copy_follows; --"],
+    ['follow-1', 'venue:0xshort:1795500000123:sim-fill-7'],
     ['follow-1', 'not-a-fill'],
     ['', fill],
     [undefined, undefined],
@@ -1138,6 +1138,32 @@ console.log('local-test-gates: marker, builder, hash and planning checks passed'
   } finally {
     rmSync(state, { recursive: true, force: true });
   }
+}
+
+// #10632: a person's TEST partner token carries the scope svc-bank's door asks of `testPartner.set` and `testPartner.fund`
+// (a token with no scopes was refused `403 Scope "bank:write" is required` on every beta pass), and nothing more.
+{
+  const calls = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'crates', 'svc-bank', 'src', 'door', 'calls.rs'),
+    'utf8',
+  );
+  for (const path of ['testPartner.set', 'testPartner.fund']) {
+    const at = calls.indexOf(`path: "${path}",`);
+    assert.ok(at > 0, `${path} is in svc-bank's door`);
+    const scope = /scope: "([^"]+)"/.exec(calls.slice(at))?.[1];
+    assert.ok(PERSON_TEST_PARTNER_SCOPES.includes(scope), `${path} needs ${scope}, which the person's TEST partner token carries`);
+  }
+  assert.deepEqual([...PERSON_TEST_PARTNER_SCOPES], ['bank:read', 'bank:write']);
+  let minted;
+  const ctx = {
+    secrets: { jwt: 'test-secret' },
+    tokens: { issueAccessToken: async (claims, opts) => ((minted = { claims, opts }), { token: 'tok' }) },
+  };
+  const ids = { userId: '76030d60-1af1-467f-96ae-b6bbbb47acb2', sessionId: 'b38c4959-f293-4386-b979-96b5e678b919' };
+  assert.equal(await personToken(ctx, ids), 'tok');
+  assert.deepEqual(minted.claims, { ...ids, scopes: ['bank:read', 'bank:write'], tier: 'none', mfa: false });
+  assert.equal(minted.opts.accessTtlSeconds, 120);
+  await assert.rejects(personToken(ctx, { userId: 'x', sessionId: ids.sessionId }), /needs a user id and a live session id/);
 }
 
 await source.unregister();

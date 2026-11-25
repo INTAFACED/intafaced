@@ -94,6 +94,13 @@ describe('More room sections and records (MC-order-01)', () => {
     expect(page('/agents/a/b')).toContain('This destination has no customer route');
   });
 
+  it('links Connect your assistant (/agents/connect) directly from /agents on load (J-agents-21)', () => {
+    const html = page('/agents');
+    expect(html).toContain('data-template="catalogue"');
+    expect(html).toContain('href="/agents/connect"');
+    expect(html).toContain('Connect your assistant');
+  });
+
   it('keeps the honest "no customer route" panel for a path that is not a section or record', () => {
     expect(page('/market/a/b/c')).toContain('href="/more"');
   });

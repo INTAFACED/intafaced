@@ -14,8 +14,9 @@ import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { Button, DataTable, EmptyState } from '../../shared/ui';
-import { Details, Limit, Read } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { Details, Limit } from './catalogue-parts';
+import { EmptyNote, KitRead, ScrollTable } from './volt-parts';
 import { tokenVotingCopy } from './token-voting-copy';
 
 /**
@@ -104,9 +105,9 @@ export function VotingPower({ power, version }: { power: PowerRead; version: num
     `voting-power-history:${userId}:${limit}:${version}`,
   );
   return (
-    <section className="token-proposal-section" aria-label={t('power')}>
+    <section className="lt-stack" aria-label={t('power')}>
       <h3>{t('power')}</h3>
-      <Read resource={power.resource} retry={power.reload}>
+      <KitRead resource={power.resource} retry={power.reload}>
         {(p) => (
           <>
             <Details
@@ -124,16 +125,16 @@ export function VotingPower({ power, version }: { power: PowerRead; version: num
             </p>
           </>
         )}
-      </Read>
+      </KitRead>
       <h4>{t('history')}</h4>
-      <Read resource={history.resource} retry={history.reload}>
+      <KitRead resource={history.resource} retry={history.reload}>
         {(rows) =>
           rows.length === 0 ? (
-            <EmptyState title={t('historyEmpty')} />
+            <EmptyNote title={t('historyEmpty')} />
           ) : (
             <>
               <p className="lt-muted">{t('historyNote')}</p>
-              <DataTable label={t('history')} headers={[t('hProposal'), t('hFixed'), t('hPower')]}>
+              <ScrollTable label={t('history')} headers={[t('hProposal'), t('hFixed'), t('hPower')]}>
                 {rows.map((row) => (
                   <tr key={row.proposalId} data-proposal-id={row.proposalId}>
                     <td lang={row.title ? 'und' : undefined}>{row.title ?? t('untitled')}</td>
@@ -145,12 +146,12 @@ export function VotingPower({ power, version }: { power: PowerRead; version: num
                     <td>{hideBalances ? t('hidden') : displayAmount(row.power)}</td>
                   </tr>
                 ))}
-              </DataTable>
+              </ScrollTable>
               <Limit count={rows.length} limit={limit} cap={HISTORY_CAP} onChange={setLimit} />
             </>
           )
         }
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -289,16 +290,16 @@ export function ChoiceBallot({
             ? t('splitQuadratic')
             : t('splitWeights');
   return (
-    <form aria-label={t('ballot')} onSubmit={submit} className="token-proposal-section">
+    <form aria-label={t('ballot')} onSubmit={submit} className="lt-stack">
       <h3>{t('ballot')}</h3>
       <p>
         {t('ballotIntro', { type: t(votingType) })} {intro}
       </p>
-      <fieldset className="token-ballot-choices" disabled={!open || busy}>
+      <fieldset className="lt-group lt-stack" disabled={!open || busy}>
         <legend>{t(votingType)}</legend>
         {choices.map((choice, index) =>
           votingType === 'single_choice' || votingType === 'approval' ? (
-            <label key={index} className="token-ballot-choice">
+            <label key={index} className="lt-field">
               <input
                 type={votingType === 'single_choice' ? 'radio' : 'checkbox'}
                 name={`ballot-${proposalId}`}
@@ -315,7 +316,7 @@ export function ChoiceBallot({
               <span lang="und">{choice}</span>
             </label>
           ) : (
-            <label key={index} className="token-ballot-choice">
+            <label key={index} className="lt-field">
               <span>{split ? t('weightOf', { choice }) : t('rankOf', { choice })}</span>
               <input
                 type="number"
@@ -335,11 +336,11 @@ export function ChoiceBallot({
           {sum === 10_000 ? t('sum', { sum: bpsText(sum) }) : t('sumBad', { sum: bpsText(sum) })}
         </p>
       )}
-      <section className="token-ballot-sign" aria-label={t('message')}>
+      <section className="lt-stack" aria-label={t('message')}>
         <h4>{t('message')}</h4>
         {message ? <pre lang="zxx">{message}</pre> : <p className="lt-muted">{t('messagePending')}</p>}
         <p className="lt-muted">{t('messageNote')}</p>
-        <Read resource={power.resource} retry={power.reload}>
+        <KitRead resource={power.resource} retry={power.reload}>
           {(p) =>
             p.signing.code ? (
               <p role="note" data-testid="signed-vote-reply">
@@ -347,13 +348,13 @@ export function ChoiceBallot({
               </p>
             ) : null
           }
-        </Read>
+        </KitRead>
       </section>
       <div className="lt-actions">
-        <Button type="submit" disabled={!open || busy || !ballot}>
+        <Button tone="primary" type="submit" disabled={!open || busy || !ballot}>
           {t('sign')}
         </Button>
-        <Button variant="secondary" disabled={!open || busy} onClick={() => void cast({ kind: 'abstain' })}>
+        <Button tone="secondary" disabled={!open || busy} onClick={() => void cast({ kind: 'abstain' })}>
           {t('abstain')}
         </Button>
       </div>
@@ -384,9 +385,9 @@ export function ChoiceTallyView({
   const amount = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   const rankOf = new Map(tally.ranking.map((choice, position) => [choice, position + 1]));
   return (
-    <section className="token-proposal-section" aria-label={t('choiceTally')}>
+    <section className="lt-stack" aria-label={t('choiceTally')}>
       <h3>{t('choiceTally')}</h3>
-      <DataTable label={t('choiceTally')} headers={[t('hChoice'), t('hTotal'), t('hRank')]}>
+      <ScrollTable label={t('choiceTally')} headers={[t('hChoice'), t('hTotal'), t('hRank')]}>
         {choices.map((choice, index) => (
           <tr key={index}>
             <td lang="und">{choice}</td>
@@ -394,7 +395,7 @@ export function ChoiceTallyView({
             <td>{rankOf.get(index) ?? '–'}</td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
       <Details
         items={[
           [t('abstainWeight'), amount(tally.abstainWeight)],

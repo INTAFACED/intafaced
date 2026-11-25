@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui/lit';
-import { PayFailure, PayState } from './components';
+import { PayFailure, PayState } from './volt/parts';
 import type { PersonalPayApi } from './pay-api';
 import { remarkCopy } from './p2p-remark-copy';
 import type { RemarkCase, Trade } from './schemas';
@@ -132,7 +132,7 @@ function RemarkForm({ trade, pay, onOpened }: { trade: Trade; pay: PersonalPayAp
     onOpened(result.data);
   };
   return (
-    <details className="p2p-order-other" data-testid="order-remark-report">
+    <details className="lt-stack" data-testid="order-remark-report">
       <summary>{t('title')}</summary>
       <p className="lt-muted">{t('why')}</p>
       <form

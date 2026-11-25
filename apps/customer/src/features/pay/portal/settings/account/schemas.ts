@@ -45,7 +45,7 @@ export const SENSITIVE_KEYS = ['legalName', 'address', 'statementDescriptor', 'i
 export type SensitiveKey = (typeof SENSITIVE_KEYS)[number];
 
 export const profileChangeStatuses = ['applied', 'applied_pre_kyb', 'pending', 'pending_review', 'rejected', 'conflict'] as const;
-export const profileChangeSchema = z.object({
+const profileChangeSchema = z.object({
   requestId: z.string(),
   seq: z.string(),
   status: z.string(),
@@ -70,13 +70,6 @@ export const profileSubmitResultSchema = z.object({
   changeHash: z.string().nullable(),
   profile: profileSchema,
 });
-export const profileDecideResultSchema = z.object({
-  requestId: z.string(),
-  outcome: z.enum(['applied', 'rejected', 'pending_review']),
-  version: z.string(),
-  profile: profileSchema,
-});
-export const secondApprovalResultSchema = z.object({ merchantId: z.string(), enabled: z.boolean() });
 
 // ---- onboarding progress ---------------------------------------------------------------------------------
 const progressSchema = z.object({
@@ -103,7 +96,7 @@ export type TermsState = Progress['terms'];
 // ---- activity ----------------------------------------------------------------------------------------------
 export const ACTIVITY_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
-export const activityItemSchema = z.object({
+const activityItemSchema = z.object({
   id: z.string(),
   occurredAt: timestamp,
   actorId: z.string(),
@@ -158,7 +151,7 @@ const grantSchema = z.object({
   grantedAt: timestamp,
 });
 export type Grant = z.infer<typeof grantSchema>;
-export const permissionEventSchema = z.object({
+const permissionEventSchema = z.object({
   id: z.string(),
   seq: z.string(),
   granteeMerchantId: z.string(),

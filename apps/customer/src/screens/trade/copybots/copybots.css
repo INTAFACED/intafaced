@@ -332,8 +332,10 @@
    * See strategies) sat outside the scroll area where nobody could reach them. Keep 140 px for that column so the table scrolls
    * sideways with the button inside it. minWidth is an inline style, so this needs !important.
    */
-  .cb-page [data-slot='table-scroll'] > table:has(> colgroup > col:nth-child(5):last-child:not([style])) {
-    min-width: 1220px !important;
+  @media (min-width: 600px) {
+    .cb-page [data-slot='table-scroll'] > table:has(> colgroup > col:nth-child(5):last-child:not([style])) {
+      min-width: 1220px !important;
+    }
   }
 
   /*

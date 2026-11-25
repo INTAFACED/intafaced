@@ -1,24 +1,22 @@
 import { z } from 'zod';
 import { decimalSchema as money, parseAmount } from '../../shared/money';
-import { accountsReads } from './contracts-accounts';
-import { paymentsReads, paymentsWrites } from './contracts-payments';
-import { spacesReads, spacesWrites } from './contracts-spaces';
-import { earnReads, earnWrites } from './contracts-earn';
-import { loansReads, loansWrites } from './contracts-loans';
-import { cardsReads, cardsWrites } from './contracts-cards';
-import { rampsReads, rampsWrites } from './contracts-ramps';
-import { analyticsReads, analyticsWrites } from './contracts-analytics';
-import { businessReads, businessWrites } from './contracts-business';
 import type { ruleSchema } from './contracts-earn';
 import type { sharedPotCardSchema, sorterSchema } from './contracts-spaces';
 import { BANK_EARN_SET_AUTO_RENEW } from '@intafaced/contracts/bank-earn-procedures';
 import { BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
 import { BANK_SPACES_CLEAR_BILLS_POT, BANK_SPACES_SET_BILLS_POT } from '@intafaced/contracts/bank-spaces-procedures';
+import { BANK_SHARED_POTS_INVITE } from '@intafaced/contracts/bank-shared-pots-procedures';
+import {
+  BANK_LOANS_OPEN,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_CLOSE,
+} from '@intafaced/contracts/bank-loans-3-procedures';
 
 /**
- * The bank's wire shapes, one file per area (contracts-<area>.ts). This file only composes each area's reads and writes
- * and checks a write's reply against what was sent. A new shape or procedure goes in its area's file and that area's
- * `<area>Reads` or `<area>Writes`, never here (contracts-compose.test.ts fails otherwise).
+ * The bank's wire shapes, one file per area (contracts-<area>.ts). This file only re-exports the areas and checks a
+ * write's reply against what was sent. A new shape goes in its area's file, never here (contracts-compose.test.ts fails
+ * otherwise); a new call is a record in @intafaced/contracts, never a schema keyed by its name.
  */
 export * from './contracts-accounts';
 export * from './contracts-payments';
@@ -31,37 +29,21 @@ export * from './contracts-ramps';
 export * from './contracts-analytics';
 export * from './contracts-business';
 
-export const bankReads = {
-  ...accountsReads,
-  ...paymentsReads,
-  ...spacesReads,
-  ...earnReads,
-  ...loansReads,
-  ...cardsReads,
-  ...rampsReads,
-  ...analyticsReads,
-  ...businessReads,
-} as const;
-export type BankRead = keyof typeof bankReads;
-export const bankWrites = {
-  ...paymentsWrites,
-  ...spacesWrites,
-  ...earnWrites,
-  ...loansWrites,
-  ...cardsWrites,
-  ...rampsWrites,
-  ...analyticsWrites,
-  ...businessWrites,
-} as const;
-export type BankWrite = keyof typeof bankWrites;
+/**
+ * Empty: no bank call goes by name any more. Each is a record in @intafaced/contracts, and `useBankRecord` and `ActionSpec`
+ * take only a record. garden/compose-only (.oxlintrc.json) lets these two hold only spreads of the areas this file
+ * imports, so a schema keyed by a call's name fails here, and contracts-compose.test.ts holds them empty.
+ */
+export const bankReads = {} as const;
+export const bankWrites = {} as const;
 
 /** Bind only fields that the mounted service returns. No invented ID echo or
  * browser-calculated maturity, accrued interest or collateral release. */
 export function bankWriteForReview(
   procedure: string,
   input: Record<string, unknown>,
-  /** The answer's shape: the hand schema while the call goes by name; a call sent by its record has the record parse it. */
-  answer: z.ZodType<unknown> = bankWrites[procedure as BankWrite],
+  /** The answer's shape when a caller parses it here; `api.call` has the record parse it first. */
+  answer: z.ZodType<unknown> = z.unknown(),
 ): z.ZodType<unknown> {
   const exact = (returned: string | null, sent: unknown) =>
     returned !== null && typeof sent === 'string' && money.safeParse(sent).success && parseAmount(returned) === parseAmount(sent);
@@ -146,7 +128,7 @@ export function bankWriteForReview(
       case 'sharedPots.freezeCard':
         return (data as z.infer<typeof sharedPotCardSchema>).status === 'frozen';
       case 'sharedPots.invite': {
-        const row = data as z.infer<(typeof bankWrites)['sharedPots.invite']>;
+        const row = data as z.infer<(typeof BANK_SHARED_POTS_INVITE)['output']>;
         return row.inviteId === input.inviteId && row.spaceId === input.spaceId && row.role === input.role;
       }
       case 'sorter.cancel': {
@@ -159,7 +141,7 @@ export function bankWriteForReview(
         return row.id === input.ruleId && row.status === (procedure === 'autoInvest.pause' ? 'paused' : 'active');
       }
       case 'loans.open': {
-        const row = data as z.infer<(typeof bankWrites)['loans.open']>;
+        const row = data as z.infer<(typeof BANK_LOANS_OPEN)['output']>;
         return (
           row.loanId === input.loanId &&
           ['pending', 'active', 'margin_call', 'liquidating', 'repaid', 'liquidated'].includes(row.status) &&
@@ -170,11 +152,11 @@ export function bankWriteForReview(
       }
       case 'loans.addCollateral':
       case 'loans.releaseExcess': {
-        const row = data as z.infer<(typeof bankWrites)['loans.addCollateral']>;
+        const row = data as z.infer<(typeof BANK_LOANS_ADD_COLLATERAL)['output']>;
         return row.ledgerTxId.trim().length > 0 && Number.isSafeInteger(row.sequence) && row.sequence >= 0;
       }
       case 'loans.repay': {
-        const row = data as z.infer<(typeof bankWrites)['loans.repay']>,
+        const row = data as z.infer<(typeof BANK_LOANS_REPAY)['output']>,
           paid = parseAmount(row.interestPaid) + parseAmount(row.principalPaid);
         return (
           row.ledgerTxId.trim().length > 0 &&
@@ -197,7 +179,7 @@ export function bankWriteForReview(
         );
       }
       case 'loans.close': {
-        const row = data as z.infer<(typeof bankWrites)['loans.close']>;
+        const row = data as z.infer<(typeof BANK_LOANS_CLOSE)['output']>;
         return parseAmount(row.released) > 0n ? row.ledgerTxId !== null && row.ledgerTxId.trim().length > 0 : row.ledgerTxId === null;
       }
       default:

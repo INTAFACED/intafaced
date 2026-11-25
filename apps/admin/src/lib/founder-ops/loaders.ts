@@ -4,7 +4,6 @@ import {
   loadApprovalQueue,
   loadDashboard,
   loadTreasury,
-  payCall,
   type ApprovalQueueData,
   type DashboardData,
   type PayCallContext,
@@ -30,6 +29,7 @@ import {
   loadSection,
 } from './reads';
 import { PAY_FRAUD_LIST_OPEN_REVIEWS } from '@intafaced/contracts/pay-fraud-procedures';
+import { IDENTITY_AUTH_FOUNDER_ENROLMENT_STATUS } from '@intafaced/contracts/identity-auth-procedures';
 
 export interface FraudRow {
   id: string;
@@ -130,17 +130,10 @@ export async function loadOps(
       parseFraud,
     );
   if (screen.id === 'F73')
-    data.enrolment = await payCall(
-      ctx,
-      'auth.founderEnrolmentStatus',
-      'GET',
-      {},
-      (raw) => {
-        if (!raw || typeof raw !== 'object' || !('open' in raw) || typeof raw.open !== 'boolean') return null;
-        return { open: raw.open };
-      },
-      'identity',
-    );
+    data.enrolment = await payRecordRead(ctx, IDENTITY_AUTH_FOUNDER_ENROLMENT_STATUS, undefined, (raw) => {
+      if (!raw || typeof raw !== 'object' || !('open' in raw) || typeof raw.open !== 'boolean') return null;
+      return { open: raw.open };
+    });
   if (screen.id === 'F02' || screen.id === 'F03' || screen.id === 'F51' || screen.id === 'F61') data.treasury = await loadTreasury(ctx);
   if (screen.id === 'F69' || screen.id === 'F70') data.metrics = await loadDashboard(ctx, new Date(), days);
   if (screen.id === 'F25') data.approvals = await loadApprovalQueue(ctx);

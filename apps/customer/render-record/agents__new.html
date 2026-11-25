@@ -97,51 +97,38 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>New agent</h1>
+<h1 class="lt-title">New agent</h1>
 </div>
 </header>
-<div class="more-grid">
-<section class="if-panel" data-live="false" role="region" aria-label="Templates">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Templates</h2>
-</header>
-<div class="if-panel__body">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
+<section role="region" aria-label="Templates" class="lt-stack">
+<h2>Templates</h2>
 <p class="lt-muted">Start from a template. Choosing one makes a new draft for you; nothing runs and nothing is charged.</p>
-<div class="depth-card-actions">
-<button type="button" class="button button--secondary ">Start blank</button>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Start blank</button>
 </div>
-<div lang="und" style="display: contents;">
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="if-panel" data-live="false" role="region" aria-label="Draft with the assistant">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Draft with the assistant</h2>
-</header>
-<div class="if-panel__body">
-<div lang="und" style="display: contents;">
+<section role="region" aria-label="Draft with the assistant" class="lt-stack">
+<h2>Draft with the assistant</h2>
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 <label class="lt-field">
@@ -149,9 +136,13 @@
 <textarea maxlength="4000" rows="5">
 </textarea>
 </label>
-<button type="button" class="button button--primary " disabled="">Draft it</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Draft it</button>
+</section>
 </div>
 </section>
+</div>
+<div class="lt-col-side">
+</div>
 </div>
 </div>
 </div>

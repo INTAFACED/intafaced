@@ -1,0 +1,27 @@
+# The blackbox exporter's probes (#10250), one module per kind of compose healthcheck. probe-targets.mjs picks the
+# module for each service; probe-targets.test.mjs runs each module against a live and a dead target.
+modules:
+  # A service's own /health (or the path its healthcheck asks for): any 2xx, redirects followed.
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      preferred_ip_protocol: ip4
+  # postgres and redis: the port accepts a connection.
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+  # An EVM node: it answers eth_blockNumber, what its healthcheck (`cast block-number`) asks.
+  evm_rpc:
+    prober: http
+    timeout: 5s
+    http:
+      method: POST
+      preferred_ip_protocol: ip4
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+      fail_if_body_not_matches_regexp:
+        - '"result"'

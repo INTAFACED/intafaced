@@ -43,9 +43,11 @@ pub const LABEL: &str = "TEST partner bank";
 pub const MAX_MOVES: usize = 200_000;
 /// How old the TEST partner says its figure may be before it is stale (`TEST_PARTNER_STALE_AFTER_MS`).
 pub const STALE_AFTER_MS: i64 = 60_000;
-/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values.
+/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values. The fee is
+/// what its move for a send to another person takes, which is nothing, as a move between a person's own accounts takes
+/// nothing: a stated fee its move did not take would be a figure nobody pays (J-pay-01 #3).
 pub const DAILY_SEND: &str = "1000";
-pub const SEND_FEE: &str = "0.5";
+pub const SEND_FEE: &str = "0";
 /// The stand-in merchant a TEST payment goes to (`TEST_PARTNER_MERCHANT`).
 pub const MERCHANT: &str = "partner:test-merchant";
 /// The TEST partner's statement rules (`TEST_PARTNER_HISTORY_DAYS`, `TEST_PARTNER_SCA_AFTER_DAYS`).
@@ -57,6 +59,14 @@ pub const QUOTE_MS: i64 = 60_000;
 pub const PAYOUTS_OWNER: &str = "partner:outbound-payments";
 pub const PAY_INS_OWNER: &str = "partner:incoming-payments";
 pub const FEES_OWNER: &str = "partner:fees";
+/// The partner's own card accounts in one currency (`partner-bank.ts`): a card hold leaves the person's main balance into
+/// the card holds account, a release or a hold time running out comes back from it, a capture goes on from it to the
+/// card network account, and a refund comes back from that into the main balance, each one move under the card
+/// instruction's key. They are the partner's, never a person's, so they are on no person's list of balances; `moves`
+/// never lists a card move, because the card's own list of payments is where a person reads it, but the account's
+/// statement counts it.
+pub const CARD_HOLDS_OWNER: &str = "partner:card-holds";
+pub const CARD_NETWORK_OWNER: &str = "partner:card-network";
 /// The operator's id for the TEST partner in `bank.partner_stops` (`TEST_PARTNER_ID`).
 pub const PARTNER_ID: &str = "test-partner";
 /// The key prefix of a closure's payout (`CLOSURE_PAYOUT_KEY`): the only move a closing account still makes.
@@ -106,6 +116,31 @@ pub fn pay_ins_account(asset_id: &str) -> AccountRef {
 /// `partnerFeesAccount`.
 pub fn fees_account(asset_id: &str) -> AccountRef {
     AccountRef::main(FEES_OWNER, asset_id)
+}
+
+/// `partnerCardHoldsAccount`.
+pub fn card_holds_account(asset_id: &str) -> AccountRef {
+    AccountRef::main(CARD_HOLDS_OWNER, asset_id)
+}
+
+/// `partnerCardNetworkAccount`.
+pub fn card_network_account(asset_id: &str) -> AccountRef {
+    AccountRef::main(CARD_NETWORK_OWNER, asset_id)
+}
+
+/// `isPartnerCardMove`: a move between a person's account and the partner's card accounts.
+pub fn is_card_move(from: &AccountRef, to: &AccountRef) -> bool {
+    let card = |owner: &str| owner == CARD_HOLDS_OWNER || owner == CARD_NETWORK_OWNER;
+    card(&from.user_id) || card(&to.user_id)
+}
+
+/// One step of a card payment at the partner, as the TEST card partner instructs it (`TestPartnerCardStep`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardStep {
+    Hold,
+    Release,
+    Capture,
+    Refund,
 }
 
 /// One recipient of a payout (`PartnerPayee`).
@@ -326,6 +361,14 @@ impl Book {
             .map_or(Amount::ZERO, |(_, a)| *a)
     }
 
+    /// What an account holds now, or `None` when the book holds no such account.
+    pub fn holding(&self, account: &AccountRef) -> Option<Amount> {
+        self.at
+            .get(&account.key())
+            .and_then(|i| self.held.get(*i))
+            .map(|(_, a)| *a)
+    }
+
     /// Adds `delta` (negative to take) to an account, in one step.
     pub fn add(&mut self, account: &AccountRef, delta: Amount) -> Result<(), Refusal> {
         let key = account.key();
@@ -461,6 +504,8 @@ pub struct State {
     pub purchases: PurchaseDesk,
     pub debits: DirectDebitDesk,
     pub compliance: Compliance,
+    /// The send fee this partner states (`SEND_FEE`, or a test's own TEST figure through `with_send_fee`).
+    send_fee: Amount,
 }
 
 /// The TEST partner bank and ramp (`testPartner()`), on a dev or test stack only.
@@ -494,7 +539,36 @@ fn payees_key(p: Option<&Vec<Payee>>) -> String {
     })
 }
 
+/// The TEST partner's own billers (`TEST_BILLERS`): the bill-payment directory it offers on a test stack, each named TEST
+/// so no one takes it for a real biller. (id, name, country, category.)
+pub const TEST_BILLERS: [(&str, &str, &str, &str); 3] = [
+    ("test-biller-water", "TEST Water", "GB", "utilities"),
+    ("test-biller-energy", "TEST Energy", "GB", "utilities"),
+    ("test-biller-phone", "TEST Phone", "GB", "telecom"),
+];
+
 impl State {
+    /// The billers the partner pays for this person whose names hold `query` (every one for a blank query), once the
+    /// person's bank rail is on (`bankRail: 'test'`); else the rail's own refusal, as `pay` gives it.
+    pub fn billers(
+        &self,
+        user_id: &str,
+        query: &str,
+    ) -> Result<Vec<(&'static str, &'static str, &'static str, &'static str)>, Refusal> {
+        if self.board.read(user_id, |s| s.bank_rail != "test") {
+            return Err(refuse(
+                "rail.bank",
+                "A bill payment needs rail.bank. It is switched off in this build.",
+            ));
+        }
+        let q = query.trim().to_lowercase();
+        Ok(TEST_BILLERS
+            .iter()
+            .filter(|b| q.is_empty() || b.1.to_lowercase().contains(&q))
+            .copied()
+            .collect())
+    }
+
     fn new(boot: String) -> State {
         State {
             board: Board::default(),
@@ -508,6 +582,7 @@ impl State {
             purchases: PurchaseDesk::default(),
             debits: DirectDebitDesk::default(),
             compliance: Compliance::default(),
+            send_fee: fixed(SEND_FEE),
         }
     }
 
@@ -715,6 +790,10 @@ impl State {
             if pay_in && !q.pay_ins {
                 continue;
             }
+            // A card payment is read on the card's own list, never as a bank move (its statement still counts it).
+            if is_card_move(&m.from, &m.to) {
+                continue;
+            }
             if q.asset_id.as_ref().is_none_or(|a| *a == m.from.asset_id) {
                 out.push(m.clone());
             }
@@ -765,6 +844,22 @@ impl State {
         })
     }
 
+    /// `openCurrency`: opens the person's main account in one currency, once however often asked (an account it already
+    /// holds is the same account: adding 0 changes no figure), and answers its figure. Refused while the partner is down.
+    pub fn open_currency(
+        &mut self,
+        user_id: &str,
+        asset_id: &str,
+        now: Instant,
+    ) -> Result<Balance, Refusal> {
+        if self.down(user_id) {
+            return Err(partner_down());
+        }
+        let account = AccountRef::main(user_id, asset_id);
+        self.book.add(&account, Amount::ZERO)?;
+        Ok(self.report(&account, now))
+    }
+
     /// `openOrders`.
     pub fn open_orders(&self, user_id: &str) -> Vec<OpenOrder> {
         self.board
@@ -789,8 +884,10 @@ impl State {
         let day_start = now.0.div_euclid(86_400_000).saturating_mul(86_400_000);
         let mut used: Amount = Amount::ZERO;
         for m in self.book.person(user_id) {
+            // Money that left them, not a move between their own spaces, nor a card payment.
             if m.from.user_id == user_id
                 && m.to.user_id != user_id
+                && !is_card_move(&m.from, &m.to)
                 && m.from.asset_id == asset_id
                 && m.moved_at.0 >= day_start
             {
@@ -804,7 +901,7 @@ impl State {
             send_fee: self
                 .board
                 .read(user_id, |s| s.fee == "known")
-                .then(|| fixed(SEND_FEE)),
+                .then_some(self.send_fee),
             as_of: now,
             label: LABEL,
         })
@@ -1044,6 +1141,39 @@ impl State {
         }
     }
 
+    /// `cardFunds.available`: what the person's main account in `asset_id` holds now, or `None` when the partner holds
+    /// no such account for them. The TEST card draws on it (`TestPartnerCardFunds`).
+    pub fn card_available(&self, user_id: &str, asset_id: &str) -> Option<Amount> {
+        self.book.holding(&AccountRef::main(user_id, asset_id))
+    }
+
+    /// `cardFunds.move`: one card step as one move on the partner's book under `key`: a hold from the main balance into
+    /// the partner's card holds account, a release back, a capture on to its card network account, a refund back into
+    /// the main balance. Nothing when the amount is not above zero or the book already holds the key.
+    pub fn card_move(
+        &mut self,
+        key: &str,
+        step: CardStep,
+        user_id: &str,
+        asset_id: &str,
+        amount: Amount,
+        now: Instant,
+    ) -> Result<(), Refusal> {
+        if amount <= Amount::ZERO || self.book.by_key(key).is_some() {
+            return Ok(());
+        }
+        let main = AccountRef::main(user_id, asset_id);
+        let holds = card_holds_account(asset_id);
+        let network = card_network_account(asset_id);
+        let (from, to) = match step {
+            CardStep::Hold => (&main, &holds),
+            CardStep::Release => (&holds, &main),
+            CardStep::Capture => (&holds, &network),
+            CardStep::Refund => (&network, &main),
+        };
+        self.book.transfer(key, from, to, amount, now).map(|_| ())
+    }
+
     /// Marks a person's account closing or closed (`restrict`), or open again.
     pub fn restrict(&mut self, user_id: &str, on: bool) {
         if on {
@@ -1079,6 +1209,14 @@ impl TestPartner {
         Ok(TestPartner {
             state: Mutex::new(State::new(boot)),
         })
+    }
+
+    /// The same partner stating another TEST send fee, for a test that must tell the partner's stated figure apart from
+    /// our own book's "0".
+    #[must_use]
+    pub fn with_send_fee(self, fee: Amount) -> TestPartner {
+        self.lock().send_fee = fee;
+        self
     }
 
     /// `testPartnerFor`: `off` is no partner; `test` is the partner only in an explicit dev or test process.
@@ -1213,5 +1351,92 @@ mod tests {
         );
         assert!(TestPartner::for_setting("test", None, None).is_err());
         assert!(TestPartner::for_setting("test", Some("dev"), Some("production")).is_err());
+    }
+
+    // test-partner.ts `cardFunds`, and partner-card-holds.test.ts "a card payment lowers the partner balance the person
+    // reads, once per key, and the statement counts it".
+    #[test]
+    fn a_card_step_is_one_partner_move_once_per_key_read_on_the_card_never_as_a_bank_move() {
+        let amt = |s: &str| parse_amount(s).unwrap();
+        let t = Instant(1_700_000_000_000);
+        let p = TestPartner::new().unwrap();
+        let mut s = p.lock();
+        assert_eq!(s.card_available("ada", "USDC"), None);
+        s.fund(
+            "ada",
+            &Funding {
+                fund_id: "f-400".to_owned(),
+                asset_id: "USDC".to_owned(),
+                amount: amt("400"),
+            },
+            t,
+        )
+        .unwrap();
+        assert_eq!(s.card_available("ada", "USDC"), Some(amt("400")));
+        let steps = [
+            ("card.partner.hold:a", CardStep::Hold, "20", "380"),
+            ("card.partner.hold:a", CardStep::Hold, "20", "380"),
+            ("card.partner.capture:a", CardStep::Capture, "20", "380"),
+            ("card.partner.capture:a", CardStep::Capture, "20", "380"),
+            ("card.partner.refund:a", CardStep::Refund, "5", "385"),
+            ("card.partner.refund:a", CardStep::Refund, "5", "385"),
+            ("card.partner.hold:b", CardStep::Hold, "0", "385"),
+            ("card.partner.hold:c", CardStep::Hold, "10", "375"),
+            ("card.partner.release:c", CardStep::Release, "10", "385"),
+            ("card.partner.release:c", CardStep::Release, "10", "385"),
+        ];
+        for (key, step, amount, main) in steps {
+            s.card_move(key, step, "ada", "USDC", amt(amount), t)
+                .unwrap();
+            assert_eq!(s.card_available("ada", "USDC"), Some(amt(main)), "{key}");
+        }
+        assert_eq!(s.book.amount(&card_holds_account("USDC")), Amount::ZERO);
+        assert_eq!(s.book.amount(&card_network_account("USDC")), amt("15"));
+        let hold = s.book.by_key("card.partner.hold:a").unwrap();
+        assert_eq!(
+            (hold.from.clone(), hold.to.clone(), hold.amount),
+            (
+                AccountRef::main("ada", "USDC"),
+                card_holds_account("USDC"),
+                amt("20")
+            )
+        );
+        assert!(s.book.by_key("card.partner.hold:b").is_none());
+        // The card's own list is where a payment is read: no card move is a bank move, and none counts as a send.
+        let q = MovesQuery {
+            limit: 50,
+            before: None,
+            asset_id: None,
+            pay_ins: false,
+        };
+        assert_eq!(s.moves("ada", &q), Vec::<Move>::new());
+        assert_eq!(s.limits("ada", "USDC", t).unwrap().used_today, Amount::ZERO);
+        // The partner's statement of the account still adds up: 400 paid in, 30 held, 5 refunded, 10 released.
+        let st = s
+            .statement(
+                &AccountRef::main("ada", "USDC"),
+                Instant(0),
+                Instant(t.0 + 1),
+                t,
+            )
+            .unwrap();
+        assert_eq!(
+            (st.opening, st.closing, st.lines),
+            (Amount::ZERO, amt("385"), 5)
+        );
+        // The partner's own record lists the card moves, and only the person's own account.
+        let record = s.record("ada");
+        assert_eq!(
+            record.accounts,
+            vec![(AccountRef::main("ada", "USDC"), amt("385"))]
+        );
+        assert_eq!(
+            record
+                .moves
+                .iter()
+                .filter(|m| m.key.starts_with("card.partner."))
+                .count(),
+            4
+        );
     }
 }

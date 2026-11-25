@@ -388,8 +388,8 @@ export function FollowDetail({
   const [editing, setEditing] = useState(false);
   return (
     <Dialog open={follow !== null} onOpenChange={(open) => !open && onClose()}>
-      {/* Wide enough for the Positions tab's tables, which the dialog's narrow default cuts off. */}
-      <DialogContent className="cb-dialog max-w-5xl">
+      {/* Wide enough for the Positions tab's tables to show every cell whole: at 5xl their profit share and fee cells were cut short. */}
+      <DialogContent className="cb-dialog max-w-7xl">
         {follow ? (
           <>
             <DialogHeader>

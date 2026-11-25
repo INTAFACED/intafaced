@@ -109,7 +109,7 @@ export function PositionsList() {
       <td colSpan={headers.length}>{content}</td>
     </tr>
   );
-  if (!account) body = note(<EmptyState title={t('positionsEmpty', { network })} />);
+  if (!account) body = note(<EmptyState title={t('positionsNoWallet')} />);
   else if (resource.status === 'loading') body = note(<Loading label={t('positionsTitle')} />);
   else if (resource.status === 'failed')
     body = note(
