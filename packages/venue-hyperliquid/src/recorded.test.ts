@@ -129,6 +129,33 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
     expect(recording.calls.filter((c) => c.path === '/exchange')).toHaveLength(1);
   });
 
+  it("drops each spot token's tokenId, which the adapter never reads and a secret scanner takes for a key, and keeps the rest", () => {
+    const id = `0x${'ab'.repeat(16)}`;
+    const token = { name: 'USDC', index: 0, szDecimals: 8, tokenId: id };
+    const calls: HlRecordedCall[] = [
+      {
+        path: '/info',
+        request: { type: 'spotMeta' },
+        status: 200,
+        answer: { tokens: [token], universe: [{ name: 'X', tokens: [0, 0], index: 0 }] },
+        source: 'testnet',
+      },
+      {
+        path: '/info',
+        request: { type: 'spotMetaAndAssetCtxs' },
+        status: 200,
+        answer: [{ tokens: [token], universe: [] }, [{ markPx: '1' }]],
+        source: 'testnet',
+      },
+      { path: '/info', request: { type: 'meta' }, status: 200, answer: { tokenId: id }, source: 'testnet' },
+    ];
+    const [spot, both, other] = traderRecording(calls, liveKey.address, 'TEST').calls.map((c) => c.answer);
+    expect(spot).toEqual({ tokens: [{ name: 'USDC', index: 0, szDecimals: 8 }], universe: [{ name: 'X', tokens: [0, 0], index: 0 }] });
+    expect(both).toEqual([{ tokens: [{ name: 'USDC', index: 0, szDecimals: 8 }], universe: [] }, [{ markPx: '1' }]]);
+    expect(other).toEqual({ tokenId: id });
+    expect(calls[0]!.answer).toEqual({ tokens: [token], universe: [{ name: 'X', tokens: [0, 0], index: 0 }] });
+  });
+
   it('another wallet replaying the same steps gets the same answers, its own address and order id written in', async () => {
     const { recording, live } = await record();
     const fetch = replayRecording(recording, { trader: replayKey.address });

@@ -16,6 +16,7 @@ export { transferCalldata } from './wallet/transfer';
 export { usePolled } from './wallet/use-polled';
 export { useWallet, waitMined, WalletProvider, type MinedOutcome, type SequenceResult } from './wallet/WalletProvider';
 export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';
+export { EmbeddedWalletAnnouncer } from './embedded-wallet/EmbeddedWalletAnnouncer';
 export {
   createTradingSessionApi,
   freshKey,

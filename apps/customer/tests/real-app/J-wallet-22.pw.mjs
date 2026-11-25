@@ -94,7 +94,7 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
     const blankDevice = await device(blankPage);
     await openRoom(blankPage, who);
     await expect(panel(blankPage).locator('[data-embedded-provider]')).toHaveCount(0);
-    await blankPage.getByRole('button', { name: 'Create my wallet' }).click();
+    await blankPage.getByRole('button', { name: 'Create my wallet', exact: true }).click();
     await expect(blankPage.getByText('No wallet provider is set', { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(blankPage.getByText('No embedded-wallet provider is set, so no wallet can be made. Nothing was made.')).toBeVisible();
     await expect(blankPage.getByText('wallet.embedded_provider_unset')).toBeVisible();
@@ -117,8 +117,8 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
     const regionDevice = await device(regionPage);
     await openRoom(regionPage, who);
     await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible({ timeout: 20_000 });
-    await regionPage.getByRole('button', { name: 'Create my wallet' }).click();
-    await expect(regionPage.getByRole('button', { name: 'Create my wallet' })).toBeEnabled();
+    await regionPage.getByRole('button', { name: 'Create my wallet', exact: true }).click();
+    await expect(regionPage.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
     await expect(regionPage.getByText(`Your own wallet is not available where you are: ${REGION_REASON}. Nothing was made.`)).toBeVisible();
     await expect(regionPage.getByText('denied.region_blocked')).toBeVisible();
     expect(await regionDevice.held()).toEqual([]);
@@ -135,7 +135,7 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
   // Served, with the provider set: the room names where the key is kept and that only the person can sign with it.
   await openRoom(page, who);
   await expect(panel(page).locator('[data-embedded-provider]')).toHaveText(KEPT_BY);
-  await expect(page.getByRole('button', { name: 'Create my wallet' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
   expect(await phone.held()).toEqual([]);
   expect((await recorded(who)).provider).toEqual({
     id: 'test',
@@ -151,7 +151,7 @@ test(`${J} #2 creates it with a passkey: an address on the venue's network, labe
   const { who } = state();
   const phone = await device(page);
   await openRoom(page, who);
-  await page.getByRole('button', { name: 'Create my wallet' }).click();
+  await page.getByRole('button', { name: 'Create my wallet', exact: true }).click();
   const address = panel(page).locator('[data-embedded-address]');
   await expect(address).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 20_000 });
   await expect(panel(page).locator('[data-test-label]')).toHaveText('TEST');
@@ -763,4 +763,109 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   } finally {
     await other.close();
   }
+});
+
+/** The name the page announces the person's TEST wallet under (EIP-6963), for every room that offers a browser wallet. */
+const ANNOUNCED = 'INTAFACED wallet (TEST)';
+
+test(`${J} outside: the wallet is a browser wallet for the rest of the app: Money's wallet panel offers Connect ${ANNOUNCED} and connects it, and the futures desk places and cancels an order it signs after the passkey`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const s0 = walletState();
+  const { who, address, credential } = s0;
+  if (!s0.verified) {
+    await signIn(page, who);
+    await verify(page, who);
+    run.write({ verified: true });
+  }
+  const owner = address.toLowerCase();
+  await device(page, [credential]);
+  const prompts = walletPrompts(page);
+  const submits = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/api/v1/venue/submit') submits.push(r.postDataJSON());
+  });
+  await signIn(page, who);
+
+  // Money, through the menu: its wallet panel offers the person's own wallet by name, and connecting it asks no passkey.
+  await page.getByRole('link', { name: 'Money', exact: true }).first().click();
+  const wallet = page.getByTestId('venue-wallet').first();
+  const connect = wallet.getByRole('button', { name: `Connect ${ANNOUNCED}`, exact: true });
+  await expect(connect).toBeVisible({ timeout: 30_000 });
+  await expect(wallet).not.toContainText('No wallet found in this browser');
+  await connect.click();
+  await expect(wallet.getByTestId('venue-wallet-address')).toHaveText(owner);
+  await stepPicture(page);
+  expect(prompts).toEqual([]);
+
+  // The futures desk finds it connected, with no second Connect, and its order is signed by the wallet after the passkey.
+  await page.goto('/trade/futures');
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('venue-wallet-address').first()).toHaveText(owner, { timeout: 20_000 });
+  const before = (await testVenue('/open-orders', { account: await venueAccount(address) })).value.length;
+  // The contract's leverage is a signed setting on the venue, before the first order: the wallet signs it, after the passkey.
+  const margin = page.getByTestId('venue-margin');
+  const sign = () =>
+    page
+      .getByRole('dialog', { name: 'Check before you sign', exact: true })
+      .getByRole('button', { name: 'Continue in wallet', exact: true })
+      .click();
+  await page
+    .getByRole('button', { name: /^BTC-PERP · / })
+    .first()
+    .click();
+  const leverage = margin.getByTestId('venue-leverage-current');
+  await expect(leverage).toHaveText(/^(None set on the venue|Set on the venue)/, { timeout: 20_000 });
+  if ((await leverage.textContent()).startsWith('None set')) {
+    await margin.locator('[data-mode="isolated"] input').check();
+    await margin.getByRole('textbox', { name: 'Leverage (times)', exact: true }).fill('10');
+    await margin.getByRole('button', { name: 'Sign this leverage setting', exact: true }).click();
+    await sign();
+    await expect(margin.getByTestId('venue-outcome')).toContainText('The venue accepted it.', { timeout: 20_000 });
+    await expect(leverage).toHaveText('Set on the venue: 10x, Isolated', { timeout: 20_000 });
+    expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+    expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+    prompts.length = 0;
+  }
+  const ticket = page.getByTestId('venue-ticket');
+  await page
+    .getByRole('button', { name: /^BTC-PERP · / })
+    .first()
+    .click();
+  await ticket.getByRole('button', { name: 'Long', exact: true }).click();
+  await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
+  await ticket.getByRole('textbox', { name: 'Size (BTC)', exact: true }).fill('0.001');
+  await ticket.getByRole('textbox', { name: 'Price', exact: true }).fill('59000');
+  const asset = ticket.getByRole('combobox', { name: 'Margin asset', exact: true });
+  if (await asset.isVisible()) await asset.selectOption('USDC');
+  await ticket.getByRole('button', { name: 'Review long', exact: true }).click();
+  const review = page.getByTestId('venue-review');
+  // Our builder fee, when this account has not approved it yet: the wallet signs that approval too, after the passkey.
+  const approve = review.getByRole('button', { name: 'Approve in wallet', exact: true });
+  await expect(review.getByRole('button', { name: /^(Open|Place) long/ })).toBeVisible();
+  if (await approve.isVisible()) {
+    await approve.click();
+    await sign();
+    await expect(approve).toHaveCount(0, { timeout: 20_000 });
+    expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+    expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+    prompts.length = 0;
+  }
+  await review.getByRole('button', { name: /^(Open|Place) long/ }).click();
+  await sign();
+  // The person's only BTC-PERP order (#8's two rest on the spot market).
+  const rows = page.getByTestId('venue-open-orders').locator('tbody tr').filter({ hasText: 'BTC-PERP' });
+  await expect(rows).toHaveCount(1, { timeout: 30_000 });
+  expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+  expect(submits.at(-1)?.signature.signedBy).toBe(owner);
+  expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(before + 1);
+
+  // Cancel: one more signature by the wallet, after the passkey, and the venue holds the order no more.
+  await rows.first().getByRole('button', { name: 'Cancel', exact: true }).click();
+  await sign();
+  await expect(rows).toHaveCount(0, { timeout: 30_000 });
+  expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped', '/__test-wallet-provider/client/signtyped']);
+  expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(before);
 });

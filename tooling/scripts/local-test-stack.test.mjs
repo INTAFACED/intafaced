@@ -1546,6 +1546,61 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
 }
 
+// 20b. A banner site (customer, invitation, apex) still serving another banner restarts: before #10863's fix a start
+// kept a process that answered 200 with the old BANNER_TEXT, and the status table called the beta's apex DOWN.
+{
+  const { bannerSiteDecision } = await import('./local-test-stack.mjs');
+  const { BANNER_TEXT } = await import('../../apps/customer/deployment/test-banner.mjs');
+  const page = (banner) => `<html><body><div>${banner}</div></body></html>`;
+  assert.equal(bannerSiteDecision({ owned: true, status: 200, text: page(BANNER_TEXT) }), 'ready');
+  assert.equal(
+    bannerSiteDecision({ owned: true, status: 200, text: page('LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money') }),
+    'restart',
+    'a page with an older banner restarts its process',
+  );
+  assert.equal(bannerSiteDecision({ owned: true, status: 200, text: page(BANNER_TEXT) }, 'A NEWER BANNER'), 'restart');
+  assert.equal(bannerSiteDecision({ owned: true, status: 0, text: '' }), 'start');
+  assert.equal(bannerSiteDecision({ owned: false, status: 200, text: page(BANNER_TEXT) }), 'start');
+  // The check itself: a live process answering with the old banner is stopped and its port waited on; today's is kept.
+  const { bannerSiteReady, startCustomer, startInvitation, startApex } = await import('./local-test-stack.mjs');
+  const { STACK_PORTS } = await import('./local-test-facts.mjs');
+  const rec = { pid: 4242 };
+  for (const [banner, kept] of [
+    ['LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money', false],
+    [BANNER_TEXT, true],
+  ]) {
+    const stops = [];
+    const answer = await bannerSiteReady('apex', rec, 'http://apex.test/', STACK_PORTS.apex, {
+      alive: (r) => r === rec,
+      get: async () => ({ status: 200, text: page(banner) }),
+      stop: async (...args) => stops.push(args),
+      open: async () => false,
+    });
+    assert.equal(answer, kept, kept ? "today's banner keeps the process" : 'the old banner does not');
+    assert.deepEqual(stops, kept ? [] : [['apex', rec]], kept ? 'nothing stopped' : 'the stale process is stopped');
+  }
+  // Each banner site's start asks that check first, for its own name and port. The stand-in ends the start there.
+  const halt = new Error('stopped here');
+  for (const [part, start] of [
+    ['customer', (ready) => startCustomer({ stop: async () => {}, ready })],
+    ['invitation', (ready) => startInvitation({ stop: async () => {}, ready })],
+    ['apex', (ready) => startApex({ ready })],
+  ]) {
+    const asks = [];
+    await assert.rejects(
+      start((...args) => {
+        asks.push(args);
+        throw halt;
+      }),
+      (err) => err === halt,
+    );
+    assert.equal(asks.length, 1, `${part} asks the banner check once`);
+    assert.equal(asks[0][0], part);
+    assert.equal(asks[0][3], STACK_PORTS[part], `${part} checks its own port`);
+  }
+  console.log('local-test-stack: a banner site serving another banner restarts onto the current one');
+}
+
 // 21. A new TEST chain empties what services stored from the old one, so the indexer reads it from block 0 instead
 // of halting on blocks the new node never made (lead, 30 Oct: indexer.halted after a restart).
 {
