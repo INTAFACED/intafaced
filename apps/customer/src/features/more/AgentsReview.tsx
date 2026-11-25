@@ -4,23 +4,19 @@ import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Read } from './common';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Checkbox } from '@intafaced/ui/lit/templates';
 import { refusalWords } from './AgentsCatalogue';
 import { ACTION_LOG_HEADER, actionLogRows } from './agents-catalogue';
 import { downloadCsv, toCsv } from './depth-csv';
 import { agentsReviewCopy } from './agents-review-copy';
-import {
-  ACTION_LOG_EXPORT_PAGE,
-  actionLogCountSchema,
-  actionLogExportPageSchema,
-  actionLogRowSchema,
-  analyticsSummarySchema,
-  runTraceSchema,
-  usageGroupSchema,
-  usageSummarySchema,
-  type ActionLogRow,
-} from '@intafaced/contracts/agents-review';
+import { KitRead as Read, ScrollTable, Section } from './volt-parts';
+import { ACTION_LOG_EXPORT_PAGE, usageGroupSchema, type ActionLogRow } from '@intafaced/contracts/agents-review';
+import { AGENTS_RUN_TRACE } from '@intafaced/contracts/agents-run-procedures';
+import { AGENTS_LOG_MINE, AGENTS_LOG_COUNT, AGENTS_LOG_EXPORT } from '@intafaced/contracts/agents-log-procedures';
+import { AGENTS_USAGE_SUMMARY } from '@intafaced/contracts/agents-usage-procedures';
+import { AGENTS_ANALYTICS_SUMMARY } from '@intafaced/contracts/agents-analytics-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 /**
  * What my agents did (J-agents-13): the dashboard over a range of days, the activity log with its outcome filter and a
@@ -48,11 +44,9 @@ export function AgentsDashboard() {
   const summary = useResource(
     (signal) =>
       asked
-        ? api.query(
-            'agents',
-            'analytics.summary',
+        ? api.call(
+            AGENTS_ANALYTICS_SUMMARY,
             { from: asked.from, to: asked.to, includeTest: asked.includeTest },
-            analyticsSummarySchema,
             {
               signal,
             },
@@ -63,10 +57,10 @@ export function AgentsDashboard() {
   const resource = summary.resource;
   const refusal = resource.status === 'failed' ? RANGE_REFUSALS[resource.failure.message as keyof typeof RANGE_REFUSALS] : undefined;
   return (
-    <Panel title={t('dashboardTitle')} role="region" aria-label={t('dashboardTitle')}>
-      <p className="muted">{t('dashboardIntro')}</p>
+    <Section className="lt-region" title={t('dashboardTitle')} role="region" aria-label={t('dashboardTitle')}>
+      <p className="lt-muted">{t('dashboardIntro')}</p>
       <form
-        className="more-columns"
+        className="lt-toolbar"
         onSubmit={(event) => {
           event.preventDefault();
           setAsked((last) => ({ from, to, includeTest, n: (last?.n ?? 0) + 1 }));
@@ -74,26 +68,25 @@ export function AgentsDashboard() {
       >
         <Field label={t('from')} value={from} onChange={(e) => setFrom(e.target.value)} maxLength={32} inputMode="numeric" />
         <Field label={t('to')} value={to} onChange={(e) => setTo(e.target.value)} maxLength={32} inputMode="numeric" />
-        <label className="field field--inline">
-          <input type="checkbox" checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} />
-          <span>{t('includeTest')}</span>
-        </label>
-        <Button type="submit">{t('show')}</Button>
+        <Checkbox label={t('includeTest')} checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} />
+        <Button tone="primary" type="submit">
+          {t('show')}
+        </Button>
       </form>
       {refusal ? (
         <p role="alert">{t(refusal)}</p>
       ) : !asked ? (
-        <p className="muted">{t('chooseRange')}</p>
+        <p className="lt-muted">{t('chooseRange')}</p>
       ) : (
         <Read resource={resource} retry={summary.reload}>
           {(data) => (data ? <DashboardFigures data={data} /> : null)}
         </Read>
       )}
-    </Panel>
+    </Section>
   );
 }
 
-function DashboardFigures({ data }: { data: z.infer<typeof analyticsSummarySchema> }) {
+function DashboardFigures({ data }: { data: ProcedureOutput<typeof AGENTS_ANALYTICS_SUMMARY> }) {
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   const money = (lines: readonly { assetId: string; amount: string }[]) =>
@@ -102,7 +95,7 @@ function DashboardFigures({ data }: { data: z.infer<typeof analyticsSummarySchem
   return (
     <>
       <p role="status">{data.includesTest ? t('filterWithTest') : t('filterLive')}</p>
-      <dl className="more-receipt agent-dashboard-totals">
+      <dl className="lt-kv">
         {(
           [
             ['sessions', totals.sessions],
@@ -126,9 +119,9 @@ function DashboardFigures({ data }: { data: z.infer<typeof analyticsSummarySchem
           <dd data-testid="dashboard-spend">{money(totals.spend)}</dd>
         </div>
       </dl>
-      <p className="muted">{t('spendBasis')}</p>
+      <p className="lt-muted">{t('spendBasis')}</p>
       {data.days.length ? (
-        <DataTable
+        <ScrollTable
           headers={[
             t('day'),
             t('sessions'),
@@ -153,7 +146,7 @@ function DashboardFigures({ data }: { data: z.infer<typeof analyticsSummarySchem
               <td data-testid="day-spend">{money(day.spend)}</td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       ) : (
         <p role="status">{t('nothingInRange')}</p>
       )}
@@ -186,13 +179,10 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
     [exported, setExported] = useState<{ ok: true; count: number } | { ok: false } | null>(null);
   const filter = outcome ? { outcome } : {};
   const rows = useResource(
-      (signal) => api.query('agents', 'log.mine', { limit, ...filter }, z.array(actionLogRowSchema).max(limit), { signal }),
+      (signal) => api.call(AGENTS_LOG_MINE, { limit, ...filter }, { signal }),
       `agent-activity:${userId}:${outcome}:${limit}`,
     ),
-    count = useResource(
-      (signal) => api.query('agents', 'log.count', filter, actionLogCountSchema, { signal }),
-      `agent-activity-count:${userId}:${outcome}`,
-    );
+    count = useResource((signal) => api.call(AGENTS_LOG_COUNT, filter, { signal }), `agent-activity-count:${userId}:${outcome}`);
 
   async function exportAll() {
     setExporting(true);
@@ -203,12 +193,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
     let cursor: string | null | undefined;
     try {
       do {
-        const page = await api.query(
-          'agents',
-          'log.export',
-          { ...filter, limit: EXPORT_PAGE, requestId, format, ...(cursor ? { cursor } : {}) },
-          actionLogExportPageSchema,
-        );
+        const page = await api.call(AGENTS_LOG_EXPORT, { ...filter, limit: EXPORT_PAGE, requestId, format, ...(cursor ? { cursor } : {}) });
         if (!page.ok) {
           setExported({ ok: false });
           return;
@@ -227,8 +212,8 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
   }
 
   return (
-    <Panel title={title}>
-      <label className="field">
+    <Section className="lt-region" title={title}>
+      <label className="lt-field">
         <span>{t('activityFilter')}</span>
         <select value={outcome} onChange={(event) => setOutcome(event.target.value as Outcome)}>
           <option value="">{t('outcomeAll')}</option>
@@ -237,7 +222,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
           <option value="failed">{t('failed')}</option>
         </select>
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('rowsToLoad')}</span>
         <select value={String(limit)} onChange={(event) => setLimit(Number(event.target.value))}>
           {LOAD_SIZES.map((size) => (
@@ -254,32 +239,32 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
           </p>
         )}
       </Read>
-      <div className="more-columns">
-        <label className="field">
+      <div className="lt-toolbar">
+        <label className="lt-field">
           <span>{t('exportFormat')}</span>
           <select value={format} onChange={(event) => setFormat(event.target.value as 'csv' | 'json')}>
             <option value="csv">{t('formatCsv')}</option>
             <option value="json">{t('formatJson')}</option>
           </select>
         </label>
-        <Button variant="secondary" disabled={exporting} onClick={() => void exportAll()}>
+        <Button tone="secondary" disabled={exporting} onClick={() => void exportAll()}>
           {exporting ? t('exporting') : t('export')}
         </Button>
       </div>
       {exported ? <p role="status">{exported.ok ? t('exported', { count: exported.count }) : t('exportFailed')}</p> : null}
-      <p className="muted">{t('exportNote')}</p>
+      <p className="lt-muted">{t('exportNote')}</p>
       <Read resource={rows.resource} retry={rows.reload} empty={outcome ? t('noActions') : empty}>
         {(list) => (
           <>
             <ActionTable rows={list} />
             {count.resource.status === 'ready' && count.resource.data.total > list.length ? (
-              <p className="muted">{t('logShowing', { shown: list.length, total: count.resource.data.total })}</p>
+              <p className="lt-muted">{t('logShowing', { shown: list.length, total: count.resource.data.total })}</p>
             ) : null}
           </>
         )}
       </Read>
-      <p className="muted">{note}</p>
-    </Panel>
+      <p className="lt-muted">{note}</p>
+    </Section>
   );
 }
 
@@ -287,7 +272,7 @@ function ActionTable({ rows }: { rows: readonly ActionLogRow[] }) {
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   return (
-    <DataTable headers={[t('time'), t('agentSession'), t('action'), t('outcome'), t('reason'), t('cost')]} label={t('actionsTable')}>
+    <ScrollTable headers={[t('time'), t('agentSession'), t('action'), t('outcome'), t('reason'), t('cost')]} label={t('actionsTable')}>
       {rows.map((row) => (
         <tr key={row.id}>
           <td>
@@ -295,7 +280,7 @@ function ActionTable({ rows }: { rows: readonly ActionLogRow[] }) {
           </td>
           <td lang="zxx">
             {row.agentId}
-            <small className="more-receipt">{row.sessionId}</small>
+            <small className="lt-mono lt-muted">{row.sessionId}</small>
           </td>
           <td>
             {row.sequence}. {t(`kind_${row.kind}`)}
@@ -306,7 +291,7 @@ function ActionTable({ rows }: { rows: readonly ActionLogRow[] }) {
           <td lang="zxx">{preferences.hideBalances ? '••••' : displayAmount(row.cost)}</td>
         </tr>
       ))}
-    </DataTable>
+    </ScrollTable>
   );
 }
 
@@ -335,10 +320,7 @@ export function AgentsUsage() {
     { userId } = useSession();
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
-  const usage = useResource(
-    (signal) => api.query('agents', 'usage.summary', { limit: USAGE_PAGE }, usageSummarySchema, { signal }),
-    `agent-usage-summary:${userId}`,
-  );
+  const usage = useResource((signal) => api.call(AGENTS_USAGE_SUMMARY, { limit: USAGE_PAGE }, { signal }), `agent-usage-summary:${userId}`);
   const cost = (amount: string, assetId: string) => (preferences.hideBalances ? '••••' : `${displayAmount(amount)} ${assetId}`);
   const groupTable = (
     label: string,
@@ -346,7 +328,7 @@ export function AgentsUsage() {
     rows: z.infer<typeof usageGroupSchema>[],
     name: (row: z.infer<typeof usageGroupSchema>) => string,
   ) => (
-    <DataTable headers={[head, t('windows'), t('cost')]} label={label}>
+    <ScrollTable headers={[head, t('windows'), t('cost')]} label={label}>
       {rows.map((row) => (
         <tr key={`${row.key}:${row.assetId}`}>
           <td lang="zxx">{name(row)}</td>
@@ -354,11 +336,11 @@ export function AgentsUsage() {
           <td data-testid="usage-cost">{cost(row.amount, row.assetId)}</td>
         </tr>
       ))}
-    </DataTable>
+    </ScrollTable>
   );
   return (
-    <Panel title={t('usageTitle')} role="region" aria-label={t('usageTitle')}>
-      <p className="muted">{t('usageIntro')}</p>
+    <Section className="lt-region" title={t('usageTitle')} role="region" aria-label={t('usageTitle')}>
+      <p className="lt-muted">{t('usageIntro')}</p>
       <Read resource={usage.resource} retry={usage.reload}>
         {(data) =>
           data.windowCount === 0 ? (
@@ -372,7 +354,7 @@ export function AgentsUsage() {
               {groupTable(t('byAgent'), t('agent'), data.byAgent, (row) => row.name ?? row.key)}
               {groupTable(t('byUser'), t('account'), data.byUser, (row) => row.key)}
               {groupTable(t('byTask'), t('task'), data.byTask, (row) => row.key || t('noTask'))}
-              <DataTable headers={[t('day'), t('agent'), t('task'), t('window'), t('state'), t('cost')]} label={t('usageWindows')}>
+              <ScrollTable headers={[t('day'), t('agent'), t('task'), t('window'), t('state'), t('cost')]} label={t('usageWindows')}>
                 {data.windows.map((row) => (
                   <tr key={`${row.sessionId}:${row.windowId}`}>
                     <td lang="zxx">{row.day}</td>
@@ -383,16 +365,16 @@ export function AgentsUsage() {
                     <td data-testid="window-cost">{cost(row.amount, row.assetId)}</td>
                   </tr>
                 ))}
-              </DataTable>
+              </ScrollTable>
               {data.windowCount > data.windows.length ? (
-                <p className="muted">{t('usageShowing', { shown: data.windows.length, total: data.windowCount })}</p>
+                <p className="lt-muted">{t('usageShowing', { shown: data.windows.length, total: data.windowCount })}</p>
               ) : null}
             </>
           )
         }
       </Read>
-      <p className="muted">{t('spendBasis')}</p>
-    </Panel>
+      <p className="lt-muted">{t('spendBasis')}</p>
+    </Section>
   );
 }
 
@@ -422,20 +404,20 @@ export function RunTraces({
   if (!runs.length) return null;
   return (
     <>
-      <DataTable headers={[t('request'), t('started'), t('state'), '']} label={t('runsTitle')}>
+      <ScrollTable headers={[t('request'), t('started'), t('state'), '']} label={t('runsTitle')}>
         {runs.map((run) => (
           <tr key={run.requestId}>
             <td lang="zxx">{run.requestId}</td>
             <td>{clock(run.startedAt)}</td>
             <td>{t(`runState_${run.state}`)}</td>
             <td>
-              <Button variant="secondary" aria-pressed={open === run.requestId} onClick={() => setOpen(run.requestId)}>
+              <Button tone="secondary" aria-pressed={open === run.requestId} onClick={() => setOpen(run.requestId)}>
                 {t('openTrace')}
               </Button>
             </td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
       {open ? <RunTrace key={`${sessionId}:${open}`} sessionId={sessionId} requestId={open} /> : null}
     </>
   );
@@ -447,7 +429,7 @@ function RunTrace({ sessionId, requestId }: { sessionId: string; requestId: stri
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   const trace = useResource(
-    (signal) => api.query('agents', 'run.trace', { sessionId, requestId }, runTraceSchema, { signal }),
+    (signal) => api.call(AGENTS_RUN_TRACE, { sessionId, requestId }, { signal }),
     `agent-run-trace:${userId}:${sessionId}:${requestId}`,
   );
   const cost = (amount: string | null, assetId: string | null) =>
@@ -455,11 +437,11 @@ function RunTrace({ sessionId, requestId }: { sessionId: string; requestId: stri
   return (
     <section>
       <h3>{t('traceTitle')}</h3>
-      <p className="muted">{t('traceIntro')}</p>
+      <p className="lt-muted">{t('traceIntro')}</p>
       <Read resource={trace.resource} retry={trace.reload}>
         {(run) => (
           <>
-            <DataTable headers={[t('step'), t('tool'), t('started'), t('took'), t('tokens'), t('cost')]} label={t('traceTitle')}>
+            <ScrollTable headers={[t('step'), t('tool'), t('started'), t('took'), t('tokens'), t('cost')]} label={t('traceTitle')}>
               {run.plan.map((step) => (
                 <tr key={`plan:${step.sequence}`} data-testid="trace-plan-step">
                   <td>
@@ -492,7 +474,7 @@ function RunTrace({ sessionId, requestId }: { sessionId: string; requestId: stri
                   <td data-testid="trace-cost">{cost(call.cost, run.assetId)}</td>
                 </tr>
               ))}
-            </DataTable>
+            </ScrollTable>
             <p data-testid="trace-run-cost">{t('runTotal', { cost: cost(run.cost, run.assetId) })}</p>
           </>
         )}

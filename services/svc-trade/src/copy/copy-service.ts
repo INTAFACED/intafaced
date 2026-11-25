@@ -18,7 +18,8 @@ import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pa
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { requireScope, type Principal } from '@intafaced/auth';
-import { StepUpCheckError, type StepUpCheck } from '@intafaced/contracts';
+import type { StepUpCheck } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,
@@ -1138,7 +1139,7 @@ export class CopyService {
     if (!this.listLeaderFillsSince || !follow.copyCursor) return;
     let cursor = follow.copyCursor;
     for (let page = 0; page < pages; page += 1) {
-      const fills = await this.listLeaderFillsSince(follow.leaderId, cursor, limit);
+      const fills = await this.listLeaderFillsSince(follow.leaderId, cursor, limit, follow.followId);
       for (const fill of fills) {
         if (follow.envelope.permittedMarkets.includes(fill.marketId) && !(await store.getPlacedMirror(follow.followId, fill.fillId))) {
           await recordCopySkip(this.mirrorEvents, {

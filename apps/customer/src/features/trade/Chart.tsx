@@ -1260,10 +1260,10 @@ export function MarketChart({
       </div>
       {stageDestination === 'trade' && inspected && !tool && resource.status === 'ready' && selectionCurrent() && (
         <div className="trade-holding-close">
-          <span className="muted">
+          <span className="lt-muted">
             <CopyText k="holdingSelectedClose" params={{ base: market.base, quote: market.quote }} />
           </span>
-          <strong className="numeric">{inspected[4]}</strong>
+          <strong className="lt-num">{inspected[4]}</strong>
           <Button
             onClick={() => {
               if (selectionCurrent()) onStagePrice(inspected[4], selectionCurrent);
@@ -1271,7 +1271,7 @@ export function MarketChart({
           >
             <CopyText k="holdingUseClose" />
           </Button>
-          <span className="muted">
+          <span className="lt-muted">
             <CopyText k="holdingDraftOnly" params={{ symbol: market.symbol }} />
           </span>
         </div>

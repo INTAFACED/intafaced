@@ -888,6 +888,77 @@
         }
       ]
     },
+    "academy.admin.addLearnerNote": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.addLearnerNote",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.revision_stale": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["userId", "body", "key"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "body": "placeholder",
+            "key": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.admin.assignment": {
       "service": "svc-academy",
       "module": "academy",
@@ -3619,6 +3690,311 @@
           "input": {
             "courseId": "not-an-id"
           }
+        }
+      ]
+    },
+    "academy.admin.courseGradebook": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "admin.courseGradebook",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.course_not_found": "NOT_FOUND",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.role_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["courseId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "types": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 60
+                        },
+                        "weight": {
+                          "type": "string",
+                          "pattern": "^(?:0\\.(?:[1-9]\\d{0,3}|0[1-9]\\d{0,2}|00[1-9]\\d?|000[1-9])|1(?:\\.0{1,4})?)$"
+                        },
+                        "dropLowest": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 20
+                        },
+                        "itemIds": {
+                          "minItems": 1,
+                          "maxItems": 100,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        }
+                      },
+                      "required": ["name", "weight", "dropLowest", "itemIds"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "setBy": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "setAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": ["revision", "types", "setBy", "setAt", "reason"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latePolicy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "policy": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "graceHours": {
+                            "type": "string",
+                            "pattern": "^(?:0|[1-9]\\d{0,3})(?:\\.\\d{1,2})?$"
+                          },
+                          "deductionPerDay": {
+                            "type": "string",
+                            "pattern": "^(?:0\\.(?:[1-9]\\d{0,3}|0[1-9]\\d{0,2}|00[1-9]\\d?|000[1-9])|1(?:\\.0{1,4})?)$"
+                          }
+                        },
+                        "required": ["graceHours", "deductionPerDay"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "setBy": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "setAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": ["revision", "policy", "setBy", "setAt", "reason"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["assignment", "quiz"]
+                }
+              },
+              "required": ["itemId", "title", "kind"],
+              "additionalProperties": false
+            }
+          },
+          "learners": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["graded", "pending", "not_attempted"]
+                      },
+                      "score": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^(?:0|1|0\\.\\d{1,18}|1\\.0{1,18})$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "entered": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^(?:0|1|0\\.\\d{1,18}|1\\.0{1,18})$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["itemId", "state", "score", "entered"],
+                    "additionalProperties": false
+                  }
+                },
+                "types": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "average": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^(?:0|1|0\\.\\d{1,18}|1\\.0{1,18})$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "counted": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "dropped": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      }
+                    },
+                    "required": ["name", "average", "counted", "dropped"],
+                    "additionalProperties": false
+                  }
+                },
+                "total": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:0|1|0\\.\\d{1,18}|1\\.0{1,18})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["userId", "items", "types", "total"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["courseId", "policy", "latePolicy", "items", "learners"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "courseId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -8904,6 +9280,89 @@
         }
       ]
     },
+    "academy.admin.grantAccess": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.grantAccess",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.grant_expired": "FORBIDDEN",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.window_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "pathSlug": {
+            "type": "string",
+            "enum": ["foundations", "markets", "builder", "sovereign"]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId", "pathSlug", "reason", "expiresAt"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "pathSlug": "foundations",
+            "reason": "placeholder",
+            "expiresAt": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.admin.grantCertException": {
       "service": "svc-academy",
       "module": "academy",
@@ -9198,6 +9657,90 @@
             "userId": "33333333-3333-4333-8333-333333333333",
             "dueAt": "2026-01-01T00:00:00.000Z",
             "reason": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.admin.grantLearnerExtension": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.grantLearnerExtension",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.curriculum_not_found": "NOT_FOUND",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.slug_reserved": "BAD_REQUEST",
+        "academy.window_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "itemSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["userId", "itemSlug", "until", "reason", "key"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "itemSlug": "placeholder",
+            "until": "2026-01-01T00:00:00.000Z",
+            "reason": "placeholder",
+            "key": "placeholder"
           }
         },
         {
@@ -11963,6 +12506,83 @@
         }
       ]
     },
+    "academy.admin.markCompleteFor": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.markCompleteFor",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.curriculum_not_found": "NOT_FOUND",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.slug_reserved": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "itemSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["userId", "itemSlug", "reason", "key"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "itemSlug": "placeholder",
+            "reason": "placeholder",
+            "key": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.admin.moderationQueue": {
       "service": "svc-academy",
       "module": "academy",
@@ -13802,6 +14422,98 @@
             "lessonRevision": 1,
             "courseRevision": 1,
             "reason": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.admin.reinstateAccess": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.reinstateAccess",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.grant_active": "CONFLICT",
+        "academy.grant_not_found": "NOT_FOUND",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.revision_stale": "CONFLICT",
+        "academy.window_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "grantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "n": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["userId", "grantId", "reason", "expiresAt", "n"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "grantId": "33333333-3333-4333-8333-333333333333",
+            "reason": "placeholder",
+            "expiresAt": null,
+            "n": 1
           }
         },
         {
@@ -19389,6 +20101,74 @@
         }
       ]
     },
+    "academy.admin.untagLearner": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.untagLearner",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tag": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["userId", "tag", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "tag": "placeholder",
+            "reason": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.admin.updateCourse": {
       "service": "svc-academy",
       "module": "academy",
@@ -19624,6 +20404,77 @@
             "courseId": "22222222-2222-4222-8222-222222222222",
             "revision": 1
           }
+        }
+      ]
+    },
+    "academy.admin.voidQuizAttempt": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.voidQuizAttempt",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.attempt_not_found": "NOT_FOUND",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.slug_reserved": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "attemptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["userId", "attemptId", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "attemptId": "33333333-3333-4333-8333-333333333333",
+            "reason": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -20369,6 +21220,70 @@
         }
       ]
     },
+    "academy.ambassadorBadge": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ambassadorBadge",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "isAmbassador": {
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["active", "frozen"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId", "isAmbassador", "status"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.ambassadorPayPlane": {
       "service": "svc-academy",
       "module": "academy",
@@ -20959,6 +21874,103 @@
         }
       ]
     },
+    "academy.assessment.attempts": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "assessment.attempts",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.assessment_unpublished": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": ["slug"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "slug": {
+              "type": "string"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxScore": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "pass": {
+              "type": ["boolean", "null"]
+            },
+            "submittedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "hiddenUntil": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["slug", "score", "maxScore", "pass", "submittedAt", "hiddenUntil"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.assessment.current": {
       "service": "svc-academy",
       "module": "academy",
@@ -21315,6 +22327,142 @@
         }
       ]
     },
+    "academy.assessment.get": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "assessment.get",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.assessment_unpublished": "PRECONDITION_FAILED",
+        "academy.pass_mark_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": ["slug"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "const": "quiz"
+          },
+          "passMark": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "timeLimitSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attemptLimit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewMode": {
+            "type": "string",
+            "enum": ["answers", "score_only"]
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "prompt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "const": "single"
+                },
+                "points": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "choices": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": ["id", "text"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["id", "prompt", "kind", "points", "choices"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["slug", "kind", "passMark", "timeLimitSeconds", "attemptLimit", "reviewMode", "questions"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.assessment.review": {
       "service": "svc-academy",
       "module": "academy",
@@ -21633,6 +22781,335 @@
             "slug": "perps-quiz",
             "extra": true
           }
+        }
+      ]
+    },
+    "academy.assignment": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "assignment",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.assignment_not_found": "NOT_FOUND",
+        "academy.enrolment_required": "FORBIDDEN",
+        "academy.not_released_yet": "PRECONDITION_FAILED",
+        "academy.prerequisite_unmet": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["itemId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "courseSlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "courseTitle": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instructions": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "points": {
+            "type": "string",
+            "pattern": "^(?:0|[1-9]\\d{0,5})(?:\\.\\d{1,2})?$"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": "string",
+            "enum": ["off", "optional", "required"]
+          },
+          "file": {
+            "type": "string",
+            "enum": ["off", "optional", "required"]
+          },
+          "latePolicy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "graceHours": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9]\\d{0,3})(?:\\.\\d{1,2})?$"
+                  },
+                  "deductionPerDay": {
+                    "type": "string",
+                    "pattern": "^(?:0\\.(?:[1-9]\\d{0,3}|0[1-9]\\d{0,2}|00[1-9]\\d?|000[1-9])|1(?:\\.0{1,4})?)$"
+                  }
+                },
+                "required": ["graceHours", "deductionPerDay"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fileLimits": {
+            "type": "object",
+            "properties": {
+              "maxBytes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "types": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["maxBytes", "types"],
+            "additionalProperties": false
+          },
+          "withdrawnAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["draft", "submitted", "pending_review", "graded", "returned", "withdrawn"]
+                },
+                "text": {
+                  "type": ["string", "null"]
+                },
+                "file": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "fileName": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "contentType": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["id", "fileName", "contentType", "bytes"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "submittedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "late": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["version", "state", "text", "file", "submittedAt", "late"],
+              "additionalProperties": false
+            }
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "n": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "score": {
+                    "type": "string"
+                  },
+                  "points": {
+                    "type": "string"
+                  },
+                  "entered": {
+                    "type": ["string", "null"]
+                  },
+                  "comment": {
+                    "type": ["string", "null"]
+                  },
+                  "gradedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "readAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["version", "n", "score", "points", "entered", "comment", "gradedAt", "readAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "dueAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["dueAt", "reason"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "itemId",
+          "courseSlug",
+          "courseTitle",
+          "title",
+          "instructions",
+          "points",
+          "dueAt",
+          "text",
+          "file",
+          "latePolicy",
+          "fileLimits",
+          "withdrawnAt",
+          "submissions",
+          "grade",
+          "nextVersion",
+          "extension"
+        ],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "academy_points_holds": {
+          "at": "output.points",
+          "says": "points are more than zero"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "itemId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -24987,6 +26464,70 @@
         }
       ]
     },
+    "academy.itemVideo": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "itemVideo",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.curriculum_not_found": "NOT_FOUND",
+        "academy.slug_reserved": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": ["itemSlug"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemSlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "videoSlug": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["itemSlug", "videoSlug"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "itemSlug": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.join": {
       "service": "svc-academy",
       "module": "academy",
@@ -25222,6 +26763,348 @@
           "input": {
             "itemSlug": ""
           }
+        }
+      ]
+    },
+    "academy.markFeedbackRead": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "markFeedbackRead",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.assignment_not_found": "NOT_FOUND",
+        "academy.enrolment_required": "FORBIDDEN",
+        "academy.not_released_yet": "PRECONDITION_FAILED",
+        "academy.prerequisite_unmet": "PRECONDITION_FAILED",
+        "academy.submission_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "n": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["itemId", "version", "n"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "courseSlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "courseTitle": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instructions": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "points": {
+            "type": "string",
+            "pattern": "^(?:0|[1-9]\\d{0,5})(?:\\.\\d{1,2})?$"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": "string",
+            "enum": ["off", "optional", "required"]
+          },
+          "file": {
+            "type": "string",
+            "enum": ["off", "optional", "required"]
+          },
+          "latePolicy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "graceHours": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9]\\d{0,3})(?:\\.\\d{1,2})?$"
+                  },
+                  "deductionPerDay": {
+                    "type": "string",
+                    "pattern": "^(?:0\\.(?:[1-9]\\d{0,3}|0[1-9]\\d{0,2}|00[1-9]\\d?|000[1-9])|1(?:\\.0{1,4})?)$"
+                  }
+                },
+                "required": ["graceHours", "deductionPerDay"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fileLimits": {
+            "type": "object",
+            "properties": {
+              "maxBytes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "types": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["maxBytes", "types"],
+            "additionalProperties": false
+          },
+          "withdrawnAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["draft", "submitted", "pending_review", "graded", "returned", "withdrawn"]
+                },
+                "text": {
+                  "type": ["string", "null"]
+                },
+                "file": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "fileName": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "contentType": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["id", "fileName", "contentType", "bytes"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "submittedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "late": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["version", "state", "text", "file", "submittedAt", "late"],
+              "additionalProperties": false
+            }
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "n": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "score": {
+                    "type": "string"
+                  },
+                  "points": {
+                    "type": "string"
+                  },
+                  "entered": {
+                    "type": ["string", "null"]
+                  },
+                  "comment": {
+                    "type": ["string", "null"]
+                  },
+                  "gradedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "readAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["version", "n", "score", "points", "entered", "comment", "gradedAt", "readAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "dueAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["dueAt", "reason"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "itemId",
+          "courseSlug",
+          "courseTitle",
+          "title",
+          "instructions",
+          "points",
+          "dueAt",
+          "text",
+          "file",
+          "latePolicy",
+          "fileLimits",
+          "withdrawnAt",
+          "submissions",
+          "grade",
+          "nextVersion",
+          "extension"
+        ],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "academy_points_holds": {
+          "at": "output.points",
+          "says": "points are more than zero"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "itemId": "33333333-3333-4333-8333-333333333333",
+            "version": 1,
+            "n": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -25498,6 +27381,49 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "academy.myEnrollments": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "myEnrollments",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "userId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "pathSlug": {
+              "type": "string"
+            },
+            "enrolledAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          "required": ["userId", "pathSlug", "enrolledAt"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },
@@ -25903,6 +27829,104 @@
         }
       ]
     },
+    "academy.myResidencies": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "myResidencies",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.my_residencies_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "userId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "cohortSlug": {
+              "type": "string"
+            },
+            "statement": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["applied", "accepted", "rejected", "withdrawn"]
+            },
+            "appliedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "decidedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "decidedBy": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "decisionNote": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["id", "userId", "cohortSlug", "statement", "status", "appliedAt", "decidedAt", "decidedBy", "decisionNote"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.openCourseConversation": {
       "service": "svc-academy",
       "module": "academy",
@@ -26102,6 +28126,167 @@
         {
           "verdict": "accept",
           "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.paperDrill": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "paperDrill",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.curriculum_not_found": "NOT_FOUND",
+        "academy.paper_flag_mismatch": "FORBIDDEN",
+        "academy.paper_flag_unverified": "PRECONDITION_FAILED",
+        "academy.paper_market_unlisted": "FORBIDDEN",
+        "academy.paper_trading_disabled": "FORBIDDEN",
+        "academy.slug_reserved": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "market": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "marketId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "paper": {
+                    "type": "boolean"
+                  },
+                  "symbol": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["marketId", "paper", "symbol"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean",
+                "const": true
+              },
+              "simulated": {
+                "type": "boolean",
+                "const": true
+              },
+              "venue": {
+                "type": "string",
+                "const": "paper"
+              },
+              "realLedger": {
+                "type": "boolean",
+                "const": false
+              },
+              "withdrawable": {
+                "type": "boolean",
+                "const": false
+              },
+              "realMoney": {
+                "type": "boolean",
+                "const": false
+              },
+              "disclaimer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "marketId": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "instruction": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "instruction"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "ok",
+              "simulated",
+              "venue",
+              "realLedger",
+              "withdrawable",
+              "realMoney",
+              "disclaimer",
+              "marketId",
+              "symbol",
+              "steps"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean",
+                "const": false
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["not_paper", "no_market", "unknown_step", "bad_fill"]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["ok", "reason", "message"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder"
+          }
         },
         {
           "verdict": "refuse",
@@ -29493,6 +31678,370 @@
         }
       ]
     },
+    "academy.submitAssignment": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "submitAssignment",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.assignment_closed": "CONFLICT",
+        "academy.assignment_not_found": "NOT_FOUND",
+        "academy.enrolment_required": "FORBIDDEN",
+        "academy.media_not_found": "NOT_FOUND",
+        "academy.not_released_yet": "PRECONDITION_FAILED",
+        "academy.prerequisite_unmet": "PRECONDITION_FAILED",
+        "academy.submission_incomplete": "BAD_REQUEST",
+        "academy.submission_version_stale": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fileId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["itemId", "version", "text", "fileId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "courseSlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "courseTitle": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instructions": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "points": {
+            "type": "string",
+            "pattern": "^(?:0|[1-9]\\d{0,5})(?:\\.\\d{1,2})?$"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": "string",
+            "enum": ["off", "optional", "required"]
+          },
+          "file": {
+            "type": "string",
+            "enum": ["off", "optional", "required"]
+          },
+          "latePolicy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "graceHours": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9]\\d{0,3})(?:\\.\\d{1,2})?$"
+                  },
+                  "deductionPerDay": {
+                    "type": "string",
+                    "pattern": "^(?:0\\.(?:[1-9]\\d{0,3}|0[1-9]\\d{0,2}|00[1-9]\\d?|000[1-9])|1(?:\\.0{1,4})?)$"
+                  }
+                },
+                "required": ["graceHours", "deductionPerDay"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fileLimits": {
+            "type": "object",
+            "properties": {
+              "maxBytes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "types": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["maxBytes", "types"],
+            "additionalProperties": false
+          },
+          "withdrawnAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["draft", "submitted", "pending_review", "graded", "returned", "withdrawn"]
+                },
+                "text": {
+                  "type": ["string", "null"]
+                },
+                "file": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "fileName": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "contentType": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["id", "fileName", "contentType", "bytes"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "submittedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "late": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["version", "state", "text", "file", "submittedAt", "late"],
+              "additionalProperties": false
+            }
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "n": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "score": {
+                    "type": "string"
+                  },
+                  "points": {
+                    "type": "string"
+                  },
+                  "entered": {
+                    "type": ["string", "null"]
+                  },
+                  "comment": {
+                    "type": ["string", "null"]
+                  },
+                  "gradedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "readAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["version", "n", "score", "points", "entered", "comment", "gradedAt", "readAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "dueAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["dueAt", "reason"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "itemId",
+          "courseSlug",
+          "courseTitle",
+          "title",
+          "instructions",
+          "points",
+          "dueAt",
+          "text",
+          "file",
+          "latePolicy",
+          "fileLimits",
+          "withdrawnAt",
+          "submissions",
+          "grade",
+          "nextVersion",
+          "extension"
+        ],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "academy_points_holds": {
+          "at": "output.points",
+          "says": "points are more than zero"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "itemId": "33333333-3333-4333-8333-333333333333",
+            "version": 1,
+            "text": "placeholder",
+            "fileId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.touchLesson": {
       "service": "svc-academy",
       "module": "academy",
@@ -29635,6 +32184,138 @@
             "itemSlug": "placeholder",
             "completedAt": "2026-01-01T00:00:00.000Z",
             "clientRequestId": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.unfreezeAmbassador": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "unfreezeAmbassador",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.ambassador_already_active": "CONFLICT",
+        "academy.ambassador_already_frozen": "CONFLICT",
+        "academy.ambassador_invalid": "BAD_REQUEST",
+        "academy.ambassador_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "confirmOperatorId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "frozen"]
+          },
+          "appointedBy": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "appointedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "frozenAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "frozenBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "freezeReason": {
+            "type": ["string", "null"]
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": ["userId", "status", "appointedBy", "appointedAt", "frozenAt", "frozenBy", "freezeReason", "confirmOperatorId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "33333333-3333-4333-8333-333333333333"
           }
         },
         {
@@ -29790,6 +32471,370 @@
             "fileName": "placeholder",
             "contentType": "placeholder",
             "contentBase64": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.videoPlayback": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "videoPlayback",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.video_grant_required": "FORBIDDEN",
+        "academy.video_s3_region_unset": "PRECONDITION_FAILED",
+        "academy.video_storage_unconfigured": "PRECONDITION_FAILED",
+        "academy.video_url_ttl_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "playbackUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "grant": {
+            "type": "string"
+          }
+        },
+        "required": ["slug", "playbackUrl", "expiresAt", "grant"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.videoPlayer": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "videoPlayer",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.captions_invalid": "BAD_REQUEST",
+        "academy.video_grant_required": "FORBIDDEN",
+        "academy.video_not_found": "NOT_FOUND",
+        "academy.video_storage_unconfigured": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "renditions": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "const": "original"
+                }
+              },
+              "required": ["id"],
+              "additionalProperties": false
+            }
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "language": {
+                  "type": "string",
+                  "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60
+                },
+                "cues": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "startMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "endMs": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      }
+                    },
+                    "required": ["startMs", "endMs", "text"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["language", "label", "cues"],
+              "additionalProperties": false
+            }
+          },
+          "saveEverySeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watchThresholdSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["slug", "title", "renditions", "tracks", "saveEverySeconds", "watchThresholdSeconds"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.videoProgress.get": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "videoProgress.get",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.video_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "videoSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": ["videoSlug"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "videoSlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "positionSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["videoSlug", "positionSeconds"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "videoSlug": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.videoProgress.set": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "videoProgress.set",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.cert_invalid": "BAD_REQUEST",
+        "academy.curriculum_not_found": "NOT_FOUND",
+        "academy.grant_expired": "FORBIDDEN",
+        "academy.prerequisite_unmet": "PRECONDITION_FAILED",
+        "academy.slug_reserved": "BAD_REQUEST",
+        "academy.video_grant_required": "FORBIDDEN",
+        "academy.video_not_found": "NOT_FOUND",
+        "academy.video_position_out_of_range": "BAD_REQUEST",
+        "academy.video_storage_unconfigured": "PRECONDITION_FAILED",
+        "academy.window_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "videoSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "positionSeconds": {
+            "type": "number"
+          },
+          "clientRequestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["videoSlug", "positionSeconds", "clientRequestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "videoSlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "positionSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completedItems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": ["videoSlug", "positionSeconds", "completedItems"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "videoSlug": "placeholder",
+            "positionSeconds": 1,
+            "clientRequestId": "placeholder"
           }
         },
         {

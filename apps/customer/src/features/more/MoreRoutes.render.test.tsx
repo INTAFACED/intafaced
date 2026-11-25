@@ -54,7 +54,8 @@ describe('More room sections and records (MC-order-01)', () => {
   });
 
   it("opens each section address on its own tab, not on the room's first one (Phantom 24 Oct)", () => {
-    const selected = (html: string) => [...html.matchAll(/aria-pressed="true"[^>]*>([^<]*)</g)].map((hit) => hit[1]);
+    // A room on its Volt template names its open section as the current link of its section links; the others press a tab.
+    const selected = (html: string) => [...html.matchAll(/aria-(?:pressed="true"|current="page")[^>]*>([^<]*)</g)].map((hit) => hit[1]);
     expect(selected(page('/mining'))).toEqual(['Overview']);
     for (const [path, tab] of [
       ['/mining/workers', 'Workers'],
@@ -93,6 +94,13 @@ describe('More room sections and records (MC-order-01)', () => {
     expect(page('/agents/a/b')).toContain('This destination has no customer route');
   });
 
+  it('links Connect your assistant (/agents/connect) directly from /agents on load (J-agents-21)', () => {
+    const html = page('/agents');
+    expect(html).toContain('data-template="catalogue"');
+    expect(html).toContain('href="/agents/connect"');
+    expect(html).toContain('Connect your assistant');
+  });
+
   it('keeps the honest "no customer route" panel for a path that is not a section or record', () => {
     expect(page('/market/a/b/c')).toContain('href="/more"');
   });
@@ -104,6 +112,31 @@ describe('More room sections and records (MC-order-01)', () => {
       expect(html, path).toContain('Simulated view');
       expect(html, path).toContain(`href="${path}?tab=x"`);
     }
+  });
+
+  it('draws /launch, /predict, /mining and /token on the catalogue template, each on its first section (#9566)', () => {
+    const selected = (html: string) => [...html.matchAll(/aria-pressed="true"[^>]*>([^<]*)</g)].map((hit) => hit[1]);
+    for (const [path, group, tab] of [
+      ['/launch', 'Launch sections', 'Launches'],
+      ['/mining', 'Mining sections', 'Overview'],
+      ['/token', 'Token sections', 'Staking'],
+    ] as const) {
+      const html = page(path);
+      expect(html, path).toContain('data-template="catalogue"');
+      expect(html, path).toContain(`aria-label="${group}"`);
+      expect(selected(html), path).toEqual([tab]);
+    }
+    // Signed out, /launch is the public catalogue with the shared sign-in panel above it (J-more-catalogue-01 #6).
+    expect(page('/launch')).toContain('Sign in to continue');
+  });
+
+  it('keeps the hooks J-more-catalogue-15 #1 finds /predict by, and its blockers word for word', () => {
+    const html = page('/predict');
+    expect(html).toContain('data-template="catalogue"');
+    for (const id of ['prediction-catalogue', 'prediction-blocker', 'prediction-room-review', 'prediction-ticket-blocker'])
+      expect(html, id).toContain(`data-testid="${id}"`);
+    expect(html).toContain('data-not-connected="owner.decision"');
+    expect(html).toContain('Listed questions');
   });
 
   it('shows no simulated label without the flag, or on a room outside the set', () => {

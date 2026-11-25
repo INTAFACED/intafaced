@@ -1,4 +1,4 @@
-import { accountStateSchema } from '@intafaced/contracts';
+import { accountStateSchema } from '@intafaced/contracts/identity';
 import type { KycTierOf } from './guards.js';
 import { createIdentityGet, type IdentityReadOptions } from './identity-get.js';
 

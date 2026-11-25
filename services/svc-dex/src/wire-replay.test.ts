@@ -41,6 +41,11 @@ type Scope = Principal['scopes'][number];
  */
 
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
 const SECRET = 'a-dex-wire-replay-edge-secret-long-enough';
@@ -364,7 +369,7 @@ describe('the wire replay: svc-dex answers as main did on 2026-11-19', () => {
           json(Object.fromEntries(Object.entries(now.answers).filter(([key]) => key.startsWith(`${setup} `)))),
         );
     }
-    const read = (name: string): unknown => JSON.parse(readFileSync(goldenJson(name), 'utf8'));
+    const read = (name: string): unknown => JSON.parse(readFileSync(goldenJson(name), 'utf8').replaceAll(RECORDED_STACK, ''));
     const golden: Golden = {
       callers: read('callers'),
       answers: Object.assign({}, ...SETUPS.map(([setup]) => read(setup))) as Golden['answers'],

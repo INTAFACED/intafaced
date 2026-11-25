@@ -1,4 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
+import { RecordListTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { navigate } from './deps';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
@@ -9,6 +10,7 @@ import { SourceActivity } from './SourceActivity';
 import { whereCopy } from './where-it-sits-copy';
 
 const SOURCES: readonly SourceKind[] = ['wallet', 'venue', 'partner'];
+const READY: RoomState = { kind: 'ready' };
 
 /** `?source=wallet|venue|partner` from the link on one Assets row; `all` (the "Every source" switch) is every source. */
 function sourceFromSearch(search: string): SourceKind | null {
@@ -27,9 +29,10 @@ export function asksForSourceRecords(search: string): boolean {
 }
 
 function Link({ href, current, children }: { href: string; current: boolean; children: React.ReactNode }) {
+  const buttonClass = current ? 'lt-button lt-button-primary' : 'lt-button lt-button-secondary';
   return (
     <a
-      className="money-alloc__opt"
+      className={buttonClass}
       aria-current={current ? 'true' : undefined}
       href={href}
       onClick={(event) => {
@@ -60,29 +63,40 @@ export function SourceEntries({ status, rawAsset, search }: { status: VenueUp; r
       : kind === 'venue'
         ? t('Venue title', { venue: status.venue.displayName })
         : t('Partner title unnamed');
+  const title = source ? t('Records title source', { asset, source: sourceName(source) }) : t('Records title', { asset });
   return (
-    <div data-testid="if-money" className="if-money if-money--activity money-detail">
-      <Link href="/money" current={false}>
-        <ArrowLeft size={16} aria-hidden="true" />
-        {t('Records back')}
-      </Link>
-      <header className="money-detail__head">
-        <h1 className="money-title" data-testid="source-records-title" data-asset={asset} data-source={source ?? ''}>
-          {source ? t('Records title source', { asset, source: sourceName(source) }) : t('Records title', { asset })}
-        </h1>
-        <p className="money-detail__note">{t('Records intro')}</p>
-      </header>
-      <div className="money-alloc__switch" role="group" aria-label={t('Source')}>
-        <Link href={`${balanceEntriesHref(asset)}?source=all`} current={source === null}>
-          {t('Records all sources')}
-        </Link>
-        {SOURCES.map((kind) => (
-          <Link key={kind} href={`${balanceEntriesHref(asset)}?source=${kind}`} current={source === kind}>
-            {sourceName(kind)}
+    <div data-testid="if-money">
+      <RecordListTemplate
+        title={title}
+        description={t('Records intro')}
+        state={READY}
+        roomAction={
+          <Link href="/money" current={false}>
+            <ArrowLeft size={16} aria-hidden="true" />
+            {t('Records back')}
           </Link>
-        ))}
-      </div>
-      <SourceActivity status={status} filters={NO_FILTERS} asset={asset} hidden={hideBalances} source={source} />
+        }
+        filters={
+          <div className="lt-stack-tight">
+            <span className="lt-sr" data-testid="source-records-title" data-asset={asset} data-source={source ?? ''}>
+              {title}
+            </span>
+            <div className="lt-actions" role="group" aria-label={t('Source')}>
+              <Link href={`${balanceEntriesHref(asset)}?source=all`} current={source === null}>
+                {t('Records all sources')}
+              </Link>
+              {SOURCES.map((kind) => (
+                <Link key={kind} href={`${balanceEntriesHref(asset)}?source=${kind}`} current={source === kind}>
+                  {sourceName(kind)}
+                </Link>
+              ))}
+            </div>
+          </div>
+        }
+        list={
+          <SourceActivity status={status} filters={NO_FILTERS} asset={asset} hidden={hideBalances} source={source} includeOrders={false} />
+        }
+      />
     </div>
   );
 }

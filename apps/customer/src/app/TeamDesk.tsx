@@ -1,8 +1,7 @@
-import { accountOperatorEntitlementSchema, type AccountOperatorEntitlement } from '@intafaced/contracts/account-controls';
-import { z } from 'zod';
+import type { AccountOperatorEntitlement } from '@intafaced/contracts/account-controls';
+import { IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS } from '@intafaced/contracts/identity-account-controls-procedures';
 import { useApi, useSession } from '../features/session/session';
 import { authoredRefusal, type ApiResult } from '../shared/api';
-import { contractProcedure, readContract } from '../shared/contract-call';
 import { useResource } from '../shared/resource';
 import { Button, EmptyState, Page } from '../shared/ui';
 import { appCopy } from './app-copy';
@@ -23,12 +22,6 @@ export function teamConsoleHref(path: string, configured: string | undefined, de
     return undefined;
   }
 }
-
-/** Identity's own founder entitlement for the signed-in account. It decides only what this page offers, never access. */
-const operatorStatus = contractProcedure('identity', 'accountControls.operatorStatus', {
-  output: accountOperatorEntitlementSchema,
-  input: z.object({}).strict(),
-});
 
 /** What this page knows about the signed-in person's founder entitlement. */
 export type FounderCheck =
@@ -57,7 +50,8 @@ export function TeamDesk({ href }: { href: string | undefined }) {
 function SignedInTeamDesk({ href, userId, mode }: { href: string | undefined; userId: string; mode: 'Personal' | 'Business' }) {
   const api = useApi();
   const read = useResource(
-    (signal) => readContract(api, operatorStatus, {}, { signal }).then((result) => ownAnswer(result, userId)),
+    // Identity's own founder entitlement for the signed-in account. It decides only what this page offers, never access.
+    (signal) => api.call(IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS, {}, { signal }).then((result) => ownAnswer(result, userId)),
     `team-desk-operator:${userId}`,
   );
   const status = read.resource;
@@ -80,7 +74,7 @@ export function TeamDeskView({ href, check, mode }: { href: string | undefined; 
             ← {t('Back to home')}
           </a>
         </p>
-        <p className="muted">
+        <p className="lt-muted">
           {t(
             'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.',
           )}
@@ -99,7 +93,7 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
         title={t('Open the operator console')}
         action={
           href ? (
-            <a className="button button--primary" href={href} data-testid="team-desk-console">
+            <a className="lt-button lt-button-primary" href={href} data-testid="team-desk-console">
               {t('Open Team')}
             </a>
           ) : undefined
@@ -115,7 +109,7 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
       <EmptyState
         title={t('Sign in to continue')}
         action={
-          <a className="button button--primary" href="/login">
+          <a className="lt-button lt-button-primary" href="/login">
             {t('Sign in')}
           </a>
         }
@@ -125,7 +119,7 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
     );
   if (check.kind === 'checking')
     return (
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {t('Checking founder access…')}
       </p>
     );
@@ -153,11 +147,11 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
       title={t('Nothing to open here')}
       action={
         mode === 'Business' ? (
-          <a className="button button--primary" href="/pay/merchant" data-testid="team-desk-merchant">
+          <a className="lt-button lt-button-primary" href="/pay/merchant" data-testid="team-desk-merchant">
             {t('Open merchant admin')}
           </a>
         ) : (
-          <a className="button button--secondary" href="/">
+          <a className="lt-button lt-button-secondary" href="/">
             {t('Back to home')}
           </a>
         )

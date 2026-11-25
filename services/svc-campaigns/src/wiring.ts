@@ -4,6 +4,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { createCompetitionFillSource } from './competition-fills.js';
 import { CompetitionService } from './competitions.js';
+import { FeeRebateService } from './fee-rebates.js';
 import { DrawService } from './draws.js';
 import { DistributionService } from './distributions.js';
 import { PoolService } from './pools.js';
@@ -63,7 +64,6 @@ export function wireCampaigns(deps: {
   const warn = (msg: string, detail: Record<string, unknown>) => log.warn({ ...detail }, msg);
 
   const tgeSchedule = parseTgeSchedule(env.CAMPAIGNS_TGE_SCHEDULE_JSON);
-  const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule });
   const timeZone = parseTimeZone(env.CAMPAIGNS_PLATFORM_TIME_ZONE);
   const participantsWired = Boolean(env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET);
   const participants = participantsWired
@@ -113,6 +113,8 @@ export function wireCampaigns(deps: {
     rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
   });
   const payTo = (accountId: string, forwarded: Parameters<TaskService['recordPayTo']>[1]) => tasks.recordPayTo(accountId, forwarded);
+  // Limited drops (J-campaigns-20 #5): a drop with value is owed through the saga and paid to the claimer's wallet.
+  const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule, saga, payTo, campaigns, log: warn });
   /** Referral programmes (CM-referral-02): each invitee once, and their own events that count towards qualifying. */
   const referrals = new ReferralService({ sql, markets });
 
@@ -175,6 +177,16 @@ export function wireCampaigns(deps: {
     fills: tradeReads ? createCompetitionFillSource(tradeReads) : null,
     equity,
     payTo,
+    payDecimals,
+    log: warn,
+  });
+
+  // Fee rebate coupons (J-campaigns-09 #5 #6): each holder's fills read from the venue through svc-trade, each eligible
+  // fill accrued once, owed through the saga and paid after the coupon's delay by the payer. Unset, nothing accrues.
+  const feeRebates = new FeeRebateService({
+    sql,
+    saga,
+    fills: tradeReads ? createCompetitionFillSource(tradeReads) : null,
     payDecimals,
     log: warn,
   });
@@ -257,6 +269,8 @@ export function wireCampaigns(deps: {
     // Airdrops (J-campaigns-13): each one past its snapshot time is read and its shares owed once. Reward pools: each
     // ended day is settled once.
     { name: 'distribution or pool pass', everyMs: TICK_MS, run: () => Promise.all([distributions.tick(), pools.tick()]) },
+    // Fee rebates (J-campaigns-09 #5): each holder's new eligible fills accrued once.
+    { name: 'fee rebate pass', everyMs: TICK_MS, run: () => feeRebates.tick() },
   );
 
   const warnings: string[] = [];

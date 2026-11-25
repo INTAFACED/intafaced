@@ -350,7 +350,27 @@ fn booking_of(c: &mut impl GenericClient, tx: &Tx) -> Result<Json, StoreError> {
     })
 }
 
-/// `operatorTxGet`: recorded, then one booked transaction by id; an unknown id is `ledger.tx_not_found`.
+/// An operator reversal's two links (`crate::reversal`): the transaction that reversed this one, and the one this one
+/// reverses, each none when there is none.
+fn reversal_links(
+    c: &mut impl GenericClient,
+    tx: &Tx,
+) -> Result<(Option<String>, Option<String>), StoreError> {
+    let reversed_by = crate::reversal::reversed_by(c, &tx.id)?.map(|(id, _)| id);
+    let reverses = if tx.module == crate::reversal::MODULE && tx.reason == crate::reversal::REASON {
+        c.query_one(
+            "SELECT meta->>'reverses' FROM ledger_tx WHERE id = $1::text::uuid",
+            &[&tx.id],
+        )?
+        .try_get(0)?
+    } else {
+        None
+    };
+    Ok((reversed_by, reverses))
+}
+
+/// `operatorTxGet`: recorded, then one booked transaction by id, with its reversal links; an unknown id is
+/// `ledger.tx_not_found`.
 pub fn operator_tx_get(store: &Store, actor: Actor<'_>, tx_id: &str) -> Result<Json, ReadError> {
     record_lookup(store, actor, "transaction", tx_id, "transaction.read")?;
     let pool = store.pool()?;
@@ -358,11 +378,14 @@ pub fn operator_tx_get(store: &Store, actor: Actor<'_>, tx_id: &str) -> Result<J
         let tx = book(tx_by_id(c, tx_id))?
             .ok_or_else(|| ledger(TX_NOT_FOUND, format!("no transaction {tx_id}")))?;
         let booking = booking_of(c, &tx)?;
+        let (reversed_by, reverses) = reversal_links(c, &tx)?;
         let mut body = vec![
             ("txId", Json::str(tx.id.clone())),
             ("businessKey", Json::str(tx.idempotency_key.clone())),
         ];
         body.extend(tx_body(&tx, booking));
+        body.push(("reversedBy", nullable(reversed_by)));
+        body.push(("reverses", nullable(reverses)));
         Ok(obj(body))
     })?)
 }
@@ -641,7 +664,7 @@ pub fn read_account_metadata(store: &Store, account_id: &str) -> Result<Json, St
         let changes = tx
             .query(
                 &format!(
-                    "SELECT {} FROM account_metadata_changes WHERE account_id = $1::text::uuid ORDER BY seq DESC LIMIT $2",
+                    "SELECT {} FROM account_metadata_changes WHERE account_id = $1::text::uuid ORDER BY account_metadata_changes.seq DESC LIMIT $2",
                     change_columns()
                 ),
                 &[&account_id, &ACCOUNT_METADATA_HISTORY],

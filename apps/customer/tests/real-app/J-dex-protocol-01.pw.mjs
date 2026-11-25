@@ -104,7 +104,7 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
   // The disabled Swap names its first blocker: its title is the chain-unreachable sentence, and the one notice beside it
   // (drawn only for the first blocker) is the crypto network notice.
   await expect(button).toHaveAttribute('title', /^The chain is unreachable/);
-  const firstReason = swap.locator(':scope > .protocol-actions__reason');
+  const firstReason = swap.locator(':scope > [role="note"]');
   await expect(firstReason).toHaveCount(1);
   await expect(firstReason).toHaveAttribute('data-not-connected', 'rail.crypto');
   // The notice's own words: what Swap needs, and that it is off here, with its code.
@@ -146,7 +146,7 @@ test(`${J} #4 Connect wallet lists the browser wallet by its own name; connectin
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await expect(page.locator('[data-wallet-network="ok"]')).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(walletChip(page)).toHaveText(`${TEST_WALLET.name} · ${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
-  expect((await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
+  await expect.poll(async () => (await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
 });
 
 test(`${J} #5 a wallet switched to Ethereum mainnet reads "Wrong network" with a switch request; switching back restores the label`, async ({
@@ -192,7 +192,12 @@ async function withPublishedNetworks(body) {
   }
 }
 
-const networkCard = (page) => page.locator('main section').filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) });
+// The card itself, not the page's Details region that holds it: the innermost section with the heading.
+const networkCard = (page) =>
+  page
+    .locator('main section')
+    .filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) })
+    .filter({ hasNot: page.locator('section') });
 const fact = (page, label) =>
   networkCard(page)
     .locator('dl div')
@@ -201,6 +206,7 @@ const fact = (page, label) =>
 
 test(`${J} #6 the network card shows the name and chain id, "RPC: Not published" and Add to wallet disabled with its blocker; once published, Add to wallet adds exactly those values`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const wallet = await installTestWallet(page, { chainId: 84532 });
@@ -222,13 +228,19 @@ test(`${J} #6 the network card shows the name and chain id, "RPC: Not published"
     await expect(fact(page, 'Name')).toHaveText(PUBLISHED.chainName);
     await expect(fact(page, 'Chain id')).toHaveText('84532');
     await expect(fact(page, 'RPC address')).toHaveText(PUBLISHED.rpcUrls[0]);
-    await expect(fact(page, 'Native currency (decimals)')).toHaveText('ETH (18)');
+    await expect(fact(page, 'Native currency (decimals)')).toHaveText(
+      `${PUBLISHED.nativeCurrency.symbol} (${PUBLISHED.nativeCurrency.decimals})`,
+    );
+    await expect(fact(page, 'Explorer')).toHaveText(PUBLISHED.blockExplorerUrls[0]);
     const add = card.getByRole('button', { name: 'Add to wallet', exact: true });
     await expect(add).toBeEnabled();
     await expect(card).not.toContainText('protocol.network_params_unset');
     await add.click();
     await expect(card.getByRole('status')).toHaveText('The wallet accepted the network.');
     expect(wallet.added).toEqual([[PUBLISHED]]);
+    // The step ends here, on the published card the wallet accepted: its picture is taken before the owner's registry is
+    // put back, from the top of the page (step-picture.mjs).
+    await stepPicture(page);
   });
 });
 

@@ -48,7 +48,7 @@ export interface HttpTransport {
  * Who may call. The serving side mounts the matching guard (`procedure-mount.ts`): `public` checks nothing, `scope` is
  * `scopedProcedure(scope, guards)`, `anyScope` is `anyScopeProcedure(scopes, guards)`, `service` is `serviceProcedureFor(callers)` or, on a plain HTTP door, the service's
  * own signed-caller check against the same list; `signedIn` is `signedInProcedure(guards)`; `founder` is the serving service's
- * own founder guard, handed to the mount (`ServiceParts` in `procedure-mount.ts`). `jurisdiction` needs no
+ * own founder guard, handed to the mount (`ServiceParts` in `procedure-mount.ts`); `person` is `personProcedure(scope, guards)`. `jurisdiction` needs no
  * principal but refuses a region the module is not served in (`publicJurisdictionProcedure(module, plane)`). The record
  * names the rule; the receiver reads the live facts.
  */
@@ -73,10 +73,22 @@ export type Access =
       readonly scopes: readonly [Scope, ...Scope[]];
       readonly module?: ModuleId;
       readonly plane?: Plane;
+      /** The serving service's own check, run last, as on a `scope` record. */
+      readonly check?: string;
     }
-  | { readonly caller: 'service'; readonly callers: readonly ServiceName[] }
+  | {
+      readonly caller: 'service';
+      readonly callers: readonly ServiceName[];
+      /** The message a signed service not on the list is refused with (FORBIDDEN, no code), where the door's own wording stands (`serviceProcedureFor`). */
+      readonly forbidden?: string;
+    }
+  /**
+   * The signed-in person's own session only: an API key, a sub-account token or a service on the same request is refused
+   * (`auth.person_session_required`) whatever it holds; then `scope`, when named, and the guards (`personProcedure`).
+   */
+  | { readonly caller: 'person'; readonly scope?: Scope; readonly module?: ModuleId; readonly plane?: Plane; readonly tier?: KycTier }
   /** Any signed-in principal, no scope; then the module's jurisdiction check when `module` is named (`signedInProcedure`). */
-  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane }
+  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane; readonly check?: string }
   /**
    * A founder at the console: a signed interactive principal with MFA and no API key, whose founder entitlement the serving
    * service reads live before the input is parsed. No scope says it (`admin:read` can sit on a long-lived key), so the

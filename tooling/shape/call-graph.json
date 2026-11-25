@@ -60,6 +60,7 @@
         "svc-ops",
         "svc-p2p",
         "svc-pay",
+        "svc-protocol",
         "svc-support",
         "svc-token",
         "svc-trade",
@@ -106,7 +107,7 @@
       "calls": ["svc-bank", "svc-identity", "svc-ledger"],
       "calledBy": ["svc-agents", "svc-bank", "svc-edge", "svc-identity", "svc-ops", "svc-support"]
     },
-    "svc-protocol": { "calls": ["svc-dex", "svc-indexer"], "calledBy": ["svc-campaigns", "svc-edge", "svc-p2p"] },
+    "svc-protocol": { "calls": ["svc-dex", "svc-identity", "svc-indexer"], "calledBy": ["svc-campaigns", "svc-edge", "svc-p2p"] },
     "svc-quant": { "calls": ["svc-trade"], "calledBy": ["svc-edge", "svc-trade"] },
     "svc-support": {
       "calls": ["svc-bank", "svc-identity", "svc-notify", "svc-pay", "svc-trade"],

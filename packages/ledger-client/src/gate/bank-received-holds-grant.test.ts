@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { grantFor, modulesFor } from './caller-allowlist.js';
 
-const CITE = 'services/svc-bank/src/holds/received-holds.ts';
+const CITE = 'crates/svc-bank/src/transfers/holds.rs';
 
 describe('svc-bank received-holds grant (PP-money-balance-05, J-pay-03 #5)', () => {
   it('may post the three holds on received funds in the bank module, and no other service may', () => {

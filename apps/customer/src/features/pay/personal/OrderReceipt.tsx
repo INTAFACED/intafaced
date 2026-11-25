@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
-import { PayAmount, PayDetails, PayFailure, PaySection, PayTime, payTimeText } from '../components';
+import { usePreferences } from '../../../shared/preferences';
+import { PayAmount, PayDetails, PayFailure, PaySection, PayTime, payTimeText } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { OrderReceipt as Receipt, Trade } from '../schemas';
 import { csvCell, downloadText } from '../portal/csv';
@@ -24,6 +25,7 @@ export function bpsPercent(bps: number): string {
  */
 export function OrderReceipt({ pay, trade }: { pay: PersonalPayApi; trade: Trade }) {
   const { t, requestedLocale } = orderHistoryCopy.useCopy();
+  const { timeZone } = usePreferences();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult<Receipt> | null>(null);
   const completed = trade.status === 'released';
@@ -34,21 +36,21 @@ export function OrderReceipt({ pay, trade }: { pay: PersonalPayApi; trade: Trade
     setBusy(false);
     setResult(answer);
   };
-  const time = (iso: string) => payTimeText(iso, requestedLocale) ?? iso;
+  const time = (iso: string) => payTimeText(iso, requestedLocale, Date.now(), timeZone) ?? iso;
   const words = result && !result.ok ? historyRefusal(result, t, time) : null;
   return (
     <PaySection title={t('receiptTitle')} description={completed ? t('receiptBody') : undefined}>
       {!completed ? (
-        <p className="muted">{t('receiptOnlyCompleted')}</p>
+        <p className="lt-muted">{t('receiptOnlyCompleted')}</p>
       ) : result?.ok ? null : (
-        <Button variant="secondary" onClick={get} disabled={busy}>
+        <Button tone="secondary" onClick={get} disabled={busy}>
           {busy ? t('receiptLoading') : t('receiptAction')}
         </Button>
       )}
       {result === null ? null : result.ok ? (
         <ReceiptView data={result.data} />
       ) : words ? (
-        <p data-testid="failure" className="failure" role="alert">
+        <p data-testid="failure" className="lt-refusal" role="alert">
           {words}
         </p>
       ) : (
@@ -87,10 +89,10 @@ function ReceiptView({ data }: { data: Receipt }) {
   ];
   const file = fields.map(([label, raw]) => [label, raw].map(csvCell).join(',')).join('\r\n') + '\r\n';
   return (
-    <div className="stack" role="status" data-testid="order-receipt">
+    <div className="lt-stack" role="status" data-testid="order-receipt">
       <PayDetails values={fields.map(([label, , shown]) => [label, shown])} />
-      <p className="muted">{t('receiptRemaining', { daily: String(data.dailyRemaining), trade: String(data.tradeRemaining) })}</p>
-      <Button variant="secondary" onClick={() => downloadText(`p2p-receipt-${r.tradeId}.csv`, file)}>
+      <p className="lt-muted">{t('receiptRemaining', { daily: String(data.dailyRemaining), trade: String(data.tradeRemaining) })}</p>
+      <Button tone="secondary" onClick={() => downloadText(`p2p-receipt-${r.tradeId}.csv`, file)}>
         {t('receiptDownload')}
       </Button>
     </div>

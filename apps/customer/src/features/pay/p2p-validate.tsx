@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { PayFailure } from './components';
-import { Button } from '@intafaced/ui';
+import { PayFailure } from './volt/parts';
+import { Button } from '@intafaced/ui/lit';
 import { formatDateTime } from './portal/ui/format';
 import { StepUpConfirm } from '../money';
 import type { PersonalPayApi } from './pay-api';
@@ -61,7 +61,7 @@ export function ValidatePayment({ trade, pay, onChecked }: { trade: Trade; pay: 
             : t('why');
   const words = failure?.code ? REFUSALS[failure.code as keyof typeof REFUSALS] : undefined;
   return (
-    <div className="stack" data-testid="order-validate">
+    <div className="lt-stack" data-testid="order-validate">
       {blocker === null && !confirmed ? (
         <StepUpConfirm
           request={() => ({
@@ -82,10 +82,12 @@ export function ValidatePayment({ trade, pay, onChecked }: { trade: Trade; pay: 
           onApproved={(id) => setApproval(id)}
         />
       ) : blocker === null && approval === undefined && coveredUntil ? (
-        <p className="muted">{release('stepUpCovered', { time: formatDateTime(coveredUntil, requestedLocale)?.short ?? coveredUntil })}</p>
+        <p className="lt-muted">
+          {release('stepUpCovered', { time: formatDateTime(coveredUntil, requestedLocale)?.short ?? coveredUntil })}
+        </p>
       ) : null}
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={blocker !== null || !confirmed || checking}
         onClick={async () => {
           setChecking(true);
@@ -107,11 +109,11 @@ export function ValidatePayment({ trade, pay, onChecked }: { trade: Trade; pay: 
       >
         {t('check')}
       </Button>
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {note}
       </p>
       {words ? (
-        <p data-testid="failure" className="failure" role="status">
+        <p data-testid="failure" className="lt-refusal" role="status">
           {t(words, { method: trade.method })}
         </p>
       ) : failure ? (

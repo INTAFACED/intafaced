@@ -18,7 +18,8 @@ import { CAMPAIGN_KIND_REFUSAL_CODES, campaignKindTerms, customerKindTerms } fro
 import { participationRulesSchema } from './campaigns-rules.js';
 import { RISK_REFUSAL_CODES } from './campaigns-risk.js';
 import { campaignTasksSchema } from './campaigns-tasks.js';
-import { campaignLimitsSchema, feeSaverTermsSchema, voucherWindowSchema } from './campaigns-vouchers.js';
+import { campaignLimitsSchema, feeRebateTermsSchema, feeSaverTermsSchema, voucherWindowSchema } from './campaigns-vouchers.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 // The campaign's parts, one file each; importers keep reading them from here.
 export {
@@ -231,7 +232,8 @@ export const campaignViewSchema = z.object({
   timeZone: z.string(),
   windows: campaignWindowsSchema,
   participation: participationRulesSchema,
-  budget: campaignBudgetSchema,
+  /** Null when the owner set no cap (a trial pass or a fee-saver coupon campaign, which pay nothing): no budget line is drawn. */
+  budget: campaignBudgetSchema.nullable(),
   /** Null reads "not set". */
   reward: campaignRewardSchema.nullable(),
   tasks: campaignTasksSchema.nullable(),
@@ -283,8 +285,8 @@ export const campaignDefinitionInputSchema = z
     weekdays: z.array(weekday).min(1).max(7).nullish(),
     hours: z.object({ from: hhmm, to: hhmmEnd }).nullish(),
     participation: participationRulesSchema.nullish(),
-    budget: z.object({ asset: z.string().max(16), limit: z.unknown() }).nullish(),
-    reward: z.object({ asset: z.string().max(16), amount: z.unknown() }).nullish(),
+    budget: z.object({ asset: z.string().max(16), limit: jsonValueSchema }).nullish(),
+    reward: z.object({ asset: z.string().max(16), amount: jsonValueSchema }).nullish(),
     /** Only for a `task` campaign: anything else refuses `campaigns.tasks_invalid`. */
     tasks: campaignTasksSchema.nullish(),
     /**
@@ -308,6 +310,12 @@ export const campaignDefinitionInputSchema = z
          * Absent or null: a cash voucher, whose face value is the campaign's reward.
          */
         feeSaver: z.lazy(() => feeSaverTermsSchema).nullish(),
+        /**
+         * A fee rebate coupon campaign (CM-vouchers-coupons-03, J-campaigns-09 #5 #6): each voucher pays `rebateBps` of our
+         * builder fee back on each eligible fill, `delaySeconds` after it accrued, up to its face value (the campaign's
+         * reward), from the campaign's budget. Not with `feeSaver` (`campaigns.voucher_window_invalid`).
+         */
+        feeRebate: z.lazy(() => feeRebateTermsSchema).nullish(),
       })
       .strict()
       .nullish(),

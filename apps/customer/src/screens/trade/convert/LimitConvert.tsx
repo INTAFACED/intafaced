@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AmountInput, Button, CoinIcon, fmtAmount, refusalCopy, type MarketRow } from '../buy/deps';
-import { dec } from '../buy/trade-math';
+import { AssetIcon, Button } from '@intafaced/ui/lit';
+import { DecimalInput } from '@intafaced/ui/lit/templates';
+import { fmtAmount, refusalCopy, type MarketRow } from '../../../data';
 import type { LimitConvert as LimitRow, createToolApi } from '../../../features/trade/tool-api';
+import { shownCode } from '../../../shared/reference';
+import { dec } from '../buy/trade-math';
 import { convertCopy } from './copy';
 
 type Tools = ReturnType<typeof createToolApi>;
@@ -20,7 +23,7 @@ export function LimitConvert({
   market,
   side,
   from,
-  to,
+  to: _to,
   available,
   price,
   paused,
@@ -93,7 +96,7 @@ export function LimitConvert({
     } else {
       requestId.current = null;
       const copy = refusalCopy(result.code ?? '', { asset: from, available: available ?? '' });
-      setMessage(`${copy.title}. ${copy.body}${result.code ? ` (Ref ${result.code})` : ''}`);
+      setMessage(`${copy.title}. ${copy.body}${shownCode(result.code) ? ` (Ref ${result.code})` : ''}`);
     }
   }
 
@@ -117,85 +120,83 @@ export function LimitConvert({
     });
 
   return (
-    <div className="cvt-limit" data-testid="cvt-limit">
-      <div className="cvt-fields">
-        <div className="cvt-field" data-testid="limit-from-field">
-          <span className="cvt-field__label">{t('From')}</span>
-          <div className="cvt-field__main">
-            <span className="cvt-asset">
-              <CoinIcon asset={from} size={28} />
+    <div className="lt-stack" data-testid="cvt-limit">
+      <div className="lt-stack">
+        <div className="lt-stack" data-testid="limit-from-field">
+          <span className="lt-hint">{t('From')}</span>
+          <div className="lt-toolbar">
+            <span className="lt-toolbar">
+              <AssetIcon asset={from} size="md" />
               <span>{from}</span>
             </span>
-            <AmountInput
-              size="hero"
-              aria-label={t('Amount to convert')}
-              value={amount}
-              onValueChange={setAmount}
-              precision={side === 'buy' ? 6 : 8}
-              placeholder="0"
-              className="cvt-amount"
-            />
+            <div className="lt-field">
+              <DecimalInput
+                aria-label={t('Amount to convert')}
+                value={amount}
+                onValueChange={setAmount}
+                precision={side === 'buy' ? 6 : 8}
+                placeholder="0"
+              />
+            </div>
           </div>
-          <div className="cvt-field__foot">
-            <span>
+          <div className="lt-toolbar">
+            <span className="lt-hint">
               {available === null
                 ? t('Available loading')
                 : t('Available {value}', { value: `${fmtAmount(available, { places: 8, round: 'down' })} ${from}` })}
             </span>
           </div>
         </div>
-        <div className="cvt-field" data-testid="limit-target-field">
-          <span className="cvt-field__label">{t('Target rate')}</span>
-          <div className="cvt-field__main">
-            <span className="cvt-asset">
-              <CoinIcon asset={market.quote} size={28} />
+        <div className="lt-stack" data-testid="limit-target-field">
+          <span className="lt-hint">{t('Target rate')}</span>
+          <div className="lt-toolbar">
+            <span className="lt-toolbar">
+              <AssetIcon asset={market.quote} size="md" />
               <span>{market.quote}</span>
             </span>
-            <AmountInput
-              size="hero"
-              aria-label={t('Target rate')}
-              value={target}
-              onValueChange={setTarget}
-              precision={18}
-              placeholder="0"
-              className="cvt-amount"
-            />
+            <div className="lt-field">
+              <DecimalInput aria-label={t('Target rate')} value={target} onValueChange={setTarget} precision={18} placeholder="0" />
+            </div>
           </div>
-          <div className="cvt-field__foot">
-            <span>{t('Target rate hint', { base: market.base, quote: market.quote })}</span>
-            {price ? <span>{t('Now about', { price: plain(price), quote: market.quote })}</span> : null}
+          <div className="lt-toolbar">
+            <span className="lt-hint">{t('Target rate hint', { base: market.base, quote: market.quote })}</span>
+            {price ? <span className="lt-hint">{t('Now about', { price: plain(price), quote: market.quote })}</span> : null}
           </div>
         </div>
       </div>
 
       {short ? (
-        <div className="cvt-note" role="alert">
-          <p>{refusalCopy('ledger.insufficient_funds', { asset: from, available: available ?? '' }).title}.</p>
-          <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+        <div className="lt-refusal" data-refusal="refused" role="alert">
+          <p className="lt-refusal-body">{refusalCopy('ledger.insufficient_funds', { asset: from, available: available ?? '' }).title}.</p>
+          <a className="lt-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
             {t('Deposit {asset}', { asset: from })}
           </a>
         </div>
       ) : null}
       {message ? (
-        <p className="cvt-note" role="status" data-testid="limit-message">
+        <p className="lt-callout" role="status" data-testid="limit-message">
           {message}
         </p>
       ) : null}
 
-      <Button variant="primary" size={56} fullWidth disabled={!ready} loading={placing} onClick={place}>
+      <Button tone="primary" size="lg" block disabled={!ready} aria-busy={placing || undefined} onClick={() => void place()}>
         {placing ? t('Placing') : (dec(target) ?? 0n) > 0n ? t('Place limit convert') : t('Enter a target')}
       </Button>
 
-      <section className="cvt-limit__list" aria-label={t('Waiting limit converts')} data-testid="limit-waiting">
+      <section className="lt-stack" aria-label={t('Waiting limit converts')} data-testid="limit-waiting">
         <h3>{t('Waiting limit converts')}</h3>
-        {unread ? <p role="alert">{t('Limit unread')}</p> : null}
-        {rows !== null && waiting.length === 0 ? <p>{t('Limit none')}</p> : null}
-        <ul>
+        {unread ? (
+          <p className="lt-refusal" role="alert">
+            {t('Limit unread')}
+          </p>
+        ) : null}
+        {rows !== null && waiting.length === 0 ? <p className="lt-hint">{t('Limit none')}</p> : null}
+        <ul className="lt-list">
           {waiting.map((r) => (
-            <li key={r.id} data-testid="limit-row">
+            <li key={r.id} className="lt-toolbar" data-testid="limit-row">
               <span>{rule(r)}</span>
               {r.status === 'waiting' ? (
-                <Button variant="ghost" size={32} onClick={() => void cancel(r.id)}>
+                <Button tone="quiet" size="sm" onClick={() => void cancel(r.id)}>
                   {t('Cancel limit')}
                 </Button>
               ) : null}
@@ -204,13 +205,13 @@ export function LimitConvert({
         </ul>
       </section>
       {recent.length > 0 ? (
-        <section className="cvt-limit__list" aria-label={t('Recent limit converts')}>
+        <section className="lt-stack" aria-label={t('Recent limit converts')}>
           <h3>{t('Recent limit converts')}</h3>
-          <ul>
+          <ul className="lt-list">
             {recent.map((r) => (
               <li key={r.id}>
                 <span>{rule(r)}</span>{' '}
-                <span>
+                <span className="lt-hint">
                   {r.status === 'filled' && r.paid && r.received
                     ? t('Limit filled', { paid: plain(r.paid), from: r.fromAsset, received: plain(r.received), to: r.toAsset })
                     : r.status === 'cancelled'

@@ -16,12 +16,18 @@ export const JUDGE_PATHS = [
   [/^tooling\/profiles\/test-owner-values\//, 'the TEST owner values'],
   // Product files the journey tests and look sweeps import: what they answer or match decides what a test observes.
   [/^apps\/customer\/src\/screens\/[^/]+\/[^/]+\.fixtures\.mjs$/, 'the screen fixtures the look sweeps answer from'],
-  [/^apps\/customer\/src\/app\/(feature-registry|path-match)\.ts$/, 'the feature registry and path matcher the journeys import'],
+  [
+    /^apps\/customer\/src\/app\/(feature-registry|path-match|beta-volt)\.ts$/,
+    'the feature registry, path matcher and beta switch the journeys import',
+  ],
   [
     /^apps\/customer\/src\/(app\/(navigation|navigation-copy|screen-types|rooms\/[^/]+)|features\/protocol\/routes|shared\/(preferences|locale))\.ts$/,
     'the route table J-home-ia-02 #2 reads (navigation.ts, its area files in rooms/) and the files it imports',
   ],
-  [/^apps\/customer\/deployment\/(host-dispatch|render-security-headers)\.mjs$/, 'the host dispatch and headers the journeys import'],
+  [
+    /^apps\/customer\/deployment\/(host-dispatch|render-security-headers|test-banner)\.mjs$/,
+    'the host dispatch, headers and TEST banner the journeys import',
+  ],
   [/^services\/svc-fix\/scripts\/ensure-toolchain\.mjs$/, 'the FIX toolchain the journeys start'],
   // Everything proof v2's reach reads covered (project-state tooling/proof-v2/request.mjs, reachKind), so the judge can
   // stand in for them: any tests/real-app/ folder, and every tool script under tooling/scripts/ (its unit tests aside).

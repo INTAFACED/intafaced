@@ -4,14 +4,9 @@
  * journal is an empty list, not a guessed zero of money.
  */
 import { createHash } from 'node:crypto';
-import {
-  createIdentityApprovalClient,
-  founderAttestationVerdict,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { founderAttestationVerdict } from '@intafaced/contracts/action-approval';
+import { createIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
 import type { EmsOrderEvidence, EmsOrderState } from './oms-ems-store.js';
 
 export const EXECUTION_EMS_STORE_UNWIRED = 'execution.ems_store_unwired' as const;

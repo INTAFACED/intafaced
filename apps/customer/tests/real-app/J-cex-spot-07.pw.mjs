@@ -536,7 +536,7 @@ test(`${J} #5 requests a statement export of orders, trades and money movements 
   expect(ids('deposit', 'transfer_in', 'withdrawal')).toEqual(credits); // no withdrawal was signed
   expect(ids('order')).toContain(bought.order.venueClientOrderId);
   expect(ids('trade').length).toBeGreaterThan(0);
-  expect(job.rows).toEqual({ orders: orders.length, trades: trades.length, movements: credits.length });
+  expect(job.rows).toEqual({ orders: orders.length, trades: trades.length, movements: credits.length, liquidations: 0 });
   await expect(ready).toHaveText(
     `Ready: ${orders.length} orders, ${trades.length} trades and ${credits.length} money movements. Statement ${job.id}.`,
   );
@@ -574,6 +574,17 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
   expect(walletRefs, 'the wallet received its TEST USD and sent the deposit').toContain(s.txHash);
   const fills = (await venueRecord(s.owner, '/fills', { since: new Date(0).toISOString() })).value;
   const deposits = (await venueRecord(s.owner, '/deposits')).value;
+  const orderHistory = (await venueRecord(s.owner, '/order-history')).value;
+  const filledOrders = new Set(fills.map((f) => f.venueClientOrderId?.toLowerCase()).filter(Boolean));
+  const restingOrCancelledOrders = orderHistory
+    .map((entry) => entry.order)
+    .filter(
+      (o) =>
+        o.venueClientOrderId &&
+        !filledOrders.has(o.venueClientOrderId.toLowerCase()) &&
+        toUnits(o.filled) === 0n &&
+        (o.status === 'open' || o.status === 'canceled' || o.status === 'cancelled'),
+    );
   expect(fills.length).toBeGreaterThan(0);
   expect(deposits.map((d) => d.txHash.toLowerCase())).toEqual([s.txHash]);
   const partner = await partnerRecord(s.account);
@@ -582,6 +593,7 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
   const expected = [
     ...walletRefs.map((ref) => ({ source: 'wallet', ref })),
     ...fills.map((f) => ({ source: 'venue', ref: f.fillId })),
+    ...restingOrCancelledOrders.map((o) => ({ source: 'venue', ref: o.venueClientOrderId })),
     ...deposits.map((d) => ({ source: 'venue', ref: d.txHash.toLowerCase() })),
     ...partner.map((p) => ({ source: 'partner', ref: p.txId })),
   ];
@@ -594,6 +606,12 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
   await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
 
   // Every movement each source reports, one row each, and nothing else: no line of our own ledger.
+  const { displayName: venueName } = await venueInfo();
+  const sourceLabel = {
+    wallet: 'Your wallet on Base Sepolia test network',
+    venue: `Your venue account on ${venueName} TEST`,
+    partner: `Your account at ${PARTNER_BANK}`,
+  };
   const rows = list.getByTestId('money-act');
   await expect(rows).toHaveCount(expected.length, { timeout: 30_000 });
   for (const { source, ref } of expected) {
@@ -601,7 +619,7 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
     await expect(row).toHaveCount(expected.filter((e) => e.source === source && e.ref === ref).length);
     // Its source, and the source's own reference, in words the person reads.
     for (const r of await row.all()) {
-      await expect(r.getByTestId('money-act__source')).toBeVisible();
+      await expect(r.getByTestId('money-act__source')).toHaveText(sourceLabel[source]);
       await expect(r.getByTestId('money-act__ref')).toHaveText(`Reference ${ref}`);
     }
   }

@@ -1,13 +1,7 @@
 /** Ramps and saved withdrawal destinations: on and off ramps, the address book, wallet proofs and readiness. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { programmeSchema } from './contracts-cards';
 
-const rampProgrammeSchema = programmeSchema.extend({
-  cryptoRail: z.string().nullable(),
-  fiatLeg: z.literal('socket.psp-partners'),
-  fiatVia: z.literal('svc-pay.RailAdapter'),
-});
 const rampBase = z.object({
   id: z.string(),
   assetId: z.string(),
@@ -26,7 +20,7 @@ export const offrampSchema = rampBase.extend({
   settleLedgerTxId: z.string().nullable(),
 });
 
-export const destinationSchema = z.object({
+const destinationSchema = z.object({
   destinationId: z.string(),
   label: z.string().nullable(),
   kind: z.enum(['crypto', 'bank']),
@@ -59,23 +53,6 @@ export const destinationSchema = z.object({
   approvalLinkExpiresAt: z.string().nullable().optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
-/** svc-bank `bank.ramps.destinations.approval.requestMail`: the approval link was asked for, and works until `expiresAt`. */
-export const approvalMailAskedSchema = z.object({ destinationId: z.string(), expiresAt: z.string() });
-/** A message the bank offers to sign, proving the customer controls a saved wallet. */
-export const walletProofStartedSchema = z.object({
-  proofId: z.string(),
-  destinationId: z.string(),
-  message: z.string(),
-  expiresAt: z.string(),
-});
-/** A checked wallet proof. */
-export const walletProofVerifiedSchema = z.object({
-  proofId: z.string(),
-  destinationId: z.string(),
-  state: z.enum(['none', 'pending', 'verified', 'expired']),
-  verifiedAt: z.string().nullable(),
-  validUntil: z.string().nullable(),
-});
 /** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
 const withdrawAssetSchema = z.object({
   assetId: z.string(),
@@ -84,9 +61,8 @@ const withdrawAssetSchema = z.object({
   defaultNetworkId: z.string().nullable(),
 });
 export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
-export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
 /** svc-bank `bank.ramps.destinations.readiness`: whether money may be sent to one saved address now, or what stands first. */
-export const destinationReadinessSchema = z.object({
+const destinationReadinessSchema = z.object({
   destinationId: z.string(),
   state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
   coolingOffEndsAt: z.string().nullable(),
@@ -95,7 +71,7 @@ export const destinationReadinessSchema = z.object({
 });
 export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 /** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
-export const destinationCheckSchema = z.object({
+const destinationCheckSchema = z.object({
   address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
   lookalike: z.object({ destinationId: z.string(), label: z.string().nullable(), refMasked: z.string() }).nullable(),
   /** On the owner's fraud list for the network asked (W-withdraw-03); the bank refuses it on save. An older bank sends none. */
@@ -103,20 +79,4 @@ export const destinationCheckSchema = z.object({
 });
 export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const rampsReads = {
-  'ramps.programme': rampProgrammeSchema,
-  'ramps.fiatSettle': z.object({ canSettle: z.literal(true), onrampRailId: z.string(), offrampRailId: z.string() }),
-  'ramps.onramps': z.array(onrampSchema),
-  'ramps.offramps': z.array(offrampSchema),
-  // svc-bank `bank.ramps.destinations.list`: the customer's own saved wallets and bank accounts. No asset or network field.
-  'ramps.destinations.list': z.array(destinationSchema),
-  'ramps.destinations.networks': z.array(withdrawAssetSchema),
-} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const rampsWrites = {
-  'ramps.destinations.rename': destinationSchema,
-  'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
-  'ramps.offramp': offrampSchema,
-} as const;

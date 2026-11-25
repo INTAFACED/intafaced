@@ -1,14 +1,16 @@
+// volt-room: /agents/connect
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
 import type { ApiKeyCreateOutput, ApiKeyList } from '@intafaced/contracts/api-keys';
+import { Button, Checkbox, Field, Select, Tag } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { useSession } from '../session';
 import { StepUpConfirm } from '../money';
-import { useWallet, type TypedDataDocument, withDomainTypes } from '../protocol';
-import { useVenueMode, VenueFrame, WalletBar } from '../trade';
+import { useWallet } from '../protocol';
+import { useVenueMode, VoltVenueFrame as VenueFrame, VoltWalletBar as WalletBar } from '../trade';
 import { endOfDayUtc } from '../account';
+import { EmptyNote, FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
 import {
   ASSISTANT_SCOPES,
   WITHDRAW_SCOPE,
@@ -26,16 +28,15 @@ import {
   readKeys,
   submitAgentAction,
   venueTotal,
+  walletTypedData,
   type AgentAccount,
   type AgentConnection,
-  type AgentNext,
   type AgentPermission,
   type AgentTerms,
 } from './agent-connect-api';
 import { agentConnectCopy as copy } from './agent-connect-copy';
-
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-type Words = ReturnType<typeof copy.useCopy>['t'];
+import { STEP_KEY, refusalText, type Words } from './agent-connect-shared';
+import { AccountControls, Connections } from './AgentAccountControls';
 
 /** `off`: svc-trade's user-venue door is off here, so there are no agent accounts to read or make. */
 type Ready =
@@ -64,35 +65,11 @@ async function readRoom(api: ReturnType<typeof useSession>['api'], signal: Abort
   };
 }
 
-/** A refusal in this room's words when it has some, else the service's own sentence with its code. */
-function refusalText(t: Words, failed: Failed): string {
-  const key = `refused.${failed.code ?? ''}`;
-  if (failed.code && key in REFUSAL_KEYS) return t(key as RefusalKey);
-  return t('refusedOther', { message: [failed.code, failed.message].filter(Boolean).join(': ') });
-}
-const REFUSAL_KEYS = {
-  'refused.auth.agent_scope_forbidden': true,
-  'refused.auth.scope_empty': true,
-  'refused.identity.key_name_invalid': true,
-  'refused.identity.key_name_taken': true,
-  'refused.identity.key_expiry_invalid': true,
-  'refused.auth.webauthn_invalid': true,
-  'refused.auth.passkey_missing': true,
-} as const;
-type RefusalKey = keyof typeof REFUSAL_KEYS;
-
 const STATUS_KEY: Record<string, 'status_opening' | 'status_open' | 'status_closed' | 'status_abandoned'> = {
   opening: 'status_opening',
   open: 'status_open',
   closed: 'status_closed',
   abandoned: 'status_abandoned',
-};
-const STEP_KEY: Record<string, 'step_open_sub_account' | 'step_approve_agent' | 'step_move_in' | 'step_move_out' | 'step_revoke_agent'> = {
-  open_sub_account: 'step_open_sub_account',
-  approve_agent: 'step_approve_agent',
-  move_in: 'step_move_in',
-  move_out: 'step_move_out',
-  revoke_agent: 'step_revoke_agent',
 };
 const SCOPE_KEY: Record<string, 'scope_trade_read' | 'scope_trade_write' | 'scope_trade_withdraw'> = {
   'trade:read': 'scope_trade_read',
@@ -110,9 +87,10 @@ const stepUpWords = (t: Words, why: 'stepUpWhy' | 'connectStepUpWhy') => ({
 });
 
 /**
- * Connect your assistant (`/agents/connect`, J-agents-21 #2 and #6; AG-outside-01, AG-outside-02): what the person's
- * own outside assistant can and cannot do, their agent accounts with Create agent account, and the connection: an API
- * key tagged Agent with trade scopes, bound to one agent account after step-up, its secret and MCP setup shown once.
+ * Connect your assistant (`/agents/connect`, J-agents-21; AG-outside-01, AG-outside-02, AG-outside-04): what the
+ * person's own outside assistant can and cannot do, their agent accounts with Create agent account and each open
+ * account's own controls (AgentAccountControls.tsx), and the connection: an API key tagged Agent with trade scopes, bound
+ * to one agent account after step-up, its secret and MCP setup shown once, then its Activity and Revoke.
  * Every refusal is the service's own; nothing is checked only in the browser. INTAFACED holds and moves nothing.
  */
 export function AgentConnect() {
@@ -138,30 +116,39 @@ function AgentConnectRoom() {
   const data = resource.status === 'ready' ? resource.data : resource.status === 'loading' ? last.current : null;
 
   return (
-    <div className="form-stack" data-testid="agent-connect">
-      <a className="text-link" href="/agents">
-        {t('back')}
-      </a>
-      <CanCannot terms={data && !data.off ? data.terms : null} />
-      {resource.status === 'loading' && !data && <Loading label={t('loading')} />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {data?.off && (
-        <Panel title={t('accountsTitle')} data-testid="agent-connect__accounts">
-          <p className="muted" role="status">
-            {t('doorOff')}
-          </p>
-          <Button disabled>{t('create')}</Button>
-        </Panel>
-      )}
-      {data && !data.off && <Room data={data} reload={reload} />}
-    </div>
+    <FlowTemplate
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      step={
+        <div className="lt-stack" data-testid="agent-connect">
+          <a className="lt-link" href="/agents">
+            {t('back')}
+          </a>
+          <CanCannot terms={data && !data.off ? data.terms : null} />
+          {resource.status === 'loading' && !data && <Waiting label={t('loading')} />}
+          {resource.status === 'failed' && <FailureNote result={resource.failure} retry={reload} />}
+          {data?.off && (
+            <Section className="lt-stack" title={t('accountsTitle')} data-testid="agent-connect__accounts">
+              <p className="lt-muted" role="status">
+                {t('doorOff')}
+              </p>
+              <Button tone="primary" disabled>
+                {t('create')}
+              </Button>
+            </Section>
+          )}
+          {data && !data.off && <Room data={data} reload={reload} />}
+        </div>
+      }
+    />
   );
 }
 
 function CanCannot({ terms }: { terms: AgentTerms | null }) {
   const { t } = copy.useCopy();
   return (
-    <Panel title={t('canTitle')} data-testid="agent-connect__can">
+    <Section className="lt-stack" title={t('canTitle')} data-testid="agent-connect__can">
       <ul>
         <li>{t('can1')}</li>
         <li>{t('can2')}</li>
@@ -176,15 +163,15 @@ function CanCannot({ terms }: { terms: AgentTerms | null }) {
           <li>{t('cannot5')}</li>
         </ul>
       </section>
-      <p className="muted">{t('mostLoss')}</p>
+      <p className="lt-muted">{t('mostLoss')}</p>
       {terms && (
-        <p className="muted" data-testid="agent-connect__ceiling">
+        <p className="lt-muted" data-testid="agent-connect__ceiling">
           {terms.ceiling !== null && terms.asset !== null
             ? t('ceiling', { ceiling: terms.ceiling, asset: terms.asset })
             : t('ceilingUnset')}
         </p>
       )}
-    </Panel>
+    </Section>
   );
 }
 
@@ -193,70 +180,52 @@ function Room({ data, reload }: { data: Extract<Ready, { off: false }>; reload: 
   const open = data.accounts.filter((a) => a.status === 'open');
   return (
     <>
-      <Panel title={t('accountsTitle')} data-testid="agent-connect__accounts">
+      <Section className="lt-stack" title={t('accountsTitle')} data-testid="agent-connect__accounts">
         {data.accounts.length === 0 ? (
-          <EmptyState title={t('accountsEmpty')} />
+          <EmptyNote title={t('accountsEmpty')} />
         ) : (
-          <DataTable label={t('accountsTitle')} headers={[t('colAccount'), t('colStatus'), t('colBalance'), t('colCap')]}>
+          <ScrollTable label={t('accountsTitle')} headers={[t('colAccount'), t('colStatus'), t('colBalance'), t('colCap'), t('colLimits')]}>
             {data.accounts.map((a) => {
               const total = venueTotal(a);
               return (
                 <tr key={a.accountId} data-account={a.accountId}>
                   <td>
-                    <bdi lang="und">{a.name}</bdi> {a.test ? <span className="badge">{t('testLabel')}</span> : null}
+                    <bdi lang="und">{a.name}</bdi> {a.test ? <Tag tone="neutral">{t('testLabel')}</Tag> : null}
                   </td>
-                  <td>{STATUS_KEY[a.status] ? t(STATUS_KEY[a.status]!) : a.status}</td>
-                  <td>{total === null ? t('notOpened') : `${total} ${a.asset}`}</td>
-                  <td>{`${a.cap} ${a.asset}`}</td>
+                  <td data-testid="agent-connect__status">{STATUS_KEY[a.status] ? t(STATUS_KEY[a.status]!) : a.status}</td>
+                  <td data-testid="agent-connect__balance">{total === null ? t('notOpened') : `${total} ${a.asset}`}</td>
+                  <td data-testid="agent-connect__cap">{`${a.cap} ${a.asset}`}</td>
+                  <td data-testid="agent-connect__limits">
+                    <AccountLimits account={a} />
+                  </td>
                 </tr>
               );
             })}
-          </DataTable>
+          </ScrollTable>
         )}
+        {open.map((a) => (
+          <AccountControls key={a.accountId} account={a} reload={reload} />
+        ))}
         <CreateAccount terms={data.terms} reload={reload} />
-      </Panel>
+      </Section>
       <ConnectAssistant open={open} keys={data.keys} reload={reload} />
-      <Panel title={t('connectionsTitle')} data-testid="agent-connect__connections">
-        {data.connections.length === 0 ? (
-          <p className="muted">{t('connectionsEmpty')}</p>
-        ) : (
-          <DataTable label={t('connectionsTitle')} headers={[t('colKey'), t('colAccount')]}>
-            {data.connections.map((c) => {
-              const key = data.keys.find((k) => k.id === c.keyId);
-              const account = data.accounts.find((a) => a.accountId === c.accountId);
-              return (
-                <tr key={c.keyId} data-key={c.keyId}>
-                  <td>
-                    <bdi lang="und">{key?.name ?? c.keyId}</bdi> <span className="badge">{t('tagAgent')}</span>
-                  </td>
-                  <td>
-                    <bdi lang="und">{account?.name ?? c.accountId}</bdi>
-                  </td>
-                </tr>
-              );
-            })}
-          </DataTable>
-        )}
-      </Panel>
+      <Connections connections={data.connections} keys={data.keys} accounts={data.accounts} reload={reload} />
     </>
   );
 }
 
-/** The EIP-712 domain the wallet reads, every field the venue sent kept as sent (a salt included). */
-const walletDomain = z
-  .object({
-    name: z.string().optional(),
-    version: z.string().optional(),
-    chainId: z.union([z.number(), z.string()]).optional(),
-    verifyingContract: z.string().optional(),
-  })
-  .passthrough();
-
-/** The venue's payload with its domain types declared, as the wallet signs it; null when its domain is not one. */
-function walletTypedData(typed: AgentNext['prepared']['typedData']): TypedDataDocument | null {
-  const withTypes = withDomainTypes(typed);
-  const domain = walletDomain.safeParse(withTypes.domain);
-  return domain.success ? { ...withTypes, domain: domain.data } : null;
+/** The person's own three caps on the assistant's orders, beside the funding cap (J-agents-21 #16); one not set says so. */
+function AccountLimits({ account }: { account: AgentAccount }) {
+  const { t } = copy.useCopy();
+  const limits = account.limits;
+  const amount = (value: string | null | undefined) => (value ? `${value} ${account.asset}` : t('limitNotSet'));
+  return (
+    <ul>
+      <li>{t('limitOrder', { value: amount(limits?.maxOrderNotional) })}</li>
+      <li>{t('limitLeverage', { value: limits?.maxLeverage ? t('times', { times: limits.maxLeverage }) : t('limitNotSet') })}</li>
+      <li>{t('limitDailyLoss', { value: amount(limits?.maxDailyLoss) })}</li>
+    </ul>
+  );
 }
 
 type CreateAsk = { accountId: string; owner: string; asset: string; cap: string; fund: string };
@@ -352,31 +321,33 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
   }
 
   return (
-    <section className="form-stack" data-testid="agent-connect__create" aria-labelledby="agent-connect-create">
+    <section className="lt-stack" data-testid="agent-connect__create" aria-labelledby="agent-connect-create">
       <h3 id="agent-connect-create">{t('createTitle')}</h3>
       <WalletBar />
       {!formOpen && !ask && (
-        <Button onClick={() => setFormOpen(true)} disabled={busy !== null}>
+        <Button tone="primary" onClick={() => setFormOpen(true)} disabled={busy !== null}>
           {t('create')}
         </Button>
       )}
       {formOpen && !ask && (
-        <form className="form-stack" noValidate onSubmit={start}>
-          <p className="muted">{t('createIntro')}</p>
+        <form className="lt-stack" noValidate onSubmit={start}>
+          <p className="lt-muted">{t('createIntro')}</p>
           <PermissionReach permission={terms.agentPermission ?? null} />
           <Field label={t('cap', { asset })} hint={t('capHint')} name="cap" inputMode="decimal" autoComplete="off" />
           <Field label={t('fund', { asset })} hint={t('fundHint')} name="fund" inputMode="decimal" autoComplete="off" />
           {!owner && (
-            <p className="muted">
+            <p className="lt-muted">
               {t('walletNeeded')}{' '}
-              <a className="text-link" href="/wallet/venue">
+              <a className="lt-link" href="/wallet/venue">
                 {t('openWallet')}
               </a>
             </p>
           )}
-          <div className="actions">
-            <Button type="submit">{t('create')}</Button>
-            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit">
+              {t('create')}
+            </Button>
+            <Button tone="secondary" onClick={() => setFormOpen(false)}>
               {t('cancel')}
             </Button>
           </div>
@@ -391,21 +362,26 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
             disabled={busy !== null}
             onApproved={(id) => void confirmed(id)}
           />
-          <Button variant="secondary" disabled={busy !== null} onClick={() => setAsk(null)}>
+          <Button tone="secondary" disabled={busy !== null} onClick={() => setAsk(null)}>
             {t('cancel')}
           </Button>
         </>
       )}
       {busy && (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {busy}
         </p>
       )}
-      {message && (
-        <p className={message.failed ? 'error-text' : 'muted'} role={message.failed ? 'alert' : 'status'}>
-          {message.text}
-        </p>
-      )}
+      {message &&
+        (message.failed ? (
+          <p className="lt-refusal" role="alert">
+            {message.text}
+          </p>
+        ) : (
+          <p className="lt-muted" role="status">
+            {message.text}
+          </p>
+        ))}
     </section>
   );
 }
@@ -417,14 +393,9 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
  */
 function PermissionReach({ permission }: { permission: AgentPermission | null }) {
   const { t } = copy.useCopy();
-  const others = permission?.reach !== 'own_account_only';
+  const reachClass = permission?.reach !== 'own_account_only' ? 'lt-refusal' : 'lt-muted';
   return (
-    <p
-      className={others ? 'error-text' : 'muted'}
-      role="note"
-      data-testid="agent-connect__reach"
-      data-reach={permission?.reach ?? 'unknown'}
-    >
+    <p className={reachClass} role="note" data-testid="agent-connect__reach" data-reach={permission?.reach ?? 'unknown'}>
       {permission === null
         ? t('reachUnknown')
         : permission.reach === 'own_account_only'
@@ -432,6 +403,18 @@ function PermissionReach({ permission }: { permission: AgentPermission | null })
           : t('reachOthers', { venue: permission.venue })}
     </p>
   );
+}
+
+/**
+ * The key's end (J-agents-21 #19): none without a day; the end of that day (UTC) without a time; else that minute of
+ * that day (UTC). `false` when what was typed is not one, so a mistyped end never makes a key that never ends.
+ */
+function endsAt(day: string, time: string): string | undefined | false {
+  if (day === '') return time === '' ? undefined : false;
+  if (time === '') return endOfDayUtc(day) ?? false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^\d{2}:\d{2}$/.test(time)) return false;
+  const at = Date.parse(`${day}T${time}:00.000Z`);
+  return Number.isFinite(at) ? new Date(at).toISOString() : false;
 }
 
 type Made = { made: ApiKeyCreateOutput & { key: string }; account: AgentAccount };
@@ -462,8 +445,8 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
     const data = new FormData(form);
     const account = open.find((a) => a.accountId === String(data.get('accountId') ?? ''));
     if (!account) return;
-    const ends = String(data.get('ends') ?? '');
-    const expiresAt = ends ? endOfDayUtc(ends) : undefined;
+    const expiresAt = endsAt(String(data.get('ends') ?? ''), String(data.get('endsTime') ?? ''));
+    if (expiresAt === false) return setRefusal(t('endsBad'));
     setBusy(true);
     setRefusal(null);
     try {
@@ -507,10 +490,10 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
       />
     );
   return (
-    <Panel title={t('connectTitle')} data-testid="agent-connect__connect">
-      <p className="muted">{t('connectIntro')}</p>
+    <Section className="lt-stack" title={t('connectTitle')} data-testid="agent-connect__connect">
+      <p className="lt-muted">{t('connectIntro')}</p>
       {open.length === 0 ? (
-        <p className="muted">{t('connectNeedsAccount')}</p>
+        <p className="lt-muted">{t('connectNeedsAccount')}</p>
       ) : pending ? (
         <StepUpConfirm
           request={() => connectStepUp(pending.made.record.id, pending.account.accountId)}
@@ -520,54 +503,49 @@ function ConnectAssistant({ open, keys, reload }: { open: AgentAccount[]; keys: 
         />
       ) : (
         <form
-          className="form-stack"
+          className="lt-stack"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
             void makeKey(event.currentTarget);
           }}
         >
-          <label className="field">
-            <span id="agent-connect-account-label">{t('connectAccount')}</span>
-            <select name="accountId" aria-labelledby="agent-connect-account-label" defaultValue={open[0]!.accountId}>
-              {open.map((a) => (
-                <option key={a.accountId} value={a.accountId}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label={t('connectAccount')}
+            name="accountId"
+            defaultValue={open[0]!.accountId}
+            options={open.map((a) => ({ value: a.accountId, label: a.name }))}
+          />
           <Field label={t('keyName')} hint={t('keyNameHint')} name="name" autoComplete="off" maxLength={64} />
-          <fieldset>
+          <fieldset className="lt-stack">
             <legend>{t('permissions')}</legend>
             {[...ASSISTANT_SCOPES, WITHDRAW_SCOPE].map((scope) => (
-              <label key={scope} className="field field--inline">
-                <input
-                  type="checkbox"
-                  name="scope"
-                  value={scope}
-                  checked={scopes.includes(scope)}
-                  onChange={(event) => {
-                    const on = event.currentTarget.checked;
-                    setScopes((current) => (on ? [...current, scope] : current.filter((s) => s !== scope)));
-                  }}
-                />
-                <span>{t(SCOPE_KEY[scope]!)}</span>
-              </label>
+              <Checkbox
+                key={scope}
+                name="scope"
+                value={scope}
+                checked={scopes.includes(scope)}
+                onCheckedChange={(on) => {
+                  setScopes((current) => (on ? [...current, scope] : current.filter((s) => s !== scope)));
+                }}
+              >
+                {t(SCOPE_KEY[scope]!)}
+              </Checkbox>
             ))}
           </fieldset>
           <Field label={t('ends')} hint={t('endsHint')} name="ends" type="date" />
-          <Button type="submit" disabled={busy}>
+          <Field label={t('endsTime')} hint={t('endsTimeHint')} name="endsTime" type="time" />
+          <Button tone="primary" type="submit" disabled={busy}>
             {busy ? t('connecting') : t('connect')}
           </Button>
         </form>
       )}
       {refusal && (
-        <p className="error-text" role="alert" data-testid="agent-connect__refusal">
+        <p className="lt-refusal" role="alert" data-testid="agent-connect__refusal">
           {refusal}
         </p>
       )}
-    </Panel>
+    </Section>
   );
 }
 
@@ -578,10 +556,10 @@ function ShownOnce({ shown, onDone }: { shown: Made; onDone: () => void }) {
   const { made, account } = shown;
   const setup = mcpSetup(window.location.origin, made.key, made.signingSecret ?? null);
   return (
-    <Panel title={t('secretTitle')} data-testid="agent-connect__secret">
+    <Section className="lt-stack" title={t('secretTitle')} data-testid="agent-connect__secret">
       <p role="alert">{t('secretOnce')}</p>
       <p>
-        <bdi lang="und">{made.record.name}</bdi> {made.record.kind === 'agent' && <span className="badge">{t('tagAgent')}</span>}
+        <bdi lang="und">{made.record.name}</bdi> {made.record.kind === 'agent' && <Tag tone="neutral">{t('tagAgent')}</Tag>}
       </p>
       <p data-testid="agent-connect__bound">{t('boundTo', { account: account.name })}</p>
       <p data-testid="agent-connect__scopes">{t('scopesHeld', { scopes: made.record.scopes.join(', ') })}</p>
@@ -598,17 +576,16 @@ function ShownOnce({ shown, onDone }: { shown: Made; onDone: () => void }) {
         </>
       )}
       <h3 id="agent-connect-mcp">{t('mcpTitle')}</h3>
-      <p className="muted">{t('mcpIntro')}</p>
+      <p className="lt-muted">{t('mcpIntro')}</p>
       <pre data-testid="agent-connect__mcp" aria-labelledby="agent-connect-mcp" lang="und">
         {setup}
       </pre>
-      <label className="field field--inline">
-        <input type="checkbox" checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} />
-        <span>{t('stored')}</span>
-      </label>
-      <Button disabled={!stored} onClick={onDone}>
+      <Checkbox checked={stored} onCheckedChange={setStored}>
+        {t('stored')}
+      </Checkbox>
+      <Button tone="primary" disabled={!stored} onClick={onDone}>
         {t('done')}
       </Button>
-    </Panel>
+    </Section>
   );
 }

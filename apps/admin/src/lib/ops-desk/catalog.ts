@@ -12,7 +12,8 @@ import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
-import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { readOf } from '@/lib/desk-read';
+import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 import { ACADEMY_HEALTH } from '@intafaced/contracts/academy-health-procedures';
 import { ACADEMY_CURRICULUM_INVENTORY } from '@intafaced/contracts/academy-curriculum-inventory-procedures';
 import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculum-depth-procedures';
@@ -32,9 +33,29 @@ import {
   P2P_OPS_DISPUTE_RATE24H,
 } from '@intafaced/contracts/p2p-ops-procedures';
 import { P2P_DISPUTES_BACKLOG, P2P_DISPUTES_LIST } from '@intafaced/contracts/p2p-disputes-procedures';
-
-/** A read whose call has a record: its module and path are the record's, never typed again here. */
-export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
+import { TOKEN_NEXT_EMISSION_EPOCH } from '@intafaced/contracts/token-next-emission-epoch-procedures';
+import { BANK_GLOBAL_OPS_SUMMARY, BANK_GLOBAL_OPS_FAILED, BANK_GLOBAL_OPS_RECALLS } from '@intafaced/contracts/bank-global-records';
+import {
+  BANK_OPS_CARD_PARTNER_TERMS,
+  BANK_OPS_RAMP_HEALTH,
+  BANK_OPS_TRANSFER_HEALTH,
+  BANK_OPS_CUSTOMER_BALANCES,
+  BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
+} from '@intafaced/contracts/bank-ops-procedures';
+import { BANK_HEALTH } from '@intafaced/contracts/bank-health-procedures';
+import { BANK_EARN_POOLS } from '@intafaced/contracts/bank-earn-procedures';
+import { BANK_LOANS_PRODUCTS } from '@intafaced/contracts/bank-loans-procedures';
+import { BANK_CARDS_PROGRAMME } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_RAMPS_PROGRAMME, BANK_RAMPS_FIAT_SETTLE } from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from '@intafaced/contracts/bank-bills-procedures';
+import {
+  BANK_OPS_CARD_PROGRAMME_FUNDING,
+  BANK_OPS_POOL_TOTALS,
+  BANK_OPS_CARD_PROGRAMME,
+  BANK_OPS_BUSINESS_APPROVALS,
+  BANK_OPS_FAILED_TRANSFERS,
+  BANK_OPS_TRANSFER_DETAIL,
+} from '@intafaced/contracts/bank-ops-2-procedures';
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -68,8 +89,7 @@ const bankHealth: ReadSpec = {
   id: 'bank.health',
   title: 'Service health',
   note: 'Whether svc-bank answers. Process liveness only; it says nothing about the rails behind it.',
-  module: 'bank',
-  procedure: 'health',
+  ...readOf(BANK_HEALTH),
   shape: 'record',
   columns: [bool('ok', 'Answering'), text('service', 'Service')],
   emptyText: '',
@@ -104,8 +124,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.pools',
         title: 'Earn pools offered',
         note: 'The rate and minimum deposit of each pool, as svc-bank publishes them. APR is the pool rate; no balances are read.',
-        module: 'bank',
-        procedure: 'earn.pools',
+        ...readOf(BANK_EARN_POOLS),
         input: { limit: 200 },
         shape: 'list',
         idKey: 'id',
@@ -126,9 +145,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.pool-totals',
         title: 'Money held in each pool',
         note: 'What each pool holds now (the ledger balance of every active position, added up) and how many people hold a position. Utilisation is not recorded by svc-bank, so no figure is given. If the ledger cannot be read the pool shows the reason, never zero.',
-        module: 'bank',
         plainName: 'pool balances',
-        procedure: 'ops.poolTotals',
+        ...readOf(BANK_OPS_POOL_TOTALS),
         shape: 'list',
         rowsKey: 'pools',
         idKey: 'poolId',
@@ -165,8 +183,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.loan-products',
         title: 'Loan products',
         note: 'Rate, maximum loan-to-value and the margin-call and liquidation levels of each product. These are product terms, not loans outstanding.',
-        module: 'bank',
-        procedure: 'loans.products',
+        ...readOf(BANK_LOANS_PRODUCTS),
         input: { limit: 200 },
         shape: 'list',
         idKey: 'id',
@@ -248,8 +265,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-programme',
         title: 'Card programme status',
         note: 'Whether cards are issued by a real issuer or simulated. A simulated programme must be treated as no real cards.',
-        module: 'bank',
-        procedure: 'cards.programme',
+        ...readOf(BANK_CARDS_PROGRAMME),
         shape: 'record',
         columns: [text('displayName', 'Programme'), bool('simulated', 'Simulated'), text('id', 'Programme id')],
         emptyText: '',
@@ -259,9 +275,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-counts',
         title: 'Cards issued (all time) · authorisations, last 30 days',
         note: 'How many cards exist and in what state, across all owners. "Simulated" is the issuer’s own flag: true means no real card was issued.',
-        module: 'bank',
         plainName: 'card counts',
-        procedure: 'ops.cardProgramme',
+        ...readOf(BANK_OPS_CARD_PROGRAMME),
         windowDays: 30,
         shape: 'record',
         columns: [bool('simulated', 'Simulated issuer'), int('issued', 'Issued'), int('active', 'Active'), int('frozen', 'Frozen')],
@@ -272,9 +287,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-days',
         title: 'Card authorisations by day, last 30 days',
         note: 'Approved volume per asset and declines for each UTC day, from the card authorisations svc-bank decided in the window. A day with nothing shows no volume, not a guess.',
-        module: 'bank',
         plainName: 'card authorisations',
-        procedure: 'ops.cardProgramme',
+        ...readOf(BANK_OPS_CARD_PROGRAMME),
         windowDays: 30,
         shape: 'list',
         rowsKey: 'days',
@@ -287,9 +301,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-partner-terms',
         title: 'Programme funding and loss liability',
         note: 'Who funds the programme, any reserve the card partner requires, who bears a lost chargeback or a card fraud loss, and how the partner spends a cardholder’s crypto: each as the partner reports it, or "not known". A reserve is never shown as zero for an unknown, and a loss is never assumed to be the partner’s.',
-        module: 'bank',
         plainName: 'card partner terms',
-        procedure: 'ops.cardPartnerTerms',
+        ...readOf(BANK_OPS_CARD_PARTNER_TERMS),
         shape: 'record',
         columns: [
           text('label', 'Card partner'),
@@ -318,9 +331,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-funding-offers',
         title: 'What the partner offers',
         note: 'The stablecoin the programme is funded in, and which of fund, defund and auto reload the card partner offers: each as the partner reports it, or "not known".',
-        module: 'bank',
         plainName: 'card programme funding',
-        procedure: 'ops.cardProgrammeFunding',
+        ...readOf(BANK_OPS_CARD_PROGRAMME_FUNDING),
         shape: 'record',
         columns: [
           text('fundingAssetId', 'Funding stablecoin'),
@@ -336,9 +348,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-funding-reconciliation',
         title: 'Settlement reconciliation against the partner’s figures',
         note: 'Per funding asset: this app’s open authorisation holds and settled captures, beside the partner’s own figure for the same. The difference is the partner’s minus the app’s. A figure the partner has not reported is "not known", never 0, and so is its difference. An asset the partner reports that this app has no record of is "missing", a break, never 0. The conversion is one unit in the funding stablecoin from the rate source, and the app’s figure at that rate.',
-        module: 'bank',
         plainName: 'card programme reconciliation',
-        procedure: 'ops.cardProgrammeFunding',
+        ...readOf(BANK_OPS_CARD_PROGRAMME_FUNDING),
         shape: 'list',
         rowsKey: 'rows',
         idKey: 'assetId',
@@ -413,9 +424,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-funding-requests',
         title: 'Funding instructions sent to the partner',
         note: 'The last 20 fund, defund and auto reload instructions two founders sent, each with the partner’s reference. A record of what was asked, not a balance.',
-        module: 'bank',
         plainName: 'card programme funding instructions',
-        procedure: 'ops.cardProgrammeFunding',
+        ...readOf(BANK_OPS_CARD_PROGRAMME_FUNDING),
         shape: 'list',
         rowsKey: 'requests',
         idKey: 'clientRequestId',
@@ -497,7 +507,7 @@ const bankSections: readonly DeskSection[] = [
     id: 'customer-balances',
     title: 'Customer balances',
     intro:
-      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. It needs the treasury permission on your session; a session without it is refused in words. The support view of the same figures waits on the customer consent grant (PF-ops-01) and is not here.',
+      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. The balances need the operator read permission (admin:read) or the treasury permission; the entries behind them need the treasury permission. A session without them is refused in words.',
     reads: [],
     unavailable: [],
     disabledActions: [],
@@ -513,8 +523,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.ramp-programme',
         title: 'Ramp programme',
         note: 'Which rail the programme uses, and whether it is simulated. Simulated ramps move no real cash.',
-        module: 'bank',
-        procedure: 'ramps.programme',
+        ...readOf(BANK_RAMPS_PROGRAMME),
         shape: 'record',
         columns: [
           text('displayName', 'Programme'),
@@ -531,8 +540,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.fiat-settle',
         title: 'Fiat settlement probe',
         note: 'Asks svc-bank whether svc-pay has a rail that can settle fiat. A refusal here is the answer: no rail can.',
-        module: 'bank',
-        procedure: 'ramps.fiatSettle',
+        ...readOf(BANK_RAMPS_FIAT_SETTLE),
         shape: 'record',
         columns: [bool('canSettle', 'Can settle fiat'), text('onrampRailId', 'On-ramp rail'), text('offrampRailId', 'Off-ramp rail')],
         emptyText: '',
@@ -542,9 +550,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.ramp-health',
         title: 'Ramp rails, last 24 hours',
         note: 'For each rail: when it last succeeded and failed, what is open, and failures out of attempts in the window. An unset provider is not a healthy rail. svc-bank gives no heartbeat, so none is shown.',
-        module: 'bank',
         plainName: 'ramp health',
-        procedure: 'ops.rampHealth',
+        ...readOf(BANK_OPS_RAMP_HEALTH),
         input: { windowHours: 24 },
         shape: 'list',
         rowsKey: 'rails',
@@ -603,9 +610,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.business-approvals',
         title: 'Business transfers waiting for their own checker',
         note: 'Pending transfers across every business, oldest first by the service’s order. Read-only: the business’s own checker approves or rejects, never an operator. A maker the directory cannot name shows the reason.',
-        module: 'bank',
         plainName: 'business approvals',
-        procedure: 'ops.businessApprovals',
+        ...readOf(BANK_OPS_BUSINESS_APPROVALS),
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'approvals',
@@ -701,8 +707,7 @@ function payHealth(hours: 24 | 168): { standing: ReadSpec; oneOff: ReadSpec; bil
   const when = hours === 24 ? 'last 24 hours' : 'last 7 days';
   const key = hours === 24 ? '24h' : '7d';
   const base = {
-    module: 'bank',
-    procedure: 'ops.transferHealth',
+    ...readOf(BANK_OPS_TRANSFER_HEALTH),
     input: { windowHours: hours },
     shape: 'record',
     emptyText: '',
@@ -794,9 +799,8 @@ const payP2pPointer: ReadSpec = {
   id: 'pay.p2p-pointer',
   title: 'P2P transfers',
   note: 'svc-bank states that it does not count P2P trades and gives no number for them. They are counted by svc-p2p on the P2P desk.',
-  module: 'bank',
   plainName: 'the P2P pointer',
-  procedure: 'ops.transferHealth',
+  ...readOf(BANK_OPS_TRANSFER_HEALTH),
   input: { windowHours: 24 },
   shape: 'record',
   columns: [
@@ -813,9 +817,8 @@ const payFailedStanding: ReadSpec = {
   title: 'Rejected standing-order transfers, last 7 days',
   note: 'Newest first. Rejected executions only: svc-bank records no failed one-off sends, so none are listed (see below). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page; the 7-day figure under Transfer health is the count. A dash in a name column is explained in the column beside it. Open a row to read its full record.',
   cursorKey: 'nextCursor',
-  module: 'bank',
   plainName: 'the rejected standing orders',
-  procedure: 'ops.failedTransfers',
+  ...readOf(BANK_OPS_FAILED_TRANSFERS),
   input: { windowHours: 168, limit: 50 },
   shape: 'list',
   rowsKey: 'items',
@@ -850,9 +853,8 @@ export const PAY_TRANSFER_DETAIL: ReadSpec = {
   id: 'pay.transfer-detail',
   title: 'Transfer record',
   note: 'One standing-order execution or one one-off send. A dash means svc-bank holds no value for that field for this kind of transfer: a one-off send has no schedule, occurrence, rejection code or settle time, and an unsettled transfer has no settle time or ledger transaction.',
-  module: 'bank',
   plainName: 'the transfer record',
-  procedure: 'ops.transferDetail',
+  ...readOf(BANK_OPS_TRANSFER_DETAIL),
   shape: 'record',
   columns: [
     text('kind', 'Kind'),
@@ -896,9 +898,8 @@ export const BANK_CUSTOMER_BALANCES: ReadSpec = {
   id: 'bank.customer-balances',
   title: 'Customer balances',
   note: 'The customer’s balance per coin as the ledger holds it: the total, what is available, and what is locked by each kind of lock. Nothing here is summed or converted by this console.',
-  module: 'bank',
   plainName: 'the customer’s balances',
-  procedure: 'ops.customerBalances',
+  ...readOf(BANK_OPS_CUSTOMER_BALANCES),
   shape: 'list',
   rowsKey: 'assets',
   idKey: 'assetId',
@@ -912,7 +913,8 @@ export const BANK_CUSTOMER_BALANCES: ReadSpec = {
     amount('collateral', 'Collateral'),
   ],
   emptyText: 'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
-  forbiddenText: FORBID_BANK_TREASURY,
+  forbiddenText:
+    'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read or the treasury permission admin:treasury).',
   refusals: CUSTOMER_BALANCE_REFUSALS,
 };
 
@@ -921,9 +923,8 @@ export const BANK_CUSTOMER_ENTRIES: ReadSpec = {
   id: 'bank.customer-entries',
   title: 'Entries behind the balance',
   note: 'Every posting that makes up the available balance of one coin, newest first. A debit counts as plus and a credit as minus, the way the ledger signs them.',
-  module: 'bank',
   plainName: 'the customer’s entries',
-  procedure: 'ops.customerBalanceEntries',
+  ...readOf(BANK_OPS_CUSTOMER_BALANCE_ENTRIES),
   shape: 'list',
   rowsKey: 'entries',
   anonymousRows: true,
@@ -946,9 +947,8 @@ export const BANK_CUSTOMER_ENTRIES_CHECK: ReadSpec = {
   id: 'bank.customer-entries-check',
   title: 'Do the entries add up to the balance',
   note: 'svc-bank adds the entries it holds and compares the sum with the balance it holds now. It only answers when the two agree.',
-  module: 'bank',
   plainName: 'the entries check',
-  procedure: 'ops.customerBalanceEntries',
+  ...readOf(BANK_OPS_CUSTOMER_BALANCE_ENTRIES),
   shape: 'record',
   columns: [
     bool('sumCheck.ok', 'Entries add up to the balance', { mustBe: true }),
@@ -965,9 +965,8 @@ const payBillsSummary: ReadSpec = {
   id: 'pay.bills-summary',
   title: 'Bill payments, all time',
   note: 'Counts by status over every bill payment, and whether each provider connection is set. "Unset" means no provider is connected, which is not the same as a rail that is up.',
-  module: 'bank',
   plainName: 'the bill payment summary',
-  procedure: 'bills.ops.summary',
+  ...readOf(BANK_BILLS_OPS_SUMMARY),
   shape: 'record',
   columns: [
     time('asOf', 'Computed by svc-bank at'),
@@ -989,9 +988,8 @@ const payBillsVolumes: ReadSpec = {
   id: 'pay.bills-volumes',
   title: 'Bill payments by status and asset, all time',
   note: 'The amount is the service’s own sum for each status and asset. svc-bank gives these rows no id, so they have no detail.',
-  module: 'bank',
   plainName: 'the bill payment volumes',
-  procedure: 'bills.ops.summary',
+  ...readOf(BANK_BILLS_OPS_SUMMARY),
   shape: 'list',
   rowsKey: 'volumes',
   anonymousRows: true,
@@ -1005,9 +1003,8 @@ const payBillsFailed: ReadSpec = {
   title: 'Failed bill payments',
   note: 'Newest first, status failed only (a returned payment is not in this list). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page.',
   cursorKey: 'nextCursor',
-  module: 'bank',
   plainName: 'the failed bill payments',
-  procedure: 'bills.ops.failed',
+  ...readOf(BANK_BILLS_OPS_FAILED),
   input: { limit: 50 },
   shape: 'list',
   rowsKey: 'items',
@@ -1039,9 +1036,8 @@ const payGlobalSummary: ReadSpec = {
   id: 'pay.global-summary',
   title: 'Global sends, all time',
   note: 'Counts by status over every cross-border send, and whether each provider connection is set. "Unset" means no provider is connected; travel-rule "undecided" means no decision is recorded.',
-  module: 'bank',
   plainName: 'the global send summary',
-  procedure: 'global.ops.summary',
+  ...readOf(BANK_GLOBAL_OPS_SUMMARY),
   shape: 'record',
   columns: [
     time('asOf', 'Computed by svc-bank at'),
@@ -1069,9 +1065,8 @@ const payGlobalVolumes: ReadSpec = {
   id: 'pay.global-volumes',
   title: 'Global sends by status and asset, all time',
   note: 'The amount is the service’s own sum for each status and asset. svc-bank gives these rows no id, so they have no detail.',
-  module: 'bank',
   plainName: 'the global send volumes',
-  procedure: 'global.ops.summary',
+  ...readOf(BANK_GLOBAL_OPS_SUMMARY),
   shape: 'list',
   rowsKey: 'volumes',
   anonymousRows: true,
@@ -1084,9 +1079,8 @@ const payGlobalFailed: ReadSpec = {
   id: 'pay.global-failed',
   title: 'Failed global sends',
   note: 'Newest first, status failed only. The 50 newest. svc-bank gives this list no page marker, so when exactly 50 are shown more may exist and older failures cannot be reached from here.',
-  module: 'bank',
   plainName: 'the failed global sends',
-  procedure: 'global.ops.failed',
+  ...readOf(BANK_GLOBAL_OPS_FAILED),
   input: { limit: 50 },
   shape: 'list',
   idKey: 'id',
@@ -1124,9 +1118,8 @@ const payGlobalRecalls: ReadSpec = {
   id: 'pay.global-recalls',
   title: 'Global sends their senders asked back',
   note: 'Oldest request first, refunded sends left out. The 50 oldest. A request moves nothing: the receiving bank decides, and a return is recorded and refunded by two different people.',
-  module: 'bank',
   plainName: 'the global send recall requests',
-  procedure: 'global.ops.recalls',
+  ...readOf(BANK_GLOBAL_OPS_RECALLS),
   input: { limit: 50 },
   shape: 'list',
   idKey: 'id',
@@ -2294,9 +2287,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.epoch',
         title: 'Next emission epoch',
         note: 'The epoch number the next emission would use. A read: it mints nothing, and minting stays behind its own switch in svc-token.',
-        module: 'token',
         plainName: 'the next emission epoch',
-        procedure: 'nextEmissionEpoch',
+        ...readOf(TOKEN_NEXT_EMISSION_EPOCH),
         shape: 'record',
         columns: [int('epoch', 'Next epoch')],
         emptyText: '',

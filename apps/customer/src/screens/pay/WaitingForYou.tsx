@@ -1,14 +1,8 @@
 import { useEffect, useId, useState } from 'react';
-import {
-  answerWaitingPayment,
-  Button,
-  fetchWaitingPayments,
-  fmtAmount,
-  HIDDEN_MASK,
-  useHideBalances,
-  useSession,
-  type ReceivedHold,
-} from './deps';
+import { Button, HIDDEN_MASK, StatusNote } from '@intafaced/ui/lit';
+import { classifyRefusal } from '../../data/refusal-codes';
+import { usePreferences } from '../../shared/preferences';
+import { answerWaitingPayment, fetchWaitingPayments, fmtAmount, useSession, type ReceivedHold } from './deps';
 import { payCopy } from './copy';
 import { PAY_SENT_EVENT } from './recent-model';
 
@@ -22,7 +16,7 @@ type Loaded = { status: 'loading' } | { status: 'failed' } | { status: 'ready'; 
  */
 export function WaitingForYou() {
   const { api } = useSession();
-  const hidden = useHideBalances();
+  const { hideBalances: hidden } = usePreferences();
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
@@ -33,7 +27,9 @@ export function WaitingForYou() {
     const controller = new AbortController();
     void fetchWaitingPayments(api, controller.signal).then((outcome) => {
       if (controller.signal.aborted) return;
-      setLoaded(outcome.kind === 'ok' ? { status: 'ready', list: outcome.data } : { status: 'failed' });
+      // A person not yet verified has nothing they can answer here, and Pay already says to verify: nothing to show.
+      if (outcome.kind === 'failed' && classifyRefusal(outcome.code) === 'verify') setLoaded({ status: 'ready', list: [] });
+      else setLoaded(outcome.kind === 'ok' ? { status: 'ready', list: outcome.data } : { status: 'failed' });
     });
     return () => controller.abort();
   }, [api, revision]);
@@ -67,19 +63,14 @@ export function WaitingForYou() {
 
   if (loaded.status === 'loading' || (loaded.status === 'ready' && loaded.list.length === 0)) return null;
   return (
-    <section className="pay-recent pay-waiting" aria-labelledby={titleId} data-testid="pay-waiting">
-      <h2 id={titleId} className="pay-recent__title">
-        {payCopy.t('Waiting for you')}
-      </h2>
+    <section className="lt-stack" aria-labelledby={titleId} data-testid="pay-waiting">
+      <h2 id={titleId}>{payCopy.t('Waiting for you')}</h2>
       {loaded.status === 'failed' ? (
-        <p className="pay-problem" role="alert">
-          {payCopy.t('Waiting load failed')}{' '}
-          <button type="button" className="pay-recent__link" onClick={() => setRevision((n) => n + 1)}>
-            {payCopy.t('Retry')}
-          </button>
-        </p>
+        <StatusNote tone="error" actions={<Button onClick={() => setRevision((n) => n + 1)}>{payCopy.t('Retry')}</Button>}>
+          {payCopy.t('Waiting load failed')}
+        </StatusNote>
       ) : (
-        <ul className="pay-waiting__list">
+        <ul className="lt-rows">
           {loaded.list.map((hold) => {
             const who = hold.fromHandle ? `@${hold.fromHandle}` : payCopy.t('Someone not in your contacts');
             const amount = hidden ? HIDDEN_MASK : `${fmtAmount(hold.amount)} ${hold.assetId}`;
@@ -96,17 +87,16 @@ export function WaitingForYou() {
                     ? payCopy.t('Waiting going back')
                     : null;
             return (
-              <li key={hold.transferId} className="pay-waiting__item" data-testid="pay-waiting-item" data-state={hold.state}>
-                <p className="pay-waiting__head">
+              <li key={hold.transferId} data-testid="pay-waiting-item" data-state={hold.state}>
+                <p>
                   <span>{payCopy.t('{who} sent you {amount}', { who, amount })}</span>
                 </p>
-                <p className="pay-hint">{payCopy.t('Waiting reason stranger')}</p>
-                {hold.note ? <p className="pay-hint">{hold.note}</p> : null}
-                <p className="pay-hint">{payCopy.t('Waiting goes back {date}', { date })}</p>
-                <div className="pay-row-actions">
+                <p className="lt-hint">{payCopy.t('Waiting reason stranger')}</p>
+                {hold.note ? <p className="lt-hint">{hold.note}</p> : null}
+                <p className="lt-hint">{payCopy.t('Waiting goes back {date}', { date })}</p>
+                <div className="lt-actions">
                   <Button
-                    variant="primary"
-                    size={40}
+                    tone="primary"
                     disabled={busy !== null || !open}
                     onClick={() => void answer(hold, 'accept')}
                     aria-label={payCopy.t('Accept {amount} from {who}', { amount, who })}
@@ -114,8 +104,6 @@ export function WaitingForYou() {
                     {payCopy.t('Accept')}
                   </Button>
                   <Button
-                    variant="secondary"
-                    size={40}
                     disabled={busy !== null || !open}
                     onClick={() => void answer(hold, 'deny')}
                     aria-label={payCopy.t('Deny {amount} from {who}', { amount, who })}
@@ -123,12 +111,8 @@ export function WaitingForYou() {
                     {payCopy.t('Deny')}
                   </Button>
                 </div>
-                {where ? <p className="pay-hint">{where}</p> : null}
-                {problem?.transferId === hold.transferId ? (
-                  <p className="pay-problem" role="alert">
-                    {problem.text}
-                  </p>
-                ) : null}
+                {where ? <p className="lt-hint">{where}</p> : null}
+                {problem?.transferId === hold.transferId ? <StatusNote tone="error">{problem.text}</StatusNote> : null}
               </li>
             );
           })}

@@ -7,7 +7,9 @@ import { ownOrderFills, placeOwnOrder } from './own-book.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { api, bestPrices, fromUnits, journeyState, times, toUnits, tool } from './stack.mjs';
-import { openVenuePage, otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { connectWhenAsked } from './dex.mjs';
+import { installTestWallet } from './test-wallet.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-cex-spot-18 "I look up a customer's routed order, and later reconcile or bust a trade on our own book", in the
 // running app and the founder console. One test per step, titled "J-cex-spot-18 #<n>". The support agent is founder B
@@ -222,7 +224,7 @@ test(`${J} #1 opens a customer's routed order from the support desk: the venue o
   // The venue order as the venue keeps it: its status, what filled, every fill, and no reject reason recorded.
   await expect(read).toHaveAttribute('data-status', truth.order.status);
   await expect(read.getByTestId('venue-read-status')).toHaveText('Filled');
-  expect(toUnits(await read.getAttribute('data-filled'))).toBe(toUnits(truth.order.filled));
+  await expect.poll(async () => toUnits(await read.getAttribute('data-filled'))).toBe(toUnits(truth.order.filled));
   const shown = page.getByRole('region', { name: 'Venue fills', exact: true }).getByTestId('venue-read-fill');
   await expect(shown).toHaveCount(truth.fills.length);
   for (const fill of truth.fills) await expect(shown.and(page.locator(`[data-fill-id="${fill.fillId}"]`))).toHaveCount(1);
@@ -247,10 +249,23 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
   const operatorRows = page.getByRole('region', { name: 'Venue fills', exact: true }).getByTestId('venue-read-fill');
   await expect(operatorRows).toHaveCount(truth.fills.length);
   const operatorFills = await operatorRows.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill-id')).sort());
-  // The customer's own order page, on their own wallet, says the same.
+  // The customer reaches their own order page from /trade/orders (reached from the menus) on their own wallet: it says the same.
   const context = await browser.newContext();
   const theirs = await context.newPage();
-  await openVenuePage(theirs, customer, `/trade/orders/${routed}`, walletKey);
+  const { chainId } = await venueInfo();
+  const wallet = await installTestWallet(theirs, { chainId, privateKey: walletKey });
+  await signIn(theirs, customer);
+  await theirs.goto('/trade/orders');
+  await theirs
+    .getByRole('group', { name: 'Which orders', exact: true })
+    .getByRole('button', { name: 'Connected wallet', exact: true })
+    .click();
+  await expect(theirs).toHaveURL(/product=venue/);
+  const address = theirs.getByTestId('venue-wallet-address');
+  await connectWhenAsked(theirs, address);
+  await expect(address).toHaveText(wallet.address.toLowerCase());
+  await theirs.getByTestId('venue-history').locator(`a[href="/trade/orders/${routed}"]`).click();
+  await expect(theirs).toHaveURL(new RegExp(`/trade/orders/${routed}$`));
   const mine = theirs.getByTestId('venue-order');
   await expect(mine.getByTestId('venue-order-heading').locator('[data-cell="status"]')).toHaveText(operatorStatus);
   await expect(mine.getByTestId('venue-order-fill')).toHaveCount(truth.fills.length);
@@ -312,8 +327,8 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   const first = await runSweep();
   const checked = Number(await first.getAttribute('data-checked'));
   expect(checked).toBeGreaterThan(0);
-  expect(Number(await first.getAttribute('data-released'))).toBeGreaterThanOrEqual(1);
-  expect((await first.getAttribute('data-released-orders')).split(',')).toContain(orphan);
+  await expect.poll(async () => Number(await first.getAttribute('data-released'))).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => (await first.getAttribute('data-released-orders')).split(',')).toContain(orphan);
   await expect(first).toContainText(`${checked} orders checked`);
   // The orphan's hold came back once: used fell by exactly its hold, nothing left the account.
   expect(usedBefore - (await usdtUsed(customer))).toBe(hold);

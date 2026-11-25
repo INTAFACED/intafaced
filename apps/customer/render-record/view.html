@@ -118,20 +118,22 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div lang="en" dir="ltr" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div lang="en" dir="ltr">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Display</h1>
-<p class="muted">These choices are saved on this device.</p>
+<h1 class="lt-title">Display</h1>
+<p class="lt-description">These choices are saved on this device.</p>
 </div>
 </header>
-<div class="settings-grid">
-<section class="settings-section">
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section id="view-display">
 <h2>
 <span lang="en" dir="ltr" data-i18n="customer.account.view.display">General</span>
 </h2>
-<label class="field">
+<label class="lt-field">
 <span>
 <span lang="en" dir="ltr" data-i18n="customer.account.view.language">Language</span>
 </span>
@@ -144,7 +146,7 @@
 <span lang="en" dir="ltr" data-i18n="customer.account.view.published.translations.are.used.where.available.new">Anything not translated is shown in English.</span>
 </small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>
 <span lang="en" dir="ltr" data-i18n="customer.account.view.up.and.down.colors">Up colour</span>
 </span>
@@ -153,25 +155,23 @@
 <option value="red" lang="en">Red for up, green for down</option>
 </select>
 </label>
-<div class="field">
+<div class="lt-field">
 <span>
 <span lang="en" dir="ltr" data-i18n="customer.account.view.default.view">Default view</span>
 </span>
-<div data-orientation="horizontal" role="group" data-slot="segmented-control" aria-label="Default view" class="relative grid items-stretch rounded-pill bg-field p-0.5 w-fit h-8 text-sm" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
-<span aria-hidden="true" style="width: calc((100% - 4px) / 2); transform: translateX(0%);" class="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-pill transition-[transform,background-color] duration-(--if-t-tab) ease-if bg-raised">
-</span>
-<button type="button" data-pressed="" aria-disabled="false" tabindex="0" aria-pressed="true" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Simple</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Pro</button>
+<div class="lit-segmented" role="group" aria-label="Default view">
+<button type="button" aria-pressed="true">Simple</button>
+<button type="button" aria-pressed="false">Pro</button>
 </div>
 <small>
 <span lang="en" dir="ltr" data-i18n="customer.account.view.default.view.hint">Simple shows less at a time. Pro shows everything at once. You can switch any time from the top bar.</span>
 </small>
 </div>
-<label class="toggle-row">
-<span>Hide balance values</span>
+<label class="lt-field">
 <input type="checkbox">
+<span>Hide balance values</span>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>
 <span lang="en" dir="ltr" data-i18n="customer.account.view.display.currency">Display currency</span>
 </span>
@@ -185,7 +185,7 @@
 <span lang="en" dir="ltr" data-i18n="customer.account.view.display.currency.hint">Home and Money show your values in this unit. With no BTC price, or no exchange rate for the currency, they stay in dollars and say so.</span>
 </small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>
 <span lang="en" dir="ltr" data-i18n="customer.account.view.time.zone">Time zone</span>
 </span>
@@ -199,41 +199,48 @@
 </small>
 </label>
 </section>
-</div>
-<section class="section" aria-label="Trading">
+<section id="view-trading" aria-label="Trading">
 <h2>Trading</h2>
-<p class="muted">How the order form behaves on this device.</p>
-<label class="toggle">
+<p class="lt-hint">How the order form behaves on this device.</p>
+<label class="lt-field">
 <input disabled="" aria-describedby="trading-summary-note" readonly="" type="checkbox" checked="">
 <span>Show the order summary before sending</span>
 </label>
 <small id="trading-summary-note">Always on. The summary can be turned off only for limit orders under a size cap, and no cap is set. Market orders always show it.</small>
-<label class="toggle">
+<label class="lt-field">
 <input aria-describedby="trading-reset-note" type="checkbox" checked="">
 <span>Clear the amount after an order goes through</span>
 </label>
 <small id="trading-reset-note">Off keeps the amount, so the next order starts from the same size.</small>
-<form class="field">
-<label class="field">
+<form>
+<label class="lt-field">
 <span>Quick sizes</span>
 <input inputmode="decimal" autocomplete="off" spellcheck="false" aria-describedby="trading-sizes-note" aria-invalid="false" value="">
 </label>
 <small id="trading-sizes-note">Amounts in the asset you trade, separated by commas, up to 6. They fill the Amount field and never send an order. Blank shows no quick sizes.</small>
-<button type="submit" class="button button--secondary ">Save quick sizes</button>
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Save quick sizes</button>
 </form>
 <p>
-<strong>Share an order</strong> <span class="muted">Not available. A shared order needs a share window, and none is set; no share record service exists.</span>
+<strong>Share an order</strong> <span class="lt-hint">Not available. A shared order needs a share window, and none is set; no share record service exists.</span>
 </p>
 </section>
-<div class="actions section">
-<button type="button" class="button button--secondary ">
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.account.view.restore.defaults">Restore defaults</span>
 </button>
-<p role="status" class="muted">
+<p role="status" class="lt-hint">
 </p>
-<p role="status" class="muted" data-view-sync="not-saved">
+<p role="status" class="lt-hint" data-view-sync="not-saved">
 <span lang="en" dir="ltr" data-i18n="customer.account.view.account.sync.not.saved">Not saved to your account. Your choice applies on this device.</span>
 </p>
+</div>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>
+<span lang="en" dir="ltr" data-i18n="customer.account.view.explain">Each choice is saved as you make it. Restore defaults puts every choice back to how the app starts.</span>
+</p>
+</section>
+</div>
 </div>
 </div>
 </div>

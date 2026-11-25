@@ -621,7 +621,7 @@ test('blueprint session stays switched off with the reason and sends no free-tex
     await route.fulfill({ json: { result: { data: proc === 'mentors' ? [] : null } } });
   });
   await page.goto('/blueprint');
-  await expect(page.getByText('The Blueprint service does not publish its question list', { exact: false })).toBeVisible();
+  await expect(page.getByText('Blueprint questions are not published', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create your Blueprint' })).toBeDisabled();
   await expect(page.getByLabel('Answer key')).toHaveCount(0);
   await expect(page.getByLabel('Initial visibility')).toBeDisabled();
@@ -680,9 +680,7 @@ test('token funds actions refuse when the public contract omits the configured a
     await route.fulfill({ json: { result: { data } } });
   });
   await page.goto('/token');
-  await expect(
-    page.getByText('Staking and unstaking are off because INTAFACED does not say which token balance they would move.', { exact: true }),
-  ).toBeVisible({
+  await expect(page.getByText('Staking and unstaking are paused because no staking token is set.', { exact: true })).toBeVisible({
     timeout: 3000,
   });
   await expect(page.getByRole('button', { name: 'Review stake' })).toHaveCount(0);

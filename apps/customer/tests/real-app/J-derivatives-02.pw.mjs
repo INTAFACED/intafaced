@@ -4,12 +4,10 @@ import { api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits, t
 import { fundedTrader, signIn } from './desk.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
-// J-derivatives-02, in the running app (docs/roadmap/journeys.json): size a trade and check its risk before opening it.
-// One test per step, titled "J-derivatives-02 #<n>", run in order on one TEST account. #2, #3, #4 and #7 (the tiers, what
-// counts as margin, an asset the venue doesn't take, and the venue's open-interest limit) run on the person's own venue
-// account in J-derivatives-02-venue.pw.mjs, read from the venue's own record: under the launch money model the venue,
-// not our engine, sets those rules. The contract is the TEST
-// perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST ladder
+// J-derivatives-02's custodial Later branch (our own book, off at launch: docs/adr/2026-11-10-launch-money-model.md).
+// Every step of J-derivatives-02 (#1 to #8) is proven on the person's own venue account in J-derivatives-02-venue.pw.mjs;
+// these tests keep guarding the custodial Later engine (calculator, order cap & split, tier confirm, dynamic price range)
+// on the TEST perpetual `local-test-gates.mjs futures` lists with the stack's LOCAL TEST ladder
 // (local-test-stack.mjs TEST_FUTURES_LADDER_POLICY), never an owner table. Every figure is read back through the
 // customer's own API.
 const J = 'J-derivatives-02';
@@ -43,7 +41,7 @@ function writes(page) {
   return sent;
 }
 
-test(`${J} #1 opens the margin and P&L calculator: margin, liquidation price and P&L for typed inputs, formulas named`, async ({
+test(`${J} #1, the custodial Later branch, checked on our own book: opens the margin and P&L calculator: margin, liquidation price and P&L for typed inputs, formulas named`, async ({
   page,
 }) => {
   const who = await fundedTrader(page, 'jd2', '1000');
@@ -155,7 +153,7 @@ test(`${J} #1 opens the margin and P&L calculator: margin, liquidation price and
 
 const TIERS = `/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`;
 
-test(`${J} #5 previews past the order cap and the price band: a split offered and placed, the price moved to the band edge, the slippage cap shown`, async ({
+test(`${J} #5, the custodial Later branch, checked on our own book: previews past the order cap and the price band: a split offered and placed, the price moved to the band edge, the slippage cap shown`, async ({
   page,
 }) => {
   const who = account();
@@ -322,7 +320,9 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   }
 });
 
-test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the new tier and its leverage`, async ({ page }) => {
+test(`${J} #6, the custodial Later branch, checked on our own book: adds size that crosses a tier threshold: a confirm step names the new tier and its leverage`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   // A tier-1 position is worth at most 5% of the depth it closes into: the BTC/USDT book's best bid level, the book
@@ -476,7 +476,7 @@ test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the 
   }
 });
 
-test(`${J} #8 previews while the dynamic price range is wider than usual: the band shown with its current width, an order outside refused`, async ({
+test(`${J} #8, the custodial Later branch, checked on our own book: previews while the dynamic price range is wider than usual: the band shown with its current width, an order outside refused`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -652,7 +652,7 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
 
 // Held for #8 only, passed or not: the next step's BTC/USDT and perp books are quoted again.
 test.afterEach(() => {
-  if (!test.info().title.startsWith(`${J} #8 `)) return;
+  if (!test.info().title.startsWith(`${J} #8,`)) return;
   tool('local-test-market.mjs', 'release', 'BTC/USDT');
   tool('local-test-market.mjs', 'release', SYMBOL);
 });

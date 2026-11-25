@@ -70,18 +70,23 @@ if (status !== 0 || cancelled) {
   process.exit(status || 1);
 }
 
-// Every node_modules/.bin/tsc the install wrote now runs the repo's one type-check command, so a hand-typed `npx tsc
-// --noEmit` is incremental, starts from this machine's last passing check and waits for one already running on the same
-// project (tooling/scripts/tsc.mjs; INTAFACED/project-state#3374).
-const { installShims } = await import('../scripts/tsc.mjs');
-console.log(`tsc: ${installShims(worktree)} node_modules/.bin/tsc files point at tooling/scripts/tsc.mjs`);
-
 // The Rust toolchain rust-toolchain.toml pins, so `pnpm rust:check` needs no step by hand. rustup installs it once per
-// machine (a no-op when it is there). Without rustup the install above still stands: the line to run is printed, and
-// only a push that changes Rust is refused for it (.githooks/pre-push).
+// machine (a no-op when it is there). Without rustup the install above still stands and the line to run is printed; CI's
+// Rust job judges every push that changes Rust.
 const rustup = spawnSync('rustup', ['toolchain', 'install'], { cwd: worktree, stdio: ['ignore', 'inherit', 'inherit'] });
 if (rustup.error)
   console.warn(
     "rustup is missing, so the Rust toolchain is not installed. Run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && rustup toolchain install",
   );
 else if (rustup.status !== 0) console.warn(`rustup toolchain install exited ${rustup.status}; pnpm rust:check installs it on first use.`);
+
+// knip's cache for the dead-code check before each push (tooling/scripts/pre-push-changed.mjs): about 35 s to fill once,
+// then about 8 s a push. Filled here, detached and at the lowest priority, so the first push does not pay for it; setup
+// is done without waiting for it.
+const warm = spawn('nice', ['-n', '19', process.execPath, 'tooling/ci/dead-code.mjs', '--cache'], {
+  cwd: worktree,
+  stdio: 'ignore',
+  detached: true,
+});
+warm.on('error', () => {});
+warm.unref();

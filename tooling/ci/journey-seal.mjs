@@ -18,10 +18,17 @@
  *   - cancelled and skipped runs say nothing and are passed over, and so does a finished run that started no job
  *     (startedNoJob, read from the run's jobs list), each named on one line;
  *   - per step, the newest finished run (by its current attempt's start) whose merged report lists the step decides:
- *     passed is green; failed or skipped is red. A newer run that failed a step outranks an older pass;
+ *     passed is green; failed or skipped is red. A newer run that failed a step outranks an older pass, and an older run
+ *     or an earlier attempt that failed it outranks a newer pass: a step that fails then passes on one commit is flaky
+ *     and never counts as passing (project-state AGENTS.md "How work flows" 4; flakyWay). (Failure it prevents: #9827
+ *     merged on 822aec16bd although run 45030979813 there failed J-cex-spot-21 #4, because run 45031001317, started 14
+ *     seconds later on the same head, passed it and only the newest run was read; the step went flaky on main about 90
+ *     minutes later, #9893. An earlier attempt counts too, so a re-run that passes, the first thing AGENTS.md "How work
+ *     flows" 8 says to try on a red, can't hide a failed step the same way.);
  *   - a run's report is the `real-app-journeys` artifact uploaded during its current attempt (created at or after the
- *     attempt started), so a re-run's verdict is never read from an earlier attempt's report. A run with no such report,
- *     or one that can't be read, is red for every step it could have decided (fail closed), unless a newer run decides;
+ *     attempt started), so a re-run's verdict is never read from an earlier attempt's report; an earlier attempt's report
+ *     (earlierReportArtifacts) counts only for a step it failed. A finished run with no such report, or one that can't
+ *     be read, is red for every step it could have decided (fail closed), whichever run is newer;
  *   - a step no finished run on the head reports is not green.
  * The exemption is one strict machine line, not Markdown: `Left-or-replaced: J-bank-13 #1 #3` (exemptions), at column 0,
  * outside any fenced code block and any HTML comment, holding only full step ids. Anything else that looks like one (a
@@ -57,7 +64,7 @@
  *
  *   REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
- *   REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
+ *   REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>] [--main <sha>]   (any pull request, closed too; read only)
  *   REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  * CI sets GH_TOKEN; run by hand, it reads through the logged-in gh (github-fetch.mjs).
  */
@@ -67,12 +74,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { githubFetch, githubToken } from './github-fetch.mjs';
-import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
+import { runJobs } from './run-jobs.mjs';
+import {
+  BASELINE_PATH,
+  JOURNEYS_ARTIFACT,
+  fetchInputs,
+  isMainRun,
+  judge,
+  manifestsAt,
+  moneyRule,
+  NO_LANE,
+  betaLane,
+  isBetaPull,
+  readReport,
+  rootInputs,
+} from './journey-verdict.mjs';
 import {
   DISPATCH_GROUP_MAX,
   RUN_FILE,
   dispatchCommands,
   journeyTouch,
+  mayBeQuiet,
   namedInputs,
   namedJourneyIds,
   pathKind,
@@ -254,6 +276,17 @@ const leaveLine = (keys) =>
   `to leave these steps instead, add this line to the body, at the start of a line and outside code: ${exemptionLine(keys)}`;
 
 /**
+ * The way forward for a step that failed in one run or attempt on a head and passed in another: it is flaky, and a
+ * flaky step never counts as passing (project-state AGENTS.md "How work flows" 4: "A step that fails then passes on one
+ * commit opens a flaky item; it stops only its own journeys and never counts as passing"). So a re-run that passes
+ * does not clear it, and nothing a person does is needed: the builder opens the flaky item with the one command
+ * (open-flaky.mjs, which labels it `flaky`, the pull's first pick), and the seal passes on a head whose every run
+ * passes the step: its deterministic fix, made here or merged in from main. `key` is a report key (`J-x-01#3`).
+ */
+export const flakyWay = (key, sha, repo, runId) =>
+  `a step that fails then passes on one commit is flaky and never counts as passing (project-state AGENTS.md "How work flows" 4), so a re-run that passes does not clear it; open its flaky item (node tooling/ci/open-flaky.mjs --step "${String(key).replace('#', ' #')}" --sha ${sha} --run https://github.com/${repo}/actions/runs/${runId} --title "<what fails>" --body-file <file>) and push a head on which every run passes it (its deterministic fix, made here or merged in from main)`;
+
+/**
  * The verdict for one head. `runs`: every JOURNEYS_WORKFLOW run listed for this head (the caller lists by head_sha; this
  * filters again). `reportOf(run)`: { states } of the run's current-attempt report, or { error }. `derived`: the steps of
  * changed journey test files no name covers (judgeTouched), judged as if the title named them. Pure but for reportOf.
@@ -315,22 +348,35 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
   const kinds = new Set();
   for (const k of needed) {
     let decided = null;
+    // Every finished run on the head is read, and every earlier attempt of one: a failure in any of them stands
+    // against a pass in another (flakyWay).
+    let unreadable = null;
+    const failedIn = [];
     for (const r of finished) {
       const rep = await report(r);
       const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
       if (rep.error) {
-        decided = {
-          green: false,
-          kind: 'runner',
-          why: `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out`,
-        };
-        break;
+        unreadable ??= `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out`;
+        if (!decided) break;
+        continue;
       }
+      for (const e of rep.earlier ?? [])
+        if (e.error)
+          unreadable ??= `run ${r.id} (attempt ${e.attempt})'s report couldn't be read (${e.error}), so a failure there can't be ruled out`;
+        else if (e.states?.[k] === 'failed') failedIn.push({ where: `run ${r.id} (attempt ${e.attempt})`, run: r.id });
       const st = rep.states?.[k];
       if (st === undefined) continue;
-      decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, kind: 'yours', why: `${st} in ${where}` };
-      break;
+      if (!decided)
+        decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, kind: 'yours', why: `${st} in ${where}` };
+      else if (st === 'failed') failedIn.push({ where, run: r.id });
     }
+    if (decided?.green && failedIn.length)
+      decided = {
+        green: false,
+        kind: 'yours',
+        why: `${decided.why}, but failed in ${failedIn.map((f) => f.where).join(', ')} on this same head: ${flakyWay(k, sha, repo, failedIn[0].run)}`,
+      };
+    if (unreadable && (!decided || decided.green)) decided = { green: false, kind: 'runner', why: unreadable };
     if (!decided)
       decided = {
         green: false,
@@ -430,10 +476,12 @@ export async function countJobs(runs, jobsOf) {
 
 /**
  * The touched-journeys verdict for a head whose pull request touches only journey test files (`files`: their names, as
- * a report's `ran` lists them). Newest finished run first: every run read is judged by the journeys
- * verdict on the files it has (`verdictOf`, the default branch's baseline), and any red step there fails the seal, so a
- * newer red run is never hidden behind an older clean one; runs are read until every touched file has been run by one
- * of them. A touched file no finished run on the head ran fails the seal and is named, with the runs by hand on `branch`
+ * a report's `ran` lists them). Every finished run on the head is read, newest first, and judged by the journeys
+ * verdict on the files it has (`verdictOf`, the default branch's baseline): any red step in any of them fails the seal,
+ * so a red run is never hidden behind a clean one, newer or older (#9827: run 45030979813's red J-cex-spot-21 #4 sat
+ * behind run 45031001317's pass on the same head, and the seal stopped reading once the newer run covered every file).
+ * An earlier attempt of a run counts the same way for each step it failed that a run on the head now passes (flakyWay).
+ * A touched file no finished run on the head ran fails the seal and is named, with the runs by hand on `branch`
  * (the pull request's head branch) that run just those and each start (dispatchCommands). A run still going holds it, a
  * cancelled or skipped run says nothing, and a report or verdict that can't be read fails closed.
  */
@@ -471,8 +519,9 @@ export async function judgeTouchedRun({
   const passedOver = noJob.map((l) => `touched journeys: ${l}`);
   const left = new Set(files);
   const read = [];
+  // Every finished run's report first, so a red in one names the run on this head that passed the same step.
+  const reps = [];
   for (const r of finished) {
-    if (!left.size) break;
     const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
     let rep;
     try {
@@ -480,13 +529,62 @@ export async function judgeTouchedRun({
     } catch (e) {
       rep = { error: e.message };
     }
-    if (rep.error)
+    const bad = rep.error
+      ? { where, error: rep.error }
+      : (rep.earlier ?? []).filter((e) => e.error).map((e) => ({ where: `run ${r.id} (attempt ${e.attempt})`, error: e.error }))[0];
+    if (bad)
       return {
         ok: false,
         state: 'fail',
         kinds: ['runner'],
-        lines: [`touched journeys: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`, ...passedOver],
+        lines: [`touched journeys: ${why}; ${bad.where}'s report couldn't be read (${bad.error}), so the seal fails closed`, ...passedOver],
       };
+    reps.push({ r, rep, where });
+  }
+  // Where each step passed in a run's current attempt on this head (the first, newest, such run).
+  const passedIn = new Map();
+  for (const { rep, where } of reps)
+    for (const [k, st] of Object.entries(rep.states ?? {})) if (st === 'passed' && !passedIn.has(k)) passedIn.set(k, where);
+  const flaky = (x, where, r) =>
+    passedIn.has(x.step) && passedIn.get(x.step) !== where
+      ? `${x.step}: ${x.why}; it passed in ${passedIn.get(x.step)}: ${flakyWay(x.step, sha, repo, r.id)}`
+      : `${x.step}: ${x.why}`;
+  for (const { r, rep, where } of reps) {
+    // Each earlier attempt of this run, judged as the run is, for the steps it failed that a run here now passes.
+    for (const e of rep.earlier ?? []) {
+      const at = `run ${r.id} (attempt ${e.attempt})`;
+      let v;
+      try {
+        v = await verdictOf(e, r);
+      } catch (err) {
+        return {
+          ok: false,
+          state: 'fail',
+          kinds: ['runner'],
+          lines: [
+            `touched journeys: ${why}; ${at}'s verdict couldn't be worked out (${err.message}), so the seal fails closed`,
+            ...passedOver,
+          ],
+        };
+      }
+      const failed = (v.red ?? []).filter((x) => e.states?.[x.step] === 'failed' && passedIn.has(x.step));
+      const split = await splitOrAll(inherited, failed, r);
+      read.push(...inheritedLines(split));
+      if (split.blocking.length)
+        return {
+          ok: false,
+          state: 'fail',
+          kinds: redKinds(split.blocking),
+          lines: [
+            `touched journeys: ${why}; ${at} failed ${split.blocking.length} step(s) a run on this head now passes: ${split.blocking
+              .slice(0, 10)
+              .map((x) => flaky(x, at, r))
+              .join('; ')}${split.blocking.length > 10 ? `; ${split.blocking.length - 10} more` : ''}`,
+            ...read.map((l) => `touched journeys: ${l}`),
+            ...passedOver,
+          ],
+        };
+    }
     let v;
     try {
       v = await verdictOf(rep, r);
@@ -501,6 +599,17 @@ export async function judgeTouchedRun({
         ],
       };
     }
+    if (v.moneyByHead?.length)
+      read.push(
+        `${where}: main's money rule disagrees with the baseline on ${v.moneyByHead.join(', ')}, and this head's own rule agrees with the baseline, so each is read under the baseline's flag and any red there counts as money`,
+      );
+    if (v.offBeta?.length)
+      read.push(
+        `${where}: ${v.offBeta.length} red step(s) outside the beta's own journeys, money and sign-in hold no beta pull request (the beta lane; main's run after the merge judges them): ${v.offBeta
+          .slice(0, 10)
+          .map((x) => x.step)
+          .join(', ')}${v.offBeta.length > 10 ? `, ${v.offBeta.length - 10} more` : ''}`,
+      );
     // A red this head inherited from main outside this pull request's area stops no one.
     const split = await splitOrAll(inherited, v.red, r);
     read.push(...inheritedLines(split));
@@ -513,7 +622,7 @@ export async function judgeTouchedRun({
         lines: [
           `touched journeys: ${why}; ${where} has ${red.length} step(s) outside the list or against its rules: ${red
             .slice(0, 10)
-            .map((x) => `${x.step}: ${x.why}`)
+            .map((x) => flaky(x, where, r))
             .join('; ')}${red.length > 10 ? `; ${red.length - 10} more` : ''}`,
           ...read.map((l) => `touched journeys: ${l}`),
           ...passedOver,
@@ -544,6 +653,32 @@ export function currentReportArtifact(run, artifacts) {
     (a) => a?.name === JOURNEYS_ARTIFACT && !a.expired && Number.isFinite(start) && Date.parse(a.created_at) >= start,
   );
   return fits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)[0] ?? null;
+}
+
+/**
+ * The artifact that holds each earlier attempt's report of `run` (attempts 1 to run_attempt - 1), for a step one of them
+ * failed (flakyWay): for attempt k, the newest JOURNEYS_ARTIFACT made at or after it started (`starts`: Map(attempt →
+ * its run_started_at)) and before the next attempt did (the current attempt's start is the run's own). An attempt with
+ * none (it ran nothing, or stopped before its report) is left out: it reported no step. An attempt whose start is
+ * unknown is { attempt, error }, so the seal fails closed. Returns [{ attempt, artifact } | { attempt, error }]. Pure.
+ */
+export function earlierReportArtifacts(run, artifacts, starts) {
+  const current = Number(run?.run_attempt ?? 1);
+  const at = (k) => Date.parse(k === current ? (run?.run_started_at ?? '') : (starts?.get(k) ?? ''));
+  const out = [];
+  for (let k = 1; k < current; k++) {
+    const [from, to] = [at(k), at(k + 1)];
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      out.push({ attempt: k, error: `attempt ${k}'s start couldn't be read` });
+      continue;
+    }
+    const fits = (artifacts ?? []).filter(
+      (a) => a?.name === JOURNEYS_ARTIFACT && !a.expired && Date.parse(a.created_at) >= from && Date.parse(a.created_at) < to,
+    );
+    const art = fits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)[0];
+    if (art) out.push({ attempt: k, artifact: art });
+  }
+  return out;
 }
 
 // ---- GitHub reads (GET only; a refusal or an unreadable list fails the seal closed) ----
@@ -600,9 +735,52 @@ async function listWhole(path, key, token, what) {
   throw new Error(`${what}: more than 1,000 listed, not whole`);
 }
 
+/**
+ * The steps on a screen the hosted beta hides, as the run's own verdict wrote them beside its report (set-aside.json
+ * `notOnBeta`, `betaUnread`): { steps } or { unread }. No file, no list or an unreadable one is unread, so the beta gate
+ * (journey-verdict.mjs betaLane) sets nothing apart and every step gates.
+ */
+export function betaOfArtifact(zip, exec = execFileSync) {
+  let list;
+  try {
+    list = JSON.parse(
+      exec('unzip', ['-p', zip, 'set-aside.json'], { maxBuffer: 64 * 2 ** 20, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }),
+    );
+  } catch {
+    return { unread: 'the run kept no readable set-aside.json' };
+  }
+  if (list?.betaUnread) return { unread: String(list.betaUnread) };
+  if (!Array.isArray(list?.notOnBeta)) return { unread: 'its set-aside.json holds no notOnBeta list' };
+  return { steps: list.notOnBeta };
+}
+
 export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
+  // One report artifact, downloaded and read: { states, files, ran, artifact }.
+  const readArtifactReport = async (art) => {
+    const dir = mkdtempSync(join(tmpdir(), 'journey-seal-'));
+    try {
+      const zip = join(dir, 'a.zip');
+      writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
+      const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
+      const { states, files, ran } = readReport(JSON.parse(text));
+      return { states, files, ran, artifact: art.id, beta: betaOfArtifact(zip) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
   return {
+    // The head's tooling reach (journey-touch.mjs quietTooling), scanned by this script's own tooling-reach.mjs (the
+    // default branch's) over the head commit's files, as the journeys run's planner scans its checkout of the head.
+    toolingReach: async (sha) => {
+      const { commitTree, reachOf } = await import('./tooling-reach.mjs');
+      const tree = commitTree(BASE_ROOT, sha);
+      try {
+        return reachOf(tree)?.journeys ?? null;
+      } finally {
+        tree.cleanup();
+      }
+    },
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
     // The pull requests GitHub lists on a commit, open or not (mergedNothingToSeal).
     pullsOn: (sha) => api(`/repos/${repo}/commits/${sha}/pulls?per_page=100`, token),
@@ -612,7 +790,11 @@ export function makeIo(repo, token) {
     // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
     // Each finished one carries its job count (countJobs), so a run that started no job is passed over (startedNoJob).
     runs: async (sha) => {
-      const jobsOf = (id) => listWhole(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, 'jobs', token, `run ${id}'s jobs`);
+      const jobsOf = async (id) => {
+        const jobs = await runJobs(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, (p) => api(p, token));
+        if (!jobs) throw new Error(`run ${id}'s jobs: not a list`);
+        return jobs;
+      };
       return countJobs(
         await settleRuns(
           await listWhole(
@@ -635,15 +817,36 @@ export function makeIo(repo, token) {
       );
       const art = currentReportArtifact(run, arts);
       if (!art) return { error: `no ${JOURNEYS_ARTIFACT} artifact from its current attempt` };
-      const dir = mkdtempSync(join(tmpdir(), 'journey-seal-'));
+      return readArtifactReport(art);
+    },
+    // Each earlier attempt's report of a re-run run on a pull request's head (earlierReportArtifacts), for the steps it
+    // failed (flakyWay): one GET per earlier attempt for its start, one artifact list, one download each. A read that
+    // fails is that attempt's { error }, so the seal fails closed.
+    async earlierReports(run) {
+      const current = Number(run?.run_attempt ?? 1);
+      if (!(current > 1)) return [];
       try {
-        const zip = join(dir, 'a.zip');
-        writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
-        const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
-        const { states, files, ran } = readReport(JSON.parse(text));
-        return { states, files, ran, artifact: art.id };
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
+        const starts = new Map();
+        for (let k = 1; k < current; k++)
+          starts.set(k, (await api(`/repos/${repo}/actions/runs/${run.id}/attempts/${k}`, token))?.run_started_at);
+        const arts = await listWhole(
+          `/repos/${repo}/actions/runs/${run.id}/artifacts?name=${JOURNEYS_ARTIFACT}`,
+          'artifacts',
+          token,
+          `run ${run.id}'s artifacts`,
+        );
+        const out = [];
+        for (const e of earlierReportArtifacts(run, arts, starts))
+          if (e.error) out.push(e);
+          else
+            try {
+              out.push({ attempt: e.attempt, ...(await readArtifactReport(e.artifact)) });
+            } catch (err) {
+              out.push({ attempt: e.attempt, error: err.message });
+            }
+        return out;
+      } catch (e) {
+        return [{ attempt: 1, error: e.message }];
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
@@ -735,14 +938,18 @@ export function makeIo(repo, token) {
       }
       return out;
     },
-    verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
+    verdictOf: (report, run, { headMoney = null, headBaseline = null } = {}) =>
+      fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney, headBaseline }),
+    // The money rule at a pull request's head (moneyAt), for a money-flag mismatch on its own run (sealPull).
+    headMoney: (ref) => moneyVia(repo, token, ref),
   };
 }
 
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+// `memo`: each GET fetchInputs makes is made once per seal step, for every run it judges (journey-verdict.mjs fetchInputs).
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map(), memo: new Map() });
 
 /**
  * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
@@ -759,9 +966,17 @@ export function journeyFilesAt(root) {
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
-export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
-  const { baseline, money, reports } = inputs;
-  const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
+export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
+  const { baseline, money, reports, memo } = inputs;
+  // The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061): on a beta pull request's
+  // run (a `beta/` branch of this repository), a red outside the beta's own journeys, money and sign-in holds nothing.
+  // Every other run, main's runs read for inherited reds included, keeps every step.
+  const betaPull =
+    run?.event === 'pull_request' &&
+    !isMainRun(run, repo) &&
+    isBetaPull({ headRef: run?.head_branch, headRepo: run?.head_repository?.full_name, repo });
+  const offBeta = betaPull ? betaLane({ beta: report?.beta, guard: inputs.guard, modules: inputs.owners, orders: inputs.orders }) : NO_LANE;
+  const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
   // The files each run ran, never the step-to-file map: that keeps one file a step, so a step id two files share
@@ -779,7 +994,19 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
   // verdict is: a red step there fails the seal; only a run clean on all it has is passed over.
   const target = missing.length ? have : null;
-  const v = judge({ newest: report, named: got.named, baseline, money, passedSince: got.passedSince, issues: got.issues, target });
+  const v = judge({
+    newest: report,
+    named: got.named,
+    baseline,
+    money,
+    passedSince: got.passedSince,
+    issues: got.issues,
+    target,
+    headMoney,
+    // The baseline the merge would hold: the head's when the pull request changes it (sealPull), else main's.
+    headBaseline: headMoney ? (headBaseline ?? baseline) : null,
+    offBeta,
+  });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
   const lastPass = {};
@@ -792,8 +1019,90 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
           ? String(baseline?.run?.sha ?? '')
           : null;
   }
-  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass };
+  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [], offBeta: v.offBeta ?? [] };
 }
+
+/**
+ * The money rule (journey-verdict.mjs moneyRule) as a pull request's head commit holds it, read the way manifestsAt
+ * and rootInputs read a checkout: every package.json one folder under apps, services, packages and tooling, every
+ * `crates/svc-<x>` with a Cargo.toml, and docs/roadmap's journeys.json and slices.json. `list(dir)` gives a folder's
+ * entries ({ name, type }, null when it is not there), `blobs(paths)` each file's text (null when missing), `text(path)` one
+ * file's text. Anything unreadable throws, so the seal keeps the red (judge, headMoney).
+ */
+export async function moneyAt({ list, blobs, text }) {
+  const dirs = [];
+  for (const parent of ['apps', 'services', 'packages', 'tooling'])
+    for (const e of (await list(parent)) ?? []) if (e?.type === 'dir') dirs.push(`${parent}/${e.name}`);
+  const crates = ((await list('crates')) ?? [])
+    .filter((e) => e?.type === 'dir' && /^svc-[a-z0-9-]+$/.test(e.name))
+    .map((e) => `crates/${e.name}`);
+  const got = await blobs([...dirs.map((d) => `${d}/package.json`), ...crates.map((d) => `${d}/Cargo.toml`)]);
+  const manifests = new Map();
+  for (const d of dirs) {
+    const t = got.get(`${d}/package.json`);
+    if (typeof t === 'string') manifests.set(d, JSON.parse(t));
+  }
+  for (const d of crates)
+    if (typeof got.get(`${d}/Cargo.toml`) === 'string') manifests.set(d, { name: d.slice('crates/'.length), rustService: true });
+  const read = async (p) => {
+    const t = await text(p);
+    if (typeof t !== 'string') throw new Error(`${p} could not be read`);
+    return JSON.parse(t);
+  };
+  return moneyRule({ journeys: await read('docs/roadmap/journeys.json'), slices: await read('docs/roadmap/slices.json'), manifests });
+}
+
+/** The money rule at `ref` (moneyAt) through GitHub: folder listings from the contents API, the manifests 100 to a
+ *  GraphQL query, the two roadmap files raw. */
+function moneyVia(repo, token, ref) {
+  if (!SHA40.test(String(ref))) throw new Error('moneyVia: a head sha is needed');
+  const [owner, name] = repo.split('/');
+  return moneyAt({
+    list: async (dir) => {
+      const res = await getTried(`https://api.github.com/repos/${repo}/contents/${dir}?ref=${ref}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+        redirect: 'follow',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(httpMessage(`/repos/${repo}/contents/${dir}`, res));
+      const got = await res.json();
+      if (!Array.isArray(got) || got.length >= 1000) throw new Error(`${dir} could not be listed whole`);
+      return got;
+    },
+    blobs: async (paths) => {
+      const out = new Map();
+      for (let i = 0; i < paths.length; i += 100) {
+        const part = paths.slice(i, i + 100);
+        const fields = part.map(
+          (p, k) => `f${k}: object(expression: ${JSON.stringify(`${ref}:${p}`)}) { ... on Blob { text isTruncated } }`,
+        );
+        const query = `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`;
+        const res = await getTried('https://api.github.com/graphql', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ query, variables: { owner, name } }),
+        });
+        if (!res.ok) throw new Error(`GraphQL: HTTP ${res.status}`);
+        const got = await res.json();
+        if (got.errors?.length || !got.data?.repository) throw new Error("GraphQL: the head's manifests could not be read");
+        part.forEach((p, k) => {
+          const blob = got.data.repository[`f${k}`];
+          if (blob === null) return out.set(p, null);
+          if (typeof blob?.text !== 'string' || blob.isTruncated) throw new Error(`${p} could not be read whole`);
+          out.set(p, blob.text);
+        });
+      }
+      return out;
+    },
+    text: (p) => makeIo(repo, token).text(p, ref),
+  });
+}
+
+/** A path the money rule or the baseline is read from (rootInputs, moneyAt): changing one can change a step's money flag. */
+export const moneyInput = (path) =>
+  ['docs/roadmap/journeys.json', 'docs/roadmap/slices.json', BASELINE_PATH].includes(path) ||
+  /^(?:apps|services|packages|tooling)\/[^/]+\/package\.json$/.test(path) ||
+  /^crates\/[^/]+\/Cargo\.toml$/.test(path);
 
 /** A pull request's changed paths, whole: GitHub lists at most 3,000, so a longer list fails closed. */
 export async function pullFiles(get, repo, n) {
@@ -831,9 +1140,10 @@ export function fileSteps(journey, text) {
  * The steps a pull request that changes a journey test file is judged on: for each changed file, the steps the title
  * names or a strict `Left-or-replaced:` line leaves, if any of them is the file's; otherwise every step the file holds,
  * returned as `derived` for judgeSteps to judge exactly as title steps (passing in a finished Real-app journeys run on
- * the exact head, or left on their own body line). A file with no readable `test(` titled `<journey> #n` fails closed.
- * `touched`: [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head
- * removed). (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so
+ * the exact head, or left on their own body line). A file with no readable `test(` titled `<journey> #n` at the head
+ * or the base fails closed, unless another file of its journey holds its steps (`siblings`).
+ * `touched`: [{ file, journey, steps, from?, siblings? }] from touchedSteps: the steps each file holds at the head (or
+ * at the base, for a file the head removed or one whose head holds none). (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so
  * the seal judged none of their steps; project-state #1249 comment 6681706701. Until 21 Nov 2026 a file whose steps
  * were not named failed the seal, which cost a push for a line the seal could compute; the owner's "yes" of 21 Nov
  * 2026 made it derive them instead.)
@@ -849,8 +1159,16 @@ export function judgeTouched({ title, body, touched, repo }) {
   const lines = [];
   const derived = new Set();
   let ok = true;
-  for (const { file, journey, steps } of touched) {
+  for (const { file, journey, steps, from, siblings = [] } of touched) {
     if (steps.some((k) => named.has(k))) continue;
+    if (!steps.length && siblings.length) {
+      // Its journey's steps live in another file; this one holds none to judge, and its journeys run must still be
+      // clean on the head (judgeTouchedRun).
+      lines.push(
+        `${file} holds no \`test(\` titled \`${journey} #n\` at the head or the base; ${journey}'s steps live in ${siblings.join(', ')}, so it changes none, and its run on this head must still be clean`,
+      );
+      continue;
+    }
     if (!steps.length) {
       ok = false;
       lines.push(
@@ -860,7 +1178,7 @@ export function judgeTouched({ title, body, touched, repo }) {
     }
     for (const k of steps) derived.add(k);
     lines.push(
-      `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them, so the seal judges them all on this head`,
+      `${file} ${from === 'base' ? 'retitles out the last of its steps, ' : 'changes the tests of '}${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them, so the seal judges them all on this head`,
     );
   }
   return { ok, lines, derived: [...derived].sort(byStep) };
@@ -922,15 +1240,12 @@ const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(r
  * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
  */
 export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle = '', journeyFiles }) {
-  const branch = AUTO_REVERT_BRANCH.exec(String(pull?.head?.ref ?? ''));
-  if (!branch) return null;
+  const origin = autoRevertOrigin({ pull, repo, commits });
+  if (!origin) return null;
   const no = (why) => ({ ok: false, why: `an automatic revert's branch, but ${why}, so it runs the ordinary scope` });
-  if (pull?.head?.repo?.full_name !== repo) return no('its head is not in this repository');
-  if (pull?.user?.login !== AUTO_REVERT_AUTHOR || pull?.user?.type !== 'Bot') return no(`it was not opened by ${AUTO_REVERT_AUTHOR}`);
-  if (!Array.isArray(commits) || commits.length !== 1) return no('it does not hold exactly one commit');
-  const sha = REVERTS_COMMIT.exec(String(commits[0]?.commit?.message ?? ''))?.[1];
-  if (!sha || !sha.startsWith(branch[1])) return no(`its commit does not say it reverts ${branch[1]}`);
-  if (!Array.isArray(culprit?.files) || culprit.sha !== sha) return no(`the reverted commit ${branch[1]} could not be read`);
+  if (!origin.sha) return no(origin.why);
+  const { sha } = origin;
+  if (!Array.isArray(culprit?.files) || culprit.sha !== sha) return no(`the reverted commit ${sha.slice(0, 10)} could not be read`);
   const own = new Set(pullFilePaths(culprit.files));
   const outside = paths.filter((f) => !own.has(f));
   if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
@@ -951,6 +1266,108 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
     files,
     why: `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
   };
+}
+
+/**
+ * Whether main-bisect opened this pull request: null off a `revert/auto-<sha10>` branch; else `{ sha }`, the commit it
+ * reverts, or `{ why }` it is not: opened by the factory App from this repository, holding exactly one commit whose message
+ * says it reverts the commit the branch names. `commits`: GET /pulls/n/commits.
+ */
+export function autoRevertOrigin({ pull, repo, commits }) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pull?.head?.ref ?? ''));
+  if (!branch) return null;
+  if (pull?.head?.repo?.full_name !== repo) return { why: 'its head is not in this repository' };
+  if (pull?.user?.login !== AUTO_REVERT_AUTHOR || pull?.user?.type !== 'Bot') return { why: `it was not opened by ${AUTO_REVERT_AUTHOR}` };
+  if (!Array.isArray(commits) || commits.length !== 1) return { why: 'it does not hold exactly one commit' };
+  const sha = REVERTS_COMMIT.exec(String(commits[0]?.commit?.message ?? ''))?.[1];
+  if (!sha || !sha.startsWith(branch[1])) return { why: `its commit does not say it reverts ${branch[1]}` };
+  return { sha };
+}
+
+/**
+ * Whether main-bisect's revert is a pure revert: merged onto main now, it gives main's tree with the reverted commit's
+ * files back as they were before it, a state main already accepted, and changes nothing else. Then the seal judges no
+ * journeys for it and does not wait for its journeys run: it merges on main's other required checks, and main's full
+ * journeys run after the merge judges it (it bisects and reverts again if red). Intafaced #9603, 22 Nov 2026: the revert
+ * of #9539 waited 1 h 31 m on a seal that judged it like new code (8 steps red on a money-rule mismatch) while main stayed
+ * red and four fix-forward pull requests raced. Null off main-bisect's branch; `{ ok: false, why }` when any proof fails,
+ * and it is judged in full. Every proof, from GitHub (a compare lists up to 300 files, so a longer one fails):
+ *   - opened by main-bisect (autoRevertOrigin), the reverted commit read whole with one parent;
+ *   - the pull request changes exactly the reverted commit's files (`paths`, renames by both names);
+ *   - the reverted commit is in main's history and main has not changed those files since (`sinceCulprit`: compare
+ *     culprit...main): it is main's newest merge, or every merge after it touched other files;
+ *   - its one commit's parent is in main's history (`parentOnMain`: parent...main) and holds the culprit with those files
+ *     unchanged (`parentSince`: culprit...parent), so the merge base is that parent and it agrees with main on them;
+ *   - at its head those files are the culprit's parent's (`restored`: culprit^...head lists none of them).
+ * So a changed line anywhere fails: in another file, `paths`; in one of the culprit's, `restored`. Pure.
+ */
+export function pureRevert({ origin, culprit, parent, paths, sinceCulprit, parentOnMain, parentSince, restored }) {
+  if (!origin) return null;
+  const no = (why) => ({ ok: false, why: `not a pure revert: ${why}, so the seal judges it in full` });
+  if (!origin.sha) return no(origin.why);
+  const { sha } = origin;
+  const short = sha.slice(0, 10);
+  if (culprit?.sha !== sha || !Array.isArray(culprit?.files) || !culprit.files.length || culprit.files.length >= 300)
+    return no(`the reverted commit ${short} could not be read whole`);
+  if (!Array.isArray(culprit.parents) || culprit.parents.length !== 1 || !SHA40.test(String(culprit.parents[0]?.sha)))
+    return no(`the reverted commit ${short} does not have exactly one parent`);
+  if (!SHA40.test(String(parent ?? ''))) return no("its commit's parent could not be read");
+  const own = new Set(pullFilePaths(culprit.files));
+  const mine = new Set(paths ?? []);
+  const extra = [...mine].filter((f) => !own.has(f));
+  const missing = [...own].filter((f) => !mine.has(f));
+  if (extra.length || missing.length)
+    return no(
+      `it changes ${extra.length ? `${extra.length} file(s) the reverted commit didn't (${extra.slice(0, 3).join(', ')})` : ''}${extra.length && missing.length ? ' and ' : ''}${missing.length ? `not ${missing.length} of its files (${missing.slice(0, 3).join(', ')})` : ''}`,
+    );
+  // A compare from `base` to a head that holds it, listed whole; the culprit's files it changes.
+  const changed = (c) => {
+    if (!['ahead', 'identical'].includes(c?.status) || !Array.isArray(c?.files) || c.files.length >= 300) return null;
+    return pullFilePaths(c.files).filter((f) => own.has(f));
+  };
+  const since = changed(sinceCulprit);
+  if (!since) return no(`main's history since ${short} could not be read whole, or does not hold it`);
+  if (since.length) return no(`main changed ${since.length} of its files since ${short} (${since.slice(0, 3).join(', ')})`);
+  if (!changed(parentOnMain)) return no("its commit's parent is not in main's history");
+  const base = changed(parentSince);
+  if (!base) return no(`its commit's parent does not hold ${short}`);
+  if (base.length) return no(`its commit's parent has ${base.length} of the reverted files changed since ${short}`);
+  const left = changed(restored);
+  if (!left) return no("its head could not be compared with the reverted commit's parent");
+  if (left.length) return no(`${left.length} of the reverted files differ from before ${short} (${left.slice(0, 3).join(', ')})`);
+  return {
+    ok: true,
+    sha,
+    why: `a pure revert of ${short}: merged, main's tree has its ${own.size} file(s) back as main held them before it and nothing else changed, so no journeys are judged here; main's full journeys run after the merge judges it`,
+  };
+}
+
+/**
+ * Reads what pureRevert needs through `io` (pullCommits, commit, compare(base, head)), only for main-bisect's branch.
+ * `main`: the branch (or, for a dry run, the commit) the merge lands on. A read that fails is `{ ok: false }`.
+ */
+export async function readPureRevert({ io, repo, pull, number, paths, main = pull?.base?.ref }) {
+  if (!AUTO_REVERT_BRANCH.test(String(pull?.head?.ref ?? ''))) return null;
+  try {
+    const commits = await io.pullCommits(number);
+    const origin = autoRevertOrigin({ pull, repo, commits });
+    if (!origin?.sha) return pureRevert({ origin });
+    const head = String(pull.head.sha);
+    const parents = commits[0]?.parents ?? [];
+    const parent = parents.length === 1 ? parents[0]?.sha : null;
+    const culprit = await io.commit(origin.sha);
+    const before = culprit?.parents?.[0]?.sha;
+    if (!SHA40.test(String(parent)) || !SHA40.test(String(before)) || !main) return pureRevert({ origin, culprit, parent, paths });
+    const [sinceCulprit, parentOnMain, parentSince, restored] = await Promise.all([
+      io.compare(origin.sha, main),
+      io.compare(parent, main),
+      io.compare(origin.sha, parent),
+      io.compare(before, head),
+    ]);
+    return pureRevert({ origin, culprit, parent, paths, sinceCulprit, parentOnMain, parentSince, restored });
+  } catch (e) {
+    return { ok: false, why: `not a pure revert: it could not be read (${e.message}), so the seal judges it in full` };
+  }
 }
 
 /** What the journeys run's planner (real-app-journeys.yml, `--auto-revert-scope`) reads: the narrow files, or null for
@@ -1002,17 +1419,46 @@ export async function revertSpent({ io, repo, pull, culprit }) {
     : null;
 }
 
-/** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
- *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
-export async function touchedSteps({ paths, head, base, text }) {
+/**
+ * The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
+ * file). `text(path, ref)` is the file's text, or null when the ref has no such file. A file whose head holds no step
+ * takes the steps its base held (`from: 'base'`): retitling a file's last `<journey> #n` out of it still touches those
+ * steps, so they are judged on the head like any other (#10825 retitled J-derivatives-04.pw.mjs's custodial #1 and #2,
+ * which J-derivatives-04-venue.pw.mjs holds, and the seal failed closed on a file with no step left). A file with no
+ * step at the head or the base lists `siblings`: the other files of its journey at the head (`journeyFiles(ref)`, their
+ * names, as io.journeyFiles gives them) that hold its numbered steps, so a journey's companion file of unnumbered checks
+ * is not refused for holding none; without `journeyFiles` it lists none, and judgeTouched fails it closed.
+ */
+export async function touchedSteps({ paths, head, base, text, journeyFiles = null }) {
   const out = [];
+  let names;
+  const dir = 'apps/customer/tests/real-app';
   for (const file of [...new Set(paths)].sort()) {
     const m = JOURNEY_TEST.exec(file);
     if (!m) continue;
-    let t = await text(file, head);
-    if (t === null) t = await text(file, base);
-    if (t === null) throw new Error(`${file} could not be read at the head or the base`);
-    out.push({ file, journey: m[1], steps: fileSteps(m[1], t) });
+    const atHead = await text(file, head);
+    const atBase = atHead === null || !fileSteps(m[1], atHead).length ? await text(file, base) : null;
+    if (atHead === null && atBase === null) throw new Error(`${file} could not be read at the head or the base`);
+    const steps = fileSteps(m[1], atHead ?? atBase);
+    if (steps.length || atHead === null) {
+      out.push({ file, journey: m[1], steps });
+      continue;
+    }
+    const before = fileSteps(m[1], atBase);
+    if (before.length) {
+      out.push({ file, journey: m[1], steps: before, from: 'base' });
+      continue;
+    }
+    const siblings = [];
+    if (journeyFiles) {
+      names ??= [...(await journeyFiles(head))].sort();
+      for (const n of names) {
+        const f = `${dir}/${n}`;
+        if (f === file || JOURNEY_TEST.exec(f)?.[1] !== m[1]) continue;
+        if (fileSteps(m[1], await text(f, head)).length) siblings.push(f);
+      }
+    }
+    out.push({ file, journey: m[1], steps: [], siblings });
   }
   return out;
 }
@@ -1077,12 +1523,13 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *   - one whose paths share an area (areasOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
+ * With no such run in the head's history, main's newest finished full run (`latest`) is the reference run instead.
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
  * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
  * money rule) is never passed over, for any pull request. (A pass on the retry is no longer a red at all: the lead's
  * decision of 12 Nov 2026 under OWNER 296 and 297, journey-verdict.mjs.)
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
- * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
+ * input problem, no finished full run on main at all, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
  * passed on the commit it now fails on (a flake: no commit between) has its journey as its whole area. Every other red
  * (new on this head) stops it as before. Returns { blocking, passed, notes }.
@@ -1103,9 +1550,14 @@ export const kindTitle = (kinds, title) => {
   return k.length ? `${k.join(' + ')}: ${title}` : title;
 };
 
-export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
+export async function splitInherited({ red, main: inHistory, latest, touches, upTo, rangeOf }) {
+  // No finished full run on main in the head's history: main's newest finished full run (`latest`, mainReference read
+  // whatever the head holds) stands in, so a red main already has is not counted against this pull request (project-state
+  // #3754: 5 of 24 sampled seal holds were this case). Its commit is outside the head, so the break range below reaches
+  // past it and the area only widens. With neither, every red counts.
+  const main = inHistory ?? latest ?? null;
   if (!main) return { blocking: red, passed: [], notes: [`no finished full run on main is in this head's history, so every red counts`] };
-  const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
+  const at = `main's ${inHistory ? '' : 'newest '}run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}${inHistory ? '' : " (none is in this head's history)"}`;
   if (main.problems.length)
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
   if (touches.shared)
@@ -1415,7 +1867,7 @@ export async function reachInputs({ io, paths, head, base, text }) {
 }
 
 /** One pull request's head, judged. */
-export async function sealPull({ repo, number, sha, io: given, requireOpen = true, waitOnRunning = true }) {
+export async function sealPull({ repo, number, sha, io: given, requireOpen = true, waitOnRunning = true, mainAt }) {
   // Main's runs are read once: for the map's age (reachInputs) and for inherited reds (mainReference).
   let mainRuns;
   const headRuns = new Map();
@@ -1454,20 +1906,25 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     if (!texts.has(k)) texts.set(k, Promise.resolve(io.text(f, ref)));
     return texts.get(k);
   };
-  const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
+  const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text, journeyFiles: io.journeyFiles });
   // The revert main-bisect opens (autoRevertScope): it undoes the culprit's journey tests with it, so it names no steps,
   // and it runs the journeys that failed on main and the culprit's own. Anything else on its branch is ordinary.
   const auto = await readAutoRevertScope({ io, repo, pull, number, paths });
-  const touched = auto?.ok
-    ? { ok: true, lines: [`${auto.why}: its journey tests need no steps named`] }
-    : judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
+  // A pure revert of it (pureRevert) returns main to a tree main accepted: no journeys are judged here, and main's full
+  // journeys run after the merge judges it. `pure.ok` takes the GitHub-revert route below, shared setup included.
+  const pure = io.compare ? await readPureRevert({ io, repo, pull, number, paths, main: mainAt }) : null;
+  const touched = pure?.ok
+    ? { ok: true, lines: [pure.why] }
+    : auto?.ok
+      ? { ok: true, lines: [`${auto.why}: its journey tests need no steps named`] }
+      : judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
   // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
   // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
   // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
   // A revert that touches shared setup takes the ordinary scope, as its run does (real-app-journeys.yml's pick step).
-  const reverting = revertOf({ title: pull.title, body: pull.body, repo }) && !paths.some(isSharedSetup);
+  const reverting = (revertOf({ title: pull.title, body: pull.body, repo }) && !paths.some(isSharedSetup)) || Boolean(pure?.ok);
   // A pull request that names a journey is judged on it and its changed journey files, as its run
   // was given them (namedSealInputs), and its product code goes to the map like any other's. What it must run is what its
   // run was given: never the full suite (journey-touch.mjs pullPick), the same bounded set where the map can't narrow it.
@@ -1475,14 +1932,23 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const named = reverting || auto?.ok ? null : await namedSealInputs({ io, pull: { ...pull, stack }, head });
   const touchAt = (f) => atHead.get(f) ?? true;
   const inputs = reverting || auto?.ok ? null : await reachInputs({ io, paths, head, base: pull.base?.sha, text });
+  // Tooling no journeys run reaches, by the head's tree (journey-touch.mjs quietTooling), as the run's planner reads it.
+  // A seal that can't scan it judges by today's rules.
+  let tooling = null;
+  if (!reverting && !auto?.ok && io.toolingReach && mayBeQuiet(paths))
+    try {
+      tooling = (await io.toolingReach(head)) ?? null;
+    } catch {
+      tooling = null;
+    }
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named), { atHead: touchAt, reach: inputs, named });
+      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named, tooling), { atHead: touchAt, reach: inputs, named });
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
-  const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
+  const shared = reverting ? [] : paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
   const derived = touched.derived ?? [];
   const runs = titleSteps(pull.title).length || derived.length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
@@ -1490,8 +1956,61 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     if (!reports.has(r.id)) reports.set(r.id, io.reportOf(r));
     return reports.get(r.id);
   };
-  const steps = await judgeSteps({ sha: head, repo, title: pull.title, body: pull.body, runs, reportOf, waitOnRunning, derived });
+  // A run on this head carries its earlier attempts' reports too (`earlier`), so a step one of them failed is never
+  // hidden by a re-run that passed it (flakyWay). Main's runs, read for inherited reds, keep reportOf alone.
+  const headReports = new Map();
+  const headReportOf = (r) => {
+    if (!headReports.has(r.id))
+      headReports.set(
+        r.id,
+        Promise.resolve(reportOf(r)).then(async (rep) =>
+          rep && !rep.error && io.earlierReports && Number(r.run_attempt ?? 1) > 1 ? { ...rep, earlier: await io.earlierReports(r) } : rep,
+        ),
+      );
+    return headReports.get(r.id);
+  };
+  const steps = await judgeSteps({
+    sha: head,
+    repo,
+    title: pull.title,
+    body: pull.body,
+    runs,
+    reportOf: headReportOf,
+    waitOnRunning,
+    derived,
+  });
   const verdictOf = (rep, r) => io.verdictOf(rep, r);
+  // This head's own runs: a step whose baseline money flag main's money rule disagrees with (`mismatch`) is judged again
+  // with this head's money rule too, read once and only then (journey-verdict.mjs judge, headMoney). Main's runs keep
+  // main's rule alone. The flag a pull request can change for itself is only ever read the stricter way.
+  // A pull request that changes a file the rule or the baseline is read from (moneyInput) is always judged with its head's
+  // rule and the baseline it would merge, so it can't make a baselined step money unseen (#9539); unreadable, it fails closed.
+  const changesMoney = paths.filter(moneyInput);
+  let headMoney;
+  const ownVerdictOf = async (rep, r) => {
+    const v = await verdictOf(rep, r);
+    if (!io.headMoney || !(changesMoney.length || (v?.red ?? []).some((x) => x?.mismatch))) return v;
+    let got;
+    try {
+      got = await (headMoney ??= Promise.resolve().then(async () => {
+        const rule = await io.headMoney(head);
+        if (!paths.includes(BASELINE_PATH)) return { headMoney: rule };
+        const t = await text(BASELINE_PATH, head);
+        if (typeof t !== 'string') throw new Error(`${BASELINE_PATH} is not on this head`);
+        return { headMoney: rule, headBaseline: JSON.parse(t) };
+      }));
+    } catch (e) {
+      const why = `; this head's own money rule couldn't be read (${e.message}), so it stays red`;
+      const red = v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x));
+      if (changesMoney.length)
+        red.push({
+          step: '(input)',
+          why: `this pull request changes ${changesMoney.slice(0, 3).join(', ')}${changesMoney.length > 3 ? `, ${changesMoney.length - 3} more` : ''}, which the money rule or the baseline is read from, and its head's couldn't be read (${e.message}), so the seal fails closed`,
+        });
+      return { ...v, red };
+    }
+    return io.verdictOf(rep, r, got);
+  };
   // The area of this pull request, for reds it inherited from main (splitInherited): the journeys it touches and its paths.
   const touches = {
     journeys: new Set([
@@ -1521,6 +2040,16 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
               reportOf,
               verdictOf,
             })),
+            // Only when none of main's runs is in the head's history (splitInherited).
+            latest: (await main)
+              ? null
+              : await (latest ??= mainReference({
+                  repo,
+                  mainRuns: await io.mainRuns(),
+                  contains: async () => true,
+                  reportOf,
+                  verdictOf,
+                })),
             touches,
             upTo: await (upTo ??= Promise.resolve()
               .then(() => io.mergeBase(pull.base?.sha, head))
@@ -1552,8 +2081,8 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           repo,
           files: reach.files,
           runs,
-          reportOf,
-          verdictOf,
+          reportOf: headReportOf,
+          verdictOf: ownVerdictOf,
           waitOnRunning,
           inherited,
           reach: reach.bounded ? [reach.bounded] : reach.reach,
@@ -1562,7 +2091,8 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
         })
       : { ok: true, state: 'none', lines: [] };
   // An automatic revert merges only while main still needs it (revertSpent), whatever its own runs say.
-  const spent = auto?.ok ? await revertSpent({ io, repo, pull, culprit: auto.sha }).catch(() => null) : null;
+  const culprit = pure?.ok ? pure.sha : auto?.ok ? auto.sha : null;
+  const spent = culprit ? await revertSpent({ io, repo, pull, culprit }).catch(() => null) : null;
   const v = {
     ok: steps.ok && full.ok && touched.ok && !spent,
     stepsOk: steps.ok && touched.ok && !spent,
@@ -1574,7 +2104,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
       ...(spent ? ['yours'] : []),
     ],
     fullKinds: full.ok ? [] : (full.kinds ?? []),
-    lines: [...steps.lines, ...touched.lines, ...full.lines, ...(spent ? [spent] : [])],
+    lines: [...steps.lines, ...touched.lines, ...full.lines, ...(pure && !pure.ok ? [pure.why] : []), ...(spent ? [spent] : [])],
   };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }
@@ -1620,7 +2150,12 @@ export const isWaitingSeal = (j) =>
 
 /** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
 export const SEAL_INPUTS = [
-  { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
+  // Runs on every pull request (`always`), so none on the head is one still to come, never a finished input: GitHub starts
+  // no pull_request run while the pull request conflicts with its base, and may start one a minute or two after this
+  // asks. Before 25 Nov 2026 the seal read "nothing going" there and judged at once, red on "no CI ran" (ci-jobs-seal.mjs
+  // judgeCiJobs, whose own answer is `wait`): 42 of the 82 heads red on the seal alone in the 48 h to 25 Nov 00:43 UTC,
+  // 36 conflicting with main and 6 sealed before their CI run was created (INTAFACED/project-state#4047).
+  { workflow: 'ci.yml', event: 'pull_request', what: 'CI', always: true },
   { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
   // Runs only when the pull request touches its paths (#8708); with no run on the head nothing waits for it, and
@@ -1680,9 +2215,12 @@ export async function settleRuns(runs, jobsOf) {
   return out;
 }
 
+/** inputsGoing's words for an `always` input with no run on the head (waitStep reads them). */
+export const NO_RUN = 'no run on this head yet';
+
 /**
  * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
- * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
+ * input has finished. An `always` input with no run on the head counts as going (NO_RUN). Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
  * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
  * still going when `needJudge` (readGoing sets it when a pull request's change needs the review's verdict), so its seal waits for the judge exactly as for a review
@@ -1694,10 +2232,12 @@ export async function settleRuns(runs, jobsOf) {
  */
 export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unstarted = true }) {
   const out = [];
-  for (const { workflow, event, what, journeys, judge, down } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge, down, always } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
-    for (const r of runsOf?.[workflow] ?? []) {
-      if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+    const onHead = (runsOf?.[workflow] ?? []).filter((r) => r?.head_sha === sha && (!event || r?.event === event));
+    if (always && !onHead.length)
+      out.push(`${what}: ${NO_RUN} (GitHub starts none while the pull request conflicts with its base: merge main)`);
+    for (const r of onHead) {
       if (judge && !unstarted && UNSTARTED.includes(r?.status)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
       else if (journeys && r?.deferred === true)
@@ -1790,8 +2330,12 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
         return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
-    // A seal still waiting for its inputs (WAIT_STEP) reads them all once they finish: re-running it would be a second verdict.
-    if (seal.status !== 'completed' && (seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+    // A seal still waiting for its inputs (WAIT_STEP, or judge-repair.mjs's REPAIR_STEP) reads them all once they finish:
+    // re-running it would be a second verdict.
+    if (
+      seal.status !== 'completed' &&
+      (seal.steps ?? []).some((s) => [WAIT_STEP, REPAIR_STEP].includes(s?.name) && s?.status !== 'completed')
+    )
       return { act: 'done', msg: `the seal in run ${runId} is waiting for its inputs and judges once they finish` };
     if (seal.status !== 'completed')
       return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
@@ -1861,7 +2405,7 @@ export async function rerunSealJob({
     const jobsByRun = new Map();
     let step = recheckStep(runs, jobsByRun, event);
     while (step.act === 'jobs') {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
       jobsByRun.set(step.runId, jobs);
       step = recheckStep(runs, jobsByRun, event);
@@ -1949,9 +2493,18 @@ export const REVIEWED = 'CI review';
  * merges on its seal, so only its seal is read when it turns; arming runs merge-seal.yml afresh (`auto_merge_enabled`),
  * and so does every push and edit. (Failure it prevents: at 02:45 UTC on
  * 9 Nov 2026, 29 re-checks were queued, each of which can hold a runner up to 25 minutes waiting out a running seal,
- * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.)
+ * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.) One exception, sealedOnReview.
  */
 export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefined;
+
+/**
+ * After the CI review, a ready pull request is sealed armed or not: a journey build arms only once its proof read is in
+ * (project-state BUILDER.md), and that read lands after every check T3's PR watch was waiting for, so nothing woke the
+ * builder; the required `CI merge seal` appearing is a wake. One seal per reviewed head, as the review runs only on a
+ * ready one. (Failure it prevents: 10 builds sat green and unarmed 12 to 62 minutes until the owed-work check woke
+ * them, 23 to 24 Nov 2026, #10625 among them; INTAFACED/project-state#3978.)
+ */
+export const sealedOnReview = (finished, p) => finished === REVIEWED && p?.draft !== true;
 
 /**
  * The open pull requests a re-check re-seals, of those with auto-merge armed (armed): after CI or the CI review finished
@@ -1960,7 +2513,7 @@ export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefine
  * judges).
  */
 export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = '', oldBody = '', filesOf }) {
-  const live = (pulls ?? []).filter(armed);
+  const live = (pulls ?? []).filter((p) => armed(p) || sealedOnReview(finished, p));
   if (finished === 'CI' || finished === REVIEWED || finished === MONEY)
     return live.filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
   return recheckPulls({ pulls: live, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls: live, sha, repo, filesOf }) });
@@ -1976,7 +2529,7 @@ export async function readVerdicts({ get, repo, sha }) {
   if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
   const out = { any: false, green: false };
   for (const r of runs.filter((x) => x?.head_sha === sha)) {
-    const jobs = (await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    const jobs = await runJobs(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest`, get);
     if (!Array.isArray(jobs)) throw new Error(`run ${r.id}'s jobs: not a list`);
     for (const j of jobs.filter((x) => x?.name === SEAL)) {
       out.any = true;
@@ -1996,6 +2549,13 @@ export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green 
 /** The most CI review runs on one head whose jobs readGoing reads to find the newest that reviewed: one GET each. */
 export const REVIEW_RUNS_READ = 5;
 
+/** What readPureRevert reads, through a GET (makeIo's same paths). */
+const pureIo = (get, repo) => ({
+  pullCommits: (n) => get(`/repos/${repo}/pulls/${n}/commits?per_page=2`),
+  commit: (sha) => get(`/repos/${repo}/commits/${sha}?per_page=300`),
+  compare: (base, head) => get(`/repos/${repo}/compare/${base}...${head}?per_page=1`),
+});
+
 /**
  * inputsGoing on `sha` read through the API (each run read through settledRun unless `settle` is false), journeys counted when any of `pulls` needs them (needsJourneys), and a down
  * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
@@ -2014,7 +2574,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
     runsOf[workflow] = !settle
       ? onHead
       : await settleRuns(onHead, async (id) => {
-          const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
+          const jobs = await runJobs(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, get);
           if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
           return jobs;
         });
@@ -2025,7 +2585,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
     const { workflow } = SEAL_INPUTS.find((i) => i.journeys);
     const newest = [...runsOf[workflow]].sort((a, b) => b.id - a.id)[0];
     if (newest?.status === 'completed') {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
       const touch = jobs.find((j) => j?.name === TOUCH_JOB);
       newest.deferred = (touch?.steps ?? []).some((st) => st?.name === DEFER_MARK && st?.conclusion === 'success');
@@ -2042,7 +2602,9 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
   for (const p of pulls ?? []) {
     if (needJourneys && needJudge) break;
     const files = await pullFiles(get, repo, p.number);
-    needJourneys ||= needsJourneys(p, files);
+    // A pure revert (pureRevert) is judged on no journeys, so the seal does not wait for its journeys run.
+    needJourneys ||=
+      needsJourneys(p, files) && !(await readPureRevert({ io: pureIo(get, repo), repo, pull: p, number: p.number, paths: files }))?.ok;
     needJudge ||= requiredChecks(files).length > 0;
   }
   {
@@ -2053,7 +2615,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
       .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
       .sort((a, b) => b.id - a.id);
     for (const run of finished.slice(0, REVIEW_RUNS_READ)) {
-      const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, get);
       if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
       const job = jobs.find(reviewRan);
       if (!job) continue;
@@ -2067,7 +2629,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
       .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
       .sort((a, b) => b.id - a.id)[0];
     if (!newest) continue;
-    const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    const jobs = await runJobs(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest`, get);
     if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
     newest.judgeDown = jobs.some(isModelDown);
   }
@@ -2109,12 +2671,27 @@ async function sealNowStep({ repo, token }) {
 export function waitStep({ pull, sha, going }) {
   if (pull?.state !== 'open') return { act: 'judge', msg: `#${pull?.number} is no longer open` };
   if (pull?.head?.sha !== sha) return { act: 'judge', msg: `#${pull.number}'s head moved to ${String(pull?.head?.sha).slice(0, 10)}` };
+  // GitHub runs no CI on a pull request that conflicts with its base (inputsGoing `always`), so a seal that runs at once
+  // judges it now, as before, rather than waiting out WAIT_POLLS for a run that never starts.
+  // A draft: the CI review skips drafts, so this seal (one that runs at once: a change under .github/) waits as a running
+  // check, which blocks a merge as the seal must, and judges once `gh pr ready` has started the review. Before 25 Nov
+  // 2026 it judged at once, red on the missing review: 6 of the 82 heads red on the seal alone in the 48 h to 25 Nov
+  // 00:43 UTC (INTAFACED/project-state#4047). It never stops holding a check: a pull request's own job named `CI merge
+  // seal` could stand alone in the gap.
+  if (pull?.draft === true) return { act: 'wait', msg: `#${pull.number} is a draft, which the CI review skips: \`gh pr ready\` starts it` };
+  if (pull?.mergeable === false && going.some((g) => g.includes(NO_RUN)))
+    return { act: 'judge', msg: `#${pull.number} conflicts with its base, so no CI runs on it` };
   if (going.length) return { act: 'wait', msg: `waiting for ${going.join(', ')}` };
   return { act: 'judge', msg: 'every input on this head has finished' };
 }
 
 /** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
 export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
+/**
+ * The seal job's step that judges a change to the judges alone (judge-repair.mjs REPAIR_STEP, which this must equal:
+ * judge-repair.test.mjs). Written here, not imported, so the journeys run, which reads this file, never reads that one.
+ */
+export const REPAIR_STEP = 'A change to the judges alone: every other check green, and a PASS from the CI review';
 /**
  * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
  * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on
@@ -2260,7 +2837,9 @@ async function beforePushStep() {
   const base = sh('git', 'merge-base', 'HEAD', 'origin/main').trim();
   const paths = sh('git', 'diff', '--name-only', base, 'HEAD').split('\n').filter(Boolean);
   const text = (f, ref) => { try { return sh('git', 'show', `${ref}:${f}`); } catch { return null; } }; // prettier-ignore
-  const touched = await touchedSteps({ paths, head: 'HEAD', base, text });
+  const dir = 'apps/customer/tests/real-app';
+  const journeyFiles = () => sh('git', 'ls-tree', '--name-only', 'HEAD', `${dir}/`).split('\n').filter(Boolean).map((f) => f.slice(dir.length + 1)); // prettier-ignore
+  const touched = await touchedSteps({ paths, head: 'HEAD', base, text, journeyFiles });
   if (!touched.length) return;
   let pull = null;
   try {
@@ -2301,8 +2880,11 @@ async function main() {
   }
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {
-    const [n, sha] = process.argv.slice(dry + 1);
-    return report(await sealPull({ repo: REPO, number: Number(n), sha: sha || undefined, io, requireOpen: false }), 'dry run');
+    const [n, sha] = process.argv.slice(dry + 1).filter((a, i, all) => a !== '--main' && all[i - 1] !== '--main');
+    // `--main <sha>`: judge a pure revert against main as it was then (readPureRevert), for a closed pull request.
+    const at = process.argv.indexOf('--main');
+    const mainAt = at > 0 ? process.argv[at + 1] : undefined;
+    return report(await sealPull({ repo: REPO, number: Number(n), sha: sha || undefined, io, requireOpen: false, mainAt }), 'dry run');
   }
   // The factory switch (factory-switch.mjs): this step runs the default branch's copy on every seal since 2026-11-06, so a
   // re-run of a seal whose own workflow predates the switch's step still reads it. Imported here, not at the top, to keep

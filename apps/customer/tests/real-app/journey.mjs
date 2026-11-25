@@ -8,10 +8,13 @@ import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scrip
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { REACH_ATTACHMENT, makeCodeReader, makeLogReader, makeRecorder, settleCode } from '../../../../tooling/scripts/journey-reach.mjs';
 import { codeReachDir } from '../../../../tooling/scripts/service-reach.mjs';
+import { makeFileContexts, makeScreens } from '../../../../tooling/scripts/journey-screens.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { makeMoves } from '../../../../tooling/scripts/journey-moves.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 import { beforeRequest, noteResponse, partnerFile } from './partner-start.mjs';
+import { fromTop } from './step-picture.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
@@ -82,6 +85,13 @@ const enterReach = (file) => {
   partnerFile(file);
   reachFile = file;
   reach.enter(file);
+  noted(() => screens.enter(file));
+};
+/** A file's first hook or test: the contexts an earlier file left open close first, read while that file still owns
+ *  the records (journey-screens.mjs makeFileContexts), and then the records are this file's. */
+const enterOwnFile = async (file) => {
+  if (file !== reachFile) await fileContexts.enter(file, closeContextQuietly);
+  enterReach(file);
 };
 const readLogs = () => noted(() => reach.served(stackLogs.read(), reachFile));
 const noted = (fn) => {
@@ -117,10 +127,17 @@ globalThis.fetch = (input, init) => {
  * Each page's coverage of the customer app: Chromium's precise coverage with call counts, started before the page's
  * first navigation and read without a gap at every test's end and before the page or its context closes (CDP
  * Profiler.takePreciseCoverage reads and resets the counts). A page the app opened by itself (a popup) starts counting
- * only once it is seen, and a page that closed or lost its session before it was read can't be read whole: both mark
- * the record incomplete, which the map reads as reaching every source.
+ * only once it is seen, so one that asked the customer app for anything before then (its URL, or a request seen for it,
+ * askedEarly) may have run customer code no count holds; it, and a page that closed or lost its session before it was
+ * read, can't be read whole: each marks the record incomplete, which the map reads as reaching every source. A popup
+ * that asked the customer app for nothing first ran none of its code before its count began (only the customer app's
+ * scripts are placed), so it marks nothing. (Failure it prevents: J-merchant-02 and J-merchant-02-payouts open a
+ * founder console file as a blob: tab, and every record of theirs was incomplete (popup) in all three main runs the
+ * touched-journeys map was built from on 22 Nov 2026, 44964720047, 44960297816 and 44959368996, so every pull request ran
+ * them.)
  */
-const covered = new Map(); // page -> { cdp, file }
+const covered = new Map(); // page -> { cdp, gone, started }
+const askedEarly = new WeakSet(); // pages that asked the customer app for something before their coverage started
 async function startCoverage(page, { opened = false } = {}) {
   if (covered.has(page)) return;
   const entry = { cdp: null, gone: false };
@@ -136,7 +153,8 @@ async function startCoverage(page, { opened = false } = {}) {
     entry.cdp.on('close', () => {
       if (!entry.gone) reach.incomplete(reachFile, 'detached');
     });
-    if (opened) reach.incomplete(reachFile, 'popup');
+    entry.started = true;
+    if (opened && (askedEarly.has(page) || reach.servesCustomer(page.url()))) reach.incomplete(reachFile, 'popup');
   } catch {
     reach.incomplete(reachFile, 'noStart');
   }
@@ -182,17 +200,46 @@ function watchApiMaker(apiRequest) {
   apiRequest.newContext = async (...args) => watchApi(await newContext(...args));
 }
 
+// The customer app's screens each test showed, for the hosted beta's check (tooling/scripts/journey-screens.mjs). Each
+// page belongs to the journey file whose test or hook opened its context, and records only that file's screens.
+const screens = makeScreens((url) => reach.servesCustomer(url));
+const fileContexts = makeFileContexts();
+/** The journey file whose test or hook is running now, or null outside any (a worker fixture). */
+const runningFile = () => {
+  try {
+    return base.info().file ?? null;
+  } catch {
+    return null;
+  }
+};
+const watchScreens = (page) => noted(() => screens.watch(page, fileContexts.ownerOf(page.context())));
+
 const creating = new WeakMap(); // context -> pages being made by our own newPage, not opened by the app
 const watched = new WeakSet();
+// The in-app moves each test made, for the hosted beta's reach check (tooling/scripts/journey-moves.mjs).
+const moves = makeMoves((url) => reach.servesCustomer(url));
+const watchMoves = (page) => noted(() => moves.watch(page));
 function watchContext(context) {
   if (watched.has(context)) return context;
   watched.add(context);
+  noted(() => fileContexts.opened(context, runningFile()));
   noted(() => watchApi(context.request));
   context.on('request', (req) => {
     recordSignIn(req.url(), req.postData() ?? undefined);
     noted(() => reach.request(reachFile, req.url(), req.method()));
+    noted(() => {
+      if (!reach.servesCustomer(req.url())) return;
+      const page = req.frame().page(); // throws for a service worker's request, which no page made
+      if (!covered.get(page)?.started) askedEarly.add(page);
+    });
   });
+  for (const page of context.pages()) {
+    watchScreens(page);
+    watchMoves(page);
+  }
   context.on('page', (page) => {
+    watchScreens(page);
+    watchMoves(page);
     if (!(creating.get(context) > 0)) void startCoverage(page, { opened: true });
   });
   const newPage = context.newPage.bind(context);
@@ -349,7 +396,7 @@ const extended = base.extend({
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
   worldBetweenFiles: [
     async ({}, use, testInfo) => {
-      enterReach(testInfo.file);
+      await enterOwnFile(testInfo.file);
       await enterFile(testInfo.file);
       await use();
     },
@@ -377,13 +424,45 @@ const extended = base.extend({
     },
     { auto: true },
   ],
+  // The customer app's screens this test showed (journey-screens.mjs), on the test as its `beta screens` annotation, which
+  // the verdict reads to name the steps on a screen the hosted beta hides. Never fails the test.
+  betaScreens: [
+    async ({ context }, use, testInfo) => {
+      void context;
+      const seen = screens.begin();
+      try {
+        await use();
+      } finally {
+        const note = screens.end(seen);
+        if (note) testInfo.annotations.push(note);
+      }
+    },
+    { auto: true },
+  ],
+  // The in-app moves this test made (journey-moves.mjs), on the test as its `beta moves` annotation, which the reach
+  // check reads from passing steps to reach a room only a record the step made leads to. Never fails the test.
+  betaMoves: [
+    async ({ context }, use, testInfo) => {
+      void context;
+      const seen = moves.begin();
+      try {
+        await use();
+      } finally {
+        const note = moves.end(seen);
+        if (note) testInfo.annotations.push(note);
+      }
+    },
+    { auto: true },
+  ],
   // The proof reader's picture of this step (tooling/ci/step-pictures.mjs): the whole page of this test's own page, taken
   // when the test calls `await stepPicture()` (or `stepPicture(otherPage)`) at the moment the step's state is on screen,
   // else as the test ended. A test that checks the step's state and then leaves it (clicks the link the step names, closes
   // the menu, goes on to another room) calls it before it leaves, or the end picture shows the page it went on to and the
   // reader answers NOT SHOWN (garden/step-picture-before-leaving). The first picture taken is the step's: a later call
   // takes none, and one that could not be taken leaves the end picture to try. A full page, since `screenshot: 'on'` alone
-  // left the reader the 900-pixel window. A test with no page of its own and no call (an API-only step, or one on its own
+  // left the reader the 900-pixel window, taken from the top with no link focused (step-picture.mjs fromTop: a picture of a
+  // scrolled page drew the bar that stays at the top over the content), unless that would close what the step shows open.
+  // A test with no page of its own and no call (an API-only step, or one on its own
   // browser.newContext() pages) attaches none and keeps the end pictures. A picture never fails a test.
   // It takes `context`, so it ends before the test's own context closes; its own time, apart from the test's.
   stepPicture: [
@@ -392,6 +471,8 @@ const extended = base.extend({
       const take = async (page) => {
         if (taken || !page || page.isClosed()) return;
         try {
+          // What readying did, kept on the test, so a picture read BROKEN says whether the page was left scrolled and why.
+          testInfo.annotations.push({ type: 'step picture', description: await fromTop(page) });
           const file = testInfo.outputPath('step-picture.png');
           await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
           await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
@@ -448,7 +529,7 @@ extended.beforeAll = (...args) => {
   const entered = async (fixtures, testInfo) => {
     // The restore gets its own time on top of the hook's, as the worldBetweenFiles fixture does.
     if (testInfo.timeout > 0) testInfo.setTimeout(testInfo.timeout + 150_000);
-    enterReach(testInfo.file);
+    await enterOwnFile(testInfo.file);
     await enterFile(testInfo.file);
     return hook(fixtures, testInfo);
   };

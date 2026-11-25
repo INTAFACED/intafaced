@@ -544,7 +544,7 @@ describe('the chat header, quick replies and warning', () => {
     expect(out).toContain('>I have paid<');
     expect(out).toContain('>Please release<');
     expect(out).not.toContain('Payment received');
-    expect(out).toMatch(/<button type="button">I have paid<\/button>/);
+    expect(out).toMatch(/<button[^>]*type="button"[^>]*>I have paid<\/button>/);
   });
 
   it('offers the seller “Payment received” only once payment is marked sent', () => {
@@ -603,7 +603,8 @@ describe('the chat header, quick replies and warning', () => {
 
   it('marks a dispute with the warning colour, not the neutral one', () => {
     expect(renderToString(<TradeStatus status="disputed" />)).toContain('data-status="pending"');
-    expect(renderToString(<TradeStatus status="escrowed" />)).toContain('data-status="working"');
+    // The kit's neutral chip is "unknown" (the old kit called it "working").
+    expect(renderToString(<TradeStatus status="escrowed" />)).toContain('data-status="unknown"');
   });
 
   it('says how many unread messages wait below while the chat is out of view', () => {
@@ -622,7 +623,7 @@ describe('the address /p2p/orders/<id>', () => {
   });
 
   it('belongs to the person-to-person feature', () => {
-    const paths = features.find((feature) => feature.id === 'p2p')!.paths;
+    const paths = features.find((feature) => feature.id === 'p2p-contract-escrow')!.paths;
     expect(paths).toContain('/p2p/orders/*');
     expect(matchPath('/p2p/orders/*', `/p2p/orders/${TRADE}`)).toBeDefined();
   });

@@ -198,6 +198,8 @@ const VoucherRow = z.object({
   face_amount: z.string(),
   kind: z.enum(VOUCHER_KINDS),
   fee_discount_bps: z.number().nullable(),
+  fee_rebate_bps: z.number().nullable(),
+  fee_rebate_delay_seconds: z.number().nullable(),
   state: z.enum(VOUCHER_STATES),
   issued_by: z.string(),
   claim_by: z.date().nullable(),
@@ -205,6 +207,7 @@ const VoucherRow = z.object({
   created_at: z.date(),
 });
 type VoucherRow = z.infer<typeof VoucherRow>;
+export type VoucherKindColumns = Pick<VoucherRow, 'kind' | 'fee_discount_bps' | 'fee_rebate_bps' | 'fee_rebate_delay_seconds'>;
 
 const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   id: v.id,
@@ -215,6 +218,10 @@ const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   kind: v.kind,
   feeSaver:
     v.kind === 'fee_saver' && v.fee_discount_bps !== null ? { discountBps: v.fee_discount_bps, orders: Number(v.face_amount) } : null,
+  feeRebate:
+    v.kind === 'fee_rebate' && v.fee_rebate_bps !== null && v.fee_rebate_delay_seconds !== null
+      ? { rebateBps: v.fee_rebate_bps, delaySeconds: v.fee_rebate_delay_seconds }
+      : null,
   state: v.state,
   issuedBy: v.issued_by,
   issuedAt: v.created_at.toISOString(),
@@ -307,6 +314,9 @@ export function effectiveState(row: Pick<CampaignRow, 'state' | 'starts_at' | 'e
 
 const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly string[]).includes(type);
 
+/** Whether a campaign pays from a budget. A fee-saver coupon campaign and a trial pass move no value, so they have none. */
+const budgetRequired = (row: CampaignRow) => !(row.type === 'voucher' && Boolean(row.vouchers?.feeSaver)) && row.type !== 'trial_pass';
+
 /**
  * The activation gate (ENGINE LC-3): every blank by name, in order. Called by `submit` and `activate`, never a screen.
  * A `listed` campaign with a blank region list refuses `campaigns.region_list_unset`: the list is a compliance value.
@@ -320,7 +330,7 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
   const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
   // A trial pass moves no value either: it grants a fee tier for a span, so it has no budget.
-  if (!feeSaver && row.type !== 'trial_pass' && (!row.budget_asset || row.budget_limit === null))
+  if (budgetRequired(row) && (!row.budget_asset || row.budget_limit === null))
     missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
@@ -587,7 +597,9 @@ function toView(
 ): CampaignView | null {
   const c = toCampaign(r, timeZone, now);
   if (!(CUSTOMER_STATES as readonly string[]).includes(c.state)) return null;
-  if (!c.startsAt || !c.endsAt || !c.budget || !c.participation) return null;
+  if (!c.startsAt || !c.endsAt || !c.participation) return null;
+  // A campaign that pays needs its budget to be shown; one that pays nothing (the gate's own exemptions) has none.
+  if (!c.budget && budgetRequired(r)) return null;
   return {
     id: c.id,
     name: c.name,
@@ -975,7 +987,19 @@ function parseVoucherWindow(type: CampaignType, input: NonNullable<CampaignDefin
     throw new CampaignsError('campaigns.voucher_window_invalid', 'A voucher’s use-by cannot be before its claim-by');
   }
   const feeSaver = input.feeSaver ? { discountBps: input.feeSaver.discountBps, orders: input.feeSaver.orders } : null;
-  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null, ...(feeSaver ? { feeSaver } : {}) };
+  const feeRebate = input.feeRebate ? { rebateBps: input.feeRebate.rebateBps, delaySeconds: input.feeRebate.delaySeconds } : null;
+  if (feeSaver && feeRebate) {
+    throw new CampaignsError(
+      'campaigns.voucher_window_invalid',
+      'A coupon either lowers our builder fee or pays part of it back, not both',
+    );
+  }
+  return {
+    claimBy: claimBy ? iso(claimBy) : null,
+    useBy: useBy ? iso(useBy) : null,
+    ...(feeSaver ? { feeSaver } : {}),
+    ...(feeRebate ? { feeRebate } : {}),
+  };
 }
 
 /**
@@ -1562,7 +1586,7 @@ export class CampaignService {
     return transaction(this.sql, async (tx) => {
       const [had] = VoucherRow.array().parse(await tx`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`);
       if (had) return toVoucher(had);
-      const { row, face, feeSaver } = await this.voucherTerms(tx, input.campaignId);
+      const { row, face, kindColumns } = await this.voucherTerms(tx, input.campaignId);
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${codeHashOf(code)}`}))`;
       const [elsewhere] = CodeHolderRow.array().parse(
         await tx`
@@ -1575,9 +1599,10 @@ export class CampaignService {
       const [made] = VoucherRow.array().parse(
         await tx`
         INSERT INTO campaigns.vouchers (id, campaign_id, code, code_hash, code_last4, issue_key, revision, face_asset, face_amount,
-          kind, fee_discount_bps, issued_by, claim_by, use_by)
+          kind, fee_discount_bps, fee_rebate_bps, fee_rebate_delay_seconds, issued_by, claim_by, use_by)
         VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${codeHashOf(code)}, ${lastFourOf(code)}, ${key}, ${row.revision},
-          ${face.asset}, ${face.amount}, ${feeSaver ? 'fee_saver' : 'cash'}, ${feeSaver?.discountBps ?? null}, ${input.actor},
+          ${face.asset}, ${face.amount}, ${kindColumns.kind}, ${kindColumns.fee_discount_bps}, ${kindColumns.fee_rebate_bps},
+          ${kindColumns.fee_rebate_delay_seconds}, ${input.actor},
           ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
         ON CONFLICT (issue_key) DO NOTHING
         RETURNING *`,
@@ -1600,7 +1625,13 @@ export class CampaignService {
   async voucherTerms(
     tx: Queryable,
     campaignId: string,
-  ): Promise<{ row: CampaignRow; face: { asset: string; amount: string }; feeSaver: { discountBps: number; orders: number } | null }> {
+  ): Promise<{
+    row: CampaignRow;
+    face: { asset: string; amount: string };
+    feeSaver: { discountBps: number; orders: number } | null;
+    /** The voucher row's kind and its terms' columns, as every issue writes them. */
+    kindColumns: VoucherKindColumns;
+  }> {
     const [row] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaigns WHERE id = ${campaignId} FOR SHARE`);
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
@@ -1628,7 +1659,14 @@ export class CampaignService {
           ${row.approved_by})
         ON CONFLICT (campaign_id, revision) DO NOTHING`;
     }
-    return { row, face, feeSaver };
+    const feeRebate = row.vouchers?.feeRebate ?? null;
+    const kindColumns: VoucherKindColumns = {
+      kind: feeSaver ? 'fee_saver' : feeRebate ? 'fee_rebate' : 'cash',
+      fee_discount_bps: feeSaver?.discountBps ?? null,
+      fee_rebate_bps: feeRebate?.rebateBps ?? null,
+      fee_rebate_delay_seconds: feeRebate?.delaySeconds ?? null,
+    };
+    return { row, face, feeSaver, kindColumns };
   }
 
   /** A campaign's newest 500 vouchers, newest first, each with the revision it keeps. */

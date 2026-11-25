@@ -1,24 +1,22 @@
+// volt-room: /copy/lead/apply
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
-import { Button, Field, Input } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, formatMoney } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { verifyFirstRefusal } from '../../../shared/verify-first';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { leadApplyCopy } from './lead-apply-copy';
-import { leadApplicationSchema, leadEligibilitySchema } from '@intafaced/contracts/trade-copy-room';
+import {
+  TRADE_COPY_MY_LEAD_APPLICATION,
+  TRADE_COPY_LEAD_ELIGIBILITY,
+  TRADE_COPY_APPLY_TO_LEAD,
+} from '@intafaced/contracts/trade-copy-records';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
-/**
- * Apply to lead (CB-copy-12), on the flow template. The person's newest application is read from svc-trade
- * (`copy.myLeadApplication`); an application is sent with `copy.applyToLead`, one open application per person, and
- * the same submit again answers with the same application. Founders decide it in the console's Copy trading desk.
- */
-
-const mineSchema = leadApplicationSchema;
-type Mine = z.infer<typeof mineSchema>;
-const eligibilitySchema = leadEligibilitySchema;
-type Eligibility = z.infer<typeof eligibilitySchema>;
+type Mine = ProcedureOutput<typeof TRADE_COPY_APPLY_TO_LEAD>;
+type Eligibility = ProcedureOutput<typeof TRADE_COPY_LEAD_ELIGIBILITY>;
 
 type T = ReturnType<typeof leadApplyCopy.useCopy>['t'];
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -76,16 +74,12 @@ export function LeadApplyRoom() {
   const { api, userId } = useSession();
   const mine = useResource(
     (signal) =>
-      userId
-        ? api.query('trade', 'copy.myLeadApplication', undefined, mineSchema.nullable(), { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(TRADE_COPY_MY_LEAD_APPLICATION, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `lead-apply:${userId ?? 'out'}`,
   );
   const terms = useResource(
     (signal) =>
-      userId
-        ? api.query('trade', 'copy.leadEligibility', undefined, eligibilitySchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(TRADE_COPY_LEAD_ELIGIBILITY, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `lead-terms:${userId ?? 'out'}`,
   );
   const eligibility = terms.resource.status === 'ready' ? terms.resource.data : null;
@@ -120,7 +114,7 @@ export function LeadApplyRoom() {
     sending.current = true;
     setBusy(true);
     setRefusal(null);
-    const out = await api.mutate('trade', 'copy.applyToLead', { displayName: name.trim() }, mineSchema);
+    const out = await api.call(TRADE_COPY_APPLY_TO_LEAD, { displayName: name.trim() });
     if (out.ok) {
       sending.current = false;
       setBusy(false);
@@ -128,7 +122,7 @@ export function LeadApplyRoom() {
       return;
     }
     // The refusal names what svc-trade measured now (whom you follow, the threshold), so read the terms again first.
-    const now = await api.query('trade', 'copy.leadEligibility', undefined, eligibilitySchema);
+    const now = await api.call(TRADE_COPY_LEAD_ELIGIBILITY, undefined);
     sending.current = false;
     setBusy(false);
     setRefusal(applyRefusal(out, t, now.ok ? now.data : eligibility));
@@ -147,6 +141,8 @@ export function LeadApplyRoom() {
         },
       };
     if (mine.resource.status === 'loading') return { kind: 'loading' };
+    if (mine.resource.status === 'failed' && isVerifyFirst(mine.resource.failure))
+      return { kind: 'refused', refusal: verifyFirstRefusal() };
     if (mine.resource.status === 'failed')
       return {
         kind: 'refused',
@@ -176,14 +172,17 @@ export function LeadApplyRoom() {
       description={t('description')}
       state={state}
       step={
-        <div className="lead-apply">
+        <div className="lt-stack">
           {sent ? <p role="status">{t('sent')}</p> : null}
           {!sent && (current?.state === 'submitted' || current?.state === 'under_review') ? (
             <p>{t('waiting', { name: current.displayName })}</p>
           ) : null}
           {current?.state === 'approved' ? (
             <p>
-              {t('approved', { name: current.displayName })} <a href="/trade/copy">{t('openCopy')}</a>
+              {t('approved', { name: current.displayName })}{' '}
+              <a className="lt-link" href="/trade/copy">
+                {t('openCopy')}
+              </a>
             </p>
           ) : null}
           {current?.state === 'disapproved' ? <p>{t('rejected', { name: current.displayName, reason: current.reason ?? '' })}</p> : null}
@@ -196,19 +195,27 @@ export function LeadApplyRoom() {
             </p>
           ) : null}
           {canApply ? (
-            <form aria-label={t('title')} onSubmit={(e) => void apply(e)}>
-              <Field label={t('nameLabel')} hint={t('nameHint')}>
-                <Input id={nameId} value={name} onValueChange={setName} maxLength={80} autoComplete="nickname" />
-              </Field>
-              <Button type="submit" variant="primary" loading={busy} disabled={busy}>
-                {t('apply')}
-              </Button>
+            <form className="lt-stack" aria-label={t('title')} onSubmit={(e) => void apply(e)}>
+              <Field
+                id={nameId}
+                label={t('nameLabel')}
+                hint={t('nameHint')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={80}
+                autoComplete="nickname"
+              />
+              <div className="lt-actions">
+                <Button type="submit" tone="primary" disabled={busy} aria-busy={busy || undefined}>
+                  {t('apply')}
+                </Button>
+              </div>
             </form>
           ) : null}
         </div>
       }
       summary={
-        <div>
+        <div className="lt-stack">
           {userId ? <LeadTerms terms={eligibility} failed={terms.resource.status === 'failed'} t={t} /> : null}
           <h2>{t('summaryTitle')}</h2>
           <p>{t('summaryReview')}</p>
@@ -224,7 +231,7 @@ function LeadTerms({ terms, failed, t }: { terms: Eligibility | null; failed: bo
   if (!terms) return failed ? <p>{t('termsFailed')}</p> : null;
   const venue = terms.venue;
   return (
-    <section aria-label={t('termsTitle')}>
+    <section className="lt-stack" aria-label={t('termsTitle')}>
       <h2>{t('termsTitle')}</h2>
       <KeyValue
         label={t('termsTitle')}
@@ -247,7 +254,7 @@ function LeadTerms({ terms, failed, t }: { terms: Eligibility | null; failed: bo
             : {
                 label: t('termsVenue'),
                 value: venue.state === 'unreadable' ? t('termsVenueUnreadable') : t('termsVenueNone'),
-                unset: true,
+                unset: venue.state === 'unreadable',
               },
         ]}
       />

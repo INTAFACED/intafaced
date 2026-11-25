@@ -5,9 +5,9 @@ import { fundedTrader, signIn } from './desk.mjs';
 import { parseShift, shiftQuoted as makerShiftQuoted } from './market.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
-// J-derivatives-04, in the running app (docs/roadmap/journeys.json): manage futures orders in the orders room. One test
-// per step, titled "J-derivatives-04 #<n>", run in order on one TEST account. #3 to #6 are on the person's own venue
-// account, in J-derivatives-04-venue.pw.mjs. The contract is the TEST perpetual
+// J-derivatives-04's custodial Later branch (checked on our own book, which is off at launch): all seven launch steps
+// (#1 to #7) are proven on the person's own venue account in J-derivatives-04-venue.pw.mjs. The tests here keep the
+// custodial Later book coverage alive without claiming proof of launch steps. The contract is the TEST perpetual
 // `local-test-gates.mjs futures` lists; its mark follows the stack's TEST book, which the TEST market maker walks a few
 // basis points at a time. Every figure is read back through the customer's own API.
 const J = 'J-derivatives-04';
@@ -156,7 +156,7 @@ function shiftPercent(from, to) {
   return `${bps < 0n ? '-' : '+'}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
 }
 
-test(`${J} #1 opens the orders room: open orders, history, the trader's own trades and executions, with the desk's own status words`, async ({
+test(`${J}, the custodial Later branch, checked on our own book: opens the orders room: open orders, history, the trader's own trades and executions, with the desk's own status words`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -268,11 +268,11 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
 // index hold too, so a step that failed while it held leaves the next step's BTC/USDT book quoted.
 test.afterEach(() => {
   const title = test.info().title;
-  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `) || title.startsWith(`${J}, the custodial Later branch`)) release();
-  if (title.startsWith(`${J} #1 `)) releaseIndex();
+  if (title.startsWith(`${J}, the custodial Later branch`)) release();
+  if (title.includes('opens the orders room:')) releaseIndex();
 });
 
-test(`${J} #2 opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
+test(`${J}, the custodial Later branch, checked on our own book: opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
   page,
 }) => {
   test.setTimeout(480_000);

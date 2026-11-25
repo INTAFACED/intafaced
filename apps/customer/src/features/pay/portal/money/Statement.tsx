@@ -1,33 +1,31 @@
+// volt-room: /pay/money/activity
+// volt-room: portal:money-activity
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
-import { Field } from '../../ui-kit';
-import { SelectField } from '../components';
+import { Button, Field } from '@intafaced/ui/lit';
 import type { PortalApi } from '../api';
 import { useNow } from '../hooks';
 import { buildCsv, downloadText } from '../csv';
 import { DateTime } from '../ui/DateTime';
-import { Freshness } from '../ui/Freshness';
 import { dateRange, useListFilters, type DatePreset } from '../ui/FilterRow';
-import { KpiStrip } from '../ui/Kpi';
-import { MoneyText } from '../ui/MoneyText';
 import { useServerList } from '../ui/useServerList';
-import { ListBody, MoneyFailure, TestBanner, useTestMode } from './common';
+import { Freshness, KpiStrip, MoneyText, SelectField } from '../volt/parts';
+import { RecordListRoom } from '../volt/RecordListRoom';
+import { ListBody, MoneyFailure, TestBanner } from './kit-parts';
+import { useTestMode } from './test-mode';
 import { mc } from './copy';
+import { accountWords, kindWords } from './statement-columns';
 import { defaultStatementRange, runningView, STATEMENT_MAX_DAYS, statementRangeTooWide, tieView, lineSign } from './model';
 import type { PayStatementLine as StatementLine, PayStatementPage as StatementPage } from '@intafaced/contracts/pay-portal-reads';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
-const KNOWN_KINDS = ['payment_captured', 'fee', 'refund', 'chargeback', 'settlement', 'payout', 'reserve'] as const;
-const KNOWN_ACCOUNTS = ['clearing', 'proceeds', 'userAvailable', 'houseFees', 'payoutHold'] as const;
-export const kindWords = (t: Words, kind: string) =>
-  (KNOWN_KINDS as readonly string[]).includes(kind) ? t(`stmKind_${kind}` as 'stmKind_fee') : t('stmKind_other');
-export const accountWords = (t: Words, account: string) =>
-  (KNOWN_ACCOUNTS as readonly string[]).includes(account) ? t(`stmAccount_${account}` as 'stmAccount_clearing') : t('stmAccount_other');
+/** A line that needs attention, and one that only informs. */
+const WARN_LOOK = 'lt-stale';
+const NOTE_LOOK = 'lt-hint';
 const runningOf = (l: StatementLine) =>
   l.account === 'clearing' ? l.runningClearing : l.account === 'proceeds' ? l.runningProceeds : null;
 
 /** The signed amount of one line, in words a merchant reads: "+ 12.50 USDT" in, "− 3.00 USDT" out. */
-export function SignedAmount({
+function SignedAmount({
   line,
   test,
 }: {
@@ -36,7 +34,7 @@ export function SignedAmount({
 }) {
   const sign = lineSign(line);
   return (
-    <span className="pp-nowrap">
+    <span className="lt-nowrap">
       <span aria-hidden="true">{sign === 1 ? '+ ' : sign === -1 ? '− ' : ''}</span>
       <MoneyText value={line.amount} asset={line.assetId} test={test} />
     </span>
@@ -52,15 +50,15 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
         <>
           {kindWords(t, l.kind)}
           {l.paymentId && (
-            <small className="pay-cell-note">
-              <a className="text-link" href={`/pay/payments/${encodeURIComponent(l.paymentId)}`}>
+            <small className="lt-hint">
+              <a className="lt-link" href={`/pay/payments/${encodeURIComponent(l.paymentId)}`}>
                 {t('stmOpenPayment')}
               </a>
             </small>
           )}
           {l.settlementId && (
-            <small className="pay-cell-note">
-              <a className="text-link" href={`/pay/settlements/${encodeURIComponent(l.settlementId)}`}>
+            <small className="lt-hint">
+              <a className="lt-link" href={`/pay/settlements/${encodeURIComponent(l.settlementId)}`}>
                 {t('stmOpenSettlement')}
               </a>
             </small>
@@ -83,15 +81,20 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
       : []),
   ];
 }
-export const statementCard = (t: Words, test: boolean) => (l: StatementLine) => ({
-  title: kindWords(t, l.kind),
-  time: <DateTime value={l.at} />,
-  amount: <SignedAmount line={l} test={test} />,
-  status: <span className="muted">{accountWords(t, l.account)}</span>,
-});
+/**
+ * `/pay/money/activity` on the record-list template, for the business the access resolved; a person whose role may not
+ * read settlements sees the template's own state.
+ */
+export function StatementRoom({ portal }: { portal: PortalApi }) {
+  return (
+    <RecordListRoom need="settlements.read">
+      {({ merchantId }) => ({ list: <Statement portal={portal} merchantId={merchantId} /> })}
+    </RecordListRoom>
+  );
+}
 
 /** `/pay/money/activity`: every credit and debit on your balance, newest first, with whether it matches your balance. */
-export function Statement({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Statement({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const filters = useListFilters();
   const test = useTestMode();
@@ -126,12 +129,13 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
   ].sort();
   const asset = filters.asset || (assets.length === 1 ? assets[0]! : '');
   const tie = tieView(meta?.page.tieOut, asset);
+  const tieDiffers = tie === 'differs';
   const tieRow = meta?.page.tieOut?.accounts.find((a) => a.assetId === asset);
   const opening = meta?.page.opening?.find((o) => o.assetId === asset) ?? null;
   const here = `/pay/money/activity${filters.asset ? `?asset=${encodeURIComponent(filters.asset)}` : ''}`;
   const rangeLabel = t(preset === 'today' ? 'stmToday' : preset === '7d' ? 'stmLast7' : preset === 'custom' ? 'stmCustom' : 'stmLast30');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <TestBanner />
       <Freshness asOf={list.state.status === 'ready' ? (meta?.at ?? null) : null} />
       <KpiStrip
@@ -166,8 +170,8 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
           },
         ]}
       />
-      <div className="pp-filterbar" role="search" aria-label={t('stmFilters')}>
-        <div className="pp-filter-row">
+      <div className="lt-stack" role="search" aria-label={t('stmFilters')}>
+        <div className="lt-field-row">
           <SelectField
             label={t('stmRange')}
             value={preset}
@@ -189,19 +193,19 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
           )}
         </div>
         {preset === 'custom' && (
-          <div className="pp-filter-row">
+          <div className="lt-field-row">
             <Field label={t('stmFrom')} type="date" value={filters.from} onChange={(e) => filters.setFrom(e.target.value)} />
             <Field label={t('stmTo')} type="date" value={filters.to} onChange={(e) => filters.setTo(e.target.value)} />
           </div>
         )}
       </div>
       {list.state.status === 'ready' && meta && (
-        <p className={tie === 'differs' ? 'pp-callout pp-callout--warn' : 'muted pp-note'} role={tie === 'differs' ? 'alert' : 'status'}>
+        <p className={tieDiffers ? WARN_LOOK : NOTE_LOOK} role={tie === 'differs' ? 'alert' : 'status'}>
           {tie === 'matches' ? t('stmTies') : tie === 'differs' ? t('stmDiffers') : t('stmTieUnknown')}
         </p>
       )}
       {list.state.status === 'ready' && items.length > 0 && !running.shown && (
-        <p className="muted pp-note" role="note">
+        <p className="lt-hint" role="note">
           {t('stmNoRunning')}{' '}
           {running.reason === 'no_opening' ? t('stmNoRunningOpening') : running.reason === 'order_ambiguous' ? t('stmNoRunningOrder') : ''}
         </p>
@@ -217,12 +221,11 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
           label={t('stmTable')}
           rowKey={(l) => l.id}
           columns={statementColumns(t, test, running.shown)}
-          card={statementCard(t, test)}
         />
       )}
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={items.length === 0}
           onClick={() =>
             downloadText(
@@ -237,10 +240,10 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
         >
           {t('stmDownloadShown')}
         </Button>
-        <small className="muted">{t('stmDownloadShownNote')}</small>
+        <small className="lt-muted">{t('stmDownloadShownNote')}</small>
       </div>
       {meta && (
-        <p className="muted pp-note">
+        <p className="lt-hint">
           {t('stmAsOfEnd')} <DateTime value={meta.at} />
         </p>
       )}

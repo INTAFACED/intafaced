@@ -164,7 +164,7 @@ export function GridRoom({ path }: { path: string }) {
 
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader
         title={t('Spot grid')}
         description={t('Buys at each level below the price and sells one level up, inside a range you set.')}
@@ -176,7 +176,7 @@ export function GridRoom({ path }: { path: string }) {
         }
       />
       <PendingBanner guard={guard} check={() => void check()} checking={checking} verdict={verdict} onDismiss={() => setVerdict(null)} />
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="ghost" size={28} onClick={() => navigate('/trade/bots')}>
           {t('Back to Bots')}
         </Button>
@@ -258,7 +258,7 @@ function GridWizard({
   return (
     <form
       aria-label={t('Spot grid')}
-      className="cb-form"
+      className="lt-stack"
       onSubmit={(event) => {
         event.preventDefault();
         create();
@@ -270,7 +270,7 @@ function GridWizard({
           <TabsTab value="presets">{t('Presets')}</TabsTab>
         </TabsList>
         <TabsPanel value="setup">
-          <PageSection title={t('Set up')} headingLevel={2}>
+          <div className="lt-stack">
             <SelectField
               label={t('Market')}
               value={symbol}
@@ -323,15 +323,15 @@ function GridWizard({
               <InfoNote>{t('Enter both prices and a grid count in the allowed range to see the levels.')}</InfoNote>
             )}
             {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button type="submit" disabled={guard.busy || guard.locked}>
                 {guard.busy ? t('Starting') : t('Create bot')}
               </Button>
             </div>
-          </PageSection>
+          </div>
         </TabsPanel>
         <TabsPanel value="presets">
-          <PageSection title={t('Presets')} headingLevel={2}>
+          <div className="lt-stack">
             {presets.status === 'ready' && presets.data ? (
               <KeyValue items={[{ label: t('Backtested presets'), value: t('Not set') }]} />
             ) : presets.failure ? (
@@ -340,7 +340,7 @@ function GridWizard({
               <InfoNote>{t('Checking')}</InfoNote>
             )}
             <InfoNote>{t('No backtest source is connected, so no preset and no APR is shown.')}</InfoNote>
-          </PageSection>
+          </div>
         </TabsPanel>
       </Tabs>
     </form>
@@ -434,13 +434,13 @@ function GridDetail({
           ...(data.status === 'stopped' && data.statusReason && STOP_WORD[data.statusReason]
             ? [{ label: t('Stopped by'), value: t(STOP_WORD[data.statusReason] as 'Price exit') }]
             : []),
-          { label: t('Bot ID'), value: data.botId },
+          { label: t('Bot reference'), value: data.botId },
         ]}
       />
       {data.venue && venue ? <VenueGridFacts bot={data} api={api} onDone={bot.reload} /> : null}
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
       {data.status === 'signing' || data.status === 'initializing' || data.status === 'running' || data.status === 'paused_range' ? (
-        <div className="cb-action-row">
+        <div className="lt-actions">
           <Button variant="secondary" onClick={stop} disabled={guard.busy || guard.locked}>
             {t('Stop bot')}
           </Button>

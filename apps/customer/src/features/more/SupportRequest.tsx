@@ -1,11 +1,13 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { TextAreaField } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { useApi, useSession } from '../session';
-import { t as copyText, Text } from './copy';
-import { Details, Limit, Read, type useAction } from './common';
+import { t as copyText } from './copy';
+import { KitDetails, type KitAction } from './volt-action';
+import { EmptyNote, KitLimit, KitRead } from './volt-parts';
 import { SupportEvents } from './SupportEvents';
 import { supportEventsCopy } from './support-events-copy';
 import { deskCopy } from './support-desk-copy';
@@ -19,6 +21,7 @@ import {
   type TicketStatus,
 } from './support-desk';
 import { SupportRequestActions } from './SupportRequestActions';
+import { SupportReadAccess } from './SupportReadAccess';
 import { type MyTicketProperties, type Ticket } from './support-schemas';
 import {
   SUPPORT_COMMENT,
@@ -43,9 +46,16 @@ const STATUS_HELP_KEY = {
   closed: 'statusClosedHelp',
 } as const;
 
+/** The desk's own status tone: open waits on the desk, pending and on hold wait on someone, resolved and closed are done. */
+const STATUS_TONE = { open: 'neutral', pending: 'accent', on_hold: 'accent', resolved: 'up', closed: 'neutral' } as const;
+
 export function StatusBadge({ status }: { status: TicketStatus }) {
   const copy = deskCopy.useCopy();
-  return <span className={`support-status support-status--${status}`}>{copy.t(STATUS_KEY[status])}</span>;
+  return (
+    <Tag tone={STATUS_TONE[status]} data-testid="support-status" data-status={status}>
+      {copy.t(STATUS_KEY[status])}
+    </Tag>
+  );
 }
 
 /** The service's answer for a request that is not the caller's or does not exist: the same answer for both. */
@@ -54,29 +64,34 @@ export function isTicketNotFound(failure: { code?: string; status?: number }): b
 }
 
 const CUSTOMER_KEY = { awaiting_reply: 'customerAwaiting', open: 'customerOpen', solved: 'customerSolved' } as const;
-const CUSTOMER_TONE = { awaiting_reply: 'pending', open: 'open', solved: 'resolved' } as const;
+/** Waiting on the customer reads accent, solved reads up, the rest neutral; the words say which. */
+const CUSTOMER_TONE = { awaiting_reply: 'accent', open: 'neutral', solved: 'up' } as const;
 
 /** What the customer reads as the request's status: Awaiting your reply, Open or Solved (SP-tickets-01). */
 export function CustomerStatusBadge({ row }: { row: Pick<Ticket, 'status' | 'customerStatus'> }) {
   const copy = deskCopy.useCopy();
   const shown = customerStatus(row);
-  return <span className={`support-status support-status--${CUSTOMER_TONE[shown]}`}>{copy.t(CUSTOMER_KEY[shown])}</span>;
+  return (
+    <Tag tone={CUSTOMER_TONE[shown]} data-testid="support-status" data-status={shown}>
+      {copy.t(CUSTOMER_KEY[shown])}
+    </Tag>
+  );
 }
 
 /** An address under /support/tickets/ that names no request: it reads the same as somebody else's request. */
 export function RequestNotFound() {
   const copy = deskCopy.useCopy();
   return (
-    <EmptyState
+    <EmptyNote
       title={copy.t('badRequestTitle')}
       action={
-        <a className="button button--secondary" href={SUPPORT_TICKETS_HREF}>
+        <a className="lt-button lt-button-secondary" href={SUPPORT_TICKETS_HREF}>
           {copy.t('openMyRequests')}
         </a>
       }
     >
       {copy.t('badRequestBody')}
-    </EmptyState>
+    </EmptyNote>
   );
 }
 
@@ -84,16 +99,16 @@ export function RequestNotFound() {
 export function SupportAddressUnknown() {
   const copy = deskCopy.useCopy();
   return (
-    <EmptyState
+    <EmptyNote
       title={copy.t('unknownAddressTitle')}
       action={
-        <a className="button button--secondary" href="/support">
+        <a className="lt-button lt-button-secondary" href="/support">
           {copy.t('openSupport')}
         </a>
       }
     >
       {copy.t('unknownAddressBody')}
-    </EmptyState>
+    </EmptyNote>
   );
 }
 
@@ -124,7 +139,7 @@ export function SupportRequest({
   onFollowUp,
 }: {
   id: string;
-  action: ReturnType<typeof useAction>;
+  action: KitAction;
   onUpdated: () => void;
   onBack: () => void;
   onFollowUp: (ticket: Ticket) => void;
@@ -149,15 +164,14 @@ export function SupportRequest({
         api.call(SUPPORT_LIST_COMMENTS, { ticketId: id, limit }, { signal, accept: (rows) => rows.every((row) => row.ticketId === id) }),
       `support-comments:${userId}:${id}:${limit}`,
     );
-  const replyId = useId();
   return (
-    <section className="support-detail" aria-label={copy.t('conversation')}>
-      <div className="support-detail__bar">
-        <Button variant="ghost" onClick={onBack}>
-          ← {copy.t('back')}
+    <section className="lt-stack" aria-label={copy.t('conversation')}>
+      <div className="lt-actions">
+        <Button tone="quiet" onClick={onBack}>
+          <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {copy.t('back')}
         </Button>
         <Button
-          variant="secondary"
+          tone="secondary"
           onClick={() => {
             detail.reload();
             comments.reload();
@@ -169,19 +183,21 @@ export function SupportRequest({
       {detail.resource.status === 'failed' && isTicketNotFound(detail.resource.failure) ? (
         <RequestNotFound />
       ) : (
-        <Read resource={detail.resource} retry={detail.reload}>
+        <KitRead resource={detail.resource} retry={detail.reload}>
           {(ticket) => (
             <>
-              <header className="support-detail__head">
-                <h2 lang="und">{ticket.subject}</h2>
-                <div className="support-detail__meta">
+              <header className="lt-stack" data-testid="support-detail-head">
+                <h2 className="lt-wrap" lang="und">
+                  {ticket.subject}
+                </h2>
+                <div className="lt-actions">
                   <CustomerStatusBadge row={ticket} />
-                  <span className="muted">
+                  <span className="lt-hint">
                     {copy.t('reference')} <span lang="zxx">{ticketReference(ticket.id)}</span>
                   </span>
                 </div>
-                <p className="muted">{copy.t(STATUS_HELP_KEY[ticket.status])}</p>
-                <Details
+                <p className="lt-hint">{copy.t(STATUS_HELP_KEY[ticket.status])}</p>
+                <KitDetails
                   items={[
                     [copy.t('topic'), copyText(`support.category.${ticket.category}` as 'support.category.account')],
                     [copy.t('started'), <span lang="zxx">{stamp(ticket.createdAt, timeZone)}</span>],
@@ -194,57 +210,54 @@ export function SupportRequest({
                   ]}
                 />
               </header>
-              <div className="support-thread">
-                <div className="support-bubble support-bubble--you">
-                  <small>
-                    <strong>{copy.t('fromYou')}</strong> · <span lang="zxx">{stamp(ticket.createdAt, timeZone)}</span>
-                  </small>
-                  <p lang="und">{ticket.body}</p>
-                </div>
+              <div className="lt-stack" data-author="you">
+                <small>
+                  <strong>{copy.t('fromYou')}</strong> · <span lang="zxx">{stamp(ticket.createdAt, timeZone)}</span>
+                </small>
+                <p className="lt-pre-wrap" lang="und">
+                  {ticket.body}
+                </p>
               </div>
-              <Read resource={comments.resource} retry={comments.reload}>
+              <KitRead resource={comments.resource} retry={comments.reload}>
                 {(rows) => (
                   <>
                     {rows.length === 0 ? (
-                      <p className="muted">{copy.t('noRepliesYet')}</p>
+                      <p className="lt-hint">{copy.t('noRepliesYet')}</p>
                     ) : (
-                      <ol className="support-thread">
+                      <ol className="lt-stack">
                         {rows.map((row) => (
-                          <li key={row.id} className={`support-bubble support-bubble--${row.authorRole === 'user' ? 'you' : 'team'}`}>
+                          <li key={row.id} className="lt-stack" data-author={row.authorRole === 'user' ? 'you' : 'team'}>
                             <small>
                               <strong>{copy.t(row.authorRole === 'user' ? 'fromYou' : 'fromTeam')}</strong> ·{' '}
                               <span lang="zxx">{stamp(row.createdAt, timeZone)}</span>
                             </small>
-                            <p lang="und">{row.body}</p>
+                            <p className="lt-pre-wrap" lang="und">
+                              {row.body}
+                            </p>
                           </li>
                         ))}
                       </ol>
                     )}
-                    <Limit count={rows.length} limit={limit} cap={500} onChange={setLimit} />
+                    <KitLimit count={rows.length} limit={limit} cap={500} onChange={setLimit} />
                   </>
                 )}
-              </Read>
+              </KitRead>
               <SupportEvents ticketId={ticket.id} ticketUpdatedAt={ticket.updatedAt} />
+              <SupportReadAccess ticket={ticket} action={action} />
               {canReply(ticket.status) ? (
-                <div className="support-reply">
-                  <label className="field" htmlFor={replyId}>
-                    <span>{copy.t('replyLabel')}</span>
-                    <textarea
-                      id={replyId}
-                      lang="und"
-                      value={reply}
-                      onChange={(event) => setReply(event.target.value)}
-                      maxLength={10000}
-                      rows={4}
-                    />
-                    <small>{copy.t('replyHint')}</small>
-                  </label>
-                  {replyReopens(ticket.status) && (
-                    <p className="muted">
-                      <Text k="support.resolved.reply.reopens.same.request" />
-                    </p>
-                  )}
+                <div className="lt-stack">
+                  <TextAreaField
+                    label={copy.t('replyLabel')}
+                    lang="und"
+                    value={reply}
+                    onChange={setReply}
+                    maxLength={10000}
+                    rows={4}
+                    hint={copy.t('replyHint')}
+                  />
+                  {replyReopens(ticket.status) && <p className="lt-hint">{copyText('support.resolved.reply.reopens.same.request')}</p>}
                   <Button
+                    tone="primary"
                     disabled={action.disabled || !reply.trim()}
                     onClick={() =>
                       action.stage({
@@ -253,7 +266,7 @@ export function SupportRequest({
                         confirm: () => copyText('support.send.reply'),
                         success: () => copyText('support.reply.posted'),
                         content: () => (
-                          <Details
+                          <KitDetails
                             items={[
                               [supportEventsCopy.t('originalRequest'), <span lang="zxx">{ticketReference(id)}</span>],
                               [copyText('support.status'), deskCopy.t(STATUS_KEY[ticket.status])],
@@ -291,9 +304,9 @@ export function SupportRequest({
                 </div>
               ) : (
                 <>
-                  <p className="muted">{copy.t('closedNote')}</p>
+                  <p className="lt-hint">{copy.t('closedNote')}</p>
                   {canFollowUp(ticket.status) && (
-                    <Button variant="secondary" onClick={() => onFollowUp(ticket)}>
+                    <Button tone="secondary" onClick={() => onFollowUp(ticket)}>
                       {copy.t('askFollowUp')}
                     </Button>
                   )}
@@ -310,7 +323,7 @@ export function SupportRequest({
               />
             </>
           )}
-        </Read>
+        </KitRead>
       )}
     </section>
   );

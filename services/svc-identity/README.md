@@ -204,6 +204,8 @@ Ordering matters — inserting the XP event first created a read/write conflict 
 
 `REGISTRATION_OPEN=false` closes registration; existing users are unaffected. §11 gates this behind the drop sequence (drop IV opens it fully).
 
+`REGISTRATION_EMAIL_ALLOWLIST` (comma-separated emails, matched case-insensitively) opens a closed registration to those addresses only, for a stack open to a short invited list: `auth.signUpStart` and `auth.register` check the typed address, `auth.signUpConfirm` checks the draft's address before any account is made, and every other address gets the same `identity.registration_closed` refusal. Ignored while registration is open; blank means no list; a value that is not an address fails boot.
+
 ---
 
 ## Running it

@@ -3,17 +3,18 @@
  * An API key or a sub-account is refused. A body `userId` is ignored.
  */
 import { z } from 'zod';
-import { antiPhishingCodeSchema, antiPhishingSetResultSchema, protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { userCopy } from '../user-copy.js';
 import { AntiPhishingError, type AntiPhishingService } from './anti-phishing.js';
 import { ProfileError, ProfileService, type ProfileRow } from './profile-service.js';
-
-const profileOutput = z.object({
-  displayName: z.string().nullable(),
-  locale: z.string(),
-  region: z.string().nullable(),
-  version: z.number().int(),
-});
+import { profileOutput } from '@intafaced/contracts/identity-call-schemas';
+import {
+  IDENTITY_PROFILE_GET,
+  IDENTITY_PROFILE_ANTI_PHISHING_GET,
+  IDENTITY_PROFILE_ANTI_PHISHING_SET,
+} from '@intafaced/contracts/identity-profile-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 const updateInput = z
   .object({
@@ -83,14 +84,18 @@ export function createProfileRouter(profile: ProfileService | undefined, antiPhi
 
   return router({
     /** The signed-in user's own profile. Region is visible and not editable. */
-    get: protectedProcedure.output(profileOutput).query(async ({ ctx }) => {
-      try {
-        if (delegated(ctx.principal)) throw new ProfileError('identity.delegated_refused');
-        return await svc().get(ctx.principal.userId);
-      } catch (err) {
-        toTrpc(err);
-      }
-    }),
+    get: mountRecord(
+      IDENTITY_PROFILE_GET,
+      async ({ ctx }) => {
+        try {
+          if (delegated(ctx.principal)) throw new ProfileError('identity.delegated_refused');
+          return await svc().get(ctx.principal.userId);
+        } catch (err) {
+          toTrpc(err);
+        }
+      },
+      codedRefusal,
+    ),
 
     /**
      * Change display name and locale. `ifVersion` must be the version from
@@ -117,34 +122,30 @@ export function createProfileRouter(profile: ProfileService | undefined, antiPhi
 
     antiPhishing: router({
       /** The caller's own code, or null. A live session only; this answer carries nothing else. */
-      get: protectedProcedure.output(antiPhishingCodeSchema).query(async ({ ctx }) => {
-        try {
-          return await codes().read(actor(ctx.principal as Principal));
-        } catch (err) {
-          toTrpc(err);
-        }
-      }),
+      get: mountRecord(
+        IDENTITY_PROFILE_ANTI_PHISHING_GET,
+        async ({ ctx }) => {
+          try {
+            return await codes().read(actor(ctx.principal as Principal));
+          } catch (err) {
+            toTrpc(err);
+          }
+        },
+        codedRefusal,
+      ),
 
       /** Set the code, or clear it with ''. Needs the step-up `identity.step_up.anti_phishing_set` over this code and request id. */
-      set: protectedProcedure
-        .input(
-          z
-            .object({
-              // Wide wire bounds only; the service checks the real shape and answers identity.anti_phishing_invalid.
-              code: z.string().max(256),
-              stepUpApprovalId: z.string().guid(),
-              clientRequestId: z.string().max(256),
-            })
-            .strict(),
-        )
-        .output(antiPhishingSetResultSchema)
-        .mutation(async ({ ctx, input }) => {
+      set: mountRecord(
+        IDENTITY_PROFILE_ANTI_PHISHING_SET,
+        async ({ ctx, input }) => {
           try {
             return await codes().set({ ...actor(ctx.principal as Principal), ...input });
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

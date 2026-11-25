@@ -97,6 +97,6 @@ describe('category grid', () => {
     expect(page).toContain('Not connected on this platform, so nothing can be sent here.');
     const switches = page.match(/<[a-z]+\b[^>]*role="switch"[^>]*>/g) ?? [];
     expect(switches.length).toBe(3);
-    expect(switches.filter((tag) => tag.includes('data-disabled=""')).length).toBe(2);
+    expect(switches.filter((tag) => tag.includes('disabled=""')).length).toBe(2);
   });
 });

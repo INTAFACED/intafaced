@@ -15,8 +15,15 @@ describe('ledger post allowlist cites real callers', () => {
         const cite = grant.cite;
         const text = readFileSync(join(ROOT, cite), 'utf8');
         // Built in the caller (`recipes.<name>(`), or named on the postRecipe door (`postRecipe({ recipe: '<name>'`), or in
-        // a Rust service (crates/svc-academy) named as `"<name>"` in the file that sends it through its `post_recipe(` client.
-        const rust = cite.endsWith('.rs') && text.includes('post_recipe(') && text.includes(`"${recipe}"`);
+        // a Rust service named as `"<name>"` (crates/svc-academy) or built as `Recipe::<Name>` (crates/svc-agents) in the file
+        // that sends it through its `post_recipe(` client.
+        // Or a Rust file that hands `"<name>"` to its crate's recipe wrapper (a `fn` with a `recipe: &str` parameter that
+        // posts it, as crates/svc-bank's `loans::service::post`).
+        const variant = `Recipe::${recipe.charAt(0).toUpperCase()}${recipe.slice(1)}`;
+        const rust =
+          cite.endsWith('.rs') &&
+          ((text.includes('post_recipe(') && (text.includes(`"${recipe}"`) || text.includes(variant))) ||
+            wrapperCalls(text, crateWrappers(cite.split('/').slice(0, 2).join('/'))).includes(recipe));
         if (!rust) expect(text, cite).toMatch(new RegExp('recipes\\.' + recipe + "\\(|postRecipe\\(\\{\\s*recipe:\\s*'" + recipe + "'"));
       }
     }
@@ -43,16 +50,22 @@ describe('ledger post allowlist cites real callers', () => {
       }
     }
     // A Rust service (`crates/svc-<x>`) sends a recipe through its client's `.post_recipe(`: in a file that calls it, each
-    // string literal naming a recipe is a pair. Its tests (the `#[cfg(test)]` module, and `tests/`) are not production.
+    // string literal naming a recipe, and each `Recipe::<Name>` variant it builds, is a pair. Its tests (the `#[cfg(test)]` module, and `tests/`) are not production.
     const cratesDir = join(ROOT, 'crates');
     for (const service of existsSync(cratesDir) ? readdirSync(cratesDir) : []) {
       const src = join(cratesDir, service, 'src');
       if (!service.startsWith('svc-') || !existsSync(src)) continue;
+      const wrappers = crateWrappers(join('crates', service));
       for (const file of rustSources(src)) {
         const text = readFileSync(file, 'utf8').split('#[cfg(test)]')[0] ?? '';
+        for (const name of wrapperCalls(text, wrappers)) if (Object.hasOwn(recipes, name)) pairs.add(`${service} ${name}`);
         if (!/\.post_recipe\(/.test(text)) continue;
         for (const [, name] of text.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g))
           if (name !== undefined && Object.hasOwn(recipes, name)) pairs.add(`${service} ${name}`);
+        for (const [, v] of text.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)) {
+          const name = v === undefined ? undefined : v.charAt(0).toLowerCase() + v.slice(1);
+          if (name !== undefined && Object.hasOwn(recipes, name)) pairs.add(`${service} ${name}`);
+        }
       }
     }
 
@@ -65,6 +78,31 @@ describe('ledger post allowlist cites real callers', () => {
     expect({ missing, stray }).toEqual({ missing: [], stray: [] });
   });
 });
+
+/**
+ * A crate's recipe wrappers: each `fn <name>(` with a `recipe: &str` parameter in a production file that sends through
+ * its client's `.post_recipe(`. The same reading as tooling/ci/custody-layer-check.mjs `rustRecipeWrappers`.
+ */
+function crateWrappers(crate: string): string[] {
+  const src = join(ROOT, crate, 'src');
+  if (!existsSync(src)) return [];
+  const names = rustSources(src).flatMap((file) => {
+    const text = readFileSync(file, 'utf8').split('#[cfg(test)]')[0] ?? '';
+    if (!/\.post_recipe\(/.test(text)) return [];
+    return [...text.matchAll(/\bfn\s+([a-z_][a-z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)/g)]
+      .filter((m) => /\brecipe\s*:\s*&str\b/.test(m[2] ?? ''))
+      .map((m) => m[1] ?? '');
+  });
+  return [...new Set(names)].filter(Boolean);
+}
+
+/** The recipe names a file hands to one of its crate's wrappers: each string literal in that call's statement. */
+function wrapperCalls(text: string, wrappers: string[]): string[] {
+  if (wrappers.length === 0) return [];
+  const live = text.split('#[cfg(test)]')[0] ?? '';
+  const call = new RegExp(`(?<![.\\w])(?:${wrappers.join('|')})\\s*\\(([^;]*)`, 'g');
+  return [...live.matchAll(call)].flatMap((m) => [...(m[1] ?? '').matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)].map((x) => x[1] ?? ''));
+}
 
 function rustSources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

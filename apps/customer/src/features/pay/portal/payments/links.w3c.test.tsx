@@ -112,7 +112,7 @@ it('reads the payments made through a link once a payments reader is given', () 
 });
 it('offers the asset as a choice, not free text', () => {
   const out = renderToString(<PaymentLinkForm pay={pay} merchantId={link.id} />);
-  expect(out).toMatch(/<select>(<option[^>]*>[^<]*<\/option>)+<\/select>/);
+  expect(out).toMatch(/<select[^>]*>(<option[^>]*>[^<]*<\/option>)+<\/select>/);
   expect(out).toContain('USDT');
   expect(out).not.toContain('Asset code');
 });

@@ -1,14 +1,8 @@
-import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
+import { spotOrderTypes, venueSpotOrderTypes, type VenueSpotMarketOrderCapabilities } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import {
-  isScheduleKey,
-  isScheduleOpen,
-  nextScheduleTransition,
-  TRADING_SCHEDULES,
-  upcomingMaintenanceFor,
-  type TradingSchedule,
-  type UpcomingMaintenance,
-} from '@intafaced/contracts';
+import type { TradingSchedule, UpcomingMaintenance } from '@intafaced/contracts';
+import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
+import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -26,12 +20,14 @@ import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
 import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
-import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
+import { PAIR_RULE_NOT_SET, type PairHalt, type PairRisk, type PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import type { CandleGate } from './admin/chart-feed-controls.js';
 import { publicRead } from './route-inventory.js';
 import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
+import type { HistoryDatasetsPort } from './spot/history-datasets.js';
+import { registerHistoryRestRoutes } from './spot/history-rest.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -124,6 +120,12 @@ export interface PublicRestDeps {
   pairRiskForMarkets?(markets: readonly Market[]): Promise<ReadonlyMap<string, PairRisk>>;
   /** Warn sink for a failed pair-rules read (the listing degrades, never fails). Defaults to console.warn. */
   onPairRulesReadError?(err: unknown): void;
+  /**
+   * The venue's listed markets when the user-venue door is on (J-cex-spot-15 #4). Present: `GET /api/v1/order-types`
+   * reads the listed venue spot market's own `orderTypes` and `timeInForce` (optional `?symbol=`, else the first listed
+   * spot market) so a bot reads the same list `VenueSpotDesk.tsx` draws. Absent: serves the own-book `spotOrderTypes()`.
+   */
+  venueSpotMarkets?: () => Promise<readonly VenueSpotMarketOrderCapabilities[]>;
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
    * Recent public prints for a market (no user/order ids). Empty when nothing
@@ -141,9 +143,16 @@ export interface PublicRestDeps {
    * (`spot/ticker-stats.ts`). Optional: a mount without it serves the old
    * top-of-book ticker with null rollups — never invented numbers.
    */
-  tickerStats?(marketIds: readonly string[], nowMs: number): Promise<Map<string, TickerStats24h>>;
+  /** `newestPrintMs`: each market's newest public print, as just read; stats cached before it are read again. */
+  tickerStats?(
+    marketIds: readonly string[],
+    nowMs: number,
+    newestPrintMs?: ReadonlyMap<string, number>,
+  ): Promise<Map<string, TickerStats24h>>;
   /** Injectable clock for tests. */
   now?: () => number;
+  /** Historical tick, book and trade datasets (RC-cex-spot-05; J-cex-spot-15 #10). */
+  history?: HistoryDatasetsPort;
   /**
    * Published funding rate for a futures market. Null → not served (never invent zero).
    * Spot markets never call this.
@@ -586,7 +595,10 @@ export function presentCcxtMarket(
       // price below it rounds to zero. Max is unbounded and stays null rather
       // than guessing a ceiling a client would clamp against.
       price: { min: tick, max: null as string | null },
-      cost: { min: formatAmount(market.minNotional), max: null as string | null },
+      cost: {
+        min: flags.pairRules?.minNotional === PAIR_RULE_NOT_SET ? null : (flags.pairRules?.minNotional ?? formatAmount(market.minNotional)),
+        max: null as string | null,
+      },
       /**
        * Only an explicit owner/listing cap is publishable. Spot/options and an
        * unconfigured futures listing stay null rather than advertising 10×.
@@ -796,11 +808,46 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   });
 
   /**
-   * Spot order types (SP-order-entry-01; J-cex-spot-15 #4): every type the spot ticket offers and how `POST
-   * /api/v1/orders` takes it, then each listed type the create door refuses, with its code. The one list in
-   * `@intafaced/contracts/spot-order-types` also draws the ticket's tabs, so a bot reads exactly what the ticket shows.
+   * Spot order types (SP-order-entry-01; J-cex-spot-15 #4): every type the spot ticket offers and how it is sent, then
+   * each listed type that is refused, with its code. When the user-venue door is on (`deps.venueSpotMarkets`), reads the
+   * venue's own spot market capabilities (`?symbol=` or the first listed spot market) so the API matches `VenueSpotDesk`.
+   * Otherwise serves the own-book list from `@intafaced/contracts/spot-order-types`.
    */
-  app.get('/api/v1/order-types', publicRead, async (_req, reply) => reply.code(200).send(spotOrderTypes()));
+  app.get<{ Querystring: { symbol?: string } }>('/api/v1/order-types', publicRead, async (req, reply) => {
+    if (!deps.venueSpotMarkets) return reply.code(200).send(spotOrderTypes());
+    let listed: readonly VenueSpotMarketOrderCapabilities[];
+    try {
+      listed = await deps.venueSpotMarkets();
+    } catch {
+      return sendCcxt(reply, {
+        status: 503,
+        body: {
+          code: 'ExchangeNotAvailable',
+          message: 'The venue’s spot markets could not be read just now',
+          intafacedCode: 'trade.venue.venue_down',
+        },
+      });
+    }
+    const spot = listed.filter((m) => m.kind === 'spot');
+    const wanted = typeof req.query.symbol === 'string' ? req.query.symbol.trim() : '';
+    const market = wanted ? spot.find((m) => m.symbol === wanted) : spot[0];
+    if (!market) {
+      return sendCcxt(
+        reply,
+        wanted
+          ? badRequest(`${wanted} is not a listed venue spot market`, 'trade.venue.unknown_market')
+          : {
+              status: 503,
+              body: {
+                code: 'ExchangeNotAvailable',
+                message: 'No venue spot market is listed right now',
+                intafacedCode: 'trade.venue.not_offered',
+              },
+            },
+      );
+    }
+    return reply.code(200).send(venueSpotOrderTypes(market));
+  });
 
   /**
    * Futures margin modes on our own book (D-portfolio-wallet-05; J-dex-protocol-06 #7): every named mode, whether it is
@@ -1027,12 +1074,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     try {
       // Top of book only — ticker is BBO + last, not full depth.
       const ts = now();
-      const [depth, tape, stats] = await Promise.all([
-        deps.depth(market.id, 1),
-        deps.publicTape(market.id, 1),
-        // Stats are best effort: a failed stats query serves null rollups, never a 5xx ticker.
-        deps.tickerStats ? deps.tickerStats([market.id], ts).catch(() => undefined) : Promise.resolve(undefined),
-      ]);
+      const [depth, tape] = await Promise.all([deps.depth(market.id, 1), deps.publicTape(market.id, 1)]);
+      // The stats are read after the last print, so they include it (J-cex-spot-14 #8). They are best effort: a failed
+      // stats query serves null rollups, never a 5xx ticker.
+      const printed = tape[0] ? new Map([[market.id, tape[0].ts.getTime()]]) : undefined;
+      const stats = deps.tickerStats ? await deps.tickerStats([market.id], ts, printed).catch(() => undefined) : undefined;
       return reply.code(200).send(presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null));
     } catch (err) {
       // MatchingNoBookError → 404 trade.no_book. MatchingUnavailable → 502.
@@ -1056,17 +1102,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
     const markets = await deps.markets(limit);
     const ts = now();
-    const out: Record<string, ReturnType<typeof presentTicker>> = {};
-    // Stats are best effort: a failed stats query serves null rollups, never a 5xx map.
-    const stats = deps.tickerStats
-      ? await deps
-          .tickerStats(
-            markets.map((m) => m.id),
-            ts,
-          )
-          .catch(() => undefined)
-      : undefined;
-
+    const books: Array<{ market: Market; depth: EngineDepth; last: PublicTapePrint | null }> = [];
     await Promise.all(
       markets.map(async (market) => {
         let depth: EngineDepth;
@@ -1077,9 +1113,29 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
           throw err;
         }
         const tape = await deps.publicTape(market.id, 1);
-        out[market.symbol] = presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null, { sparkline: true });
+        books.push({ market, depth, last: tape[0] ?? null });
       }),
     );
+    // The stats are read after every last print, so each row's volume, high and low include its last price (J-cex-spot-14
+    // #8). They are best effort: a failed stats query serves null rollups, never a 5xx map.
+    const printed = new Map(books.flatMap((b) => (b.last ? [[b.market.id, b.last.ts.getTime()] as const] : [])));
+    const stats = deps.tickerStats
+      ? await deps
+          .tickerStats(
+            markets.map((m) => m.id),
+            ts,
+            printed,
+          )
+          .catch(() => undefined)
+      : undefined;
+
+    const out: Record<string, ReturnType<typeof presentTicker>> = {};
+    const byId = new Map(books.map((b) => [b.market.id, b]));
+    for (const market of markets) {
+      const book = byId.get(market.id);
+      if (book)
+        out[market.symbol] = presentTicker(market.symbol, book.depth, book.last, ts, stats?.get(market.id) ?? null, { sparkline: true });
+    }
 
     return reply.code(200).send(out);
   });
@@ -1246,6 +1302,9 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     publicTape: (marketId, limit, sinceMs) => deps.publicTape(marketId, limit, sinceMs),
     now: () => new Date(now()),
   });
+
+  // Historical tick, book and trade data downloads (RC-cex-spot-05; J-cex-spot-15 #10).
+  registerHistoryRestRoutes(app, deps.history);
 }
 
 /** Test helper — build a minimal Market without a DB. */

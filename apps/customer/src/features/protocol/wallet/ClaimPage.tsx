@@ -1,12 +1,14 @@
+// volt-room: /wallet/claim/:linkId
 import { useEffect, useMemo, useState } from 'react';
 import { encodeAbiParameters, encodeFunctionData, keccak256, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { Button, EmptyState, Loading, Page, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
-import '../protocol.css';
+import { EmptyState, Loading, Panel } from '../volt/parts';
 import { CLAIM_ESCROW_CALLS, linkAmount } from './ClaimLinksPanel';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
@@ -126,14 +128,14 @@ export function ClaimPage({ id }: { id: string }) {
     const [value, ...name] = amount.split(' ');
     body = (
       <>
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('claimAmount')}</dt>
-            <dd className="numeric">{amount}</dd>
+            <dd className="lt-num">{amount}</dd>
           </div>
           <div>
             <dt>{t('claimFrom')}</dt>
-            <dd className="numeric">{data.sender}</dd>
+            <dd className="lt-num">{data.sender}</dd>
           </div>
           <div>
             <dt>{t('claimExpires')}</dt>
@@ -158,28 +160,32 @@ export function ClaimPage({ id }: { id: string }) {
           </p>
         ) : !connected ? (
           <>
-            <p className="muted">{t('claimConnect')}</p>
+            <p className="lt-muted">{t('claimConnect')}</p>
             {wallet.wallets.length === 0 ? (
               <EmptyState title={tw('connectNone')} />
             ) : (
-              <ul className="protocol-actions">
+              <ul className="lt-actions">
                 {wallet.wallets.map((entry) => (
                   <li key={entry.info.uuid}>
-                    <Button disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
+                    <Button tone="primary" disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
                       {tw('connectButton', { name: entry.info.name })}
                     </Button>
                   </li>
                 ))}
               </ul>
             )}
-            {wallet.guard && !wallet.guard.ok && <Button onClick={() => void wallet.switchNetwork()}>{tw('switchNetwork')}</Button>}
+            {wallet.guard && !wallet.guard.ok && (
+              <Button tone="primary" onClick={() => void wallet.switchNetwork()}>
+                {tw('switchNetwork')}
+              </Button>
+            )}
           </>
         ) : (
           <>
-            <p className="muted">
+            <p className="lt-muted">
               {t('claimStep', { amount: value ?? '', token: name.join(' '), address: shortAddress(wallet.address!) })}
             </p>
-            <Button disabled={outcome.kind === 'busy' || !escrow} onClick={() => void claim()}>
+            <Button tone="primary" disabled={outcome.kind === 'busy' || !escrow} onClick={() => void claim()}>
               {outcome.kind === 'busy' ? t('claimBusy') : t('claimButton', { amount: value ?? '', token: name.join(' ') })}
             </Button>
           </>
@@ -190,24 +196,32 @@ export function ClaimPage({ id }: { id: string }) {
   }
 
   return (
-    <div className="legacy-room protocol-room" lang={walletCopy.forLocale(language).renderedLocale} data-route="wallet-claim">
-      <Page title={t('claimTitle')} description={t('claimNote')}>
-        {gate && (
-          <RepresentationPanel
-            address={gate.address}
-            status={gate.status}
-            api={api}
-            onEnd={(end) => {
-              setGate(null);
-              if (end.kind === 'accepted') void claim();
-              else if (end.kind === 'region') setOutcome({ kind: 'refused', message: tw('permitRefused_region') });
-              else if (end.kind === 'rejected') setOutcome({ kind: 'refused', message: t('claimFailed', { message: tw('sendRejected') }) });
-              else setOutcome({ kind: 'refused', message: t('claimFailed', { message: end.message }) });
-            }}
-          />
-        )}
-        <Panel title={t('claimTitle')}>{body}</Panel>
-      </Page>
+    <div lang={walletCopy.forLocale(language).renderedLocale} data-route="wallet-claim">
+      <FlowTemplate
+        title={t('claimTitle')}
+        description={t('claimNote')}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-stack">
+            {gate && (
+              <RepresentationPanel
+                address={gate.address}
+                status={gate.status}
+                api={api}
+                onEnd={(end) => {
+                  setGate(null);
+                  if (end.kind === 'accepted') void claim();
+                  else if (end.kind === 'region') setOutcome({ kind: 'refused', message: tw('permitRefused_region') });
+                  else if (end.kind === 'rejected')
+                    setOutcome({ kind: 'refused', message: t('claimFailed', { message: tw('sendRejected') }) });
+                  else setOutcome({ kind: 'refused', message: t('claimFailed', { message: end.message }) });
+                }}
+              />
+            )}
+            <Panel title={t('claimTitle')}>{body}</Panel>
+          </div>
+        }
+      />
     </div>
   );
 }

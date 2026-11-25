@@ -285,6 +285,7 @@ test(`${J} #1 opens the quant desk and the runs list: every run with owner, stat
 test(`${J} #2 halts one strategy with a reason: new orders are denied for it and a reduce-only exit passes; an audit row names the operator`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const { a, s1, s2, subs, runs } = state();
@@ -318,6 +319,8 @@ test(`${J} #2 halts one strategy with a reason: new orders are denied for it and
     .filter({ has: desk.locator(`[data-testid="quant-audit-kind"][data-kind="quant_live.halt"]`) })
     .filter({ hasText: s1 });
   await expect(auditRow.getByTestId('quant-audit-operator')).toHaveAttribute('data-operator', founder.userId);
+  // The step's picture: the desk with S1's runs halted and its audit row naming the operator.
+  await stepPicture(desk);
   await desk.context().close();
 
   // New orders are denied for it: a manual order on its run, and a new run of it, each refused by name with nothing stored.
@@ -354,7 +357,7 @@ test(`${J} #2 halts one strategy with a reason: new orders are denied for it and
   expect(fills.filter((f) => f.side === 'sell').reduce((s, f) => s + toUnits(f.amount), 0n)).toBe(toUnits(BLOCK));
 });
 
-test(`${J} #3 requests halt-all as the only founder: it stays a request and no run is halted`, async ({ browser }) => {
+test(`${J} #3 requests halt-all as the only founder: it stays a request and no run is halted`, async ({ browser, stepPicture }) => {
   test.setTimeout(120_000);
   const { runs } = state();
   const { page: desk, founder } = await quantDesk(browser, 'a');
@@ -382,6 +385,8 @@ test(`${J} #3 requests halt-all as the only founder: it stays a request and no r
   }
   expect(after.counts.haltedLive).toBe(before.counts.haltedLive);
   expect(after.waiting.find((w) => w.id === asked.data.id)?.status).toBe('awaiting_second');
+  // The step's picture: the request waiting for a second founder, and no run of S2 or S3 halted.
+  await stepPicture(desk);
   await desk.context().close();
   // And the strategy still trades: S2's run takes an order.
   const { a } = state();
@@ -389,7 +394,7 @@ test(`${J} #3 requests halt-all as the only founder: it stays a request and no r
   expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBe(200);
 });
 
-test(`${J} #4 a second founder confirms halt-all: every run halts and the desk shows the count`, async ({ browser }) => {
+test(`${J} #4 a second founder confirms halt-all: every run halts and the desk shows the count`, async ({ browser, stepPicture }) => {
   test.setTimeout(120_000);
   const { a, b, runs, haltAllRequest } = state();
   if (!haltAllRequest) throw new Error(`${J} #3 filed no halt-all request, so there is nothing to confirm`);
@@ -429,6 +434,8 @@ test(`${J} #4 a second founder confirms halt-all: every run halts and the desk s
     .filter({ has: desk.locator('[data-testid="quant-audit-kind"][data-kind="quant_live.halt_all"]') })
     .filter({ hasText: ALL_REASON });
   await expect(auditRow.first().getByTestId('quant-audit-runs')).toHaveText(String(read.counts.live));
+  // The step's picture: every run halted and the count, on the counts line and the halt-all audit row.
+  await stepPicture(desk);
   await desk.context().close();
 
   // New orders are denied on every strategy: S2's run (trader A) and S3's (trader B).
@@ -441,7 +448,10 @@ test(`${J} #4 a second founder confirms halt-all: every run halts and the desk s
   }
 });
 
-test(`${J} #5 restores a halted strategy: restore needs the same two-person rule and writes an audit row`, async ({ browser }) => {
+test(`${J} #5 restores a halted strategy: restore needs the same two-person rule and writes an audit row`, async ({
+  browser,
+  stepPicture,
+}) => {
   test.setTimeout(180_000);
   const { a, s1, runs, s1Halt } = state();
   if (!s1Halt) throw new Error(`${J} #2 left no halt of S1, so there is nothing to restore`);
@@ -509,6 +519,8 @@ test(`${J} #5 restores a halted strategy: restore needs the same two-person rule
     .filter({ hasText: RESTORE_REASON });
   await expect(auditRow.first().getByTestId('quant-audit-operator')).toHaveAttribute('data-operator', fa.userId);
   await expect(auditRow.first().getByTestId('quant-audit-approver')).toHaveAttribute('data-approver', fb.userId);
+  // The step's picture: S1's run restored and the restore's audit row naming both founders.
+  await stepPicture(deskB);
   await deskB.context().close();
   const order = await manualBuy(a, runs.keep);
   expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBe(200);

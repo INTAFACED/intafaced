@@ -148,8 +148,8 @@ impl Big {
 
     pub fn from_amount(v: Amount) -> Big {
         Big {
-            negative: v < 0,
-            mag: mag_of_u128(v.unsigned_abs()),
+            negative: v.is_negative(),
+            mag: mag_of_u128(v.scaled().unsigned_abs()),
         }
     }
 
@@ -216,7 +216,7 @@ impl Big {
     }
 
     fn scale() -> Big {
-        Big::from_amount(Amount::from(SCALE))
+        Big::from_amount(Amount::ONE)
     }
 
     /// `mul(a, b, 'half-up')`: two scaled amounts multiplied.

@@ -6,7 +6,7 @@ import { usePreferences, savePreferences } from '../shared/preferences';
 import { proCopy } from '../screens/home/pro-copy';
 import { BellPopover } from '../screens/notifications/BellPopover';
 import { currentReturnLocation } from './location';
-import { doorLabel, safeReturnTo, type Door } from './navigation';
+import { defaultDeskPair, doorLabel, markMenuSpotNavigation, safeReturnTo, type Door } from './navigation';
 import { ShellIcon } from './icons';
 import { menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
@@ -17,12 +17,18 @@ import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 
+/** Marks generic menu clicks to the default spot pair so VenueSpotGate opens the active venue's default spot market. */
+const DEFAULT_SPOT_HREF = `/trade/spot/${defaultDeskPair}`;
+const onSpotMenuClick = (href: string) => {
+  if (href === DEFAULT_SPOT_HREF) markMenuSpotNavigation();
+};
+
 // The merchant portal's chrome and menu load only when a merchant page or the Pay menu needs them.
 export const preloadMerchantChrome = () => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar }));
 const MerchantTopBar = lazy(preloadMerchantChrome);
 const GroupedMenu = lazy(() => import('../features/pay/portal/home-layout/Navigation').then((m) => ({ default: m.GroupedMenu })));
 
-/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner, and marks the banner as covering the top edge. */
+/** Sets `--if-banner-offset` to the TEST banner's height (28 px; deployment/test-banner.mjs), or 0 when there is no banner, and marks the banner as covering the top edge. */
 export function useBannerOffset() {
   useEffect(() => {
     const apply = () => {
@@ -61,7 +67,14 @@ function MenuRow({ item, close, language }: { item: MenuItem; close: () => void;
   const words = menuItemWords(item, t, language);
   return (
     <li>
-      <a className="tb-menu-item" href={item.href} onClick={close}>
+      <a
+        className="tb-menu-item"
+        href={item.href}
+        onClick={() => {
+          onSpotMenuClick(item.href);
+          close();
+        }}
+      >
         <ShellIcon name={item.icon} />
         <span>
           <strong>{words.title}</strong>
@@ -124,7 +137,10 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
         aria-current={current === tab.door ? 'page' : undefined}
         aria-expanded={hasMenu ? open : undefined}
         aria-controls={hasMenu && open ? menuId : undefined}
-        onClick={() => setOpen(false)}
+        onClick={() => {
+          onSpotMenuClick(tab.href);
+          setOpen(false);
+        }}
       >
         {doorLabel(tab.door, language)}
         {hasMenu && <ChevronDown size={14} aria-hidden="true" className="tb-chev" />}
@@ -318,7 +334,12 @@ export function MobileTabs({ door, language }: { door: Door | undefined; languag
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>
         tab
           ? [
-              <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
+              <a
+                key={tab.door}
+                href={tab.href}
+                aria-current={door === tab.door ? 'page' : undefined}
+                onClick={() => onSpotMenuClick(tab.href)}
+              >
                 <ShellIcon name={tab.icon} />
                 {doorLabel(tab.door, language)}
               </a>,

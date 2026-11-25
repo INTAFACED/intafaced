@@ -2,7 +2,6 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { actionApprovalSchema } from '@intafaced/contracts';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -11,6 +10,7 @@ import {
   type PartLabels,
   explainRefusal,
   founderRecordRead,
+  founderRecordCall,
 } from '@/lib/desk';
 import { readDefinition } from './status-model';
 import {
@@ -42,6 +42,8 @@ import {
   NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE,
   NOTIFY_STATUS_PAGE_TEMPLATES_RETIRE,
 } from '@intafaced/contracts/notify-status-page-procedures';
+import { IDENTITY_ACTION_APPROVAL_PROPOSE, IDENTITY_ACTION_APPROVAL_APPROVE } from '@intafaced/contracts/identity-action-approval-records';
+import { IDENTITY_ACTION_APPROVAL_LIST } from '@intafaced/contracts/identity-action-approval-procedures';
 
 /**
  * The incident desk as the signed-in founder. svc-notify holds the incidents (`notify.operatorNotices`, drafts included),
@@ -98,8 +100,8 @@ async function postmortemsOf(ctx: FounderCallContext, notices: readonly Operator
  */
 export async function loadPublishApprovals(ctx: FounderCallContext): Promise<Part<readonly PublishApproval[]>> {
   const [pending, mine] = await Promise.all([
-    founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'pending', limit: APPROVALS_LIMIT }, readApprovals),
-    founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'mine', limit: APPROVALS_LIMIT }, readApprovals),
+    founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_LIST, { view: 'pending', limit: APPROVALS_LIMIT }, readApprovals),
+    founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_LIST, { view: 'mine', limit: APPROVALS_LIMIT }, readApprovals),
   ]);
   if (pending.kind !== 'ok') return partFrom(pending, () => [], IDENTITY);
   if (mine.kind !== 'ok') return partFrom(mine, () => [], IDENTITY);
@@ -212,14 +214,14 @@ export async function requestPublish(ctx: FounderCallContext, subject: PublishSu
   if (proposal.kind !== 'ok') return reply(proposal, 'requested');
   const { actionType, targetService, targetId, expectedVersion, payloadHash } = proposal.data;
   return reply(
-    await founderCall(
-      ctx,
-      'identity',
-      'actionApproval.propose',
-      'POST',
-      { actionType, targetService, targetId, expectedVersion, payloadHash, policyVersion: 'v1' },
-      parseWith(actionApprovalSchema),
-    ),
+    await founderRecordCall(ctx, IDENTITY_ACTION_APPROVAL_PROPOSE, {
+      actionType,
+      targetService,
+      targetId,
+      expectedVersion,
+      payloadHash,
+      policyVersion: 'v1',
+    }),
     'requested',
   );
 }
@@ -232,14 +234,10 @@ export async function requestPublish(ctx: FounderCallContext, subject: PublishSu
 export async function approvePublish(ctx: FounderCallContext, subject: PublishSubject, approvalId: string) {
   const proposal = await proposalOf(ctx, subject);
   if (proposal.kind !== 'ok') return reply(proposal, 'approved');
-  const approved = await founderCall(
-    ctx,
-    'identity',
-    'actionApproval.approve',
-    'POST',
-    { approvalId, expectedPayloadHash: proposal.data.payloadHash },
-    parseWith(actionApprovalSchema),
-  );
+  const approved = await founderRecordCall(ctx, IDENTITY_ACTION_APPROVAL_APPROVE, {
+    approvalId,
+    expectedPayloadHash: proposal.data.payloadHash,
+  });
   const answer = reply(approved, 'approved');
   const approval = approved.kind === 'ok' ? publishApprovalOf(approved.data) : null;
   return approval && answer.reply.ok ? { ...answer, reply: { ...answer.reply, approval } } : answer;

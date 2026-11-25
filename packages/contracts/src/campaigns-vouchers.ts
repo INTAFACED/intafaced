@@ -27,8 +27,23 @@ export const feeSaverTermsSchema = z
   .strict();
 export type FeeSaverTerms = z.infer<typeof feeSaverTermsSchema>;
 
-/** A voucher's kind: `cash` redeems its face value through the reward saga; `fee_saver` lowers our builder fee. */
-export const VOUCHER_KINDS = ['cash', 'fee_saver'] as const;
+/**
+ * A fee rebate coupon's terms (CM-vouchers-coupons-03, J-campaigns-09 #5 #6): `rebateBps` of our builder fee on each
+ * eligible venue fill (a fill of an order placed through our door after the claim and before the use-by, with our
+ * builder fee above zero) is accrued back to the holder, owed from the campaign's budget and paid to their connected
+ * wallet `delaySeconds` after it accrued. The coupon's face value is the campaign's reward: the most it ever pays in all.
+ * Only our builder fee is rebated: never the venue's own fee.
+ */
+export const feeRebateTermsSchema = z
+  .object({ rebateBps: z.number().int().min(1).max(10_000), delaySeconds: z.number().int().min(0).max(31_536_000) })
+  .strict();
+export type FeeRebateTerms = z.infer<typeof feeRebateTermsSchema>;
+
+/**
+ * A voucher's kind: `cash` redeems its face value through the reward saga; `fee_saver` lowers our builder fee;
+ * `fee_rebate` pays part of our builder fee back after each fill, up to its face value.
+ */
+export const VOUCHER_KINDS = ['cash', 'fee_saver', 'fee_rebate'] as const;
 export type VoucherKind = (typeof VOUCHER_KINDS)[number];
 
 /**
@@ -45,6 +60,7 @@ export const campaignVoucherSchema = z.object({
   face: z.object({ asset, amount: campaignDecimal }),
   kind: z.enum(VOUCHER_KINDS).default('cash'),
   feeSaver: feeSaverTermsSchema.nullable().default(null),
+  feeRebate: feeRebateTermsSchema.nullable().default(null),
   state: z.enum(VOUCHER_STATES),
   issuedBy: z.string(),
   issuedAt: iso,
@@ -76,11 +92,12 @@ export const campaignLimitsSchema = z
   .strict();
 export type CampaignLimits = z.infer<typeof campaignLimitsSchema>;
 
-/** A voucher campaign's claim-by and use-by times, as stored; either may be blank. A fee-saver campaign has its terms. */
+/** A voucher campaign's claim-by and use-by times, as stored; either may be blank. A fee coupon campaign has its terms. */
 export const voucherWindowSchema = z.object({
   claimBy: iso.nullable(),
   useBy: iso.nullable(),
   feeSaver: feeSaverTermsSchema.nullable().optional(),
+  feeRebate: feeRebateTermsSchema.nullable().optional(),
 });
 export type VoucherWindow = z.infer<typeof voucherWindowSchema>;
 
@@ -109,6 +126,8 @@ export const voucherValidationSchema = z.object({
   useBy: iso,
   /** A fee-saver coupon's terms (J-campaigns-09); null for a cash voucher. */
   feeSaver: feeSaverTermsSchema.nullable().default(null),
+  /** A fee rebate coupon's terms (J-campaigns-09 #5); null for any other voucher. */
+  feeRebate: feeRebateTermsSchema.nullable().default(null),
 });
 export type VoucherValidation = z.infer<typeof voucherValidationSchema>;
 
@@ -159,6 +178,30 @@ export const myVoucherSchema = z.object({
       discountBps: z.number().int().min(1).max(10_000),
       orders: z.number().int().min(1),
       uses: z.array(z.object({ sequence: z.number().int().positive(), orderKey: z.string(), at: iso })),
+    })
+    .nullable()
+    .default(null),
+  /**
+   * A fee rebate coupon (J-campaigns-09 #5 #6): what it pays back of our builder fee, after how long, and each fill it
+   * accrued on, oldest first, with the redemption that pays it (same `sequence`). `used` and `remaining` count its face
+   * value in its asset. Null for any other voucher.
+   */
+  feeRebate: z
+    .object({
+      rebateBps: z.number().int().min(1).max(10_000),
+      delaySeconds: z.number().int().min(0),
+      accruals: z.array(
+        z.object({
+          sequence: z.number().int().positive(),
+          /** The venue's own fill id and the builder fee the venue charged on it, as the venue reports it. */
+          fillId: z.string(),
+          builderFee: campaignDecimal,
+          amount: campaignDecimal,
+          filledAt: iso,
+          /** When it is paid at the earliest: when it accrued plus the delay. */
+          payableAt: iso,
+        }),
+      ),
     })
     .nullable()
     .default(null),

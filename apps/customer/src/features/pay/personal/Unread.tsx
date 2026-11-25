@@ -58,13 +58,13 @@ export function UnreadBadge({ count }: { count: UnreadCount | undefined }) {
   if (!count) return null;
   if (count.status === 'failed')
     return (
-      <span className="p2p-unread p2p-unread--off" role="img" aria-label={t('unreadOff')} title={t('unreadOff')}>
+      <span className="lt-hint" role="img" aria-label={t('unreadOff')} title={t('unreadOff')}>
         –
       </span>
     );
   if (count.count === 0) return null;
   return (
-    <span className="p2p-unread" data-testid="unread-badge" role="img" aria-label={t('unreadLabel', { count: count.count })}>
+    <span className="lt-chip" data-testid="unread-badge" role="img" aria-label={t('unreadLabel', { count: count.count })}>
       {t('unreadBadge', { count: count.count })}
     </span>
   );

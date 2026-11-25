@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { displayAmount } from '../../shared/money';
-import { PayFailure } from './components';
-import { Button } from '@intafaced/ui';
+import { Field, PayFailure } from './volt/parts';
+import { Button } from '@intafaced/ui/lit';
 import type { PersonalPayApi } from './pay-api';
 import { mismatchCopy } from './p2p-mismatch-copy';
 import type { Trade, TradeMismatch } from './schemas';
-import { Field } from './ui-kit';
 
 const KINDS = ['under', 'over', 'partial'] as const;
 
@@ -31,9 +30,9 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
   const refusal =
     failure?.code === 'p2p.mismatch_report_exists' ? t('exists') : failure?.code === 'p2p.invalid_amount' ? t('invalid') : null;
   return (
-    <details className="p2p-order-other" data-testid="order-mismatch">
+    <details className="lt-stack" data-testid="order-mismatch">
       <summary>{t('title')}</summary>
-      <p className="muted">{t('why')}</p>
+      <p className="lt-muted">{t('why')}</p>
       <fieldset>
         <legend>{t('kind')}</legend>
         {KINDS.map((option) => (
@@ -51,7 +50,7 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
         onChange={(event) => setAmount(event.target.value.trim())}
       />
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={sending || !wellFormed}
         onClick={async () => {
           setSending(true);
@@ -70,9 +69,9 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
       >
         {t('report')}
       </Button>
-      {amount === '' ? <p className="muted">{t('amountMissing')}</p> : !wellFormed ? <p className="muted">{t('format')}</p> : null}
+      {amount === '' ? <p className="lt-muted">{t('amountMissing')}</p> : !wellFormed ? <p className="lt-muted">{t('format')}</p> : null}
       {refusal ? (
-        <p data-testid="failure" className="failure" role="status">
+        <p data-testid="failure" className="lt-refusal" role="status">
           {refusal}
         </p>
       ) : failure ? (
@@ -86,9 +85,9 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
 function MismatchResult({ report, currency }: { report: TradeMismatch; currency: string }) {
   const { t } = mismatchCopy.useCopy();
   return (
-    <div className="stack" role="status" data-testid="order-mismatch-result">
+    <div className="lt-stack" role="status" data-testid="order-mismatch-result">
       <p>{t('reported', { amount: displayAmount(report.amountReceived), expected: displayAmount(report.expected), currency })}</p>
-      <p className="muted">
+      <p className="lt-muted">
         {report.classification === 'within_tolerance'
           ? t('within')
           : report.classification === 'outside_tolerance'
@@ -106,9 +105,9 @@ export function BuyerMismatch({ trade }: { trade: Trade }) {
   if (!report) return null;
   const currency = trade.fiatCurrency;
   return (
-    <div className="stack" role="status" data-testid="order-mismatch-seen">
+    <div className="lt-stack" role="status" data-testid="order-mismatch-seen">
       <p>{t('buyerReported', { amount: displayAmount(report.amountReceived), expected: displayAmount(report.expected), currency })}</p>
-      <p className="muted">
+      <p className="lt-muted">
         {report.classification === 'within_tolerance'
           ? t('buyerWithin')
           : report.classification === 'outside_tolerance'

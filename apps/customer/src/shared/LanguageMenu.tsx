@@ -4,7 +4,6 @@ import { useCopyRevision } from './i18n';
 import { languageOptions, writtenShare, type LanguageOption } from './language-options';
 import { languageMenuCopy } from './language-menu-copy';
 import { usePreferences } from './preferences';
-import './language-menu.css';
 
 /** One option line: the language's own name, how much of the app is written in it and, where it applies, the machine-translation tag. */
 function optionText(option: LanguageOption, t: typeof languageMenuCopy.t): string {
@@ -54,7 +53,7 @@ export function LanguageMenu({
     </option>
   );
   return (
-    <div className={className ? `language-menu ${className}` : 'language-menu'} data-language-menu>
+    <div className={className ? `lt-field ${className}` : 'lt-field'} data-language-menu>
       <label htmlFor={id} lang={languageFor('label')}>
         {t('label')}
       </label>
@@ -75,16 +74,16 @@ export function LanguageMenu({
           </optgroup>
         )}
       </select>
-      <small data-language-note lang={languageFor(noteKey)}>
+      <small className="lt-hint" data-language-note lang={languageFor(noteKey)}>
         {note}
       </small>
       {current?.written && current.provenance === 'machine' && (
-        <small data-language-machine lang={languageFor('noteMachine')}>
+        <small className="lt-hint" data-language-machine lang={languageFor('noteMachine')}>
           {t('noteMachine')}
         </small>
       )}
       {keptIn !== 'account' && (
-        <small data-language-kept={keptIn} lang={languageFor(keptIn === 'browser' ? 'noteDevice' : 'noteNotSaved')}>
+        <small className="lt-hint" data-language-kept={keptIn} lang={languageFor(keptIn === 'browser' ? 'noteDevice' : 'noteNotSaved')}>
           {t(keptIn === 'browser' ? 'noteDevice' : 'noteNotSaved')}
         </small>
       )}

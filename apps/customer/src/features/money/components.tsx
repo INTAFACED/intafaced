@@ -2,14 +2,14 @@ import { t as copyText, Text } from './copy';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
-import { stamp } from '../../screens/money/time';
+import { amount, date } from './money-format';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { authoredRefusal, type ApiResult, type AppProcedure } from '../../shared/api';
+import { authoredRefusal, callAs, type ApiResult, type AppProcedure } from '../../shared/api';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { bankReads, bankWriteForReview, type BankRead, type BankWrite } from './contracts';
+import { sendWrite, writeName } from './write-flow';
 import { createMoneyClient, readSpaces, type Space, type TransferDraft } from './client';
 import {
   clearPendingOutcome,
@@ -23,31 +23,13 @@ import { StepUpConfirm } from './StepUpConfirm';
 import type { StepUpBegin } from '../account';
 
 export const PAGE_SIZE = 50;
-export const amount = (value: string | null | undefined, asset: string) =>
-  value == null ? copyText('components.unavailable') : `${displayAmount(value)} ${asset}`;
+export { amount, date };
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
-/** One date and time look across the app: "18 Oct, 01:05" in the viewer's zone, with a picked zone named. */
-export function date(value: string | null, seconds = false) {
-  if (!value) return copyText('components.none');
-  if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
-  return stamp(value, currentPreferences().timeZone, Date.now(), seconds);
-}
 export const bps = (value: number) => `${value / 100}%`;
-export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
-  const { api, userId } = useSession();
-  return useResource<z.infer<(typeof bankReads)[K]>>(
-    async (signal) => {
-      if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
-      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
-      return api.query('bank', procedure, input, bankReads[procedure] as unknown as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
-    },
-    `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
-  );
-}
 /**
- * `useBankRead` through the call's record: the path and input type come from the record, and the answer is parsed by
- * `record.output` and the record's `accept` checks. The request, the refusals and the cache key are `useBankRead`'s.
+ * One bank read through its record: the path and input type come from the record, and the answer is parsed by
+ * `record.output` and the record's `accept` checks.
  */
 export function useBankRecord<R extends AppProcedure & { readonly module: 'bank'; readonly kind: 'query' }>(
   record: R,
@@ -60,6 +42,26 @@ export function useBankRecord<R extends AppProcedure & { readonly module: 'bank'
       if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
       if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
       return api.call(record, input, { signal });
+    },
+    `${userId}:${record.path}:${JSON.stringify(input)}:${enabled}`,
+  );
+}
+/**
+ * `useBankRecord` where this caller keeps its own stricter answer schema on top of the record's (`callAs`): the record
+ * names the path and input, and the answer must pass both the record's output and `schema`.
+ */
+export function useBankRecordAs<R extends AppProcedure & { readonly module: 'bank'; readonly kind: 'query' }, T>(
+  record: R,
+  input: ProcedureInput<R>,
+  schema: ZodType<T>,
+  enabled = true,
+) {
+  const { api, userId } = useSession();
+  return useResource<T>(
+    async (signal) => {
+      if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
+      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
+      return callAs(api, record, input, schema, { signal });
     },
     `${userId}:${record.path}:${JSON.stringify(input)}:${enabled}`,
   );
@@ -101,27 +103,25 @@ export function Section({
       <header>
         <div>
           <h2>{title}</h2>
-          {description && <p className="muted">{description}</p>}
+          {description && <p className="lt-muted">{description}</p>}
         </div>
-        {actions && <div className="actions">{actions}</div>}
+        {actions && <div className="lt-actions">{actions}</div>}
       </header>
       {children}
     </section>
   );
 }
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
+  // A list shorter than its limit is the whole list, and is seen whole: no count line under it.
+  if (count < limit) return null;
   return (
     <div className="money-continuation">
       <span>
         {count}
         <Text k="components.records.returned.requested.limit" />.{' '}
-        {count >= limit
-          ? limit < 200
-            ? copyText('components.more.records.may.exist')
-            : copyText('components.this.service.has.no.continuation.beyond.200')
-          : copyText('components.this.list.has.no.total.count.or')}
+        {limit < 200 ? copyText('components.more.records.may.exist') : copyText('components.this.service.has.no.continuation.beyond.200')}
       </span>
-      {count >= limit && limit < 200 && (
+      {limit < 200 && (
         <Button variant="secondary" onClick={onMore}>
           <Text k="components.load.up.to" />
           {Math.min(200, limit + 50)}
@@ -143,9 +143,10 @@ export type ActionField = {
   optional?: boolean;
   validate?: (value: string) => string | null;
 };
+/** A bank write a spec sends by its record (`@intafaced/contracts`): an svc-bank mutation, whose answer the record parses. */
+export type BankWriteRecord = AppProcedure & { readonly module: 'bank'; readonly kind: 'mutation' };
 export type ActionSpec = {
   title: string;
-  procedure: BankWrite;
   fields?: ActionField[];
   initial?: Record<string, string>;
   facts?: [string, string][];
@@ -187,6 +188,8 @@ export type ActionSpec = {
    * `stepUp`: its approval is spent by the first send.
    */
   resendSame?: boolean;
+  /** The write, by its record: a bank write has no other way to name its call. */
+  record: BankWriteRecord;
 };
 /** The original opened action's owner, API, mount and observed full-URL lifetime. */
 export type BankActionContext = { current: () => boolean };
@@ -500,19 +503,14 @@ export function MutationDialog({
     try {
       outcome = spec.transferSpaces
         ? await createMoneyClient(api).transfer(spec.transferSpaces, sent as TransferDraft)
-        : await api.mutate(
-            'bank',
-            spec.procedure,
-            sent,
-            bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
-          );
+        : await sendWrite(api, spec, sent, input);
     } catch {
       outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
     }
     // Local transfer validation precedes HTTP dispatch. Auth refusals occur
     // before the Bank handler. Other failures cannot prove non-settlement.
     // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
-    const settled = settleRefusal(outcome, spec.procedure);
+    const settled = settleRefusal(outcome, writeName(spec));
     outcome = settled.outcome;
     const definitive =
       outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
@@ -596,7 +594,7 @@ export function MutationDialog({
           {
             reference: requestId,
             title: spec.title,
-            procedure: spec.procedure,
+            procedure: writeName(spec),
             recordRefs: originalRecordRefs(input),
           },
           currentRun,
@@ -677,7 +675,7 @@ export function MutationDialog({
     <Dialog title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title} onClose={close}>
       <div className="money-dialog-body" ref={body}>
         {spec.notes.map((note) => (
-          <p className="muted" key={note}>
+          <p className="lt-muted" key={note}>
             {note}
           </p>
         ))}
@@ -700,7 +698,7 @@ export function MutationDialog({
             )}
             {spec.fields?.map((field) =>
               field.options ? (
-                <label className="field" key={field.name}>
+                <label className="lt-field" key={field.name}>
                   <span>{field.label}</span>
                   <select
                     name={field.name}
@@ -811,7 +809,7 @@ export function MutationDialog({
             {stage === 'sending' ? (
               <Loading label={copyText('components.waiting.for.the.authoritative.outcome')} />
             ) : (
-              <div className="actions">
+              <div className="lt-actions">
                 {spec.stepUp ? (
                   <StepUpConfirm
                     request={() => spec.stepUp!.request(reviewInput!)}
@@ -875,7 +873,7 @@ export function MutationDialog({
                 </p>
                 {resendable() && (
                   <>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Text k="components.the.bank.answers.this.reference.with.its.first.result" />
                     </p>
                     <Button onClick={() => void resend()}>
@@ -893,7 +891,7 @@ export function MutationDialog({
                 </Button>
               </>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               <Button variant="secondary" onClick={close}>
                 <Text k="components.close" />
               </Button>

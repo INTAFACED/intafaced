@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { Button, refusalCopy, type ActivityItem } from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { TextField } from '@intafaced/ui/lit/templates';
+import { refusalCopy, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { NOTE_MAX, noteProblem, type NoteProblem } from './note-model';
 import { useSession } from '../../features/session/session';
@@ -98,36 +100,33 @@ function WordsField({ item, field, initial }: { item: ActivityItem; field: keyof
   return (
     <form
       data-testid="money-note-form"
-      className="money-note-form"
+      className="lt-stack lt-stack-tight"
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
     >
-      <label className="money-note-form__label" htmlFor={inputId}>
-        {t(names.label)}
-      </label>
-      <p className="money-detail__note">{t(names.hint)}</p>
-      <div className="money-note-form__row">
-        <input
+      <div className="lt-row">
+        <TextField
           id={inputId}
-          className="money-note-form__input"
+          label={t(names.label)}
+          hint={t(names.hint)}
           type="text"
           value={text}
           maxLength={NOTE_MAX}
           autoComplete="off"
           aria-invalid={shown ? true : undefined}
           aria-describedby={`${field}-state-${item.id}`}
-          onChange={(event) => {
-            setText(event.target.value);
+          onChange={(next) => {
+            setText(next);
             setMessage(null);
           }}
         />
-        <Button type="submit" variant="secondary" size={40} disabled={busy || problem !== null}>
+        <Button type="submit" tone="secondary" disabled={busy || problem !== null}>
           {saved === undefined ? t(names.add) : t(names.save)}
         </Button>
       </div>
-      <p id={`${field}-state-${item.id}`} className="money-detail__note" role="status">
+      <p id={`${field}-state-${item.id}`} className="lt-hint" role="status">
         {shown ?? message?.words ?? ''}
       </p>
     </form>

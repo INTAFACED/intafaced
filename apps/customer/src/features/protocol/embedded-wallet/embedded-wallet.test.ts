@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
 import { clientRefusal, embeddedRefusal } from './EmbeddedWalletRoom';
 import { embeddedWalletCopy } from './embedded-wallet-copy';
-import { embeddedWalletClient, testProviderClient } from './provider-client';
+import { embeddedWalletClient, ownerProviderClient, testProviderClient } from './provider-client';
 
 /** J-wallet-22: the room's refusals name the provider in words; the TEST client never acts without the person's passkey. */
 const { t } = embeddedWalletCopy.forLocale('en');
@@ -51,6 +51,24 @@ describe('the TEST provider client', () => {
     expect(embeddedWalletClient({ ...TEST, test: false })).toBeNull();
     expect(embeddedWalletClient({ ...TEST, id: 'privy', test: false })).toBeNull();
     expect(embeddedWalletClient(null)).toBeNull();
+  });
+
+  it('the owner’s provider makes the passkey; sending, export and a second passkey stay unsupported', async () => {
+    const OWNER: ProtocolEmbeddedWalletProvider = {
+      id: 'turnkey',
+      displayName: 'your wallet provider',
+      test: false,
+      capabilities: { export: false, recovery: false },
+    };
+    expect(embeddedWalletClient(OWNER)).not.toBeNull();
+    expect(embeddedWalletClient({ ...OWNER, test: true })).toBeNull();
+    const made = { ok: true as const, data: PASSKEY };
+    const client = ownerProviderClient({ create: async () => made });
+    expect(await client.createPasskey()).toBe(made);
+    const tx = { chainId: 1, to: '0x0', data: '0x', value: '0x0', nonce: 0 };
+    for (const result of [await client.exportKey('w'), await client.addRecoveryPasskey('w'), await client.sendTransaction('w', tx)])
+      expect(result).toEqual({ ok: false, failure: 'unsupported' });
+    expect(await client.read('eth_chainId', [])).toBeNull();
   });
 
   it('signs only after the passkey answers the provider’s challenge for that exact message', async () => {

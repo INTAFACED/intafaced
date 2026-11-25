@@ -7,6 +7,7 @@ const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
 describe('market maintenance (J-cex-spot-14 #5)', () => {
   it('names a spot market by its lower-case component, and nothing else', () => {
     expect(marketComponentId('BTC/USDC')).toBe('market-btc-usdc');
+    expect(marketComponentId('BTC-USDC')).toBe('market-btc-usdc');
     expect(marketComponentId('BTC')).toBeNull();
     expect(marketComponentId('A/B/C')).toBeNull();
     expect(marketComponentId('BTC-PERP/USD T')).toBeNull();

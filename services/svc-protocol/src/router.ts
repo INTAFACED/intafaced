@@ -1,14 +1,10 @@
 import { z } from 'zod';
 import { getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
-import {
-  protocolBlockersRead,
-  router,
-  TRPCError,
-  type BlockerSource,
-  PRICE_SETTINGS_UNSET,
-  SWAP_SETTINGS_UNSET,
-} from '@intafaced/contracts';
+import type { BlockerSource } from '@intafaced/contracts';
+import { protocolBlockersRead } from '@intafaced/contracts/protocol-blockers';
+import { PRICE_SETTINGS_UNSET, SWAP_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_AMM_PAIRS,
   PROTOCOL_AMM_PRICES,
@@ -294,6 +290,8 @@ export interface ProtocolRouterDeps {
   swapConfirmations?: () => number | null;
   /** `PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI`, the fee cap. Null or absent: `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`. */
   swapFeeCapWei?: () => bigint | null;
+  /** `PROTOCOL_SWAP_PAYMASTER_ADDRESS` (D-swap-06). Null, zero or absent: `amm.feeLevels` reports `sponsored: false`. */
+  swapPaymasterAddress?: () => string | null;
   /**
    * `PROTOCOL_FEE_RELAY_ADDRESS`, `_URL` and `_GAS_LIMIT` (RC-dex-protocol-02). Null or absent: paying the network fee in
    * a token refuses `protocol.fee_relay_unset`.
@@ -1031,16 +1029,22 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       }),
 
       /**
-       * The swap form's network fee levels (D-swap-11): Slow, Normal and Fast are the owner percentiles of the last N
+       * The swap form's network fee levels (D-swap-06, -11): Slow, Normal and Fast are the owner percentiles of the last N
        * blocks' priority fees, on top of the next block's base fee, with the owner's fee cap. Both owner settings are
-       * checked before the node is asked; a blank one refuses by name. No paymaster is wired, so `sponsored` is false.
+       * checked before the node is asked; a blank one refuses by name. `sponsored` is true only when a paymaster address is
+       * configured and holds a positive native float on the chain.
        */
       feeLevels: mountProtocolRecord(PROTOCOL_AMM_FEE_LEVELS, async () => {
         try {
           const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
           const setting = deps.gasPercentiles?.() ?? null;
           if (!setting) throw new GasPercentilesUnsetError();
-          return feeLevels(await chain.gasPrice(setting, deps.now?.() ?? new Date()), cap);
+          const paymaster = deps.swapPaymasterAddress?.() ?? null;
+          const [quote, sponsored] = await Promise.all([
+            chain.gasPrice(setting, deps.now?.() ?? new Date()),
+            paymaster && !isZeroAddress(paymaster) ? chain.paymasterFunded(toChecksum(paymaster)) : Promise.resolve(false),
+          ]);
+          return feeLevels(quote, cap, sponsored);
         } catch (err) {
           throw toTrpcError(err);
         }

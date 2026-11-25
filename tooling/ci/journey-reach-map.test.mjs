@@ -13,6 +13,7 @@ import {
   buildMap,
   builtMap,
   mapBuild,
+  mapBuilds,
   newerMap,
   candidates,
   dependentPackages,
@@ -39,8 +40,8 @@ import {
 } from './journey-reach-map.mjs';
 import { checkoutHead, journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -384,6 +385,38 @@ test('planted: only an unbuilt step of mainâ€™s baseline, and the tests skipped 
     ).full[BANK],
     /speaks for it/,
   );
+});
+
+test('planted: a test with no step title red in every run excuses its run; one red in only some runs, or a step skipped after it, does not (project-state#3676)', () => {
+  const every = (over) => build([3, 2, 1].map((id) => stepsRun(id, over)));
+  // TAX's `starts:` red in every run, its steps green: each run counts, with every record of the file.
+  const recs = [rec(TAX, { served: ['tax GET'] }), rec(TAX, { served: ['support GET'] }), rec(TAX, { served: ['edge GET'] })];
+  const red = every({ [TAX]: { fail: ['starts:'], recs } });
+  assert.equal(red.full[TAX], undefined);
+  assert.ok(reachOf(red, 'services', 'services/svc-support').includes(TAX), 'the passing stepsâ€™ records are its reach');
+  // Red in two runs, green in the third: flaky, so the red runs don't count; the green run speaks, with its own records.
+  const some = build([
+    stepsRun(3, { [TAX]: { fail: ['starts:'], recs } }),
+    stepsRun(2, { [TAX]: { fail: ['starts:'], recs } }),
+    stepsRun(1),
+  ]);
+  assert.equal(some.full[TAX], undefined);
+  assert.ok(!reachOf(some, 'services', 'services/svc-support').includes(TAX), 'a flaky red run adds nothing');
+  // Red in every run with its steps skipped: full. So is a red `starts:` followed by a skipped test with no step title:
+  // a skip is excused only after an unbuilt step.
+  assert.match(every({ [TAX]: { fail: ['starts:'], skip: ['#'] } }).full[TAX], /no run the map is built from speaks for it/);
+  const STEPLESS = { [TAX]: { fail: ['starts:'], skip: ['#3'] } };
+  const stepless = build(
+    [3, 2, 1].map((id) => {
+      const r = stepsRun(id, STEPLESS);
+      const spec = r.report.suites.find((x) => x.file === TAX).suites[0].specs.find((x) => x.title.includes('#3'));
+      spec.title = spec.title.replace('#3 step', 'ends: the stack');
+      return r;
+    }),
+  );
+  assert.match(stepless.full[TAX], /no run the map is built from speaks for it/, 'a skipped `ends:` is not excused');
+  // A red step beside it still needs its own excuse: #1 is not in the baseline.
+  assert.match(every({ [TAX]: { fail: ['starts:', '#1'] } }).full[TAX], /speaks for it/);
 });
 
 test('planted: a red unbuilt step another run lacks, or a spec with no test, excuses nothing (project-state#1574)', () => {
@@ -982,6 +1015,11 @@ test('planted: what main changed between the map and the merge base loads a file
     'a built path elsewhere names no customer file',
   );
   assert.deepEqual(
+    nodeTargets("readFileSync(path.join(ROOT, 'crates/svc-x/src/door/calls.rs'), 'utf8');", 'apps/customer/tests/real-app/J-x.pw.mjs'),
+    { targets: [], any: false },
+    'a crate file read from the repository root names no customer file',
+  );
+  assert.deepEqual(
     nodeTargets("const title = 'customer src';", 'tooling/scripts/s.mjs'),
     { targets: [], any: false },
     'no load built from a path: plain text',
@@ -997,7 +1035,7 @@ test('customerImporters on this repository: who loads a style sheet, the buildâ€
   const { importers, built, computed } = customerImporters();
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim();
   assert.deepEqual(customerImporters(ROOT_DIR, head), customerImporters(ROOT_DIR), 'read at a commit, the same as its checkout');
-  assert.ok(importers[`${SRC}/features/trade/news/news.css`].includes(`${SRC}/features/trade/news/NewsRooms.tsx`));
+  assert.ok(importers[`${SRC}/features/trade/news/news.css`].includes(`${SRC}/features/trade/news/NewsNotice.tsx`));
   assert.ok(importers[`${SRC}/main.tsx`].includes('apps/customer/index.html'));
   assert.ok(built.includes(`${SRC}/app/boot.ts`), 'vite.config.ts imports it');
   assert.ok(
@@ -1025,9 +1063,9 @@ test('customerImporters on this repository: who loads a style sheet, the buildâ€
     }
   }
   assert.deepEqual(
-    importers[`${SRC}/app/room-templates.ts`],
-    [`${SRC}/app/volt-count.ts`],
-    'the Volt count imports it; its unit test and the scaffold that reads it as text load nothing',
+    importers[`${SRC}/app/menus.ts`],
+    [`${SRC}/app/TopBar.tsx`],
+    'the top bar imports it; its unit tests (menus, feature-registry, beta-volt) load nothing',
   );
   for (const f of computed) assert.match(f, /^apps\/customer\/src\//);
   assert.equal(importers[`${SRC}/features/pay/portal/w3c2.pw.mjs`], undefined, 'a Playwright file in the source is a test');
@@ -1286,14 +1324,82 @@ test('planted: verify reads the workspace inputs from the checkout it is given, 
     assert.deepEqual(pr.dependents['packages/ledger-client']?.includes('packages/venue-new'), true);
     // The default (this checkout) does not see it: reading the base's workspaces was the bug.
     assert.equal(workspaceInputs().money.includes('packages/venue-new'), false);
+    // The verify command passes `--workspace` through to the build it compares against, and that build reads its workspace
+    // inputs from the root it is given: run as CI runs it, with a stand-in gh serving three whole main runs at this HEAD.
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim();
+    const files = execFileSync('git', ['ls-tree', '--name-only', `${head}:apps/customer/tests/real-app`], {
+      cwd: ROOT_DIR,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((f) => /^J-.*\.pw\.mjs$/.test(f));
+    const wholeReport = {
+      suites: files.map((f) => ({
+        file: f,
+        specs: [
+          {
+            title: 'reaches',
+            file: f,
+            tests: [{ status: 'expected', results: [{ status: 'passed', attachments: [{ name: 'journey-reach', body: b64(rec(f)) }] }] }],
+          },
+        ],
+      })),
+    };
+    const ghRun = (id, at) => ({
+      id,
+      path: '.github/workflows/real-app-journeys.yml',
+      status: 'completed',
+      conclusion: 'success',
+      head_branch: 'main',
+      event: 'push',
+      head_sha: head,
+      created_at: at,
+      head_repository: { full_name: REPO },
+    });
+    const runs = [ghRun(13, '2026-11-20T03:00:00Z'), ghRun(12, '2026-11-20T02:00:00Z'), ghRun(11, '2026-11-20T01:00:00Z')];
+    const bin = mkdtempSync(join(tmpdir(), 'reach-gh-'));
+    try {
+      writeFileSync(join(bin, 'report.json'), JSON.stringify(wholeReport));
+      writeFileSync(join(bin, 'runs.json'), JSON.stringify(runs));
+      writeFileSync(
+        join(bin, 'gh'),
+        `#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const args = process.argv.slice(2);
+const runs = JSON.parse(fs.readFileSync(${JSON.stringify(join(bin, 'runs.json'))}, 'utf8'));
+if (args[0] === 'api') {
+  const one = /actions\\/runs\\/(\\d+)$/.exec(args[1]);
+  if (one) process.stdout.write(JSON.stringify(runs.find((r) => r.id === Number(one[1]))));
+  else process.stdout.write(JSON.stringify({ workflow_runs: runs }));
+} else if (args[0] === 'run' && args[1] === 'download') {
+  fs.copyFileSync(${JSON.stringify(join(bin, 'report.json'))}, path.join(args[args.indexOf('-D') + 1], 'report.json'));
+} else process.exit(1);
+`,
+      );
+      chmodSync(join(bin, 'gh'), 0o755);
+      const reach = (...args) =>
+        spawnSync(process.execPath, [join(ROOT_DIR, 'tooling/ci/journey-reach-map.mjs'), ...args], {
+          cwd: ROOT_DIR,
+          encoding: 'utf8',
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        });
+      const map = join(bin, 'map.json');
+      const built = reach('build', '--until', '13', '--out', map);
+      assert.equal(built.status, 0, built.stdout + built.stderr);
+      assert.equal(JSON.parse(readFileSync(map, 'utf8')).mode, 'reach', 'the control: three whole runs build a reach map');
+      const same = reach('verify', '--map', map);
+      assert.equal(same.status, 0, `the map this checkout builds verifies against it: ${same.stdout}`);
+      const other = reach('verify', '--map', map, '--workspace', dir);
+      assert.equal(other.status, 1, other.stdout);
+      assert.match(other.stdout, /FAIL: the map differs from the one built from main's runs up to run 13 in: [^\n]*\bmoney\b/);
+      assert.match(other.stdout, /\(only what main's code holds/, "only the keys read from the given checkout's code differ");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  // The verify command passes `--workspace` through to the build it compares against.
-  const src = readFileSync(join(ROOT_DIR, 'tooling/ci/journey-reach-map.mjs'), 'utf8');
-  assert.match(src, /opt\('--workspace'\)/);
-  assert.match(src, /buildFromMain\(\{ until, root \}\)/);
-  assert.match(src, /const inputs = workspaceInputs\(root\);/, 'the build reads its workspace inputs from the root it is given');
 });
 
 // ---- The map main's map workflow built, instead of a committed copy nobody refreshes (the OG, project-state#1574, 23:51 UTC 9 Nov) ----
@@ -1325,6 +1431,94 @@ test('mapBuild: the newest verified build from main, created no later than the j
   assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T22:30:00Z'), repo: REPO })?.id, 2);
   assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T14:00:00Z'), repo: REPO }), null);
   assert.equal(mapBuild(null), null);
+  // Main trust's dispatch (its workflow token) counts, newest first; a person's or an agent's dispatch never does.
+  const bot = { event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
+  const started = [
+    ...runs,
+    mapRun(9, '2026-11-09T23:40:00Z', bot),
+    mapRun(11, '2026-11-09T23:45:00Z', { ...bot, conclusion: 'failure' }),
+    mapRun(12, '2026-11-09T23:50:00Z', { ...bot, head_branch: 'u4/x' }),
+    mapRun(13, '2026-11-09T23:55:00Z', { event: 'workflow_dispatch', actor: { login: 'ZenYoda3' } }),
+    // Re-runs change triggering_actor, never actor: a person's re-run of the bot's build still counts, the bot's re-run of a person's never.
+    mapRun(14, '2026-11-09T23:35:00Z', { ...bot, triggering_actor: { login: 'ZenYoda3' } }),
+    mapRun(15, '2026-11-09T23:58:00Z', {
+      event: 'workflow_dispatch',
+      actor: { login: 'ZenYoda3' },
+      triggering_actor: { login: 'github-actions[bot]' },
+    }),
+  ];
+  assert.deepEqual(
+    mapBuilds(started, { repo: REPO }).map((r) => r.id),
+    [9, 14, 3, 2, 1],
+  );
+});
+
+test('builtMap: a dispatched build counts only when its commit is in main history (a tag called main reads as main)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'built-map-dispatch-'));
+  try {
+    writeFileSync(join(dir, 'journey-reach-map.json'), mapText(MAP));
+    execFileSync('zip', ['-q', 'a.zip', 'journey-reach-map.json'], { cwd: dir });
+    const zip = readFileSync(join(dir, 'a.zip'));
+    const bot = { event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
+    const OURS = 'a'.repeat(40);
+    const TAG = 'b'.repeat(40);
+    const runs = [
+      mapRun(5, '2026-11-20T12:00:00Z', { ...bot, head_sha: TAG }),
+      mapRun(4, '2026-11-20T11:00:00Z', { ...bot, head_sha: OURS }),
+      mapRun(3, '2026-11-20T10:00:00Z'),
+    ];
+    const status = { [OURS]: 'ahead', [TAG]: 'diverged' };
+    const asked = [];
+    const get = async (path) => {
+      asked.push(path);
+      if (path.includes('/workflows/journey-reach-map.yml/runs')) return { workflow_runs: runs };
+      const cmp = /\/compare\/([0-9a-f]{40})\.\.\.refs\/heads\/main\?per_page=1$/.exec(path);
+      if (cmp) return { status: status[cmp[1]] };
+      const art = /\/runs\/(\d+)\/artifacts\?name=journey-reach-map$/.exec(path);
+      if (art) return { artifacts: [{ id: 70 + Number(art[1]), name: 'journey-reach-map', expired: false }] };
+      throw new Error(`unexpected ${path}`);
+    };
+    const zips = (want) => async (path) => (path.endsWith(`/artifacts/${want}/zip`) ? zip : null);
+    // Run 5's commit is not main's (a tag called main): run 4, whose commit is, speaks.
+    assert.deepEqual(await builtMap({ get, raw: zips(74), repo: REPO }), MAP);
+    assert.ok(
+      asked.some((p) => p.endsWith(`/compare/${TAG}...refs/heads/main?per_page=1`)) &&
+        asked.some((p) => p.endsWith(`/compare/${OURS}...refs/heads/main?per_page=1`)),
+    );
+    assert.ok(!asked.some((p) => p.includes('/runs/5/artifacts')), "the tag's build is never read");
+    // Planted: were the tag's commit main's, its build would speak.
+    status[TAG] = 'identical';
+    assert.deepEqual(await builtMap({ get, raw: zips(75), repo: REPO }), MAP);
+    // A compare GitHub can't answer: null, so the committed map stands (never a guess).
+    const down = async (path) => (path.includes('/compare/') ? Promise.reject(new Error('HTTP 502')) : get(path));
+    assert.equal(await builtMap({ get: down, raw: zips(74), repo: REPO }), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the map is built by a dispatch Main trust starts after a green journeys run on main, never by a run that skips', () => {
+  const map = readFileSync(join(ROOT_DIR, '.github/workflows/journey-reach-map.yml'), 'utf8');
+  const on = map.slice(map.indexOf('\non:\n'), map.indexOf('\npermissions:'));
+  assert.match(on, /^\non:\n {2}workflow_dispatch:\n$/, 'a dispatch alone');
+  assert.doesNotMatch(map.slice(map.indexOf('\njobs:')), /\n {4}if:/, 'its job never skips');
+  assert.match(
+    map,
+    /group: journey-reach-map-\$\{\{ github\.ref \}\}-\$\{\{ github\.actor == 'github-actions\[bot\]' && 'main-trust' \|\| github\.run_id \}\}/,
+    "a person's dispatch never cancels Main trust's build",
+  );
+  const trust = readFileSync(join(ROOT_DIR, '.github/workflows/main-trust.yml'), 'utf8');
+  const job = trust.slice(trust.indexOf('\n  map:\n'));
+  assert.ok(trust.indexOf('\n  map:\n') > 0, 'a map job');
+  for (const term of [
+    "github.event.workflow_run.name == 'Real-app journeys'",
+    "github.event.workflow_run.conclusion == 'success'",
+    "github.event.workflow_run.head_branch == 'main'",
+    'github.event.workflow_run.head_repository.full_name == github.repository',
+  ])
+    assert.ok(job.includes(term), term);
+  assert.match(job, /gh workflow run journey-reach-map\.yml --repo "\$REPO" --ref main/);
+  assert.match(job, /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/, 'the workflow token: its dispatch is the one that counts');
 });
 
 test('newerMap: the built map when it is usable and newer than the committed one, else the committed one', () => {

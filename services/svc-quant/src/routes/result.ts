@@ -6,7 +6,8 @@ import {
   QuantError,
 } from '../errors.js';
 import { isBarBacktest, presentBacktest, readStoredBacktest } from '../engine/run.js';
-import { publicJurisdictionProcedure, quantShareEmbedSchema, router } from '@intafaced/contracts';
+import { quantShareEmbedSchema } from '@intafaced/contracts/quant-algo';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   QUANT_RESULT_SHARE_CREATE,

@@ -4,16 +4,9 @@ import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
 import { Select } from './common';
 import { DisabledAction, Journey, StatRow, StatusPill, type JourneyStep } from './depth-kit';
 import { launchDepthCopy } from './launch-depth-copy';
-import {
-  assessResult,
-  draftIssues,
-  EMPTY_DRAFT,
-  LAUNCH_STEPS,
-  normaliseSymbol,
-  type AssessResult,
-  type LaunchDraft,
-} from './launch-journey';
+import { draftIssues, EMPTY_DRAFT, LAUNCH_STEPS, normaliseSymbol, type AssessResult, type LaunchDraft } from './launch-journey';
 import type { ApiResult } from '../../shared/api';
+import { AGENTS_LAUNCH_ASSESS } from '@intafaced/contracts/agents-launch-procedures';
 
 export function LaunchJourney({ onTab }: { onTab: (tab: 'Check') => void }) {
   const { Copy, t } = launchDepthCopy.useCopy();
@@ -44,16 +37,16 @@ export function LaunchJourney({ onTab }: { onTab: (tab: 'Check') => void }) {
     };
   });
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Panel title={t('journeyTitle')}>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="journeyIntro" />
         </p>
         <Journey steps={steps} label={t('journeyLabel')} />
       </Panel>
       {open ? (
         <Panel title={t('detailsTitle')}>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="detailsNote" />
           </p>
           <div className="depth-filters">
@@ -119,13 +112,13 @@ export function LaunchCheck() {
   const [outcome, setOutcome] = useState<ApiResult<AssessResult> | null>(null);
   async function run() {
     setBusy(true);
-    const result = await api.query('agents', 'launch.assess', { deployer: deployer.trim() || undefined }, assessResult);
+    const result = await api.call(AGENTS_LAUNCH_ASSESS, { deployer: deployer.trim() || undefined });
     setOutcome(result);
     setBusy(false);
   }
   return (
     <Panel title={t('checkTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="checkIntro" />
       </p>
       <form
@@ -188,7 +181,7 @@ export function LaunchParticipation() {
   const { Copy, t } = launchDepthCopy.useCopy();
   return (
     <Panel title={t('participationTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="participationBody" />
       </p>
       <div className="depth-filters">

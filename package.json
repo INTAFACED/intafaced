@@ -10,7 +10,6 @@
   "type": "module",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
-    "postinstall": "test -n \"$CI\" || test ! -f tooling/scripts/tsc-shims.mjs || node tooling/scripts/tsc-shims.mjs",
     "build": "turbo run build",
     "mobile": "pnpm --filter mobile native:stage",
     "dev": "turbo run dev",
@@ -37,6 +36,8 @@
     "test:gate-tools": "node tooling/scripts/gate-tools.test.mjs",
     "test:services-map": "node --test tooling/scripts/services-map.test.mjs",
     "pr": "node tooling/scripts/agent-pr.mjs",
+    "shots": "node tooling/shots/shots.mjs",
+    "shots:record": "node tooling/shots/record-demo.mjs",
     "verify": "node tooling/ci/verify.mjs",
     "verify:verdict": "node tooling/ci/infra-verdict.mjs",
     "gate": "node tooling/ci/dod-gate.mjs",
@@ -70,7 +71,6 @@
     "local:founder:test": "node --test tooling/scripts/local-founder-seed.test.mjs",
     "local:seed": "node tooling/scripts/local-test-seed.mjs",
     "local:seed:test": "node --test tooling/scripts/local-test-seed.test.mjs",
-    "perf:book": "node tooling/perf/book-bench.mjs",
     "db:generate": "turbo run db:generate",
     "db:migrate": "turbo run db:migrate",
     "db:check": "node tooling/ci/migration-check.mjs",
@@ -120,6 +120,10 @@
       "glob@>=9.0.0 <14.0.2": "14.0.4",
       "minimatch@>=7.0.0 <11.0.1": "11.0.6",
       "tmp@<0.2.6": "0.2.7"
+    },
+    "patchedDependencies": {
+      "typescript@7.0.2": "patches/typescript@7.0.2.patch",
+      "typescript@5.9.3": "patches/typescript@5.9.3.patch"
     }
   }
 }

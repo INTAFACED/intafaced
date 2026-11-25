@@ -39,7 +39,7 @@ test("the repo's own tree: every model is found, none unwired", () => {
   const { models, errors } = findModels(ROOT);
   assert.deepEqual(errors, []);
   assert.deepEqual(models.map((m) => `${m.dir}:${m.name}`).sort(), [
-    'services/svc-bank/model:CashOutLock+ReceivedHold',
+    'crates/svc-bank/model:CashOutLock+ReceivedHold',
     'services/svc-campaigns/model:RewardPay',
     'services/svc-pay/model:PayoutQuery',
     'services/svc-trade/model:OneHold',
@@ -48,7 +48,7 @@ test("the repo's own tree: every model is found, none unwired", () => {
 
 test('a change to a modelled service runs every model', () => {
   for (const path of [
-    'services/svc-bank/src/holds/received-holds.ts',
+    'crates/svc-bank/src/transfers/holds.rs',
     'services/svc-campaigns/src/reward-payer.ts',
     'services/svc-pay/src/rails/evm-chain.ts',
     'services/svc-trade/src/index.ts',
@@ -60,8 +60,8 @@ test('a change to a modelled service runs every model', () => {
 });
 
 test("a path outside the service that a model's COVERS.md names runs the models; its neighbours do not", () => {
-  assert.equal(plan(ROOT, ['services/svc-matching/src/engine/book.ts']).run, true);
-  assert.equal(plan(ROOT, ['services/svc-matching/README.md']).run, false);
+  assert.equal(plan(ROOT, ['crates/svc-matching/src/book/order_book.rs']).run, true);
+  assert.equal(plan(ROOT, ['crates/svc-matching/README.md']).run, false);
 });
 
 test('project-state#3019: a shared package file a COVERS file names runs the models; its neighbours do not', () => {
@@ -158,7 +158,7 @@ test('the command line writes the matrix for the workflow', () => {
     writeFileSync(out, '');
     const r = spawnSync('node', [SCRIPT, 'plan'], {
       cwd: ROOT,
-      input: 'services/svc-bank/src/bank-service.ts\n',
+      input: 'crates/svc-bank/src/lib.rs\n',
       encoding: 'utf8',
       env: { ...process.env, GITHUB_OUTPUT: out },
     });
@@ -188,7 +188,7 @@ test('the workflow plans every pull request and needs a broken version failing i
   const yml = readFileSync(join(ROOT, '.github/workflows/model-check.yml'), 'utf8');
   const on = yml.slice(yml.indexOf('\non:\n'), yml.indexOf('\npermissions:'));
   assert.match(on, /\n {2}pull_request:\n {2}push:/, 'pull_request has no path filter: the plan decides');
-  for (const p of ['services/**', 'packages/**', ...SELF]) assert.ok(on.includes(`- ${p}\n`), `push to main watches ${p}`);
+  for (const p of ['services/**', 'crates/**', 'packages/**', ...SELF]) assert.ok(on.includes(`- ${p}\n`), `push to main watches ${p}`);
   assert.match(yml, /node tooling\/ci\/model-check\.mjs plan/);
   assert.match(yml, /matrix:\n\s+model: \$\{\{ fromJSON\(needs\.plan\.outputs\.models\) \}\}/);
   assert.match(yml, /violated as it should be/);
@@ -201,7 +201,7 @@ test('the workflow plans every pull request and needs a broken version failing i
 
 test('project-state#2962: every model check.sh prints the whole trace and tells a broken rule from could not check', () => {
   for (const m of findModels(ROOT).models) {
-    const checks = [m.check, ...(m.check.endsWith('svc-bank/model/check.sh') ? ['services/svc-bank/model/check-cashout.sh'] : [])];
+    const checks = [m.check, ...(m.check.endsWith('svc-bank/model/check.sh') ? ['crates/svc-bank/model/check-cashout.sh'] : [])];
     for (const c of checks) {
       const sh = readFileSync(join(ROOT, c), 'utf8');
       assert.doesNotMatch(sh, /sed -n '1,\d+p'/, `${c} cuts the trace short`);

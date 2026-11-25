@@ -2,7 +2,12 @@
 // (tooling/lint/oxlint-plugin-garden/call-by-name-rule.js), each with what a rewrite needs, or the reason it can't be.
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { bindingOf, calleeName, keyOf, literal, load, resolveRelative, walk } from './ast.mjs';
+import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, walk } from './ast.mjs';
+import { fanOut, valuesOf } from './fan.mjs';
+import { handSchemas } from './dead-hand-schemas.mjs';
+import { businessSite } from './pay-business.mjs';
+import { toolSite } from './tool-forms.mjs';
+import { wrapperOut } from './wrapper.mjs';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
 const NAMED_AT = { query: [0, 1], mutate: [0, 1], founderCall: [1, 2], founderEdgeCall: [1, 2], payCall: [1], useBankRead: [0] };
@@ -20,18 +25,28 @@ function appFiles(repo) {
 
 export function findSites(repo) {
   const out = [];
-  for (const file of appFiles(repo)) {
+  const files = appFiles(repo);
+  const wrappers = new Set();
+  for (const file of files) {
     const p = load(file);
     const line = (n) => p.src.slice(0, n.start).split('\n').length;
     walk(p.program, (n) => {
       if (n.type === 'CallExpression') {
+        // A portal tool called bare, by name: its record form is beside it (tool-forms.mjs).
+        const tool = toolSite(p, n);
+        if (tool) {
+          out.push({ file, line: line(n), node: n, ...tool });
+          return;
+        }
         const name = calleeName(n);
         if (!name || !Object.hasOwn(NAMED_AT, name)) return;
         if ((name === 'query' || name === 'mutate') && n.callee.type !== 'MemberExpression') return;
         if (!NAMED_AT[name].some((i) => isString(n.arguments[i]))) return;
         const a = n.arguments;
         const site = { file, line: line(n), node: n, shape: name };
-        if (name === 'query' || name === 'mutate') {
+        const business = businessSite(p, n);
+        if (business) Object.assign(site, business);
+        else if (name === 'query' || name === 'mutate') {
           Object.assign(site, { module: literal(a[0]), path: literal(a[1]), kind: name === 'query' ? 'query' : 'mutation' });
           if (a.length < 4 || a.length > 5 || a.some((x) => x.type === 'SpreadElement'))
             site.problem = `${name} with ${a.length} arguments`;
@@ -74,34 +89,26 @@ export function findSites(repo) {
           }
         }
         if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
-          Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
-        // `cond ? 'a.x' : 'a.y'`: one site per branch, both moved or neither (`pairs` in index.mjs).
-        const pathArg = name === 'founderCall' ? a[2] : name === 'query' || name === 'mutate' ? a[1] : undefined;
-        const unparen = (x) => (x?.type === 'ParenthesizedExpression' ? x.expression : x);
-        const cond = unparen(pathArg);
-        if (
-          !site.problem &&
-          site.module &&
-          cond?.type === 'ConditionalExpression' &&
-          literal(unparen(cond.consequent)) &&
-          literal(unparen(cond.alternate))
-        ) {
-          // Each branch's input is typed by its own record: only an input written out here (or none) can be.
-          const input = a[name === 'founderCall' ? 4 : 2];
-          const typed = !input || input.type === 'ObjectExpression' || (input.type === 'Identifier' && input.name === 'undefined');
-          const why = "its `? :` sends one input value to two records: each branch's input type can't be kept";
-          for (const branch of ['consequent', 'alternate'])
-            out.push({ ...site, path: literal(unparen(cond[branch])), branch, cond, ...(typed ? {} : { problem: why }) });
-          return;
-        }
-        if (!site.problem && (!site.module || !site.path)) site.problem = 'service or call named by a template';
-        out.push(site);
+          Object.assign(site, {
+            shape: 'ops-dispatch',
+            problem:
+              "sends the call its table entry names: it moves with the table once the table sits in this file, read as `const spec = TABLE[key]; founderCall(ctx, '<service>', spec.procedure, ...)`",
+          });
+        // A call named by its wrapper's parameter or spec: a site per caller's string, or the wrapper named with why (wrapper.mjs).
+        const w = !site.problem && site.module && !site.path ? wrapperOut(p, site, files, wrappers) : undefined;
+        if (Array.isArray(w)) out.push(...w);
+        else if (w) out.push({ ...site, problem: `call name passed through a wrapper: ${w.why}` });
+        // A service or call not named by a string: one site per value the code lists, or the call named with why (fan.mjs).
+        else if (!site.problem && (!site.module || !site.path)) out.push(...fanOut(p, site));
+        else out.push(site);
       }
       if (n.type === 'Property') {
         const key = keyOf(n);
         const desk = key === 'procedure' ? deskRead(p, n) : undefined;
         const entry = key === 'procedure' && !desk ? opsEntry(p, n) : undefined;
+        const spec = key === 'procedure' && !desk && !entry ? writeSpec(p, n) : undefined;
         if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
+        else if (spec) for (const one of spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...one });
         else if (entry) out.push({ file, line: line(n), node: n, shape: 'ops-entry', ...entry });
         else if (key === 'procedure' && isString(n.value) && n.value.value !== '')
           out.push({
@@ -121,7 +128,9 @@ export function findSites(repo) {
       }
     });
   }
-  return out;
+  // A spec's `procedure: '<call>'` that its wrapper moves is that wrapper's site, not a second one of its own.
+  const claimed = new Set(out.filter((s) => s.shape === 'wrapper').map((s) => s.node));
+  return out.filter((s) => s.shape === 'wrapper' || !claimed.has(s.node));
 }
 
 /** `parseWith(schema)` or `schema.safeParse`-shaped: the call's answer as the service sends it, nothing of its own. */
@@ -134,37 +143,7 @@ function isSchemaParse(n) {
  * imported from, through `bankReads`' import and the spreads it is composed of. `{ p, node }`, or undefined.
  */
 function bankReadSchema(p, useBankRead, path) {
-  // `./components` may be a .tsx file, which resolveRelative does not try without an extension.
-  const fileOf = (q, b) =>
-    b?.kind === 'import' && b.from.startsWith('.')
-      ? (resolveRelative(q.file, b.from) ?? resolveRelative(q.file, `${b.from}.tsx`))
-      : undefined;
-  const declared = (file, name, seen = new Set()) => {
-    if (!file || seen.has(`${file}#${name}`)) return undefined;
-    seen.add(`${file}#${name}`);
-    const q = load(file);
-    // A top-level name, asked from the file's first statement (the program itself has no enclosing scope).
-    const d = bindingOf(q, q.program.body[0] ?? q.program, name);
-    if (d.kind === 'import') return declared(fileOf(q, d), d.imported, seen);
-    return d.kind === 'var' && d.declarator.init ? { q, init: d.declarator.init } : undefined;
-  };
-  const inObject = (q, obj, seen) => {
-    while (obj && (obj.type === 'TSAsExpression' || obj.type === 'TSSatisfiesExpression')) obj = obj.expression;
-    if (obj?.type !== 'ObjectExpression') return undefined;
-    let found;
-    for (const prop of obj.properties) {
-      if (prop.type === 'SpreadElement' && prop.argument.type === 'Identifier') {
-        const b = bindingOf(q, prop.argument, prop.argument.name);
-        const d =
-          b.kind === 'import' ? declared(fileOf(q, b), b.imported, seen) : b.kind === 'var' ? { q, init: b.declarator.init } : undefined;
-        const inner = d && inObject(d.q, d.init, seen);
-        if (inner) found = inner;
-      } else if (prop.type === 'Property' && keyOf(prop) === path) found = { p: q, node: prop.value };
-    }
-    return found;
-  };
-  const reads = declared(fileOf(p, useBankRead), 'bankReads');
-  return reads && inObject(reads.q, reads.init, new Set());
+  return keyedEntry(p, useBankRead, 'bankReads', path);
 }
 
 /**
@@ -174,8 +153,9 @@ function bankReadSchema(p, useBankRead, path) {
  * the keys the record now gives are dropped.
  */
 const SPREADS = [
-  // A desk read in a file that has `ReadSpec` but not `readOf` imports `readOf` from where `ReadSpec` comes from.
-  { helper: 'readOf', moduleKey: 'module', kindKey: undefined, typeName: 'ReadSpec' },
+  // A desk read in a file that has `ReadSpec` but not `readOf` imports `readOf` from its one home, a file outside the ops
+  // desk's server-only entry, so a spec a client component also reads (admin's account search) never pulls server code in.
+  { helper: 'readOf', moduleKey: 'module', kindKey: undefined, typeName: 'ReadSpec', home: '@/lib/desk-read' },
   { helper: 'toolOf', moduleKey: 'edgeModule', kindKey: 'kind' },
 ];
 function deskRead(p, n) {
@@ -183,14 +163,14 @@ function deskRead(p, n) {
   const obj = p.parents.get(n);
   if (obj?.type !== 'ObjectExpression') return undefined;
   const prop = (k) => obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === k && literal(pr.value));
-  for (const { helper, moduleKey, kindKey, typeName } of SPREADS) {
+  for (const { helper, moduleKey, kindKey, typeName, home } of SPREADS) {
     const moduleProp = prop(moduleKey);
     const kindProp = kindKey ? prop(kindKey) : undefined;
     if (!moduleProp || (kindKey && !kindProp)) continue;
     // `bindingOf` names an unbound name `global`.
     const bound = bindingOf(p, n, helper).kind !== 'global';
     const type = typeName ? bindingOf(p, n, typeName) : undefined;
-    const helperFrom = !bound && type?.kind === 'import' ? type.from : undefined;
+    const helperFrom = !bound && type?.kind === 'import' ? (home ?? type.from) : undefined;
     if (!bound && !helperFrom) continue;
     const kind = kindProp ? literal(kindProp.value) : 'query';
     if (kind !== 'query' && kind !== 'mutation') continue;
@@ -207,6 +187,34 @@ function deskRead(p, n) {
     };
   }
   return undefined;
+}
+
+/** The keys every bank write spec has beside its call (`ActionSpec`, apps/customer/src/features/money/components.tsx). */
+const SPEC_KEYS = ['title', 'notes', 'input'];
+/**
+ * A bank write dialog's spec, `{ title, procedure: 'sorter.create', notes, input }` in a file that names `ActionSpec`: it
+ * names its record (`record: RECORD`) and the dialog sends it by that record (`sendWrite`, features/money/write-flow.ts).
+ * Its answer schema is the hand one the dialog held it to, `bankWrites[path]` (`schema`), so a check there is not lost.
+ */
+function writeSpec(p, n) {
+  const obj = p.parents.get(n);
+  if (obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
+  const keys = new Set(obj.properties.map((pr) => (pr.type === 'Property' ? keyOf(pr) : undefined)));
+  if (!SPEC_KEYS.every((k) => keys.has(k))) return undefined;
+  // A `procedure:` picked by a `? :` (`approve ? 'business.approve' : 'business.reject'`) is one site per call, written
+  // as one `record: approve ? A : B` once every call has its record (fan.mjs's `fanIn`).
+  const path = literal(n.value);
+  const set = path ? { values: [{ value: path }] } : n.value.type === 'ConditionalExpression' ? valuesOf(p, n.value) : undefined;
+  if (!set?.values) return undefined;
+  const repo = p.file.slice(0, p.file.indexOf('/apps/customer/src/'));
+  const hands = repo ? handSchemas(repo) : [];
+  return set.values.map((v, at) => {
+    const site = { module: 'bank', path: v.value, kind: 'mutation' };
+    if (set.values.length > 1) site.fan = { key: n, at, size: set.values.length, test: v.test };
+    const hand = hands.find((h) => h.map.endsWith('Writes') && h.name === v.value);
+    if (hand) site.schema = { p: hand.p, node: hand.prop.value };
+    return site;
+  });
 }
 
 /** The ops-desk reads in one parsed file. */

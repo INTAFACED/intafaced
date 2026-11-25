@@ -15,7 +15,7 @@
  * "telegram1"); one that starts or ends with a digit or a sign (`https://`) matches anywhere.
  */
 
-import { P2P_RULE_CLASS } from '@intafaced/contracts';
+import { P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
 
 const LEADING_LETTER = /^\p{L}/u;
 const TRAILING_LETTER = /\p{L}$/u;

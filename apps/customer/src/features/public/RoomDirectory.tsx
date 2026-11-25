@@ -1,0 +1,31 @@
+import { doorSummaries } from './public-catalogue';
+import { pagesCopy } from './public-pages-copy';
+
+/** The rooms behind each door, read from the app's room list. Used on the landing page and on About. */
+export function RoomDirectory({ limit = 6 }: { limit?: number }) {
+  const copy = pagesCopy.useCopy();
+  const summaries = doorSummaries();
+  return (
+    <div className="lt-reading-main">
+      {summaries.map((door) => (
+        <section key={door.door} aria-label={door.label}>
+          <h3>{door.label}</h3>
+          <ul>
+            {door.entries.slice(0, limit).map((entry) => (
+              <li key={entry.path}>
+                <a className="lt-link" href={entry.path}>
+                  {entry.title}
+                </a>{' '}
+                <small>{entry.description}</small>
+              </li>
+            ))}
+          </ul>
+          {door.count > limit && <p>{copy.t('andMore', { count: door.count - limit })}</p>}
+          <a className="lt-link lt-link-alone" href={`/${door.door.toLowerCase()}`}>
+            {copy.t('openDoor', { door: door.label })} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+          </a>
+        </section>
+      ))}
+    </div>
+  );
+}

@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Button, DataTable, Field } from '../../../shared/ui';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { ScrollTable } from '../../more';
 import { displayAmount, parseAmount, formatAmount } from '../../../shared/money';
 import { usePolled } from '../../protocol';
 import { draftId, keys, type AsOf, type VenueAccountMode, type VenueAccountModeRead, type VenueBalance } from '../venue-api';
-import { VENUE_POLL_MS, useOwner, useVenueActions, useVenueApi, type ActionResult } from '../venue/VenueKit';
+import { VENUE_POLL_MS } from '../venue/poll';
+import { useOwner, useVenueActions, useVenueApi, type ActionResult } from '../venue/VenueKit';
 import { accountModeCopy } from './account-mode-copy';
 
 /**
@@ -58,28 +60,28 @@ function AsOfLine({ iso, t }: { iso: string | null; t: T }) {
 function Balances({ rows, title, name, t }: { rows: readonly VenueBalance[]; title: string; name: string; t: T }) {
   return (
     <div data-testid={`mode-${name}`}>
-      <h4 className="dk-tab-title">{title}</h4>
+      <h4>{title}</h4>
       {rows.length === 0 ? (
-        <p className="muted" data-empty="">
+        <p className="lt-hint" data-empty="">
           {t('empty')}
         </p>
       ) : (
-        <DataTable label={title} headers={[t('hAsset'), t('hFree'), t('hLocked'), t('hTotal')]}>
+        <ScrollTable label={title} headers={[t('hAsset'), t('hFree'), t('hLocked'), t('hTotal')]}>
           {rows.map((b) => (
             <tr key={b.asset} data-asset={b.asset}>
               <td>{b.asset}</td>
-              <td className="numeric" data-cell="free" data-value={b.free}>
+              <td className="lt-mono" data-cell="free" data-value={b.free}>
                 {displayAmount(b.free, 2)}
               </td>
-              <td className="numeric" data-cell="locked" data-value={b.locked}>
+              <td className="lt-mono" data-cell="locked" data-value={b.locked}>
                 {displayAmount(b.locked, 2)}
               </td>
-              <td className="numeric" data-cell="total" data-value={b.total}>
+              <td className="lt-mono" data-cell="total" data-value={b.total}>
                 {displayAmount(b.total, 2)}
               </td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
     </div>
   );
@@ -124,9 +126,9 @@ export function AccountModePanel({
   };
   const known = mode.state === 'known' ? mode.read : null;
   return (
-    <div className="form-stack" data-testid="account-mode" data-mode={known?.mode ?? (mode.state === 'unknown' ? 'unknown' : '')}>
-      <h3 className="dk-tab-title">{t('title')}</h3>
-      <p className="muted">
+    <div className="lt-stack" data-testid="account-mode" data-mode={known?.mode ?? (mode.state === 'unknown' ? 'unknown' : '')}>
+      <h3>{t('title')}</h3>
+      <p className="lt-hint">
         {t('source', { venue: venue.name })} · <AsOfLine iso={mode.state === 'loading' ? null : mode.asOf} t={t} />
       </p>
       {mode.state === 'loading' ? null : known ? (
@@ -134,11 +136,11 @@ export function AccountModePanel({
           <p data-testid="account-mode-line" data-value={known.mode}>
             {t('modeLine', { mode: modeWord(t, known.mode) })}
           </p>
-          <p className="muted" data-testid="account-mode-meaning">
+          <p className="lt-hint" data-testid="account-mode-meaning">
             {meaningOf(t, known.mode)}
           </p>
           {known.mode === 'standard' ? (
-            <div className="grid-2">
+            <div className="lt-grid">
               <Balances rows={known.spot ?? []} title={t('spotTitle')} name="spot" t={t} />
               <Balances rows={known.perps ?? []} title={t('perpsTitle')} name="perps" t={t} />
             </div>
@@ -152,7 +154,7 @@ export function AccountModePanel({
           <p data-testid="account-mode-line" data-value="unknown">
             {t('modeUnknown')}
           </p>
-          <p className="muted" data-testid="account-mode-meaning">
+          <p className="lt-hint" data-testid="account-mode-meaning">
             {t('unknownLine', { venue: venue.name })}
           </p>
         </>
@@ -176,12 +178,12 @@ function Actions({ read, venue, t }: { read: VenueAccountModeRead & { mode: Venu
   const a = read.actions;
   if (!a)
     return (
-      <p className="muted" data-testid="mode-actions">
+      <p className="lt-hint" data-testid="mode-actions">
         {t('actionsUnknown', { venue })}
       </p>
     );
   return (
-    <p className="muted" data-testid="mode-actions" data-used={a.usedToday} data-limit={a.dailyLimit ?? ''}>
+    <p className="lt-hint" data-testid="mode-actions" data-used={a.usedToday} data-limit={a.dailyLimit ?? ''}>
       {a.dailyLimit === null
         ? t('actionsFree', { used: a.usedToday.toLocaleString('en-US'), venue })
         : t('actionsLimited', {
@@ -282,22 +284,21 @@ function MoveForm({
 
   const accepted = stage.at === 'done' && stage.result.kind === 'outcome' && stage.result.outcome.accepted;
   return (
-    <section className="form-stack" data-testid="mode-move" aria-label={t('moveTitle')}>
-      <h4 className="dk-tab-title">{t('moveTitle')}</h4>
-      <label className="field">
-        <span>{t('moveDirection')}</span>
-        <select
-          data-testid="mode-move-direction"
-          value={direction}
-          onChange={(e) => {
-            setDirection(e.target.value as Direction);
-            setStage({ at: 'idle' });
-          }}
-        >
-          <option value="perps_to_spot">{t('perpsToSpot')}</option>
-          <option value="spot_to_perps">{t('spotToPerps')}</option>
-        </select>
-      </label>
+    <section className="lt-stack" data-testid="mode-move" aria-label={t('moveTitle')}>
+      <h4>{t('moveTitle')}</h4>
+      <Select
+        label={t('moveDirection')}
+        data-testid="mode-move-direction"
+        value={direction}
+        options={[
+          { value: 'perps_to_spot', label: t('perpsToSpot') },
+          { value: 'spot_to_perps', label: t('spotToPerps') },
+        ]}
+        onChange={(value) => {
+          setDirection(value as Direction);
+          setStage({ at: 'idle' });
+        }}
+      />
       <Field
         label={t('moveAmount')}
         inputMode="decimal"
@@ -308,21 +309,21 @@ function MoveForm({
           setStage({ at: 'idle' });
         }}
       />
-      <Button data-testid="mode-move-review" onClick={review}>
+      <Button tone="primary" data-testid="mode-move-review" onClick={review}>
         {t('moveReview')}
       </Button>
       {problem ? (
-        <p role="alert" className="failure" data-testid="mode-move-refused">
+        <p role="alert" className="lt-refusal" data-testid="mode-move-refused">
           {problem}
         </p>
       ) : null}
       {stage.at === 'review' || stage.at === 'sending' ? (
         <div data-testid="mode-move-review-line">
           <p>{t('moveReviewLine', { amount: stage.amount, from: from(stage.direction), to: to(stage.direction), venue: venue.name })}</p>
-          <Button variant="primary" data-testid="mode-move-sign" disabled={stage.at === 'sending'} onClick={() => void send(stage, false)}>
+          <Button tone="primary" data-testid="mode-move-sign" disabled={stage.at === 'sending'} onClick={() => void send(stage, false)}>
             {t('moveSign')}
           </Button>
-          <Button disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
+          <Button tone="primary" disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
             {t('cancel')}
           </Button>
         </div>
@@ -355,7 +356,7 @@ function MoveForm({
             <p data-testid="mode-move-again-same">{t('moveAgainSame')}</p>
           ) : null}
           {accepted ? (
-            <Button data-testid="mode-move-again" onClick={() => void send(stage, true)}>
+            <Button tone="primary" data-testid="mode-move-again" onClick={() => void send(stage, true)}>
               {t('moveAgain')}
             </Button>
           ) : null}
@@ -413,28 +414,28 @@ function SwitchForm({
         ? stage.result.message
         : null;
   return (
-    <section className="form-stack" data-testid="mode-switch" aria-label={t('switchTitle')}>
-      <h4 className="dk-tab-title">{t('switchTitle')}</h4>
-      <p className="muted">{t('switchLine')}</p>
-      <div className="button-row">
+    <section className="lt-stack" data-testid="mode-switch" aria-label={t('switchTitle')}>
+      <h4>{t('switchTitle')}</h4>
+      <p className="lt-hint">{t('switchLine')}</p>
+      <div className="lt-actions">
         {(current ? targets : MODES).map((m) => (
-          <Button key={m} data-testid={`mode-switch-${m}`} onClick={() => ask(m)}>
+          <Button tone="primary" key={m} data-testid={`mode-switch-${m}`} onClick={() => ask(m)}>
             {t('switchTo', { mode: modeWord(t, m) })}
           </Button>
         ))}
       </div>
       {problem ? (
-        <p role="alert" className="failure" data-testid="mode-switch-refused">
+        <p role="alert" className="lt-refusal" data-testid="mode-switch-refused">
           {problem}
         </p>
       ) : null}
       {stage.at === 'review' || stage.at === 'sending' ? (
         <div data-testid="mode-switch-review">
           <p>{t('switchReview', { venue: venue.name, mode: modeWord(t, stage.mode) })}</p>
-          <Button variant="primary" data-testid="mode-switch-sign" disabled={stage.at === 'sending'} onClick={() => void sign(stage)}>
+          <Button tone="primary" data-testid="mode-switch-sign" disabled={stage.at === 'sending'} onClick={() => void sign(stage)}>
             {t('switchSign')}
           </Button>
-          <Button disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
+          <Button tone="primary" disabled={stage.at === 'sending'} onClick={() => setStage({ at: 'idle' })}>
             {t('cancel')}
           </Button>
         </div>
@@ -442,7 +443,7 @@ function SwitchForm({
       {stage.at === 'done' ? (
         <p
           role={accepted ? 'status' : 'alert'}
-          className={accepted ? undefined : 'failure'}
+          className={accepted ? undefined : 'lt-refusal'}
           data-testid="mode-switch-result"
           data-accepted={accepted ? 'true' : 'false'}
         >
@@ -473,7 +474,7 @@ export function ActionLimitWarning({ venueName, venueId }: { venueName: string; 
   const a = mode.read.actions;
   if (!a || a.dailyLimit === null || a.usedToday < a.dailyLimit * NEAR_LIMIT_SHARE) return null;
   return (
-    <p role="alert" className="failure" data-testid="action-limit-warning" data-used={a.usedToday} data-limit={a.dailyLimit}>
+    <p role="alert" className="lt-refusal" data-testid="action-limit-warning" data-used={a.usedToday} data-limit={a.dailyLimit}>
       {t('limitNear', {
         venue: venueName,
         limit: a.dailyLimit.toLocaleString('en-US'),
@@ -551,7 +552,7 @@ export function SpotShortOffer({
             {sent.again.kind === 'outcome' && sent.again.reused ? t('moveAgainSame') : resultLine(t, sent.again, venueName)}
           </p>
         ) : null}
-        <Button variant="secondary" data-testid="spot-short-again-send" disabled={busy} onClick={() => void send()}>
+        <Button tone="secondary" data-testid="spot-short-again-send" disabled={busy} onClick={() => void send()}>
           {t('moveAgain')}
         </Button>
       </div>
@@ -560,7 +561,7 @@ export function SpotShortOffer({
   if (lock === null) return null;
   if (mode.state === 'unknown')
     return (
-      <p role="alert" className="failure" data-testid="spot-short" data-state="mode-unknown">
+      <p role="alert" className="lt-refusal" data-testid="spot-short" data-state="mode-unknown">
         {t('spotShortUnknown', { venue: venueName })}
       </p>
     );
@@ -572,7 +573,7 @@ export function SpotShortOffer({
   const needed = formatAmount(neededUnits);
   if (neededUnits > units(perpsFree))
     return (
-      <p role="alert" className="failure" data-testid="spot-short" data-state="perps-short">
+      <p role="alert" className="lt-refusal" data-testid="spot-short" data-state="perps-short">
         {t('spotShortNoPerps', { free: spotFree, lock, perps: perpsFree })}
       </p>
     );
@@ -586,9 +587,9 @@ export function SpotShortOffer({
     onLanded();
   };
   return (
-    <div role="alert" className="failure" data-testid="spot-short" data-state="offer" data-needed={needed}>
+    <div role="alert" className="lt-refusal" data-testid="spot-short" data-state="offer" data-needed={needed}>
       <p>{t('spotShort', { free: spotFree, lock, needed })}</p>
-      <Button data-testid="spot-short-move" disabled={busy} onClick={() => void move()}>
+      <Button tone="primary" data-testid="spot-short-move" disabled={busy} onClick={() => void move()}>
         {t('spotShortSign', { needed })}
       </Button>
       {sent ? <p data-testid="spot-short-result">{resultLine(t, sent.result, venueName)}</p> : null}

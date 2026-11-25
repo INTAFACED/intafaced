@@ -3,6 +3,8 @@ import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
 import { WithdrawalFreezes } from './withdrawal-freeze.js';
 import { withdrawalFreezeProcedures } from './withdrawal-freeze-router.js';
+import { AccountFreezes } from './account-freeze.js';
+import { accountFreezeProcedures } from './account-freeze-router.js';
 import { MemoryLinkBook, TicketLinks } from './ticket-links.js';
 import { ticketLinkProcedures } from './ticket-links-router.js';
 import { guestProcedures } from './guest-router.js';
@@ -14,6 +16,7 @@ import { safetyRouter } from './safety-router.js';
 import { MemorySafetyBook, SafetyCases } from './safety-cases.js';
 import type { GuestRequests } from './guest-requests.js';
 import { z } from 'zod';
+import type { SupportAttachment } from '@intafaced/contracts';
 import {
   SUPPORT_CATEGORY_UNKNOWN,
   SUPPORT_CATEGORY_GUIDED,
@@ -21,17 +24,13 @@ import {
   supportTicketCategorySchema,
   kbAudienceChangesInputSchema,
   supportKbAudienceChangeListSchema,
-  type SupportAttachment,
-  publicProcedure,
-  router,
-  scopedProcedure,
-  supportAttachmentIdInputSchema,
-  supportAttachmentSchema,
-  supportAwaitingMineSchema,
   supportTicketSchema,
   supportViewDeleteInputSchema,
   supportViewSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support';
+import { supportAttachmentIdInputSchema, supportAttachmentSchema } from '@intafaced/contracts/support-attachments';
+import { supportAwaitingMineSchema } from '@intafaced/contracts/support-awaiting';
+import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
 import type { AttachmentMeta } from './store.js';
@@ -46,6 +45,7 @@ import { DeskMacros, MemoryMacroBook } from './desk-macros.js';
 import { macroProcedures } from './desk-macros-router.js';
 import { MemoryCheckBook, VerificationChecks } from './verification-checks.js';
 import { verificationCheckProcedures } from './verification-checks-router.js';
+import { MemoryReadGrantBook, ReadGrants } from './read-grants.js';
 import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
@@ -186,11 +186,16 @@ export function createSupportRouter(
   freezes: WithdrawalFreezes = new WithdrawalFreezes(support, null),
   /** A request's links to the customer's own records (J-support-public-20 #1). Left out, every link refuses unverifiable. */
   links: TicketLinks = new TicketLinks(new MemoryLinkBook(), support, null, null),
+  /** The customer's grants for support to read, and the reads under them (J-support-public-20 #2). Left out, no owner is wired. */
+  reads: ReadGrants = new ReadGrants({ book: new MemoryReadGrantBook(), support, linkedWithdrawals: async () => [] }),
+  /** Account freezes asked from a request (J-support-public-20 #7). Left out, no identity is wired and each ask refuses. */
+  accountFreezes: AccountFreezes = new AccountFreezes(support, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
     ...chatProcedures(chat, mapError),
     ...withdrawalFreezeProcedures(freezes, mapError),
+    ...accountFreezeProcedures(accountFreezes),
     ...macroProcedures(macros),
     ...(routing ? routingProcedures(routing, support) : {}),
     ...contactProcedures(contact, support),
@@ -203,7 +208,7 @@ export function createSupportRouter(
     ...kbReviewProcedures(kbAuthoring, kbLibrary),
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
-    ...verificationCheckProcedures(checks),
+    ...verificationCheckProcedures(checks, reads),
     ...ticketLinkProcedures(links, mapError),
     ...officialChannelProcedures(officialChannels),
     safety: safetyRouter(safety),

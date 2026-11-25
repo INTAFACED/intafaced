@@ -126,7 +126,7 @@ fn hydrate(c: &mut impl GenericClient, row: &postgres::Row) -> Result<Posted, Po
         .query(
             "SELECT id::text, tx_id::text, account_id::text, asset_id, direction::text, amount::text, \
                     balance_after::text
-               FROM ledger.ledger_entries WHERE tx_id = $1::text::uuid ORDER BY id ASC",
+               FROM ledger.ledger_entries WHERE tx_id = $1::text::uuid ORDER BY ledger_entries.id ASC",
             &[&id],
         )
         .map_err(StoreError::from)?;

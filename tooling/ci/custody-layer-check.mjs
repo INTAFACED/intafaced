@@ -4,8 +4,8 @@
  * The custodial layer stays built and is switched off at launch. svc-ledger refuses a customer-balance post while
  * `LEDGER_CUSTODY_LAYER` is off (its default). This check is the static half: with the switch's default off, every
  * source file that posts a recipe moving a customer balance must be a site the reviewed inventory names as part of the
- * custodial layer (`tooling/ci/custody-layer-inventory.json`). A NEW customer-balance posting anywhere in services/ or
- * packages/ fails the scan until a reviewed change adds it to the inventory, which says, in review, "this is custody".
+ * custodial layer (`tooling/ci/custody-layer-inventory.json`). A NEW customer-balance posting anywhere in services/,
+ * packages/ or a Rust service's crate (`crates/svc-*`, svc-ledger itself excepted) fails the scan until a reviewed change adds it to the inventory, which says, in review, "this is custody".
  *
  * It fails closed:
  *   · the switch's default is read from source (ledger-client's parser, the svc-ledger crate's env, boot and posting)
@@ -88,7 +88,51 @@ export function customerRecipeCalls(text, customerRecipes) {
   return [...found].sort();
 }
 
-/** Every customer-balance posting site under services/ and packages/ (ledger-client itself excluded). */
+/**
+ * The functions a Rust file that sends through its client's `.post_recipe(` defines to post a recipe it is handed: each
+ * `fn <name>(` with a `recipe: &str` parameter (svc-bank's `loans::service::post`). Pure.
+ */
+export function rustRecipeWrappers(text) {
+  const live = text.split('#[cfg(test)]')[0] ?? '';
+  if (!/\.post_recipe\(/.test(live)) return [];
+  return [...live.matchAll(/\bfn\s+([a-z_][a-z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)/g)]
+    .filter((m) => /\brecipe\s*:\s*&str\b/.test(m[2]))
+    .map((m) => m[1]);
+}
+
+/**
+ * The customer-balance recipes a Rust service's source posts: a file that sends through its client's `.post_recipe(`
+ * posts each recipe a string literal names, as the ledger's caller allowlist test reads it, and each `Recipe::<Name>`
+ * variant it builds (`Recipe::FeeCharge` is `feeCharge`). A file that calls one of its crate's recipe wrappers
+ * (`rustRecipeWrappers`) posts each recipe a string literal names in that call's statement. Its `#[cfg(test)]` module is
+ * not production. Pure, so the test can plant one.
+ */
+export function rustCustomerRecipeCalls(text, customerRecipes, wrappers = []) {
+  const live = text.split('#[cfg(test)]')[0] ?? '';
+  const customer = new Set(customerRecipes);
+  const literals = (t) => [...t.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)].map((m) => m[1]);
+  let named = [];
+  if (/\.post_recipe\(/.test(live)) {
+    const variant = [...live.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)].map((m) => m[1][0].toLowerCase() + m[1].slice(1));
+    named = [...literals(live), ...variant];
+  } else if (wrappers.length > 0) {
+    const call = new RegExp(`(?<![.\\w])(?:${wrappers.join('|')})\\s*\\(([^;]*)`, 'g');
+    named = [...live.matchAll(call)].flatMap((m) => literals(m[1]));
+  }
+  return [...new Set(named.filter((n) => customer.has(n)))].sort();
+}
+
+function* walkRust(dir) {
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir)) {
+    if (SKIP_DIRS.has(name)) continue;
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) yield* walkRust(full);
+    else if (name.endsWith('.rs')) yield full;
+  }
+}
+
+/** Every customer-balance posting site under services/, packages/ (ledger-client itself excluded) and each Rust service's `src` (svc-ledger excluded: it is the book). */
 export function customerPostingSites(root, customerRecipes) {
   const sites = {};
   for (const top of ['services', 'packages']) {
@@ -96,6 +140,17 @@ export function customerPostingSites(root, customerRecipes) {
       const rel = relative(root, file).split(sep).join('/');
       if (rel.startsWith(LEDGER_CLIENT_SRC) || TEST_FILE.test(rel)) continue;
       const calls = customerRecipeCalls(readFileSync(file, 'utf8'), customerRecipes);
+      if (calls.length > 0) sites[rel] = calls;
+    }
+  }
+  const crates = join(root, 'crates');
+  for (const crate of existsSync(crates) ? readdirSync(crates) : []) {
+    if (!crate.startsWith('svc-') || crate === 'svc-ledger') continue;
+    const files = [...walkRust(join(crates, crate, 'src'))].map((file) => [file, readFileSync(file, 'utf8')]);
+    const wrappers = [...new Set(files.flatMap(([, text]) => rustRecipeWrappers(text)))];
+    for (const [file, text] of files) {
+      const rel = relative(root, file).split(sep).join('/');
+      const calls = rustCustomerRecipeCalls(text, customerRecipes, wrappers);
       if (calls.length > 0) sites[rel] = calls;
     }
   }

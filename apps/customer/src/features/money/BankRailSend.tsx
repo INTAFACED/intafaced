@@ -2,8 +2,8 @@ import { useId, useState } from 'react';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session';
-import { date, funds, useBankRead, useSpaces } from './components';
-import { railPayeeSchema, railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from './contracts';
+import { date, funds, useSpaces, useBankRecord } from './components';
+import { railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
 import { currentSpace } from './space-context';
@@ -11,6 +11,15 @@ import { RailForm, filled, type Key } from './rail-form';
 import { CoolingWords, PAYEE_PAGE, RecipientBook } from './RecipientBook';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import './bank-depth.css';
+import {
+  BANK_RAIL_SENDS_READ_PAYEE_WARNING,
+  BANK_RAIL_SENDS_REQUIREMENTS,
+  BANK_RAIL_SENDS_LIST,
+  BANK_RAIL_SENDS_PAYEES,
+} from '@intafaced/contracts/bank-rail-sends-procedures';
+import { BANK_SAFETY_REGION_NOTICE } from '@intafaced/contracts/bank-safety-procedures';
+import { RefusalCode } from '../../shared/RefusalCode';
+import { withCode } from '../../shared/reference';
 
 const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
 
@@ -23,7 +32,7 @@ const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).succes
 
 function Sends({ rows }: { rows: readonly RailSend[] }) {
   const { t } = railSendCopy.useCopy();
-  if (rows.length === 0) return <p className="money-caption">{t('none')}</p>;
+  if (rows.length === 0) return <p className="lt-muted">{t('none')}</p>;
   return (
     <>
       {rows.map((row) => (
@@ -32,13 +41,13 @@ function Sends({ rows }: { rows: readonly RailSend[] }) {
             <strong>{t('status_refused')}</strong>
             <small>{date(row.createdAt)}</small>
           </div>
-          <span className="numeric" dir="ltr">
+          <span className="lt-num" dir="ltr">
             {funds(row.amount, row.assetId)}
           </span>
           <span>
             {t(`rail_${row.rail}` as Key)} · <span lang="und">{row.recipient}</span>
             <br />
-            <small className="muted">{t('reference', { code: row.refusalCode })}</small>
+            <RefusalCode className="lt-muted" code={row.refusalCode} line={(code) => t('reference', { code })} />
           </span>
         </div>
       ))}
@@ -53,7 +62,7 @@ function Sends({ rows }: { rows: readonly RailSend[] }) {
 function RegionBlocked({ notice }: { notice: RegionNotice }) {
   const { t } = railSendCopy.useCopy();
   return (
-    <div className="failure" role="status" data-testid="rail-send-region" data-code={notice.code ?? ''} data-region={notice.region}>
+    <div className="lt-refusal" role="status" data-testid="rail-send-region" data-code={notice.code ?? ''} data-region={notice.region}>
       <h3>
         {t('regionTitle')} (<span lang="und">{notice.region}</span>)
       </h3>
@@ -82,21 +91,21 @@ function ScamWarning({ payee, onRead }: { payee: RailPayee; onRead: () => void }
   async function read() {
     setBusy(true);
     setProblem(null);
-    const answer = await api.mutate('bank', 'railSends.readPayeeWarning', { payeeId: payee.payeeId }, railPayeeSchema);
+    const answer = await api.call(BANK_RAIL_SENDS_READ_PAYEE_WARNING, { payeeId: payee.payeeId });
     setBusy(false);
     if (answer.ok) onRead();
     else setProblem(answer.message);
   }
   return (
-    <div className="failure" role="note" data-testid="rail-send-scam-warning" data-payee={payee.payeeId}>
+    <div className="lt-refusal" role="note" data-testid="rail-send-scam-warning" data-payee={payee.payeeId}>
       <h3>{t('scamTitle')}</h3>
       <p>{t('scamBody')}</p>
       <p>
-        <a className="text-link" href="/help/official-channels">
+        <a className="lt-link" href="/help/official-channels">
           {t('scamGuide')}
         </a>
       </p>
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="secondary" disabled={busy} onClick={() => void read()}>
           {t('scamRead')}
         </Button>
@@ -113,12 +122,12 @@ function ScamWarning({ payee, onRead }: { payee: RailPayee; onRead: () => void }
 export function BankRailSend() {
   const { t } = railSendCopy.useCopy();
   const { api, userId } = useSession();
-  const requirements = useBankRead('railSends.requirements', undefined);
-  const region = useBankRead('safety.regionNotice', undefined);
+  const requirements = useBankRecord(BANK_RAIL_SENDS_REQUIREMENTS, undefined);
+  const region = useBankRecord(BANK_SAFETY_REGION_NOTICE, undefined);
   const blocked = region.resource.status === 'ready' && region.resource.data.blocked ? region.resource.data : null;
   const spaces = useSpaces(200);
-  const sends = useBankRead('railSends.list', { limit: 20 });
-  const payees = useBankRead('railSends.payees', { limit: PAYEE_PAGE });
+  const sends = useBankRecord(BANK_RAIL_SENDS_LIST, { limit: 20 });
+  const payees = useBankRecord(BANK_RAIL_SENDS_PAYEES, { limit: PAYEE_PAGE });
   const [payeeId, setPayeeId] = useState('');
   const [railId, setRailId] = useState('');
   const [values, setValues] = useState<Record<string, string>>({});
@@ -179,9 +188,9 @@ export function BankRailSend() {
     setChecking(false);
     if (!checked.ok) {
       if (checked.code === 'bank.payee_cooling_active' && payee?.cooling.endsAt) {
-        setProblem(`${t('coolingActive', { time: date(payee.cooling.endsAt) })} ${t('reference', { code: checked.code })}`);
+        setProblem(withCode(t('coolingActive', { time: date(payee.cooling.endsAt) }), checked.code, (code) => t('reference', { code })));
       } else if (checked.code === 'bank.payee_cooling_unset') {
-        setProblem(`${t('coolingUnset')} ${t('reference', { code: checked.code })}`);
+        setProblem(withCode(t('coolingUnset'), checked.code, (code) => t('reference', { code })));
       } else {
         setProblem(checked.message || t('missing'));
       }
@@ -194,7 +203,7 @@ export function BankRailSend() {
 
   const loading = requirements.resource.status === 'loading' || spaces.resource.status === 'loading';
   return (
-    <div className="bd-stack" data-testid="rail-send">
+    <div className="lt-stack" data-testid="rail-send">
       <DepthPanel title={t('title')} lead={t('lead')}>
         {blocked ? (
           <RegionBlocked notice={blocked} />
@@ -205,8 +214,8 @@ export function BankRailSend() {
         ) : spaces.resource.status === 'failed' ? (
           <Failure result={spaces.resource.failure} retry={spaces.reload} />
         ) : (
-          <div className="bd-stack">
-            <label className="field" htmlFor={toField}>
+          <div className="lt-stack">
+            <label className="lt-field" htmlFor={toField}>
               <span id={`${toField}-label`}>{t('sendTo')}</span>
               <select
                 id={toField}
@@ -224,13 +233,13 @@ export function BankRailSend() {
             </label>
             {payee ? (
               <>
-                <p className="money-caption" data-testid="rail-send-payee">
+                <p className="lt-muted" data-testid="rail-send-payee">
                   {t(`rail_${payee.rail}` as Key)} · <span lang="und">{payee.recipient}</span> · <CoolingWords payee={payee} />
                 </p>
                 <ScamWarning payee={payee} onRead={payees.reload} />
               </>
             ) : (
-              <label className="field" htmlFor={railField}>
+              <label className="lt-field" htmlFor={railField}>
                 <span>{t('rail')}</span>
                 <select id={railField} value={railId} onChange={(event) => pick(event.target.value)}>
                   <option value="" />
@@ -245,13 +254,13 @@ export function BankRailSend() {
             {shown && (
               <>
                 {shown.partner === null && (
-                  <p className="failure" role="status" data-testid="rail-send-notice">
+                  <p className="lt-refusal" role="status" data-testid="rail-send-notice">
                     {t('noPartner', { rail: t(`rail_${shown.rail}` as Key) })}{' '}
-                    {shown.blocker && <small className="muted">{t('reference', { code: shown.blocker })}</small>}
+                    {shown.blocker && <RefusalCode className="lt-muted" code={shown.blocker} line={(code) => t('reference', { code })} />}
                   </p>
                 )}
                 {rail && !payee && (
-                  <div className="bd-stack" data-testid="rail-send-form" data-rail={rail.rail}>
+                  <div className="lt-stack" data-testid="rail-send-form" data-rail={rail.rail}>
                     <RailForm
                       rail={rail}
                       values={values}
@@ -263,9 +272,9 @@ export function BankRailSend() {
                   </div>
                 )}
                 {usable.length === 0 ? (
-                  <p className="money-caption">{t('noSpace')}</p>
+                  <p className="lt-muted">{t('noSpace')}</p>
                 ) : (
-                  <label className="field" htmlFor={spaceField}>
+                  <label className="lt-field" htmlFor={spaceField}>
                     <span>{t('from')}</span>
                     <select
                       id={spaceField}
@@ -298,7 +307,7 @@ export function BankRailSend() {
                     {problem ?? t('missing')}
                   </p>
                 )}
-                <div className="actions">
+                <div className="lt-actions">
                   <Button variant="primary" disabled={!from || checking} onClick={() => void send()}>
                     {t('send')}
                   </Button>
@@ -306,12 +315,12 @@ export function BankRailSend() {
               </>
             )}
             {outcome && (
-              <div className="failure" role="status" data-testid="rail-send-kept">
+              <div className="lt-refusal" role="status" data-testid="rail-send-kept">
                 <h3>{t('keptTitle')}</h3>
                 <p>{t('keptBody')}</p>
                 <p>
                   {t('noPartner', { rail: t(`rail_${outcome.rail}` as Key) })}{' '}
-                  <small className="muted">{t('reference', { code: outcome.refusalCode })}</small>
+                  <RefusalCode className="lt-muted" code={outcome.refusalCode} line={(code) => t('reference', { code })} />
                 </p>
               </div>
             )}

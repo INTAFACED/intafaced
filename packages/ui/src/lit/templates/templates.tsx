@@ -16,6 +16,8 @@ const isPro = (p: RoomProps) => p.mode === 'pro';
 export interface OverviewProps extends RoomProps {
   /** The balance on a money surface, with its breakdown grouped by protection. */
   hero: Slot;
+  /** The hint lines under the hero's figure it keeps room for while loading and once loaded (Region's `reserve`). */
+  heroReserve?: number;
   /** At most four action keys, on one line. */
   actions?: Slot;
   /** Tasks the person must act on. */
@@ -38,7 +40,7 @@ export function OverviewTemplate(p: OverviewProps) {
       </Region>
       <div className="lt-grid lt-grid-main-side">
         <div className="lt-col-main">
-          <Region name="hero" data primary ghost="figure" label="Balance">
+          <Region name="hero" data primary ghost="figure" label="Balance" reserve={p.heroReserve}>
             {p.hero}
           </Region>
           <Region name="actions" data label="Actions" ghost="keys">
@@ -338,6 +340,24 @@ export interface DeskProps extends RoomProps {
   ticket: Slot;
   orders?: Slot;
   pairs?: Slot;
+  /**
+   * Pro, on a computer: the person's own arrangement of the side-by-side panels, left to right, each with its width
+   * (a CSS track: "13.5rem", "minmax(0, 1fr)"). The instrument runs across the top, the ticket takes the last column,
+   * the orders run across the bottom. Absent, the desk's own arrangement.
+   */
+  arrangement?: { columns: readonly { region: 'pairs' | 'chart' | 'book' | 'tape'; width: string }[] };
+}
+
+const TICKET_TRACK = '18.75rem';
+
+function arrangedStyle(arrangement: NonNullable<DeskProps['arrangement']>): React.CSSProperties {
+  const names = [...arrangement.columns.map((c) => c.region), 'ticket'];
+  const row = (fill: (name: string) => string) => `'${names.map(fill).join(' ')}'`;
+  const style: React.CSSProperties & Record<`--${string}`, string> = {
+    '--lt-desk-columns': [...arrangement.columns.map((c) => c.width), TICKET_TRACK].join(' '),
+    '--lt-desk-areas': [row(() => 'instrument'), row((n) => n), row(() => 'orders')].join(' '),
+  };
+  return style;
 }
 
 /**
@@ -358,7 +378,12 @@ export function DeskTemplate(p: DeskProps) {
   }
   return (
     <RoomFrame {...p} template="desk">
-      <div className="lt-desk" data-desk={pro ? 'pro' : 'simple'}>
+      <div
+        className="lt-desk"
+        data-desk={pro ? 'pro' : 'simple'}
+        data-arranged={pro && p.arrangement ? '' : undefined}
+        style={pro && p.arrangement ? arrangedStyle(p.arrangement) : undefined}
+      >
         <Region name="instrument" data ghost="figure" label="Price">
           {p.instrument}
         </Region>

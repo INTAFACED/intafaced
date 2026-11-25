@@ -1,5 +1,9 @@
+import { replyAccepted } from '@intafaced/contracts/procedure';
+import { BANK_TRANSFERS_CREATE } from '@intafaced/contracts/bank-transfers-2-procedures';
 import { describe, expect, it } from 'vitest';
-import { bankReads, bankWrites, cardSchema } from './contracts';
+import { BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE } from '@intafaced/contracts/bank-business-procedures';
+import { BANK_CARDS_ISSUE, BANK_CARDS_SET_CHANNELS, BANK_CARDS_SET_LIMITS } from '@intafaced/contracts/bank-cards-2-procedures';
+import { cardSchema, myRoleSchema, pendingApprovalsSchema, teamSchema } from './contracts';
 
 const card = {
   id: '7d0a2cd4-6a46-4f6b-9d8f-0d5f27ec7b11',
@@ -35,25 +39,25 @@ describe('what the card service returns', () => {
     expect(cardSchema.safeParse({ ...card, dailyLimit: 1000 }).success).toBe(false);
   });
   it('uses the same card shape for an order, a limits change and a channels change', () => {
-    for (const procedure of ['cards.issue', 'cards.setLimits', 'cards.setChannels'] as const)
-      expect(bankWrites[procedure].safeParse(card).success, procedure).toBe(true);
+    // The bank's answer carries these beside the app's card view.
+    const answer = { ...card, usesAllowed: null, designId: null, deliverySpeed: null, replacesCardId: null, replacedByCardId: null };
+    for (const record of [BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS])
+      expect(record.output.safeParse(answer).success, record.path).toBe(true);
   });
 });
 
 describe('what the team reads return', () => {
   it('reads members with their role and handle', () => {
     expect(
-      bankReads['business.members'].parse({
+      teamSchema.parse({
         members: [{ accountId: 'a', userId: 'u', role: 'checker', handle: 'ada' }],
         pendingControls: [],
       }),
     ).toEqual({ members: [{ accountId: 'a', userId: 'u', role: 'checker', handle: 'ada' }] });
-    expect(
-      bankReads['business.members'].safeParse({ members: [{ accountId: 'a', userId: 'u', role: 'owner', handle: 'ada' }] }).success,
-    ).toBe(false);
+    expect(teamSchema.safeParse({ members: [{ accountId: 'a', userId: 'u', role: 'owner', handle: 'ada' }] }).success).toBe(false);
   });
   it('reads a recipient lookup as found with an account, found without one, or not found', () => {
-    const read = bankReads['business.resolveRecipientSpace'];
+    const read = BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE.output;
     expect(read.parse({ found: false })).toEqual({ found: false });
     expect(read.parse({ found: true, handle: 'ada', assetId: 'USDT', spaceId: null })).toMatchObject({ spaceId: null });
     expect(read.safeParse({ found: true, handle: 'ada', assetId: 'USDT', spaceId: 'not-a-uuid' }).success).toBe(false);
@@ -79,19 +83,24 @@ describe('what the team reads return', () => {
       receiverOwnerHandleReason: null,
       receiverOwnerName: 'Zed Z',
     };
-    expect(bankReads['business.pending'].parse([waiting])[0]).toMatchObject({
+    expect(pendingApprovalsSchema.parse([waiting])[0]).toMatchObject({
       receiverOwnerHandle: 'zed',
       makerHandleReason: 'handle_unresolved',
     });
   });
   it('reads a role as one of the three the bank has', () => {
-    expect(bankReads['business.myRole'].parse({ role: 'maker' })).toEqual({ role: 'maker' });
-    expect(bankReads['business.myRole'].safeParse({ role: 'owner' }).success).toBe(false);
+    expect(myRoleSchema.parse({ role: 'maker' })).toEqual({ role: 'maker' });
+    expect(myRoleSchema.safeParse({ role: 'owner' }).success).toBe(false);
   });
 });
 
 describe('what a move into a space returns (transfers.create)', () => {
-  const reply = bankWrites['transfers.create'];
+  // The record's schema and its own `accept` checks, as `api.call` runs them for every caller.
+  const reply = {
+    safeParse: (data: unknown) => ({
+      success: BANK_TRANSFERS_CREATE.output.safeParse(data).success && replyAccepted(BANK_TRANSFERS_CREATE, data),
+    }),
+  };
   const move = { id: 'test-partner-move-1', label: 'TEST partner bank', movedAt: '2026-11-15T00:00:00.000Z' };
 
   it('is confirmed by the ledger’s transaction, or by the partner bank’s one move with no ledger transaction', () => {

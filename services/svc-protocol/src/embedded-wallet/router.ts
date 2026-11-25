@@ -1,4 +1,5 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { ProtocolEmbeddedWalletRefusal } from '@intafaced/contracts/protocol-embedded-wallet';
 import { gasSponsorFromSetting, type GasSponsorSetting } from './gas-sponsor.js';
 import { PROTOCOL_EMBEDDED_WALLET_CREATE, PROTOCOL_EMBEDDED_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
@@ -76,7 +77,11 @@ export function createEmbeddedWalletRouter(deps: EmbeddedWalletRouterDeps) {
     ),
     create: mountProtocolRecord(PROTOCOL_EMBEDDED_WALLET_CREATE, ({ ctx, input }) =>
       guarded(async () => {
-        const { row, created } = await createEmbeddedWallet(deps, { userId: ctx.principal.userId, passkey: input.passkey }, now());
+        const { row, created } = await createEmbeddedWallet(
+          deps,
+          { userId: ctx.principal.userId, passkey: input.passkey, forwarded: forwardedPrincipalHeaders(ctx) },
+          now(),
+        );
         return { wallet: embeddedWalletOut(row), created };
       }),
     ),

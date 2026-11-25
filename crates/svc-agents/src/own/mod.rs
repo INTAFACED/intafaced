@@ -1,4 +1,4 @@
-//! The `own-builder` slice (`PORT.md`): agents a person builds for themselves (`services/svc-agents/src/own/routes.ts`,
+//! The `own-builder` slice (`README.md`): agents a person builds for themselves (`services/svc-agents/src/own/routes.ts`,
 //! the drafts, publishing, the assistant, rules, the reviewer, reviews, evals, test runs and tools), answered as the
 //! TypeScript answers them, and the unpublished sweep.
 //!
@@ -18,24 +18,46 @@
 //! - [`tool_try`]: one tool call, and the run of an approved one.
 //! - [`slice`]: the calls.
 //!
+//! The `own-sharing` slice, over the same store and guard:
+//!
+//! - [`access`]: which venue sub-accounts an agent may act on, and until when.
+//! - [`sharing`]: the agent's co-owners, the agents shared with a person, and the share with co-owners.
+//! - [`identity`]: the agent's own token, issued, revoked and called with.
+//! - [`freeze_applied`]: the owner's own freeze applied once, as identity's `selfFreezeApplied` asks.
+//! - [`sharing_slice`]: the calls.
+//!
+//! The `own-runs` slice: [`runs`] (its calls: sessions, runs, the held calls' decisions, holds, the trade draft),
+//! [`automation`] (schedules, triggers and their runs) and [`background`] (background test runs).
+//!
 //! A refusal of the slice is an [`OwnRefusal`]: the router's `guard` answers it with its code as the message and the
 //! cause, `NOT_FOUND` for `agents.own.not_found` and `BAD_REQUEST` otherwise, unless the call maps it itself.
 
+pub mod access;
 pub mod approvals;
 pub mod assistant;
+pub mod automation;
+pub mod background;
 pub mod catalog;
+pub mod controls;
 pub mod desk;
 pub mod evals;
+pub mod freeze_applied;
 pub mod gates;
 pub mod guards;
+pub mod identity;
 pub mod notices;
 pub mod publishing;
 pub mod reviewer;
+pub mod runs;
 pub mod self_freeze;
+pub mod sharing;
+pub mod sharing_slice;
 pub mod slice;
 pub mod store;
 pub mod test_runs;
 pub mod tool_try;
+
+use std::sync::Arc;
 
 use service_kit::trpc::TrpcError;
 
@@ -158,6 +180,17 @@ pub struct Own {
     /// svc-support's desk (`SUPPORT_URL`), also the owner's account read: absent, no door is wired and every account
     /// reads unread.
     pub support_desk: Option<Box<dyn desk::SupportDesk>>,
+    /// `AGENTS_OWN_TOKEN_LIFETIME_MINUTES`: an own agent's token lifetime; blank refuses issuing
+    /// `agents.identity.lifetime_unset`.
+    pub token_lifetime_minutes: Option<i64>,
+    /// The owner's cadence for schedules: blank refuses a new schedule `agents.schedule_cadence_unset`.
+    pub cadence: automation::Cadence,
+    /// The owner's values for background test runs: blank refuses a new one `agents.background_unset`.
+    pub background: background::Settings,
+    /// `AGENTS_RETENTION_*_DAYS`: a blank period reads "not set" and refuses a write that needs it.
+    pub retention: controls::memory::Retention,
+    /// Identity's list of the person's linked wallets (`IDENTITY_URL`): absent reads unread.
+    pub linked_wallets: Option<Arc<dyn crate::navigator::onchain::ports::LinkedWallets>>,
 }
 
 impl Own {
@@ -170,6 +203,11 @@ impl Own {
             reviewer_model: None,
             approval_ttl_seconds: None,
             support_desk: None,
+            token_lifetime_minutes: None,
+            cadence: automation::Cadence::default(),
+            background: background::Settings::default(),
+            retention: controls::memory::Retention::default(),
+            linked_wallets: None,
         }
     }
 }

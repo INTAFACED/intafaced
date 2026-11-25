@@ -1,10 +1,6 @@
 import type { Principal } from '@intafaced/auth';
-import {
-  currentAuthorityInputSchema,
-  currentAuthorityResultSchema,
-  type CurrentAuthorityInput,
-  type CurrentAuthorityResult,
-} from '@intafaced/contracts';
+import type { CurrentAuthorityInput, CurrentAuthorityResult } from '@intafaced/contracts';
+import { currentAuthorityInputSchema, currentAuthorityResultSchema } from '@intafaced/contracts/account-controls';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { ApiKeyOwnershipUnavailableError, ApiKeyRevokedError, assertIdentityApiKeyLive } from './api-key-revoked.js';
 import { assertApiKeyIp, optionalIpAllowlist } from './api-key-ip.js';

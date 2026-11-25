@@ -1,4 +1,5 @@
-import { useId } from 'react';
+import { InfoTip } from '@intafaced/ui/lit';
+import { Skeleton } from '@intafaced/ui/lit/templates';
 import { coinCopy } from './copy';
 import {
   Amount,
@@ -8,10 +9,6 @@ import {
   Money,
   partialWindowStart,
   sinceLabel,
-  Skeleton,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   usePreferences,
   useSupportedAssets,
   useTicker,
@@ -20,23 +17,13 @@ import {
   type PortfolioSummary,
 } from './deps';
 
-/** A label with a dotted underline that opens a Tooltip on hover and on keyboard focus; the words also sit in the page for screen readers. */
+/** A row's label with the kit's (i) beside it: the rule opens on hover, keyboard focus and a tap, and is in the page for screen readers. */
 function Term({ label, rule }: { label: string; rule: string }) {
-  const id = useId();
+  const { t } = coinCopy.useCopy();
   return (
-    <>
-      <Tooltip>
-        <TooltipTrigger data-testid="coin-term" className="coin-term" render={<button type="button" aria-describedby={id} />}>
-          {label}
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="start">
-          {rule}
-        </TooltipContent>
-      </Tooltip>
-      <span id={id} className="if-sr">
-        {rule}
-      </span>
-    </>
+    <dt>
+      {label} <InfoTip text={rule} label={t('About {label}', { label })} data-testid="coin-term" />
+    </dt>
   );
 }
 
@@ -60,33 +47,35 @@ export function KeyStats({
   portfolio: Loadable<PortfolioSummary>;
 }) {
   const { t } = coinCopy.useCopy();
-  const { timeZone } = usePreferences();
+  const { timeZone, hideBalances } = usePreferences();
   const held = holdingOf(portfolio, asset);
   return (
-    <section data-testid="coin-stats" className="coin-card coin-stats" aria-label={t('Key stats')}>
-      {symbol ? <MarketRows symbol={symbol} asset={asset} tickSize={tickSize} timeZone={timeZone} /> : null}
-      <div className="coin-stats__row coin-stats__row--balance" data-testid="stat-balance">
-        <Term label={t('Your balance')} rule={t('Your balance rule')} />
-        <span className="coin-stats__value">
-          {portfolio.status === 'loading' ? (
-            <Skeleton width={96} height={18} className="bg-field" />
-          ) : held === 'unknown' ? (
-            '—'
-          ) : held === null ? (
-            <Amount value={`0 ${asset}`} />
-          ) : (
-            <>
-              <Amount value={`${fmtAmount(held.total, { places: 8 })} ${asset}`} />
-              <Money className="coin-stats__sub" value={held.usdValue === null ? null : fmtUsd(held.usdValue)} />
-            </>
-          )}
-        </span>
-      </div>
-      <div className="coin-stats__row" data-testid="stat-market-cap">
-        <Term label={t('Market cap')} rule={t('Market cap rule')} />
-        <span className="coin-stats__value">{t('not published')}</span>
-      </div>
-      <CoinNetworks asset={asset} />
+    <section data-testid="coin-stats" className="lt-stack" aria-label={t('Key stats')}>
+      <dl className="lt-kv">
+        {symbol ? <MarketRows symbol={symbol} asset={asset} tickSize={tickSize} timeZone={timeZone} /> : null}
+        <div data-testid="stat-balance">
+          <Term label={t('Your balance')} rule={t('Your balance rule')} />
+          <dd data-testid="coin-stats__value">
+            {portfolio.status === 'loading' ? (
+              <Skeleton shape="text" count={1} />
+            ) : held === 'unknown' ? (
+              '—'
+            ) : held === null ? (
+              <Amount value={`0 ${asset}`} hidden={hideBalances} />
+            ) : (
+              <>
+                <Amount value={`${fmtAmount(held.total, { places: 8 })} ${asset}`} hidden={hideBalances} />
+                <Money value={held.usdValue === null ? null : fmtUsd(held.usdValue)} hidden={hideBalances} />
+              </>
+            )}
+          </dd>
+        </div>
+        <div data-testid="stat-market-cap">
+          <Term label={t('Market cap')} rule={t('Market cap rule')} />
+          <dd data-testid="coin-stats__value">{t('not published')}</dd>
+        </div>
+        <CoinNetworks asset={asset} />
+      </dl>
       {symbol ? <YoungNote symbol={symbol} timeZone={timeZone} /> : null}
     </section>
   );
@@ -108,20 +97,20 @@ function MarketRows({
   const row = ticker.status === 'ready' ? ticker.data : null;
   const loading = ticker.status === 'loading';
   const price = (value: string | null | undefined) => (value ? `$${fmtPrice(value, tickSize)}` : '—');
-  const cell = (value: string) => (loading ? <Skeleton width={96} height={18} className="bg-field" /> : value);
+  const cell = (value: string) => (loading ? <Skeleton shape="text" count={1} /> : value);
   return (
     <>
-      <div className="coin-stats__row" data-testid="stat-high">
+      <div data-testid="stat-high">
         <Term label={t('24h high')} rule={t('24h high rule')} />
-        <span className="coin-stats__value">{cell(price(row?.high24h))}</span>
+        <dd data-testid="coin-stats__value">{cell(price(row?.high24h))}</dd>
       </div>
-      <div className="coin-stats__row" data-testid="stat-low">
+      <div data-testid="stat-low">
         <Term label={t('24h low')} rule={t('24h low rule')} />
-        <span className="coin-stats__value">{cell(price(row?.low24h))}</span>
+        <dd data-testid="coin-stats__value">{cell(price(row?.low24h))}</dd>
       </div>
-      <div className="coin-stats__row" data-testid="stat-volume">
+      <div data-testid="stat-volume">
         <Term label={t('24h volume', { asset })} rule={t('24h volume rule')} />
-        <span className="coin-stats__value">{cell(row?.baseVolume24h ? fmtAmount(row.baseVolume24h, { places: 4 }) : '—')}</span>
+        <dd data-testid="coin-stats__value">{cell(row?.baseVolume24h ? fmtAmount(row.baseVolume24h, { places: 4 }) : '—')}</dd>
       </div>
     </>
   );
@@ -134,7 +123,7 @@ function YoungNote({ symbol, timeZone }: { symbol: string; timeZone: Parameters<
   const partial = partialWindowStart(ticker.status === 'ready' ? ticker.data : undefined, Date.now());
   if (partial === null) return null;
   return (
-    <p className="coin-stats__note" data-testid="stat-young">
+    <p className="lt-hint" data-testid="stat-young">
       {t('Younger than a day', { time: sinceLabel(partial, timeZone) })}
     </p>
   );
@@ -161,9 +150,9 @@ function CoinNetworks({ asset }: { asset: string }) {
   const known = (row?.networks ?? []).filter((network) => network.contract !== null || network.links.length > 0);
   return (
     <>
-      <div className="coin-stats__row" data-testid="coin-network">
+      <div data-testid="coin-network">
         <Term label={t('Networks')} rule={t('Networks rule')} />
-        <span className="coin-stats__value">
+        <dd data-testid="coin-stats__value">
           {registry.resource.status === 'loading'
             ? '—'
             : registry.resource.status === 'failed'
@@ -171,20 +160,15 @@ function CoinNetworks({ asset }: { asset: string }) {
               : row === null || row.networks.length === 0
                 ? t('not listed')
                 : row.networks.map((network) => network.label).join(', ')}
-        </span>
+        </dd>
       </div>
       {known.map((network) => (
-        <div
-          key={network.networkId}
-          className="coin-stats__row coin-stats__row--balance"
-          data-testid="coin-network-detail"
-          data-network={network.networkId}
-        >
+        <div key={network.networkId} data-testid="coin-network-detail" data-network={network.networkId}>
           <Term label={t('On {network}', { network: network.label })} rule={t('Network detail rule')} />
-          <span className="coin-stats__value">
+          <dd data-testid="coin-stats__value">
             {network.contract !== null ? (
               <span
-                className="coin-stats__contract"
+                className="lt-mono lt-wrap"
                 data-testid="coin-contract"
                 aria-label={t('Contract on {network}', { network: network.label })}
               >
@@ -192,18 +176,11 @@ function CoinNetworks({ asset }: { asset: string }) {
               </span>
             ) : null}
             {network.links.map((link) => (
-              <a
-                key={link.url}
-                className="coin-stats__link"
-                data-testid="coin-link"
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <a key={link.url} className="lt-link" data-testid="coin-link" href={link.url} target="_blank" rel="noopener noreferrer">
                 {link.label}
               </a>
             ))}
-          </span>
+          </dd>
         </div>
       ))}
     </>

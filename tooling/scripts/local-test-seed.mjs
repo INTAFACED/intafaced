@@ -33,8 +33,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
 import { custodyLayerOf, custodyOffRefusal, localStackState } from './local-test-state.mjs';
+import { GATE_URL, stackUrl } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -76,9 +78,9 @@ export const TEST_EARN = [
 
 /**
  * Policy numbers are copied from a passing loan fixture, not invented here:
- * `DEFAULT_LIQUIDATION_POLICY` in services/svc-bank/src/loans/risk.ts and
- * `aprBps` / `maxLtvBps` in services/svc-bank/src/loans/originate-public-door.test.ts
- * (`seedProduct`). The service's own policy check is the judge.
+ * `DEFAULT_LIQUIDATION_POLICY` in crates/svc-bank/src/loans/risk.rs and the
+ * loan product the bank's own tests open (`aprBps` 1000, `maxLtvBps` 5000).
+ * The service's own policy check is the judge.
  */
 export const TEST_LOAN_POLICY = {
   marginCallLtvBps: 7500,
@@ -245,7 +247,9 @@ function databaseUrl(role, secrets, marker) {
     throw new GuardError(`refusing: database port ${dbPort} is not the marker postgres port ${markerPort}`);
   }
   if (typeof name !== 'string' || !/^[A-Za-z0-9_]+$/.test(name)) throw new GuardError('refusing: marker database name is missing');
-  const password = secrets?.pgService;
+  // A tester compose stack's roles keep compose's own LOCAL TEST passwords (each role's name, tooling/infra/postgres-init);
+  // its marker's stack id, not a password, says the database is this stack's (assertComposeOwnership).
+  const password = marker?.runtime === 'compose' ? role : secrets?.pgService;
   if (typeof password !== 'string' || password.length === 0) {
     throw new GuardError('refusing: secrets.json has no pgService password');
   }
@@ -310,7 +314,11 @@ export function guardSeed(env, stateDir, io = defaultIo) {
   }
   // The custody switch the running svc-ledger was started with (its process record, local-test-state.mjs).
   const recordsPath = path.join(stateDir, 'run', 'processes.json');
-  const custodyLayer = custodyLayerOf(io.existsSync(recordsPath) ? readJson(io, recordsPath, 'run/processes.json') : {});
+  // A tester compose stack has no process records: its marker says the switch its svc-ledger was started with.
+  const custodyLayer =
+    marker.runtime === 'compose'
+      ? custodyLayerOf({ ledger: { custodyLayer: marker.custodyLayer } })
+      : custodyLayerOf(io.existsSync(recordsPath) ? readJson(io, recordsPath, 'run/processes.json') : {});
   return { stateDir, marker, bankUrl, p2pUrl, ledgerUrl, internal: secrets.internal, custodyLayer };
 }
 
@@ -743,7 +751,7 @@ async function signedCall(plan, contracts, route, body) {
  * A script under `tooling/scripts/` cannot resolve that dependency itself.
  */
 export function resolvePostgres(repo) {
-  const pkg = path.join(repo, 'services', 'svc-bank', 'package.json');
+  const pkg = path.join(repo, 'services', 'svc-p2p', 'package.json');
   try {
     const loaded = createRequire(pkg)('postgres');
     return loaded?.default ?? loaded;
@@ -753,10 +761,55 @@ export function resolvePostgres(repo) {
   }
 }
 
+/** The file founder a's TEST wallet key is kept in, in the stack's state folder (mode 600): never printed, never committed. */
+export const HOME_WALLET_FILE = 'home-wallet.json';
+const HOME_WALLET_KIND = 'intafaced-local-test-home-wallet';
+
+/** viem's account helpers, from svc-protocol's own install (the repo root has no viem of its own). */
+async function viemAccounts() {
+  const req = createRequire(path.join(REPO, 'services', 'svc-protocol', 'package.json'));
+  return import(pathToFileURL(req.resolve('viem/accounts')).href);
+}
+
+/** Founder a's TEST wallet, as its file in `stateDir` keeps it, or null before `home` made one. */
+export function readHomeWallet(stateDir) {
+  const file = path.join(stateDir, HOME_WALLET_FILE);
+  if (!fs.existsSync(file)) return null;
+  const wallet = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (
+    wallet?.kind !== HOME_WALLET_KIND ||
+    !/^0x[0-9a-f]{40}$/.test(wallet.address ?? '') ||
+    !/^0x[0-9a-f]{64}$/.test(wallet.privateKey ?? '')
+  ) {
+    throw new GuardError(`refusing: ${file} is not a TEST home wallet`);
+  }
+  return wallet;
+}
+
+/** One call to the stack's TEST venue on loopback (its own record and TEST controls): its JSON answer, or a refusal. */
+async function testVenue(route, body) {
+  const res = await fetch(`${stackUrl('test-venue')}${route}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const out = await res.json().catch(() => null);
+  if (res.status !== 200) throw new Error(`the TEST venue refused ${route} (${res.status}): ${JSON.stringify(out).slice(0, 300)}`);
+  return out;
+}
+
+/** The TEST venue's id and name; refuses anything that does not say it is TEST. */
+async function testVenueInfo() {
+  const info = await testVenue('/venue');
+  if (info?.label !== 'TEST') throw new GuardError('refusing: the venue on the TEST venue port does not say it is TEST');
+  return { id: info.venue.id, name: info.venue.displayName };
+}
+
 /**
  * Home's live wiring on this stack, or null when its founder pair is not enrolled: founder a's and b's sessions through
- * Edge (local-test-gates.mjs), and the stack's own `chain-deposit` tool for the TEST transfer. The gates refuse a state
- * folder other than the one this seed was given, so the two always name the same stack.
+ * Edge (local-test-gates.mjs), founder a's TEST wallet in the state folder, the stack's TEST chain and TEST venue. The
+ * gates refuse a state folder other than the one this seed was given, so they always name the same stack.
  */
 function homeDeps(plan) {
   const vault = path.join(plan.stateDir, 'founders.json');
@@ -764,23 +817,27 @@ function homeDeps(plan) {
   let wired;
   return () =>
     (wired ??= (async () => {
-      const [gates, founders, notice, stack] = await Promise.all([
+      const [gates, founders, notice] = await Promise.all([
         import('./local-test-gates.mjs'),
         import('./local-test-founders.mjs'),
         import('./local-test-notice.mjs'),
-        import('./local-test-stack.mjs'),
       ]);
       // A draft vault (the stack wrote it, enrolment has not run or failed) is no founder pair: Home is not seeded.
-      if (!founders.enrolledFounderPair(JSON.parse(fs.readFileSync(vault, 'utf8')))) return null;
+      const enrolled = founders.enrolledFounderPair(JSON.parse(fs.readFileSync(vault, 'utf8')));
+      if (!enrolled) return null;
       const ctx = await gates.makeContext({ log: () => {} });
       if (path.resolve(ctx.paths.stateDir) !== path.resolve(plan.stateDir)) {
         throw new GuardError(`refusing: the gates read ${ctx.paths.stateDir}, not ${plan.stateDir}; set LOCAL_STACK_STATE to it`);
       }
       const pair = await gates.approverSessions(ctx);
-      if (!founders.isLocalTestFounderHandle(pair.a.op.handle)) throw new GuardError('refusing: Home is seeded for the founder pair only');
+      if (!founders.isLocalTestFounderHandle(pair.a.op.handle) || !founders.isLocalTestFounderHandle(pair.b.op.handle)) {
+        throw new GuardError('refusing: Home is seeded for the founder pair only');
+      }
+      const userIdOf = (handle) => enrolled.find((f) => f.handle === handle).userId;
       return {
         edge: ctx.edge,
-        founder: { handle: pair.a.op.handle, token: pair.a.token },
+        founder: { handle: pair.a.op.handle, userId: userIdOf(pair.a.op.handle), token: pair.a.token },
+        sender: { handle: pair.b.op.handle, userId: userIdOf(pair.b.op.handle), token: pair.b.token },
         async draftNotice(input, key) {
           const res = await ctx.edge.mutate(
             'notify',
@@ -794,43 +851,124 @@ function homeDeps(plan) {
         },
         publishNotice: (row, publishKey) =>
           notice.publishWithApproval({ edge: ctx.edge, pair, policyVersion: gates.MARKERS.policyVersion }, row, publishKey),
-        chainDeposit(address, asset, amount, confirmations, label) {
-          execFileSync(
-            process.execPath,
-            [
-              path.join(REPO, 'tooling/scripts/local-test-stack.mjs'),
-              'chain-deposit',
-              address,
-              asset,
-              amount,
-              String(confirmations),
-              '--tx',
-              label,
-            ],
-            { cwd: REPO, env: { ...process.env, LOCAL_STACK_STATE: plan.stateDir }, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
-          );
+        /** Founder a's TEST wallet: the one in the state folder, or a fresh TEST key written there once (mode 600). */
+        async wallet() {
+          const known = readHomeWallet(plan.stateDir);
+          if (known) return known;
+          const { generatePrivateKey, privateKeyToAccount } = await viemAccounts();
+          const privateKey = generatePrivateKey();
+          const wallet = {
+            kind: HOME_WALLET_KIND,
+            label: 'TEST',
+            address: privateKeyToAccount(privateKey).address.toLowerCase(),
+            privateKey,
+          };
+          fs.writeFileSync(path.join(plan.stateDir, HOME_WALLET_FILE), `${JSON.stringify(wallet, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+          return wallet;
         },
-        txHash: stack.chainTxHash,
+        knownWallet: async () => readHomeWallet(plan.stateDir),
+        /** TEST ETH for gas and TEST USD on the stack's TEST chain, once: a wallet that already holds TEST ETH gets none. */
+        async fundWallet(address) {
+          const res = await fetch(GATE_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [address, 'latest'] }),
+            signal: AbortSignal.timeout(15_000),
+          }).catch((err) => {
+            throw new Error(`the stack's TEST chain did not answer (${err.message}), so founder a's TEST wallet is not funded`);
+          });
+          const balance = (await res.json())?.result;
+          if (typeof balance !== 'string') throw new Error(`the stack's TEST chain gave no balance for ${address}`);
+          if (BigInt(balance) > 0n) return 'already funded';
+          execFileSync(process.execPath, [path.join(REPO, 'tooling/scripts/local-test-chain.mjs'), 'fund', address, 'venue'], {
+            cwd: REPO,
+            env: { ...process.env, LOCAL_STACK_STATE: plan.stateDir },
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 120_000,
+          });
+          return 'funded with TEST ETH and TEST USD';
+        },
+        /** TEST funds paid into the wallet's account at the TEST venue by its deposit control, once per reference. */
+        async venueDeposit(address, asset, amount, depositRef) {
+          const venue = await testVenueInfo();
+          const account = { venueId: venue.id, owner: address, subAccount: null };
+          const out = await testVenue('/test/deposit', { account, asset, amount, depositRef });
+          return { name: venue.name, credited: out.credited === true };
+        },
+        /**
+         * What the TEST venue's own record says the wallet's account holds of `asset`, with the venue's name, or null when
+         * no TEST venue answers (the stack starts one only with its user-venue switch on). Reads only.
+         */
+        async venueBalance(address, asset) {
+          const venue = await testVenueInfo().catch((err) => {
+            if (err instanceof GuardError) throw err;
+            return null;
+          });
+          if (!venue) return null;
+          const out = await testVenue('/balances', { account: { venueId: venue.id, owner: address, subAccount: null } });
+          const row = (out.value ?? []).find((b) => b.asset === asset);
+          return { name: venue.name, total: row?.total ?? '0' };
+        },
         now: () => Date.now(),
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       };
     })());
 }
 
+/** svc-bank's Rust binary, as the stack builds it (`rustBin('bank')` in local-test-stack.mjs). */
+export const BANK_BIN = path.join(REPO, 'crates', 'svc-bank', 'dist', 'svc-bank');
+
+/**
+ * The TEST earn pool's id, made from its name, so a seed run that crashed after making it makes the same pool again
+ * rather than a second one.
+ */
+export function earnPoolId(name) {
+  const h = createHash('sha256').update(`local-test-seed earn pool: ${name}`).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/**
+ * One `svc-bank test-seed <op>` run on the stack's bank schema: svc-bank's own code lists and opens the TEST pools and
+ * products. Amounts go as decimal strings; a refusal throws with its code, as the service's own error does.
+ */
+export function bankSeed(plan, formatAmount, run = execFileSync) {
+  return (op, input) => {
+    const wire = JSON.stringify(input, (_k, v) => (typeof v === 'bigint' ? formatAmount(v) : v));
+    let out;
+    try {
+      out = run(BANK_BIN, ['test-seed', op], {
+        input: wire,
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, DATABASE_URL: plan.bankUrl, APP_ENV: 'test' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 60_000,
+      });
+    } catch (err) {
+      const refused = (() => {
+        try {
+          return JSON.parse(String(err.stdout ?? '')).refused;
+        } catch {
+          return undefined;
+        }
+      })();
+      if (refused) throw Object.assign(new Error(refused.message || refused.code), { code: refused.code || undefined });
+      if (err.code === 'ENOENT') throw new Error(`svc-bank is not built (${BANK_BIN}). Run: pnpm local:stack --rebuild`);
+      throw new Error(`svc-bank test-seed ${op} failed: ${String(err.stderr ?? err.message).trim()}`);
+    }
+    return JSON.parse(out);
+  };
+}
+
 export async function openLocal(plan) {
   const postgres = resolvePostgres(REPO);
   let ledgerClient;
   let contracts;
-  let EarnService;
-  let LoanService;
   let InstrumentService;
   try {
     [ledgerClient, contracts] = await Promise.all([
       importFromRepo('packages/ledger-client/dist/index.js'),
       importFromRepo('packages/contracts/dist/index.js'),
     ]);
-    EarnService = (await importFromRepo('services/svc-bank/dist/earn/earn-service.js')).EarnService;
-    LoanService = (await importFromRepo('services/svc-bank/dist/loans/loan-service.js')).LoanService;
     InstrumentService = (await importFromRepo('services/svc-p2p/dist/instrument-service.js')).InstrumentService;
   } catch (err) {
     throw new Error(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
@@ -843,15 +981,15 @@ export async function openLocal(plan) {
   });
   const bankSql = postgres(plan.bankUrl, sqlOpts('bank'));
   const p2pSql = postgres(plan.p2pUrl, sqlOpts('p2p'));
-  const unusedLedger = {};
-  const earn = new EarnService(bankSql, unusedLedger);
-  const loans = new LoanService(bankSql, unusedLedger, {
-    priceSource: {
-      async price() {
-        throw new Error('local-test-seed does not invent price marks');
-      },
-    },
-  });
+  const bank = bankSeed(plan, ledgerClient.formatAmount);
+  const earn = {
+    listPools: (_assetId, limit) => bank('list-pools', { limit }),
+    createPool: (input) => bank('create-pool', { ...input, poolId: earnPoolId(input.name) }),
+  };
+  const loans = {
+    listProducts: (_assetId, limit) => bank('list-products', { limit }),
+    createProduct: (input) => bank('create-product', input),
+  };
   const instruments = new InstrumentService(p2pSql);
   const namesIn = (sql, names) => sql(names);
 

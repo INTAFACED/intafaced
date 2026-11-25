@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
-import { Details, Read, Select } from './common';
-import { StatusPill } from './depth-kit';
-import { z } from 'zod';
+import { Button, Field, Select, Tag } from '@intafaced/ui/lit';
+import { Checkbox } from '@intafaced/ui/lit/templates';
+import { Details } from './catalogue-parts';
+import { EmptyNote, KitRead as Read, ScrollTable, Section, Waiting } from './volt-parts';
 import {
   actionLogRows,
   ACTION_LOG_HEADER,
@@ -14,9 +14,7 @@ import {
   AGENT_CATALOGUE,
   catalogueFromStored,
   filterCatalogue,
-  guardrailSchema,
   sortCatalogue,
-  storedCatalogueSchema,
   type ActionRow,
   type AgentKind,
   type CatalogueAgent,
@@ -25,18 +23,20 @@ import {
   type Guardrail,
 } from './agents-catalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
-import { MadeAgents } from './AgentBuilder';
+import { MadeAgents } from './agent-room/own-agent';
 import { NavigatorOnChain } from './NavigatorOnChain';
 import { downloadCsv, toCsv } from './depth-csv';
 import { usePreferences } from '../../shared/preferences';
 import type { UiLocale } from '../../shared/i18n';
+import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
+import { AGENTS_AGENT_GET, AGENTS_AGENT_CATALOGUE } from '@intafaced/contracts/agents-agent-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const KINDS: readonly (AgentKind | 'all')[] = ['all', 'session', 'room', 'staff', 'unwired'];
 const SORTS: readonly CatalogueSort[] = ['catalogue', 'name'];
-const routeAssetSchema = z.array(z.object({ task: z.string(), capability: z.string(), assetId: z.string().min(1) }));
 
 /** The fee asset an agent's spend cap is counted in: that of the completion routes its tasks run on, as the session panel reads it, when they agree. */
-function capAsset(guardrail: Guardrail, routes: readonly z.infer<typeof routeAssetSchema>[number][]): string | null {
+function capAsset(guardrail: Guardrail, routes: readonly ProcedureOutput<typeof AGENTS_ROUTES_LIST>[number][]): string | null {
   const assets = new Set(
     routes
       .filter((route) => route.capability === 'complete' && guardrail.limits.allowedTasks.includes(route.task))
@@ -64,10 +64,7 @@ export function AgentsCatalogue({
   const [comparing, setComparing] = useState<string[]>([]);
   const [compared, setCompared] = useState<string[] | null>(null);
   const api = useApi();
-  const stored = useResource(
-    (signal) => api.query('agents', 'agent.catalogue', undefined, storedCatalogueSchema, { signal }),
-    'agent-catalogue',
-  );
+  const stored = useResource((signal) => api.call(AGENTS_AGENT_CATALOGUE, undefined, { signal }), 'agent-catalogue');
   // The catalogue is the stored list and nothing else: until it is read there are no cards, and with none stored the
   // empty state says so (catalogueFromStored).
   const rows = stored.resource.status === 'ready' ? stored.resource.data : [];
@@ -80,12 +77,12 @@ export function AgentsCatalogue({
   const chosen = catalogue.find((agent) => agent.id === selected) ?? null;
   const enabled = (agent: CatalogueAgent) => agentEnabled(agent, rows);
   return (
-    <div className="more-grid">
-      <Panel title={t('catalogueTitle')}>
-        <p className="muted">
+    <div className="lt-stack">
+      <Section className="lt-region" title={t('catalogueTitle')}>
+        <p className="lt-muted">
           <Copy k="catalogueIntro" />
         </p>
-        <div className="depth-filters">
+        <div className="lt-toolbar">
           <Field label={t('search')} value={query} maxLength={64} onChange={(event) => setQuery(event.target.value)} />
           <Select
             label={t('kindFilter')}
@@ -100,62 +97,57 @@ export function AgentsCatalogue({
             options={SORTS.map((value) => ({ value, label: t(`sort_${value}`) }))}
           />
         </div>
-        {stored.resource.status === 'loading' ? <Loading /> : null}
-        {stored.resource.status === 'ready' && catalogue.length === 0 ? <EmptyState title={t('catalogueEmpty')} /> : null}
-        <div className="depth-cards">
+        {stored.resource.status === 'loading' ? <Waiting /> : null}
+        {stored.resource.status === 'ready' && catalogue.length === 0 ? <EmptyNote title={t('catalogueEmpty')} /> : null}
+        <div className="lt-grid">
           {shown.map((agent) => {
             const usable = enabled(agent);
             const parked = agent.kind === 'unwired' || agent.kind === 'staff';
             return (
-              <article key={agent.id} className="depth-card" aria-current={selected === agent.id}>
+              <article key={agent.id} className="lt-region" aria-current={selected === agent.id}>
                 <h3>{label(agent.id)}</h3>
-                <StatusPill state={agent.kind === 'session' ? 'ready' : agent.kind === 'room' ? 'info' : 'blocked'}>
-                  {t(`kind_${agent.kind}`)}
-                </StatusPill>
-                <StatusPill state={usable ? 'ready' : 'blocked'}>
+                <Tag tone={agent.kind === 'session' ? 'accent' : 'neutral'}>{t(`kind_${agent.kind}`)}</Tag>
+                <Tag tone={usable ? 'accent' : 'neutral'}>
                   <span data-testid="agent-status">{usable ? t('enabled') : t('disabled')}</span>
-                </StatusPill>
+                </Tag>
                 {about(agent.id) ? <p>{about(agent.id)}</p> : null}
-                <div className="depth-card-actions">
-                  <Button variant="secondary" aria-pressed={selected === agent.id} onClick={() => setSelected(agent.id)}>
+                <div className="lt-actions">
+                  <Button tone="secondary" aria-pressed={selected === agent.id} onClick={() => setSelected(agent.id)}>
                     <Copy k="open" />
                   </Button>
                   {agent.kind === 'session' ? (
-                    <label className="field field--check">
-                      <input
-                        type="checkbox"
-                        checked={comparing.includes(agent.id)}
-                        onChange={(event) => {
-                          const { checked } = event.target;
-                          setComparing((ids) => (checked ? [...ids, agent.id] : ids.filter((id) => id !== agent.id)));
-                          if (!checked) setCompared((ids) => ids && ids.filter((id) => id !== agent.id));
-                        }}
-                      />
-                      <Copy k="compare" />
-                    </label>
+                    <Checkbox
+                      label={<Copy k="compare" />}
+                      checked={comparing.includes(agent.id)}
+                      onChange={(event) => {
+                        const { checked } = event.target;
+                        setComparing((ids) => (checked ? [...ids, agent.id] : ids.filter((id) => id !== agent.id)));
+                        if (!checked) setCompared((ids) => ids && ids.filter((id) => id !== agent.id));
+                      }}
+                    />
                   ) : null}
                   {agent.kind === 'session' ? (
-                    <Button disabled={!usable} onClick={() => onSession(agent.id)}>
+                    <Button tone="primary" disabled={!usable} onClick={() => onSession(agent.id)}>
                       <Copy k="openSession" />
                     </Button>
                   ) : agent.tab === 'Coach' ? (
-                    <Button onClick={onCoach}>
+                    <Button tone="primary" onClick={onCoach}>
                       <Copy k="openCoach" />
                     </Button>
                   ) : agent.href ? (
-                    <a className="button button--secondary" href={agent.href}>
+                    <a className="lt-button lt-button-secondary" href={agent.href}>
                       <Copy k="openRoom" />
                     </a>
                   ) : parked ? (
                     // An agent no customer can open yet stays in the catalogue with its open button off, and the card
                     // names its blocker beside it.
-                    <Button disabled aria-describedby={`agent-blocker-${agent.id}`}>
+                    <Button tone="primary" disabled aria-describedby={`agent-blocker-${agent.id}`}>
                       <Copy k="openSession" />
                     </Button>
                   ) : null}
                 </div>
                 {parked ? (
-                  <p className="muted" role="note" id={`agent-blocker-${agent.id}`}>
+                  <p className="lt-muted" role="note" id={`agent-blocker-${agent.id}`}>
                     <Copy k={agent.kind === 'unwired' ? 'blocker_unwired' : 'blocker_staff'} />
                   </p>
                 ) : null}
@@ -168,18 +160,18 @@ export function AgentsCatalogue({
             {() => null}
           </Read>
         ) : null}
-        <Button variant="secondary" disabled={comparing.length < 2} onClick={() => setCompared([...comparing])}>
+        <Button tone="secondary" disabled={comparing.length < 2} onClick={() => setCompared([...comparing])}>
           {comparing.length < 2 ? t('compareNone') : t('compareCount', { count: String(comparing.length) })}
         </Button>
-      </Panel>
+      </Section>
       {compared ? <CompareAgents ids={compared} label={label} /> : null}
-      <Panel title={t('detailTitle')}>
+      <Section className="lt-region" title={t('detailTitle')}>
         {chosen ? (
           <AgentDetail agent={chosen} name={label(chosen.id)} about={about(chosen.id)} onSession={onSession} />
         ) : (
-          <p className="muted">{t('pickAgent')}</p>
+          <p className="lt-muted">{t('pickAgent')}</p>
         )}
-      </Panel>
+      </Section>
       <MadeAgents />
       <MyAgents log={log} reload={reload} />
     </div>
@@ -202,7 +194,7 @@ function AgentDetail({
   const guardrail = useResource(
     (signal) =>
       agent.kind === 'session'
-        ? api.query('agents', 'agent.get', { agentId: agent.id }, guardrailSchema, { signal })
+        ? api.call(AGENTS_AGENT_GET, { agentId: agent.id }, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `agent-detail:${agent.id}`,
   );
@@ -211,7 +203,7 @@ function AgentDetail({
       <h3>{name}</h3>
       {about ? <p>{about}</p> : null}
       {agent.kind === 'unwired' || agent.kind === 'staff' ? (
-        <p className="muted" role="note">
+        <p className="lt-muted" role="note">
           <Copy k={agent.kind === 'unwired' ? 'blocker_unwired' : 'blocker_staff'} />
         </p>
       ) : null}
@@ -235,7 +227,7 @@ function AgentDetail({
                 <p>
                   <Copy k="actsAsYou" />
                 </p>
-                <DataTable
+                <ScrollTable
                   headers={[t('toolName'), t('toolAccess'), t('toolApproval'), t('toolInputs'), t('toolOutputs'), t('toolRefusals')]}
                   label={t('tools')}
                 >
@@ -255,11 +247,11 @@ function AgentDetail({
                       </td>
                     </tr>
                   ))}
-                </DataTable>
-                <p className="muted">
+                </ScrollTable>
+                <p className="lt-muted">
                   <Copy k="costOpenNotice" />
                 </p>
-                <Button disabled={!g.enabled} onClick={() => onSession(agent.id)}>
+                <Button tone="primary" disabled={!g.enabled} onClick={() => onSession(agent.id)}>
                   <Copy k="openSession" />
                 </Button>
               </>
@@ -335,8 +327,8 @@ function CompareAgents({ ids, label }: { ids: readonly string[]; label: (id: str
   const both = useResource(
     async (signal) => {
       const [routes, ...guards] = await Promise.all([
-        api.query('agents', 'routes.list', undefined, routeAssetSchema, { signal }),
-        ...ids.map((agentId) => api.query('agents', 'agent.get', { agentId }, guardrailSchema, { signal })),
+        api.call(AGENTS_ROUTES_LIST, undefined, { signal }),
+        ...ids.map((agentId) => api.call(AGENTS_AGENT_GET, { agentId }, { signal })),
       ]);
       if (!routes!.ok) return routes!;
       const rows: { id: string; guardrail: Guardrail | null }[] = [];
@@ -350,10 +342,10 @@ function CompareAgents({ ids, label }: { ids: readonly string[]; label: (id: str
   );
   const list = (values: readonly string[]) => (values.length ? values.join(', ') : t('none'));
   return (
-    <Panel title={t('compareTitle')}>
+    <Section className="lt-region" title={t('compareTitle')}>
       <Read resource={both.resource} retry={both.reload}>
         {({ routes, rows }) => (
-          <DataTable headers={['', ...rows.map((row) => label(row.id))]} label={t('compareTitle')}>
+          <ScrollTable headers={['', ...rows.map((row) => label(row.id))]} label={t('compareTitle')}>
             {(
               [
                 [t('tools'), (g: Guardrail) => list(g.tools.map((tool) => tool.name))],
@@ -380,10 +372,10 @@ function CompareAgents({ ids, label }: { ids: readonly string[]; label: (id: str
                 ))}
               </tr>
             ))}
-          </DataTable>
+          </ScrollTable>
         )}
       </Read>
-    </Panel>
+    </Section>
   );
 }
 
@@ -406,17 +398,17 @@ function MyAgents({ log, reload }: { log: Resource<ActionRow[]>; reload: () => v
   const when = (at: string) =>
     new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   return (
-    <Panel title={t('mineTitle')}>
-      <p className="muted">
+    <Section className="lt-region" title={t('mineTitle')}>
+      <p className="lt-muted">
         <Copy k="mineIntro" />
       </p>
-      {log.status === 'loading' ? <Loading /> : null}
+      {log.status === 'loading' ? <Waiting /> : null}
       <Read resource={log} retry={reload} empty={t('mineEmpty')}>
         {(rows) => {
           const use = agentUse(rows);
           return (
             <>
-              <DataTable
+              <ScrollTable
                 headers={[t('colAgent'), t('colSessions'), t('colActions'), t('colOutcomes'), t('colSpend'), t('colLast')]}
                 label={t('mineTitle')}
               >
@@ -432,12 +424,12 @@ function MyAgents({ log, reload }: { log: Resource<ActionRow[]>; reload: () => v
                     <td>{when(row.lastUsed)}</td>
                   </tr>
                 ))}
-              </DataTable>
-              <p className="muted">
+              </ScrollTable>
+              <p className="lt-muted">
                 <Copy k="spendNote" />
               </p>
               <Button
-                variant="secondary"
+                tone="secondary"
                 onClick={() => {
                   if (!rows.length) return setExported('none');
                   setExported(downloadCsv('agent-action-log.csv', toCsv(ACTION_LOG_HEADER, actionLogRows(rows))) ? 'done' : 'fail');
@@ -454,6 +446,6 @@ function MyAgents({ log, reload }: { log: Resource<ActionRow[]>; reload: () => v
           );
         }}
       </Read>
-    </Panel>
+    </Section>
   );
 }

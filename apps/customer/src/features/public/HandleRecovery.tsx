@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Button, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
 import { useSession } from '../session';
 import { recoveryCopy } from './password-recovery-copy';
-import { requestProblem, requestedSchema, validEmail, type RecoveryProblem } from './password-recovery';
+import { requestProblem, validEmail, type RecoveryProblem } from './password-recovery';
 import { handleRecoveryCopy } from './handle-recovery-copy';
+import { IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * "I forgot my handle" on /findPwd (I-signin-sessions-03). The service mails the handle to the address when an account
@@ -53,7 +54,7 @@ export function HandleRecovery() {
       setBusy(true);
       const controller = new AbortController();
       abort.current = controller;
-      const result = await api.mutate('identity', 'auth.requestHandleRecovery', { email }, requestedSchema, { signal: controller.signal });
+      const result = await api.call(IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY, { email }, { signal: controller.signal });
       if (!mounted.current) return;
       setBusy(false);
       const refused = requestProblem(result);
@@ -64,7 +65,7 @@ export function HandleRecovery() {
 
   if (!open) {
     return (
-      <Button variant="ghost" onClick={() => setOpen(true)}>
+      <Button tone="quiet" onClick={() => setOpen(true)}>
         {t('open')}
       </Button>
     );
@@ -79,10 +80,10 @@ export function HandleRecovery() {
           ? recovery.t(problem === 'mailOff' ? 'mailOff' : 'resetLimitUnnamed')
           : pw(problem);
   return (
-    <section className="pub-step" aria-labelledby={`${problemId}-title`}>
+    <section className="lt-stack" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{t('title')}</h2>
-      <p className="muted">{t('body')}</p>
-      <form ref={field} method="post" className="pub-form" onSubmit={ask} noValidate>
+      <p className="lt-muted">{t('body')}</p>
+      <form ref={field} method="post" className="lt-stack" onSubmit={ask} noValidate>
         <Field
           label={t('emailField')}
           name="handle-email"
@@ -93,17 +94,17 @@ export function HandleRecovery() {
           disabled={busy}
           aria-describedby={problemText ? problemId : undefined}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {busy ? t('sending') : t('send')}
         </Button>
       </form>
       {sent && (
-        <p role="status" className="muted">
+        <p role="status" className="lt-muted">
           {t('sent')}
         </p>
       )}
       {problemText && (
-        <p id={problemId} className="pub-notice" role="alert">
+        <p id={problemId} className="lt-refusal" role="alert">
           {problemText}
         </p>
       )}

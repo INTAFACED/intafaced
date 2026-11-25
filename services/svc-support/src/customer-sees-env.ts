@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SUPPORT_CUSTOMER_PROPERTIES } from '@intafaced/contracts';
+import { SUPPORT_CUSTOMER_PROPERTIES } from '@intafaced/contracts/support';
 
 /** `priority,type`, a subset, or `none` (an empty list); blank is undefined. Anything else fails the boot. */
 export const supportCustomerSeesEnv = z.preprocess(

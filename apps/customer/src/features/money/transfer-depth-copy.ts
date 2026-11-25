@@ -11,6 +11,12 @@ const en = {
   assetPicker: 'Asset',
   assetPickerHint: 'Only assets you hold are listed.',
   noAssets: 'You do not hold any asset yet, so there is nothing to choose. Add money first.',
+  analyticsFirstTitle: 'Nothing to analyse yet',
+  analyticsFirstBody: 'Once you hold an asset, the money in and out of it shows here by category and by day.',
+  analyticsFirstCategories: 'Where your money goes, by category',
+  analyticsFirstBudgets: 'Budgets you set for each asset',
+  analyticsFirstCompare: 'One period against another',
+  analyticsFirstAction: 'Add money',
   from: 'From',
   to: 'To',
   personNote: 'The person is found by their exact handle. Money goes to their main account.',
@@ -112,6 +118,12 @@ const es = {
     'No hay una app de autenticación ni una passkey guardada en esta cuenta. El banco decide si este envío necesita una; si la necesita, el envío se rechaza y no sale nada. Añade una en Seguridad.',
   stepUpSendWithout: 'Enviar',
   periodCustom: 'Elegir fechas',
+  analyticsFirstTitle: 'Aún no hay nada que analizar',
+  analyticsFirstBody: 'Cuando tengas un activo, el dinero que entra y sale de él aparece aquí por categoría y por día.',
+  analyticsFirstCategories: 'Adónde va tu dinero, por categoría',
+  analyticsFirstBudgets: 'Presupuestos que fijas para cada activo',
+  analyticsFirstCompare: 'Un periodo frente a otro',
+  analyticsFirstAction: 'Añadir dinero',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   toYourSpace: 'Un de mes comptes',
@@ -172,6 +184,12 @@ const fr = {
     'Aucune app d’authentification ni passkey n’est enregistrée sur ce compte. La banque décide si cet envoi en demande une ; si oui, l’envoi est refusé et rien ne part. Ajoutez-en une dans Sécurité.',
   stepUpSendWithout: 'Envoyer',
   periodCustom: 'Choisir des dates',
+  analyticsFirstTitle: 'Rien à analyser pour l’instant',
+  analyticsFirstBody: 'Dès que vous détenez un actif, l’argent qui entre et qui sort apparaît ici par catégorie et par jour.',
+  analyticsFirstCategories: 'Où va votre argent, par catégorie',
+  analyticsFirstBudgets: 'Les budgets que vous fixez pour chaque actif',
+  analyticsFirstCompare: 'Une période face à une autre',
+  analyticsFirstAction: 'Ajouter de l’argent',
 } satisfies Record<keyof typeof en, string>;
 
 export const transferDepthCopy = defineCopy('customer.bank.transfers', en, { es, fr });

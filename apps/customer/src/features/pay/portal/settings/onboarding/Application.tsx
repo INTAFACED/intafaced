@@ -1,14 +1,12 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
-import { Field } from '../../../ui-kit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
-import { PaySection } from '../../../components';
-import { Facts, Gate, SelectField } from '../../components';
 import type { PortalApi } from '../../api';
 import type { MerchantRecord } from '../../schemas';
-import { PortalReview } from '../../ui/PortalReview';
 import { DateTime } from '../../ui/DateTime';
+import { Facts, Gate, Section, SelectField } from '../../volt/parts';
+import { Review } from '../../volt/Review';
 import { Blocker } from '../account/ui';
 import { formatBytes } from '../reports/model';
 import { useUnsavedForm } from '../../useUnsavedForm';
@@ -17,7 +15,7 @@ import { applicationCopy, keyWords } from './application-copy';
 import type { Answers, Application, ApplicationSection, Checklist, DocumentRow, EntityType } from './application-api';
 
 type T = ReturnType<typeof applicationCopy.useCopy>['t'];
-type Section = Application['sections'][number];
+type SectionRow = Application['sections'][number];
 
 /** The most people one application holds: five answers each, inside the service's 100 answers a section. */
 export const MAX_PEOPLE = 18;
@@ -58,19 +56,8 @@ export function rolesWithoutPerson(roles: readonly string[], people: Person[]): 
 export const peopleComplete = (roles: readonly string[], people: Person[]) =>
   people.length > 0 && people.every(personDone) && rolesWithoutPerson(roles, people).length === 0;
 
-/** Checked before anything is sent: the owner's size limit and accepted kinds of file. Null means the file may go. */
-export function fileProblem(file: { size: number; type: string }, rules: NonNullable<Checklist['uploadRules']>, t: T): string | null {
-  if (file.size < 1) return t('emptyFile');
-  if (!rules.contentTypes.some((type) => type.toLowerCase() === file.type.toLowerCase()))
-    return t('wrongType', { types: kindsOf(rules.contentTypes) });
-  if (file.size > rules.maxBytes) {
-    const [size, limit] = [formatBytes(String(file.size)), formatBytes(String(rules.maxBytes))];
-    // Just over the limit both round to the same figure, so say it in bytes.
-    return size === limit ? t('tooLarge', { size: `${file.size} B`, limit: `${rules.maxBytes} B` }) : t('tooLarge', { size, limit });
-  }
-  return null;
-}
-export const kindsOf = (types: readonly string[]) => types.map((type) => (type.split('/')[1] ?? type).toUpperCase()).join(', ');
+export { base64Of, fileProblem } from './files';
+import { base64Of, fileProblem, kindsOf } from './files';
 
 /** What the summary lists as still needed: each unfinished part, and by name each document not sent or marked invalid. */
 export function stillNeeded(application: Application, checklist: Checklist | null, t: T): string[] {
@@ -169,7 +156,7 @@ type Inner = Omit<ApplicationViewProps, 'types' | 'application'> & { types: Enti
 export function ApplicationView(props: ApplicationViewProps) {
   const { t } = applicationCopy.useCopy();
   return (
-    <PaySection title={t('appTitle')} description={t('appBody')}>
+    <Section title={t('appTitle')} description={t('appBody')}>
       <Gate resource={props.types} retry={props.retry} rows={2}>
         {(types) => (
           <Gate resource={props.application} retry={props.retry} rows={3}>
@@ -186,16 +173,16 @@ export function ApplicationView(props: ApplicationViewProps) {
               if (application && !turnedDown) return <Started {...props} types={types} application={application} />;
               if (turnedDown)
                 return (
-                  <div className="stack">
+                  <div className="lt-stack">
                     <Started {...props} types={types} application={application} />
-                    <h3 className="pp-sub">{t('againTitle')}</h3>
+                    <h3>{t('againTitle')}</h3>
                     {start}
                   </div>
                 );
               // Verified or under review another way (a verification reference): nothing to apply for here.
               if (props.kybStatus === 'pending' || props.kybStatus === 'approved')
                 return (
-                  <p className="pp-callout" role="note">
+                  <p className="lt-callout" role="note">
                     {props.kybStatus === 'approved' ? t('otherApproved') : t('otherPending')}
                   </p>
                 );
@@ -204,7 +191,7 @@ export function ApplicationView(props: ApplicationViewProps) {
           </Gate>
         )}
       </Gate>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -224,7 +211,7 @@ function TypeAndCountry({
   const [chosenType, chosenCountry] = offered(types, entityType, country);
   const chosen = types.find((type) => type.entityType === chosenType)!;
   return (
-    <div className="form-row">
+    <div className="lt-field-row">
       <SelectField
         label={`${t('fEntityType')} *`}
         value={chosen.entityType}
@@ -258,7 +245,7 @@ function StartForm({ portal, merchant, types, onChanged }: Omit<ApplicationViewP
   const [country, setCountry] = useState(types[0]!.countries[0] ?? '');
   const saver = useSaver();
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
+    <div data-testid="form-stack" className="lt-stack">
       <TypeAndCountry
         types={types}
         entityType={entityType}
@@ -268,10 +255,10 @@ function StartForm({ portal, merchant, types, onChanged }: Omit<ApplicationViewP
           setCountry(code);
         }}
       />
-      <p className="muted pp-note">{t('startBody')}</p>
-      <div className="pp-actions">
+      <p className="lt-hint">{t('startBody')}</p>
+      <div className="lt-actions">
         <Button
-          variant="primary"
+          tone="primary"
           disabled={saver.busy}
           onClick={() =>
             saver.run(
@@ -307,7 +294,7 @@ function Started(props: Inner) {
         : t('statusSubmitted');
   const published = props.types.find((type) => type.entityType === application.entityType);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Facts
         items={[
           [t('statusLabel'), <strong>{status}</strong>],
@@ -319,12 +306,12 @@ function Started(props: Inner) {
         ]}
       />
       {draft ? (
-        <div>
-          <h3 className="pp-sub">{t('neededTitle')}</h3>
+        <div className="lt-stack-tight">
+          <h3>{t('neededTitle')}</h3>
           {needed.length === 0 ? (
             <p>{t('neededNone')}</p>
           ) : (
-            <ul className="sa-list" aria-label={t('neededTitle')}>
+            <ul className="lt-list" aria-label={t('neededTitle')}>
               {needed.map((line) => (
                 <li key={line}>{line}</li>
               ))}
@@ -332,7 +319,7 @@ function Started(props: Inner) {
           )}
         </div>
       ) : (
-        <p className="pp-callout" role="note">
+        <p className="lt-callout" role="note">
           {outcome === 'approved'
             ? t('approvedNote')
             : outcome === 'rejected'
@@ -353,7 +340,7 @@ function Started(props: Inner) {
   );
 }
 
-function SectionPanel(props: Inner & { section: Section; published: EntityType | undefined }) {
+function SectionPanel(props: Inner & { section: SectionRow; published: EntityType | undefined }) {
   const { t } = applicationCopy.useCopy();
   const { section } = props;
   const state = section.state === 'complete' ? t('sectionDone') : section.state === 'draft' ? t('sectionDraft') : t('sectionEmpty');
@@ -364,9 +351,9 @@ function SectionPanel(props: Inner & { section: Section; published: EntityType |
   else if (section.section === 'questionnaires') body = <Questions {...props} keys={props.published?.questionnaireKeys ?? []} />;
   else if (section.section === 'documents') body = <Documents {...props} />;
   return (
-    <section className="sa-group" aria-label={title}>
-      <h3 className="pp-sub">
-        {title} · <span className="muted">{state}</span>
+    <section className="lt-group lt-stack" aria-label={title}>
+      <h3>
+        {title} · <span className="lt-muted">{state}</span>
       </h3>
       {body}
     </section>
@@ -382,7 +369,7 @@ const rolesIn = (data: Answers) => [
 ];
 
 /** One save of one section, at the version this page read. Complete when every required answer is in. */
-function useSectionSave(props: Inner & { section: Section }) {
+function useSectionSave(props: Inner & { section: SectionRow }) {
   const saver = useSaver();
   const save = (complete: boolean, data: Answers) =>
     saver.run(
@@ -393,7 +380,7 @@ function useSectionSave(props: Inner & { section: Section }) {
   return { saver, save };
 }
 
-function CompanyDetails(props: Inner & { section: Section }) {
+function CompanyDetails(props: Inner & { section: SectionRow }) {
   const { t } = applicationCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
   const draft = props.application.state === 'draft';
@@ -410,7 +397,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
@@ -425,7 +412,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
         disabled={!draft}
         required
       />
-      <div className="form-row">
+      <div className="lt-field-row">
         <Field
           label={t('fRegistrationNumber')}
           value={form.registration_number}
@@ -457,7 +444,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
   );
 }
 
-function People(props: Inner & { section: Section; roles: string[] }) {
+function People(props: Inner & { section: SectionRow; roles: string[] }) {
   const { t } = applicationCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
   const { roles } = props;
@@ -475,21 +462,21 @@ function People(props: Inner & { section: Section; roles: string[] }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
         save(done, answers);
       }}
     >
-      <p className="muted">{t('peopleBody')}</p>
+      <p className="lt-muted">{t('peopleBody')}</p>
       {missingRoles.length > 0 && (
-        <p className="pp-callout" role="note">
+        <p className="lt-callout" role="note">
           {t('peopleRolesNeeded', { roles: missingRoles.map(keyWords).join(', ') })}
         </p>
       )}
       {people.map((person, i) => (
-        <fieldset key={i} className="sa-group" disabled={!draft}>
+        <fieldset key={i} className="lt-group lt-stack" disabled={!draft}>
           <legend>{t('personN', { n: i + 1 })}</legend>
           <SelectField
             label={`${t('fRole')} *`}
@@ -498,7 +485,7 @@ function People(props: Inner & { section: Section; roles: string[] }) {
             options={roles.map((role) => [role, keyWords(role)] as const)}
           />
           <Field label={`${t('fPersonName')} *`} value={person.name} onChange={update(i, 'name')} maxLength={200} required />
-          <div className="form-row">
+          <div className="lt-field-row">
             <Field label={`${t('fBirthDate')} *`} type="date" value={person.birth_date} onChange={update(i, 'birth_date')} required />
             <Field label={`${t('fNationality')} *`} value={person.nationality} onChange={update(i, 'nationality')} maxLength={2} required />
           </div>
@@ -511,7 +498,7 @@ function People(props: Inner & { section: Section; roles: string[] }) {
             hint={t('hOwnership')}
           />
           {draft && people.length > 1 && (
-            <Button variant="secondary" type="button" onClick={() => setPeople(people.filter((_, j) => j !== i))}>
+            <Button tone="secondary" type="button" onClick={() => setPeople(people.filter((_, j) => j !== i))}>
               {t('removePerson')}
             </Button>
           )}
@@ -519,20 +506,20 @@ function People(props: Inner & { section: Section; roles: string[] }) {
       ))}
       {draft &&
         (people.length < MAX_PEOPLE ? (
-          <div className="pp-actions">
-            <Button variant="secondary" type="button" onClick={() => setPeople([...people, emptyPerson(missingRoles[0] ?? roles[0])])}>
+          <div className="lt-actions">
+            <Button tone="secondary" type="button" onClick={() => setPeople([...people, emptyPerson(missingRoles[0] ?? roles[0])])}>
               {t('addPerson')}
             </Button>
           </div>
         ) : (
-          <p className="muted pp-note">{t('peopleFull')}</p>
+          <p className="lt-hint">{t('peopleFull')}</p>
         ))}
       {draft && <SaveRow saver={saver} done={done} />}
     </form>
   );
 }
 
-function Questions(props: Inner & { section: Section; keys: string[] }) {
+function Questions(props: Inner & { section: SectionRow; keys: string[] }) {
   const { t } = applicationCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
   const draft = props.application.state === 'draft';
@@ -546,14 +533,14 @@ function Questions(props: Inner & { section: Section; keys: string[] }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
         save(done, Object.fromEntries(keys.filter((k) => (answers[k] ?? '').trim()).map((k) => [k, answers[k]!.trim()])));
       }}
     >
-      <p className="muted">{t('questionsBody')}</p>
+      <p className="lt-muted">{t('questionsBody')}</p>
       {keys.map((key) => (
         <Field
           key={key}
@@ -572,7 +559,7 @@ function Questions(props: Inner & { section: Section; keys: string[] }) {
 
 const usable = (row: DocumentRow) => row.state === 'provided' || row.state === 'accepted';
 
-function Documents(props: Inner & { section: Section }) {
+function Documents(props: Inner & { section: SectionRow }) {
   const { t } = applicationCopy.useCopy();
   const draft = props.application.state === 'draft';
   // Sent and not yet decided: a document marked Invalid takes a new file, nothing else changes.
@@ -585,15 +572,15 @@ function Documents(props: Inner & { section: Section }) {
         const rules = checklist.uploadRules;
         const allSent = checklist.rows.every(usable);
         return (
-          <div data-testid="form-stack" className="form-stack pp-form">
-            <p className="muted">{t('docsBody')}</p>
+          <div data-testid="form-stack" className="lt-stack">
+            <p className="lt-muted">{t('docsBody')}</p>
             {checklist.vendorCheck.status === 'not_connected' && (
               <Blocker reason={t('docsVendorReason')} needs="automatic document check" title={t('docsVendorTitle')}>
                 {t('docsVendor')}
               </Blocker>
             )}
             {rules ? (
-              <p className="muted pp-note">
+              <p className="lt-hint">
                 {t('docsLimits', { size: formatBytes(String(rules.maxBytes)), types: kindsOf(rules.contentTypes) })}
               </p>
             ) : (
@@ -601,7 +588,7 @@ function Documents(props: Inner & { section: Section }) {
                 {t('docsRulesBody')}
               </Blocker>
             )}
-            <table className="pp-table">
+            <table className="lt-table">
               <thead>
                 <tr>
                   <th scope="col">{t('docName')}</th>
@@ -622,12 +609,12 @@ function Documents(props: Inner & { section: Section }) {
             </table>
             {draft && props.section.state !== 'complete' && (
               <>
-                <div className="pp-actions">
-                  <Button variant="primary" disabled={!allSent || saver.busy} onClick={() => save(true, {})}>
+                <div className="lt-actions">
+                  <Button tone="primary" disabled={!allSent || saver.busy} onClick={() => save(true, {})}>
                     {t('docsConfirm')}
                   </Button>
                 </div>
-                {!allSent && <p className="muted pp-note">{t('docsConfirmNeeded')}</p>}
+                {!allSent && <p className="lt-hint">{t('docsConfirmNeeded')}</p>}
               </>
             )}
             <SaverNote saver={saver} />
@@ -650,33 +637,27 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
       <td>
         <strong>{t(`docState_${row.state}` as 'docState_missing')}</strong>
         {row.state === 'rejected' && row.rejectionReason && (
-          <small className="pay-cell-note">{t('docReason', { reason: row.rejectionReason })}</small>
+          <small className="lt-hint">{t('docReason', { reason: row.rejectionReason })}</small>
         )}
-        {row.document && <small className="pay-cell-note">{t('docSent', { size: formatBytes(String(row.document.byteLength)) })}</small>}
+        {row.document && <small className="lt-hint">{t('docSent', { size: formatBytes(String(row.document.byteLength)) })}</small>}
       </td>
       <td>
         {rules && (
-          <div data-testid="form-stack" className="form-stack">
-            <label className="field">
-              <span className="sr-only">{t('chooseFile', { name })}</span>
-              <input
-                type="file"
-                aria-label={t('chooseFile', { name })}
-                accept={rules.contentTypes.join(',')}
-                onChange={(event) => {
-                  const picked = event.target.files?.[0] ?? null;
-                  setFile(picked);
-                  setProblem(picked ? fileProblem(picked, rules, t) : null);
-                }}
-              />
-            </label>
-            {problem && (
-              <small className="text-down-text" role="alert">
-                {problem}
-              </small>
-            )}
+          <div data-testid="form-stack" className="lt-stack">
+            <Field
+              label={t('chooseFile', { name })}
+              type="file"
+              aria-label={t('chooseFile', { name })}
+              accept={rules.contentTypes.join(',')}
+              error={problem ?? undefined}
+              onChange={(event) => {
+                const picked = event.target.files?.[0] ?? null;
+                setFile(picked);
+                setProblem(picked ? fileProblem(picked, rules, t) : null);
+              }}
+            />
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={!file || Boolean(problem) || saver.busy}
               onClick={() =>
                 file &&
@@ -701,18 +682,11 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
   );
 }
 
-export async function base64Of(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
-}
-
 function Submit({ portal, application, onChanged, onSubmitted }: Inner) {
   const { t } = applicationCopy.useCopy();
   return (
-    <div className="pp-actions">
-      <PortalReview
+    <div className="lt-actions">
+      <Review
         title={t('submit')}
         variant="primary"
         description={t('submitBody')}
@@ -736,9 +710,9 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
   const [changed, setChanged] = useState(false);
   const same = entityType === application.entityType && country === application.country;
   return (
-    <section className="sa-group" aria-label={t('changeTitle')}>
-      <h3 className="pp-sub">{t('changeTitle')}</h3>
-      <p className="muted">{t('changeBody')}</p>
+    <section className="lt-group lt-stack" aria-label={t('changeTitle')}>
+      <h3>{t('changeTitle')}</h3>
+      <p className="lt-muted">{t('changeBody')}</p>
       {types.length > 0 && (
         <TypeAndCountry
           types={types}
@@ -751,8 +725,8 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
           }}
         />
       )}
-      <div className="pp-actions">
-        <PortalReview
+      <div className="lt-actions">
+        <Review
           title={t('changeButton')}
           variant="secondary"
           description={t('changeBody')}
@@ -764,7 +738,7 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
           disabled={same}
           disabledReason={t('changeSame')}
         />
-        <PortalReview
+        <Review
           title={t('restart')}
           variant="secondary"
           description={t('restartBody')}
@@ -773,7 +747,7 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
         />
       </div>
       {changed && (
-        <p className="pp-confirmed" role="status">
+        <p className="lt-note-good" role="status">
           {t('changed')}
         </p>
       )}
@@ -809,11 +783,11 @@ function useSaver() {
 function SaverNote({ saver }: { saver: Saver }) {
   if (!saver.note) return null;
   return saver.note.ok ? (
-    <p className="pp-confirmed" role="status">
+    <p className="lt-note-good" role="status">
       {saver.note.text}
     </p>
   ) : (
-    <p className="pp-callout" role="alert">
+    <p className="lt-callout lt-callout-bad" role="alert">
       {saver.note.text}
     </p>
   );
@@ -823,12 +797,12 @@ function SaveRow({ saver, done }: { saver: Saver; done: boolean }) {
   const { t } = applicationCopy.useCopy();
   return (
     <>
-      <div className="pp-actions">
-        <Button variant="primary" type="submit" disabled={saver.busy}>
+      <div className="lt-actions">
+        <Button tone="primary" type="submit" disabled={saver.busy}>
           {t('save')}
         </Button>
       </div>
-      {!done && <p className="muted pp-note">{t('saveFixFirst')}</p>}
+      {!done && <p className="lt-hint">{t('saveFixFirst')}</p>}
       <SaverNote saver={saver} />
     </>
   );

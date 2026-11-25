@@ -9,7 +9,7 @@ Rules: AGENTS.md.
 ## Proof
 
 <!-- Commands you ran and what you saw: the checks CI runs, the journey steps in the
-     running app (local stack or a journeys run on this exact head), the code review's
+     journeys run on this exact head, the code review's
      findings and your answers. Name anything you could not run, and why. -->
 
 ## Left or replaced

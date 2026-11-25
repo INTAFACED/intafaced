@@ -1,3 +1,4 @@
+// tooling-tests: alone. It runs `git fetch` into the checkout's own .git (FETCH_HEAD, objects/maintenance.lock).
 // The kit-look rules on planted room files, the ceilings' judge on planted counts, and the tree against its committed
 // ceilings and main's copy of them (intafaced issue 9326).
 import { test } from 'node:test';
@@ -7,7 +8,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { countPlanted } from './count-rule.mjs';
 import { mainRef } from '../ci/lint-ratchet.mjs';
-import { CEILINGS, ROOT, countTree, describe, judge, lowered, readCeilings, renamesSince } from './kit-ceilings.mjs';
+import { judgedCopy } from '../ci/exact-revert.mjs';
+import { CEILINGS, ROOT, countTree, describe, forkPoint, judge, lowered, readCeilings, renamesSince } from './kit-ceilings.mjs';
 
 const skip = !existsSync(join(ROOT, 'node_modules', '.bin', 'oxlint')) && 'no node_modules';
 const ROOM = 'apps/customer/src/features/planted/Room.tsx';
@@ -44,7 +46,7 @@ test('garden/no-raw-type-class: a raw type class fires; a type role passes', { s
   assert.equal(count(rule, '<Text variant="body">x</Text>'), 0, 'a type role');
 });
 
-test('judge: a count over its ceiling, a stale ceiling and a raised one each fail', () => {
+test('judge: a count over its ceiling and a raised one each fail; a stale ceiling passes', () => {
   const R = 'garden/no-raw-control';
   const base = { [R]: { 'a.tsx': 2 } };
   assert.deepEqual(judge({ [R]: { 'a.tsx': 2 } }, base, base), [], 'held');
@@ -58,11 +60,7 @@ test('judge: a count over its ceiling, a stale ceiling and a raised one each fai
     ['over'],
     'a new file holds one',
   );
-  assert.deepEqual(
-    judge({ [R]: { 'a.tsx': 1 } }, base, base).map((p) => p.kind),
-    ['stale'],
-    'a count fell: lower the ceiling',
-  );
+  assert.deepEqual(judge({ [R]: { 'a.tsx': 1 } }, base, base), [], 'a count fell: the ceiling waits for the prune');
   assert.deepEqual(
     judge({ [R]: { 'a.tsx': 3 } }, { [R]: { 'a.tsx': 3 } }, base).map((p) => p.kind),
     ['raised'],
@@ -74,11 +72,11 @@ test('judge: a count over its ceiling, a stale ceiling and a raised one each fai
     'an added file',
   );
   assert.match(describe({ kind: 'raised', rule: R, file: 'a.tsx', ceiling: 3, was: 2 }), /Never raise a ceiling/u);
-  assert.deepEqual(lowered({ [R]: { 'a.tsx': 1 } }, base)[R], { 'a.tsx': 1 }, '--write lowers');
-  assert.throws(() => lowered({ [R]: { 'a.tsx': 3 } }, base), /refused/u, '--write never raises');
+  assert.deepEqual(lowered({ [R]: { 'a.tsx': 1 } }, base)[R], { 'a.tsx': 1 }, 'the prune lowers');
+  assert.throws(() => lowered({ [R]: { 'a.tsx': 3 } }, base), /refused/u, 'the prune never raises');
 });
 
-test("judge and --write: a renamed or moved file is the same file, held to its old path's ceiling", () => {
+test("judge and the prune: a renamed or moved file is the same file, held to its old path's ceiling", () => {
   const R = 'garden/no-raw-control';
   const base = { [R]: { 'old/A.tsx': 2 } };
   const renames = { 'new/A/A.tsx': 'old/A.tsx' };
@@ -106,34 +104,49 @@ test("judge and --write: a renamed or moved file is the same file, held to its o
     'a brand-new file given an entry by hand: added',
   );
   assert.deepEqual(
-    judge({ [R]: { 'new/A/A.tsx': 2 } }, { [R]: { 'old/A.tsx': 2, 'new/A/A.tsx': 2 } }, base, renames).map((p) => [p.kind, p.file]),
-    [['stale', 'old/A.tsx']],
-    "the old path's entry kept beside the new one is stale",
+    judge({ [R]: { 'new/A/A.tsx': 2 } }, { [R]: { 'old/A.tsx': 2, 'new/A/A.tsx': 2 } }, base, renames),
+    [],
+    "the old path's entry kept beside the new one is stale, and passes until the prune drops it",
   );
-  assert.deepEqual(lowered({ [R]: { 'new/A/A.tsx': 2 } }, base, renames)[R], { 'new/A/A.tsx': 2 }, '--write moves the entry');
-  assert.deepEqual(lowered({ [R]: { 'new/A/A.tsx': 1 } }, base, renames)[R], { 'new/A/A.tsx': 1 }, '--write moves and lowers');
-  assert.throws(() => lowered({ [R]: { 'new/A/A.tsx': 3 } }, base, renames), /refused/u, '--write never raises a moved file');
-  assert.throws(() => lowered({ [R]: { 'new/B.tsx': 1 } }, base, renames), /refused/u, '--write never adds a new file');
+  assert.deepEqual(lowered({ [R]: { 'new/A/A.tsx': 2 } }, base, renames)[R], { 'new/A/A.tsx': 2 }, 'the prune moves the entry');
+  assert.deepEqual(lowered({ [R]: { 'new/A/A.tsx': 1 } }, base, renames)[R], { 'new/A/A.tsx': 1 }, 'the prune moves and lowers');
+  assert.throws(() => lowered({ [R]: { 'new/A/A.tsx': 3 } }, base, renames), /refused/u, 'the prune never raises a moved file');
+  assert.throws(() => lowered({ [R]: { 'new/B.tsx': 1 } }, base, renames), /refused/u, 'the prune never adds a new file');
   const gone = { [R]: { 'old/A.tsx': 2, 'old/Gone.tsx': 4 } };
   assert.deepEqual(
     lowered({ [R]: { 'new/A/A.tsx': 2 } }, gone, renames)[R],
     { 'new/A/A.tsx': 2 },
-    "--write drops a deleted file's ceiling beside a move",
+    "the prune drops a deleted file's ceiling beside a move",
   );
 });
 
-test(`the tree holds ${CEILINGS}: no count over, none stale, none raised over main's`, { skip }, () => {
+test('two Volt batches into main that lower different files edit no common file; the prune lowers both', () => {
+  const R = 'garden/no-raw-control';
+  const ceilings = { [R]: { 'a/A.tsx': 2, 'b/B.tsx': 3 } };
+  const after = { A: { 'a/A.tsx': 0, 'b/B.tsx': 3 }, B: { 'a/A.tsx': 2, 'b/B.tsx': 1 }, both: { 'a/A.tsx': 0, 'b/B.tsx': 1 } };
+  for (const [label, counts] of Object.entries(after))
+    assert.deepEqual(judge({ [R]: counts }, ceilings, ceilings), [], `${label}, into main, with ${CEILINGS} untouched`);
+  assert.deepEqual(
+    judge({ [R]: { ...after.both, 'c/C.tsx': 1 } }, ceilings, ceilings).map((p) => [p.kind, p.file]),
+    [['over', 'c/C.tsx']],
+    'a batch that adds a file holding a finding still fails',
+  );
+  assert.deepEqual(
+    judge({ [R]: after.both }, { [R]: { ...ceilings[R], 'b/B.tsx': 4 } }, ceilings).map((p) => [p.kind, p.file]),
+    [['raised', 'b/B.tsx']],
+    'a batch that raises a ceiling still fails',
+  );
+  const pruned = lowered({ [R]: after.both }, ceilings);
+  assert.deepEqual(pruned[R], { 'a/A.tsx': 0, 'b/B.tsx': 1 }, 'the prune lowers both stale ceilings');
+  assert.deepEqual(judge({ [R]: after.both }, pruned, ceilings), [], "the prune's PR passes");
+});
+
+test(`the tree holds ${CEILINGS}: no count over its ceiling, none raised over main's`, { skip }, () => {
   const ref = mainRef();
   assert.ok(ref, "cannot fetch main: main's ceilings are what a change's are judged against");
-  let base = null;
-  try {
-    base = JSON.parse(
-      execFileSync('git', ['show', `${ref}:${CEILINGS}`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-    );
-  } catch (e) {
-    // Only the change that adds the file has no copy on main to compare with.
-    assert.match(String(e.stderr), /does not exist|exists on disk, but not in/u, String(e.stderr));
-  }
+  // A revert of X by main-bisect may restore X^'s ceilings, never more (exact-revert.mjs judgedCopy).
+  const read = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1 << 28 });
+  const base = judgedCopy(CEILINGS, { env: process.env, main: ref, fork: forkPoint(ref), read });
   const problems = judge(countTree(), readCeilings(), base, renamesSince(ref));
   assert.deepEqual(problems.map(describe), []);
 });

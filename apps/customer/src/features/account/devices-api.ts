@@ -1,11 +1,9 @@
 import type { z } from 'zod';
-import { deviceListSchema, familyEndedSchema, othersEndedSchema } from '@intafaced/contracts/identity-account-room';
+import { deviceListSchema } from '@intafaced/contracts/identity-account-room';
 
-export const deviceList = deviceListSchema;
+const deviceList = deviceListSchema;
 export type DeviceList = z.infer<typeof deviceList>;
 export type Device = DeviceList['sessions'][number];
-export const familyEnded = familyEndedSchema;
-export const othersEnded = othersEndedSchema;
 
 /** A short, honest name from what the browser reported: "Chrome on Windows". Falls back to the stored device name. */
 export function deviceName(device: Pick<Device, 'userAgent' | 'device'>): string | null {

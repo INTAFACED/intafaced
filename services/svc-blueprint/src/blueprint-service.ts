@@ -2,37 +2,36 @@ import type { Sql } from 'postgres';
 import { isSerializationFailure, transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { z } from 'zod';
+import type {
+  BlueprintContract,
+  BlueprintExport,
+  BlueprintProfile,
+  BlueprintRecord,
+  CardOpener,
+  CardRender,
+  CardShare,
+  CardSize,
+  CrewRole,
+  EraseReceipt,
+  MentorMatch,
+  OnboardInput,
+  OnboardOutput,
+  Placement,
+  Visibility,
+} from '@intafaced/contracts';
 import {
   blueprintProfileSchema,
   CARD_DIMENSIONS,
-  cardSizeSchema,
   crewRoleSchema,
   decisionStyleSchema,
   energyRhythmSchema,
-  guardrailsSchema,
   learningModeSchema,
-  openerKindSchema,
   riskTemperamentSchema,
-  visibilitySchema,
-  type BlueprintContract,
-  type BlueprintExport,
-  type BlueprintProfile,
-  type BlueprintRecord,
-  type CardOpener,
-  type CardRender,
-  type CardShare,
-  type CardSize,
-  type CrewRole,
-  type EraseReceipt,
-  type MentorMatch,
-  type OnboardInput,
-  type OnboardOutput,
-  type Placement,
-  type Visibility,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/blueprint';
 import { composeCard } from './card/compose.js';
 import { assertZeroPiiSurface } from './attestations/zero-pii.js';
 import { mayViewCard } from './visibility.js';
+import { BlueprintRow, MentorMatchRow, OpenerRow, ShareRow, StoredProfile } from './rows.js';
 import type { CardRenderer } from './card/card-renderer.js';
 import { EngineProtocolError, EngineUnavailableError, type BlueprintRequest, type NeuralEngineClient } from './engine/neural-engine.js';
 import { deterministicUuid } from './deterministic.js';
@@ -179,40 +178,10 @@ export interface BlueprintServiceOptions {
   opensListLimit?: number;
 }
 
-/**
- * `blueprints.profile` as stored. Every write goes through
- * `blueprintProfileSchema` first; `loose` keeps any key a row holds beyond it,
- * so a read returns the stored object unchanged.
- */
-const StoredProfile = blueprintProfileSchema.extend({ guardrails: guardrailsSchema.loose() }).loose();
-
-const BlueprintRow = z.object({
-  id: z.string(),
-  user_id: z.string(),
-  engine_version: z.string(),
-  profile: StoredProfile,
-  card_asset_url: z.string().nullable(),
-  visibility: visibilitySchema,
-  mentor_available: z.boolean(),
-  created_at: z.date(),
-});
 type BlueprintRow = z.infer<typeof BlueprintRow>;
 
-const ShareRow = z.object({
-  id: z.string(),
-  owner_user_id: z.string(),
-  size: cardSizeSchema,
-  created_at: z.date(),
-  revoked_at: z.date().nullable(),
-});
 type ShareRow = z.infer<typeof ShareRow>;
 
-const OpenerRow = z.object({
-  kind: openerKindSchema,
-  first_opened: z.date(),
-  last_opened: z.date(),
-  open_count: z.number(),
-});
 type OpenerRow = z.infer<typeof OpenerRow>;
 
 const IdRow = z.object({ id: z.string() });
@@ -249,7 +218,6 @@ const CrewRow = z.object({
   capacity: z.number(),
 });
 
-const MentorMatchRow = z.object({ student_id: z.string(), mentor_id: z.string(), fit_score: z.number(), status: z.string() });
 type MentorMatchRow = z.infer<typeof MentorMatchRow>;
 
 export class BlueprintService implements BlueprintContract {

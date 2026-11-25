@@ -12,13 +12,15 @@ use crate::engine::EventBus;
 /// The stream svc-matching owns (`ownedStreams: ['matching']`).
 pub const STREAM_SERVICE: &str = "matching";
 
-/// The catalog subject of an engine event (`packages/events/src/catalog.ts`).
+/// The catalog subject of an engine event (`packages/events/src/catalog.ts`): `intafaced.<service>.<entity>.<verb>`
+/// (`subject.ts`), inside the stream's `intafaced.matching.>` (`tests/bus.rs`).
 pub fn subject_of(name: &str) -> Option<&'static str> {
     match name {
-        "orderAccepted" => Some("matching.order.accepted"),
-        "orderFilled" => Some("matching.order.filled"),
-        "orderCancelled" => Some("matching.order.cancelled"),
-        "orderTriggered" => Some("matching.order.triggered"),
+        "orderAccepted" => Some("intafaced.matching.order.accepted"),
+        "orderFilled" => Some("intafaced.matching.order.filled"),
+        "orderCancelled" => Some("intafaced.matching.order.cancelled"),
+        "orderTriggered" => Some("intafaced.matching.order.triggered"),
+        "spreadFilled" => Some("intafaced.matching.spread.filled"),
         _ => None,
     }
 }

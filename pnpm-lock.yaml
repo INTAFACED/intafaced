@@ -26,6 +26,14 @@ overrides:
   minimatch@>=7.0.0 <11.0.1: 11.0.6
   tmp@<0.2.6: 0.2.7
 
+patchedDependencies:
+  typescript@5.9.3:
+    hash: b36ac69c8b1d9f2db6fd4bd090ccf2cae0dcd626658e2d06c479e6692ee80db1
+    path: patches/typescript@5.9.3.patch
+  typescript@7.0.2:
+    hash: da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646
+    path: patches/typescript@7.0.2.patch
+
 importers:
 
   .:
@@ -68,7 +76,7 @@ importers:
         version: 2.11.11
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -126,7 +134,7 @@ importers:
         version: 4.3.5
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -187,10 +195,10 @@ importers:
         version: 4.3.5
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       vite:
         specifier: 8.3.8
         version: 8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
@@ -248,7 +256,7 @@ importers:
         version: 4.3.5
       typescript:
         specifier: 5.9.3
-        version: 5.9.3
+        version: 5.9.3(patch_hash=b36ac69c8b1d9f2db6fd4bd090ccf2cae0dcd626658e2d06c479e6692ee80db1)
       vite:
         specifier: 8.3.8
         version: 8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
@@ -279,7 +287,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -301,7 +309,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -320,7 +328,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -342,7 +350,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -360,7 +368,7 @@ importers:
         version: link:../config
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -382,7 +390,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -396,6 +404,9 @@ importers:
         specifier: ^3.4.5
         version: 3.4.9
     devDependencies:
+      '@testcontainers/postgresql':
+        specifier: 11.14.0
+        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -407,7 +418,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -438,7 +449,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -463,7 +474,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -491,7 +502,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -506,7 +517,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -534,7 +545,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -549,7 +560,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -568,7 +579,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -593,7 +604,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -615,7 +626,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -634,7 +645,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -659,7 +670,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -674,7 +685,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -693,7 +704,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -708,7 +719,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -723,7 +734,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -754,7 +765,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -788,7 +799,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -798,9 +809,6 @@ importers:
       '@base-ui/react':
         specifier: 1.9.0
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@fontsource-variable/archivo':
-        specifier: 5.3.0
-        version: 5.3.0
       '@fontsource-variable/geist':
         specifier: 5.3.0
         version: 5.3.0
@@ -811,6 +819,9 @@ importers:
         specifier: 5.3.0
         version: 5.3.0
       '@fontsource-variable/jetbrains-mono':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/manrope':
         specifier: 5.3.0
         version: 5.3.0
       '@number-flow/react':
@@ -855,7 +866,7 @@ importers:
         version: 4.3.5
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vite:
         specifier: 8.3.8
         version: 8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
@@ -889,7 +900,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -908,13 +919,16 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/venue-hyperliquid:
     dependencies:
+      '@intafaced/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../ledger-client
@@ -923,10 +937,10 @@ importers:
         version: link:../venue-contracts
       '@nktkas/hyperliquid':
         specifier: 0.33.3
-        version: 0.33.3(typescript@7.0.2)
+        version: 0.33.3(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
     devDependencies:
       '@intafaced/venue-sim':
         specifier: workspace:*
@@ -942,7 +956,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -957,7 +971,7 @@ importers:
         version: link:../venue-contracts
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
     devDependencies:
       '@types/node':
         specifier: ^22.20.5
@@ -967,150 +981,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.12
-        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
-
-  services/svc-agents:
-    dependencies:
-      '@intafaced/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
-      '@intafaced/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@intafaced/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@intafaced/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@intafaced/events':
-        specifier: workspace:*
-        version: link:../../packages/events
-      '@intafaced/ledger-client':
-        specifier: workspace:*
-        version: link:../../packages/ledger-client
-      '@intafaced/telemetry':
-        specifier: workspace:*
-        version: link:../../packages/telemetry
-      '@opentelemetry/api':
-        specifier: ^1.10.0
-        version: 1.10.0
-      '@trpc/server':
-        specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
-      drizzle-orm:
-        specifier: ^0.45.4
-        version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
-      fastify:
-        specifier: ^5.12.8
-        version: 5.12.8
-      postgres:
-        specifier: ^3.4.5
-        version: 3.4.9
-      viem:
-        specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
-      '@types/node':
-        specifier: ^22.20.5
-        version: 22.20.5
-      '@typescript/typescript6':
-        specifier: 6.0.2
-        version: 6.0.2
-      rimraf:
-        specifier: ^6.1.4
-        version: 6.1.4
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.12
-        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
-
-  services/svc-bank:
-    dependencies:
-      '@intafaced/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
-      '@intafaced/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@intafaced/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@intafaced/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@intafaced/events':
-        specifier: workspace:*
-        version: link:../../packages/events
-      '@intafaced/i18n':
-        specifier: workspace:*
-        version: link:../../packages/i18n
-      '@intafaced/ledger-client':
-        specifier: workspace:*
-        version: link:../../packages/ledger-client
-      '@intafaced/service-kit':
-        specifier: workspace:*
-        version: link:../../packages/service-kit
-      '@intafaced/telemetry':
-        specifier: workspace:*
-        version: link:../../packages/telemetry
-      '@intafaced/venue-contracts':
-        specifier: workspace:*
-        version: link:../../packages/venue-contracts
-      '@noble/curves':
-        specifier: 2.4.0
-        version: 2.4.0
-      '@noble/hashes':
-        specifier: 2.4.0
-        version: 2.4.0
-      '@opentelemetry/api':
-        specifier: ^1.10.0
-        version: 1.10.0
-      '@trpc/server':
-        specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
-      drizzle-orm:
-        specifier: ^0.45.4
-        version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
-      fastify:
-        specifier: ^5.12.8
-        version: 5.12.8
-      postgres:
-        specifier: ^3.4.5
-        version: 3.4.9
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
-      '@types/node':
-        specifier: ^22.20.5
-        version: 22.20.5
-      '@typescript/typescript6':
-        specifier: 6.0.2
-        version: 6.0.2
-      rimraf:
-        specifier: ^6.1.4
-        version: 6.1.4
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1143,7 +1014,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -1168,7 +1039,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1201,7 +1072,7 @@ importers:
         version: link:../../packages/telemetry
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
@@ -1223,7 +1094,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1253,13 +1124,13 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -1275,7 +1146,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1333,7 +1204,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1378,7 +1249,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
@@ -1397,7 +1268,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1422,7 +1293,7 @@ importers:
         version: 6.1.4
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1461,7 +1332,7 @@ importers:
         version: 14.1.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -1473,7 +1344,7 @@ importers:
         version: 3.4.9
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -1492,7 +1363,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1526,7 +1397,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
@@ -1535,7 +1406,7 @@ importers:
         version: 3.4.9
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -1546,9 +1417,6 @@ importers:
       '@intafaced/svc-protocol':
         specifier: workspace:*
         version: link:../svc-protocol
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1563,7 +1431,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1596,7 +1464,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
@@ -1607,9 +1475,6 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1621,62 +1486,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.12
-        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
-
-  services/svc-matching:
-    dependencies:
-      '@intafaced/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
-      '@intafaced/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@intafaced/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@intafaced/events':
-        specifier: workspace:*
-        version: link:../../packages/events
-      '@intafaced/exchange-contract':
-        specifier: workspace:*
-        version: link:../../packages/exchange-contract
-      '@intafaced/i18n':
-        specifier: workspace:*
-        version: link:../../packages/i18n
-      '@intafaced/ledger-client':
-        specifier: workspace:*
-        version: link:../../packages/ledger-client
-      '@intafaced/sbe-codec':
-        specifier: workspace:*
-        version: link:../../packages/sbe-codec
-      '@intafaced/telemetry':
-        specifier: workspace:*
-        version: link:../../packages/telemetry
-      '@opentelemetry/api':
-        specifier: ^1.10.0
-        version: 1.10.0
-      fastify:
-        specifier: ^5.12.8
-        version: 5.12.8
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
-      '@types/node':
-        specifier: ^22.20.5
-        version: 22.20.5
-      rimraf:
-        specifier: ^6.1.4
-        version: 6.1.4
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1700,7 +1510,7 @@ importers:
         version: link:../../packages/telemetry
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       postgres:
         specifier: ^3.4.5
         version: 3.4.9
@@ -1711,15 +1521,12 @@ importers:
       '@intafaced/auth':
         specifier: workspace:*
         version: link:../../packages/auth
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1752,7 +1559,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -1777,7 +1584,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1807,7 +1614,7 @@ importers:
         version: link:../../packages/telemetry
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
@@ -1829,7 +1636,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1865,7 +1672,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -1879,9 +1686,6 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1893,7 +1697,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -1938,7 +1742,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -1950,7 +1754,7 @@ importers:
         version: 3.4.9
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -1958,9 +1762,6 @@ importers:
       '@intafaced/service-kit':
         specifier: workspace:*
         version: link:../../packages/service-kit
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1972,7 +1773,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2005,7 +1806,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -2017,7 +1818,7 @@ importers:
         version: 3.4.9
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -2039,7 +1840,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2072,7 +1873,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -2097,7 +1898,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2130,7 +1931,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -2155,7 +1956,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2191,7 +1992,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -2205,9 +2006,6 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -2219,7 +2017,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2267,7 +2065,7 @@ importers:
         version: 1.10.0
       '@trpc/server':
         specifier: ^11.28.0
-        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
+        version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
@@ -2279,17 +2077,17 @@ importers:
         version: 3.4.9
       viem:
         specifier: ^2.57.18
-        version: 2.57.19(typescript@7.0.2)(zod@4.6.7)
+        version: 2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@intafaced/venue-hyperliquid':
+        specifier: workspace:*
+        version: link:../../packages/venue-hyperliquid
       '@intafaced/venue-sim':
         specifier: workspace:*
         version: link:../../packages/venue-sim
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -2304,7 +2102,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2365,7 +2163,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2393,7 +2191,7 @@ importers:
         version: 4.23.15
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
+        version: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(happy-dom@21.0.4)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -2858,9 +2656,6 @@ packages:
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
 
-  '@fontsource-variable/archivo@5.3.0':
-    resolution: {integrity: sha512-HogK8FJelrD1o7TlZlkIVtHgc20bO5PZRWE7mUeUTdMN055alznQV6/00J00IBeu8FQAH4s3zW9UJNvKExXf+g==}
-
   '@fontsource-variable/geist-mono@5.3.0':
     resolution: {integrity: sha512-vBbuwDEo9AkrqADMXOrlAR3DFcJi4/JxeuU43FoiQERnNwsfXNnvxvReZG02cQKmyk4DZkZdBZX3oTDvy2zBAw==}
 
@@ -2872,6 +2667,9 @@ packages:
 
   '@fontsource-variable/jetbrains-mono@5.3.0':
     resolution: {integrity: sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==}
+
+  '@fontsource-variable/manrope@5.3.0':
+    resolution: {integrity: sha512-6D5dgokHsWDDMtmXHznKa0hK229NN+1a4BLPmUCLqcO1Pw5EEhWY5RFt0AcXnVRAljFFPfRtLkJePQj6LSsV6g==}
 
   '@grpc/grpc-js@1.14.7':
     resolution: {integrity: sha512-W4W/fcBMGRVtG6dW2c7cw2mnpS3hvbBd+oQXjh2iYFTZDk1JJmcNqkM5KSaPubQpamlUUurrlb7G1s9NJeERmQ==}
@@ -5976,18 +5774,6 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.22.0:
-    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   ws@8.23.0:
     resolution: {integrity: sha512-wCkmX8QMOrKjgO8HW2WyDbTSGeqkocxgDzS9iR79rEAexty6/2qzilx3Ag8Tqf9ykop3irLKle0MtVn5qjVnoQ==}
     engines: {node: '>=10.0.0'}
@@ -6394,8 +6180,6 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@fontsource-variable/archivo@5.3.0': {}
-
   '@fontsource-variable/geist-mono@5.3.0': {}
 
   '@fontsource-variable/geist@5.3.0': {}
@@ -6403,6 +6187,8 @@ snapshots:
   '@fontsource-variable/inter@5.3.0': {}
 
   '@fontsource-variable/jetbrains-mono@5.3.0': {}
+
+  '@fontsource-variable/manrope@5.3.0': {}
 
   '@grpc/grpc-js@1.14.7':
     dependencies:
@@ -6687,12 +6473,12 @@ snapshots:
   '@next/swc-win32-x64-msvc@16.4.6':
     optional: true
 
-  '@nktkas/hyperliquid@0.33.3(typescript@7.0.2)':
+  '@nktkas/hyperliquid@0.33.3(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))':
     dependencies:
       '@nktkas/rews': 4.1.0
       '@noble/hashes': 2.4.0
       decimal.js: 10.6.0
-      valibot: 1.5.0(typescript@7.0.2)
+      valibot: 1.5.0(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))
     transitivePeerDependencies:
       - typescript
 
@@ -7425,9 +7211,9 @@ snapshots:
       - react-native-b4a
       - supports-color
 
-  '@trpc/server@11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)':
+  '@trpc/server@11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))':
     dependencies:
-      typescript: 7.0.2
+      typescript: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
     optionalDependencies:
       '@types/ws': 8.18.2
       fastify: 5.12.8
@@ -7515,7 +7301,6 @@ snapshots:
   '@types/node@26.6.6':
     dependencies:
       undici-types: 8.9.0
-    optional: true
 
   '@types/react-dom@19.3.0(@types/react@19.3.0)':
     dependencies:
@@ -7544,7 +7329,7 @@ snapshots:
 
   '@types/ws@8.18.2':
     dependencies:
-      '@types/node': 22.20.5
+      '@types/node': 26.6.6
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -7661,9 +7446,9 @@ snapshots:
 
   '@xmldom/xmldom@0.9.12': {}
 
-  abitype@1.2.3(typescript@7.0.2)(zod@4.6.7):
+  abitype@1.2.3(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7):
     optionalDependencies:
-      typescript: 7.0.2
+      typescript: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
       zod: 4.6.7
 
   abort-controller@3.0.0:
@@ -7821,7 +7606,7 @@ snapshots:
 
   buffer-image-size@0.6.4:
     dependencies:
-      '@types/node': 22.20.5
+      '@types/node': 26.6.6
 
   buffer@5.7.1:
     dependencies:
@@ -8180,13 +7965,13 @@ snapshots:
 
   happy-dom@21.0.4:
     dependencies:
-      '@types/node': 22.20.5
+      '@types/node': 26.6.6
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.2
       buffer-image-size: 0.6.4
       entities: 7.0.1
       whatwg-mimetype: 3.0.0
-      ws: 8.22.0
+      ws: 8.23.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -8470,7 +8255,7 @@ snapshots:
     dependencies:
       yaml: 2.9.1
 
-  ox@0.14.65(typescript@7.0.2)(zod@4.6.7):
+  ox@0.14.65(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -8478,10 +8263,10 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@7.0.2)(zod@4.6.7)
+      abitype: 1.2.3(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       eventemitter3: 5.0.1
     optionalDependencies:
-      typescript: 7.0.2
+      typescript: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
     transitivePeerDependencies:
       - zod
 
@@ -9078,11 +8863,11 @@ snapshots:
 
   tweetnacl@1.0.3: {}
 
-  typescript@5.9.3: {}
+  typescript@5.9.3(patch_hash=b36ac69c8b1d9f2db6fd4bd090ccf2cae0dcd626658e2d06c479e6692ee80db1): {}
 
   typescript@6.0.3: {}
 
-  typescript@7.0.2:
+  typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646):
     optionalDependencies:
       '@typescript/typescript-aix-ppc64': 7.0.2
       '@typescript/typescript-darwin-arm64': 7.0.2
@@ -9111,8 +8896,7 @@ snapshots:
 
   undici-types@6.21.0: {}
 
-  undici-types@8.9.0:
-    optional: true
+  undici-types@8.9.0: {}
 
   undici@7.30.1: {}
 
@@ -9128,22 +8912,22 @@ snapshots:
 
   uuid@11.1.1: {}
 
-  valibot@1.5.0(typescript@7.0.2):
+  valibot@1.5.0(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)):
     optionalDependencies:
-      typescript: 7.0.2
+      typescript: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
 
-  viem@2.57.19(typescript@7.0.2)(zod@4.6.7):
+  viem@2.57.19(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@7.0.2)(zod@4.6.7)
+      abitype: 1.2.3(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       isows: 1.0.7(ws@8.21.0)
-      ox: 0.14.65(typescript@7.0.2)(zod@4.6.7)
+      ox: 0.14.65(typescript@7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646))(zod@4.6.7)
       ws: 8.21.0
     optionalDependencies:
-      typescript: 7.0.2
+      typescript: 7.0.2(patch_hash=da43b8b6ca1e066a85d16d9896eecd23daf672f6a64d0a9d86b075e57fdd5646)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9259,8 +9043,6 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.21.0: {}
-
-  ws@8.22.0: {}
 
   ws@8.23.0: {}
 

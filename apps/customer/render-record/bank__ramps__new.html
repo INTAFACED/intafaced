@@ -97,117 +97,111 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Add money</h1>
-<p class="muted">Choose how to pay in. Each way shows its fee and when the money arrives, as the bank quoted it.</p>
+<h1 class="lt-title">Add money</h1>
+<p class="lt-description">Choose how to pay in. Each way shows its fee and when the money arrives, as the bank quoted it.</p>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
+</p>
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
+<a href="/bank" class="lt-tab">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab" aria-current="page">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<div class="bd-stack" data-testid="add-money">
-<section class="bd-panel" aria-labelledby="_r_3_">
-<h3 id="_r_3_">What to add</h3>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+</div>
+<div class="lt-stack" data-testid="add-money">
+<section aria-labelledby="_r_3_">
+<h2 id="_r_3_">What to add</h2>
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_">
-<h3 id="_r_4_">Money that came in</h3>
-<p class="money-caption">Your latest payments in, newest first, with when each arrived and when you can use it.</p>
+<section aria-labelledby="_r_4_">
+<h2 id="_r_4_">Money that came in</h2>
+<p class="lt-hint">Your latest payments in, newest first, with when each arrived and when you can use it.</p>
+<div class="lt-stack">
 <div data-testid="incoming-payments">
-<div class="money-space-row" data-testid="incoming-line">
-<div>
+<div class="lt-rows">
+<div class="lt-row lt-row-between" data-testid="incoming-line">
+<div class="lt-stack-tight">
 <strong>From maya</strong>
-<small>Arrived 14 Oct, 09:15. Available to use since then.</small>
+<small class="lt-muted">Arrived 14 Oct, 09:15. Available to use since then.</small>
 </div>
-<span class="numeric" dir="ltr">50 USDT</span>
+<span class="lt-num" dir="ltr">50 USDT</span>
 </div>
-<div class="money-space-row" data-testid="incoming-line">
-<div>
+<div class="lt-row lt-row-between" data-testid="incoming-line">
+<div class="lt-stack-tight">
 <strong>Transfer from another person</strong>
-<small>Arrived 13 Oct, 12:00. Available to use since then.</small>
+<small class="lt-muted">Arrived 13 Oct, 12:00. Available to use since then.</small>
 </div>
-<span class="numeric" dir="ltr">15 USDT</span>
+<span class="lt-num" dir="ltr">15 USDT</span>
 </div>
-<div class="money-space-row" data-testid="incoming-line">
-<div>
+<div class="lt-row lt-row-between" data-testid="incoming-line">
+<div class="lt-stack-tight">
 <strong>Deposit</strong>
-<small>Arrived 12 Oct, 10:00. Available to use since then.</small>
+<small class="lt-muted">Arrived 12 Oct, 10:00. Available to use since then.</small>
 </div>
-<span class="numeric" dir="ltr">1,000 USDT</span>
+<span class="lt-num" dir="ltr">1,000 USDT</span>
 </div>
-<div class="money-space-row" data-testid="incoming-line">
-<div>
+<div class="lt-row lt-row-between" data-testid="incoming-line">
+<div class="lt-stack-tight">
 <strong>TEST funds</strong>
-<small>Arrived 10 Oct, 06:00. Available to use since then.</small>
+<small class="lt-muted">Arrived 10 Oct, 06:00. Available to use since then.</small>
 </div>
-<span class="numeric" dir="ltr">4,000 USDT</span>
+<span class="lt-num" dir="ltr">4,000 USDT</span>
 </div>
-<p class="money-caption">
-<a class="text-link" href="/uc/record">Older payments are in your Activity.</a>
+<p class="lt-muted">
+<a class="lt-link" href="/uc/record">Older payments are in your Activity.</a>
 </p>
 </div>
-<div data-testid="incoming-rules">
-<h4 class="bd-subhead">How incoming money works</h4>
-<ul class="bd-list">
+</div>
+<div class="lt-stack-tight" data-testid="incoming-rules">
+<h3>How incoming money works</h3>
+<ul class="lt-list">
 <li>When: each way to pay shows when its money arrives, as the bank quoted it. While a way to pay has no partner, it says "not set" and nothing arrives through it.</li>
 <li>Available: money shown here is already in your balance. Nothing listed here is still on its way.</li>
 <li>Returned: if a payment is sent back, it is taken out of your balance once and shown in your Activity. It is never taken twice.</li>
 <li>Refused: a refused request to add money adds nothing. Its reason is in your add-money requests below.</li>
 </ul>
 </div>
+</div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_5_">
-<h3 id="_r_5_">Your add-money requests</h3>
-<p class="money-caption">Every request you made, newest first, with where it stands.</p>
-<div data-testid="add-money-requests">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<section aria-labelledby="_r_5_">
+<h2 id="_r_5_">Your add-money requests</h2>
+<p class="lt-hint">Every request you made, newest first, with where it stands.</p>
+<div class="lt-rows" data-testid="add-money-requests">
+<div class="lt-refusal" data-testid="failure" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
+</div>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
 </div>
 </div>
 </div>

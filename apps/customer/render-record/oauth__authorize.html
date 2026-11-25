@@ -97,16 +97,25 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Account</p>
-<h1>This request is not valid</h1>
+<h1 class="lt-title">This request is not valid</h1>
 </div>
 </header>
-<div class="consent-room" role="alert">
-<p>Nothing was shared and you were not sent anywhere. The app that sent you here has to fix its request.</p>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack" role="alert">
+<p class="lt-muted">Nothing was shared and you were not sent anywhere. The app that sent you here has to fix its request.</p>
 <p>The request must use response_type=code.</p>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
 </div>
 </div>
 </div>

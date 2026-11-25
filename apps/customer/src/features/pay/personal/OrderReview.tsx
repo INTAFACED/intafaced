@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { PayFailure, PaySection, PayState, PayTime } from '../components';
+import { PayFailure, PaySection, PayState, PayTime } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { OrderReview as Review, Trade } from '../schemas';
 import { orderReviewCopy } from './order-review-copy';
@@ -16,7 +16,7 @@ export function OrderReview({ pay, trade }: { pay: PersonalPayApi; trade: Trade 
   const completed = trade.status === 'released';
   return (
     <PaySection title={t('title')} description={completed ? t('body') : undefined}>
-      {completed ? <ReviewPanel pay={pay} trade={trade} /> : <p className="muted">{t('onlyCompleted')}</p>}
+      {completed ? <ReviewPanel pay={pay} trade={trade} /> : <p className="lt-muted">{t('onlyCompleted')}</p>}
     </PaySection>
   );
 }
@@ -27,7 +27,7 @@ function ReviewPanel({ pay, trade }: { pay: PersonalPayApi; trade: Trade }) {
   return (
     <PayState resource={query.resource} retry={query.reload}>
       {(reviews) => (
-        <div className="stack" data-testid="order-review">
+        <div className="lt-stack" data-testid="order-review">
           {reviews.mine ? (
             <MyReview pay={pay} trade={trade} review={reviews.mine} onChanged={query.reload} />
           ) : (
@@ -39,7 +39,7 @@ function ReviewPanel({ pay, trade }: { pay: PersonalPayApi; trade: Trade }) {
               {reviews.theirs.reply === null ? <ReplyForm pay={pay} trade={trade} onDone={query.reload} /> : null}
             </>
           ) : (
-            <p className="muted">{t('theirsNone')}</p>
+            <p className="lt-muted">{t('theirsNone')}</p>
           )}
         </div>
       )}
@@ -73,7 +73,7 @@ function ReviewView({ review, heading }: { review: Review; heading: string }) {
           </span>
         </p>
       ) : null}
-      {review.hidden ? <p className="muted">{t('hidden', { reason: review.hiddenReason ?? '' })}</p> : null}
+      {review.hidden ? <p className="lt-muted">{t('hidden', { reason: review.hiddenReason ?? '' })}</p> : null}
     </section>
   );
 }
@@ -89,9 +89,9 @@ function MyReview({ pay, trade, review, onChanged }: { pay: PersonalPayApi; trad
       {editing ? (
         <ReviewForm pay={pay} trade={trade} existing={review} onDone={onChanged} />
       ) : fixed ? (
-        <p className="muted">{t(review.hidden ? 'editHidden' : 'editReplied')}</p>
+        <p className="lt-muted">{t(review.hidden ? 'editHidden' : 'editReplied')}</p>
       ) : (
-        <Button variant="secondary" onClick={() => setEditing(true)}>
+        <Button tone="secondary" onClick={() => setEditing(true)}>
           {t('edit')}
         </Button>
       )}
@@ -116,19 +116,19 @@ function ReplyForm({ pay, trade, onDone }: { pay: PersonalPayApi; trade: Trade; 
   };
   return (
     <form
-      className="stack"
+      className="lt-stack"
       aria-label={t('replyLabel')}
       onSubmit={(event) => {
         event.preventDefault();
         void send();
       }}
     >
-      <label className="field">
+      <label className="lt-field">
         <span>{t('replyLabel')}</span>
         <textarea value={text} maxLength={2000} onChange={(event) => setText(event.target.value)} />
       </label>
-      <p className="muted">{t('replyOnce')}</p>
-      <Button type="submit" variant="secondary" disabled={!text.trim() || busy}>
+      <p className="lt-muted">{t('replyOnce')}</p>
+      <Button type="submit" tone="secondary" disabled={!text.trim() || busy}>
         {t('reply')}
       </Button>
       {failure ? <PayFailure result={failure} retry={send} /> : null}
@@ -160,17 +160,17 @@ function ReviewForm({ pay, trade, existing, onDone }: { pay: PersonalPayApi; tra
   };
   return (
     <form
-      className="stack"
+      className="lt-stack"
       aria-label={t(existing ? 'editLabel' : 'formLabel')}
       onSubmit={(event) => {
         event.preventDefault();
         void leave();
       }}
     >
-      <div role="group" aria-label={t('ratingLabel')} className="row">
+      <div role="group" aria-label={t('ratingLabel')} className="lt-actions">
         <Button
           type="button"
-          variant={rating === 'good' ? 'primary' : 'secondary'}
+          tone={rating === 'good' ? 'primary' : 'secondary'}
           aria-pressed={rating === 'good'}
           onClick={() => setRating('good')}
         >
@@ -178,24 +178,24 @@ function ReviewForm({ pay, trade, existing, onDone }: { pay: PersonalPayApi; tra
         </Button>
         <Button
           type="button"
-          variant={rating === 'bad' ? 'primary' : 'secondary'}
+          tone={rating === 'bad' ? 'primary' : 'secondary'}
           aria-pressed={rating === 'bad'}
           onClick={() => setRating('bad')}
         >
           {t('bad')}
         </Button>
       </div>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('commentLabel')}</span>
         <textarea value={comment} maxLength={2000} onChange={(event) => setComment(event.target.value)} />
       </label>
       {rating === 'bad' ? (
-        <label className="field">
+        <label className="lt-field">
           <span>{t('explanationLabel')}</span>
           <textarea value={explanation} maxLength={2000} required onChange={(event) => setExplanation(event.target.value)} />
         </label>
       ) : null}
-      {existing ? null : <p className="muted">{t('onePerParty')}</p>}
+      {existing ? null : <p className="lt-muted">{t('onePerParty')}</p>}
       <Button type="submit" disabled={!ready || busy}>
         {busy ? t('leaving') : t(existing ? 'save' : 'leave')}
       </Button>

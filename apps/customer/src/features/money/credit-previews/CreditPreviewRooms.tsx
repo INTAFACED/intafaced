@@ -1,8 +1,15 @@
+// volt-room: /bank/loans/overdraft
+// volt-room: /bank/loans/personal
+// volt-room: /bank/loans/schedule
+// volt-room: /bank/cards/credit-card
+// volt-room: /bank/cards/credit
+// volt-room: /bank/business/loan
 import { useState, type ReactNode } from 'react';
 import { Button, Field, Segmented } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, Table, type KeyValueRow, type Notice, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
-import type { ApiClient, ApiResult, AppProcedure } from '../../../shared/api';
+import { isVerifyFirst, type ApiClient, type ApiResult, type AppProcedure } from '../../../shared/api';
+import { verifyFirstRefusal } from '../../../shared/verify-first';
 import { useSession } from '../../session';
 import {
   BANK_CREDIT_PREVIEWS_ACT,
@@ -21,7 +28,7 @@ import {
   type CreditPreviewRevolving,
   type CreditPreviewSchedule,
 } from '@intafaced/contracts/bank-credit-preview-procedures';
-import { creditPreviewCopy } from './credit-preview-copy';
+import { creditPreviewCopy, creditPreviewWords } from './credit-preview-copy';
 
 /**
  * The credit previews (J-bank-12), each at its own route on the flow template:
@@ -87,12 +94,16 @@ function PreviewRefusal({ refused }: { refused: Refused | null }) {
       data-engine={refused.engine ?? ''}
     >
       <RefusalBox
-        refusal={{
-          variant: 'refused',
-          title: tk(c, 'refusalTitle', { action: tk(c, `action_${refused.action}`) }),
-          body: isPreview && engineKey ? tk(c, 'refusalBody', { engine: tk(c, engineKey) }) : c.t('refusalOther'),
-          reference: refused.failed.code ?? PREVIEW_CODE,
-        }}
+        refusal={
+          isVerifyFirst(refused.failed)
+            ? verifyFirstRefusal()
+            : {
+                variant: 'refused',
+                title: tk(c, 'refusalTitle', { action: tk(c, `action_${refused.action}`) }),
+                body: isPreview && engineKey ? tk(c, 'refusalBody', { engine: tk(c, engineKey) }) : c.t('refusalOther'),
+                reference: refused.failed.code ?? PREVIEW_CODE,
+              }
+        }
       />
     </div>
   );
@@ -441,7 +452,11 @@ export function CreditCardPreviewRoom() {
   const [variant, setVariant] = useState<'credit_card' | 'charge_card'>('credit_card');
   const [income, setIncome] = useState('');
   const view = dataOf<CreditCardPreviewView>(resource);
-  const item = (raw: string) => raw.replace(/^(variant|fee|restricted):/, '').replaceAll('_', ' ');
+  // A rule the bank serves is said in words; an item this page has no words for yet reads as the bank's key, spaced.
+  const item = (raw: string) => {
+    const key = `rule_${raw}`;
+    return Object.hasOwn(creditPreviewWords, key) ? tk(c, key) : raw.replace(/^(variant|fee|restricted):/, '').replaceAll('_', ' ');
+  };
   return (
     <FlowTemplate
       title={c.t('cardTitle')}

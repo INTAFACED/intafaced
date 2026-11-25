@@ -272,6 +272,28 @@ export const selfFreezeApplied = defineEvent(
 );
 
 /**
+ * A support agent froze a customer's account from their request (J-support-public-20 #7, RC-support-public-07).
+ * Published by svc-identity from the freeze's own audit row after it commits, at least once, with the business key
+ * `identity.support_account_freeze.frozen:<freezeId>`. The freeze itself set the account's trading restriction in its
+ * transaction, so every fresh svc-trade operation already refuses; each service that keeps a permission for an agent to
+ * act for the customer revokes it on this event and stops their scheduled agent orders, as on the owner's own freeze.
+ * A revoked permission stays revoked after staff lift the restriction: the customer grants it again. Consumers are
+ * idempotent by `freezeId`. Moves no money.
+ */
+export const supportAccountFrozen = defineEvent(
+  'identity',
+  'support_account_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  "Support froze a customer's account from their request: every agent permission kept for them is revoked and their scheduled agent orders stop (J-support-public-20 #7).",
+);
+
+/**
  * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
  * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
  * in the same transaction as the change, at least once, with the business key
@@ -893,6 +915,40 @@ export const positionUpdated = defineEvent(
     ts: z.string().datetime({ offset: true }),
   }),
   'svc-trade futures position changed — private WS fans this to the owning principal only.',
+);
+
+/**
+ * One change in the balance of one asset on a person's own venue account, as the venue reports it (J-cex-spot-15 #9).
+ * Published by svc-trade's venue balance watch; `/private/stream?channel=balances` fans it to the owner only.
+ *
+ * Not a money path: INTAFACED holds none of it and the ledger posts nothing. The venue is the record of the balance;
+ * `total` is the venue's own new total for the asset. `changeId` is a business key: the venue's own id for the record
+ * that changed the balance (a deposit's reference, a fill's trade id) with the account and the asset, so the same
+ * change always carries the same id and a consumer ignores a repeat. `source` names what changed it; `other` is a
+ * change the venue reported no record for, keyed by the account's own count of changes for that asset.
+ */
+export const venueBalanceChanged = defineEvent(
+  'trade',
+  'venue_balance',
+  'updated',
+  1,
+  z.object({
+    changeId: z.string().min(1).max(400),
+    userId: userIdSchema,
+    venueId: z.string().min(1),
+    owner: z.string().regex(/^0x[0-9a-f]{40}$/),
+    subAccount: z.string().nullable(),
+    asset: z.string().min(1),
+    source: z.enum(['deposit', 'transfer_in', 'trade', 'other']),
+    /** The venue's own id for the record behind the change; null for `other`. */
+    sourceId: z.string().nullable(),
+    /** The change, signed. */
+    change: signedAmountSchema,
+    /** The venue's new total for the asset after this change. */
+    total: amountSchema,
+    ts: z.string().datetime({ offset: true }),
+  }),
+  "A person's own venue balance changed — private WS fans this to the owning principal only.",
 );
 
 // ── protocol (§17.4 · Protocol Plane, non-custodial) ─────────────────────────
@@ -1539,6 +1595,39 @@ export const venueDelistingScheduled = defineEvent(
     noticeKey: z.string().min(1).max(256),
   }),
   'Two operators scheduled the date a venue market leaves the routed list. svc-trade writes the listing version and the notice row first and publishes after commit, republishing until it is sent; consumers dedupe on (noticeKey), so customers get one dated notice per market and date.',
+);
+
+/**
+ * A margin or liquidation-risk alert on an isolated position on the person's own venue account (J-derivatives-06 #6):
+ * one crossing of a level, with the venue's figures at it. No funds move and nothing is sent to the venue.
+ */
+export const venueRiskAlerted = defineEvent(
+  'trade',
+  'venue_risk_alert',
+  'crossed',
+  1,
+  z.object({
+    /** The business key the one notice is filed under: `risk:<user>:<venue>:<owner>:<symbol>:<sequence>`. */
+    alertKey: z.string().min(1).max(256),
+    userId: userIdSchema,
+    symbol: z.string().min(1).max(64),
+    kind: z.enum(['margin', 'margin_call', 'liquidation']),
+    asset: z.string().min(1).max(32),
+    /** Decimal strings, never numbers: the margin level, or a ratio in percent for a margin call or the liquidation alert. */
+    level: z.string().regex(/^\d{1,40}(\.\d{1,18})?$/),
+    marginWithResult: z.string().regex(/^-?\d{1,40}(\.\d{1,18})?$/),
+    marginRatio: z
+      .string()
+      .regex(/^\d{1,40}(\.\d{1,18})?$/)
+      .nullable(),
+    /** What a margin call asks: the margin to add for the ratio to come back to its level; null for a margin alert. */
+    asked: z
+      .string()
+      .regex(/^\d{1,40}(\.\d{1,18})?$/)
+      .nullable(),
+    raisedAt: z.string().datetime({ offset: true }),
+  }),
+  'One crossing of a margin or liquidation-risk level on a venue position. svc-trade writes the alert row first and publishes after commit, republishing until it is sent; consumers dedupe on (alertKey), so the person gets one alert per crossing.',
 );
 
 export const projectionUpdated = defineEvent(
@@ -2240,6 +2329,7 @@ export const EVENT_CATALOG = {
   deathNoticeCreated,
   deathNoticeConfirmed,
   selfFreezeApplied,
+  supportAccountFrozen,
   staffCreated,
   staffUpdated,
   staffDeleted,
@@ -2290,6 +2380,7 @@ export const EVENT_CATALOG = {
   orderUpdated,
   fillSettled,
   positionUpdated,
+  venueBalanceChanged,
   protocolAccountCreated,
   protocolSessionKeyCreated,
   protocolSessionKeyCancelled,
@@ -2321,6 +2412,7 @@ export const EVENT_CATALOG = {
   copyStopped,
   recurringBuySuspended,
   venueDelistingScheduled,
+  venueRiskAlerted,
   projectionUpdated,
 } as const;
 
@@ -2524,7 +2616,7 @@ export const WIRING_SOCKETS = [
   // `bankMarginCalled` was here, and was the reason this section existed: a
   // complete event with a complete svc-notify consumer that parked on a stream
   // no service had ever created. svc-bank now owns `INTAFACED_BANK` and publishes
-  // the call — see services/svc-bank/src/loans/margin-call-publisher.ts. That
+  // the call — see crates/svc-bank/src/loans/ports.rs. That
   // entry left by being wired, not by being reworded.
   //
   // `buybackExecuted` is the current occupant. The catalog event stays; emitting

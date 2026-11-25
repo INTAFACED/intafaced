@@ -1,17 +1,22 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
+import { FailureNote } from '../../shared/failure-note';
 import { singleFlight } from '../../shared/password';
 import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { publicAuthContext } from './auth-context';
 import { validAuthSession } from './public-auth-guards';
 import { secondsLeft } from './sign-up';
-import { codeSignInCode, loginCodeAcceptedSchema } from './code-sign-in';
+import { codeSignInCode } from './code-sign-in';
 import { codeSignInCopy } from './code-sign-in-copy';
 import { DeviceApproval } from './DeviceApproval';
-import { RecoveryCodeUsed, signInAnswerSchema } from './RecoveryCodeUsed';
-import '../../shared/public-pages.css';
+import { RecoveryCodeUsed } from './RecoveryCodeUsed';
+import {
+  IDENTITY_AUTH_LOGIN_CODE_REQUEST,
+  IDENTITY_AUTH_LOGIN_WITH_CODE,
+  IDENTITY_AUTH_LOGIN_CODE_RESEND,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Pending = { flowId: string; name: string; resendAt: number };
@@ -58,7 +63,7 @@ export function CodeSignIn() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.loginCodeRequest', { identifier: name }, loginCodeAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_LOGIN_CODE_REQUEST, { identifier: name });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {
@@ -89,12 +94,7 @@ export function CodeSignIn() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate(
-        'identity',
-        'auth.loginWithCode',
-        { flowId: pending.flowId, code, ...(totpCode ? { totpCode } : {}) },
-        signInAnswerSchema,
-      );
+      const answer = await api.call(IDENTITY_AUTH_LOGIN_WITH_CODE, { flowId: pending.flowId, code, ...(totpCode ? { totpCode } : {}) });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {
@@ -131,7 +131,7 @@ export function CodeSignIn() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.loginCodeResend', { flowId: pending.flowId }, loginCodeAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_LOGIN_CODE_RESEND, { flowId: pending.flowId });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {
@@ -178,14 +178,14 @@ export function CodeSignIn() {
     );
   }
   return (
-    <section className="public-auth-code" aria-labelledby={`${problemId}-title`}>
+    <section className="lt-stack" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{pending ? t('checkEmail') : t('title')}</h2>
       {pending ? (
-        <form method="post" className="form-stack" onSubmit={confirm}>
-          <p role="status" className="muted">
+        <form method="post" className="lt-stack" onSubmit={confirm}>
+          <p role="status" className="lt-muted">
             {t('checkEmailBody', { name: pending.name })}
           </p>
-          {resent && <p className="muted">{t('resent')}</p>}
+          {resent && <p className="lt-muted">{t('resent')}</p>}
           <Field
             label={t('code')}
             name="loginCode"
@@ -199,48 +199,56 @@ export function CodeSignIn() {
           {needsTotp && (
             <Field label={t('totp')} name="loginTotp" autoComplete="off" hint={t('totpHint')} maxLength={64} required disabled={busy} />
           )}
-          <Button type="submit" disabled={busy}>
-            {busy ? t('checking') : t('signIn')}
-          </Button>
-          <Button variant="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
-            {t('resend')}
-          </Button>
-          {wait > 0 && <small className="muted">{t('resendIn', { seconds: wait })}</small>}
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => {
-              setPending(null);
-              setRefusal(null);
-              setNeedsTotp(false);
-            }}
-          >
-            {t('differentName')}
-          </Button>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
+              {busy ? t('checking') : t('signIn')}
+            </Button>
+            <Button tone="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
+              {t('resend')}
+            </Button>
+            <Button
+              tone="quiet"
+              disabled={busy}
+              onClick={() => {
+                setPending(null);
+                setRefusal(null);
+                setNeedsTotp(false);
+              }}
+            >
+              {t('differentName')}
+            </Button>
+          </div>
+          {wait > 0 && <small className="lt-muted">{t('resendIn', { seconds: wait })}</small>}
         </form>
       ) : (
-        <form method="post" className="form-stack" onSubmit={request}>
-          <p className="muted">{t('intro')}</p>
+        <form method="post" className="lt-stack" onSubmit={request}>
+          <p className="lt-muted">{t('intro')}</p>
           <Field label={t('identifier')} name="codeIdentifier" autoComplete="username" maxLength={320} required disabled={busy} />
-          <Button variant="secondary" type="submit" disabled={busy || restoring}>
-            {busy ? t('sending') : t('send')}
-          </Button>
+          <div className="lt-actions">
+            <Button tone="secondary" type="submit" disabled={busy || restoring}>
+              {busy ? t('sending') : t('send')}
+            </Button>
+          </div>
         </form>
       )}
       {problem ? (
-        <div id={problemId} className="pub-notice" role="alert">
-          <p>{problem}</p>
+        <div id={problemId} className="lt-refusal" role="alert">
+          <p className="lt-refusal-body">{problem}</p>
           {code === 'auth.account_frozen' && (
-            <a className="text-link" href="/help">
+            <a className="lt-link" href="/help">
               {t('stateHelp')}
             </a>
           )}
-          {refusal?.code && refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
+          {refusal?.code && refusal.code !== 'codeMissing' && (
+            <small className="lt-ref" lang="zxx">
+              {refusal.code}
+            </small>
+          )}
         </div>
       ) : (
         refusal && (
           <div id={problemId}>
-            <Failure result={refusal} />
+            <FailureNote result={refusal} />
           </div>
         )
       )}

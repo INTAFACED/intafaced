@@ -95,113 +95,145 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="if-money" class="if-money if-money--activity">
-<h1 class="money-title">Activity</h1>
-<p role="status" class="money-caption" data-testid="dormancy-notice" data-state="unread" data-code="No services run in the look gate.">Dormancy fee notices could not be read from the bank just now.</p>
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Filter your activity" data-testid="money-tabs" class="relative flex items-stretch gap-6 border-b border-line money-tabs">
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_3_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">All</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_4_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Trades</button>
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_5_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Orders</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_6_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Deposits</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_7_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Transfers</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_8_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Fees</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_9_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Entries</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+<div data-testid="if-money">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Activity</h1>
+</div>
+</header>
+<div class="lt-room-section">
+<div class="lt-stack">
+<div data-testid="money-tabs">
+<div class="lt-tabs" role="tablist" aria-label="Filter your activity">
+<button type="button" role="tab" class="lt-tab" aria-selected="false" tabindex="-1">All</button>
+<button type="button" role="tab" class="lt-tab" aria-selected="false" tabindex="-1">Trades</button>
+<button type="button" role="tab" class="lt-tab" aria-selected="true" tabindex="0">Orders</button>
+<button type="button" role="tab" class="lt-tab" aria-selected="false" tabindex="-1">Deposits</button>
+<button type="button" role="tab" class="lt-tab" aria-selected="false" tabindex="-1">Transfers</button>
+<button type="button" role="tab" class="lt-tab" aria-selected="false" tabindex="-1">Fees</button>
+<button type="button" role="tab" class="lt-tab" aria-selected="false" tabindex="-1">Entries</button>
 </div>
 </div>
-<section data-testid="money-card" class="money-card money-card--activity" aria-label="Activity">
-<div data-testid="money-trade-tab" class="money-trade-tab">
-<h2 data-testid="money-trade-tab__head" class="money-trade-tab__head">Open orders</h2>
-<table data-testid="dk-table" class="dk-table">
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-toolbar">
+</div>
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<p role="status" class="lt-muted" data-testid="dormancy-notice" data-state="unread" data-code="No services run in the look gate.">Dormancy fee notices could not be read from the bank just now.</p>
+</section>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
+<section data-testid="money-card" class="lt-stack" aria-label="Activity">
+<div data-testid="money-trade-tab" class="lt-stack">
+<h2 data-testid="money-trade-tab__head" class="lt-heading">Open orders</h2>
+<table data-testid="dk-table" class="lt-table">
 <thead>
 <tr>
 <th>Time</th>
 <th>Market</th>
 <th>Type</th>
 <th>Side</th>
-<th class="dk-num">Price</th>
-<th class="dk-num">Amount</th>
-<th class="dk-num">Filled</th>
-<th class="dk-num">Held</th>
+<th data-align="end">Price</th>
+<th data-align="end">Amount</th>
+<th data-align="end">Filled</th>
+<th data-align="end">Held</th>
 <th>Action</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o1" title="Open this order’s details">14 Oct, 09:00</a>
+<td data-label="Time">
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o1" title="Open this order’s details">14 Oct, 09:00</a>
 </td>
-<td>BTC/USDT</td>
-<td>Limit</td>
-<td>
-<span class="dk-side" data-side="buy">Buy</span>
+<td data-label="Market">BTC/USDT</td>
+<td data-label="Type">
+<span class="lt-actions">Limit</span>
 </td>
-<td class="dk-num if-num">62,500.00</td>
-<td class="dk-num if-num">0.0001</td>
-<td class="dk-num if-num">0</td>
-<td class="dk-num if-num">
+<td data-label="Side">
+<span data-side="buy">Buy</span>
+</td>
+<td data-align="end" data-label="Price">62,500.00</td>
+<td data-align="end" data-label="Amount">0.0001</td>
+<td data-align="end" data-label="Filled">0</td>
+<td data-align="end" data-label="Held">
 <span title="Not stated: the service did not say what this order holds">—</span>
 </td>
-<td>
-<span class="dk-bt-actions">
-<span class="dk-bt-cancel">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Cancel buy order for 0.00008 BTC" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-7 px-3 text-sm rounded-pill">Cancel</button>
+<td data-label="Action">
+<span class="lt-actions">
+<span class="lt-actions">
+<button aria-label="Cancel buy order for 0.00008 BTC" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Cancel</button>
 </span>
 </span> </td>
 </tr>
 </tbody>
 </table>
-<h2 data-testid="money-trade-tab__head" class="money-trade-tab__head">Order history</h2>
-<table data-testid="dk-table" class="dk-table">
+<h2 data-testid="money-trade-tab__head" class="lt-heading">Order history</h2>
+<table data-testid="dk-table" class="lt-table">
 <thead>
 <tr>
 <th>Time</th>
 <th>Market</th>
 <th>Type</th>
 <th>Side</th>
-<th class="dk-num">Price</th>
-<th class="dk-num">Amount</th>
-<th class="dk-num">Filled</th>
+<th data-align="end">Price</th>
+<th data-align="end">Amount</th>
+<th data-align="end">Filled</th>
 <th>Status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
+<td data-label="Time">
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
 </td>
-<td>BTC/USDT</td>
-<td>Limit</td>
-<td>
-<span class="dk-side" data-side="buy">Buy</span>
+<td data-label="Market">BTC/USDT</td>
+<td data-label="Type">
+<span class="lt-actions">Limit</span>
 </td>
-<td class="dk-num if-num">65,100.00</td>
-<td class="dk-num if-num">0.0002</td>
-<td class="dk-num if-num">0.0002</td>
-<td>
-<span data-slot="status-tag" data-status="filled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-accent-text bg-lime-soft">Filled</span> </td>
+<td data-label="Side">
+<span data-side="buy">Buy</span>
+</td>
+<td data-align="end" data-label="Price">65,100.00</td>
+<td data-align="end" data-label="Amount">0.0002</td>
+<td data-align="end" data-label="Filled">0.0002</td>
+<td data-label="Status">
+<span data-slot="status-tag" data-status="filled">
+<span class="lt-chip" data-status="done">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Filled</span>
+</span> </td>
 </tr>
 <tr>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
+<td data-label="Time">
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
 </td>
-<td>BTC/USDT</td>
-<td>Limit</td>
-<td>
-<span class="dk-side" data-side="buy">Buy</span>
+<td data-label="Market">BTC/USDT</td>
+<td data-label="Type">
+<span class="lt-actions">Limit</span>
 </td>
-<td class="dk-num if-num">60,000.00</td>
-<td class="dk-num if-num">0.0001</td>
-<td class="dk-num if-num">0</td>
-<td>
-<span data-slot="status-tag" data-status="cancelled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-down-text">Cancelled</span> </td>
+<td data-label="Side">
+<span data-side="buy">Buy</span>
+</td>
+<td data-align="end" data-label="Price">60,000.00</td>
+<td data-align="end" data-label="Amount">0.0001</td>
+<td data-align="end" data-label="Filled">0</td>
+<td data-label="Status">
+<span data-slot="status-tag" data-status="cancelled">
+<span class="lt-chip" data-status="failed">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Cancelled</span>
+</span> </td>
 </tr>
 </tbody>
 </table>
 </div>
 </section>
+</section>
+</div>
+</div>
+</div>
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">

@@ -9,7 +9,7 @@
 //! input check. Any other answer is a slice's: the door names the slice that owes it, and it is counted, printed and
 //! fails nothing. One difference the door decided fails the test.
 //!
-//! `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-ledger --test wire_replay -- --nocapture` prints that slice's owed
+//! `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-ledger --test it -- wire_replay:: --nocapture` prints that slice's owed
 //! answers, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any. The recording is read from the TypeScript
 //! service while it exists; the switch copies it here before that service is deleted.
 #![allow(

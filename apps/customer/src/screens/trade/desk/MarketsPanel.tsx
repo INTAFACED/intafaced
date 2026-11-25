@@ -8,7 +8,7 @@ import {
   fmtPrice,
   Pct,
   refusalCopy,
-  Skeleton,
+  Bone,
   StateBlock,
   useFavorites,
   useTickers,
@@ -83,9 +83,9 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
   let list: React.ReactNode;
   if (markets.status === 'loading' || markets.status === 'empty') {
     list = (
-      <div className="dk-mk-skeleton" role="status" aria-busy="true" aria-label={t('Markets')}>
+      <div className="lt-stack-tight lt-tight" role="status" aria-busy="true" aria-label={t('Markets')}>
         {Array.from({ length: 8 }, (_, i) => (
-          <Skeleton key={i} height={60} className="bg-field" />
+          <Bone key={i} size="row" />
         ))}
       </div>
     );
@@ -107,17 +107,22 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
     );
   } else {
     list = (
-      <ul data-testid="dk-mk-list" className="dk-mk-list">
+      <ul data-testid="dk-mk-list" className="lt-list lt-tight lt-list-rule">
         {rows.map((market) => {
           const ticker = tickerMap?.[market.symbol];
           const favorite = isFavorite(market.symbol);
           const volume = ticker?.quoteVolume24h ?? null;
           const start = partialWindowStart(ticker, Date.now());
           return (
-            <li key={market.symbol} data-testid="dk-mk-row" className="dk-mk-row" data-selected={market.symbol === selected || undefined}>
+            <li
+              key={market.symbol}
+              data-testid="dk-mk-row"
+              className="lt-row lt-row-nowrap"
+              data-selected={market.symbol === selected || undefined}
+            >
               <button
                 type="button"
-                className="dk-icon-btn dk-mk-star"
+                className="lt-icon-button"
                 aria-pressed={favorite}
                 aria-label={
                   favorite ? t('Pair favourite remove', { pair: market.symbol }) : t('Pair favourite add', { pair: market.symbol })
@@ -127,32 +132,32 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
                 <Star size={16} aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} />
               </button>
               <a
-                className="dk-mk-link"
+                className="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow"
                 href={hrefFor ? hrefFor(market) : `/trade/spot/${pairOf(market.symbol)}`}
                 aria-current={market.symbol === selected ? 'true' : undefined}
                 onClick={onChoose}
               >
-                <span data-testid="dk-mk-name" className="dk-mk-name">
-                  <span data-testid="dk-mk-pair" className="dk-mk-pair">
+                <span data-testid="dk-mk-name" className="lt-stack-tight lt-tight">
+                  <span data-testid="dk-mk-pair" className="lt-strong">
                     {market.symbol}
                   </span>
                   {volume !== null && isUsdQuote(market.quote) ? (
-                    <span data-testid="dk-mk-sub" className="dk-mk-sub if-num">
+                    <span data-testid="dk-mk-sub" className="lt-num lt-note">
                       {t('Volume short', { value: turnoverText(volume, market.quote) })}
                     </span>
                   ) : null}
                 </span>
-                <span data-testid="dk-mk-figures" className="dk-mk-figures">
-                  <span data-testid="dk-mk-price" className="dk-mk-price if-num">
+                <span data-testid="dk-mk-figures" className="lt-stack-tight lt-tight lt-end">
+                  <span data-testid="dk-mk-price" className="lt-num">
                     {fmtPrice(ticker?.last ?? null, market.tickSize)}
                   </span>
                   <Pct
                     value={ticker?.changePct24h == null ? null : fmtPct(ticker.changePct24h)}
                     data-testid="dk-mk-change"
-                    className="dk-mk-change"
+                    className="lt-small"
                   />
                   {start !== null ? (
-                    <span data-testid="dk-mk-sub" className="dk-mk-sub">
+                    <span data-testid="dk-mk-sub" className="lt-note">
                       {t('Since time', { time: sinceLabel(start, timeZone) })}
                     </span>
                   ) : null}
@@ -166,8 +171,8 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
   }
 
   return (
-    <div className={compact ? 'dk-mk dk-mk--compact' : 'dk-mk'}>
-      <div className="dk-mk-search">
+    <div className="lt-stack" data-compact={compact || undefined}>
+      <div className="lt-field lt-row lt-row-nowrap">
         <Search size={16} aria-hidden="true" />
         <input
           type="text"
@@ -177,14 +182,14 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
           aria-label={t('Search markets')}
         />
       </div>
-      <div className="dk-mk-chips" role="group" aria-label={t('Markets')}>
+      <div className="lt-chips" role="group" aria-label={t('Markets')}>
         {(['favorites', 'all', ...quotes] as Chip[]).map((id) => (
           <button key={id} type="button" aria-pressed={chip === id} onClick={() => setChip(id)}>
             {id === 'favorites' ? t('Favorites') : id === 'all' ? t('All') : id}
           </button>
         ))}
       </div>
-      <div className="dk-mk-head">
+      <div className="lt-row lt-row-between lt-note">
         <button type="button" onClick={() => cycle('volume')} aria-label={t('Sort by volume')}>
           {t('Name and volume')}
           {arrow('volume')}
@@ -194,7 +199,7 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
           {arrow('change')}
         </button>
       </div>
-      <div className="dk-mk-body">{list}</div>
+      {compact ? <div className="lt-scroll">{list}</div> : <div className="lt-scroll-tall">{list}</div>}
     </div>
   );
 });

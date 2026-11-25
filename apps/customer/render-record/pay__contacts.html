@@ -95,41 +95,75 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div class="if-pay" data-testid="pay-room">
-<div class="pay-grid">
-<header data-testid="pay-hero" class="pay-hero">
-<h1>Contacts</h1>
-<p>People you pay.</p>
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Contacts</h1>
+<p class="lt-description">People you pay.</p>
+</div>
 </header>
-<section data-testid="pay-card" class="pay-card" aria-label="Contacts">
-<div class="pay-body">
-<div class="pay-block" data-testid="contacts-device">
-<h3 class="pay-section-title">Paid from this device</h3>
-<p class="pay-empty">No one yet. People you pay from this device appear here.</p>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Room sections">
+<ul>
+<li>
+<a class="lt-link" href="#pay-room-recent">Paid from this device</a>
+</li>
+<li>
+<a class="lt-link" href="#pay-room-saved">Saved contacts</a>
+</li>
+<li>
+<a class="lt-link" href="#pay-room-groups">Groups</a>
+</li>
+<li>
+<a class="lt-link" href="#pay-room-pools">Pools</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section id="pay-room-recent" aria-labelledby="pay-room-recent-title" data-testid="contacts-device">
+<h2 id="pay-room-recent-title">Paid from this device</h2>
+<p class="lt-hint">No one yet. People you pay from this device appear here.</p>
+</section>
+<section id="pay-room-saved" aria-labelledby="pay-room-saved-title">
+<h2 id="pay-room-saved-title">Saved contacts</h2>
+<p class="lt-hint">No saved contacts.</p>
+<div class="lt-actions">
+<button disabled="" aria-describedby="pay-room-reason" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Add a contact</button>
 </div>
-<div class="pay-block">
-<h3 class="pay-section-title">Saved contacts</h3>
-<p class="pay-empty">No saved contacts.</p>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" aria-describedby="pay-room-reason" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Add a contact</button>
+</section>
+<section id="pay-room-groups" aria-labelledby="pay-room-groups-title">
+<h2 id="pay-room-groups-title">Groups</h2>
+<p class="lt-hint">No groups.</p>
+<div class="lt-actions">
+<button disabled="" aria-describedby="pay-room-reason" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">New group</button>
 </div>
-<div class="pay-block">
-<h3 class="pay-section-title">Groups</h3>
-<p class="pay-empty">No groups.</p>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" aria-describedby="pay-room-reason" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">New group</button>
+</section>
+<section id="pay-room-pools" aria-labelledby="pay-room-pools-title">
+<h2 id="pay-room-pools-title">Pools</h2>
+<p class="lt-hint">No pools.</p>
+<div class="lt-actions">
+<button disabled="" aria-describedby="pay-room-reason" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">New pool</button>
 </div>
-<div class="pay-block">
-<h3 class="pay-section-title">Pools</h3>
-<p class="pay-empty">No pools.</p>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" aria-describedby="pay-room-reason" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">New pool</button>
-</div>
-<div class="pay-reason" id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-04">
-<p class="pay-reason__title">Not connected</p>
-<p class="pay-reason__body">Saved contacts, groups and pools are not stored by any service. The list above is only the people this device has paid.</p>
-</div>
-<a class="pay-recent__link" href="/pay" data-testid="pay-room-back">Back to Pay</a>
+</section>
+<p>
+<a class="lt-tab" href="/pay" data-testid="pay-room-back">Back to Pay</a>
+</p>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<div id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-04">
+<p>
+<strong>Not connected</strong>
+</p>
+<p>Saved contacts, groups and pools are not stored by any service. The list above is only the people this device has paid.</p>
 </div>
 </section>
 </div>
+</div>
+</div>
+<div class="lit-toasts" role="status" aria-live="polite" data-slot="toast-region">
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">

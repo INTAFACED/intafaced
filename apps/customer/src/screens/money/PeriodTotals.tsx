@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../features/session/session';
-import { lineTotalsSchema, type LineTotal } from '../../features/money/contracts';
-import { LineTotals } from '../../features/money/StatementExtras';
+import { type LineTotal } from '../../features/money/contracts';
+import { LineTotals } from '../../features/money/LineTotals';
 import { dayStart, rangeProblem, type ActivityFilters } from './activity-filter';
 import { usePreferences } from '../../shared/preferences';
+import { BANK_STATEMENTS_TOTALS } from '@intafaced/contracts/bank-statements-procedures';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -28,7 +29,7 @@ export function PeriodTotals({ filters }: { filters: ActivityFilters }) {
     setRefused(null);
     if (!from || !to) return;
     let live = true;
-    void api.query('bank', 'statements.totals', { from, to }, lineTotalsSchema).then((result) => {
+    void api.call(BANK_STATEMENTS_TOTALS, { from, to }).then((result) => {
       if (!live) return;
       if (result.ok) setTotals(result.data.totals);
       else setRefused({ code: result.code ?? null, message: result.message });
@@ -41,7 +42,7 @@ export function PeriodTotals({ filters }: { filters: ActivityFilters }) {
   // A refusal (too many lines, the read unavailable) is shown with its code, never dropped.
   if (refused)
     return (
-      <p role="alert" className="error-text" data-testid="money-period-totals" data-code={refused.code ?? ''}>
+      <p role="alert" className="lt-error" data-testid="money-period-totals" data-code={refused.code ?? ''}>
         {refused.message}
       </p>
     );

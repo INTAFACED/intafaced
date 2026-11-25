@@ -4,10 +4,14 @@
  */
 import { z } from 'zod';
 import { AuthError } from '@intafaced/auth';
-import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { TradeError } from '../spot/types.js';
 import { answerKeys } from '../answer-keys.js';
 import { SignalError, type SignalDesk, type SignalWebhookView } from './signal-desk.js';
+import { signalWebhookFields, signalWebhookCreatedAnswer } from '@intafaced/contracts/trade-call-schemas';
+import { TRADE_SIGNALS_WEBHOOKS_CREATE } from '@intafaced/contracts/trade-signals-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tradeRefusal } from '../record-refusal.js';
 
 function signalTrpcError(error: unknown): unknown {
   if (error instanceof TRPCError) return error;
@@ -29,25 +33,9 @@ function signalTrpcError(error: unknown): unknown {
   return error;
 }
 
-/**
- * The answer schemas: each names every key its handler answers with (`answerKeys`) and checks no more than the
- * handler's own type, so a reply leaves exactly as it did before the schema was added.
- */
-const signalWebhookFields = {
-  webhookId: z.string(),
-  symbol: z.string(),
-  venueOwner: z.string(),
-  path: z.string(),
-  tokenPrefix: z.string(),
-  state: z.enum(['active', 'paused', 'ended']),
-  createdAt: z.string(),
-};
-
 const signalWebhooksAnswer = z.array(z.object(signalWebhookFields));
 answerKeys<SignalWebhookView[]>()(signalWebhooksAnswer);
 
-/** The new webhook with its token, shown once; null on a repeat of the same request. */
-const signalWebhookCreatedAnswer = z.object({ ...signalWebhookFields, token: z.string().nullable() });
 answerKeys<Awaited<ReturnType<SignalDesk['create']>>>()(signalWebhookCreatedAnswer);
 
 export function signalsRouter(desk?: SignalDesk) {
@@ -61,18 +49,11 @@ export function signalsRouter(desk?: SignalDesk) {
   }
   return router({
     webhooks: router({
-      create: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z
-            .object({
-              symbol: z.string().min(1).max(32),
-              venueOwner: z.string().min(1).max(64),
-              clientRequestId: z.string().min(1).max(120),
-            })
-            .strict(),
-        )
-        .output(signalWebhookCreatedAnswer)
-        .mutation(({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region))),
+      create: mountRecord(
+        TRADE_SIGNALS_WEBHOOKS_CREATE,
+        ({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region)),
+        tradeRefusal,
+      ),
       list: scopedProcedure('trade:read', { module: 'trade' })
         .output(signalWebhooksAnswer)
         .query(({ ctx }) => call((d) => d.list(ctx.principal))),

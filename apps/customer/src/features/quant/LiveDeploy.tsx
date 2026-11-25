@@ -12,6 +12,7 @@ import { liveDeployCopy } from './live-deploy-copy';
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 const REFUSALS = {
+  'quant.approval_required': 'approvalRequired',
   'quant.live_disabled': 'liveDisabled',
   'quant.live_plan_unsupported': 'planUnsupported',
   'trade.order_type_unsupported': 'typeUnsupported',
@@ -27,8 +28,9 @@ function refusalOf(failure: Failed): RefusalCode | null {
 }
 
 /**
- * The deploy wizard, opened from the Bots room at `/trade/bots/new?from=<strategyId>` (AL-live-02; J-algo-dev-06 #6 #7).
- * The compile check names each order the live runner can't place; the TEST funding line states the one move the
+ * The deploy wizard, opened from the Bots room at `/trade/bots/new?from=<strategyId>` (AL-live-02; J-algo-dev-06 #3 #6 #7).
+ * It says whether the account's second-approver rule holds the version back; the compile check names each order the live
+ * runner can't place; the TEST funding line states the one move the
  * person's own wallet would sign; Deploy asks svc-quant, which refuses while the platform's live switch is off and
  * writes nothing. Nothing here moves money or asks the wallet to sign.
  */
@@ -40,7 +42,7 @@ export function LiveDeployWizard({ path }: { path: string }) {
       title={t('title')}
       description={t('intro')}
       actions={
-        <a className="button button--secondary" href="/trade/bots?tab=paper">
+        <a className="lt-button lt-button-secondary" href="/trade/bots?tab=paper">
           {t('back')}
         </a>
       }
@@ -115,12 +117,18 @@ function VersionDeploy({ strategyId, version }: { strategyId: string; version: n
     if (!res.ok) setRefusal(res);
   }
   const live = status.resource.status === 'ready' ? status.resource.data.liveEnabled : null;
+  const approval = status.resource.status === 'ready' ? status.resource.data.approval : null;
   const shown = amount.trim();
   return (
     <section aria-label={t('checkTitle')}>
       {live !== null && (
         <p role="status" data-testid="quant-live-switch" data-live={live ? 'on' : 'off'}>
           {live ? t('liveOn') : t('liveOff')}
+        </p>
+      )}
+      {approval && (
+        <p data-testid="quant-live-approval" data-required={String(approval.required)} data-allowed={String(approval.allowed)}>
+          {!approval.required ? t('approvalOff') : approval.allowed ? t('approvalGiven', { version }) : t('approvalNeeded', { version })}
         </p>
       )}
       <Button variant="secondary" onClick={() => void runCheck()} disabled={checking} data-testid="quant-live-check-run">
@@ -200,7 +208,7 @@ function DeployRefusal({ failure }: { failure: Failed }) {
   const code = refusalOf(failure);
   if (!code) return <Failure result={failure} />;
   return (
-    <div data-testid="quant-deploy-refusal" data-code={code} className="failure" role="status">
+    <div data-testid="quant-deploy-refusal" data-code={code} className="lt-refusal" role="status">
       <h4>{t('refusedTitle')}</h4>
       <p>{t(REFUSALS[code])}</p>
     </div>

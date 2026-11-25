@@ -42,13 +42,70 @@
   min-block-size: var(--lit-legal-band-min-h);
 }
 
+/* ---- a room's own bar: first in the room, staying under the top bar's measured bottom edge (and the band's, when on) ---- */
+
+.lt-room-bar {
+  position: sticky;
+  inset-block-start: var(--a11y-obscured-top, var(--lit-topbar-h));
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  min-block-size: var(--lit-row-h);
+  background: var(--lit-page);
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-room[data-band] > .lt-room-bar {
+  inset-block-start: var(--a11y-obscured-top, calc(var(--lit-topbar-h) + var(--lit-legal-band-min-h)));
+}
+
+/* ---- the section's tab bar (RoomProps.section), under the title row on every template ---- */
+
+.lt-room-section {
+  min-inline-size: 0;
+}
+
 /* ---- title row, stale line ---- */
 
 .lt-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--lit-gap-item);
+}
+/* The title keeps a readable width: a room action too wide to sit beside it (a long link on a phone) moves under it,
+   never squeezes the title into a narrow column. */
+.lt-title-row > :first-child {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+}
+
+/* A section's title row that may run out of room (a phone): the title keeps a readable width and the actions move under
+   it, rather than both squeezing onto one line. */
+.lt-title-row-wrap {
+  flex-wrap: wrap;
+}
+.lt-title-row-wrap > :first-child {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+}
+/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it. */
+.lt-title-row-wrap > .lt-unbroken {
+  min-inline-size: max-content;
+}
+
+/* A figure that stays on one line (an amount beside a name); the name beside it wraps instead. */
+.lt-nowrap {
+  white-space: nowrap;
+}
+
+/* A room's action keeps its words on one line; the title column gives way, never the button's label. */
+.lt-room-action .lt-button {
+  white-space: nowrap;
 }
 
 .lt-title {
@@ -104,6 +161,8 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
   min-inline-size: 0;
+  /* Under the in-flight lane's order on a phone (below). */
+  order: 2;
 }
 
 .lt-region {
@@ -151,6 +210,16 @@
   display: none;
 }
 
+/* A room with nothing in its side column gives the main column the whole width, never an empty third. */
+.lt-grid-main-side:has(> .lt-col-side:empty) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A region whose part drew nothing (a banner with nothing to say) draws no empty box. */
+.lt-region:empty {
+  display: none;
+}
+
 .lt-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -189,11 +258,24 @@
   .lt-grid-flow {
     grid-template-columns: minmax(0, 40rem) minmax(17.5rem, 1fr);
   }
+  /* A ticket beside the work it makes (an order form beside its orders, on a tool desk). */
+  .lt-grid-ticket-work {
+    grid-template-columns: 22.5rem minmax(0, 1fr);
+  }
   .lt-grid-settings {
     grid-template-columns: 13.75rem minmax(0, 1fr) minmax(13.75rem, 18.75rem);
   }
+  /* A settings room whose section's tab bar sits above it and that has no index of its own: sections and explanation
+     take the two columns, never the index's narrow one. */
+  .lt-grid-settings:not(:has(> [data-region='index'])) {
+    grid-template-columns: minmax(0, 1fr) minmax(13.75rem, 18.75rem);
+  }
   .lt-grid-reading-toc {
     grid-template-columns: 13.75rem minmax(0, 45rem);
+  }
+  /* A page with no contents list: the article takes the reading column alone, not the contents list's column. */
+  .lt-grid-reading-toc:not(:has(> [data-region='toc'])) {
+    grid-template-columns: minmax(0, 45rem);
   }
   .lt-grid-reading-toc > [data-region='toc'] {
     position: sticky;
@@ -220,6 +302,13 @@
 }
 
 /* ---- the desk: explicit areas for every panel ---- */
+
+/* A desk screen sits straight in the app's main, with no page around it: its own gutter keeps the title and the panels
+   off the window's edge. A desk inside a page (a feature room) already has the page's. */
+.lt-room[data-template='desk']:not(.page .lt-room) {
+  padding-inline: var(--lit-gap-item);
+  padding-block-end: var(--lit-gap-section);
+}
 
 .lt-desk {
   display: grid;
@@ -259,11 +348,85 @@
       'pairs chart tape ticket'
       'pairs orders orders orders';
   }
+  /* A pro desk with no markets list (a tool desk: execution, terminal) gives that column back to the rest. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'])) {
+    grid-template-columns: minmax(0, 1fr) 16.25rem 18.75rem;
+    grid-template-areas:
+      'instrument instrument instrument'
+      'chart book ticket'
+      'chart tape ticket'
+      'orders orders orders';
+  }
+  /* A desk with no markets list, book or trades (options, OTC): the main area and the ticket, orders under them. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'], > [data-region='book'], > [data-region='tape'])) {
+    grid-template-columns: minmax(0, 1fr) 22.5rem;
+    grid-template-areas:
+      'instrument instrument'
+      'chart ticket'
+      'orders orders';
+  }
+  /* A desk whose main area has nothing to show (margin before sign-in): its ticket and orders share the width side by
+     side, never a wide empty column beside a narrow one. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'], > [data-region='book'], > [data-region='tape'], > [data-region='chart'])) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'instrument instrument'
+      'ticket orders';
+  }
+  /* A chart desk (the charts workbench): the charts and the markets list beside them, no book, trades or ticket. */
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> [data-region='book'], > [data-region='tape'], > [data-region='ticket'])
+    ) {
+    grid-template-columns: minmax(0, 1fr) 21.25rem;
+    grid-template-areas:
+      'instrument instrument'
+      'chart pairs'
+      'orders orders';
+  }
   .lt-desk[data-desk='simple'] {
     grid-template-columns: minmax(0, 1fr) 21.25rem;
     grid-template-areas:
       'instrument instrument'
       'chart ticket';
+  }
+}
+
+/* A chart desk (the charts workbench) on a computer is a working surface, as it was before Volt: drawn at the pro
+   density whatever the person's mode, each field's label beside its control, and its plot at the workbench's working
+   height (260 px), so the plot opens on the first screen and a study pane never squeezes the price pane to a sliver. On
+   a phone it keeps the kit's stacked fields. */
+@container room (min-width: 1024px) {
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    ) {
+    --lit-gap-section: 1rem;
+    --lit-gap-item: 0.5rem;
+    --lit-pad-panel: 0.875rem;
+    --lit-row-h: 2.5rem;
+    --lit-control-h: 2.25rem;
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    :is(.lt-toolbar, .lt-row)
+    > .lt-field:not(:has(> input:is([type='checkbox'], [type='radio']))) {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--lit-gap-item);
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    > [data-region='chart']
+    .lt-button {
+    min-block-size: var(--lit-control-h);
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    > [data-region='chart']
+    .lt-chart-stage {
+    min-block-size: 18.75rem;
   }
 }
 
@@ -329,6 +492,12 @@
 }
 .lt-ghost[data-ghost='text'] .lt-ghost-item {
   block-size: 1em;
+  /* A line of words has a width even where nothing around it gives one (a row's end, a figure beside its label). */
+  min-inline-size: 5em;
+}
+/* A figure still on its way is one figure line tall, so the figure takes its place without moving what is below. */
+.lt-figure > .lt-ghost[data-ghost='text'] .lt-ghost-item {
+  block-size: var(--lit-type-figure-line);
 }
 .lt-ghost[data-ghost='text'] .lt-ghost-item:last-child {
   inline-size: 70%;
@@ -345,7 +514,43 @@
 }
 .lt-ghost[data-ghost='keys'] .lt-ghost-item {
   flex: 1;
-  block-size: 3.5rem;
+  /* The keys' own height, so the keys take the placeholders' place without moving what is below. */
+  block-size: var(--lit-control-h);
+}
+
+/* A row of equal tiles, loading or loaded (Home's market cards): a fixed number of columns, two in a narrow room and
+   four from a mid-size one, each row at least one market tile tall (its name line, its trend line, its price line, the
+   change that falls under the price on a narrow tile, and its key), so the grid placeholders and the tiles take one
+   shape and nothing below moves when the data arrives. The placeholders are the kit's grid ghost, laid straight into
+   the row. */
+.lt-tiles {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(
+    calc(var(--lit-type-body-line) * 2 + 3.5rem + var(--lit-type-figure-line) + var(--lit-control-h) + var(--lit-gap-item) * 2),
+    auto
+  );
+}
+.lt-tiles > .lt-ghost {
+  display: contents;
+}
+.lt-tiles > .lt-ghost[data-ghost] .lt-ghost-item {
+  block-size: auto;
+}
+@container room (min-width: 640px) {
+  .lt-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* A hero region that reserves its height (Region's `reserve`): its content, the loading ghost or the loaded figure,
+   keeps room for the label row, the figure's ghost and the given hint lines, so nothing below it moves. */
+.lt-region[data-reserve] > * {
+  min-block-size: calc(
+    var(--lit-control-h) + var(--lit-type-hero-size) * 1.6 + var(--lt-reserve) * var(--lit-type-body-line) + (var(--lt-reserve) + 1) *
+      var(--lit-gap-item)
+  );
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -381,8 +586,23 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
 }
+/* A settings room's section index: each link a full-height target (WCAG 2.5.8), a plain list, never bullets. */
+.lt-grid-settings > [data-region='index'] :is(ul, ol) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lt-grid-settings > [data-region='index'] a {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.25rem;
+}
 @container room (min-width: 1024px) {
-  .lt-grid-settings > .lt-gate-area {
+  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column. */
+  .lt-grid-settings > [data-region='index'] .lt-tabs {
+    flex-direction: column;
+  }
+  .lt-grid-settings:has(> [data-region='index']) > .lt-gate-area {
     grid-column: 2 / -1;
   }
   .lt-grid-settings .lt-gate-cols {
@@ -484,6 +704,54 @@
   color: var(--lit-text-2);
 }
 
+/* A room's first state (FirstState): centred in a dashed well, with what the room is for and one action, so an
+   empty room reads as ready to use rather than unfinished. */
+.lt-empty[data-first] {
+  align-items: center;
+  justify-content: center;
+  gap: var(--lit-gap-item);
+  min-block-size: 14rem;
+  padding-block: var(--lit-gap-section);
+  padding-inline: var(--lit-pad-panel);
+  border: 1px dashed var(--lit-line-strong);
+  background: var(--lit-solid-bg-sunken);
+  text-align: center;
+}
+
+.lt-empty[data-first] .lt-empty-body {
+  max-inline-size: 36rem;
+  text-align: center;
+}
+
+.lt-first-mark {
+  display: grid;
+  place-items: center;
+  inline-size: 3rem;
+  block-size: 3rem;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-accent-text);
+}
+
+.lt-first-points {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-first-points li {
+  padding-block: calc(var(--lit-gap-item) / 3);
+  padding-inline: var(--lit-gap-item);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
 .lt-ref {
   margin: 0;
   font-family: var(--lit-font-mono);
@@ -543,14 +811,82 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* A link is a whole 24 CSS pixel target at any root size (WCAG 2.5.8): an inline box ignores a minimum height, so it is
+     an inline block, and 1.5rem alone drew 21px under Pro's smaller root (summary.lt-link 88x21, look gate run 45057109047). */
+  display: inline-block;
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
 }
 
+/*
+ * A link's arrow: drawn, never typed. Volt's faces carry no arrow glyphs (→ ← ↗), so a typed one falls back to a system
+ * font. `<span class="lt-arrow lt-arrow-go" aria-hidden="true"></span>` after the words (go on), `lt-arrow-back` before
+ * them (go back), `lt-arrow-out` (opens elsewhere). It takes the text's colour and size; go and back point the reading
+ * way in a right-to-left language.
+ */
+.lt-arrow {
+  display: inline-block;
+  inline-size: 1em;
+  block-size: 1em;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  mask: var(--lt-arrow-shape) center / contain no-repeat;
+  -webkit-mask: var(--lt-arrow-shape) center / contain no-repeat;
+}
+.lt-arrow-go {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 11h12.2l-5.6-5.6L12 4l8 8-8 8-1.4-1.4 5.6-5.6H4z'/%3E%3C/svg%3E");
+}
+.lt-arrow-back {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z'/%3E%3C/svg%3E");
+}
+.lt-arrow-out {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 5h12v12h-2V8.4L6.4 19 5 17.6 15.6 7H7z'/%3E%3C/svg%3E");
+}
+/* Up and down, beside a change: a triangle that points the way the figure moved (never colour alone). */
+.lt-arrow-up {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5l8 13H4z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
+}
+.lt-arrow-down {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19L4 6h16z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
+}
+.lt-arrow-go:dir(rtl),
+.lt-arrow-back:dir(rtl) {
+  transform: scaleX(-1);
+}
+
+/* A link that stands on its own (back to the section, on to the next page): a whole touch target, not a line of text. */
+.lt-link-alone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  /* WCAG 2.5.8's 24 CSS pixels whatever the root size (1.5rem alone drew 22px on /developers/hosts, look gate on ae2755c). */
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
+}
+
+/* Text written with its own line breaks (published terms, a plain-text section): the breaks show, long lines still wrap. */
 .lt-actions,
 .lt-equal {
   display: flex;
   gap: var(--lit-gap-item);
   flex-wrap: wrap;
+}
+
+/* A field and the one button that acts on it (search, check): the field takes the row, the button sits on its
+   baseline, beside it on a computer and under it when the row is too narrow. */
+.lt-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  align-items: flex-end;
+}
+
+.lt-field-row > .lit-field-control {
+  flex: 1 1 16rem;
 }
 
 /* Equal weight: same size, style and level. */
@@ -575,6 +911,13 @@
   font-weight: var(--lit-type-hero-weight);
   letter-spacing: var(--lit-type-hero-tracking);
 }
+/* On a phone the hero figure shrinks with the room, so a price like $65,403.57 stays on one line beside its controls. */
+@container room (max-width: 599px) {
+  .lt-figure-hero {
+    font-size: min(var(--lit-type-hero-size), 11cqi);
+    line-height: 1.1;
+  }
+}
 
 .lt-test {
   display: inline-block;
@@ -593,6 +936,65 @@
   font-family: var(--lit-font-mono);
   direction: ltr;
   unicode-bidi: isolate;
+  /* An address, key or account ID has no spaces: it breaks anywhere rather than spill out of its box on a phone. */
+  overflow-wrap: anywhere;
+}
+/* Code inside a mono block keeps the kit's mono face, not the browser's own `monospace`. */
+.lt-mono :where(code, kbd, samp, pre) {
+  font-family: inherit;
+}
+
+/* Words a person wrote (a post, a message) keep their own line breaks, and a long word or link breaks rather than
+   widening the room. */
+.lt-pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A picture in a room (a posted image, a shared card) fits the room's width, keeps its shape, and is never taller than
+   most of a screen. */
+.lt-media {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: 30rem;
+  block-size: auto;
+  object-fit: contain;
+}
+
+/* A live camera preview of the person (a selfie): shown as a mirror, as a person expects to see themself. */
+.lt-media[data-mirror] {
+  transform: scaleX(-1);
+}
+
+/* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
+   and scrolls inside its own box. A compared line carries data-op; its + or − mark says the change, the tone repeats it. */
+.lt-code {
+  margin: 0;
+  padding-block: var(--lit-gap-item);
+  padding-inline: var(--lit-gap-item);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-family: var(--lit-font-mono);
+  direction: ltr;
+  unicode-bidi: isolate;
+  background: var(--lit-solid-bg-raised);
+  border-radius: var(--lit-radius-control);
+}
+/* A block of code is a tile, not a control: the control's pill radius drew a tall block as an ellipse that cut off the
+   first and last characters of its lines (the API explorer's request, J-developer-15 #7). */
+pre.lt-code {
+  border-radius: var(--lit-radius-tile);
+}
+.lt-code [data-op='removed'] {
+  color: var(--lit-down-text);
+}
+.lt-code [data-op='added'] {
+  color: var(--lit-up-text);
+}
+
+/* A long unbroken value (a hash, a signature, a body) breaks anywhere rather than run off a phone's edge. */
+.lt-wrap {
+  overflow-wrap: anywhere;
 }
 
 .lt-receipt,
@@ -670,7 +1072,7 @@
   flex-direction: column;
 }
 
-.lt-kv > div {
+.lt-kv > :is(div, section) {
   display: flex;
   justify-content: space-between;
   gap: var(--lit-gap-item);
@@ -681,6 +1083,18 @@
 
 .lt-kv dt {
   color: var(--lit-text-2);
+}
+
+/* A labelled row whose value is a paragraph (a published text section): its heading reads as the row's label. */
+.lt-kv > section > :is(h2, h3, h4) {
+  margin: 0;
+  font: inherit;
+  color: var(--lit-text-2);
+}
+
+.lt-kv > section > p {
+  margin: 0;
+  text-align: end;
 }
 
 .lt-kv dd {
@@ -707,14 +1121,8 @@
 
 /* ---- In-flight lane: under the body on a phone (the shell's dock sits below it), at the top on a computer ---- */
 
-.lt-body {
-  order: 2;
-}
 .lt-inflight {
   order: 3;
-}
-
-.lt-inflight {
   background: var(--lit-solid-bg-raised);
   border: 1px solid var(--lit-line);
   border-radius: var(--lit-radius-tile);
@@ -794,6 +1202,10 @@
   font-weight: 600;
   white-space: nowrap;
 }
+/* A chip that is a control (a status chip that opens its details) is 24 px tall to touch (WCAG 2.5.8). */
+:is(button, a).lt-chip {
+  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 counts 24 CSS pixels; a rem is smaller at the root here */
+}
 
 .lt-chip-mark {
   inline-size: 0.5rem;
@@ -825,16 +1237,79 @@
   border-style: dashed;
 }
 
+/* Freshness of a polled read: live is a filled dot, stale a ring, unknown dashed, refused a turned square. */
+.lt-chip[data-freshness='live'] {
+  color: var(--lit-accent-text);
+}
+.lt-chip[data-freshness='live'] .lt-chip-mark {
+  background: currentColor;
+}
+.lt-chip[data-freshness='stale'] {
+  color: var(--lit-status-stale);
+}
+.lt-chip[data-freshness='unknown'] {
+  color: var(--lit-text-2);
+}
+.lt-chip[data-freshness='unknown'] .lt-chip-mark {
+  border-style: dashed;
+}
+.lt-chip[data-freshness='refused'] {
+  color: var(--lit-status-failed);
+}
+.lt-chip[data-freshness='refused'] .lt-chip-mark {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+/* How far a piece of work has come, as a short bar beside its figure (the figure carries the meaning). */
+.lt-meter {
+  inline-size: 4rem;
+  block-size: 0.375rem;
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  background: var(--lit-solid-bg-raised);
+  overflow: hidden;
+}
+.lt-meter::-webkit-meter-bar {
+  background: var(--lit-solid-bg-raised);
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+}
+.lt-meter::-webkit-meter-optimum-value {
+  background: var(--lit-accent);
+}
+.lt-meter::-moz-meter-bar {
+  background: var(--lit-accent);
+}
+
+.lt-chip-when {
+  color: var(--lit-text-2);
+  font-weight: 400;
+}
+
+/* A row of tabs is one line at every width (issue 10303): wrapped, a section's ten rooms stacked four rows of pills over a
+   phone's first screen. A longer row scrolls sideways, its scroll bar hidden, and fades at its far end until it is
+   scrolled there (lt-scroll-row's timeline), so a cut tab reads as "more"; Tabs scrolls the lit tab into view. */
 .lt-tabs {
   display: flex;
+  flex-wrap: nowrap;
   gap: calc(var(--lit-gap-item) / 2);
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
+  /* Room above and below for a tab's focus ring inside the scrolling box, which would clip it, without moving the row.
+     Not at the sides: a row at the screen's edge would then reach past it. */
+  padding-block: 0.25rem;
+  margin-block: -0.25rem;
+  animation: lt-tabs-more linear both;
+  animation-timeline: scroll(self inline);
 }
-/* A row that scrolls (tabs, a room's section index: add lt-scroll-row) fades at its far end until it is scrolled
-   there, so a cut tab reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row
-   that fits never fades. */
-.lt-tabs,
+[dir='rtl'] .lt-tabs {
+  animation-name: lt-tabs-more-rtl;
+}
+/* A row that scrolls (a room's section index: add lt-scroll-row) fades at its far end until it is scrolled there, so a
+   cut link reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row that fits never
+   fades. */
 .lt-scroll-row {
   animation: lt-tabs-more linear both;
   animation-timeline: scroll(self inline);
@@ -848,7 +1323,6 @@
     mask-image: none;
   }
 }
-[dir='rtl'] .lt-tabs,
 [dir='rtl'] .lt-scroll-row {
   animation-name: lt-tabs-more-rtl;
 }
@@ -862,7 +1336,10 @@
   }
 }
 
+/* A tab keeps its whole name: the row scrolls instead (the 24 px target floor would otherwise let it shrink under
+   its words, so the names overlap). */
 .lt-tab {
+  flex: none;
   display: inline-flex;
   align-items: center;
   min-block-size: var(--lit-control-h);
@@ -870,14 +1347,134 @@
   border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
   color: var(--lit-text-2);
   text-decoration: none;
-  white-space: nowrap;
   border: 1px solid var(--lit-line);
+  /* A tab keeps its width and its one line, never squeezing over its neighbour: the row scrolls instead (.lt-tabs). */
+  flex-shrink: 0;
+  white-space: nowrap;
+  text-align: center;
 }
 
-.lt-tab[aria-current='page'] {
+.lt-tab[aria-current='page'],
+.lt-tab[aria-pressed='true'],
+.lt-tab[aria-selected='true'] {
   color: var(--lit-text-1);
   background: var(--lit-solid-bg-raised);
   border-color: var(--lit-control-rim-active);
+}
+
+/* In-page tabs are buttons: the same pill, no button chrome of their own. */
+button.lt-tab {
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.lt-tab:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+/* A desk ticket's order-type tabs wrap inside the narrow ticket column instead of fading off after two tabs. */
+.lt-desk > [data-region='ticket'] .lt-tabs {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  animation: none;
+  mask-image: none;
+}
+
+.lt-desk > [data-region='ticket'] .lt-tab {
+  min-block-size: 2rem;
+  padding-inline: var(--lit-gap-item);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  padding-block-start: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+
+.lt-tab-panel:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+/* ---- select: a button that opens a list ---- */
+.lt-select {
+  position: relative;
+  min-inline-size: 0;
+}
+
+.lt-select-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  min-block-size: var(--lit-control-h);
+  padding-inline: var(--lit-gap-item);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.lt-select-button:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-select-button:disabled {
+  color: var(--lit-text-3);
+  cursor: not-allowed;
+}
+
+.lt-select-mark {
+  flex: none;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.lt-select-list {
+  position: absolute;
+  z-index: 10;
+  inset-inline: 0;
+  inset-block-start: calc(100% + 0.25rem);
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  max-block-size: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-shadow);
+}
+
+.lt-select-list [role='option'] {
+  padding-block: 0.5rem;
+  padding-inline: var(--lit-gap-item);
+  border-radius: calc(var(--lit-radius-control) - 0.25rem);
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+
+.lt-select-list [role='option'][aria-selected='true'] {
+  color: var(--lit-text-1);
+  font-weight: 600;
+}
+
+.lt-select-list [role='option'][data-active] {
+  background: var(--lit-solid-bg);
+  color: var(--lit-text-1);
 }
 
 .lt-sheet {
@@ -890,6 +1487,8 @@
   padding: var(--lit-pad-panel);
   inline-size: min(100vw - 1rem, 30rem);
   max-block-size: 85vh;
+  /* a line brought into view inside the sheet (apps/customer shared/reveal.ts) stops clear of its edge, never cut by it */
+  scroll-padding-block: var(--lit-pad-panel);
 }
 
 .lt-sheet::backdrop {
@@ -908,10 +1507,46 @@
   font-size: var(--lit-type-heading-size);
 }
 
+/* The sheet's content, a column at the item gap under its head. */
+.lt-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  margin-block-start: var(--lit-gap-item);
+}
+
+.lt-dialog {
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+  padding: var(--lit-pad-panel);
+  inline-size: min(100vw - 1rem, 34rem);
+  max-block-size: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.lt-dialog::backdrop {
+  background: var(--lit-scrim);
+}
+
+.lt-dialog .lt-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding-block-start: var(--lit-gap-item);
+}
+
 .lt-table {
   inline-size: 100%;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
+}
+
+/* Cells wrap at word breaks when the columns need it, even inside an old room whose styles hold a heading on one line,
+   so the table stays inside its card; a table that must not wrap scrolls in its own region (lt-table-scroll). */
+.lt-table :is(th, td) {
+  white-space: normal;
 }
 
 .lt-table th {
@@ -934,11 +1569,72 @@
   text-align: end;
 }
 
+/* Words, not figures: a last column of prose reads from its start, even inside an old room whose tables end-align it. */
+.lt-table [data-align='start'] {
+  text-align: start;
+}
+
+/* Tall rows (a label beside a long list): align cells to the top of the row instead of centring the label off-screen. */
+.lt-table [data-valign='top'] {
+  vertical-align: top;
+  padding-block: var(--lit-gap-item);
+}
+
 .lt-table tr[data-selected] td {
   background: var(--lit-solid-bg-raised);
 }
 
+/* A pickable row (a grid) is one Tab stop: it shows its focus and reads as clickable. */
+.lt-table[role='grid'] tbody tr[data-row] {
+  cursor: pointer;
+}
+
+.lt-table[role='grid'] tbody tr[data-row]:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: -2px;
+}
+
+/* A table's naming cell: an icon beside a name with, under it, a hint, kept to one row's height (never wraps the icon
+   under the name). */
+.lt-cell-name {
+  display: flex;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+.lt-cell-name > :last-child {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  line-height: 1.25;
+}
+
+/* A table wider than its region (Pro's extra columns) scrolls inside its own region, keyboard-reachable, rather than wrap
+   its rows onto two lines or widen the room. On a phone the table stacks, so nothing scrolls. */
+.lt-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  /* The containing block of the table's positioned parts (a screen-reader label), so none reaches past the box and
+     widens the page. */
+  position: relative;
+}
+.lt-table-scroll:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+@container room (min-width: 600px) {
+  .lt-table-scroll .lt-table :is(th, td) {
+    white-space: nowrap;
+  }
+  .lt-table-scroll .lt-table .lt-actions {
+    flex-wrap: nowrap;
+  }
+}
+
 .lt-row-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.75rem;
   color: inherit;
   text-decoration: none;
 }
@@ -946,6 +1642,85 @@
 .lt-row-link:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 2px;
+}
+
+/*
+ * A record row that is one link across its whole row (a holding, a space, a service): `data-span="row"` on the link. A
+ * leading mark (a lettered `.lt-person-face`), then the record's `.lt-lines` taking the room, then its figures
+ * (`data-part="figures"`) at the end, then the arrow. On a phone the figures drop to their own line under the name.
+ */
+.lt-row-link[data-span='row'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  min-block-size: var(--lit-row-h);
+}
+
+.lt-row-link[data-span='row'] > * {
+  flex: none;
+}
+
+.lt-row-link[data-span='row'] > .lt-lines {
+  flex: 1 1 10rem;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(var(--lit-gap-item) / 4);
+  min-inline-size: min(100%, 16rem);
+  text-align: end;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] > .lt-kv {
+  align-self: stretch;
+}
+
+.lt-row-link[data-span='row'] > .lt-arrow {
+  align-self: center;
+  color: var(--lit-text-2);
+}
+
+@container room (max-width: 599px) {
+  .lt-row-link[data-span='row'] > [data-part='figures'] {
+    order: 1;
+    flex-basis: 100%;
+  }
+}
+
+/* Table: a sortable header. */
+.lt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lt-sort:focus-visible {
+  outline: 0.125rem solid var(--lit-focus);
+  outline-offset: 0.125rem;
+}
+
+.lt-sort-mark {
+  font-size: var(--lit-type-micro-size);
+}
+
+.lt-table tr[data-empty] td {
+  block-size: auto;
+  padding-block: var(--lit-gap-item);
+}
+
+/* A long table's undrawn rows: one spacer above and one below hold their height (the cell carries its size). */
+.lt-table tr[data-spacer] td {
+  padding: 0;
+  border: 0;
 }
 
 /* Phone: each row becomes a stacked block, each value under its own label. */
@@ -956,6 +1731,14 @@
     block-size: 1px;
     overflow: hidden;
     clip-path: inset(50%);
+  }
+  /* The hidden header's names one under another, each as wide as its own words, so its row never reaches past a
+     phone's width and no name spills out of its own box. */
+  .lt-table thead tr {
+    display: block;
+  }
+  .lt-table thead th {
+    display: inline-block;
   }
   .lt-table,
   .lt-table tbody,
@@ -979,6 +1762,117 @@
   .lt-table td::before {
     content: attr(data-label);
     color: var(--lit-text-2);
+  }
+  /* A stacked row's naming cell heads its block, without the header row's rule under it. */
+  .lt-table:has(td[data-label]) tbody th {
+    display: block;
+    border: 0;
+    padding-inline: 0;
+  }
+  /* A table's caption reads across the phone above its stacked rows, never squeezed into one narrow column. */
+  .lt-table caption {
+    display: block;
+    text-align: start;
+  }
+  /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+  .lt-table tr[data-empty] td {
+    display: block;
+    text-align: center;
+  }
+}
+
+/* A table in a column too narrow for its columns at any width (a reading page's many-column catalogue) asks to stack
+   always, with `data-stack="always"`: the same labelled rows as on a phone. */
+.lt-table[data-stack='always'] thead {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+/* The hidden header's names one under another, each as wide as its own words, so its row never reaches past a
+   phone's width and no name spills out of its own box. */
+.lt-table[data-stack='always'] thead tr {
+  display: block;
+}
+.lt-table[data-stack='always'] thead th {
+  display: inline-block;
+}
+.lt-table[data-stack='always'],
+.lt-table[data-stack='always'] tbody,
+.lt-table[data-stack='always'] tr,
+.lt-table[data-stack='always'] td {
+  display: block;
+}
+.lt-table[data-stack='always'] tr {
+  padding-block: var(--lit-gap-item);
+  border-block-end: 1px solid var(--lit-line);
+}
+.lt-table[data-stack='always'] td {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  block-size: auto;
+  min-block-size: 1.75rem;
+  border: 0;
+  padding-inline: 0;
+}
+.lt-table[data-stack='always'] td::before {
+  content: attr(data-label);
+  color: var(--lit-text-2);
+}
+.lt-table[data-stack='always']:has(td[data-label]) tbody th {
+  display: block;
+  border: 0;
+  padding-inline: 0;
+}
+.lt-table[data-stack='always'] caption {
+  display: block;
+  text-align: start;
+}
+/* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+.lt-table[data-stack='always'] tr[data-empty] td {
+  display: block;
+  text-align: center;
+}
+
+/* A table with a header row whose cells carry no label (`data-label`) can't say which value is which once stacked: on a
+   phone it keeps its header and columns, and its cells wrap (long words break) so it stays inside the phone's width.
+   (The kit's Table labels every cell; this holds a hand-written `lt-table`.) */
+@container room (max-width: 599px) {
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) {
+    display: table;
+    table-layout: auto;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead {
+    position: static;
+    display: table-header-group;
+    inline-size: auto;
+    block-size: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead tr,
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody tr {
+    display: table-row;
+    padding-block: 0;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody {
+    display: table-row-group;
+  }
+  /* Words wrap even where an old room's styles hold a heading on one line, so the table stays on the phone. */
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) :is(th, td) {
+    display: table-cell;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td {
+    block-size: var(--lit-row-h);
+    padding-inline: var(--lit-gap-item);
+    border-block-end: 1px solid var(--lit-line);
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td::before {
+    content: none;
   }
 }
 
@@ -1005,6 +1899,76 @@
   stroke: var(--lit-down);
 }
 
+/* Sparkline: a card's small trend line; in a table row, a shorter and fixed-width one. */
+.lt-spark svg {
+  block-size: 3.5rem;
+}
+
+.lt-spark[data-size='row'] {
+  inline-size: 7.5rem;
+}
+
+.lt-spark[data-size='row'] svg {
+  block-size: 2rem;
+}
+
+/* QrCode: a scanner needs dark on light in every theme, so the ground and the modules are the kit's one fixed pair. */
+.lt-qr {
+  margin: 0;
+  inline-size: 100%;
+  max-inline-size: 13rem;
+  display: grid;
+  gap: var(--lit-gap-item);
+}
+.lt-qr[data-size='sm'] {
+  max-inline-size: 11rem;
+}
+.lt-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  border-radius: var(--lit-radius-tile);
+  forced-color-adjust: none;
+}
+.lt-qr-ground {
+  fill: white; /* look-drift-allow: a QR code needs a fixed light ground for scanners in every theme; no role token stays light in both schemes */
+}
+.lt-qr-modules {
+  fill: black; /* look-drift-allow: a QR code needs fixed dark modules for scanners in every theme; no role token stays dark in both schemes */
+}
+.lt-qr-value {
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.lt-qr-failed {
+  margin: 0;
+  color: var(--lit-warn-text);
+}
+
+/* Candles: rise in the up role, fall in the down role; the wick keeps its width however the chart stretches. */
+.lt-candle line {
+  stroke-width: 1;
+}
+.lt-candle[data-rising='true'] {
+  stroke: var(--lit-up);
+  fill: var(--lit-up);
+}
+.lt-candle[data-rising='false'] {
+  stroke: var(--lit-down);
+  fill: var(--lit-down);
+}
+.lt-candle rect {
+  stroke: none;
+}
+.lt-candles figcaption,
+.lt-candles-empty {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
 .lt-chart-area {
   fill: var(--lit-accent-deep);
   opacity: 0.6;
@@ -1027,8 +1991,137 @@
   fill: var(--lit-accent);
 }
 
+/* Coverage: a time window's track, its covered ranges lit and its gaps left dark. */
+.lt-coverage {
+  position: relative;
+  block-size: 0.75rem;
+  background: var(--lit-secondary-bg);
+  border-radius: calc(var(--lit-radius-control) / 3);
+  overflow: hidden;
+}
+
+.lt-coverage > span {
+  position: absolute;
+  inset-block: 0;
+  background: var(--lit-accent);
+}
+
+/* TimeLine: a line placed by time; the zero line dashed, the cursor and the readout over the plot. */
+.lt-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+.lt-timeline-plot {
+  position: relative;
+  border-radius: var(--lit-radius-control);
+}
+
+.lt-timeline-plot:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-timeline svg {
+  block-size: 15rem;
+  touch-action: pan-y;
+  stroke-linejoin: round;
+}
+
+.lt-timeline-dot {
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.lt-timeline-zero {
+  stroke: var(--lit-line-strong);
+  stroke-dasharray: 6 6;
+}
+
+.lt-timeline-cursor {
+  stroke: var(--lit-line-strong);
+}
+
+.lt-timeline-readout {
+  position: absolute;
+  inset-block-start: calc(var(--lit-gap-item) / 2);
+  inset-inline-start: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: calc(var(--lit-gap-item) / 4) calc(var(--lit-gap-item) / 2);
+  border: 1px solid var(--lit-line);
+  border-radius: calc(var(--lit-radius-control) / 2);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  pointer-events: none;
+}
+
+.lt-timeline-readout:empty {
+  display: none;
+}
+
+.lt-timeline figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-timeline-empty {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
+/* ChartBox: a definite size for a library that draws into an element (the coin page's chart); whatever it holds fills it.
+   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. It clips to its
+   box with square corners: a library draws its axis labels into the corners, and a rounded clip (Volt's control radius
+   is a pill) cuts them. */
+.lt-chart-box {
+  position: relative;
+  display: grid;
+  inline-size: 100%;
+  min-inline-size: 0;
+  block-size: 22.5rem;
+}
+
+.lt-chart-canvas {
+  position: relative;
+  min-inline-size: 0;
+  color: var(--lit-accent);
+  overflow: hidden;
+}
+
+.lt-chart-canvas-host {
+  position: absolute;
+  inset: 0;
+}
+
 .lt-bar {
   fill: var(--lit-accent);
+}
+
+/* Bars: each bar's name and amount, in a column under its bar. */
+.lt-bars-key {
+  display: grid;
+  gap: var(--lit-gap-item);
+  margin-block-start: calc(var(--lit-gap-item) / 2);
+  text-align: center;
+}
+.lt-bars-key > span {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.lt-bars-name {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lt-bars-value {
+  font-variant-numeric: tabular-nums;
 }
 
 .lt-chart-refused {
@@ -1175,11 +2268,22 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-inline-size: 0;
 }
 
-.lt-field input:not([type='checkbox'], [type='radio']),
+/* A field that gives way in a narrow row wraps its words instead of running past its edge (/uc/recharge's filters, at
+   130% text on a phone). */
+.lt-field > span {
+  overflow-wrap: anywhere;
+}
+
+/* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
+   on a phone, or at twice the text size, never runs past the screen. */
+.lt-field input:not([type='checkbox'], [type='radio'], [type='file']),
 .lt-field select,
 .lt-field textarea {
+  inline-size: 100%;
+  min-inline-size: 0;
   min-block-size: var(--lit-control-h);
   padding-inline: var(--lit-gap-item);
   border: 1px solid var(--lit-line-strong);
@@ -1189,8 +2293,10 @@
   font: inherit;
 }
 
+/* A box of several lines keeps the tile's corners: the control's pill radius turns a tall box into an oval. */
 .lt-field textarea {
   padding-block: 0.5rem;
+  border-radius: var(--lit-radius-tile);
 }
 
 .lt-field :is(input, select, textarea):focus-visible {
@@ -1214,16 +2320,138 @@
   gap: 0.5rem;
 }
 
-/* The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
-   draws a tick as nothing: keep the browser's own control, sized, in the kit's accent. */
-.lt-field input:is([type='checkbox'], [type='radio']) {
-  appearance: auto;
+/* ---- the browser's own form controls, drawn by the kit (issue 10316) ----
+   The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
+   draws a tick as nothing, and the browser's own fieldset, file and date chrome reads as unfinished on Volt's black.
+   These rules draw them once for every room on the look, kit part or plain element alike. They match with the least
+   weight a type can have, so a room's own class still wins. */
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']) {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
   flex: none;
-  inline-size: 1rem;
-  block-size: 1rem;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
   margin: 0;
-  accent-color: var(--lit-accent);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: 0.3125rem;
+  background: var(--lit-solid-bg-raised);
+  vertical-align: middle;
   cursor: pointer;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='radio'] {
+  border-radius: 50%;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):is(:checked, :indeterminate) {
+  border-color: transparent;
+  background: var(--lit-accent-fill);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
+  content: '';
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  background: var(--lit-on-accent);
+  transform: scale(0);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='checkbox']::before {
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='checkbox']:indeterminate::before {
+  block-size: 0.125rem;
+  clip-path: none;
+  transform: none;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='radio']::before {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):checked::before {
+  transform: scale(1);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Forced colours paint over backgrounds, which would hide the tick: the browser's own box comes back there. */
+@media (forced-colors: active) {
+  :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']) {
+    appearance: auto;
+  }
+  :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
+    content: none;
+  }
+}
+
+/* A fieldset groups its controls; the browser's grooved white frame around it is not Volt's. A fieldset with no class of
+   its own stacks its fields with the item gap. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) fieldset:not([class]) {
+  display: grid;
+  gap: var(--lit-gap-item);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) legend {
+  padding: 0;
+}
+
+/* A file picker: its button is the kit's secondary button, the name of the file chosen beside it in the quiet text. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file'] {
+  max-inline-size: 100%;
+  color: var(--lit-text-2);
+  font: inherit;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file']::file-selector-button {
+  /* Sized by its padding, not the control height: a room may set its picker's own height, which clips a taller button. */
+  margin-inline-end: var(--lit-gap-item);
+  padding-block: 0.4375rem;
+  padding-inline: 1rem;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-1);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file']:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+/* A date or time box in the look's scheme: its digits in the page's text, its calendar mark readable on black. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
+  color-scheme: dark;
+  font-variant-numeric: tabular-nums;
+}
+
+:root:where([data-look='lit'][data-theme='light'])
+  :where(.if-app, [data-slot])
+  input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
+  color-scheme: light;
 }
 
 .lt-button:disabled {
@@ -1231,10 +2459,41 @@
   cursor: not-allowed;
 }
 
+/* The app's shared button, disabled: the dark off pill of the kit's own button, never a faded copy of its tone. A faded
+   light pill under the page's dark words fell under 4.5:1 once the page went pure black (look gate, #10890). */
+:where([data-look='lit']) .button:disabled {
+  opacity: 1;
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-2);
+  border-color: var(--lit-line-strong);
+}
+
+/* Code in the look's mono face, never the browser's own monospace. */
+:where([data-look='lit']) :where(code, kbd, samp) {
+  font-family: var(--lit-font-mono);
+}
+
 .lt-hint {
   margin: 0;
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
+}
+
+/* Sample output shown in place of what is not built yet: blurred, never read as a result. The element carries its own
+   text alternative (an aria-label that says it is sample data). */
+.lt-blurred {
+  filter: blur(0.125rem);
+}
+
+/* Secondary words at the size around them: the colour only. */
+.lt-muted {
+  color: var(--lit-text-2);
+}
+
+/* Figures that line up in a column: tabular digits, breaking anywhere rather than spilling out of their box. */
+.lt-num {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 /* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
@@ -1307,4 +2566,1017 @@
 .lt-person:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
+}
+
+/* ---- reading rooms: parts stacked in a slot, prose kept as written, a status page's day strip ---- */
+
+/* Parts one under another inside a slot (a card's lines, a form and its outcome). */
+.lt-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+
+/* ---- Dense parts: what a desk, a ticket or a table lays out inside its region. Generic: any room may use them. ---- */
+
+/* Columns and rows of parts. */
+.lt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-row-between {
+  justify-content: space-between;
+}
+.lt-row-end {
+  justify-content: flex-end;
+}
+.lt-row-nowrap {
+  flex-wrap: nowrap;
+}
+.lt-row-baseline {
+  align-items: baseline;
+}
+.lt-grow {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+.lt-cols-2 {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.lt-cols-3 {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* A panel inside a region: its head (title and tools on one line), then its body. */
+.lt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+}
+.lt-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-panel-title {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: 600;
+}
+.lt-scroll {
+  max-block-size: 24rem;
+  overflow: auto;
+}
+/* A short scroller under a working surface (a chart's drawings dock): it keeps the surface above it on the screen, at
+   one fixed height, so a row added inside (a drawing stored) never resizes the surface between two clicks on it. */
+.lt-scroll-short {
+  flex: none;
+  block-size: 14rem;
+  overflow: auto;
+}
+.lt-scroll-tall {
+  max-block-size: 40rem;
+  overflow: auto;
+}
+
+/* Words beside a control: quieter, smaller, and toned when they say something went well or wrong. */
+.lt-note {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+}
+.lt-note-bad {
+  color: var(--lit-error-text);
+}
+.lt-note-good {
+  color: var(--lit-up-text);
+}
+.lt-note-warn {
+  color: var(--lit-warn-text);
+}
+.lt-quiet {
+  color: var(--lit-text-2);
+}
+/* A line key: which drawn line is which, in the colour the chart draws it (a chart's moving averages read the same roles). */
+.lt-line-key {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+.lt-line-key > [data-line='1'] {
+  color: var(--if-ma-1);
+}
+.lt-line-key > [data-line='2'] {
+  color: var(--if-ma-2);
+}
+.lt-line-key > [data-line='3'] {
+  color: var(--if-ma-3);
+}
+.lt-small {
+  font-size: var(--lit-type-label-size);
+}
+.lt-label {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+}
+.lt-strong {
+  font-weight: 600;
+}
+.lt-up {
+  color: var(--lit-up-text);
+}
+.lt-down {
+  color: var(--lit-down-text);
+}
+.lt-end {
+  text-align: end;
+}
+
+/* A bordered aside for a notice inside a panel: an account hold, a refusal with its reason, a result. */
+.lt-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: var(--lit-gap-item);
+  border-inline-start: 0.125rem solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-callout-bad {
+  border-inline-start-color: var(--lit-down);
+}
+.lt-callout-good {
+  border-inline-start-color: var(--lit-up);
+}
+.lt-callout-warn {
+  border-inline-start-color: var(--lit-warn-text);
+}
+
+/* A square control holding one icon, with its name in aria-label. */
+.lt-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 2rem;
+  min-block-size: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--lit-radius-control);
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+.lt-icon-button:hover,
+.lt-icon-button[aria-pressed='true'],
+.lt-icon-button[data-popup-open] {
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-icon-button:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* A row of small choices (percent chips, intervals): each a button, pressed when chosen. */
+.lt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.lt-chips > button {
+  min-block-size: 1.75rem;
+  padding-inline: 0.625rem;
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  background: none;
+  color: var(--lit-text-2);
+  font: inherit;
+  font-size: var(--lit-type-label-size);
+  cursor: pointer;
+}
+.lt-chips > button[aria-pressed='true'],
+.lt-chips > button[aria-checked='true'],
+.lt-chips > button[data-active] {
+  border-color: var(--lit-accent);
+  color: var(--lit-text-1);
+}
+.lt-chips > button:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* A dense table: desk rows at the row height, figures to the end. */
+.lt-table-dense {
+  font-size: var(--lit-type-label-size);
+}
+.lt-table-dense td {
+  block-size: calc(var(--lit-row-h) * 0.75);
+}
+.lt-table-dense th,
+.lt-table-dense td {
+  padding-inline: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Price levels (an order book, a ladder): a dense grid of figures with a depth meter behind each row. */
+.lt-levels {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  font-size: var(--lit-type-label-size);
+  font-variant-numeric: tabular-nums;
+}
+.lt-level {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: 1.375rem;
+  padding-inline: 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: end;
+  cursor: pointer;
+}
+.lt-level > :first-child {
+  text-align: start;
+}
+.lt-level:hover {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-level-head {
+  color: var(--lit-text-2);
+  cursor: default;
+}
+.lt-level-head:hover {
+  background: none;
+}
+.lt-level > .lt-depth {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.lt-level > :not(.lt-depth) {
+  position: relative;
+  z-index: 1;
+}
+/* A native meter drawn as a flat, rounded bar from the end edge: depth behind a level, a share of a whole. */
+.lt-depth {
+  inline-size: 100%;
+  block-size: 100%;
+  appearance: none;
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  background: none;
+  overflow: hidden;
+  direction: rtl;
+  pointer-events: none;
+}
+.lt-depth::-webkit-meter-bar {
+  border: 0;
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  background: none;
+}
+.lt-depth::-webkit-meter-optimum-value,
+.lt-depth::-webkit-meter-suboptimum-value,
+.lt-depth::-webkit-meter-even-less-good-value {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-depth::-moz-meter-bar {
+  background: var(--lit-solid-bg-sunken);
+}
+.lt-depth-up::-webkit-meter-optimum-value,
+.lt-depth-up::-webkit-meter-suboptimum-value,
+.lt-depth-up::-webkit-meter-even-less-good-value {
+  background: color-mix(in srgb, var(--lit-up) 18%, transparent);
+}
+.lt-depth-up::-moz-meter-bar {
+  background: color-mix(in srgb, var(--lit-up) 18%, transparent);
+}
+.lt-depth-down::-webkit-meter-optimum-value,
+.lt-depth-down::-webkit-meter-suboptimum-value,
+.lt-depth-down::-webkit-meter-even-less-good-value {
+  background: color-mix(in srgb, var(--lit-down) 18%, transparent);
+}
+.lt-depth-down::-moz-meter-bar {
+  background: color-mix(in srgb, var(--lit-down) 18%, transparent);
+}
+.lt-depth-inline {
+  block-size: 0.375rem;
+  direction: ltr;
+}
+
+/* Stats in a line (an instrument strip's 24 h figures): a label over its figure. */
+.lt-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem var(--lit-gap-section);
+  margin: 0;
+}
+.lt-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.lt-stats dt {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A host for a drawn canvas (a chart library): it fills its region and keeps a usable height. */
+.lt-canvas {
+  position: relative;
+  min-block-size: 22rem;
+  inline-size: 100%;
+}
+.lt-canvas-short {
+  min-block-size: 12rem;
+}
+
+/* A desk arranged by the person: the order and widths the room passes (DeskTemplate `arrangement`). */
+@container room (min-width: 1024px) {
+  .lt-desk[data-desk='pro'][data-arranged] {
+    grid-template-columns: var(--lt-desk-columns);
+    grid-template-areas: var(--lt-desk-areas);
+  }
+}
+
+/* ---- working rooms: layout helpers, a desk with no markets, book or trades column, and the b3 controls ---- */
+
+/* A section's own heading inside a region. */
+.lt-heading {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+}
+
+/* A line of running text. */
+.lt-text {
+  margin: 0;
+}
+
+/* A line that says something needs attention (a blocked send, a mismatch); paired with role alert or status. */
+.lt-alert {
+  margin: 0;
+  color: var(--lit-warn-text);
+}
+
+/* A step of several parts, each under its own heading (a room's checks, forms and records in one column): the parts sit
+   a section apart with a line between them, so they read as one aligned column, never cards inside a card. On a list it
+   also drops the markers. */
+.lt-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-sections > * + * {
+  border-block-start: 1px solid var(--lit-line);
+  padding-block-start: var(--lit-gap-section);
+}
+
+/* A plain list of short rows (what a level unlocks): no markers, the kit's item gap. */
+.lt-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A list with a rule between its rows. */
+.lt-list-rule > li + li {
+  padding-block-start: 0.25rem;
+  border-block-start: 1px solid var(--lit-line);
+}
+
+/* Rules or points a room states in a list, bulleted. */
+.lt-points {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+/* A wide table that scrolls sideways inside its region rather than the page. */
+.lt-scroll-x {
+  overflow-x: auto;
+  min-inline-size: 0;
+}
+
+/* A decimal field with a unit: the input and its unit on one line. */
+.lt-field-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+.lt-field-row input {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  text-align: end;
+}
+
+.lt-field-unit {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* Table: a sortable header. */
+.lt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lt-sort:focus-visible {
+  outline: 0.125rem solid var(--lit-focus);
+  outline-offset: 0.125rem;
+}
+
+.lt-sort-mark {
+  font-size: var(--lit-type-micro-size);
+}
+
+.lt-table tr[data-empty] td {
+  block-size: auto;
+  padding-block: var(--lit-gap-item);
+}
+
+/* A chart's zero line, dashed and quiet, and the axis words at its two ends. */
+.lt-chart-zero {
+  stroke: var(--lit-line-strong);
+  stroke-dasharray: 6 6;
+}
+
+.lt-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* A group of controls under one name (a fieldset and its legend), with no box of its own. */
+.lt-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.lt-group > legend {
+  padding: 0;
+  margin-block-end: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* A decimal field's steppers (a tick up, a tick down) and its Max and BBO keys, after the unit. */
+.lt-field-steps {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.lt-field-steps > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.25rem;
+  block-size: 1rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+
+.lt-field-key {
+  flex: none;
+  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 counts 24 CSS pixels; a rem is smaller at the root here */
+  padding-inline: 0.625rem;
+  border: 0;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-solid-bg-sunken);
+  color: var(--lit-text-2);
+  font: inherit;
+  font-size: var(--lit-type-micro-size);
+  cursor: pointer;
+}
+
+.lt-field-key:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ---- overlay parts (components/controls.tsx; the dialog is the Sheet) and small generic layout ---- */
+
+/* A tight column: a control with its words, a short list of lines (half the item gap; lt-stack is the item gap). */
+.lt-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  min-inline-size: 0;
+}
+
+/* Words in a caution or a failure tone; never the only cue (the words say it too). */
+.lt-warn {
+  color: var(--lit-warn-text);
+}
+
+.lt-error {
+  color: var(--lit-error-text);
+}
+
+/* A sheet's buttons, at its end. */
+.lt-sheet-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--lit-gap-item);
+  margin-block-start: var(--lit-gap-item);
+}
+
+.lt-menu-layer {
+  z-index: 50;
+  outline: none;
+}
+
+.lt-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-inline-size: 12rem;
+  max-inline-size: min(26rem, calc(100vw - 2rem));
+  max-block-size: var(--available-height);
+  overflow-y: auto;
+  padding: var(--lit-gap-item);
+  background: var(--lit-solid-bg-raised);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-tile);
+  box-shadow: var(--lit-glass-shadow);
+  outline: none;
+}
+
+.lt-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+  min-block-size: var(--lit-control-h);
+  padding-block: 0.375rem;
+  padding-inline: var(--lit-gap-item);
+  border-radius: calc(var(--lit-radius-tile) / 2);
+  color: var(--lit-text-1);
+  cursor: pointer;
+  outline: none;
+}
+
+.lt-menu-item[data-highlighted] {
+  background: var(--lit-solid-bg-raised);
+}
+
+.lt-menu-item[data-disabled] {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* A dense desk select: the shorter control and the label type size. */
+.lt-select-button[data-size='sm'] {
+  min-block-size: 2rem;
+  font-size: var(--lit-type-label-size);
+}
+
+/* A headline figure: its label, the value, its hint and how fresh it is. */
+.lt-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--lit-gap-item) / 2);
+  min-inline-size: 0;
+}
+
+/* A desk's dense column or list: a quarter-rem gap, after lt-stack-tight and lt-list so it wins over theirs. */
+.lt-tight {
+  gap: 0.25rem;
+}
+
+/* A document that prints alone (a backtest's report, AL-report-03): printing while it is open prints it without the
+   app around it, on A4 pages (its own named page, so no other room's printing changes), no section split across two
+   pages, and its own lt-no-print parts (its Print button) left off the paper. */
+@page lt-print-alone {
+  size: A4;
+  margin: 1.5rem;
+}
+
+@media print {
+  /* Everything outside the document's own branch takes no room, so no blank page prints after it. Important, because an
+     element's own inline display (a portal or overlay root) would otherwise keep it on paper. */
+  body:has(.lt-print-alone) *:not(:has(.lt-print-alone)):not(.lt-print-alone, .lt-print-alone *) {
+    display: none !important;
+  }
+
+  /* Important, because another room's print sheet hides every element with an important rule while it is loaded. */
+  body:has(.lt-print-alone) .lt-print-alone,
+  body:has(.lt-print-alone) .lt-print-alone * {
+    visibility: visible !important;
+  }
+
+  /* Every box around the document is a plain block in the page's own flow: the browser keeps a named page only for a
+     box it reaches through in-flow blocks, so a desk's positioned or inline-level frame would drop it to the
+     printer's default paper. Important, because the frame's own rules (a grid area, a sticky pane) would win. */
+  body:has(.lt-print-alone),
+  body:has(.lt-print-alone) *:has(.lt-print-alone) {
+    display: block !important;
+    position: static !important;
+    float: none !important;
+  }
+
+  .lt-print-alone {
+    page: lt-print-alone;
+  }
+
+  .lt-print-alone section {
+    break-inside: avoid;
+  }
+
+  .lt-print-alone .lt-no-print {
+    display: none;
+  }
+}
+
+/* An outline row set in by its owner-set depth (a course item under a sub-heading): 0 to 2 steps. */
+.lt-indent[data-indent='1'] {
+  margin-inline-start: 1.5rem;
+}
+.lt-indent[data-indent='2'] {
+  margin-inline-start: 3rem;
+}
+
+/* A long text read start to end (a lesson's body): one type step above body text, with room between its lines; a code
+   block in it scrolls inside its own width, and a long word wraps rather than widen the page. */
+.lt-prose {
+  font-size: var(--if-text-md);
+  line-height: 1.625rem;
+}
+.lt-prose p:empty {
+  display: none;
+}
+.lt-prose :is(p, li) {
+  overflow-wrap: anywhere;
+}
+.lt-prose pre {
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
+
+/* A long list that scrolls in a box of its own (a video's transcript following playback), so the page keeps its place. */
+.lt-scroll-block {
+  max-block-size: 12rem;
+  overflow-y: auto;
+}
+
+/* Text an owner wrote with its own line breaks (a policy, a partner's terms), shown escaped as typed with its spaces
+   folded; .lt-pre-wrap keeps the spaces too and breaks a long word (a rulebook section, a postmortem, a message). */
+.lt-pre-line {
+  white-space: pre-line;
+}
+
+/* One mark per day, its state read from data-state; the words are the mark's title and the strip's label. */
+.lt-uptime {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+}
+.lt-uptime > li {
+  inline-size: 0.5rem;
+  block-size: 1.5rem;
+  border: 1px solid var(--lit-line);
+  border-radius: calc(var(--lit-radius-control) / 4);
+}
+.lt-uptime > [data-state='operational'] {
+  background: var(--lit-up);
+}
+.lt-uptime > :is([data-state='degraded'], [data-state='maintenance']) {
+  background: var(--lit-warn-text);
+}
+.lt-uptime > :is([data-state='partial_outage'], [data-state='major_outage']) {
+  background: var(--lit-down);
+}
+
+/* ---- sections that fold ---- */
+
+.lt-disclosure {
+  display: flex;
+  flex-direction: column;
+  border-block-start: 1px solid var(--lit-line);
+}
+
+.lt-disclosure-item {
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-disclosure-head {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  font-weight: var(--lit-type-heading-weight);
+}
+
+.lt-disclosure-head > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  inline-size: 100%;
+  min-block-size: var(--lit-control-h);
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.lt-disclosure-head > button::after {
+  content: '+';
+  color: var(--lit-text-2);
+}
+
+.lt-disclosure-head > button[aria-expanded='true']::after {
+  content: '−';
+}
+
+.lt-disclosure-head > button:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding-block-end: var(--lit-gap-item);
+}
+
+/* ---- a limit's use, and a sample of someone else's brand ---- */
+
+.lt-meter {
+  position: relative;
+  display: block;
+  block-size: calc(var(--lit-gap-item) / 1.5);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  overflow: hidden;
+}
+
+.lt-meter-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--lit-accent);
+}
+
+.lt-meter[data-full] .lt-meter-fill {
+  background: var(--lit-warn-text);
+}
+
+.lt-brand {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+}
+
+.lt-brand-logo {
+  max-block-size: 3rem;
+  max-inline-size: 10rem;
+  object-fit: contain;
+}
+
+.lt-brand-button {
+  display: inline-block;
+  inline-size: fit-content;
+  padding-block: calc(var(--lit-gap-item) / 2);
+  padding-inline: var(--lit-gap-item);
+  border-radius: var(--lit-radius-control);
+  background: var(--lt-brand, var(--lit-accent));
+  color: var(--lt-on-brand, var(--lit-text-1));
+}
+
+/* ---- doors: a short list of entry points to other rooms, each a card, as many to a row as fit ---- */
+
+.lt-doors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+.lt-doors > li > * {
+  block-size: 100%;
+}
+
+/* ---- a room's own plain markup in a slot: the kit's rhythm, never text run together ---- */
+
+/* Blocks a room writes as plain elements in a slot (a section, its heading, a paragraph, a list, a disclosure) sit
+   one gap apart. Only where their parent is the region or a plain element with no class: a kit part lays out its own
+   children. Inline parts (a button beside a button, a chip after a name) are never pushed apart here. */
+.lt-region
+  > :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure)
+  + :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure),
+.lt-region
+  :not([class])
+  > :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure)
+  + :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure) {
+  margin-block-start: var(--lit-gap-item);
+}
+
+/* A heading after other parts opens a new group: a section gap above it. */
+.lt-region > * + :is(h2, h3, h4),
+.lt-region :not([class]) > * + :is(h2, h3, h4) {
+  margin-block-start: var(--lit-gap-section);
+}
+
+/* Sections side by side in one slot read as separate groups: a section gap and a hairline between them. */
+.lt-region section:not(.lt-region) + section {
+  margin-block-start: var(--lit-gap-item);
+  padding-block-start: var(--lit-gap-section);
+  border-block-start: 1px solid var(--lit-line);
+}
+
+/* A settings room's sections (issue 10307): each group the room passes (a plain section, form, article or unclassed
+   div) is its own panel, a section gap apart, never one long panel of everything. The slot then draws no panel of its
+   own; a kit part beside them (a refusal, an action row) keeps its own look. A slot with no such group, or one that is
+   held, loading or locked, keeps its one panel. An empty block (a polite live line with nothing to say yet) stays in
+   place, unboxed, so it can still speak. */
+.lt-grid-settings
+  .lt-region[data-region='sections']:not([data-held], [data-holds-state]):has(
+    > :is(section, form, article, div:not([class])):not(:empty)
+  ):not(:has(> .lt-ghost, > .lt-locked)) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.lt-grid-settings .lt-region[data-region='sections']:not([data-held], [data-holds-state]):not(:has(> .lt-ghost, > .lt-locked)) > * {
+  margin: 0;
+}
+.lt-grid-settings
+  .lt-region[data-region='sections']:not([data-held], [data-holds-state]):not(:has(> .lt-ghost, > .lt-locked))
+  > :is(section, form, article, div:not([class])):not(:empty) {
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+}
+
+/* A plain list's items in a slot sit apart, each one its own line. */
+.lt-region :is(ul, ol):not([class]) > li + li {
+  margin-block-start: calc(var(--lit-gap-item) / 2);
+}
+
+/* ---- record rows: a list of records, one per row, each with its own stacked lines ---- */
+
+/* A list of records drawn as rows (a notification, an alert, a firing): no bullets, a line between rows, each row's
+   parts stacked. */
+.lt-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lt-rows > li {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  padding-block: var(--lit-gap-item);
+  border-block-end: 1px solid var(--lit-line);
+}
+
+/* ---- a printable sheet: one document the reader prints on its own (a certificate) ---- */
+
+/* Centred and framed on screen; when the page is printed, only the sheet shows, as ink on paper. */
+.lt-print-sheet {
+  display: grid;
+  gap: var(--lit-gap-item);
+  justify-items: center;
+  text-align: center;
+  padding: var(--lit-gap-section) var(--lit-pad-panel);
+  border: 2px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+  overflow-wrap: anywhere;
+}
+
+.lt-print-sheet :is(h2, h3, p) {
+  margin: 0;
+}
+
+@media print {
+  body:has(.lt-print-sheet) * {
+    visibility: hidden !important;
+  }
+  .lt-print-sheet,
+  .lt-print-sheet * {
+    visibility: visible !important;
+  }
+  .lt-print-sheet {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    border-color: CanvasText; /* look-drift-allow: print is ink on paper, the system's text colour whatever the scheme */
+    background: Canvas; /* look-drift-allow: print is ink on paper, the system's page colour whatever the scheme */
+    color: CanvasText; /* look-drift-allow: print is ink on paper, the system's text colour whatever the scheme */
+  }
+}
+
+/* One record on one line: a leading mark, the record's lines taking the room, and its end part (a time, a mark) kept
+   together at the end of the first line, never pushed under the words. */
+.lt-record-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  text-align: start;
+}
+
+.lt-record-line > .lt-lines {
+  flex: 1 1 auto;
+}
+
+.lt-record-line > [data-part='end'] {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+}
+
+/* A record's own lines, stacked: its name first, then each line under it. */
+.lt-lines {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 4);
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.lt-lines > :first-child {
+  font-weight: var(--lit-type-heading-weight);
+}
+
+/* A field's or a hint's words when they say what is wrong. */
+.lt-field small[data-part='error'],
+.lt-hint[data-part='error'] {
+  color: var(--lit-down-text);
 }

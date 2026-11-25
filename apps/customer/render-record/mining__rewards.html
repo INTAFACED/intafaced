@@ -97,32 +97,28 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Mining rewards</h1>
-<p class="muted">
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.scope">Your workers, shares and mining credits</span>
-</p>
+<h1 class="lt-title">Mining rewards</h1>
+<p class="lt-description">Your workers, shares and mining credits</p>
 </div>
 </header>
-<div class="more-grid">
-<div class="tabs" role="group" aria-label="Mining sections">
-<button type="button" class="" aria-pressed="false">Overview</button>
-<button type="button" class="" aria-pressed="false">Workers</button>
-<button type="button" class="" aria-pressed="false">Shares</button>
-<button type="button" class="selected" aria-pressed="true">Rewards</button>
-<button type="button" class="" aria-pressed="false">Pool status</button>
+<div class="lt-body">
+<div class="lt-toolbar">
+<section class="lt-region" data-region="filters">
+<div class="lt-tabs" role="group" aria-label="Mining sections">
+<button type="button" class="lt-tab" aria-pressed="false">Overview</button>
+<button type="button" class="lt-tab" aria-pressed="false">Workers</button>
+<button type="button" class="lt-tab" aria-pressed="false">Shares</button>
+<button type="button" class="lt-tab" aria-pressed="true">Rewards</button>
+<button type="button" class="lt-tab" aria-pressed="false">Pool status</button>
 </div>
-<div class="more-columns">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Rewards and payouts</h2>
-</header>
-<div class="if-panel__body">
-<dl class="depth-stats">
+</section>
+</div>
+<section class="lt-region" data-region="summary" aria-label="Summary">
+<div class="lt-stack">
+<dl class="lt-kv">
 <div>
 <dt>Paid to you</dt>
 <dd>Unknown</dd>
@@ -140,48 +136,45 @@
 <dd>Unknown</dd>
 </div>
 </dl>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="more.mining.depth.rewardsMethod">Method: each window’s reward, less the pool fee, is split in proportion to share weight (PPLNS, pay per last N shares). The fee rate and window size below come from the pool’s own settings.</span>
 </p>
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
-</div>
-<div class="depth-disabled">
-<button type="button" class="button button--primary" disabled="" aria-disabled="true">Export reward records</button>
-<p class="muted" role="note">Unavailable: the pool has no export of reward records.</p>
-</div>
 </div>
 </section>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Open windows</h2>
-</header>
-<div class="if-panel__body">
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div class="lt-grid lt-grid-list-detail">
+<section class="lt-region" data-region="list" aria-label="Records">
+<section class="lt-stack">
+<h2>Rewards and payouts</h2>
+<div lang="und">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</div>
+<div class="lt-stack">
+<div class="lt-actions">
+<button disabled="" aria-disabled="true" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Export reward records</button>
+</div>
+<p class="lt-hint" role="note">Unavailable: the pool has no export of reward records.</p>
+</div>
+</section>
+</section>
+<section class="lt-region" data-region="detail" aria-label="Details">
+<section class="lt-stack">
+<h2>Open windows</h2>
+<div lang="und">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 <p>
 <span lang="en" dir="ltr" data-i18n="more.mining.depth.rewardsDestinationBody">A paid window credits your account balance through the ledger. No external address is used.</span>
 </p>
-</div>
 </section>
-</div>
+</section>
 </div>
 </div>
 </div>

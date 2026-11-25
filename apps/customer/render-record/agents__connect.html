@@ -97,26 +97,21 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>
-<span lang="en" dir="ltr" data-i18n="more.agents.connect.title">Connect your assistant</span>
-</h1>
-<p class="muted">
-<span lang="en" dir="ltr" data-i18n="more.agents.connect.description">Let your own AI assistant trade on a capped account of yours that you can revoke.</span>
-</p>
+<h1 class="lt-title">Connect your assistant</h1>
+<p class="lt-description">Let your own AI assistant trade on a capped account of yours that you can revoke.</p>
 </div>
 </header>
-<div class="form-stack" data-testid="agent-connect">
-<a class="text-link" href="/agents">Agents</a>
-<section class="if-panel" data-live="false" data-testid="agent-connect__can">
-<header class="if-panel__header">
-<h2 class="if-panel__title">What your assistant can do</h2>
-</header>
-<div class="if-panel__body">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack" data-testid="agent-connect">
+<a class="lt-link" href="/agents">Agents</a>
+<section class="lt-stack" data-testid="agent-connect__can">
+<h2>What your assistant can do</h2>
 <ul>
 <li>Trade spot and perps in its own agent account, a separate venue account that is yours.</li>
 <li>Place orders only inside the caps you set on that account.</li>
@@ -131,17 +126,17 @@
 <li>Use cards</li>
 </ul>
 </section>
-<p class="muted">The most it can lose is what you move into its account. INTAFACED holds none of it.</p>
+<p class="lt-muted">The most it can lose is what you move into its account. INTAFACED holds none of it.</p>
+</section>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
 </div>
 </section>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+</div>
+<div class="lt-col-side">
 </div>
 </div>
 </div>

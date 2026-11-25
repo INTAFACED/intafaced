@@ -1,20 +1,29 @@
-import { myLeadSchema } from '../../screens/trade/copybots/api';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
+import { TRADE_COPY_MY_LEAD } from '@intafaced/contracts/trade-copy-records';
 
 /**
  * Whether the signed-in person is a listed lead, and so whether an order ticket shows the Lead trade switch
- * (J-copy-bots-otc-04 #4 to #7). Read from `copy.myLead`; anyone else, or a failed read, sees no switch.
+ * (J-copy-bots-otc-04 #4 to #7), and whether the trade jurisdiction blocks their region (J-cex-spot-04 #1).
+ * Read from `copy.myLead`; anyone else, or a failed read, sees no switch.
  */
-export function useLeadMode(): { readonly isLead: boolean; readonly instruments: readonly string[] } {
+export function useLeadMode(): {
+  readonly isLead: boolean;
+  readonly instruments: readonly string[];
+  readonly regionBlocked: boolean;
+  readonly regionReason: string | null;
+} {
   const { api, userId } = useSession();
   const { resource } = useResource(
-    (signal) =>
-      userId ? api.query('trade', 'copy.myLead', undefined, myLeadSchema, { signal }) : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(TRADE_COPY_MY_LEAD, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `lead-mode:${userId ?? 'out'}`,
   );
+  const regionBlocked = resource.status === 'failed' && resource.failure.code === 'denied.region_blocked';
+  const regionReason = regionBlocked ? resource.failure.message || null : null;
   const lead = resource.status === 'ready' ? resource.data : null;
-  return lead && lead.state === 'listed' ? { isLead: true, instruments: lead.instruments } : { isLead: false, instruments: [] };
+  return lead && lead.state === 'listed'
+    ? { isLead: true, instruments: lead.instruments, regionBlocked, regionReason }
+    : { isLead: false, instruments: [], regionBlocked, regionReason };
 }
 
 /**

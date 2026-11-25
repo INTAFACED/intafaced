@@ -28,6 +28,7 @@
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
  *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
+ *   GET  /api/v1/venue/arrivals?owner=                 the credits into the account from outside it: deposits and transfers in (J-portfolio-06 #3)
  *   GET  /api/v1/venue/deposit-routes                  how the venue takes each asset as a deposit, as it publishes it (J-wallet-24 #5 #6)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
@@ -73,8 +74,10 @@
  * `intafacedCode: trade.venue.<code>` and the venue's `refusal` (503 for `venue_down`); a step-up refusal 403.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { VenueMarginSamples } from './venue-margin-samples.js';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, StepUpCheckError } from '@intafaced/contracts';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts/edge';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import {
   VenueRefusalError,
   hasSubAccountReads,
@@ -92,6 +95,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
+import { refuseRetailPriceImprovement } from '../spot/rpi.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
@@ -130,6 +134,8 @@ export interface UserVenueRestDeps {
   agentKeyConfined?: (principal: Principal) => Promise<boolean>;
   /** The statement export on the venue's own records (J-cex-spot-07 #5); absent, its routes answer 503 `trade.statements_unmounted`. */
   venueStatements?: VenueStatements | null;
+  /** Keeps each margin summary the venue reports, for a founder's ratio history (J-derivatives-26 #8); null: none kept. `keep` never fails the read. */
+  marginSamples?: VenueMarginSamples | null;
   /**
    * Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5); absent, the
    * acknowledgement routes answer 503 `trade.venue_adl_acks_unmounted`.
@@ -424,6 +430,38 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
   );
 
+  // J-charts-desk-01: public venue markets and candles for the chart workbench, signed in or signed out.
+  // Door off refuses 404 trade.user_venue_off so the workbench falls back only when the venue door is switched off.
+  app.get<{ Querystring: Query }>('/api/v1/venue/chart-markets', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.chartMarkets(), req.query.venueId);
+  });
+  app.get<{ Querystring: Query & { symbol?: string; interval?: string; limit?: string; since?: string } }>(
+    '/api/v1/venue/chart-candles',
+    publicRead,
+    async (req, reply) => {
+      return answer(
+        reply,
+        async (d) => {
+          const interval = req.query.interval ?? '';
+          if (!isCandleInterval(interval)) throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+          const sinceRaw = req.query.since;
+          let since: Date | undefined;
+          if (sinceRaw !== undefined && sinceRaw !== '') {
+            since = new Date(sinceRaw);
+            if (Number.isNaN(since.getTime())) throw new VenueWireError('since must be an ISO time');
+          }
+          return d.chartCandles({
+            symbol: symbolOf(req.query.symbol),
+            interval,
+            limit: whole(req.query.limit, 'limit', UserVenueDoor.CHART_CANDLE_DEPTH, 240),
+            since,
+          });
+        },
+        req.query.venueId,
+      );
+    },
+  );
+
   // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.
   app.get<{ Querystring: Query & { base?: string; since?: string } }>('/api/v1/venue/funding-history', publicRead, async (req, reply) => {
     return answer(reply, async (d) => {
@@ -466,6 +504,28 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
   });
 
+  // J-cex-spot-14 #1 #2 #5 #6 #7: each market we show with the venue's own trading state, session, opening window, zone,
+  // our listing and upcoming maintenance beside them, signed in or not.
+  app.get<{ Querystring: Query }>('/api/v1/venue/market-states', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.marketStates(), req.query.venueId);
+  });
+
+  // J-cex-spot-14 #8: public venue depth book, tickers and spreads, signed in or not.
+  app.get<{ Querystring: MarketQuery & { depth?: string } }>('/api/v1/venue/public-book', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)), req.query.venueId);
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/tickers', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicTickers(), req.query.venueId);
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/spreads', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicSpreads(), req.query.venueId);
+  });
+
+  // J-cex-spot-14 #9: public market analytics from the venue's own trade tape; blank window refuses trade.analytics_window_unset.
+  app.get<{ Querystring: Query & { window?: string } }>('/api/v1/venue/analytics', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicAnalytics(symbolOf(req.query.symbol), req.query.window), req.query.venueId);
+  });
+
   // J-derivatives-31 #1: the vaults the venue lists, signed in or not, each with its lock-up, leader profit share, value and
   // past return as the venue publishes them (null: not published). A venue that lists none refuses not_offered.
   app.get<{ Querystring: Query }>('/api/v1/venue/vaults', publicRead, async (req, reply) => {
@@ -480,6 +540,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
             detail: `${venue.venue.displayName} lists no vaults`,
           });
         return venue.vaults();
+      },
+      req.query.venueId,
+    );
+  });
+
+  // J-cex-spot-21 #1: the venue's staking terms, signed in or not: its validators with their commission, stake and status,
+  // its reward rate, discount tiers, lock-up, queue and limit as it publishes them (null: not published).
+  app.get<{ Querystring: Query }>('/api/v1/venue/staking', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const venue = await d.venue();
+        if (!venue.staking)
+          throw new VenueRefusalError({
+            venueId: venue.venue.id,
+            code: 'not_offered',
+            detail: `${venue.venue.displayName} lists no staking`,
+          });
+        return venue.staking();
       },
       req.query.venueId,
     );
@@ -609,7 +688,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
     return raw;
   };
-  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string };
+  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string; since?: string };
   app.get<{ Querystring: MarketQuery }>('/api/v1/venue/book', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
     return answer(reply, async (d) => d.marketBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)));
@@ -624,29 +703,41 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       const interval = req.query.interval ?? '';
       if (!Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
         throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
-      return d.marketCandles(symbolOf(req.query.symbol), interval as VenueCandleInterval, whole(req.query.limit, 'limit', 500, 240));
+      const sinceRaw = req.query.since;
+      let since: Date | undefined;
+      if (sinceRaw !== undefined && sinceRaw !== '') {
+        since = new Date(sinceRaw);
+        if (Number.isNaN(since.getTime())) throw new VenueWireError('since must be an ISO time');
+      }
+      return d.marketCandles({
+        symbol: symbolOf(req.query.symbol),
+        interval: interval as VenueCandleInterval,
+        limit: whole(req.query.limit, 'limit', UserVenueDoor.CHART_CANDLE_DEPTH, 240),
+        since,
+      });
     });
   });
 
   type Account = Awaited<ReturnType<UserVenueDoor['account']>>;
+  type AccountRead = { account: Account; principal: Principal };
   // The venue's account reads, by path. Registered in one literal loop so the published route list can see every one
   // (apps/customer developers-reference.test.ts reads `for (const path of [...])`).
-  const accountReads: Record<string, (d: UserVenueDoor, q: Query, a: Account) => Promise<unknown>> = {
+  const accountReads: Record<string, (d: UserVenueDoor, q: Query, ctx: AccountRead) => Promise<unknown>> = {
     // b2 change 6: every figure the person sees of their venue money is the venue's, with its own time and a state.
-    '/api/v1/venue/balances': async (d, _q, a) => {
+    '/api/v1/venue/balances': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       const read = await venue.balances(a);
       return { ...read, figures: venueBalanceFigures(venue.venue, read, new Date()) };
     },
-    '/api/v1/venue/orders/open': async (d, _q, a) => (await d.venue()).openOrders(a),
-    '/api/v1/venue/positions': async (d, _q, a) => {
+    '/api/v1/venue/orders/open': async (d, _q, { account: a, principal: p }) => d.openOrders(p, a),
+    '/api/v1/venue/positions': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       const read = await venue.positions(a);
       return { ...read, figures: venuePositionFigures(venue.venue, read, new Date()) };
     },
-    '/api/v1/venue/agents': async (d, _q, a) => (await d.venue()).agents(a),
+    '/api/v1/venue/agents': async (d, _q, { account: a }) => (await d.venue()).agents(a),
     // The owner's sub-accounts, read on the main account (J-agents-08 #2: the accounts a person may give their agent).
-    '/api/v1/venue/sub-accounts': async (d, _q, a) => {
+    '/api/v1/venue/sub-accounts': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (a.subAccount !== null) throw new VenueWireError('sub-accounts are read on the main account: send no subAccount');
       if (!hasSubAccountReads(venue))
@@ -659,23 +750,30 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-cex-spot-15 #5: a bot looks its order up by its own client id (`clientOrderKey`, the business key it placed the
     // order under), or by the venue's client order id; the venue answers with the order's own state.
-    '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
+    '/api/v1/venue/orders/by-client-id': async (d, q, { account: a, principal: p }) => {
       if (q.clientOrderId && q.clientOrderKey) throw new VenueWireError('send clientOrderId or clientOrderKey, not both');
       const id = q.clientOrderKey ? venueClientOrderId(a.venueId, q.clientOrderKey) : q.clientOrderId;
       if (!id) throw new VenueWireError('clientOrderId or clientOrderKey is required');
-      return (await d.venue()).orderByClientId(a, id);
+      return d.orderByClientId(p, a, id);
     },
-    '/api/v1/venue/fills': async (d, q, a) => {
+    '/api/v1/venue/fills': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       return (await d.venue()).fills(a, since);
     },
     // J-dex-protocol-05 #2: the venue's own list of the deposits it has seen; a venue that publishes none refuses not_offered.
-    '/api/v1/venue/deposits': async (d, _q, a) => {
+    '/api/v1/venue/deposits': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.deposits)
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
       return venue.deposits(a);
+    },
+    // J-portfolio-06 #3: the credits into the account from outside it (deposits, transfers in); a venue that publishes none refuses not_offered.
+    '/api/v1/venue/arrivals': async (d, _q, { account: a }) => {
+      const venue = await d.venue();
+      if (!venue.arrivals)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no credit list' });
+      return venue.arrivals(a);
     },
     // J-bank-31 #3: the venue's published withdrawal terms for an asset, read before anything is signed; a venue that
     // publishes none refuses not_offered, and the review shows every term as not known.
@@ -694,13 +792,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit routes' });
       return venue.depositRoutes();
     },
-    '/api/v1/venue/leverage': async (d, q, a) => {
+    '/api/v1/venue/leverage': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
     },
     // J-derivatives-05 #4: what a leverage change would do to the open position's margin, by the venue's own rule, read
     // before anything is signed; a venue that reads none refuses not_offered, and the app says it states no difference.
-    '/api/v1/venue/leverage-change': async (d, q, a) => {
+    '/api/v1/venue/leverage-change': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const bps = Number(q.leverageBps);
       if (!Number.isInteger(bps) || bps < 1) throw new VenueWireError('leverageBps is a whole number of basis points of 1x');
@@ -716,7 +814,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-06 #2 #3: an open isolated position's margin and the venue's own limit for removing it, read before
     // anything is signed; a venue that reads none refuses not_offered.
-    '/api/v1/venue/isolated-margin': async (d, q, a) => {
+    '/api/v1/venue/isolated-margin': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
       if (!venue.isolatedMargin)
@@ -728,7 +826,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.isolatedMargin(a, q.symbol);
     },
     // J-derivatives-06 #1: the account's equity, free, used margin, maintenance and margin ratio as the venue reports them.
-    '/api/v1/venue/account-summary': async (d, _q, a) => {
+    '/api/v1/venue/account-summary': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.accountSummary)
         throw new VenueRefusalError({
@@ -736,11 +834,15 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           code: 'not_offered',
           detail: `${venue.venue.displayName} reports no account margin summary`,
         });
-      return venue.accountSummary(a);
+      const read = await venue.accountSummary(a);
+      // The venue keeps no history of the margin: our door keeps this reading for a founder's ratio history (J-derivatives-26
+      // #8). A reading that cannot be kept never fails the person's own read; it is logged.
+      await deps.marginSamples?.keep(a, read);
+      return read;
     },
     // J-derivatives-29 #1 #9 #11: the account's mode, its spot and perps balances in standard mode, and the day's action
     // count, as the venue reports them; a venue that reads none refuses not_offered, and the app says "not known".
-    '/api/v1/venue/account-mode': async (d, _q, a) => {
+    '/api/v1/venue/account-mode': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.accountMode)
         throw new VenueRefusalError({
@@ -750,9 +852,22 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.accountMode(a);
     },
+    // J-derivatives-05 #3: the position mode the account holds one perpetual in, as the venue reports it; a venue with one
+    // mode that reads none refuses not_offered, and the room shows that one mode.
+    '/api/v1/venue/position-mode': async (d, q, { account: a }) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.positionMode)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} does not report a position mode`,
+        });
+      return venue.positionMode(a, q.symbol);
+    },
     // J-derivatives-31 #2 #3 #5: the account's vault positions with their lock-up ends, its account value as the venue
     // counts it, and its vault transfers; a venue that reads none refuses not_offered.
-    '/api/v1/venue/vault-holdings': async (d, _q, a) => {
+    '/api/v1/venue/vault-holdings': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.vaultHoldings)
         throw new VenueRefusalError({
@@ -762,9 +877,21 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.vaultHoldings(a);
     },
+    // J-cex-spot-21 #2 #3 #6 #7 #8: the account's staking balance, delegations with their lock-up ends, queued and arrived
+    // withdrawals and rewards; a venue that reads none refuses not_offered.
+    '/api/v1/venue/staking-account': async (d, _q, { account: a }) => {
+      const venue = await d.venue();
+      if (!venue.stakingAccount)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no staking`,
+        });
+      return venue.stakingAccount(a);
+    },
     // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
     // own words; a venue that reads none refuses not_offered.
-    '/api/v1/venue/liquidation': async (d, q, a) => {
+    '/api/v1/venue/liquidation': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
       if (!venue.liquidationStatus)
@@ -777,7 +904,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-07 #2 #3: each liquidation the venue reports for the account, with every part's price, size, fee and
     // the venue's ids; since an ISO time, or every one the venue keeps.
-    '/api/v1/venue/liquidations': async (d, q, a) => {
+    '/api/v1/venue/liquidations': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? 0);
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is an ISO time');
       const venue = await d.venue();
@@ -790,7 +917,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.liquidations(a, since);
     },
     // J-derivatives-07 #6: each auto-deleveraging of the account's positions, with the venue's notice.
-    '/api/v1/venue/deleverages': async (d, q, a) => {
+    '/api/v1/venue/deleverages': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? 0);
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is an ISO time');
       const venue = await d.venue();
@@ -804,7 +931,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
     // account; a venue that reads none refuses not_offered.
-    '/api/v1/venue/market-margin': async (d, q, a) => {
+    '/api/v1/venue/market-margin': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
       if (!venue.marketMargin)
@@ -816,7 +943,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.marketMargin(a, q.symbol);
     },
     // J-derivatives-27 #9 #10: the person's settlements in a market deployer's halt or a split, as the venue records them.
-    '/api/v1/venue/settlements': async (d, q, a) => {
+    '/api/v1/venue/settlements': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       const venue = await d.venue();
@@ -829,7 +956,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.settlements(a, since);
     },
     // J-derivatives-08 #3 #4 #5: the funding the venue charged or paid on the person's positions, as it booked it.
-    '/api/v1/venue/funding-payments': async (d, q, a) => {
+    '/api/v1/venue/funding-payments': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       const venue = await d.venue();
@@ -842,7 +969,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.fundingPayments(a, since);
     },
     // J-cex-spot-07: the venue's own scheduled cancel for this account; a venue that offers none refuses not_offered.
-    '/api/v1/venue/scheduled-cancel': async (d, _q, a) => {
+    '/api/v1/venue/scheduled-cancel': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.venue.scheduledCancel || !venue.scheduledCancel)
         throw new VenueRefusalError({
@@ -853,9 +980,9 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.scheduledCancel(a);
     },
     // J-cex-spot-10 #6: the account's own fee tier, volume and rates as the venue reports them.
-    '/api/v1/venue/fee-tier': async (d, _q, a) => d.accountFees(a),
+    '/api/v1/venue/fee-tier': async (d, _q, { account: a }) => d.accountFees(a),
     // Read against our builder address alone, so an approval stays readable while the fee is blank (J-derivatives-30 #1).
-    '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
+    '/api/v1/venue/builder-fee-approval': async (d, _q, { account: a }) => {
       const builder = d.publishedBuilderAddress();
       if (!builder)
         throw new VenueRefusalError({
@@ -875,6 +1002,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
     '/api/v1/venue/deposits',
+    '/api/v1/venue/arrivals',
     '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/deposit-routes',
     '/api/v1/venue/leverage',
@@ -882,7 +1010,9 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/isolated-margin',
     '/api/v1/venue/account-summary',
     '/api/v1/venue/account-mode',
+    '/api/v1/venue/position-mode',
     '/api/v1/venue/vault-holdings',
+    '/api/v1/venue/staking-account',
     '/api/v1/venue/liquidation',
     '/api/v1/venue/liquidations',
     '/api/v1/venue/deleverages',
@@ -895,10 +1025,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   ]) {
     const read = accountReads[path]!;
     app.get<{ Querystring: Query }>(path, privateRead, async (req, reply) => {
-      if (!(await admit(req, reply, 'trade:read'))) return;
+      const principal = await admit(req, reply, 'trade:read');
+      if (!principal) return;
       return answer(
         reply,
-        async (d) => read(d, req.query, await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null)),
+        async (d) =>
+          read(d, req.query, { account: await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null), principal }),
         req.query.venueId,
       );
     });
@@ -976,12 +1108,34 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     }
   }
 
+  /** Refuse the retail price improvement flag on any venue preview or prepare (J-cex-spot-14 #11). */
+  function checkNoRpi(req: FastifyRequest, reply: FastifyReply): boolean {
+    try {
+      refuseRetailPriceImprovement(req.body);
+      if (typeof req.body === 'object' && req.body !== null && 'intent' in req.body) {
+        refuseRetailPriceImprovement(req.body.intent);
+      }
+      return true;
+    } catch (err) {
+      void venueRefusalReply(reply, err);
+      return false;
+    }
+  }
+
   app.post('/api/v1/venue/preview', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
-    const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null }>(req, reply);
+    if (!checkNoRpi(req, reply)) return;
+    const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
-    return answer(reply, async (d) => d.preview(principal, b.owner ?? '', b.intent as VenueIntent), b.venueId);
+    return answer(
+      reply,
+      async (d) => {
+        d.assertRequestDeadline(b.requestDeadline ?? null);
+        return d.preview(principal, b.owner ?? '', b.intent as VenueIntent);
+      },
+      b.venueId,
+    );
   });
 
   // A Convert sell priced by the venue's own preview on the customer's account, stored under its business key. Sends
@@ -1098,6 +1252,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/prepare', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
+    if (!checkNoRpi(req, reply)) return;
     const b = bodyOr<{
       owner?: string;
       subAccount?: string | null;
@@ -1106,6 +1261,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       actionKey?: string | null;
       stepUpApprovalId?: string | null;
       venueId?: string | null;
+      requestDeadline?: string | null;
     }>(req, reply);
     if (!b) return;
     return answer(
@@ -1119,6 +1275,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           actionKey: b.actionKey ?? null,
           stepUpApprovalId: b.stepUpApprovalId ?? null,
           idempotencyKey: idempotencyHeader(req) ?? null,
+          requestDeadline: b.requestDeadline ?? null,
         }),
       b.venueId,
       (v) => (v as { reused?: boolean }).reused === true,
@@ -1165,7 +1322,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/submit', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
-    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature }>(req, reply);
+    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
     return answer(
       reply,
@@ -1177,7 +1334,11 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           if (key !== '' && key !== fromHeader) throw new VenueWireError('with an Idempotency-Key, leave actionKey out');
           key = fromHeader;
         }
-        return r.submit(principal, key, b.signature as VenueSignature);
+        return r.submitRequest(principal, {
+          actionKey: key,
+          signature: b.signature as VenueSignature,
+          requestDeadline: b.requestDeadline ?? null,
+        });
       },
       null,
       (v) => (v as { replayed?: boolean }).replayed === true,
@@ -1190,12 +1351,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.orders(principal, req.query.owner ?? '', req.query.cursor, req.query.limit), req.query.venueId);
   });
 
-  // J-cex-spot-06 #1 #7: the account's order history as the venue keeps it, filtered and paged; #10: our record of one order.
+  // J-cex-spot-06 #1 #7; J-derivatives-04 #1 #2: the account's order history as the venue keeps it, filtered and paged; #10: our record of one order.
   app.get<{ Querystring: Query & Record<string, string | undefined> }>('/api/v1/venue/orders/history', privateRead, async (req, reply) => {
-    if (!(await admit(req, reply, 'trade:read'))) return;
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
     return answer(
       reply,
-      async (d) => d.orderHistory(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query),
+      async (d) => d.orderHistory(principal, await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query),
       req.query.venueId,
     );
   });

@@ -20,6 +20,30 @@ import type { KycRejectReasons } from '../kyc/cases.js';
 import { blankTierTerms } from './account-tiers.js';
 import { TRADING_CHECKS_REVIEWER } from '../kyc/trading-checks.js';
 import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
+import type {
+  AccountArchiveInput,
+  AccountArchiveProposals,
+  AccountArchiveReasonCode,
+  AccountArchiveResult,
+  AccountArchiveState,
+  AccountTier,
+  AccountTierList,
+  AccountTierMoveInput,
+  AccountTierResult,
+  AccountTierState,
+  AccountClosureInput,
+  AccountClosureResult,
+  AccountClosureState,
+  AccountCloseReasonCode,
+  AccountOperatorEntitlement,
+  IdentityAccountControlInput,
+  AccountControlResult,
+  AccountControlState,
+  Context,
+  CurrentAuthorityInput,
+  CurrentAuthorityResult,
+  ServiceOperatorEntitlementInput,
+} from '@intafaced/contracts';
 import {
   identityAccountControlInputSchema,
   accountControlLookupInputSchema,
@@ -37,33 +61,11 @@ import {
   accountArchiveHistoryInputSchema,
   accountArchiveResultSchema,
   accountArchiveProposalsSchema,
-  type AccountArchiveInput,
-  type AccountArchiveProposals,
-  type AccountArchiveReasonCode,
-  type AccountArchiveResult,
-  type AccountArchiveState,
   accountTierMoveInputSchema,
   accountTierLookupInputSchema,
   accountTierHistoryInputSchema,
   accountTierResultSchema,
-  type AccountTier,
-  type AccountTierList,
-  type AccountTierMoveInput,
-  type AccountTierResult,
-  type AccountTierState,
-  type AccountClosureInput,
-  type AccountClosureResult,
-  type AccountClosureState,
-  type AccountCloseReasonCode,
-  type AccountOperatorEntitlement,
-  type IdentityAccountControlInput,
-  type AccountControlResult,
-  type AccountControlState,
-  type Context,
-  type CurrentAuthorityInput,
-  type CurrentAuthorityResult,
-  type ServiceOperatorEntitlementInput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
 
 export class FounderControlError extends Error {
   constructor(

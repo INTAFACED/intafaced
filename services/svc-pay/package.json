@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx scripts/migrate.ts",
+    "live-check:screening": "tsx scripts/opensanctions-live-check.ts",
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
@@ -36,7 +37,6 @@
   },
   "devDependencies": {
     "@intafaced/service-kit": "workspace:*",
-    "@testcontainers/postgresql": "11.14.0",
     "@types/node": "^22.20.5",
     "rimraf": "^6.1.4",
     "tsx": "^4.23.15",

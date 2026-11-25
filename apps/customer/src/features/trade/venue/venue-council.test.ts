@@ -3,7 +3,7 @@ import { preparedStep, type KeptSignature, type PreparedAnswer } from '../venue-
 import { keepsDraft, type ActionResult } from './VenueKit';
 import { builderApprovalLine, carriesBuilderFee } from './VenueReview';
 import { venueCopy } from './venue-copy';
-import { spotGateChoice } from '../../../screens/trade/desk/VenueSpotGate';
+import { pickVenueSpotMarket, spotGateChoice } from '../../../screens/trade/desk/VenueSpotGate';
 import { futuresVenueCopy } from '../../../screens/trade/futures/venue-copy';
 
 // The council's round on the venue desks: an answer that is not definite is read back and never re-sent; a definite
@@ -83,6 +83,24 @@ describe('the spot page in venue mode', () => {
     expect(spotGateChoice(true, { status: 'failed', code: 'denied.kyc_required' })).toBe('verify');
     expect(spotGateChoice(false, { status: 'failed', code: 'denied.kyc_required' })).toBe('down');
     expect(spotGateChoice(false, { status: 'loading' })).toBe('down');
+  });
+
+  it('resolves generic menu clicks (Trade › Spot or Pro Trade on BTC-USDT) to the venue’s BTC spot market or first listed spot market, while direct /trade/spot/BTC-USDT URLs stay exact', () => {
+    const markets = [
+      { kind: 'perpetual', symbol: 'BTC-PERP', baseAsset: 'BTC' },
+      { kind: 'spot', symbol: 'ETH-USDC', baseAsset: 'ETH' },
+      { kind: 'spot', symbol: 'BTC-USDC', baseAsset: 'BTC' },
+    ] as const;
+    // Exact match always wins, whether from a menu click or direct URL.
+    expect(pickVenueSpotMarket(markets, 'BTC-USDC', false)?.symbol).toBe('BTC-USDC');
+    // Direct /trade/spot/BTC-USDT stays undefined so explicit custodial links keep working.
+    expect(pickVenueSpotMarket(markets, 'BTC-USDT', false)).toBeUndefined();
+    // Generic Trade › Spot menu click opens the venue's BTC spot market when the venue quotes in USDC.
+    expect(pickVenueSpotMarket(markets, 'BTC-USDT', true)?.symbol).toBe('BTC-USDC');
+    // When the venue lists no BTC spot pair (e.g. testnet PURR/HYPE), a menu click opens the first listed venue spot pair.
+    expect(pickVenueSpotMarket([{ kind: 'spot', symbol: 'PURR-USDC', baseAsset: 'PURR' }], 'BTC-USDT', true)?.symbol).toBe('PURR-USDC');
+    // Explicit non-default unlisted pairs stay undefined even with fromMenu set.
+    expect(pickVenueSpotMarket(markets, 'DOGE-USDT', true)).toBeUndefined();
   });
 });
 

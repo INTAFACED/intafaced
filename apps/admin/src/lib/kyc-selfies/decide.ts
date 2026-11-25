@@ -1,6 +1,7 @@
 import 'server-only';
-import { type ExecuteFn, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
+import { type ExecuteFn, explainRefusal, failureRefusal, type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { readSelfie } from './selfie';
+import { IDENTITY_KYC_SELFIE_DECIDE } from '@intafaced/contracts/identity-kyc-procedures';
 
 /**
  * Decide one approved selfie (I-kyc-compliance-09) at identity, as the signed-in founder.
@@ -11,11 +12,9 @@ import { readSelfie } from './selfie';
 export function kycSelfieDecideExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'identity.kyc_selfie.decide') return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
+    const result = await founderRecordRead(
       ctx,
-      'identity',
-      'kyc.selfie.decide',
-      'POST',
+      IDENTITY_KYC_SELFIE_DECIDE,
       { selfieId: request.selfieId, decision: request.decision, approvalId: ids.approvalId, operationId: ids.operationId },
       readSelfie,
     );

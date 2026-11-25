@@ -1,4 +1,4 @@
-import { publicProcedure, router } from '@intafaced/contracts';
+import { publicProcedure, router } from '@intafaced/contracts/trpc';
 import { requestSigningPolicySchema } from '@intafaced/contracts/api-keys';
 import { requestSigningPolicy } from './auth/api-key-request-sign.js';
 

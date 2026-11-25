@@ -8,10 +8,17 @@ import {
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+} from '@/lib/founder-session';
 import { founderCall, parseWith } from '@/lib/desk/founder-call';
 import { readEditForm } from '@/lib/accounts/details-forms';
 import { detailsAnswer } from '@/lib/accounts/details-server';
+import { IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * A customer's personal details (J-ops-console-04 #9). GET reads identity's record (`?id=`), its compliance reviews
@@ -45,14 +52,10 @@ export async function GET(request: Request) {
     if (view !== 'reviews' && view !== 'history') throw new AdminSessionError('admin.accounts_input', 400);
     const parsed = listing.safeParse({ userId, limit: Number(params.get('limit')) });
     if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
-    const data = await founderEdgeCall(
-      config,
-      'identity',
-      view === 'reviews' ? 'accountControls.detailsReviews' : 'accountControls.detailsHistory',
-      'GET',
-      parsed.data,
-      session.accessToken,
-    );
+    const data =
+      view === 'reviews'
+        ? await founderEdgeCall(config, 'identity', 'accountControls.detailsReviews', 'GET', parsed.data, session.accessToken)
+        : await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY, parsed.data, session.accessToken);
     const rowSchema = view === 'reviews' ? customerDetailReviewSchema : customerDetailsResultSchema;
     const valid =
       Array.isArray(data) &&

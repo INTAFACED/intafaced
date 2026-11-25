@@ -51,12 +51,17 @@ type Read<T> = { resource: Resource<T>; reload: () => void };
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 export function MiningRooms({ room, health }: { room: Room; health: Health }) {
-  const { Copy, t } = miningDepthCopy.useCopy();
-  const reading = health.resource.status === 'ready' ? health.resource.data : null;
-  const loading = health.resource.status === 'loading';
   if (room === 'Workers') return <Workers />;
   if (room === 'Shares') return <Shares />;
   if (room === 'Rewards') return <Rewards />;
+  return <MiningOverview health={health} />;
+}
+
+/** The overview's verdict on the pool and its journey: each step, whether it can start, and what it waits on. */
+export function useMiningJourney(health: Health) {
+  const { Copy, t } = miningDepthCopy.useCopy();
+  const reading = health.resource.status === 'ready' ? health.resource.data : null;
+  const loading = health.resource.status === 'loading';
   const verdict = poolVerdict(reading);
   // The pool lists a customer's own workers, shares, open windows and paid credits. It still refuses to register a worker.
   const steps: JourneyStep[] = MINING_STEPS.map((step) => {
@@ -82,8 +87,14 @@ export function MiningRooms({ room, health }: { room: Room; health: Health }) {
       ),
     };
   });
+  return { reading, loading, verdict, steps };
+}
+
+function MiningOverview({ health }: { health: Health }) {
+  const { Copy, t } = miningDepthCopy.useCopy();
+  const { reading, loading, verdict, steps } = useMiningJourney(health);
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Panel title={t('verdictTitle')}>
         {loading ? (
           <Loading />
@@ -119,7 +130,7 @@ export function MiningRooms({ room, health }: { room: Room; health: Health }) {
       </Panel>
       <Panel title={t('journeyTitle')}>
         <Journey steps={steps} label={t('journeyLabel')} />
-        <a className="button button--secondary" href="/support">
+        <a className="lt-button lt-button-secondary" href="/support">
           <Copy k="support" />
         </a>
       </Panel>
@@ -127,7 +138,8 @@ export function MiningRooms({ room, health }: { room: Room; health: Health }) {
   );
 }
 
-function Workers() {
+/** Shared data hook for the Mining workers room (`/mining/workers`). */
+export function useMiningWorkers() {
   const api = useApi();
   const [minutes, setMinutes] = useState<WindowMinutes>(60);
   const [filter, setFilter] = useState('');
@@ -145,27 +157,30 @@ function Workers() {
   const pow = useResource((signal) => api.call(MINING_POW, undefined, { signal }), 'mining-pow');
   // Solo credit is the service's own answer; today it is always a typed refusal.
   const soloCredit = useResource((signal) => api.call(MINING_WORKERS_SOLO_CREDIT, undefined, { signal }), 'mining-solo-credit');
-  return (
-    <WorkersView
-      read={read}
-      minutes={minutes}
-      onMinutes={(next) => {
-        setCursor(null);
-        setMinutes(next);
-      }}
-      filter={filter}
-      onFilter={(next) => {
-        setCursor(null);
-        setFilter(next);
-      }}
-      paged={cursor !== null}
-      onPage={setCursor}
-      onSetDifficulty={setDifficulty}
-      onSetMode={setMode}
-      pow={pow}
-      soloCredit={soloCredit}
-    />
-  );
+  return {
+    read,
+    minutes,
+    onMinutes: (next: WindowMinutes) => {
+      setCursor(null);
+      setMinutes(next);
+    },
+    filter,
+    onFilter: (next: string) => {
+      setCursor(null);
+      setFilter(next);
+    },
+    paged: cursor !== null,
+    onPage: setCursor,
+    onSetDifficulty: setDifficulty,
+    onSetMode: setMode,
+    pow,
+    soloCredit,
+  };
+}
+
+function Workers() {
+  const state = useMiningWorkers();
+  return <WorkersView {...state} />;
 }
 
 export function WorkersView({
@@ -255,14 +270,14 @@ export function WorkersView({
                     <tr key={worker.id}>
                       <td lang="und">{worker.name}</td>
                       <td>{w(`mode_${worker.mode}`)}</td>
-                      <td className="numeric">{worker.hashrate === null ? t('rosterNoShares') : displayAmount(worker.hashrate)}</td>
-                      <td className="numeric">{worker.minDifficulty === null ? w('automatic') : worker.minDifficulty}</td>
+                      <td className="lt-num">{worker.hashrate === null ? t('rosterNoShares') : displayAmount(worker.hashrate)}</td>
+                      <td className="lt-num">{worker.minDifficulty === null ? w('automatic') : worker.minDifficulty}</td>
                       <td>{stamp(worker.createdAt, timeZone)}</td>
                     </tr>
                   ))}
                 </DataTable>
               )}
-              <div className="actions">
+              <div className="lt-actions">
                 {paged ? (
                   <Button variant="secondary" onClick={() => onPage(null)}>
                     {w('firstPage')}
@@ -274,10 +289,10 @@ export function WorkersView({
                   </Button>
                 ) : null}
               </div>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="workersNote" />
               </p>
-              <p className="muted">{t('asOf', { time: stamp(data.asOf, timeZone) })}</p>
+              <p className="lt-muted">{t('asOf', { time: stamp(data.asOf, timeZone) })}</p>
             </>
           )}
         </Read>
@@ -286,13 +301,13 @@ export function WorkersView({
         <Read resource={read.resource} retry={read.reload}>
           {(data) =>
             data.workers.length === 0 ? (
-              <p className="muted">{w('noWorkerToSet')}</p>
+              <p className="lt-muted">{w('noWorkerToSet')}</p>
             ) : (
               <DifficultyForm workers={data.workers} onSet={onSetDifficulty} onSaved={read.reload} state={saving} onState={setSaving} />
             )
           }
         </Read>
-        <p role="status" className="muted">
+        <p role="status" className="lt-muted">
           {saving.status === 'busy'
             ? w('saving')
             : saving.status === 'saved'
@@ -302,7 +317,7 @@ export function WorkersView({
               : ''}
         </p>
         {saving.status === 'failed' ? <Failure result={saving.failure} /> : null}
-        <p className="muted">{w('difficultyNote')}</p>
+        <p className="lt-muted">{w('difficultyNote')}</p>
       </Panel>
       <ModeForm onSet={onSetMode} onSaved={read.reload} />
       <PowPanel pow={pow} soloCredit={soloCredit} />
@@ -351,12 +366,12 @@ function ModeForm({
           </label>
         ))}
       </fieldset>
-      <div className="actions">
+      <div className="lt-actions">
         <Button disabled={!onSet || rig === '' || state.status === 'busy'} onClick={() => void save()}>
           {w('modeSave')}
         </Button>
       </div>
-      <p role="status" className="muted" data-testid="mining-mode-status">
+      <p role="status" className="lt-muted" data-testid="mining-mode-status">
         {state.status === 'busy'
           ? w('saving')
           : state.status === 'saved'
@@ -372,7 +387,7 @@ function ModeForm({
           <Failure result={state.failure} />
         )
       ) : null}
-      <p className="muted">{w('modeNote')}</p>
+      <p className="lt-muted">{w('modeNote')}</p>
     </Panel>
   );
 }
@@ -397,7 +412,7 @@ function PowPanel({ pow, soloCredit }: { pow?: Read<PowSpec>; soloCredit?: Read<
           }
         </Read>
       ) : null}
-      <p className="muted">{w('powNote')}</p>
+      <p className="lt-muted">{w('powNote')}</p>
       {soloCredit?.resource.status === 'failed' ? (
         soloCredit.resource.failure.code === EMISSION_UNPUBLISHED ? (
           <p role="status" data-testid="mining-solo-credit" data-code={EMISSION_UNPUBLISHED}>
@@ -458,7 +473,7 @@ function DifficultyForm({
         maxLength={38}
         onChange={(event) => setValue(event.target.value.replace(/\D/g, ''))}
       />
-      <div className="actions">
+      <div className="lt-actions">
         <Button disabled={!onSet || state.status === 'busy' || value === '' || invalid} onClick={() => void save(value)}>
           {w('save')}
         </Button>
@@ -470,9 +485,14 @@ function DifficultyForm({
   );
 }
 
-function Shares() {
+/** Shared data hook for the Mining shares room (`/mining/shares`). */
+export function useMiningShares() {
   const api = useApi();
-  const read = useResource((signal) => api.call(MINING_SHARES_MINE, {}, { signal }), 'mining-shares');
+  return useResource((signal) => api.call(MINING_SHARES_MINE, {}, { signal }), 'mining-shares');
+}
+
+function Shares() {
+  const read = useMiningShares();
   return <SharesView read={read} />;
 }
 
@@ -510,20 +530,20 @@ export function SharesView({ read }: { read: Read<MinerShares> }) {
                   {data.windows.map((row, index) => (
                     <tr key={row.windowId}>
                       <td>{t('sharesWindowN', { n: index + 1 })}</td>
-                      <td className="numeric">{row.acceptedCount}</td>
-                      <td className="numeric">{row.rejectedCount}</td>
-                      <td className="numeric">{row.acceptedWeight === null ? '—' : displayAmount(row.acceptedWeight)}</td>
+                      <td className="lt-num">{row.acceptedCount}</td>
+                      <td className="lt-num">{row.rejectedCount}</td>
+                      <td className="lt-num">{row.acceptedWeight === null ? '—' : displayAmount(row.acceptedWeight)}</td>
                     </tr>
                   ))}
                 </DataTable>
-                <p className="muted">{t('asOf', { time: stamp(data.asOf, timeZone) })}</p>
+                <p className="lt-muted">{t('asOf', { time: stamp(data.asOf, timeZone) })}</p>
               </>
             )
           }
         </Read>
       </Panel>
       <Panel title={t('sharesRuleTitle')}>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="sharesRule" />
         </p>
       </Panel>
@@ -531,7 +551,8 @@ export function SharesView({ read }: { read: Read<MinerShares> }) {
   );
 }
 
-function Rewards() {
+/** Shared data hook for the Mining rewards room (`/mining/rewards`). */
+export function useMiningRewards() {
   const api = useApi();
   const terms = useResource((signal) => api.call(MINING_TERMS, undefined, { signal }), 'mining-terms');
   const pending = useResource((signal) => api.call(MINING_WINDOWS_PENDING, undefined, { signal }), 'mining-pending');
@@ -550,18 +571,21 @@ function Rewards() {
       failed: !result.ok,
     }));
   }
-  return (
-    <RewardsView
-      terms={terms}
-      pending={pending}
-      payouts={firstPage}
-      extra={more?.rows ?? []}
-      hasMore={next !== null}
-      busy={more?.busy ?? false}
-      moreFailed={more?.failed ?? false}
-      onMore={() => void showMore()}
-    />
-  );
+  return {
+    terms,
+    pending,
+    payouts: firstPage,
+    extra: more?.rows ?? [],
+    hasMore: next !== null,
+    busy: more?.busy ?? false,
+    moreFailed: more?.failed ?? false,
+    onMore: () => void showMore(),
+  };
+}
+
+function Rewards() {
+  const state = useMiningRewards();
+  return <RewardsView {...state} />;
 }
 
 export function RewardsView({
@@ -635,7 +659,7 @@ export function RewardsView({
             },
           ]}
         />
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="rewardsMethod" />
         </p>
         <Read resource={payouts.resource} retry={payouts.reload}>
@@ -655,11 +679,11 @@ export function RewardsView({
                         {row.ledgerReason ? (
                           <>
                             <br />
-                            <small className="muted">{t('payoutUnconfirmed')}</small>
+                            <small className="lt-muted">{t('payoutUnconfirmed')}</small>
                           </>
                         ) : null}
                       </td>
-                      <td className="numeric">
+                      <td className="lt-num">
                         {row.amount === null ? t('payoutAmountMissing') : `${displayAmount(row.amount)} ${row.assetId}`}
                       </td>
                     </tr>
@@ -671,11 +695,11 @@ export function RewardsView({
                   </Button>
                 ) : null}
                 {moreFailed ? (
-                  <p role="status" className="muted">
+                  <p role="status" className="lt-muted">
                     <Copy k="moreFailed" />
                   </p>
                 ) : null}
-                <p className="muted">{t('asOf', { time: stamp(page.asOf, timeZone) })}</p>
+                <p className="lt-muted">{t('asOf', { time: stamp(page.asOf, timeZone) })}</p>
               </>
             );
           }}
@@ -697,10 +721,10 @@ export function RewardsView({
                 {data.windows.map((row, index) => (
                   <tr key={row.windowId}>
                     <td>{t('openWindowN', { n: index + 1 })}</td>
-                    <td className="numeric">{displayAmount(row.callerWeight)}</td>
-                    <td className="numeric">{row.totalWeight === null ? '—' : displayAmount(row.totalWeight)}</td>
-                    <td className="numeric">{row.reward === null ? '—' : `${displayAmount(row.reward)} ${row.assetId}`}</td>
-                    <td className="numeric">
+                    <td className="lt-num">{displayAmount(row.callerWeight)}</td>
+                    <td className="lt-num">{row.totalWeight === null ? '—' : displayAmount(row.totalWeight)}</td>
+                    <td className="lt-num">{row.reward === null ? '—' : `${displayAmount(row.reward)} ${row.assetId}`}</td>
+                    <td className="lt-num">
                       {row.estimate ? `${displayAmount(row.estimate.estimatedGross)} ${row.assetId}` : t('noEstimate')}
                     </td>
                   </tr>

@@ -1,13 +1,37 @@
+import { useState } from 'react';
+import { consumeMenuSpotNavigation, defaultDeskPair } from '../../../app/navigation';
 import { useResource } from '../../../shared/resource';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
-import { ReadProblem, VenueFrame, useVenueApi } from '../../../features/trade/venue/VenueKit';
+import type { VenueMarket } from '../../../features/trade/venue-api';
+import { DeskTemplate } from '@intafaced/ui/lit/templates';
+import { VenueFrame, useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
+import { deskCopy } from './copy';
 import { KYC_REQUIRED } from './venue-access';
 import { VenueSpotDesk } from './VenueSpotDesk';
 import { VenueVerifyDesk } from './VenueVerifyDesk';
 
 /** The desk's own symbol form ("BTC-USDC"), whichever way the address writes it. */
 const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
+
+/**
+ * Picks the venue spot market for `symbol`. Exact matches always win. When opened from a generic menu link
+ * (`Trade › Spot` or phone Pro `Trade` tab on the default desk pair `BTC-USDT`) and the venue quotes spot in another
+ * currency (e.g. `BTC-USDC`), resolves to the venue's spot market on the same base asset or its first listed spot
+ * market; explicit `/trade/spot/*` addresses stay on exact matching so custodial pairs remain reachable.
+ */
+export function pickVenueSpotMarket<M extends Pick<VenueMarket, 'kind' | 'symbol' | 'baseAsset'>>(
+  markets: readonly M[],
+  symbol: string,
+  fromMenu = false,
+): M | undefined {
+  const spot = markets.filter((m) => m.kind === 'spot');
+  const exact = spot.find((m) => m.symbol === symbol);
+  if (exact) return exact;
+  if (!fromMenu || symbol !== defaultDeskPair) return undefined;
+  const base = defaultDeskPair.split('-')[0];
+  return spot.find((m) => m.baseAsset === base) ?? spot[0];
+}
 
 /**
  * The spot page in venue mode: loading, today's desk for a pair the venue doesn't list, the Verify desk, the venue's
@@ -34,11 +58,13 @@ export function VenueSpotGate({
   fallback: React.ReactNode;
 }) {
   const v = venueCopy.useCopy().t;
+  const d = deskCopy.useCopy().t;
   const venue = useVenueApi();
   const markets = useResource((signal) => venue.markets(signal), 'venue-markets');
   const symbol = venueSymbolOf(pair);
+  const [fromMenu] = useState(consumeMenuSpotNavigation);
   const r = markets.resource;
-  const market = r.status === 'ready' ? r.data.value.find((m) => m.kind === 'spot' && m.symbol === symbol) : undefined;
+  const market = r.status === 'ready' ? pickVenueSpotMarket(r.data.value, symbol, fromMenu) : undefined;
   const choice = spotGateChoice(
     mode.status.available,
     r.status === 'ready'
@@ -55,24 +81,48 @@ export function VenueSpotGate({
       </VenueFrame>
     );
   if (choice === 'loading') {
+    // The venue's markets are still being read: the desk's own loading state, with the words it reads them in.
     return (
-      <div data-testid="if-desk" className="if-desk" data-venue="on">
-        <p role="status" aria-busy="true" data-testid="venue-reading">
-          {v('Reading markets')}
-        </p>
+      <div data-testid="if-desk" data-venue="on">
+        <DeskTemplate
+          title={d('Spot desk')}
+          description={v('Reading markets')}
+          mode="pro"
+          state={{ kind: 'loading' }}
+          instrument={null}
+          chart={null}
+          ticket={null}
+        />
       </div>
     );
   }
   if (choice === 'down' || !market || !mode.status.available) {
+    // The venue is off, or its markets can't be read: the whole desk is that refusal, in the venue's own words.
+    const failure = r.status === 'failed' ? r.failure : null;
+    const body = !mode.status.available
+      ? v('Venue unavailable', { detail: mode.status.refusal.detail })
+      : failure
+        ? failure.code === 'trade.venue.venue_down'
+          ? v('Venue down', { venue: mode.status.venue.displayName, detail: failure.message })
+          : v('Read failed', { detail: failure.message })
+        : '';
     return (
-      <div data-testid="if-desk" className="if-desk" data-venue="on">
-        {!mode.status.available ? (
-          <p className="failure" role="alert" data-testid="venue-down">
-            {v('Venue unavailable', { detail: mode.status.refusal.detail })}
-          </p>
-        ) : (
-          <ReadProblem failure={r.status === 'failed' ? r.failure : null} venueName={mode.status.venue.displayName} />
-        )}
+      <div data-testid="if-desk" data-venue="on">
+        <DeskTemplate
+          title={d('Spot desk')}
+          mode="pro"
+          state={{
+            kind: 'refused',
+            refusal: {
+              variant: 'unreachable',
+              title: d('Couldn’t load this market'),
+              body,
+            },
+          }}
+          instrument={null}
+          chart={null}
+          ticket={null}
+        />
       </div>
     );
   }

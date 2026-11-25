@@ -97,98 +97,83 @@
 <main id="main" tabindex="-1">
 <div class="if-business">
 <div lang="en" style="display: contents;">
-<div data-slot="page" data-width="content" data-density="comfortable" class="w-full min-w-0 px-(--if-gutter) text-fg py-6 mx-auto max-w-(--if-container-max)">
-<header data-slot="page-header" data-density="comfortable" class="flex flex-col gap-3 pb-4">
-<div data-slot="page-header-breadcrumbs">
-<p class="m-0 text-sm font-medium text-fg-2">Personal Pay</p>
-</div>
-<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-<div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-<h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Person-to-person</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-base">External payment, ledger escrow, and a recorded order status.</p>
-</div>
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Person-to-person</h1>
+<p class="lt-description">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
 </div>
 </header>
-<div data-slot="page-body" data-density="comfortable" class="flex min-w-0 flex-col gap-8 pt-4">
-<nav class="pay-room-tabs" aria-label="P2P rooms">
-<a href="/p2p">
-<span lang="en" dir="ltr" data-i18n="pay.surface.offers">Offers</span>
-</a>
-<a href="/uc/order">
-<span lang="en" dir="ltr" data-i18n="pay.surface.yourOrders">Your orders</span>
-</a>
-<a href="/uc/ad">
-<span lang="en" dir="ltr" data-i18n="pay.surface.yourOffers">Your offers</span>
-</a>
-<a href="/p2p/methods" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="pay.surface.paymentMethods">Payment methods</span>
-</a>
-<a href="/p2p/access">
-<span lang="en" dir="ltr" data-i18n="pay.surface.tradingAccess">Trading access</span>
-</a>
+<div class="lt-room-section">
+<div data-testid="p2p-rooms">
+<nav class="lt-tabs" aria-label="P2P rooms" data-region="section-tabs">
+<a href="/p2p" class="lt-tab">Offers</a>
+<a href="/uc/order" class="lt-tab">Your orders</a>
+<a href="/uc/ad" class="lt-tab">Your offers</a>
+<a href="/p2p/methods" class="lt-tab" aria-current="page">Payment methods</a>
+<a href="/p2p/access" class="lt-tab">Trading access</a>
 </nav>
-<div class="stack" data-testid="payment-methods">
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
-<h2>Payment methods by country</h2>
-<p class="muted">What each payment method asks for in each country. Add one below to get paid with it on your ads.</p>
-</div>
-</header>
-<div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
-<span>No services run in the look gate.</span>
-</p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
 </div>
 </div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Payment methods sections">
+<ul>
+<li>
+<a class="lt-link" href="#p2p-methods-catalogue">Payment methods by country</a>
+</li>
+<li>
+<a class="lt-link" href="#p2p-methods-add">Add a payment method</a>
+</li>
+<li>
+<a class="lt-link" href="#p2p-methods-saved">Your payment methods</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section id="p2p-methods-catalogue" class="lt-stack" data-testid="pay-section" aria-labelledby="p2p-methods-catalogue-title">
+<h2 id="p2p-methods-catalogue-title">Payment methods by country</h2>
+<p class="lt-hint">What each payment method asks for in each country. Add one below to get paid with it on your ads.</p>
+<div role="status" lang="und">
+<div class="lt-refusal" data-refusal="refused">
+<p class="lt-refusal-title">Can’t connect right now</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+</div>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
-<h2>Add a payment method</h2>
-<p class="muted">Saved details stay private: a buyer sees them only on an order they placed with you, and every look is logged.</p>
+<section id="p2p-methods-add" class="lt-stack" data-testid="pay-section" aria-labelledby="p2p-methods-add-title">
+<h2 id="p2p-methods-add-title">Add a payment method</h2>
+<p class="lt-hint">Saved details stay private: a buyer sees them only on an order they placed with you, and every look is logged.</p>
+<div role="status" lang="und">
+<div class="lt-refusal" data-refusal="refused">
+<p class="lt-refusal-title">Can’t connect right now</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
 </div>
-</header>
-<div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
-<span>No services run in the look gate.</span>
-</p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
-</div>
-</div>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
-<h2>Your payment destination labels</h2>
+<section id="p2p-methods-saved" class="lt-stack" data-testid="pay-section" aria-labelledby="p2p-methods-saved-title">
+<h2 id="p2p-methods-saved-title">Your payment methods</h2>
+<div role="status" lang="und">
+<div class="lt-refusal" data-refusal="refused">
+<p class="lt-refusal-title">Can’t connect right now</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
 </div>
-</header>
-<div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
-<span>No services run in the look gate.</span>
-</p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-</div>
-</div>
+</section>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Each method you add or remove is confirmed with a passkey or an authenticator code. Saved details never come back whole: the list shows your own labels, Show details reads them masked, and a buyer sees them only on an order placed with you.</p>
 </section>
 </div>
 </div>

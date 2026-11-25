@@ -31,6 +31,7 @@ import { pathToFileURL } from 'node:url';
 // request's, so the money rule below is main's.
 import { moneyRule, manifestsAt } from './journey-verdict.mjs';
 import { JOURNEY_FILE, JUDGE_PATHS, judgedFile } from './judged-paths.mjs';
+import { countCall } from './api-count.mjs';
 
 export { JOURNEY_FILE, JUDGE_PATHS, judgedFile };
 
@@ -400,6 +401,31 @@ export function stepsTouched({ journey, before, after, removed, added }) {
   return { own, fileLevel, all };
 }
 
+/**
+ * The steps a head retires, of `wordless` (steps whose own test changed and that have no words at project-state): those
+ * the head has no test titled for in any journey file (`headTests`, a Set of step ids) and that the head's
+ * docs/roadmap/journeys.json (`headList`, its parsed text, or null when unreadable) no longer lists. Removing a step
+ * from that list needs the owner's `Journey-retired:` line (journey-list-guard.mjs), so a step leaves only when the words,
+ * the list and the test all agree it is gone. A step still listed, or whose test the head still has, stays a FAIL: a
+ * live step can't lose its test, and a test can't be judged against words that don't exist. An unreadable list retires
+ * nothing (fail closed). (Failure it prevents: #9324, #10592, a retired step's test could never be removed.)
+ */
+export function retiredSteps({ wordless, headTests, headList }) {
+  if (!Array.isArray(headList)) return new Set();
+  const listed = new Set(headList.flatMap((j) => (Array.isArray(j?.steps) ? j.steps.map((st) => `${j.id} #${Number(st?.n)}`) : [])));
+  return new Set(wordless.filter((s) => !headTests.has(s) && !listed.has(s)));
+}
+
+const ROADMAP_JOURNEYS = 'docs/roadmap/journeys.json';
+/** The head's docs/roadmap/journeys.json, parsed, or null when it is missing or not JSON. */
+const headListAt = async (src, head) => {
+  try {
+    return JSON.parse((await src.read(head, ROADMAP_JOURNEYS)) ?? 'null');
+  } catch {
+    return null;
+  }
+};
+
 // ── What the journeys import ──────────────────────────────────────────────────────────────────────────────────────
 
 const IMPORT =
@@ -669,11 +695,23 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     }
   for (const s of pool) if (sample.length < Math.min(SAMPLE_STEPS, pool.length) && !sample.includes(s)) sample.push(s);
 
-  // A step whose test changed but that has no words can't be judged adequate to them: a FAIL line, without the model.
+  // A step whose test changed but that has no words can't be judged adequate to them: a FAIL line, without the model,
+  // unless the head retires it (retiredSteps): no test titled for it in any journey file at the head, and no longer
+  // listed in the head's journeys.json.
   const deterministic = [...declared];
   const ownList = [...own].sort();
-  for (const s of ownList)
-    if (!stepWords.has(s))
+  const wordless = ownList.filter((s) => !stepWords.has(s));
+  let retired = new Set();
+  if (wordless.length > 0) {
+    const headTests = new Set();
+    for (const jf of journeyFiles) {
+      const text = after.has(jf) ? after.get(jf) : await src.read(head, jf);
+      for (const t of testsIn(text, journeyOfFile(jf))) headTests.add(t.step);
+    }
+    retired = retiredSteps({ wordless, headTests, headList: await headListAt(src, head) });
+  }
+  for (const s of wordless)
+    if (!retired.has(s))
       deterministic.push({
         step: s,
         line: `no step words for ${s} at project-state ${wordsRef}; a test can't be judged against words that don't exist`,
@@ -699,7 +737,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
       deterministic,
       required,
       setAside,
-      facts: { own: own.size, reached: reached.size, sample: 0, changes },
+      facts: { own: own.size, reached: reached.size, sample: 0, changes, retired: [...retired] },
     };
 
   // The prompt, in priority order, until the budget runs out.
@@ -834,6 +872,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
       changes: changes.map(({ names: _n, ...c }) => c),
       left: left.length,
       bytes: size,
+      retired: [...retired],
     },
   };
 }
@@ -957,6 +996,8 @@ export function summaryLines(v, set) {
   }
   for (const l of (v.lines ?? []).filter((x) => x.kind === 'step')) out.push(`- ${l.id}: **${l.verdict}**: ${redact(l.why, set)}`);
   for (const d of v.deterministic ?? []) out.push(`- ${d.step}: **FAIL**: ${d.line}`);
+  for (const s of v.facts?.retired ?? [])
+    out.push(`- ${s}: retired: no words at project-state, no test for it at the head, and the head's journeys.json no longer lists it`);
   for (const f of v.findings ?? []) out.push(`- ${f}`);
   if (v.note) out.push('', `note: ${v.note}`);
   return out;
@@ -969,6 +1010,7 @@ async function getText(path, accept, token) {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
   });
+  countCall(res);
   const text = await res.text();
   if (res.status === 403 || res.status === 429)
     throw new Error(`GitHub ${res.status} on GET ${path.split('?')[0]}: stopping, not retrying`);

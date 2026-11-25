@@ -19,6 +19,9 @@ import { SqlConsoleModeStore } from './console-mode/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldLedger } from './staff-holds/ledger.js';
 import { SqlStaffHoldStore } from './staff-holds/store.js';
+import { LedgerReversalDesk } from './ledger-reversals/desk.js';
+import { createReversalLedger } from './ledger-reversals/ledger.js';
+import { SqlReversalStore } from './ledger-reversals/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
@@ -84,6 +87,11 @@ import { createCorrectiveTxClient } from './reconciliation-alerts/transactions-c
 
 /** The recording's index: who may call each procedure, and the shard files below it. */
 const INDEX = new URL('./wire-replay.golden.json', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
 /** One recorded shard in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
@@ -195,6 +203,13 @@ async function composeAsIndex(env: OpsEnv, sqlUrl: string | null) {
     now: () => new Date(),
     onWorkerError: () => undefined,
   });
+  const ledgerReversals = new LedgerReversalDesk({
+    store: crmSql ? new SqlReversalStore(crmSql) : undefined,
+    ledger: createReversalLedger({ ledgerUrl: env.LEDGER_URL, secret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) }),
+    approvals: approvalConsumer,
+    now: () => new Date(),
+    onWorkerError: () => undefined,
+  });
   const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
     ? env.OPS_PROTOCOL_REASON_CODES.split(',')
         .map((code) => code.trim())
@@ -263,6 +278,7 @@ async function composeAsIndex(env: OpsEnv, sqlUrl: string | null) {
       incidents: crmSql ? new SqlIncidentStore(crmSql) : undefined,
       incidentSeverities: parseIncidentSeverities(env.OPS_INCIDENT_SEVERITIES),
       staffHolds,
+      ledgerReversals,
       homeConfig: homeConfigFromEnv(env),
       valuationPrices: valuationPricesFromEnv(env.OPS_VALUATION_TEST_PRICES, {
         APP_ENV: process.env.APP_ENV,
@@ -367,6 +383,7 @@ const PATTERN_TRIES = [
 
 /** A plain sample of what an input's own JSON schema asks for. Not always accepted (custom checks are not in the schema): that answer is recorded too. */
 function sample(schema: unknown, depth = 0): unknown {
+  if (acceptsAnyJson(schema)) return null;
   if (typeof schema !== 'object' || schema === null || depth > 8) return null;
   const s = schema as Json;
   if ('const' in s) return s.const;
@@ -519,12 +536,12 @@ async function writeGolden(g: Golden) {
 }
 
 function readGolden(): Golden {
-  const index = JSON.parse(readFileSync(INDEX, 'utf8')) as { callers: unknown; shards: string[] };
+  const index = JSON.parse(readFileSync(INDEX, 'utf8').replaceAll(RECORDED_STACK, '')) as { callers: unknown; shards: string[] };
   const g: Golden = { callers: index.callers, inputs: {}, answers: {} };
   // A shard the index does not name is a leftover, and fails like a missing one.
   expect(readdirSync(GOLDEN).sort()).toEqual(index.shards.map((s) => `${s}.json`).sort());
   for (const shardName of index.shards) {
-    const shard = JSON.parse(readFileSync(goldenJson(shardName), 'utf8')) as {
+    const shard = JSON.parse(readFileSync(goldenJson(shardName), 'utf8').replaceAll(RECORDED_STACK, '')) as {
       inputs: Record<string, Samples>;
       bodies: string[];
       answers: Record<string, Record<string, [number, number]>>;
@@ -633,3 +650,15 @@ describe('the wire replay: svc-ops answers every ops call as recorded', () => {
     expect(diffs).toEqual([]);
   }, 300_000);
 });
+
+/**
+ * `jsonValueSchema` (z.json()) as JSON Schema: a choice of every JSON kind. Main had `z.unknown()` there (`{}`), which
+ * the sampler read as null; this reads the same, so the replay sends main's request (tooling/codemod/call-records/portable.mjs).
+ */
+function acceptsAnyJson(schema: unknown): boolean {
+  if (typeof schema !== 'object' || schema === null) return false;
+  const options = (schema as { anyOf?: unknown }).anyOf;
+  if (!Array.isArray(options)) return false;
+  const kinds = new Set(options.map((o: unknown) => (typeof o === 'object' && o !== null ? (o as { type?: unknown }).type : undefined)));
+  return ['string', 'number', 'boolean', 'null', 'array', 'object'].every((k) => kinds.has(k));
+}

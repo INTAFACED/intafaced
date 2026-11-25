@@ -122,7 +122,7 @@ fn door(
         store,
         service_name: str_of("SERVICE_NAME"),
         bus,
-        approvals: approvals(env, fetch.clone()),
+        approvals: approvals(env, &s2s, fetch.clone()),
         clock_skew_bound_ms: env.clock_skew_bound_ms,
         now_ms: system_ms,
         log: log.clone(),
@@ -175,15 +175,23 @@ fn reconciliation_sources(
             urls: pairs(&env.open_items_urls),
             sign,
         }),
+        report_urls: pairs(&env.report_urls),
     })
 }
 
-/// `env.IDENTITY_URL ? createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET) : unwiredApprovalConsumer()`.
-fn approvals(env: &LedgerEnv, fetch: Arc<dyn Fetch>) -> Box<dyn Approvals> {
+/// `env.IDENTITY_URL ? createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET, s2sKey) :
+/// unwiredApprovalConsumer()`: each consume signed by svc-ledger's own key when S2S gives it one, else by the shared
+/// secret (#10112).
+fn approvals(
+    env: &LedgerEnv,
+    s2s: &service_kit::s2s::S2s,
+    fetch: Arc<dyn Fetch>,
+) -> Box<dyn Approvals> {
     match env.str("IDENTITY_URL").filter(|u| !u.is_empty()) {
         Some(url) => Box::new(approval::Identity::new(
             url,
             env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default(),
+            s2s.signer.clone().zip(s2s.mode),
             fetch,
             system_seconds,
         )),
@@ -406,5 +414,164 @@ fn reconcile_timer(
                 "LEDGER RECONCILIATION TICK FAILED — a freeze that was due did not land",
             );
         }
+    }
+}
+
+/// #10112: the approvals client `door` builds signs its consume with svc-ledger's own key under `S2S_AUTH_MODE=keypair`,
+/// and svc-identity's verifier, keypair only, accepts it as svc-ledger's; with no key it signs with the shared secret.
+#[cfg(test)]
+mod approval_keys {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        reason = "a test: a failure is the point"
+    )]
+    use std::sync::Mutex;
+
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use service_kit::approvals::ConsumeInput;
+    use service_kit::http::{FetchError, HttpRequest, HttpResponse};
+    use service_kit::s2s::Mode;
+    use service_kit::s2s_verify::{Incoming, verify_request};
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct Capture(Arc<Mutex<Vec<HttpRequest>>>);
+
+    impl Fetch for Capture {
+        fn fetch(&self, req: &HttpRequest) -> Result<HttpResponse, FetchError> {
+            self.0.lock().unwrap().push(req.clone());
+            Ok(HttpResponse {
+                status: 500,
+                body: "{}".to_owned(),
+            })
+        }
+    }
+
+    const SECRET: &str = "placeholder-internal-service-secret-32chars";
+
+    fn keyring() -> (String, String) {
+        let seed = [7_u8; 32];
+        let x = URL_SAFE_NO_PAD.encode(
+            ed25519_dalek::SigningKey::from_bytes(&seed)
+                .verifying_key()
+                .as_bytes(),
+        );
+        let mut pkcs8 = vec![
+            0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22,
+            0x04, 0x20,
+        ];
+        pkcs8.extend_from_slice(&seed);
+        (
+            format!(
+                r#"{{"keys":[{{"kid":"svc-ledger.a","svc":"svc-ledger","use":"s2s","x":"{x}"}}]}}"#
+            ),
+            URL_SAFE_NO_PAD.encode(pkcs8),
+        )
+    }
+
+    fn env(keypair: bool) -> LedgerEnv {
+        let (ring, key) = keyring();
+        let mut pairs = vec![
+            ("IDENTITY_URL", Json::str("http://127.0.0.1:4000")),
+            ("INTERNAL_SERVICE_SECRET", Json::str(SECRET)),
+        ];
+        if !keypair {
+            pairs.push(("S2S_AUTH_MODE", Json::str("off")));
+        }
+        if keypair {
+            pairs.extend([
+                ("S2S_AUTH_MODE", Json::str("keypair")),
+                ("S2S_KEYRING", Json::String(ring)),
+                ("S2S_SIGNING_KID", Json::str("svc-ledger.a")),
+                ("S2S_SIGNING_KEY", Json::String(key)),
+            ]);
+        }
+        LedgerEnv {
+            json: Json::Object(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()),
+            clock_skew_bound_ms: None,
+            idempotency_conflict_mode: "detect",
+            rail_statement_urls: BTreeMap::new(),
+            open_items_urls: BTreeMap::new(),
+            report_urls: BTreeMap::new(),
+        }
+    }
+
+    /// The one request the client `door` would build sends, as it went on the wire.
+    fn sent(env: &LedgerEnv) -> HttpRequest {
+        let s2s = s2s_from_env(
+            env.str("S2S_AUTH_MODE").unwrap_or_default(),
+            env.str("S2S_KEYRING"),
+            env.str("S2S_SIGNING_KID"),
+            env.str("S2S_SIGNING_KEY"),
+            "svc-ledger",
+        )
+        .unwrap();
+        let capture = Capture::default();
+        let client = approvals(env, &s2s, Arc::new(capture.clone()));
+        assert!(
+            client
+                .consume(&ConsumeInput {
+                    approval_id: "appr-1",
+                    operation_id: "op-1",
+                    payload_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    target_service: "svc-ledger",
+                    target_id: "posting_freeze",
+                    expected_version: "2026-01-01T00:00:00.000000Z",
+                    replay: None,
+                })
+                .is_err(),
+            "a 500 is not an approval"
+        );
+        let sent = capture.0.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        sent[0].clone()
+    }
+
+    /// svc-identity's `verifyServiceRequest` fed the request exactly as sent.
+    fn judged(req: &HttpRequest, mode: Mode) -> (Option<String>, Option<&'static str>) {
+        let verifier = ServiceVerifier::new(
+            "svc-identity",
+            &parse_keyring(&keyring().0).unwrap(),
+            system_seconds,
+        )
+        .unwrap()
+        .with_boot_second(0);
+        let target = req.url.strip_prefix("http://127.0.0.1:4000").unwrap();
+        let auth = verify_request(
+            &Incoming {
+                method: &req.method,
+                url: target,
+                headers: &req.headers,
+                body: req.body.as_deref().map(str::as_bytes),
+            },
+            Some(&verifier),
+            Some(SECRET),
+            mode,
+            BodyBind::Require,
+            system_seconds(),
+        );
+        (auth.service, auth.scheme)
+    }
+
+    #[test]
+    fn under_keypair_the_consume_is_signed_by_svc_ledgers_own_key_and_identity_accepts_it() {
+        let req = sent(&env(true));
+        assert_eq!(
+            judged(&req, Mode::Keypair),
+            (Some("svc-ledger".to_owned()), Some("keypair"))
+        );
+    }
+
+    #[test]
+    fn with_no_key_the_consume_is_signed_by_the_shared_secret() {
+        let req = sent(&env(false));
+        assert_eq!(
+            judged(&req, Mode::Dual),
+            (Some("svc-ledger".to_owned()), Some("shared"))
+        );
+        assert_eq!(judged(&req, Mode::Keypair).1, None);
     }
 }

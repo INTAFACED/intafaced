@@ -8,6 +8,9 @@ export const tradeCopy = areaCopy({
   en: {
     'Trading account': 'Trading account',
     Vaults: 'Vaults',
+    Staking: 'Staking',
+    'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue':
+      'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue',
     'Vaults on your venue, each with its lock-up and leader’s share, and your money in them':
       'Vaults on your venue, each with its lock-up and leader’s share, and your money in them',
     'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them':
@@ -46,6 +49,8 @@ export const tradeCopy = areaCopy({
     'Apply to lead': 'Apply to lead',
     'Become a leader others can copy': 'Become a leader others can copy',
     'Market analytics': 'Market analytics',
+    'Data downloads': 'Data downloads',
+    'Historical tick, book and trade files with checksums': 'Historical tick, book and trade files with checksums',
     Screener: 'Screener',
     'Screen the markets by your own rules, and save the screen': 'Screen the markets by your own rules, and save the screen',
     'Who took liquidity in a named window, from the public trades': 'Who took liquidity in a named window, from the public trades',
@@ -215,6 +220,16 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     screen: 'trade/futures',
   },
   {
+    // A contract's own address (/trade/futures/BTC-PERP) opens the desk on that contract, as /trade/spot/:pair does for spot.
+    path: '/trade/futures/:pair',
+    title: 'Futures',
+    description: 'Perpetual and dated contracts',
+    door: 'Trade',
+    area: 'trade',
+    alias: '/trade/futures?symbol=:pair',
+    hidden: true,
+  },
+  {
     path: '/trade/options',
     title: 'Options',
     description: 'Calls, strikes and puts',
@@ -236,6 +251,13 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/screener',
     title: 'Screener',
     description: 'Screen the markets by your own rules, and save the screen',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/markets/downloads',
+    title: 'Data downloads',
+    description: 'Historical tick, book and trade files with checksums',
     door: 'Trade',
     area: 'trade',
   },
@@ -262,6 +284,13 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/account',
     title: 'Trading account',
     description: 'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/staking',
+    title: 'Staking',
+    description: 'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue',
     door: 'Trade',
     area: 'trade',
   },

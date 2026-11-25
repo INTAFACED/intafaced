@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { requireModulePage } from '@/lib/module-page-guard';
-import './trade-ops.css';
+import '@/app/kit.css';
 
 /** The desk uses the shared UI kit (Tailwind), scoped to `.if-app` so the older console pages keep their own look. */
 export default function TradeOpsLayout({ children }: { children: ReactNode }) {

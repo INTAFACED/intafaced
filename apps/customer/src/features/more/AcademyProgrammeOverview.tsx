@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { Resource } from '../../shared/resource';
-import { Loading, Panel } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
-import { Details, Read, presentActionFailure, type ActionControls } from './common';
+import type { ActionControls } from './common';
+import { presentActionFailure } from './action-state';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import {
   academyPaths,
@@ -28,9 +28,15 @@ import {
 } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
 import { ACADEMY_ENROLL_CERT_PATH } from '@intafaced/contracts/academy-learner-procedures';
-import { AcademyRefusal, GuardedButton, pathLabel } from './AcademyLmsParts';
+import { pathLabel } from './academy-labels';
+import { AcademyRefusal } from './academy-refusal';
+import { KitGuardedButton } from './academy-guarded';
+import { KitDetails } from './volt-action';
+import { KitRead, Section, Waiting } from './volt-parts';
 import { usePreferences } from '../../shared/preferences';
 import { ACADEMY_RESIDENCY_PAY_QUOTE } from '@intafaced/contracts/academy-residency-pay-quote-procedures';
+import { callAs } from '../../shared/api';
+import { ACADEMY_AMBASSADOR_BADGE } from '@intafaced/contracts/academy-ambassador-badge-procedures';
 
 const badge = z.object({
   userId: z.string().guid(),
@@ -38,19 +44,19 @@ const badge = z.object({
   status: z.enum(['active', 'frozen']).nullable(),
 });
 
-/** Programme depth from real answers: path enrolment, prerequisites, grants, ambassador status and residency pay state. */
+/** Programme depth from real answers, drawn with the kit: path enrolment, prerequisites, grants, ambassador status and residency pay state. */
 export function AcademyProgrammeOverview({ action }: { action: ProgrammeAction }) {
   const overview = useAcademyTracking();
   return (
     <>
-      <Read resource={overview.resource} retry={overview.reload}>
+      <KitRead resource={overview.resource} retry={overview.reload}>
         {(data) => (
           <>
             <PathProgrammes lessons={data.lessons} action={action} />
             <Grants tracking={data.tracking} />
           </>
         )}
-      </Read>
+      </KitRead>
       <AmbassadorStatus />
     </>
   );
@@ -215,9 +221,9 @@ export function PathProgrammesView({
   const rows = enrolments.status === 'ready' ? enrolments.data : [];
   return (
     <>
-      <Panel title={t('enrolmentsTitle')}>
-        <div className="academy-lms-stack">
-          {enrolments.status === 'loading' && <Loading />}
+      <Section title={t('enrolmentsTitle')}>
+        <div className="lt-stack">
+          {enrolments.status === 'loading' && <Waiting />}
           {enrolments.status === 'failed' && <AcademyRefusal failure={enrolments.failure} retry={reload} />}
           {enrolments.status === 'ready' &&
             (rows.length === 0 ? (
@@ -229,15 +235,15 @@ export function PathProgrammesView({
                 <p role="status">
                   <Copy k="enrolmentsSummary" params={{ enrolled: rows.length, total: academyPaths.length }} />
                 </p>
-                <ul className="academy-lms-rows" aria-label={t('enrolmentsTitle')}>
+                <ul className="lt-stack" aria-label={t('enrolmentsTitle')}>
                   {rows.map((row, index) => (
-                    <li key={row.pathSlug}>
+                    <li key={row.pathSlug} className="lt-actions">
                       <span>{index + 1}</span>
-                      <div>
+                      <div className="lt-stack">
                         <strong lang={isAcademyPath(row.pathSlug) ? undefined : 'zxx'}>
                           {isAcademyPath(row.pathSlug) ? pathLabel(t, row.pathSlug) : row.pathSlug}
                         </strong>
-                        <div data-testid="academy-lms-meta" className="academy-lms-meta">
+                        <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
                           <time dateTime={row.enrolledAt}>
                             <Copy k="enrolledSince" params={{ date: formatDay(row.enrolledAt, language) }} />
                           </time>
@@ -249,13 +255,13 @@ export function PathProgrammesView({
               </>
             ))}
         </div>
-      </Panel>
-      <Panel title={t('programmesTitle')}>
-        <div className="academy-lms-stack">
-          <p className="muted">
+      </Section>
+      <Section title={t('programmesTitle')}>
+        <div className="lt-stack">
+          <p className="lt-hint">
             <Copy k="programmesIntro" />
           </p>
-          <div className="academy-lms-grid">
+          <div className="lt-stack">
             {academyPaths.map((path) => {
               const group = groups.find((g) => g.path === path);
               const enrolled = rows.find((row) => row.pathSlug === path);
@@ -266,14 +272,15 @@ export function PathProgrammesView({
                 busy,
               });
               return (
-                <article key={path} className="academy-lms-card">
+                <article key={path} className="lt-stack">
                   <h3>{pathLabel(t, path)}</h3>
-                  <div data-testid="academy-lms-meta" className="academy-lms-meta">
+                  <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
                     <span>
                       <Copy k="lessonCount" params={{ count: group?.lessons.length ?? 0 }} />
                     </span>
                     {enrolments.status === 'ready' && (
-                      <span className="academy-lms-chip" data-status={enrolled ? 'recorded' : 'open'}>
+                      <span className="lt-chip" data-status={enrolled ? 'recorded' : 'open'}>
+                        <span className="lt-chip-mark" aria-hidden="true" />
                         {enrolled ? (
                           <Copy k="enrolledSince" params={{ date: formatDay(enrolled.enrolledAt, language) }} />
                         ) : (
@@ -282,32 +289,32 @@ export function PathProgrammesView({
                       </span>
                     )}
                   </div>
-                  <p className="muted">
+                  <p className="lt-hint">
                     <Copy k="prerequisitesChecked" />
                   </p>
-                  <div className="academy-learning-actions">
-                    <GuardedButton
+                  <div className="lt-actions">
+                    <KitGuardedButton
                       reasonId={`academy-enrol-${path}`}
                       reason={guards.enrol && t(guards.enrol)}
                       onClick={() => onEnrol(path)}
                     >
                       <Copy k="enrolButton" />
-                    </GuardedButton>
-                    <GuardedButton
+                    </KitGuardedButton>
+                    <KitGuardedButton
                       variant="secondary"
                       reasonId={`academy-leave-${path}`}
                       reason={guards.leave && t(guards.leave)}
                       onClick={() => onLeave(path)}
                     >
                       <Copy k="leaveButton" />
-                    </GuardedButton>
+                    </KitGuardedButton>
                   </div>
                 </article>
               );
             })}
           </div>
         </div>
-      </Panel>
+      </Section>
     </>
   );
 }
@@ -323,16 +330,16 @@ function Grants({ tracking }: { tracking: Tracking }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
   return (
-    <Panel title={t('grantsTitle')}>
-      <div className="academy-lms-stack">
+    <Section title={t('grantsTitle')}>
+      <div className="lt-stack">
         {tracking.grants.length === 0 ? (
           <p>
             <Copy k="grantsEmpty" />
           </p>
         ) : (
-          <ul className="academy-lms-rows">
+          <ul className="lt-stack">
             {tracking.grants.map((grant, index) => (
-              <li key={grant.idempotencyKey}>
+              <li key={grant.idempotencyKey} className="lt-actions">
                 <span>{index + 1}</span>
                 <strong lang="und">{grantTitle(t, tracking, grant.certId)}</strong>
                 <time dateTime={grant.grantedAt}>{formatDay(grant.grantedAt, language)}</time>
@@ -340,11 +347,11 @@ function Grants({ tracking }: { tracking: Tracking }) {
             ))}
           </ul>
         )}
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="grantsBoundary" />
         </p>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -355,9 +362,9 @@ function AmbassadorStatus() {
   const status = useResource(
     (signal) =>
       userId
-        ? api.query(
-            'academy',
-            'ambassadorBadge',
+        ? callAs(
+            api,
+            ACADEMY_AMBASSADOR_BADGE,
             { userId },
             badge.refine((b) => b.userId === userId),
             { signal },
@@ -367,12 +374,12 @@ function AmbassadorStatus() {
   );
   const pay = useResource((signal) => api.call(ACADEMY_RESIDENCY_PAY_QUOTE, undefined, { signal }), `residency-pay:${userId}`);
   return (
-    <Panel title={t('ambassadorTitle')}>
-      <div className="academy-lms-stack">
-        <Read resource={status.resource} retry={status.reload}>
+    <Section title={t('ambassadorTitle')}>
+      <div className="lt-stack">
+        <KitRead resource={status.resource} retry={status.reload}>
           {(b) =>
             b && (
-              <Details
+              <KitDetails
                 items={[
                   [
                     t('ambassadorStatus'),
@@ -382,21 +389,21 @@ function AmbassadorStatus() {
               />
             )
           }
-        </Read>
-        <Read resource={pay.resource} retry={pay.reload}>
+        </KitRead>
+        <KitRead resource={pay.resource} retry={pay.reload}>
           {(quote) => (
-            <Details
+            <KitDetails
               items={[
                 [t('residencyPay'), t('residencyNotPayable')],
                 [t('residencyPayReason'), <span lang="und">{quote.message}</span>],
               ]}
             />
           )}
-        </Read>
-        <p className="muted">
+        </KitRead>
+        <p className="lt-hint">
           <Copy k="ambassadorBoundary" />
         </p>
       </div>
-    </Panel>
+    </Section>
   );
 }

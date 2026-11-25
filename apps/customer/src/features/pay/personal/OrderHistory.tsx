@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, DataTable, StatusTag } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { StatusChip } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { displayAmount } from '../../../shared/money';
 import { payCopy, PayCopy } from '../copy';
-import { PayFailure, PaySection, PayState, PayTime } from '../components';
-import { Field } from '../ui-kit';
+import { Field, PayFailure, PaySection, PayState, PayTime } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { OrderExport, OrderPage, OrderTab } from '../schemas';
 import { downloadText } from '../portal/csv';
@@ -32,13 +32,13 @@ export function OrderHistory({ pay, userId }: { pay: PersonalPayApi; userId: str
   const tab = filter === 'all' ? undefined : TAB[filter];
   const first = useResource((signal) => pay.orderPage({ limit: PAGE, tab }, signal), `pay:order-page:${userId}:${filter}`);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <MerchantTodos pay={pay} userId={userId} />
       <PaySection
         title={payCopy.t('yourOrders')}
         description={payCopy.t('terminalStatusAndLedgerSettlementTimeStay')}
         action={
-          <Button variant="secondary" onClick={first.reload}>
+          <Button tone="secondary" onClick={first.reload}>
             <PayCopy k="refreshOrders" />
           </Button>
         }
@@ -94,7 +94,7 @@ function OrderPages({
     setPages((current) => [...current, result.data.trades.filter((row) => !seen.has(row.id))]);
     setCursor(result.data.nextCursor);
   };
-  if (counts.all === 0) return <p className="muted">{payCopy.t('noP2pOrdersReturned')}</p>;
+  if (counts.all === 0) return <p className="lt-muted">{payCopy.t('noP2pOrdersReturned')}</p>;
   return (
     <>
       <OrderFilterTabs value={filter} counts={counts} onChange={onFilter} note={t('countsNote')} />
@@ -102,17 +102,21 @@ function OrderPages({
       {pages.map((page, index) => (
         <PageUnread key={index} pay={pay} rows={page} onCounts={setUnread} />
       ))}
-      {rows.length === 0 ? <p className="muted">{p2pDepth.t('ordersNone')}</p> : <OrderRows userId={userId} rows={rows} unread={unread} />}
-      <p className="muted" role="status">
+      {rows.length === 0 ? (
+        <p className="lt-muted">{p2pDepth.t('ordersNone')}</p>
+      ) : (
+        <OrderRows userId={userId} rows={rows} unread={unread} />
+      )}
+      <p className="lt-muted" role="status">
         {t('shownOfTotal', { shown: String(rows.length), total: String(counts[filter]) })}
       </p>
       {failure ? <PayFailure result={failure} retry={older} /> : null}
       {cursor ? (
-        <Button variant="secondary" onClick={older} disabled={loading}>
+        <Button tone="secondary" onClick={older} disabled={loading}>
           {loading ? t('loadingOlder') : t('loadOlder')}
         </Button>
       ) : rows.length > 0 ? (
-        <p className="muted">{t('reachedOldest')}</p>
+        <p className="lt-muted">{t('reachedOldest')}</p>
       ) : null}
     </>
   );
@@ -132,48 +136,59 @@ function PageUnread({
   return null;
 }
 
-const TONE = { in_progress: 'working', in_dispute: 'pending', completed: 'filled', cancelled: 'failed' } as const satisfies Record<
+const TONE = { in_progress: 'pending', in_dispute: 'pending', completed: 'done', cancelled: 'failed' } as const satisfies Record<
   OrderTab,
-  string
+  'pending' | 'done' | 'failed'
 >;
 
 function OrderRows({ userId, rows, unread }: { userId: string | null; rows: Row[]; unread: Record<string, UnreadCount> }) {
   const { t } = orderHistoryCopy.useCopy();
+  const headers = [payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), t('statusColumn'), ''];
   return (
-    <DataTable
-      headers={[payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), t('statusColumn'), '']}
-      label={payCopy.t('yourP2pOrders')}
-    >
-      {rows.map((trade) => (
-        <tr key={trade.id} data-order={trade.id}>
-          <td>
-            {trade.id.slice(0, 8)}
-            <small className="pay-cell-note">
-              <PayTime value={trade.createdAt} />
-            </small>
-          </td>
-          <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
-          <td className="numeric">
-            {displayAmount(trade.amount)} {trade.asset}
-          </td>
-          <td className="numeric">
-            {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
-          </td>
-          <td>
-            <StatusTag status={TONE[trade.tab]} label={t(trade.displayStatus)} />
-            <small className="pay-cell-note">
-              {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
-            </small>
-          </td>
-          <td>
-            <a className="text-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
-              <PayCopy k="open2" />
-            </a>{' '}
-            <UnreadBadge count={unread[trade.id]} />
-          </td>
-        </tr>
-      ))}
-    </DataTable>
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={payCopy.t('yourP2pOrders')}>
+      <table className="lt-table">
+        <thead>
+          <tr>
+            {headers.map((header, index) => (
+              <th key={index} scope="col">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((trade) => (
+            <tr key={trade.id} data-order={trade.id}>
+              <td>
+                {trade.id.slice(0, 8)}
+                <small className="lt-hint">
+                  <PayTime value={trade.createdAt} />
+                </small>
+              </td>
+              <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
+              <td className="lt-num">
+                {displayAmount(trade.amount)} {trade.asset}
+              </td>
+              <td className="lt-num">
+                {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
+              </td>
+              <td>
+                <StatusChip status={TONE[trade.tab]} label={t(trade.displayStatus)} />
+                <small className="lt-hint">
+                  {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
+                </small>
+              </td>
+              <td>
+                <a className="lt-link" href={`/uc/order?tradeId=${encodeURIComponent(trade.id)}`}>
+                  <PayCopy k="open2" />
+                </a>{' '}
+                <UnreadBadge count={unread[trade.id]} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -225,14 +240,32 @@ function ExportOrders({ pay }: { pay: PersonalPayApi }) {
   return (
     <PaySection title={t('exportTitle')} description={t('exportBody')}>
       <form
-        className="actions"
+        className="lt-actions"
         onSubmit={(event) => {
           event.preventDefault();
           void run();
         }}
       >
-        <Field label={t('exportFrom')} type="date" value={from} required onChange={(event) => setFrom(event.target.value)} />
-        <Field label={t('exportTo')} type="date" value={to} required onChange={(event) => setTo(event.target.value)} />
+        <Field
+          label={t('exportFrom')}
+          type="text"
+          inputMode="numeric"
+          pattern="\d{4}-\d{2}-\d{2}"
+          placeholder="YYYY-MM-DD"
+          value={from}
+          required
+          onChange={(event) => setFrom(event.target.value)}
+        />
+        <Field
+          label={t('exportTo')}
+          type="text"
+          inputMode="numeric"
+          pattern="\d{4}-\d{2}-\d{2}"
+          placeholder="YYYY-MM-DD"
+          value={to}
+          required
+          onChange={(event) => setTo(event.target.value)}
+        />
         <Button type="submit" disabled={busy}>
           {busy ? t('exporting') : t('exportAction')}
         </Button>
@@ -241,7 +274,7 @@ function ExportOrders({ pay }: { pay: PersonalPayApi }) {
         <div role="status" data-testid="order-export">
           <p>{t('exportReady', { file: result.file, rows: String(result.data.rows) })}</p>
           {result.data.totals.length === 0 ? (
-            <p className="muted">{t('exportNone')}</p>
+            <p className="lt-muted">{t('exportNone')}</p>
           ) : (
             <>
               <h3>{t('exportTotals')}</h3>
@@ -272,7 +305,7 @@ function ExportRefusal({ result, retry }: { result: Extract<ApiResult<unknown>, 
   const words = historyRefusal(result, t, (iso) => iso);
   if (!words) return <PayFailure result={result} retry={retry} />;
   return (
-    <p data-testid="failure" className="failure" role="alert">
+    <p data-testid="failure" className="lt-refusal" role="alert">
       {words}
     </p>
   );

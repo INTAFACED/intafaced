@@ -12,24 +12,22 @@ const TOPICS = [
 export function LearnStrip() {
   const { t } = homeCopy.useCopy();
   return (
-    <section className="home-section" aria-labelledby="home-learn-title">
-      <div className="home-section__head">
-        <h2 className="home-h2" id="home-learn-title">
-          {t('Learn')}
-        </h2>
-        <a className="home-link" href={HOME_LINKS.academy}>
+    <section className="lt-stack" aria-labelledby="home-learn-title">
+      <div className="lt-title-row">
+        <h2 id="home-learn-title">{t('Learn')}</h2>
+        <a className="lt-link" href={HOME_LINKS.academy}>
           {t('Open Academy')}
         </a>
       </div>
-      <ul className="home-learn">
+      <ul className="lt-rows">
         {TOPICS.map((topic) => (
           <li key={topic.title}>
-            <a data-testid="home-learn__card" className="home-learn__card" href={HOME_LINKS.academy}>
-              <span className="home-learn__title">
+            <a data-testid="home-learn__card" className="lt-lines" href={HOME_LINKS.academy}>
+              <span>
                 {t(topic.title)}
                 <ArrowUpRight size={16} aria-hidden="true" />
               </span>
-              <span className="home-learn__body">{t(topic.body)}</span>
+              <span className="lt-hint">{t(topic.body)}</span>
             </a>
           </li>
         ))}

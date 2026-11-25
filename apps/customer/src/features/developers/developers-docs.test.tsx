@@ -34,16 +34,20 @@ describe('developer portal home', () => {
     expect(home.match(/data-testid="developers-access"/g)).toHaveLength(AUDIENCES.length);
     for (const section of SECTIONS) {
       expect([section.page, section.published, section.waitsFor].filter(Boolean), section.id).toHaveLength(1);
-      if (section.waitsFor) expect(text(home)).toContain(`Waits for ${section.waitsFor}`);
+      if (section.waitsFor) expect(home).toContain(`data-waits-for="${section.waitsFor}"`);
     }
+    expect(text(home)).not.toMatch(/DV-[a-z-]+-\d{2}/);
+    expect(text(home)).not.toContain('Page in this portal');
     expect(home).toContain('type="search"');
     expect(home).toContain('aria-label="Search the developer docs"');
   });
-  it('a section without a page names the slice it waits for', () => {
-    expect(text(html('/developers/protocols'))).toContain('It waits for DV-websocket-01');
+  it('a section without a page names its plain blocker and keeps its slice attribute', () => {
+    const protocols = html('/developers/protocols');
+    expect(text(protocols)).toContain('It is waiting on the protocol comparison guide.');
+    expect(protocols).toContain('data-waits-for="DV-websocket-01"');
     // DV-limits-01 is built: the section is its written page, never the waits-for notice.
     expect(text(html('/developers/rate-limits'))).toContain('Rate-limit tiers');
-    expect(text(html('/developers/rate-limits'))).not.toContain('It waits for DV-limits-01');
+    expect(text(html('/developers/rate-limits'))).not.toContain('It is waiting on');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
@@ -66,10 +70,11 @@ describe('developer docs pages', () => {
     expect(developersRoute('/developers/errors/auth')).toEqual({ kind: 'errors-auth' });
     expect(findRoom('/developers/errors/auth')?.area).toBe('public');
   });
-  it('REST conventions name JSON, UTC, UUIDs, symbols and decimal strings, and the paging that waits', () => {
+  it('REST conventions name JSON, UTC, UUIDs, symbols and decimal strings, and the paging status without slice ids', () => {
     const page = text(html('/developers/rest'));
     for (const rule of ['JSON', 'UTC', 'UUID', 'symbol', 'decimal string']) expect(page).toContain(rule);
-    expect(html('/developers/rest')).toMatch(/role="status"[^>]*>.*waits for DV-rest-01/);
+    expect(html('/developers/rest')).toMatch(/role="status"[^>]*>.*Cursor paging/);
+    expect(page).not.toContain('DV-rest-01');
   });
   it('the reference lists every route under its product, and the streams', () => {
     const page = html('/developers/reference');
@@ -165,7 +170,7 @@ describe('developer docs copy', () => {
     for (const locale of ['es', 'fr'] as const) expect(docsCopy.coverage(locale).missing).toEqual([]);
   });
   it('writes every portal key added for access, search and waiting sections in Spanish and French', () => {
-    const added = /^(section_connectivity|section_data_terms|access_|waitsFor|pageHere|search|errorsAuth)/;
+    const added = /^(section_connectivity|section_data_terms|access_|waitsFor|blocker_|search|errorsAuth)/;
     for (const locale of ['es', 'fr'] as const)
       expect(developersCopy.coverage(locale).missing.filter((key) => added.test(key))).toEqual([]);
   });
@@ -174,7 +179,7 @@ describe('developer docs copy', () => {
 describe('the WebSocket streams page', () => {
   it('draws its heading, the protocol guide with each owning module and the unknown-message rule, and waits for its live reads', () => {
     const page = html('/developers/websocket');
-    expect(page).toMatch(/<h1>WebSocket streams<\/h1>/);
+    expect(page).toMatch(/<h1 class="lt-title">WebSocket streams<\/h1>/);
     expect(text(page)).toContain('Unknown message types are ignored.');
     for (const module of ['svc-trade', 'svc-ws', 'svc-fix']) expect(page).toContain(`data-module="${module}">Owned by ${module}</td>`);
     // The hosts, the ping interval and the policy are read live: nothing is drawn as a value before the reads answer.

@@ -25,6 +25,7 @@ pub mod metrics;
 pub mod migrate;
 pub mod money;
 pub mod nats;
+pub mod outbox;
 pub mod pg;
 pub mod posture;
 pub mod s2s;

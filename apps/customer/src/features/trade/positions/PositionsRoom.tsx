@@ -1,7 +1,10 @@
+// volt-room: /trade/positions
 import { useRef, useState, type ReactNode } from 'react';
-import { Button, DataTable, EmptyState, Loading, Page } from '../../../shared/ui';
+import { Button, Select } from '@intafaced/ui/lit';
+import { MonitorTemplate, type RoomState } from '@intafaced/ui/lit/templates';
+import { ScrollTable, Waiting } from '../../more';
 import { useSession } from '../../session';
-import { usePolled } from '../../protocol';
+import { TabList, usePolled } from '../../protocol';
 import { closeWorstPrice } from '../../../screens/trade/futures/VenueFuturesDesk';
 import { compareDecimal } from '../../../data/decimal';
 import { useVenueMode } from '../use-venue-mode';
@@ -17,23 +20,12 @@ import {
   type VenueLeverageChange,
   type VenueMarket,
   type VenuePosition,
+  type VenuePositionMode,
   type VenueUp,
 } from '../venue-api';
-import {
-  AsOfLine,
-  Known,
-  OutcomeLine,
-  TestMark,
-  VENUE_POLL_MS,
-  VenueFrame,
-  WalletBar,
-  keepsDraft,
-  useOwner,
-  useVenueActions,
-  useVenueApi,
-  type ActionResult,
-  type RunAction,
-} from '../venue/VenueKit';
+import { VENUE_POLL_MS } from '../venue/poll';
+import { AsOfLine, Known, OutcomeLine, TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
+import { keepsDraft, useOwner, useVenueActions, useVenueApi, type ActionResult, type RunAction } from '../venue/VenueKit';
 import {
   breakEven,
   leverageBpsOfTimes,
@@ -47,59 +39,70 @@ import {
 } from './positions-math';
 import { positionsCopy } from './positions-copy';
 import { LiquidationAftermath, LiquidationPanel } from './LiquidationPanels';
+import { AutoTopUpPanel } from './AutoTopUpPanel';
+import { MarginCalls, RiskAlertsPanel } from './RiskAlertsPanel';
+import { PreLiquidationStopPanel, StopOnRow, usePreLiquidationStops } from './PreLiquidationStop';
 
 /**
  * The positions room (`/trade/positions`, J-derivatives-05): the person's futures positions on every connected venue with
  * product tags and the venue named, totals that are the sum of the rows, each position's details, the venue's position
- * modes, a leverage change with the venue's margin difference stated before signing, close all from a reviewed list, and
- * the venue sub-accounts with their positions and the margin moved between them. Every figure is the venue's own, with
+ * modes and the switch between them where the venue offers one, a leverage change with the venue's margin difference
+ * stated before signing, close all from a reviewed list, and the venue sub-accounts with their positions, the margin moved
+ * between them, and a position moved where the venue moves positions. Every figure is the venue's own, with
  * its time; the venue holds the margin, INTAFACED holds none of it, and the ledger posts nothing.
  */
 export function PositionsRoom({ path }: { path: string }) {
   const { t } = positionsCopy.useCopy();
   const mode = useVenueMode();
   const { userId } = useSession();
-  const actions = (
-    <a className="text-link" href="/trade/futures">
+  const deskLink = (
+    <a className="lt-link" href="/trade/futures">
       {t('deskLink')}
     </a>
   );
+  const off = (state: RoomState, link = false) => (
+    <MonitorTemplate
+      title={t('title')}
+      state={state}
+      mode="pro"
+      figures={[]}
+      roomAction={link ? deskLink : undefined}
+      explain={<p className="lt-hint">{t('explain')}</p>}
+    />
+  );
   if (!userId)
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <EmptyState
-          title={t('signedOutTitle')}
-          action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
-              {t('signIn')}
-            </a>
-          }
-        >
-          {t('signedOutBody')}
-        </EmptyState>
-      </Page>
-    );
-  if (mode.mode === 'checking')
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <Loading label={t('title')} />
-      </Page>
-    );
+    return off({
+      kind: 'empty',
+      title: t('signedOutTitle'),
+      body: t('signedOutBody'),
+      action: { label: t('signIn'), href: `/login?redirect=${encodeURIComponent(location.pathname + location.search)}` },
+    });
+  if (mode.mode === 'checking') return off({ kind: 'loading' });
   if (mode.mode === 'off' || !mode.status.available)
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')} actions={actions}>
-        <EmptyState title={t('title')}>{t('venueOff')}</EmptyState>
-      </Page>
-    );
+    return off({ kind: 'refused', refusal: { variant: 'parked', title: t('title'), body: t('venueOff') } }, true);
   const status = mode.status;
   return (
     <VenueFrame mode={mode}>
-      <Page eyebrow={t('eyebrow')} title={t('title')} actions={actions}>
-        <TestMark test={status.test} />
-        <p className="muted">{t('lead')}</p>
-        <WalletBar />
-        <Owned>{(owner) => <Room owner={owner} status={status} path={path} />}</Owned>
-      </Page>
+      <MonitorTemplate
+        title={t('title')}
+        description={t('lead')}
+        state={{ kind: 'ready' }}
+        mode="pro"
+        figures={[]}
+        roomAction={deskLink}
+        actions={
+          <div className="lt-stack">
+            <TestMark test={status.test} />
+            <WalletBar />
+          </div>
+        }
+        panels={
+          <div className="lt-stack">
+            <Owned>{(owner) => <Room owner={owner} status={status} path={path} />}</Owned>
+          </div>
+        }
+        explain={<p className="lt-hint">{t('explain')}</p>}
+      />
     </VenueFrame>
   );
 }
@@ -107,7 +110,7 @@ export function PositionsRoom({ path }: { path: string }) {
 function Owned({ children }: { children: (owner: string) => ReactNode }) {
   const { t } = positionsCopy.useCopy();
   const owner = useOwner();
-  if (!owner) return <p className="muted">{t('connectFirst')}</p>;
+  if (!owner) return <p className="lt-hint">{t('connectFirst')}</p>;
   return <>{children(owner)}</>;
 }
 
@@ -116,12 +119,14 @@ interface Venue {
   readonly id: string;
   readonly name: string;
   readonly down: string | null;
-  readonly modes: readonly ('one_way' | 'hedge')[];
+  readonly modes: readonly VenuePositionMode[];
+  /** True where the venue moves an open position between the main account and a sub-account. */
+  readonly moves: boolean;
 }
 
 function venuesOf(status: VenueUp): Venue[] {
   const listed = status.venues ?? [];
-  if (listed.length === 0) return [{ id: status.venue.id, name: status.venue.displayName, down: null, modes: ['one_way'] }];
+  if (listed.length === 0) return [{ id: status.venue.id, name: status.venue.displayName, down: null, modes: ['one_way'], moves: false }];
   return listed
     .filter((v): v is typeof v & { venueId: string } => v.venueId !== null)
     .map((v) => ({
@@ -129,6 +134,7 @@ function venuesOf(status: VenueUp): Venue[] {
       name: v.displayName ?? v.venueId,
       down: v.health.state === 'down' ? String((v.health as { reason?: unknown }).reason ?? '') : null,
       modes: v.positionModes ?? ['one_way'],
+      moves: v.positionMoves === true,
     }));
 }
 
@@ -149,6 +155,7 @@ interface VenueRead {
 const FILLS_WINDOW_MS = 7 * 24 * 3_600_000;
 
 function Room({ owner, status, path }: { owner: string; status: VenueUp; path: string }) {
+  const { t } = positionsCopy.useCopy();
   const venue = useVenueApi();
   const venues = venuesOf(status);
   const since = useRef(new Date(Date.now() - FILLS_WINDOW_MS).toISOString()).current;
@@ -201,37 +208,63 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
   const fillsOf = (venueId: string) => reads.data?.find((r) => r.venue.id === venueId)?.fills ?? [];
   const reload = () => reads.reload();
   const addressed = new URL(path, location.origin).searchParams.get('subAccount');
+  const [tab, setTab] = useState<'positions' | 'calls'>(
+    new URL(path, location.origin).searchParams.get('tab') === 'margin-calls' ? 'calls' : 'positions',
+  );
+  const up = venues.find((v) => v.down === null);
   return (
-    <>
-      <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
-      <AllPositions
-        owner={owner}
-        reads={reads.data}
-        rows={rows}
-        marketOf={marketOf}
-        fillsOf={fillsOf}
-        run={run}
-        onDone={reload}
-        test={status.test}
-        builder={status.builder}
-      />
-      <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
-      <Modes venues={venues} />
-      {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
-      {venues
-        .filter((v) => v.down === null)
-        .map((v) => (
-          <SubAccounts
-            key={v.id}
+    <TabList
+      label={t('tabsLabel')}
+      tabs={[
+        { id: 'positions', label: t('tabPositions') },
+        { id: 'calls', label: t('tabCalls') },
+      ]}
+      value={tab}
+      onChange={setTab}
+    >
+      {tab === 'calls' ? (
+        up ? (
+          <MarginCalls owner={owner} venue={up} />
+        ) : null
+      ) : (
+        <>
+          <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
+          <AllPositions
             owner={owner}
-            venue={v}
-            mainRows={rows.filter((r) => r.venue.id === v.id)}
-            marketOf={(symbol) => marketOf(v.id, symbol)}
+            reads={reads.data}
+            rows={rows}
+            marketOf={marketOf}
+            fillsOf={fillsOf}
             run={run}
             onDone={reload}
+            test={status.test}
+            builder={status.builder}
+            desk={{ id: status.venue.id, name: status.venue.displayName }}
           />
-        ))}
-    </>
+          <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
+          <Modes
+            owner={owner}
+            venues={venues}
+            perpsOf={(venueId) => (markets.data?.[venueId] ?? []).filter((m) => m.kind === 'perpetual').map((m) => m.symbol)}
+            run={run}
+          />
+          {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
+          {venues
+            .filter((v) => v.down === null)
+            .map((v) => (
+              <SubAccounts
+                key={v.id}
+                owner={owner}
+                venue={v}
+                mainRows={rows.filter((r) => r.venue.id === v.id)}
+                marketOf={(symbol) => marketOf(v.id, symbol)}
+                run={run}
+                onDone={reload}
+              />
+            ))}
+        </>
+      )}
+    </TabList>
   );
 }
 
@@ -250,25 +283,25 @@ function PositionCells({ row, market }: { row: Row; market: Listed }) {
       <td data-cell="product">{t(`product_${market === null ? 'reading' : market === 'unread' ? 'unread' : productOf(market)}`)}</td>
       <td data-cell="market">{p.symbol}</td>
       <td data-cell="side">{t(`side_${p.side}`)}</td>
-      <td className="numeric" data-cell="size">
+      <td className="lt-mono" data-cell="size">
         {p.size}
       </td>
-      <td className="numeric" data-cell="entry">
+      <td className="lt-mono" data-cell="entry">
         {p.entryPrice}
       </td>
-      <td className="numeric" data-cell="mark">
+      <td className="lt-mono" data-cell="mark">
         {p.markPrice}
       </td>
-      <td className="numeric" data-cell="notional">
+      <td className="lt-mono" data-cell="notional">
         {notional(p)}
       </td>
-      <td className="numeric" data-cell="margin">
+      <td className="lt-mono" data-cell="margin">
         {p.margin}
       </td>
-      <td className="numeric" data-cell="unrealised">
+      <td className="lt-mono" data-cell="unrealised">
         {p.unrealisedPnl}
       </td>
-      <td className="numeric" data-cell="leverage">
+      <td className="lt-mono" data-cell="leverage">
         {t('leverageCell', { times: String(leverageTimes(p.leverageBps)), mode: t(`mode_${p.marginMode}`) })}
       </td>
     </>
@@ -301,13 +334,13 @@ function TotalRow({ rows, extra = 0 }: { rows: readonly VenuePosition[]; extra?:
       <th scope="row" colSpan={7}>
         {t('totalRow', { count: String(total.count) })}
       </th>
-      <td className="numeric" data-cell="notional">
+      <td className="lt-mono" data-cell="notional">
         {total.notional}
       </td>
-      <td className="numeric" data-cell="margin">
+      <td className="lt-mono" data-cell="margin">
         {total.margin}
       </td>
-      <td className="numeric" data-cell="unrealised">
+      <td className="lt-mono" data-cell="unrealised">
         {total.unrealisedPnl}
       </td>
       <td colSpan={1 + extra} />
@@ -327,6 +360,7 @@ function AllPositions({
   onDone,
   test,
   builder,
+  desk,
 }: {
   owner: string;
   reads: VenueRead[] | null;
@@ -337,56 +371,66 @@ function AllPositions({
   onDone: () => void;
   test: boolean;
   builder: VenueUp['builder'];
+  /** The venue the door sends protections to (a pre-liquidation stop rests there). */
+  desk: { id: string; name: string };
 }) {
   const { t } = positionsCopy.useCopy();
   const headers = useHeaders();
-  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin'; key: string } | null>(null);
+  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin' | 'stop'; key: string } | null>(null);
+  const stops = usePreLiquidationStops(owner);
+  const stopOf = (row: Row) => (row.venue.id === desk.id ? stops.stops.get(row.position.symbol) : undefined);
   const openRow = open ? (rows.find((r) => rowKey(r) === open.key) ?? null) : null;
   // The liquidation panel names its venue and market, not a row: it stays open when the venue closes the position.
   const [liquidation, setLiquidation] = useState<{ venue: Venue; symbol: string } | null>(null);
   return (
-    <section className="dk-panel form-stack" aria-label={t('allTitle')} data-testid="positions-all">
-      <h2 className="dk-tab-title">
+    <section className="lt-stack" aria-label={t('allTitle')} data-testid="positions-all">
+      <h2>
         {t('allTitle')} <TestMark test={test} />
       </h2>
       {(reads ?? []).map((r) =>
         r.venue.down !== null ? (
-          <p key={r.venue.id} className="failure" role="alert" data-venue-down={r.venue.id}>
+          <p key={r.venue.id} className="lt-refusal" role="alert" data-venue-down={r.venue.id}>
             {t('venueDown', { venue: r.venue.name, reason: r.venue.down })}
           </p>
         ) : r.failure ? (
-          <p key={r.venue.id} className="failure" role="alert">
+          <p key={r.venue.id} className="lt-refusal" role="alert">
             {t('readFailed', { venue: r.venue.name, detail: r.failure })}
           </p>
         ) : null,
       )}
-      {reads === null ? <Loading label={t('allTitle')} /> : null}
-      {reads !== null && rows.length === 0 ? <p className="muted">{t('none')}</p> : null}
+      {reads === null ? <Waiting label={t('allTitle')} /> : null}
+      {reads !== null && rows.length === 0 ? <p className="lt-hint">{t('none')}</p> : null}
       {rows.length > 0 ? (
-        <DataTable label={t('allTitle')} headers={[...headers, '']}>
+        <ScrollTable label={t('allTitle')} headers={[...headers, '']}>
           {rows.map((row) => (
             <tr key={rowKey(row)} data-venue={row.venue.id} data-symbol={row.position.symbol}>
               <PositionCells row={row} market={marketOf(row.venue.id, row.position.symbol)} />
               <td>
-                <Button variant="secondary" onClick={() => setOpen({ kind: 'detail', key: rowKey(row) })}>
+                <Button tone="secondary" onClick={() => setOpen({ kind: 'detail', key: rowKey(row) })}>
                   {t('details')}
                 </Button>{' '}
-                <Button variant="secondary" onClick={() => setOpen({ kind: 'leverage', key: rowKey(row) })}>
+                <Button tone="secondary" onClick={() => setOpen({ kind: 'leverage', key: rowKey(row) })}>
                   {t('changeLeverage')}
                 </Button>{' '}
                 {row.position.marginMode === 'isolated' ? (
-                  <Button variant="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
-                    {t('adjustMargin')}
-                  </Button>
+                  <>
+                    <Button tone="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
+                      {t('adjustMargin')}
+                    </Button>{' '}
+                    <Button tone="secondary" onClick={() => setOpen({ kind: 'stop', key: rowKey(row) })}>
+                      {t('plsButton')}
+                    </Button>{' '}
+                    <StopOnRow stop={stopOf(row)} />
+                  </>
                 ) : null}{' '}
-                <Button variant="secondary" onClick={() => setLiquidation({ venue: row.venue, symbol: row.position.symbol })}>
+                <Button tone="secondary" onClick={() => setLiquidation({ venue: row.venue, symbol: row.position.symbol })}>
                   {t('liquidationButton')}
                 </Button>
               </td>
             </tr>
           ))}
           <TotalRow rows={rows.map((r) => r.position)} extra={1} />
-        </DataTable>
+        </ScrollTable>
       ) : null}
       {(reads ?? []).map((r) => (r.positions ? <AsOfLine key={r.venue.id} asOf={r.positions.asOf} /> : null))}
       {open?.kind === 'detail' && openRow ? <Detail row={openRow} fills={fillsOf(openRow.venue.id)} onClose={() => setOpen(null)} /> : null}
@@ -403,6 +447,24 @@ function AllPositions({
       ) : null}
       {open?.kind === 'margin' && openRow ? (
         <IsolatedMargin key={open.key} row={openRow} owner={owner} run={run} onDone={onDone} onClose={() => setOpen(null)} />
+      ) : null}
+      {open?.kind === 'stop' && openRow ? (
+        <PreLiquidationStopPanel
+          key={open.key}
+          owner={owner}
+          position={openRow.position}
+          venue={openRow.venue}
+          desk={desk}
+          market={entryOf(marketOf(openRow.venue.id, openRow.position.symbol))}
+          stop={stopOf(openRow)}
+          builder={builder}
+          run={run}
+          onDone={() => {
+            stops.reload();
+            onDone();
+          }}
+          onClose={() => setOpen(null)}
+        />
       ) : null}
       {liquidation ? (
         <LiquidationPanel
@@ -426,30 +488,26 @@ function Detail({ row, fills, onClose }: { row: Row; fills: VenueFill[]; onClose
   const ratio = marginRatio(p);
   const pnl = pnlFormula(p);
   return (
-    <section
-      className="dk-panel form-stack"
-      aria-label={t('detailTitle', { symbol: p.symbol, venue: row.venue.name })}
-      data-testid="position-detail"
-    >
-      <h3 className="dk-tab-title">{t('detailTitle', { symbol: p.symbol, venue: row.venue.name })}</h3>
+    <section className="lt-stack" aria-label={t('detailTitle', { symbol: p.symbol, venue: row.venue.name })} data-testid="position-detail">
+      <h3>{t('detailTitle', { symbol: p.symbol, venue: row.venue.name })}</h3>
       <dl>
         <dt>{t('detailEntry')}</dt>
-        <dd className="numeric" data-line="entry">
+        <dd className="lt-mono" data-line="entry">
           {p.entryPrice}
         </dd>
         <dt>{t('detailBreakEven')}</dt>
-        <dd className="numeric" data-line="break-even">
+        <dd className="lt-mono" data-line="break-even">
           <span data-value="break-even">{breakEven(p, fills)}</span>{' '}
-          <span className="muted" data-line="break-even-rule">
+          <span className="lt-hint" data-line="break-even-rule">
             {t('detailBreakEvenRule', { sign: p.side === 'long' ? '+' : '−', fees, size: p.size })}
           </span>
         </dd>
         <dt>{t('detailMark')}</dt>
-        <dd className="numeric" data-line="mark">
+        <dd className="lt-mono" data-line="mark">
           {p.markPrice}
         </dd>
         <dt>{t('detailMarginRatio')}</dt>
-        <dd className="numeric" data-line="margin-ratio">
+        <dd className="lt-mono" data-line="margin-ratio">
           {ratio === null ? (
             t('detailMarginRatioNone')
           ) : ratio === 'liquidation' ? (
@@ -457,7 +515,7 @@ function Detail({ row, fills, onClose }: { row: Row; fills: VenueFill[]; onClose
           ) : (
             <>
               <span data-value="margin-ratio">{t('detailMarginRatioValue', { ratio })}</span>{' '}
-              <span className="muted" data-line="margin-ratio-rule">
+              <span className="lt-hint" data-line="margin-ratio-rule">
                 {t('detailMarginRatioRule', {
                   maintenance: p.maintenanceMargin?.known ? p.maintenanceMargin.value : '',
                   margin: p.margin,
@@ -468,18 +526,18 @@ function Detail({ row, fills, onClose }: { row: Row; fills: VenueFill[]; onClose
           )}
         </dd>
         <dt>{t('detailPnl')}</dt>
-        <dd className="numeric" data-line="pnl">
+        <dd className="lt-mono" data-line="pnl">
           <span data-value="pnl">{p.unrealisedPnl}</span>{' '}
-          <span className="muted" data-line="pnl-formula">
+          <span className="lt-hint" data-line="pnl-formula">
             {t(pnl.words === 'long' ? 'detailPnlLong' : 'detailPnlShort', pnl)}
           </span>
         </dd>
         <dt>{t('detailLiquidation')}</dt>
-        <dd className="numeric" data-line="liquidation">
+        <dd className="lt-mono" data-line="liquidation">
           <Known value={p.liquidationPrice} render={(x) => x} />
         </dd>
       </dl>
-      <Button variant="secondary" onClick={onClose}>
+      <Button tone="secondary" onClick={onClose}>
         {t('close')}
       </Button>
     </section>
@@ -546,10 +604,10 @@ function Leverage({
 
   const diff = review ? review.difference : null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('levTitle', words)} data-testid="position-leverage">
-      <h3 className="dk-tab-title">{t('levTitle', words)}</h3>
+    <section className="lt-stack" aria-label={t('levTitle', words)} data-testid="position-leverage">
+      <h3>{t('levTitle', words)}</h3>
       <p data-line="cap">{cap === null ? t('levCapNone', words) : t('levCap', { ...words, times: String(leverageTimes(cap)) })}</p>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('levInput')}</span>
         <input
           inputMode="numeric"
@@ -561,11 +619,11 @@ function Leverage({
           }}
         />
       </label>
-      <Button variant="secondary" onClick={() => void check()}>
+      <Button tone="secondary" onClick={() => void check()}>
         {t('levReview')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert" data-testid="position-leverage-problem">
+        <p className="lt-refusal" role="alert" data-testid="position-leverage-problem">
           {problem}
         </p>
       ) : null}
@@ -573,11 +631,11 @@ function Leverage({
         <div data-testid="position-leverage-review">
           <dl>
             <dt>{t('levNow')}</dt>
-            <dd className="numeric" data-line="margin-now">
+            <dd className="lt-mono" data-line="margin-now">
               {review.marginNow}
             </dd>
             <dt>{t('levAfter', { times: String(leverageTimes(review.leverageBps)) })}</dt>
-            <dd className="numeric" data-line="margin-after">
+            <dd className="lt-mono" data-line="margin-after">
               {review.marginAfter}
             </dd>
           </dl>
@@ -588,12 +646,12 @@ function Leverage({
                 ? t('levReleased', { amount: diff.slice(1) })
                 : t('levPosted', { amount: diff })}
           </p>
-          <p className="muted">{t('levNothingYet')}</p>
+          <p className="lt-hint">{t('levNothingYet')}</p>
           <Button onClick={() => void confirm()}>{t('levConfirm', { times: String(leverageTimes(review.leverageBps)) })}</Button>
         </div>
       ) : null}
       <OutcomeLine result={result} owner={owner} venueId={row.venue.id} />
-      <Button variant="secondary" onClick={onClose}>
+      <Button tone="secondary" onClick={onClose}>
         {t('close')}
       </Button>
     </section>
@@ -622,39 +680,39 @@ function AccountMetrics({ owner, venues }: { owner: string; venues: readonly Ven
     VENUE_POLL_MS,
   );
   return (
-    <section className="dk-panel form-stack" aria-label={t('metricsTitle')} data-testid="account-metrics">
-      <h2 className="dk-tab-title">{t('metricsTitle')}</h2>
-      {reads.data === null ? <Loading label={t('metricsTitle')} /> : null}
+    <section className="lt-stack" aria-label={t('metricsTitle')} data-testid="account-metrics">
+      <h2>{t('metricsTitle')}</h2>
+      {reads.data === null ? <Waiting label={t('metricsTitle')} /> : null}
       {(reads.data ?? []).map(({ venue: v, summary, failure }) => (
         <div key={v.id} data-venue={v.id}>
-          <h3 className="dk-tab-title">{t('metricsVenue', { venue: v.name })}</h3>
+          <h3>{t('metricsVenue', { venue: v.name })}</h3>
           {failure ? (
-            <p className="failure" role="alert">
+            <p className="lt-refusal" role="alert">
               {t('metricsNotOffered', { venue: v.name, detail: failure })}
             </p>
           ) : null}
           {summary ? (
             <>
-              <p className="muted">{t('metricsLead', { venue: v.name, asset: summary.value.asset })}</p>
+              <p className="lt-hint">{t('metricsLead', { venue: v.name, asset: summary.value.asset })}</p>
               <dl>
                 <dt>{t('metricsEquity')}</dt>
-                <dd className="numeric" data-metric="equity">
+                <dd className="lt-mono" data-metric="equity">
                   {summary.value.equity}
                 </dd>
                 <dt>{t('metricsFree')}</dt>
-                <dd className="numeric" data-metric="free">
+                <dd className="lt-mono" data-metric="free">
                   {summary.value.free}
                 </dd>
                 <dt>{t('metricsUsed')}</dt>
-                <dd className="numeric" data-metric="used">
+                <dd className="lt-mono" data-metric="used">
                   {summary.value.usedMargin}
                 </dd>
                 <dt>{t('metricsMaintenance')}</dt>
-                <dd className="numeric" data-metric="maintenance">
+                <dd className="lt-mono" data-metric="maintenance">
                   {summary.value.maintenanceMargin}
                 </dd>
                 <dt>{t('metricsRatio')}</dt>
-                <dd className="numeric" data-metric="ratio">
+                <dd className="lt-mono" data-metric="ratio">
                   {summary.value.marginRatio.known
                     ? t('metricsRatioValue', { ratio: percentOf(summary.value.marginRatio.value) })
                     : t('metricsRatioNone')}
@@ -741,11 +799,11 @@ function IsolatedMargin({
   }
 
   return (
-    <section className="dk-panel form-stack" aria-label={t('marginTitle', words)} data-testid="position-margin">
-      <h3 className="dk-tab-title">{t('marginTitle', words)}</h3>
-      <p className="muted">{t('marginLead', words)}</p>
+    <section className="lt-stack" aria-label={t('marginTitle', words)} data-testid="position-margin">
+      <h3>{t('marginTitle', words)}</h3>
+      <p className="lt-hint">{t('marginLead', words)}</p>
       {read.data && 'failure' in read.data ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('marginNotOffered', { venue: row.venue.name, detail: read.data.failure })}
         </p>
       ) : null}
@@ -753,31 +811,31 @@ function IsolatedMargin({
         <>
           <dl>
             <dt>{t('marginNow')}</dt>
-            <dd className="numeric" data-line="margin">
+            <dd className="lt-mono" data-line="margin">
               {now.value.margin}
             </dd>
             <dt>{t('marginMinimum')}</dt>
-            <dd className="numeric" data-line="minimum">
+            <dd className="lt-mono" data-line="minimum">
               {now.value.minimumMargin}
             </dd>
             <dt>{t('marginRemovable')}</dt>
-            <dd className="numeric" data-line="removable">
+            <dd className="lt-mono" data-line="removable">
               {now.value.removable}
             </dd>
             <dt>{t('marginFree')}</dt>
-            <dd className="numeric" data-line="free">
+            <dd className="lt-mono" data-line="free">
               {now.value.free}
             </dd>
             <dt>{t('marginLiquidation')}</dt>
-            <dd className="numeric" data-line="liquidation">
+            <dd className="lt-mono" data-line="liquidation">
               <Known value={now.value.liquidationPrice} render={(x) => x} />
             </dd>
           </dl>
-          <p className="muted" data-line="rule">
+          <p className="lt-hint" data-line="rule">
             {t('marginRule', { venue: row.venue.name, rule: now.value.rule })}
           </p>
           <AsOfLine asOf={now.asOf} />
-          <label className="field">
+          <label className="lt-field">
             <span>{t('marginAmount', { asset: now.value.asset })}</span>
             <input
               inputMode="decimal"
@@ -787,15 +845,15 @@ function IsolatedMargin({
             />
           </label>
           <Button onClick={() => void change('add')}>{t('marginAdd')}</Button>{' '}
-          <Button variant="secondary" onClick={() => void change('remove')}>
+          <Button tone="secondary" onClick={() => void change('remove')}>
             {t('marginRemove')}
           </Button>
         </>
       ) : read.data === null ? (
-        <Loading label={t('marginTitle', words)} />
+        <Waiting label={t('marginTitle', words)} />
       ) : null}
       {problem ? (
-        <p className="failure" role="alert" data-testid="position-margin-problem">
+        <p className="lt-refusal" role="alert" data-testid="position-margin-problem">
           {problem}
         </p>
       ) : null}
@@ -809,7 +867,9 @@ function IsolatedMargin({
           })}
         </p>
       ) : null}
-      <Button variant="secondary" onClick={onClose}>
+      {now ? <AutoTopUpPanel owner={owner} symbol={p.symbol} venueName={row.venue.name} /> : null}
+      {now ? <RiskAlertsPanel owner={owner} symbol={p.symbol} venueName={row.venue.name} /> : null}
+      <Button tone="secondary" onClick={onClose}>
         {t('close')}
       </Button>
     </section>
@@ -904,18 +964,18 @@ function CloseAll({
   }
 
   return (
-    <div className="form-stack" data-testid="positions-close-all">
-      <Button variant="secondary" onClick={() => void open()}>
+    <div className="lt-stack" data-testid="positions-close-all">
+      <Button tone="secondary" onClick={() => void open()}>
         {t('closeAll')}
       </Button>
       {review ? (
-        <section className="dk-panel form-stack" aria-label={t('closeAllTitle')} data-testid="positions-close-all-review">
-          <h3 className="dk-tab-title">{t('closeAllTitle')}</h3>
+        <section className="lt-stack" aria-label={t('closeAllTitle')} data-testid="positions-close-all-review">
+          <h3>{t('closeAllTitle')}</h3>
           {review.rows.length === 0 ? (
-            <p className="muted">{t('closeAllNone')}</p>
+            <p className="lt-hint">{t('closeAllNone')}</p>
           ) : (
             <>
-              <p className="muted">{t('closeAllLead')}</p>
+              <p className="lt-hint">{t('closeAllLead')}</p>
               {builder
                 ? review.approve.map((v) => (
                     <p key={v.id} data-approve-venue={v.id}>
@@ -941,7 +1001,7 @@ function CloseAll({
               </Button>{' '}
             </>
           )}
-          <Button variant="secondary" disabled={busy} onClick={() => setReview(null)}>
+          <Button tone="secondary" disabled={busy} onClick={() => setReview(null)}>
             {t('closeAllCancel')}
           </Button>
         </section>
@@ -950,34 +1010,115 @@ function CloseAll({
   );
 }
 
-/** The position modes (#3): each venue's modes, offered only where the venue offers them, the others with the reason. */
-function Modes({ venues }: { venues: Venue[] }) {
+/**
+ * The position modes (#3): each venue's modes, offered only where the venue offers them, the others with the reason; a
+ * venue that offers more than one gets the switch, one perpetual at a time.
+ */
+function Modes({
+  owner,
+  venues,
+  perpsOf,
+  run,
+}: {
+  owner: string;
+  venues: Venue[];
+  perpsOf: (venueId: string) => string[];
+  run: RunAction;
+}) {
   const { t } = positionsCopy.useCopy();
   return (
-    <section className="dk-panel form-stack" aria-label={t('modesTitle')} data-testid="positions-modes">
-      <h2 className="dk-tab-title">{t('modesTitle')}</h2>
+    <section className="lt-stack" aria-label={t('modesTitle')} data-testid="positions-modes">
+      <h2>{t('modesTitle')}</h2>
       {venues.map((v) => (
-        <dl key={v.id} data-venue={v.id}>
-          <dt>{t('modeOneWay')}</dt>
-          <dd data-mode="one_way" data-offered={String(v.modes.includes('one_way'))}>
-            {v.modes.includes('one_way')
-              ? t(v.modes.length === 1 ? 'modeCurrent' : 'modeOffered', { venue: v.name })
-              : t('modeOneWayNotOffered', { venue: v.name })}
-          </dd>
-          <dt>{t('modeHedge')}</dt>
-          <dd data-mode="hedge" data-offered={String(v.modes.includes('hedge'))}>
-            {v.modes.includes('hedge') ? t('modeOffered', { venue: v.name }) : t('modeHedgeNotOffered', { venue: v.name })}
-          </dd>
-        </dl>
+        <div key={v.id} className="lt-stack">
+          <dl data-venue={v.id}>
+            <dt>{t('modeOneWay')}</dt>
+            <dd data-mode="one_way" data-offered={String(v.modes.includes('one_way'))}>
+              {v.modes.includes('one_way')
+                ? t(v.modes.length === 1 ? 'modeCurrent' : 'modeOffered', { venue: v.name })
+                : t('modeOneWayNotOffered', { venue: v.name })}
+            </dd>
+            <dt>{t('modeHedge')}</dt>
+            <dd data-mode="hedge" data-offered={String(v.modes.includes('hedge'))}>
+              {v.modes.includes('hedge') ? t('modeOffered', { venue: v.name }) : t('modeHedgeNotOffered', { venue: v.name })}
+            </dd>
+          </dl>
+          {v.modes.length > 1 && v.down === null && perpsOf(v.id).length > 0 ? (
+            <ModeSwitch owner={owner} venue={v} symbols={perpsOf(v.id)} run={run} />
+          ) : null}
+        </div>
       ))}
     </section>
   );
 }
 
 /**
+ * The switch on a venue that offers more than one mode (#3): the mode the venue reports for one perpetual, and one
+ * signed change to another it offers. The venue takes it or refuses it; its reason is shown as it gave it.
+ */
+function ModeSwitch({ owner, venue: v, symbols, run }: { owner: string; venue: Venue; symbols: string[]; run: RunAction }) {
+  const { t } = positionsCopy.useCopy();
+  const venue = useVenueApi();
+  const [picked, setPicked] = useState('');
+  const symbol = symbols.includes(picked) ? picked : symbols[0]!;
+  const mode = usePolled(
+    (signal) => venue.positionMode(owner, { symbol, venueId: v.id }, signal),
+    `position-mode:${owner}:${v.id}:${symbol}`,
+    VENUE_POLL_MS,
+  );
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const draft = useRef<{ id: string; of: string } | null>(null);
+  const now = mode.data?.value ?? null;
+  const nameOf = (m: VenuePositionMode) => t(m === 'hedge' ? 'modeHedge' : 'modeOneWay');
+
+  async function choose(target: VenuePositionMode) {
+    setResult(null);
+    const of = `${symbol}|${target}`;
+    if (!draft.current || draft.current.of !== of) draft.current = { id: draftId(), of };
+    const changeKey = keys.positionMode(owner, symbol, target, draft.current.id);
+    const answer = await run({ kind: 'set_position_mode', symbol, mode: target, changeKey }, { venueId: v.id });
+    if (!keepsDraft(answer)) draft.current = null;
+    setResult(answer);
+    mode.reload();
+  }
+
+  return (
+    <fieldset className="lt-stack" data-testid="positions-mode-switch" data-venue={v.id}>
+      <legend>{t('modeSwitchTitle', { venue: v.name })}</legend>
+      <Select
+        label={t('modeSwitchMarket')}
+        value={symbol}
+        onChange={(value) => {
+          setPicked(value);
+          setResult(null);
+        }}
+        options={symbols}
+      />
+      {mode.failure ? (
+        <p className="lt-refusal" role="alert" data-refusal={mode.failure.code}>
+          {t('modeNotKnown', { venue: v.name, detail: mode.failure.message })}
+        </p>
+      ) : (
+        <p data-line="mode-now" data-symbol={symbol}>
+          {t('modeNow', { symbol, venue: v.name })}: <span data-value="mode-now">{now ? nameOf(now) : t('modeReading')}</span>
+        </p>
+      )}
+      {v.modes.map((m) => (
+        <Button key={m} tone="secondary" disabled={now === null || now === m} onClick={() => void choose(m)}>
+          {t('modeChoose', { symbol, mode: nameOf(m) })}
+        </Button>
+      ))}
+      <p className="lt-hint">{t('modeHedgeNote', { venue: v.name })}</p>
+      <AsOfLine asOf={mode.data?.asOf ?? null} />
+      <OutcomeLine result={result} owner={owner} venueId={v.id} />
+    </fieldset>
+  );
+}
+
+/**
  * One venue's sub-accounts (#6 #7): each with its positions and totals, read as its owner (the main wallet); the margin
- * moved between the main account and a sub-account as one signed venue transfer, shown on both; and a position move,
- * refused in words, since the venue moves no open position between accounts.
+ * moved between the main account and a sub-account as one signed venue transfer, shown on both; and a position move:
+ * one signed venue action where the venue moves positions, refused in words where it moves none.
  */
 function SubAccounts({
   owner,
@@ -1003,14 +1144,30 @@ function SubAccounts({
   const [chosen, setChosen] = useState('');
   const [amount, setAmount] = useState('');
   const [moveSymbol, setMoveSymbol] = useState('');
+  const [positionDirection, setPositionDirection] = useState<'into_sub_account' | 'out_of_sub_account'>('into_sub_account');
   const [problem, setProblem] = useState<string | null>(null);
   const [positionRefusal, setPositionRefusal] = useState<string | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
+  const [positionResult, setPositionResult] = useState<ActionResult | null>(null);
   const draft = useRef<{ id: string; of: string } | null>(null);
+  const positionDraft = useRef<{ id: string; of: string } | null>(null);
   const list = subs.data?.value ?? [];
   const sub = chosen || list[0]?.subAccount || '';
   const words = { venue: v.name };
   const mainUsdc = main.data?.value.find((b) => b.asset === 'USDC');
+  // The chosen sub-account's positions: what can move out of it.
+  const subHeld = usePolled(
+    (signal) => venue.positions(owner, signal, { venueId: v.id, ...(sub ? { subAccount: sub } : {}) }),
+    `subs-move:${owner}:${v.id}:${sub}`,
+    VENUE_POLL_MS,
+  );
+  const movable =
+    positionDirection === 'into_sub_account'
+      ? mainRows.map((r) => r.position.symbol)
+      : sub
+        ? (subHeld.data?.value ?? []).map((p) => p.symbol)
+        : [];
+  const symbolToMove = movable.includes(moveSymbol) ? moveSymbol : (movable[0] ?? '');
 
   async function open() {
     setProblem(null);
@@ -1045,36 +1202,55 @@ function SubAccounts({
     onDone();
   }
 
+  /** The whole position and its margin, moved by the venue in one signed action; refused in words where it moves none. */
+  async function movePosition() {
+    setPositionRefusal(null);
+    setPositionResult(null);
+    if (!sub || !symbolToMove) return;
+    if (!v.moves) return setPositionRefusal(t('positionMoveRefused', words));
+    const of = `${sub}|${positionDirection}|${symbolToMove}`;
+    if (!positionDraft.current || positionDraft.current.of !== of) positionDraft.current = { id: draftId(), of };
+    const moveKey = keys.positionMove(owner, positionDraft.current.id);
+    const answer = await run(
+      { kind: 'move_position', subAccount: sub, direction: positionDirection, symbol: symbolToMove, moveKey },
+      { actionKey: moveKey, venueId: v.id },
+    );
+    if (!keepsDraft(answer)) positionDraft.current = null;
+    setPositionResult(answer);
+    subHeld.reload();
+    onDone();
+  }
+
   return (
-    <section className="dk-panel form-stack" aria-label={t('subsTitle', words)} data-testid="positions-subs" data-venue={v.id}>
-      <h2 className="dk-tab-title">{t('subsTitle', words)}</h2>
-      <p className="muted">{t('subsLead')}</p>
+    <section className="lt-stack" aria-label={t('subsTitle', words)} data-testid="positions-subs" data-venue={v.id}>
+      <h2>{t('subsTitle', words)}</h2>
+      <p className="lt-hint">{t('subsLead')}</p>
       {subs.failure ? (
-        <p className="failure" role="alert" data-refusal={subs.failure.code}>
+        <p className="lt-refusal" role="alert" data-refusal={subs.failure.code}>
           {t('subsNotOffered', { ...words, detail: subs.failure.message })}
         </p>
       ) : null}
       <p data-line="main-free">
         {t('mainFree')}:{' '}
-        <span className="numeric" data-value="main-free">
+        <span className="lt-mono" data-value="main-free">
           {mainUsdc ? mainUsdc.free : '0'}
         </span>
       </p>
-      {subs.data && list.length === 0 ? <p className="muted">{t('subsNone', words)}</p> : null}
+      {subs.data && list.length === 0 ? <p className="lt-hint">{t('subsNone', words)}</p> : null}
       {list.map((s) => (
         <SubAccountCard key={s.subAccount} owner={owner} venue={v} id={s.subAccount} name={s.name} marketOf={marketOf} />
       ))}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('subName')}</span>
         <input value={name} onChange={(e) => setName(e.target.value)} aria-label={t('subName')} />
       </label>
-      <Button variant="secondary" onClick={() => void open()}>
+      <Button tone="secondary" onClick={() => void open()}>
         {t('subOpen')}
       </Button>
       {list.length > 0 ? (
-        <fieldset className="form-stack" data-testid="positions-move-margin">
+        <fieldset className="lt-stack" data-testid="positions-move-margin">
           <legend>{t('moveTitle')}</legend>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('moveSub')}</span>
             <select value={sub} onChange={(e) => setChosen(e.target.value)} aria-label={t('moveSub')}>
               {list.map((s) => (
@@ -1084,49 +1260,64 @@ function SubAccounts({
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('moveDirection')}</span>
             <select value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)} aria-label={t('moveDirection')}>
               <option value="into_sub_account">{t('intoSub')}</option>
               <option value="out_of_sub_account">{t('outOfSub')}</option>
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('moveAmount')}</span>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label={t('moveAmount')} />
           </label>
           <Button onClick={() => void move()}>{t('moveButton')}</Button>
         </fieldset>
       ) : null}
-      {list.length > 0 && mainRows.length > 0 ? (
-        <fieldset className="form-stack" data-testid="positions-move-position">
+      {list.length > 0 ? (
+        <fieldset className="lt-stack" data-testid="positions-move-position">
           <legend>{t('positionMoveTitle')}</legend>
-          <label className="field">
-            <span>{t('positionMovePick')}</span>
-            <select
-              value={moveSymbol || mainRows[0]!.position.symbol}
-              onChange={(e) => setMoveSymbol(e.target.value)}
-              aria-label={t('positionMovePick')}
-            >
-              {mainRows.map((r) => (
-                <option key={r.position.symbol} value={r.position.symbol}>
-                  {r.position.symbol}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button variant="secondary" onClick={() => setPositionRefusal(t('positionMoveRefused', words))}>
-            {t('positionMoveButton')}
-          </Button>
+          <p className="lt-hint">{t(v.moves ? 'positionMoveLead' : 'positionMoveNone', words)}</p>
+          <Select
+            label={t('positionMoveDirection')}
+            value={positionDirection}
+            onChange={(value) => setPositionDirection(value === 'out_of_sub_account' ? 'out_of_sub_account' : 'into_sub_account')}
+            options={[
+              { value: 'into_sub_account', label: t('intoSub') },
+              { value: 'out_of_sub_account', label: t('outOfSub') },
+            ]}
+          />
+          {movable.length > 0 ? (
+            <>
+              <label className="lt-field">
+                <span>{t('positionMovePick')}</span>
+                <select value={symbolToMove} onChange={(e) => setMoveSymbol(e.target.value)} aria-label={t('positionMovePick')}>
+                  {movable.map((symbol) => (
+                    <option key={symbol} value={symbol}>
+                      {symbol}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button tone="secondary" onClick={() => void movePosition()}>
+                {t('positionMoveButton')}
+              </Button>
+            </>
+          ) : (
+            <p className="lt-hint" data-line="nothing-to-move">
+              {t('positionMoveEmpty')}
+            </p>
+          )}
           {positionRefusal ? (
-            <p className="failure" role="alert" data-testid="positions-move-position-refused">
+            <p className="lt-refusal" role="alert" data-testid="positions-move-position-refused">
               {positionRefusal}
             </p>
           ) : null}
+          <OutcomeLine result={positionResult} owner={owner} venueId={v.id} />
         </fieldset>
       ) : null}
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {problem}
         </p>
       ) : null}
@@ -1161,29 +1352,29 @@ function SubAccountCard({
   const rows = positions.data?.value ?? [];
   const usdc = balances.data?.value.find((b) => b.asset === 'USDC');
   return (
-    <article className="form-stack" data-testid="positions-sub" data-sub-account={id}>
-      <h3 className="dk-tab-title">{t('subTitle', { name })}</h3>
+    <article className="lt-stack" data-testid="positions-sub" data-sub-account={id}>
+      <h3>{t('subTitle', { name })}</h3>
       <p data-line="sub-free">
         {t('subFree')}:{' '}
-        <span className="numeric" data-value="sub-free">
+        <span className="lt-mono" data-value="sub-free">
           {usdc ? usdc.free : '0'}
         </span>
       </p>
       {positions.failure ? (
-        <p className="failure" role="alert" data-refusal={positions.failure.code}>
+        <p className="lt-refusal" role="alert" data-refusal={positions.failure.code}>
           {t('addressedRefused', { detail: positions.failure.message })}
         </p>
       ) : null}
-      {positions.data && rows.length === 0 ? <p className="muted">{t('subNoPositions')}</p> : null}
+      {positions.data && rows.length === 0 ? <p className="lt-hint">{t('subNoPositions')}</p> : null}
       {rows.length > 0 ? (
-        <DataTable label={t('subTitle', { name })} headers={headers}>
+        <ScrollTable label={t('subTitle', { name })} headers={headers}>
           {rows.map((p) => (
             <tr key={p.symbol} data-symbol={p.symbol}>
               <PositionCells row={{ venue: v, position: p }} market={marketOf(p.symbol)} />
             </tr>
           ))}
           <TotalRow rows={rows} />
-        </DataTable>
+        </ScrollTable>
       ) : null}
       <AsOfLine asOf={positions.data?.asOf ?? null} />
     </article>
@@ -1201,16 +1392,16 @@ function AddressedSubAccount({ owner, id, venue: v }: { owner: string; id: strin
   );
   const rows = positions.data?.value ?? [];
   return (
-    <section className="dk-panel form-stack" aria-label={t('addressedTitle', { id })} data-testid="positions-addressed">
-      <h2 className="dk-tab-title">{t('addressedTitle', { id })}</h2>
+    <section className="lt-stack" aria-label={t('addressedTitle', { id })} data-testid="positions-addressed">
+      <h2>{t('addressedTitle', { id })}</h2>
       {positions.failure ? (
-        <p className="failure" role="alert" data-refusal={positions.failure.code}>
+        <p className="lt-refusal" role="alert" data-refusal={positions.failure.code}>
           {t('addressedRefused', { detail: positions.failure.message })}
         </p>
       ) : null}
       {positions.data ? (
         rows.length === 0 ? (
-          <p className="muted">{t('subNoPositions')}</p>
+          <p className="lt-hint">{t('subNoPositions')}</p>
         ) : (
           <ul>
             {rows.map((p) => (

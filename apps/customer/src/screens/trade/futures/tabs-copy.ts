@@ -40,7 +40,7 @@ const messages = {
   'Orders all empty': 'No futures order',
   'Orders empty reason': 'A limit order that does not fill at once rests here until it fills or you cancel it.',
   'Orders footer':
-    'Margin is held for an opening order while it rests and released when it is cancelled. The last 100 orders the service holds.',
+    'Margin is held for an opening order while it rests and released when it is cancelled. Shows up to your last 100 orders.',
   'Order time': 'Placed',
   'Order price': 'Price',
   'Order filled qty': 'Filled',
@@ -83,7 +83,7 @@ const messages = {
   'History empty title': 'No closed positions',
   'History empty reason': 'Positions you close, or that are liquidated, appear here.',
   'History footer':
-    'The last 100 records the service holds. The time shown is when the position was opened: close time and exit price are not published. This is not a statement.',
+    'Shows up to your last 100 closed positions. The time shown is when the position was opened: close time and exit price are not recorded. This is not a statement.',
   'History export': 'Export what is on screen (CSV)',
   'History export file': 'futures-position-history.csv',
 
@@ -106,7 +106,7 @@ const messages = {
   'Funding estimates empty': 'You have no open position.',
   'Funding other contract': 'The rate shown is for another contract.',
   'Funding payments title': 'Funding payments you received or paid',
-  'Funding payments reason': 'The service does not list past funding payments per position.',
+  'Funding payments reason': 'Past funding payments per position are not shown here.',
   Notional: 'Notional',
 
   // ADL
@@ -126,7 +126,7 @@ const messages = {
   'Liquidations table': 'Liquidated positions',
   'Liquidations empty': 'None of your positions has been liquidated in the last 100 records.',
   'Liquidations unavailable title': 'No liquidation list or ADL rank',
-  'Liquidations unavailable reason': 'The service does not publish a liquidation event list or an ADL queue rank for your account.',
+  'Liquidations unavailable reason': 'A liquidation event list and ADL queue rank are not shown for your account.',
 
   // Margin calls
   'Calls heading': 'Margin calls',

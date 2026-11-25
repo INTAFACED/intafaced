@@ -1,25 +1,31 @@
+// volt-room: /pay/customers
+// volt-room: /pay/customers/:customerRef
+// volt-room: portal:customers
+// volt-room: portal:customer
 import { useMemo, useState } from 'react';
 import type { z } from 'zod';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Meter } from '@intafaced/ui/lit/templates';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { parseAmount } from '../../../../shared/money';
-import { Button, DataTable } from '@intafaced/ui';
-import { Field } from '../../ui-kit';
-import { PaySection } from '../../components';
 import {
   BackLink,
   Chip,
   Facts,
+  Failure,
   Gate,
+  Grid,
   Kpi,
   KpiGrid,
+  KpiStrip,
   ListShell,
-  Money,
+  Loading,
   MoneyLines,
+  MoneyText,
   MoreFooter,
-  PortalFailure,
-  PortalLoading,
-} from '../components';
-import { KpiStrip } from '../ui/Kpi';
+  Section,
+} from '../volt/parts';
+import { RecordListRoom, type RecordListSlots } from '../volt/RecordListRoom';
 import { buildCsv, downloadText } from '../csv';
 import { portalCopy } from './copy';
 import { useCursorList, useUrlParam, type ListState } from '../hooks';
@@ -32,7 +38,7 @@ import type { Customer, CustomerDetail, customerSummarySchema } from '../schemas
 
 type Summary = z.infer<typeof customerSummarySchema>;
 /** "1 subscription, 2 mandates": the count and its noun agree. */
-function recurringNote(t: (key: any, vars?: any) => string, subs: number, mandates: number): string {
+function recurringNote(t: ReturnType<typeof portalCopy.useCopy>['t'], subs: number, mandates: number): string {
   return t('recurringNote', {
     subs: subs === 1 ? t('subscriptionsOne') : t('subscriptionsMany', { n: subs }),
     mandates: mandates === 1 ? t('mandatesOne') : t('mandatesMany', { n: mandates }),
@@ -40,8 +46,8 @@ function recurringNote(t: (key: any, vars?: any) => string, subs: number, mandat
 }
 export const customerHref = (ref: string) => `/pay/customers/${encodeURIComponent(ref)}`;
 
-/** `/pay/customers`: the references your payments carried. Nothing else about a person is stored. */
-export function Customers({ portal }: { portal: PortalApi }) {
+/** `/pay/customers` on the record-list template: the references your payments carried. Nothing else about a person is stored. */
+export function CustomersRoom({ portal }: { portal: PortalApi }) {
   const [search, setSearch] = useUrlParam('q', '');
   const activeSince = useMemo(() => new Date(Date.now() - 30 * DAY_MS).toISOString(), []);
   const summary = useResource((s) => portal.customerSummary(activeSince, s), 'portal:customer-summary');
@@ -50,41 +56,36 @@ export function Customers({ portal }: { portal: PortalApi }) {
     `portal:customers:${search}`,
     (c) => c.customerRef,
   );
-  return (
-    <CustomersView
-      summary={summary.resource}
-      list={list.state}
-      search={search}
-      setSearch={setSearch}
-      loadMore={list.loadMore}
-      retry={() => {
-        summary.reload();
-        list.reload();
-      }}
-    />
-  );
+  const slots = useCustomersSlots({
+    summary: summary.resource,
+    list: list.state,
+    search,
+    setSearch,
+    loadMore: list.loadMore,
+    retry: () => {
+      summary.reload();
+      list.reload();
+    },
+  });
+  return <RecordListRoom>{() => slots}</RecordListRoom>;
 }
 
-export function CustomersView({
-  summary,
-  list,
-  search,
-  setSearch,
-  loadMore,
-  retry,
-}: {
+type CustomersProps = {
   summary: Resource<Summary>;
   list: ListState<Customer>;
   search: string;
   setSearch: (value: string) => void;
   loadMore: () => void;
   retry: () => void;
-}) {
+};
+
+/** The directory's regions, each a slot of the record-list template: the totals, the search, the export and the list. */
+function useCustomersSlots({ summary, list, search, setSearch, loadMore, retry }: CustomersProps): RecordListSlots {
   const { t } = portalCopy.useCopy();
   const [draft, setDraft] = useState(search);
-  if (list.status === 'failed' && summary.status === 'failed') return <PortalFailure result={list.failure} retry={retry} />;
-  return (
-    <div className="stack">
+  if (list.status === 'failed' && summary.status === 'failed') return { list: <Failure result={list.failure} retry={retry} /> };
+  return {
+    summary: (
       <Gate resource={summary} retry={retry} rows={2}>
         {(s) => (
           <KpiStrip
@@ -116,40 +117,69 @@ export function CustomersView({
           />
         )}
       </Gate>
-      <PaySection title={t('customersTitle')} description={t('customersBody')}>
-        <form
-          data-testid="pay-filters"
-          className="pay-filters"
-          role="search"
-          aria-label={t('customersSearchLabel')}
-          onSubmit={(event) => {
-            event.preventDefault();
-            setSearch(draft.trim());
-          }}
-        >
-          <Field
-            label={t('searchRef')}
-            type="search"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            maxLength={200}
-            hint={t('searchRefHint')}
-          />
-          <Button type="submit" variant="secondary">
-            {t('search')}
+    ),
+    filters: (
+      <form
+        data-testid="pay-filters"
+        className="lt-field-row"
+        role="search"
+        aria-label={t('customersSearchLabel')}
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSearch(draft.trim());
+        }}
+      >
+        <Field
+          label={t('searchRef')}
+          type="search"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={200}
+          hint={t('searchRefHint')}
+        />
+        <Button type="submit" tone="secondary">
+          {t('search')}
+        </Button>
+        {search && (
+          <Button
+            tone="quiet"
+            onClick={() => {
+              setDraft('');
+              setSearch('');
+            }}
+          >
+            {t('clearSearch')}
           </Button>
-          {search && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setDraft('');
-                setSearch('');
-              }}
-            >
-              {t('clearSearch')}
-            </Button>
-          )}
-        </form>
+        )}
+      </form>
+    ),
+    export:
+      list.status === 'ready' && list.items.length > 0 ? (
+        <Button
+          tone="secondary"
+          onClick={() =>
+            downloadText(
+              'customers.csv',
+              buildCsv(
+                ['reference', 'payments', 'captured', 'refunded', 'first_seen', 'last_seen'],
+                list.items.map((c) => [
+                  c.customerRef,
+                  c.paymentCount,
+                  c.totals.map((x) => `${x.capturedAmount} ${x.assetId}`).join('; '),
+                  c.totals.map((x) => `${x.refundedAmount} ${x.assetId}`).join('; '),
+                  c.firstSeenAt,
+                  c.lastSeenAt,
+                ]),
+                { generatedAt: new Date().toISOString(), asOf: new Date().toISOString() },
+              ),
+            )
+          }
+        >
+          {t('exportPage')}
+        </Button>
+      ) : undefined,
+    list: (
+      <Section title={t('customersTitle')} description={t('customersBody')}>
         <ListShell
           state={list}
           retry={retry}
@@ -160,22 +190,22 @@ export function CustomersView({
         >
           {(rows) => (
             <>
-              <DataTable
+              <Grid
                 label={t('customersTitle')}
                 headers={[t('colReference'), t('colPayments'), t('colCaptured'), t('colRefunded'), t('colFirstSeen'), t('colLastSeen')]}
               >
                 {rows.map((c) => (
                   <tr key={c.customerRef}>
                     <th scope="row">
-                      <a data-testid="pp-mono" className="text-link pp-mono" href={customerHref(c.customerRef)}>
+                      <a data-testid="pp-mono" className="lt-link lt-mono" href={customerHref(c.customerRef)}>
                         {c.customerRef}
                       </a>
                       {(c.subscriptionCount > 0 || c.mandateCount > 0) && (
-                        <small className="pay-cell-note">{recurringNote(t, c.subscriptionCount, c.mandateCount)}</small>
+                        <small className="lt-hint">{recurringNote(t, c.subscriptionCount, c.mandateCount)}</small>
                       )}
                     </th>
-                    <td className="numeric">
-                      <a className="text-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
+                    <td className="lt-num">
+                      <a className="lt-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
                         {c.paymentCount}
                       </a>
                     </td>
@@ -193,47 +223,45 @@ export function CustomersView({
                     </td>
                   </tr>
                 ))}
-              </DataTable>
+              </Grid>
               {list.status === 'ready' && <MoreFooter state={list} onMore={loadMore} />}
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  downloadText(
-                    'customers.csv',
-                    buildCsv(
-                      ['reference', 'payments', 'captured', 'refunded', 'first_seen', 'last_seen'],
-                      rows.map((c) => [
-                        c.customerRef,
-                        c.paymentCount,
-                        c.totals.map((x) => `${x.capturedAmount} ${x.assetId}`).join('; '),
-                        c.totals.map((x) => `${x.refundedAmount} ${x.assetId}`).join('; '),
-                        c.firstSeenAt,
-                        c.lastSeenAt,
-                      ]),
-                      { generatedAt: new Date().toISOString(), asOf: new Date().toISOString() },
-                    ),
-                  )
-                }
-              >
-                {t('exportPage')}
-              </Button>
             </>
           )}
         </ListShell>
-        <p className="muted pp-note">{t('privacyNote')}</p>
-      </PaySection>
+        <p className="lt-hint">{t('privacyNote')}</p>
+      </Section>
+    ),
+  };
+}
+
+/** The directory's regions in order, outside the template (a static preview, a unit test). */
+export function CustomersView(props: CustomersProps) {
+  const slots = useCustomersSlots(props);
+  return (
+    <div className="lt-stack">
+      {slots.summary}
+      {slots.filters}
+      {slots.export}
+      {slots.list}
     </div>
   );
 }
 
-export function CustomerDetailPage({ portal, customerRef }: { portal: PortalApi; customerRef: string }) {
+/** `/pay/customers/:customerRef` on the record-list template: one customer's lifetime totals, daily series and recent payments. */
+export function CustomerRoom({ portal, customerRef }: { portal: PortalApi; customerRef: string }) {
   const customer = useResource((s) => portal.customer(customerRef, s), `portal:customer:${customerRef}`);
   const window = useMemo(() => {
     const today = utcDay(new Date());
     return { from: `${addDays(today, -29)}T00:00:00.000Z`, to: `${addDays(today, 1)}T00:00:00.000Z`, today };
   }, []);
   const series = useResource((s) => portal.customerSeries(customerRef, window.from, window.to, s), `portal:customer-series:${customerRef}`);
-  return <CustomerDetailView customer={customer.resource} series={series.resource} today={window.today} reload={customer.reload} />;
+  return (
+    <RecordListRoom>
+      {() => ({
+        detail: <CustomerDetailView customer={customer.resource} series={series.resource} today={window.today} reload={customer.reload} />,
+      })}
+    </RecordListRoom>
+  );
 }
 
 export function CustomerDetailView({
@@ -249,12 +277,12 @@ export function CustomerDetailView({
 }) {
   const { t } = portalCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <BackLink href="/pay/customers">{t('backToCustomers')}</BackLink>
       <Gate resource={customer} retry={reload} rows={4}>
         {(c) => (
           <>
-            <PaySection title={t('lifetimeTitle')} description={t('lifetimeBody')}>
+            <Section title={t('lifetimeTitle')} description={t('lifetimeBody')}>
               <KpiGrid label={t('lifetimeTitle')}>
                 <Kpi
                   label={t('kpiCaptured')}
@@ -279,36 +307,36 @@ export function CustomerDetailView({
                 items={[
                   [
                     t('colReference'),
-                    <span data-testid="pp-mono" className="pp-mono pp-copy">
+                    <span data-testid="pp-mono" className="lt-mono">
                       {c.customerRef}
                     </span>,
                   ],
                 ]}
               />
               {series && today && <DailySeries series={series} today={today} retry={reload} />}
-              <a className="text-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
+              <a className="lt-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
                 {t('customerAllPayments')}
               </a>
-            </PaySection>
-            <PaySection
+            </Section>
+            <Section
               title={t('recentPayments')}
               description={
                 c.recentPayments.length === 1 ? t('recentPaymentsBodyOne') : t('recentPaymentsBody', { count: c.recentPayments.length })
               }
             >
               {c.recentPayments.length === 0 ? (
-                <p className="muted">{t('noRecentPayments')}</p>
+                <p className="lt-muted">{t('noRecentPayments')}</p>
               ) : (
-                <DataTable label={t('recentPayments')} headers={[t('colPayment'), t('colAmount'), t('colStatus'), t('colOpened')]}>
+                <Grid label={t('recentPayments')} headers={[t('colPayment'), t('colAmount'), t('colStatus'), t('colOpened')]}>
                   {c.recentPayments.map((p) => (
                     <tr key={p.paymentId}>
                       <th scope="row">
-                        <a className="text-link" href={`/pay/payments/${encodeURIComponent(p.paymentId)}`}>
+                        <a className="lt-link" href={`/pay/payments/${encodeURIComponent(p.paymentId)}`}>
                           {t('openPayment')}
                         </a>
                       </th>
                       <td>
-                        <Money value={p.amount} asset={p.assetId} />
+                        <MoneyText value={p.amount} asset={p.assetId} />
                       </td>
                       <td>
                         <Chip kind="payment" value={p.status} />
@@ -318,9 +346,9 @@ export function CustomerDetailView({
                       </td>
                     </tr>
                   ))}
-                </DataTable>
+                </Grid>
               )}
-            </PaySection>
+            </Section>
           </>
         )}
       </Gate>
@@ -334,8 +362,8 @@ function DayOnly({ period }: { period: string }) {
 }
 function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries>; today: string; retry: () => void }) {
   const { t } = portalCopy.useCopy();
-  if (series.status === 'loading') return <PortalLoading rows={2} />;
-  if (series.status === 'failed') return <PortalFailure result={series.failure} retry={retry} />;
+  if (series.status === 'loading') return <Loading rows={2} />;
+  if (series.status === 'failed') return <Failure result={series.failure} retry={retry} />;
   const items = series.data.items;
   const windows: Array<[string, string]> = [
     [t('periodToday'), today],
@@ -344,8 +372,8 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
   ];
   const peak = items.reduce((m, i) => (parseAmount(i.volume) > m ? parseAmount(i.volume) : m), 0n);
   return (
-    <section aria-label={t('customerSeriesTitle')} className="stack">
-      <h3 className="pp-sub">{t('customerSeriesTitle')}</h3>
+    <section aria-label={t('customerSeriesTitle')} className="lt-stack">
+      <h3>{t('customerSeriesTitle')}</h3>
       <KpiStrip
         label={t('customerSeriesTitle')}
         tiles={windows.map(([label, since]) => {
@@ -363,33 +391,28 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
         })}
       />
       {items.length === 0 ? (
-        <p className="muted">{t('seriesEmpty')}</p>
+        <p className="lt-muted">{t('seriesEmpty')}</p>
       ) : (
-        <DataTable label={t('customerSeriesTitle')} headers={[t('colDay'), t('colPayments'), t('colAmount'), t('seriesBar')]}>
-          {items.map((i) => (
-            <tr key={`${i.period}:${i.assetCode}`}>
-              <th scope="row">
-                <DayOnly period={i.period} />
-              </th>
-              <td className="numeric">{i.count}</td>
-              <td>
-                <Money value={i.volume} asset={i.assetCode} />
-              </td>
-              <td aria-hidden="true">
-                <span
-                  style={{
-                    display: 'inline-block',
-                    height: 8,
-                    borderRadius: 4,
-                    background: 'currentColor',
-                    opacity: 0.35,
-                    width: `${peak > 0n ? Math.max(4, Number((parseAmount(i.volume) * 1000n) / peak) / 10) : 0}%`,
-                  }}
-                />
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <Grid label={t('customerSeriesTitle')} headers={[t('colDay'), t('colPayments'), t('colAmount'), t('seriesBar')]}>
+          {items.map((i) => {
+            // The bar's share of the busiest day, never under 4% so a small day still shows; drawn by the kit's meter.
+            const share = peak > 0n ? Math.max(4, Number((parseAmount(i.volume) * 1000n) / peak) / 10) : 0;
+            return (
+              <tr key={`${i.period}:${i.assetCode}`}>
+                <th scope="row">
+                  <DayOnly period={i.period} />
+                </th>
+                <td className="lt-num">{i.count}</td>
+                <td>
+                  <MoneyText value={i.volume} asset={i.assetCode} />
+                </td>
+                <td aria-hidden="true">
+                  <Meter label={t('seriesBar')} value={share} text={`${share}%`} />
+                </td>
+              </tr>
+            );
+          })}
+        </Grid>
       )}
     </section>
   );

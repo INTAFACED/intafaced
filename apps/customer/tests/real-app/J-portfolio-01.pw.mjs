@@ -8,9 +8,10 @@ import { awayBid, chosePro, confirm, deskPath, fundedTrader, held, openOrders, r
 // USDT, holding TEST BTC and ETH bought on the desk and TEST EUR that no market prices. Amounts are checked against the
 // ledger (the customer's own balance read), values against the bank's own valuation read just before and just after the
 // page loads (the TEST market maker keeps moving prices), never against what the page itself computed.
-// On the launch model, where INTAFACED holds none of the customer's money, steps #1 #3 #4 #5 #6 read each place that holds the money, not our ledger: those
-// steps are J-portfolio-01-venue.pw.mjs's. The tests here keep the ledger branch (the custodial layer, kept and switched
-// off) as it is, titled for the door off; #2 #7 #8 stay steps of this file.
+// On the launch model, where INTAFACED holds none of the customer's money, steps #1 #2 #3 #4 #5 #6 #7 read each place
+// that holds the money and the venue's own spot market prices, not our ledger: those steps are J-portfolio-01-venue.pw.mjs's.
+// The tests here keep the ledger branch (the custodial layer, kept and switched off) as it is, titled for the door off;
+// #8 stays a step of this file.
 const J = 'J-portfolio-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
@@ -197,7 +198,7 @@ test(`${J}, with the user-venue door off, on our own ledger (the custodial branc
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${action}$`) })).toHaveAttribute('href', /^\//);
 });
 
-test(`${J} #2 reads the valuation note: the market and price behind each coin, the refresh, dollar coins at exactly 1, EUR not counted`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads the valuation note: the market and price behind each coin, the refresh, dollar coins at exactly 1, EUR not counted`, async ({
   page,
 }) => {
   const who = account();
@@ -449,7 +450,9 @@ async function coinRowLink(page) {
   await coinRow(page, 'USDT').getByTestId('money-num__entries').click();
 }
 
-test(`${J} #7 reads best and worst movers: the coins that moved most today, from the same valuation as the total`, async ({ page }) => {
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads best and worst movers: the coins that moved most today, from the same valuation as the total`, async ({
+  page,
+}) => {
   const who = account();
   await signIn(page, who);
   const movers = (p) => p.getByRole('region', { name: 'Best and worst today' });
@@ -462,7 +465,17 @@ test(`${J} #7 reads best and worst movers: the coins that moved most today, from
       const side = async (name) =>
         await movers(p)
           .locator(`[data-side="${name}"] li`)
-          .evaluateAll((items) => items.map((li) => `${li.getAttribute('data-asset')} ${li.innerText.replace(/\s+/g, ' ').trim()}`));
+          .evaluateAll((items) =>
+            items.map((li) => {
+              // The arrow is drawn (Volt's faces have no ▲ ▼): which way each one points, and that it is drawn with a size.
+              const arrows = [...li.querySelectorAll('[data-arrow]')].map((a) =>
+                a.getBoundingClientRect().width > 0 && getComputedStyle(a).maskImage !== 'none'
+                  ? `[drawn ${a.dataset.arrow}]`
+                  : '[not drawn]',
+              );
+              return `${li.getAttribute('data-asset')} ${arrows.join(' ')} ${li.innerText.replace(/\s+/g, ' ').trim()}`;
+            }),
+          );
       const line = async (id) => ((await movers(p).getByTestId(id).count()) ? (await movers(p).getByTestId(id).innerText()).trim() : null);
       return {
         best: await side('best'),
@@ -486,8 +499,9 @@ test(`${J} #7 reads best and worst movers: the coins that moved most today, from
         else ranked.push({ asset: row.asset, change, move: ratio(change, before) });
       }
       ranked.sort((a, b) => (a.move === b.move ? 0 : a.move > b.move ? -1 : 1));
-      // The direction is said by a glyph as well as the sign: never by colour alone.
-      const text = (r) => `${r.asset} ${r.asset} ${r.move > 0n ? '▲' : '▼'} ${usdSigned(r.change)} (${pct(r.move, 2)})`;
+      // The direction is said by a drawn arrow, a word for a screen reader ("up" or "down") and the sign: never by colour alone.
+      const text = (r) =>
+        `${r.asset} ${r.move > 0n ? '[drawn up]' : '[drawn down]'} ${r.asset} ${r.move > 0n ? 'up' : 'down'} ${usdSigned(r.change)} (${pct(r.move, 2)})`;
       return {
         best: ranked
           .filter((r) => r.move > 0n)
