@@ -98,7 +98,7 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
                   {d('Statement download')}
                 </Button>
               ) : null}
-              <Button busy={asked.status === 'busy'} tone="primary" onClick={() => void ask()}>
+              <Button busy={asked.status === 'busy'} tone="secondary" onClick={() => void ask()}>
                 {job?.status === 'pending' ? d('Statement check again') : d('Statement request')}
               </Button>
             </>

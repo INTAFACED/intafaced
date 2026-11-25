@@ -206,15 +206,23 @@ const line = (sheet, name) => sheet.locator(`[data-line="${name}"]`);
 async function reviewSell(page, order) {
   return reviewOrder(page, 'sell', order);
 }
+/** The ticket shows one side at a time, as the perps desk does: choose it first. */
+const pickSide = (page, side) =>
+  page
+    .getByTestId('dk-order')
+    .getByRole('group', { name: 'Buy or sell', exact: true })
+    .getByRole('button', { name: side === 'buy' ? 'Buy' : 'Sell', exact: true })
+    .click();
 async function reviewOrder(page, side, { type, price, amount }) {
   await page
     .getByTestId('dk-order')
     .locator('[role=tab]', { hasText: type === 'limit' ? /^Limit$/ : /^Market$/ })
     .click();
+  await pickSide(page, side);
   const form = page.locator(`[data-testid="dk-form"][data-side="${side}"]`);
   if (type === 'limit') await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
+  await form.getByRole('textbox', { name: /Amount/i }).fill(amount);
   expect((await answer).status()).toBe(200);
   await form.locator('button[type=submit]').click();
   const sheet = reviewSheet(page);
@@ -280,7 +288,10 @@ function builderFeeAt(fill, rateBps) {
 async function chargedAt(page, owner, clientId, rateBps) {
   const fills = await fillsOf(owner, clientId);
   expect(fills.length, `the venue filled ${clientId}`).toBeGreaterThan(0);
-  await page.getByTestId('venue-bottom').getByRole('tab', { name: 'Trade history' }).click();
+  await page
+    .getByTestId('venue-bottom')
+    .getByRole('tab', { name: /Trade history/i })
+    .click();
   for (const f of fills) {
     const expected = builderFeeAt(f, rateBps);
     const charged = toUnits(f.builderFee);
@@ -381,12 +392,12 @@ test(`${J} #1 opens /campaigns/mine: the coupon, its kind and what it will do`, 
   const { signIn } = await import('./desk.mjs');
   await signIn(page, account);
   await openVouchers(page);
-  const form = page.getByRole('form', { name: 'Voucher code' });
-  await form.getByRole('textbox', { name: 'Code' }).fill(code);
-  await form.getByRole('button', { name: 'Check this code' }).click();
+  const form = page.getByRole('form', { name: /Voucher code/i });
+  await form.getByRole('textbox', { name: /Code/i }).fill(code);
+  await form.getByRole('button', { name: /Check this code/i }).click();
   await expect(page.getByTestId('voucher-validation')).toContainText('a fee-saver coupon');
   await expect(page.getByTestId('voucher-validation')).toContainText('50% off our builder fee on 2 venue orders');
-  await form.getByRole('button', { name: 'Claim this voucher' }).click();
+  await form.getByRole('button', { name: /Claim this voucher/i }).click();
   const coupon = await couponOf(account, code);
   expect(coupon).toMatchObject({
     kind: 'fee_saver',
@@ -404,7 +415,7 @@ test(`${J} #1 opens /campaigns/mine: the coupon, its kind and what it will do`, 
   await expect(row.getByTestId('voucher-remaining')).toHaveText('2 of 2 orders left.');
   await expect(row.getByTestId('voucher-state')).toHaveText('Claimed');
   // A fee-saver is never redeemed for cash: no amount or Redeem control on its row.
-  await expect(row.getByRole('button', { name: 'Redeem' })).toHaveCount(0);
+  await expect(row.getByRole('button', { name: /Redeem/i })).toHaveCount(0);
   // What it will do, as the venue itself prices it: the venue's own preview of a sell at the coupon's rate charges less of
   // our builder fee than at the rate in force, and exactly the same venue fee; the claim moved nothing in the venue account.
   const order = { type: 'limit', price: REST.price, amount: SELL.amount };
@@ -444,7 +455,7 @@ test(`${J} #2 places and fills an order with the coupon and a rank discount: the
 
   // Our builder fee is approved once, at the rate in force (a discounted order asks for less), then the order is signed.
   await expect(line(sheet, 'builder-fee')).toContainText(`Not signed: your wallet signs an approval of up to ${RATE.full} bps`);
-  await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' }).click();
+  await sheet.getByRole('button', { name: /Approve our builder fee in your wallet/i }).click();
   await continueInWallet(page);
   await expect(line(sheet, 'builder-fee')).not.toContainText('Not signed', { timeout: 20_000 });
   await expect(line(sheet, 'builder-fee')).toHaveText(at(coupon));

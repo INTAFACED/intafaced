@@ -124,7 +124,7 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
               {offered && choices.length > 0 ? (
                 <Button
                   busy={busy}
-                  tone="primary"
+                  tone="secondary"
                   size="md"
                   disabled={picked === null || !owner}
                   onClick={() => picked !== null && void send(picked)}

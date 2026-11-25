@@ -99,33 +99,41 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   const { userId } = await api(who);
   expect(userId).toMatch(/^[0-9a-f-]{36}$/);
   // This browser is signed in as that account: its account menu names the handle, the account id and an unverified level.
-  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('button', { name: /Account menu/i }).click();
   const summary = page.getByTestId('account-summary');
   await expect(summary).toContainText(`@${handle}`);
   await expect(summary).toContainText(`Account ID ${userId.slice(0, 8)}…`);
   await expect(summary).toContainText('Verification: Not verified');
   await page.keyboard.press('Escape');
   // Home, where the app opens, asks for verification where the total would be, with its own Verify now.
-  await expect(page.getByRole('main').getByText('Verify your identity first').first()).toBeVisible();
   await expect(
     page
-      .getByRole('link', { name: 'Verify now' })
-      .or(page.getByRole('button', { name: 'Verify now' }))
+      .getByRole('main')
+      .getByText(/Verify your identity first/i)
+      .first(),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('link', { name: /Verify now/i })
+      .or(page.getByRole('button', { name: /Verify now/i }))
       .first(),
   ).toBeVisible();
   // The Trade door, from the top bar, reads "Verify to trade" with the way to Verify, and that way opens Verification.
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: /Main navigation/i })
+    .getByRole('link', { name: 'Trade', exact: true })
+    .click();
   await expect(page).toHaveURL(/\/trade$/);
   await pointerOff(page);
   const access = page.getByTestId('trade-access');
   await expect(access).toHaveAttribute('data-state', 'verify');
   await expect(access.getByText('Verify to trade', { exact: true })).toBeVisible();
-  const way = access.getByRole('link', { name: 'Verify now' });
+  const way = access.getByRole('link', { name: /Verify now/i });
   await expect(way).toHaveAttribute('href', '/verification');
   await way.click();
   await expect(page).toHaveURL(/\/verification(\?|$)/);
   await expect(page.getByTestId('verification__level-tag')).toContainText('Not verified');
-  await expect(page.getByLabel('Level to request')).toBeVisible();
+  await expect(page.getByLabel(/Level to request/i)).toBeVisible();
 });
 
 test(`${J} #2 opens the spot desk and tries a TEST limit buy before verifying: refused in plain words with the Verify path, no raw code; nothing held; no order exists`, async ({
@@ -150,9 +158,12 @@ test(`${J} #2 opens the spot desk and tries a TEST limit buy before verifying: r
   const owner = wallet.address.toLowerCase();
   // A TEST limit buy, typed and pressed: the button and Enter in the form.
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price' }).first().fill('60000');
-  await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
-  const buy = page.getByRole('button', { name: 'Buy BTC' });
+  await page.getByRole('textbox', { name: /Price/i }).first().fill('60000');
+  await page
+    .getByRole('textbox', { name: /Amount/i })
+    .first()
+    .fill('0.001');
+  const buy = page.getByRole('button', { name: /Buy BTC/i });
   await expect(buy).toBeDisabled();
   await buy.click({ force: true });
   await page.getByRole('textbox', { name: 'Amount' }).first().press('Enter');
@@ -209,7 +220,10 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   await signOutBrowser(page.context());
   await signIn(page, who);
   // The tier reads verified for trading: on the Trade door and in the account menu.
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: /Main navigation/i })
+    .getByRole('link', { name: 'Trade', exact: true })
+    .click();
   await expect(page).toHaveURL(/\/trade$/);
   await pointerOff(page);
   const access = page.getByTestId('trade-access');
@@ -419,12 +433,18 @@ async function connectWallet(page, wallet) {
  */
 async function venueReviewLimit(page, side, price, amount) {
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  const at = side === 'buy' ? 0 : 1;
-  await page.getByRole('textbox', { name: 'Price' }).nth(at).fill(price);
+  // The ticket shows one side at a time, as the perps desk does: choose it, then fill that side's form.
+  await page
+    .getByTestId('dk-order')
+    .getByRole('group', { name: 'Buy or sell' })
+    .getByRole('button', { name: side === 'buy' ? 'Buy' : 'Sell', exact: true })
+    .click();
+  const form = page.locator(`form[data-testid="dk-form"][data-side="${side}"]`);
+  await form.getByRole('textbox', { name: 'Price' }).fill(price);
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await page.getByRole('textbox', { name: 'Amount' }).nth(at).fill(amount);
+  await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
   expect((await answer).status()).toBe(200);
-  await page.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' }).click();
+  await form.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' }).click();
   const review = reviewSheet(page);
   await expect(review).toBeVisible();
   return review;

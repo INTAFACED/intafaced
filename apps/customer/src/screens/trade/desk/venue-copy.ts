@@ -6,6 +6,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Spot on venue': '{symbol} spot',
   'Order ticket': 'Order ticket',
   Buy: 'Buy',
+  'Ticket side': 'Buy or sell',
   Sell: 'Sell',
   'Order type': 'Order type',
   Limit: 'Limit',
@@ -45,6 +46,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'No print': 'The venue shows no trade on this market',
   'Side empty': 'None resting',
   'Reading the venue': 'Reading the venue…',
+  'No chart from venue': 'No chart: {venue} sends no candles for this market',
   'Order book': 'Order book',
   'Last trades': 'Last trades',
   Side: 'Side',
@@ -56,6 +58,9 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Taker buy': 'Buy',
   'Taker sell': 'Sell',
   'Side not published': 'Not published',
+  Spread: 'Spread',
+  'Spread value': '{spread} · {bps} bps',
+  'Pick price': 'Put {price} on the ticket',
 
   // The venue account panel
   'Venue account': 'Your venue account',
