@@ -119,10 +119,10 @@
 </div>
 </section>
 <section class="lt-region" data-region="featured" aria-label="Featured">
-<div class="mkt-board" data-testid="mkt-board">
-<section class="mkt-hero" aria-label="BTC/USDT today" data-testid="mkt-hero">
-<div class="mkt-hero__main">
-<div class="mkt-hero__picks">
+<div data-testid="mkt-board" class="lt-market-board">
+<section data-testid="mkt-hero" class="lt-market-hero" aria-label="BTC/USDT today">
+<div class="lt-market-hero-main">
+<div class="lt-market-hero-picks">
 <div class="lit-chips" role="group" aria-label="Show a market">
 <button type="button" aria-pressed="true">BTC</button>
 <button type="button" aria-pressed="false">ETH</button>
@@ -130,7 +130,7 @@
 <button type="button" aria-pressed="false">SOL</button>
 </div>
 </div>
-<div class="mkt-hero__name">
+<div class="lt-market-hero-name">
 <span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="md">
 <span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -141,22 +141,24 @@
 </svg>
 </span>
 </span>
-<span class="mkt-hero__pair">
+<span class="lt-market-hero-pair">
 <span class="lt-cell-name">
 <strong>BTC/USDT</strong>
 <span class="lit-tag" data-tone="neutral">Spot</span>
 </span>
-<span class="mkt-dim">Bitcoin</span>
+<span class="lt-market-hero-dim">Bitcoin</span>
 </span>
 </div>
-<p class="mkt-hero__price" dir="ltr">$67,812.40</p>
-<p class="mkt-hero__change">
+<p class="lt-market-hero-price" dir="ltr">$67,812.40</p>
+<p class="lt-market-hero-change">
 <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
 <span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
-</span> +2.75%</span> <span class="mkt-dim">in 24h</span>
+</span> +2.75%</span> <span class="lt-market-hero-dim">in 24h</span>
 </p>
-<a class="lt-button lt-button-primary mkt-hero__go" href="/coin/BTC">Buy BTC</a>
-<dl class="mkt-hero__stats">
+<div class="lt-market-hero-go">
+<a href="/coin/BTC" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Buy BTC</a>
+</div>
+<dl class="lt-market-hero-stats">
 <div>
 <dt>24h high</dt>
 <dd dir="ltr">—</dd>
@@ -183,8 +185,8 @@
 </div>
 </dl>
 </div>
-<div class="mkt-hero__chart" data-tone="up">
-<span class="mkt-dim">Price, last 24 hours</span>
+<div class="lt-market-hero-chart" data-tone="up">
+<span class="lt-market-hero-dim" data-part="chart-title">Price, last 24 hours</span>
 <figure class="lt-chart" data-tone="up" dir="ltr">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="BTC/USDT, last 24 hours">
 <defs>
@@ -306,15 +308,17 @@
 </figure>
 </div>
 </section>
-<section class="mkt-moving" aria-labelledby="mkt-moving-title" data-testid="mkt-moving">
-<header class="mkt-moving__head">
-<h2 id="mkt-moving-title">What’s moving</h2>
-<span class="mkt-dim">Biggest 24h moves</span>
-</header>
+<section aria-label="What’s moving" data-testid="mkt-moving">
+<div class="lt-panel-head" data-part="panel-head">
+<h2 class="lt-panel-title">What’s moving</h2>
+<div class="lt-panel-aside">Biggest 24h moves</div>
+</div>
 <div class="lt-tile-row" data-min="card">
 <a class="lt-mover" href="/coin/DOGE">
 <span class="lt-mover-top">
+<span>
 <span class="lt-market-symbol">DOGE/USDT</span>
+</span>
 <span data-slot="pct" data-direction="down" class="lt-num lt-signed" dir="ltr" data-ltr="">−4.94%</span>
 </span>
 <span data-slot="price" class="lt-num lt-mover-price" dir="ltr" data-ltr="">$0.1235</span>
@@ -327,7 +331,9 @@
 </a>
 <a class="lt-mover" href="/coin/BTC">
 <span class="lt-mover-top">
+<span>
 <span class="lt-market-symbol">BTC/USDT</span>
+</span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+2.75%</span>
 </span>
 <span data-slot="price" class="lt-num lt-mover-price" dir="ltr" data-ltr="">$67,812.40</span>
@@ -340,7 +346,9 @@
 </a>
 <a class="lt-mover" href="/coin/XRP">
 <span class="lt-mover-top">
+<span>
 <span class="lt-market-symbol">XRP/USDT</span>
+</span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+2.15%</span>
 </span>
 <span data-slot="price" class="lt-num lt-mover-price" dir="ltr" data-ltr="">$0.5230</span>
@@ -353,7 +361,9 @@
 </a>
 <a class="lt-mover" href="/coin/IFC">
 <span class="lt-mover-top">
+<span>
 <span class="lt-market-symbol">IFC/USDT</span>
+</span>
 <span data-slot="pct" data-direction="down" class="lt-num lt-signed" dir="ltr" data-ltr="">−2.14%</span>
 </span>
 <span data-slot="price" class="lt-num lt-mover-price" dir="ltr" data-ltr="">$0.4120</span>
@@ -366,7 +376,9 @@
 </a>
 <a class="lt-mover" href="/coin/SOL">
 <span class="lt-mover-top">
+<span>
 <span class="lt-market-symbol">SOL/USDT</span>
+</span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+1.75%</span>
 </span>
 <span data-slot="price" class="lt-num lt-mover-price" dir="ltr" data-ltr="">$142.55</span>
@@ -379,7 +391,9 @@
 </a>
 <a class="lt-mover" href="/coin/ETH">
 <span class="lt-mover-top">
+<span>
 <span class="lt-market-symbol">ETH/USDT</span>
+</span>
 <span data-slot="pct" data-direction="up" class="lt-num lt-signed" dir="ltr" data-ltr="">+1.59%</span>
 </span>
 <span data-slot="price" class="lt-num lt-mover-price" dir="ltr" data-ltr="">$3,200.10</span>
@@ -397,7 +411,7 @@
 <section class="lt-region" data-region="items" aria-label="Products">
 <div class="lt-stack">
 <div class="lt-stack">
-<div data-testid="mkt-tabs" class="mkt-toolbar">
+<div data-testid="mkt-tabs" class="lt-toolbar">
 <div class="lt-tabs" role="group" aria-label="Markets">
 <button type="button" class="lt-tab" aria-pressed="false">Favorites 0</button>
 <button type="button" class="lt-tab" aria-pressed="false">All 7</button>
@@ -405,9 +419,9 @@
 <button type="button" class="lt-tab" aria-pressed="false">Gainers</button>
 <button type="button" class="lt-tab" aria-pressed="false">Losers</button>
 </div>
-<div data-testid="mkt-chips" class="mkt-toolbar__chips">
+<div data-testid="mkt-chips" class="lt-toolbar">
 </div>
-<div class="mkt-toolbar__search">
+<div class="lt-toolbar-end">
 <div class="lit-field-control">
 <label for="_r_4_" class="lt-sr">Search markets</label>
 <div data-part="box">
@@ -425,38 +439,38 @@
 </div>
 </div>
 <div class="lt-table-scroll" tabindex="0">
-<table class="lt-table" role="grid" aria-label="Markets" data-mode="simple">
+<table class="lt-table" role="grid" aria-label="Markets" data-mode="simple" data-phone="line">
 <thead>
 <tr data-testid="mkt-header">
-<th style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-col="name" scope="col" data-align="start" aria-sort="none">
+<th style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-col="name" data-phone="name" scope="col" data-align="start" aria-sort="none">
 <button type="button" class="lt-sort" aria-label="Sort by Market">Market<span class="lt-sort-mark" aria-hidden="true">
 </span>
 </button>
 </th>
-<th data-col="last" scope="col" data-align="end" aria-sort="none">
+<th data-col="last" data-phone="top" scope="col" data-align="end" aria-sort="none">
 <button type="button" class="lt-sort" aria-label="Sort by Price">Price<span class="lt-sort-mark" aria-hidden="true">
 </span>
 </button>
 </th>
-<th data-col="change" scope="col" data-align="end" aria-sort="none">
+<th data-col="change" data-phone="bottom" scope="col" data-align="end" aria-sort="none">
 <button type="button" class="lt-sort" aria-label="Sort by 24h">24h<span class="lt-sort-mark" aria-hidden="true">
 </span>
 </button>
 </th>
-<th data-col="chart" scope="col" data-align="start">Last 24h</th>
-<th data-col="volume" scope="col" data-align="end" aria-sort="none">
+<th data-col="chart" data-phone="hide" scope="col" data-align="start">Last 24h</th>
+<th data-col="volume" data-phone="hide" scope="col" data-align="end" aria-sort="none">
 <button type="button" class="lt-sort" aria-label="Sort by Volume 24h">Volume 24h<span class="lt-sort-mark" aria-hidden="true">
 </span>
 </button>
 </th>
-<th data-col="action" scope="col" data-align="end">
+<th data-col="action" data-phone="hide" data-reveal="true" scope="col" data-align="end">
 <span class="lt-sr">Action</span>
 </th>
 </tr>
 </thead>
 <tbody>
 <tr data-testid="mkt-row" data-symbol="BTC-USDT" data-row="">
-<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
+<td data-col="name" data-cell="name" data-phone="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
 <span class="lt-cell-name">
 <button aria-pressed="false" aria-label="Add BTC to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -488,17 +502,17 @@
 </span>
 </span>
 </td>
-<td data-col="last" data-cell="last" data-label="Price" data-align="end">
+<td data-col="last" data-cell="last" data-phone="top" data-label="Price" data-align="end">
 <span data-slot="price" class="lt-num" dir="ltr">$67,812.40</span>
 </td>
-<td data-col="change" data-cell="change" data-label="24h" data-align="end">
+<td data-col="change" data-cell="change" data-phone="bottom" data-label="24h" data-align="end">
 <span class="lt-lines">
 <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
 <span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
 </span> +2.75%</span>
 </span>
 </td>
-<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<td data-col="chart" data-cell="chart" data-phone="hide" data-label="Last 24h" data-align="start">
 <figure class="lt-chart lt-spark" data-size="row" data-tone="up">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="BTC/USDT Last 24h">
 <path class="lt-chart-line" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5" vector-effect="non-scaling-stroke">
@@ -506,19 +520,19 @@
 </svg>
 </figure>
 </td>
-<td data-col="volume" data-cell="volume" data-label="Volume 24h" data-align="end">
+<td data-col="volume" data-cell="volume" data-phone="hide" data-label="Volume 24h" data-align="end">
 <span class="lt-lines">
 <span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<td data-col="action" data-cell="action" data-phone="hide" data-reveal="true" data-label="Action" data-align="end">
 <span class="lt-actions">
 <a class="lt-button lt-button-secondary" role="button" href="/coin/BTC" aria-label="Buy BTC">Buy</a>
 </span>
 </td>
 </tr>
 <tr data-testid="mkt-row" data-symbol="ETH-USDT" data-row="">
-<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
+<td data-col="name" data-cell="name" data-phone="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
 <span class="lt-cell-name">
 <button aria-pressed="false" aria-label="Add ETH to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -564,17 +578,17 @@
 </span>
 </span>
 </td>
-<td data-col="last" data-cell="last" data-label="Price" data-align="end">
+<td data-col="last" data-cell="last" data-phone="top" data-label="Price" data-align="end">
 <span data-slot="price" class="lt-num" dir="ltr">$3,200.10</span>
 </td>
-<td data-col="change" data-cell="change" data-label="24h" data-align="end">
+<td data-col="change" data-cell="change" data-phone="bottom" data-label="24h" data-align="end">
 <span class="lt-lines">
 <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
 <span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
 </span> +1.59%</span>
 </span>
 </td>
-<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<td data-col="chart" data-cell="chart" data-phone="hide" data-label="Last 24h" data-align="start">
 <figure class="lt-chart lt-spark" data-size="row" data-tone="up">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="ETH/USDT Last 24h">
 <path class="lt-chart-line" d="M8.0,180.2 L33.4,184.3 L58.8,192.0 L84.2,188.4 L109.6,167.2 L135.0,136.1 L160.3,111.5 L185.7,106.6 L211.1,120.9 L236.5,141.1 L261.9,150.1 L287.3,139.9 L312.7,116.6 L338.1,95.6 L363.5,89.1 L388.9,96.9 L414.3,106.4 L439.7,102.4 L465.0,79.0 L490.4,44.8 L515.8,16.7 L541.2,8.0 L566.6,18.7 L592.0,35.5" vector-effect="non-scaling-stroke">
@@ -582,19 +596,19 @@
 </svg>
 </figure>
 </td>
-<td data-col="volume" data-cell="volume" data-label="Volume 24h" data-align="end">
+<td data-col="volume" data-cell="volume" data-phone="hide" data-label="Volume 24h" data-align="end">
 <span class="lt-lines">
 <span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<td data-col="action" data-cell="action" data-phone="hide" data-reveal="true" data-label="Action" data-align="end">
 <span class="lt-actions">
 <a class="lt-button lt-button-secondary" role="button" href="/coin/ETH" aria-label="Buy ETH">Buy</a>
 </span>
 </td>
 </tr>
 <tr data-testid="mkt-row" data-symbol="IFC-USDT" data-row="">
-<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
+<td data-col="name" data-cell="name" data-phone="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
 <span class="lt-cell-name">
 <button aria-pressed="false" aria-label="Add IFC to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -616,17 +630,17 @@
 </span>
 </span>
 </td>
-<td data-col="last" data-cell="last" data-label="Price" data-align="end">
+<td data-col="last" data-cell="last" data-phone="top" data-label="Price" data-align="end">
 <span data-slot="price" class="lt-num" dir="ltr">$0.4120</span>
 </td>
-<td data-col="change" data-cell="change" data-label="24h" data-align="end">
+<td data-col="change" data-cell="change" data-phone="bottom" data-label="24h" data-align="end">
 <span class="lt-lines">
 <span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="" class="lt-num">
 <span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
 </span> −2.14%</span>
 </span>
 </td>
-<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<td data-col="chart" data-cell="chart" data-phone="hide" data-label="Last 24h" data-align="start">
 <figure class="lt-chart lt-spark" data-size="row" data-tone="down">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="IFC/USDT Last 24h">
 <path class="lt-chart-line" d="M8.0,8.0 L33.4,30.8 L58.8,44.9 L84.2,45.0 L109.6,37.7 L135.0,36.0 L160.3,48.8 L185.7,74.1 L211.1,99.6 L236.5,111.8 L261.9,106.0 L287.3,89.7 L312.7,77.5 L338.1,79.8 L363.5,96.0 L388.9,115.3 L414.3,125.0 L439.7,121.2 L465.0,111.1 L490.4,108.4 L515.8,121.8 L541.2,148.9 L566.6,176.9 L592.0,192.0" vector-effect="non-scaling-stroke">
@@ -634,19 +648,19 @@
 </svg>
 </figure>
 </td>
-<td data-col="volume" data-cell="volume" data-label="Volume 24h" data-align="end">
+<td data-col="volume" data-cell="volume" data-phone="hide" data-label="Volume 24h" data-align="end">
 <span class="lt-lines">
 <span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<td data-col="action" data-cell="action" data-phone="hide" data-reveal="true" data-label="Action" data-align="end">
 <span class="lt-actions">
 <a class="lt-button lt-button-secondary" role="button" href="/coin/IFC" aria-label="Buy IFC">Buy</a>
 </span>
 </td>
 </tr>
 <tr data-testid="mkt-row" data-symbol="SOL-USDT" data-row="">
-<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
+<td data-col="name" data-cell="name" data-phone="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
 <span class="lt-cell-name">
 <button aria-pressed="false" aria-label="Add SOL to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -668,17 +682,17 @@
 </span>
 </span>
 </td>
-<td data-col="last" data-cell="last" data-label="Price" data-align="end">
+<td data-col="last" data-cell="last" data-phone="top" data-label="Price" data-align="end">
 <span data-slot="price" class="lt-num" dir="ltr">$142.55</span>
 </td>
-<td data-col="change" data-cell="change" data-label="24h" data-align="end">
+<td data-col="change" data-cell="change" data-phone="bottom" data-label="24h" data-align="end">
 <span class="lt-lines">
 <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
 <span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
 </span> +1.75%</span>
 </span>
 </td>
-<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<td data-col="chart" data-cell="chart" data-phone="hide" data-label="Last 24h" data-align="start">
 <figure class="lt-chart lt-spark" data-size="row" data-tone="up">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="SOL/USDT Last 24h">
 <path class="lt-chart-line" d="M8.0,186.8 L33.4,192.0 L58.8,176.1 L84.2,148.7 L109.6,126.7 L135.0,121.3 L160.3,129.5 L185.7,136.6 L211.1,127.9 L236.5,100.1 L261.9,64.9 L287.3,40.5 L312.7,38.3 L338.1,54.5 L363.5,73.1 L388.9,77.6 L414.3,62.9 L439.7,38.9 L465.0,21.8 L490.4,21.8 L515.8,34.6 L541.2,44.6 L566.6,36.6 L592.0,8.0" vector-effect="non-scaling-stroke">
@@ -686,19 +700,19 @@
 </svg>
 </figure>
 </td>
-<td data-col="volume" data-cell="volume" data-label="Volume 24h" data-align="end">
+<td data-col="volume" data-cell="volume" data-phone="hide" data-label="Volume 24h" data-align="end">
 <span class="lt-lines">
 <span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<td data-col="action" data-cell="action" data-phone="hide" data-reveal="true" data-label="Action" data-align="end">
 <span class="lt-actions">
 <a class="lt-button lt-button-secondary" role="button" href="/coin/SOL" aria-label="Buy SOL">Buy</a>
 </span>
 </td>
 </tr>
 <tr data-testid="mkt-row" data-symbol="BTC-USDC" data-row="">
-<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
+<td data-col="name" data-cell="name" data-phone="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
 <span class="lt-cell-name">
 <button aria-pressed="false" aria-label="Add BTC to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -730,30 +744,30 @@
 </span>
 </span>
 </td>
-<td data-col="last" data-cell="last" data-label="Price" data-align="end">
+<td data-col="last" data-cell="last" data-phone="top" data-label="Price" data-align="end">
 <span data-slot="price" class="lt-num" dir="ltr">—</span>
 </td>
-<td data-col="change" data-cell="change" data-label="24h" data-align="end">
+<td data-col="change" data-cell="change" data-phone="bottom" data-label="24h" data-align="end">
 <span class="lt-lines">
 <span data-slot="pct" data-direction="flat" dir="ltr" data-ltr="" class="lt-num">—</span>
 </span>
 </td>
-<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<td data-col="chart" data-cell="chart" data-phone="hide" data-label="Last 24h" data-align="start">
 <span class="lt-sr">No price history</span>
 </td>
-<td data-col="volume" data-cell="volume" data-label="Volume 24h" data-align="end">
+<td data-col="volume" data-cell="volume" data-phone="hide" data-label="Volume 24h" data-align="end">
 <span class="lt-lines">
 <span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<td data-col="action" data-cell="action" data-phone="hide" data-reveal="true" data-label="Action" data-align="end">
 <span class="lt-actions">
 <a class="lt-button lt-button-secondary" role="button" href="/coin/BTC" aria-label="Buy BTC">Buy</a>
 </span>
 </td>
 </tr>
 <tr data-testid="mkt-row" data-symbol="XRP-USDT" data-row="">
-<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
+<td data-col="name" data-cell="name" data-phone="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
 <span class="lt-cell-name">
 <button aria-pressed="false" aria-label="Add XRP to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -775,17 +789,17 @@
 </span>
 </span>
 </td>
-<td data-col="last" data-cell="last" data-label="Price" data-align="end">
+<td data-col="last" data-cell="last" data-phone="top" data-label="Price" data-align="end">
 <span data-slot="price" class="lt-num" dir="ltr">$0.5230</span>
 </td>
-<td data-col="change" data-cell="change" data-label="24h" data-align="end">
+<td data-col="change" data-cell="change" data-phone="bottom" data-label="24h" data-align="end">
 <span class="lt-lines">
 <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
 <span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
 </span> +2.15%</span>
 </span>
 </td>
-<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<td data-col="chart" data-cell="chart" data-phone="hide" data-label="Last 24h" data-align="start">
 <figure class="lt-chart lt-spark" data-size="row" data-tone="up">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="XRP/USDT Last 24h">
 <path class="lt-chart-line" d="M8.0,192.0 L33.4,170.7 L58.8,142.5 L84.2,121.5 L109.6,116.1 L135.0,123.1 L160.3,130.8 L185.7,128.0 L211.1,112.5 L236.5,93.2 L261.9,82.9 L287.3,88.1 L312.7,103.8 L338.1,116.7 L363.5,115.0 L388.9,96.6 L414.3,70.8 L439.7,51.5 L465.0,46.4 L490.4,52.1 L515.8,56.7 L541.2,49.8 L566.6,30.4 L592.0,8.0" vector-effect="non-scaling-stroke">
@@ -793,19 +807,19 @@
 </svg>
 </figure>
 </td>
-<td data-col="volume" data-cell="volume" data-label="Volume 24h" data-align="end">
+<td data-col="volume" data-cell="volume" data-phone="hide" data-label="Volume 24h" data-align="end">
 <span class="lt-lines">
 <span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<td data-col="action" data-cell="action" data-phone="hide" data-reveal="true" data-label="Action" data-align="end">
 <span class="lt-actions">
 <a class="lt-button lt-button-secondary" role="button" href="/coin/XRP" aria-label="Buy XRP">Buy</a>
 </span>
 </td>
 </tr>
 <tr data-testid="mkt-row" data-symbol="DOGE-USDT" data-row="">
-<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
+<td data-col="name" data-cell="name" data-phone="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Market" data-align="start">
 <span class="lt-cell-name">
 <button aria-pressed="false" aria-label="Add DOGE to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
@@ -827,17 +841,17 @@
 </span>
 </span>
 </td>
-<td data-col="last" data-cell="last" data-label="Price" data-align="end">
+<td data-col="last" data-cell="last" data-phone="top" data-label="Price" data-align="end">
 <span data-slot="price" class="lt-num" dir="ltr">$0.1235</span>
 </td>
-<td data-col="change" data-cell="change" data-label="24h" data-align="end">
+<td data-col="change" data-cell="change" data-phone="bottom" data-label="24h" data-align="end">
 <span class="lt-lines">
 <span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="" class="lt-num">
 <span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
 </span> −4.94%</span>
 </span>
 </td>
-<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<td data-col="chart" data-cell="chart" data-phone="hide" data-label="Last 24h" data-align="start">
 <figure class="lt-chart lt-spark" data-size="row" data-tone="down">
 <svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="DOGE/USDT Last 24h">
 <path class="lt-chart-line" d="M8.0,28.4 L33.4,11.4 L58.8,8.0 L84.2,26.3 L109.6,59.5 L135.0,90.6 L160.3,105.3 L185.7,101.7 L211.1,91.5 L236.5,90.3 L261.9,105.5 L287.3,130.6 L312.7,150.0 L338.1,151.2 L363.5,134.8 L388.9,114.5 L414.3,107.5 L439.7,122.0 L465.0,151.4 L490.4,179.3 L515.8,192.0 L541.2,188.5 L566.6,180.6 L592.0,183.6" vector-effect="non-scaling-stroke">
@@ -845,12 +859,12 @@
 </svg>
 </figure>
 </td>
-<td data-col="volume" data-cell="volume" data-label="Volume 24h" data-align="end">
+<td data-col="volume" data-cell="volume" data-phone="hide" data-label="Volume 24h" data-align="end">
 <span class="lt-lines">
 <span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<td data-col="action" data-cell="action" data-phone="hide" data-reveal="true" data-label="Action" data-align="end">
 <span class="lt-actions">
 <a class="lt-button lt-button-secondary" role="button" href="/coin/DOGE" aria-label="Buy DOGE">Buy</a>
 </span>
@@ -863,7 +877,7 @@
 </div>
 <section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" class="lt-stack">
 <h2 id="mkt-not-offered" class="lt-sr">Not offered here</h2>
-<ul class="mkt-footnote">
+<ul class="lt-footnotes">
 <li data-testid="mkt-not-offered-equity">
 <strong>Tokenized equities</strong> Not available: licence not named</li>
 <li data-testid="mkt-not-offered-rpi">
