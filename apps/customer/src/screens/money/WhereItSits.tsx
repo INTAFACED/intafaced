@@ -384,16 +384,16 @@ function ValueCells({
   const row = valued?.rows.find((r) => r.asset === asset && r.key === rowKey);
   return (
     <>
-      <td data-cell="price" data-label={t('Price')} className="lt-sr">
+      <td data-cell="price" data-label={t('Price')} data-align="end" className="lt-num">
         {row?.priceUsd ? dollars(row.priceUsd) : t('No price published')}
       </td>
       <td data-cell="value" data-label={t('Value')} data-align="end" className="lt-num">
         {row?.valueUsd ? dollars(row.valueUsd) : t('No price published')}
       </td>
-      <td data-cell="share" data-label={t('Share')} className="lt-sr">
+      <td data-cell="share" data-label={t('Share')} data-align="end" className="lt-num">
         {row?.share ? t('Share of total', { share: row.share }) : '—'}
       </td>
-      <td data-cell="source" data-label={t('Source')} data-source={valued?.id ?? ''} className="lt-sr">
+      <td data-cell="source" data-label={t('Source')} data-source={valued?.id ?? ''} className="lt-hint">
         {source}
       </td>
     </>
@@ -404,10 +404,10 @@ function ValueCells({
 type Head = { text: string; hidden?: boolean; end?: boolean; action?: boolean };
 
 const valueHeads = (t: T): Head[] => [
-  { text: t('Price'), hidden: true },
+  { text: t('Price'), end: true },
   { text: t('Value'), end: true },
-  { text: t('Share'), hidden: true },
-  { text: t('Source'), hidden: true },
+  { text: t('Share'), end: true },
+  { text: t('Source') },
 ];
 
 /** A source's table in a named region: one header row, then the rows. */
