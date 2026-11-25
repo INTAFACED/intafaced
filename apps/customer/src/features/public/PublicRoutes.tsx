@@ -89,9 +89,16 @@ export function PublicHeader({ path }: { path: string }) {
           {t('Open your account')} <span aria-hidden="true">↗</span>
         </a>
       ) : (
-        <a href={authHref} className="public-signin" data-session="signed-out">
-          {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
-        </a>
+        <>
+          <a href={authHref} className="public-signin" data-session="signed-out">
+            {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
+          </a>
+          {!path.startsWith('/login') && path !== '/register' && (
+            <a href="/register" className="public-signup">
+              {t('Create account')}
+            </a>
+          )}
+        </>
       )}
     </header>
   );

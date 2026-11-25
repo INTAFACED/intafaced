@@ -11,24 +11,83 @@
   font-family: var(--lit-font-ui);
 }
 
-/* An ultra-wide screen (2000px and up; media rem is the browser's 16px) draws everything 1.2 times larger, as every picked
-   page does (first-pages, 25 Nov), so a 2560 screen reads like a 2133 one instead of a strip of small type. */
-@media (min-width: 125rem) {
-  :root body {
-    zoom: 1.2;
-  }
-}
-
-/* The top bar, measured from Home A and Landing A (the owner's picks, 25 Nov; the root is 14px, so 1rem = 14px). */
-:root .tb {
+/* The top bar, the app's and the public pages' alike, measured from Home A and Landing A (the owner's picks, 25 Nov;
+   the root is 14px, so 1rem = 14px). Its inline padding is the page gutter of the kit's PageGrid, so the bar's edges line
+   up with the panels below; from 2000px of screen it draws 1.2 times larger, as PageGrid's page does. */
+:root :is(.tb, .public-header) {
+  position: sticky;
+  inset-block-start: var(--if-banner-offset, 0rem);
+  z-index: 40;
+  display: flex;
+  align-items: center;
   block-size: 4.2857rem;
   gap: 1.7143rem;
-  padding-inline: clamp(1.1429rem, 2vw, 2.8571rem);
+  padding-block: 0;
+  padding-inline: clamp(1rem, 2vw, 2.5rem);
   background: var(--lit-glass-bg);
   -webkit-backdrop-filter: var(--lit-glass-blur);
   backdrop-filter: var(--lit-glass-blur);
   border-block-end: 1px solid var(--lit-line);
   box-shadow: none;
+}
+@media (min-width: 125rem) {
+  :root :is(.tb, .public-header, .mobile-doors) {
+    zoom: 1.2;
+  }
+  /* A zoomed box scales its own offsets too: the bar still meets the TEST banner's edge. */
+  :root :is(.tb, .public-header) {
+    inset-block-start: calc(var(--if-banner-offset, 0rem) / 1.2);
+  }
+}
+@media (min-width: 50.0625rem) {
+  :root .public-header > nav {
+    display: flex;
+    gap: 0.2857rem;
+  }
+}
+@media (max-width: 50rem) {
+  :root .public-header {
+    gap: 0.5714rem;
+  }
+}
+:root .public-header > nav a {
+  display: inline-flex;
+  align-items: center;
+  block-size: 2.5714rem;
+  padding-inline: 0.8571rem;
+  border-radius: 50rem;
+  color: var(--lit-text-2);
+  font-size: 1rem;
+  font-weight: 500;
+}
+:root .public-header > nav a:hover {
+  color: var(--lit-text-1);
+}
+:root .public-signin,
+:root .public-signup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4286rem;
+  block-size: 2.2857rem;
+  padding-block: 0;
+  padding-inline: 0.8571rem;
+  border-radius: 50rem;
+  font-size: 0.9286rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+:root .public-signin {
+  margin-inline-start: auto;
+  background: var(--lit-secondary-bg);
+  box-shadow: var(--lit-secondary-shadow);
+}
+:root .public-signin span {
+  color: var(--lit-text-3);
+  font-size: 1rem;
+}
+:root .public-signup {
+  background: var(--lit-text-1);
+  color: var(--lit-page);
 }
 :root .tb-nav {
   align-self: center;
@@ -64,8 +123,8 @@
 :root .tb-search {
   block-size: 2.2857rem;
   border-radius: 50rem;
-  background: var(--lit-control-bg);
-  box-shadow: inset 0 0 0 1px var(--lit-line);
+  background: var(--lit-secondary-bg);
+  box-shadow: var(--lit-secondary-shadow);
 }
 /* From 1000px the search is a field; narrower it stays shell.css's round button. */
 @media (min-width: 62.5rem) {
@@ -81,6 +140,19 @@
   }
 }
 @media (max-width: 47.9375rem) {
+  /* Phone: the brand keeps its name, the controls close up, and signed out the search waits in the page. */
+  :root .tb .brand-bar__wide {
+    display: inline-flex;
+  }
+  :root .tb .brand-bar__compact {
+    display: none;
+  }
+  :root .tb-right {
+    gap: 0.7143rem;
+  }
+  :root .tb:has(.tb-login) .tb-search {
+    display: none;
+  }
   :root .tb-search-panel {
     inset-block-start: calc(4.2857rem + var(--if-banner-offset, 0rem));
   }
@@ -97,35 +169,74 @@
   font-weight: 600;
 }
 :root .tb-login {
-  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
+  background: var(--lit-secondary-bg);
+  box-shadow: var(--lit-secondary-shadow);
 }
 :root .tb-signup {
   background: var(--lit-text-1);
   color: var(--lit-page);
 }
-/* Simple or Pro: a sunken track, the chosen side raised. */
+/* Simple or Pro, and the Exchange switch: a sunken track with a hairline, the chosen side raised with a lip. The track's
+   2px inner edge is the kit thumb's own 2px offset, so the thumb sits evenly. */
 :root .tb-mode [data-slot='segmented-control'] {
-  block-size: 3rem;
-  padding: 0.2143rem;
+  block-size: 2.8571rem;
+  padding: 0.1429rem;
   border-radius: 50rem;
   background: var(--lit-solid-bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--lit-line);
 }
 :root .tb-mode [data-slot='segmented-control'] > span {
-  inset-block: 0.2143rem;
+  inset-block: 0.1429rem;
   border-radius: 50rem;
   background: var(--lit-solid-bg-raised);
-  box-shadow: none;
+  box-shadow: var(--lit-secondary-shadow);
 }
 :root .tb-mode [data-slot='segmented-control'] button {
-  padding-inline: 1rem;
+  padding-inline: 0.7143rem;
   font-size: 0.9286rem;
   font-weight: 600;
+}
+:root .tb .web3-switch {
+  block-size: 2.2857rem;
+  align-items: stretch;
+  padding: 0.1429rem;
+  border: 0;
+  border-radius: 50rem;
+  background: var(--lit-solid-bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--lit-line);
+  font-size: 0.9286rem;
+  font-weight: 600;
+}
+:root .tb .web3-switch a {
+  display: inline-flex;
+  align-items: center;
+  padding-block: 0;
+  padding-inline: 0.7143rem;
+  border-radius: 50rem;
+  color: var(--lit-text-2);
+}
+:root .tb .web3-switch a[aria-current='page'] {
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-secondary-shadow);
+  color: var(--lit-text-1);
+}
+/* The search's glass and words sit quieter than its field. */
+:root .tb-search svg {
+  color: var(--lit-text-3);
+}
+:root .tb-search input::placeholder {
+  color: var(--lit-text-3);
+  font-weight: 600;
+}
+/* The bell's count: a ring of the bar's own colour cuts it from the bell. */
+:root .tb .tb-badge {
+  box-shadow: 0 0 0 0.1429rem var(--lit-page);
 }
 /* The account: a stone disc. */
 :root .tb-account > .tb-icon-button {
   inline-size: 2.4286rem;
   block-size: 2.4286rem;
-  background: var(--lit-text-1);
+  background: color-mix(in srgb, var(--lit-text-1) 86%, var(--lit-page));
   color: var(--lit-page);
 }
 :root .tb-account > .tb-icon-button:hover,
@@ -144,8 +255,9 @@
 
 /* The page frame: a room drawn on the kit's templates is the page's own room, so it keeps the gutter and the content
    width every other page has, signed in or public (the shared Page: --if-gutter each side, --if-container-max wide, centred). A room drawn
-   inside another room keeps the frame of the room it sits in. */
-:root :is(.if-app, .public-shell) > main .lt-room:not(.lt-room .lt-room) {
+   inside another room keeps the frame of the room it sits in. A room built on the kit's PageGrid (.lt-page) owns its
+   width and gutter, so the shell adds neither. */
+:root :is(.if-app, .public-shell) > main .lt-room:not(.lt-room .lt-room, :has(.lt-page)) {
   box-sizing: border-box;
   inline-size: 100%;
   max-inline-size: var(--if-container-max);
