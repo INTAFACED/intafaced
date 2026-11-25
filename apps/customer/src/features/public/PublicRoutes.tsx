@@ -62,7 +62,7 @@ export function PublicHeader({ path }: { path: string }) {
   // The invitation card carries its own Create account, with the invite token; a second one here would drop the token.
   const showSignup = !path.startsWith('/login') && path !== '/register' && path !== '/invite';
   return (
-    <header className="public-header">
+    <header className="public-header" data-layer="nav">
       <Brand />
       <nav aria-label={t('Public navigation')}>
         <a href="/exchange">{t('Trade')}</a>
