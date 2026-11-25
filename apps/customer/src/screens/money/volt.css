@@ -130,6 +130,10 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* A figure in a source's table stays on one line; the table's own region scrolls when the column is narrow. */
+:root .money-where__table td.lt-num {
+  white-space: nowrap;
+}
 /* The split: one thin bar across, its legend on one line under it, the grouping control at the line's end. */
 :root .money-where__alloc {
   display: grid;
