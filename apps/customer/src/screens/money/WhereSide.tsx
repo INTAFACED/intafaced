@@ -74,14 +74,9 @@ function MovingNow({ owner, t }: { owner: string; t: T }) {
   );
 }
 
-/** "0x71C2…9A4F": the start and end of an address, the way a person checks it against their wallet. */
-function shortAddress(address: string): string {
-  return address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
-}
-
 /**
  * Where a withdrawal from the venue account goes: the connected wallet, unless the person edits it at the withdrawal.
- * The face shows the address short; the full address is its title and is read out in full.
+ * The face shows the whole address, in mono, wrapping where it must.
  */
 function WithdrawTo({ owner, t }: { owner: string; t: T }) {
   const wallet = useWallet();
@@ -89,11 +84,12 @@ function WithdrawTo({ owner, t }: { owner: string; t: T }) {
     <section className="lt-panel" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
       <PanelHead title={<span id="where-withdraw-title">{t('Withdraw to title')}</span>} />
       <div className="lt-row lt-row-between lt-row-nowrap" data-testid="assets-withdraw-to-wallet">
-        <span className="lt-stack lt-stack-tight">
+        <span className="lt-stack lt-stack-tight money-where__address">
           <span>{t('Withdraw to wallet')}</span>
-          <span className="lt-mono lt-hint" title={owner} data-address={owner}>
-            <span aria-hidden="true">{shortAddress(owner)}</span>
-            <span className="lt-sr">{t('Withdraw to short', { address: owner })}</span>
+          {/* The connected wallet's full address, as the venue rooms name it (venue-wallet-address): the journeys that
+              open /money connect through it and match it exactly, so it is the whole address, wrapping in mono. */}
+          <span className="lt-mono lt-hint" data-testid="venue-wallet-address" data-address={owner}>
+            {owner}
           </span>
         </span>
         <Tag tone="up">{t('Withdraw to ready')}</Tag>

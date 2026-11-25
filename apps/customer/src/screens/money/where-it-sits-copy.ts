@@ -134,5 +134,4 @@ export const whereCopy = defineCopy('money.where', {
   'Panel total': 'Value of what is priced here',
   'Row action': 'Action',
   'Move to venue': 'Move to venue',
-  'Withdraw to short': 'Full address: {address}',
 });
