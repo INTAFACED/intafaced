@@ -86,4 +86,11 @@ describe('choices listed but not open now', () => {
       '<span class="lt-stack-tight"><span>TWAP</span><span class="lt-note">Not offered on this book</span></span>',
     );
   });
+
+  it('a Menu floats above desk layers on an opaque tile-radius surface so underlying numbers never bleed through or clip items', () => {
+    expect(css).toMatch(/\.lt-menu-layer \{[^}]*z-index: 50;/);
+    expect(css).toMatch(/\.lt-menu \{[^}]*background: var\(--lit-solid-bg-raised\);/);
+    expect(css).toMatch(/\.lt-menu \{[^}]*border-radius: var\(--lit-radius-tile\);/);
+    expect(css).toMatch(/\.lt-desk > \[data-region='ticket'\] \.lt-tabs \{[^}]*flex-wrap: wrap;/);
+  });
 });

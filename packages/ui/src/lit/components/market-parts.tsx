@@ -172,3 +172,109 @@ export function MoverTile({ symbol, quote, price, change, trend, trendLabel, hre
     <div className={clsx('lt-mover', className)}>{body}</div>
   );
 }
+
+export interface StatCell {
+  key: string;
+  label: React.ReactNode;
+  /** Formatted figure, or words when there is none ("Side empty"); null draws the dash. */
+  value: React.ReactNode | null;
+  /** Up or down colours the figure; its sign must already be in the text. */
+  tone?: 'up' | 'down';
+  /** A figure in tabular digits, kept left to right; false for words. Default true. */
+  num?: boolean;
+  'data-testid'?: string;
+}
+
+/**
+ * A row of label-over-figure pairs under hairline dividers: a desk's contract and risk strips, a header's 24h figures,
+ * home's small totals. It wraps by width; `dense` is the desk's size.
+ */
+export function StatStrip({
+  cells,
+  label,
+  dense,
+  className,
+}: {
+  cells: readonly StatCell[];
+  label?: string;
+  dense?: boolean;
+  className?: string;
+}) {
+  return (
+    <dl className={clsx('lt-stat-strip', className)} aria-label={label} data-dense={dense || undefined}>
+      {cells.map((c) => (
+        <div key={c.key}>
+          <dt>{c.label}</dt>
+          <dd
+            className={c.num === false ? undefined : 'lt-num'}
+            data-direction={c.tone}
+            dir={c.num === false ? undefined : 'ltr'}
+            data-testid={c['data-testid']}
+          >
+            {c.value ?? '—'}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export interface MarketHeaderProps {
+  /** The base asset's ticker, for its mark. */
+  asset: string;
+  /** The market's name as the venue lists it (BTC-PERP, PURR/USDC). */
+  symbol: string;
+  /** Quieter beside the symbol (Bitcoin perpetual). */
+  name?: string;
+  /** Beside the symbol: the TEST tag, a leverage badge. */
+  badges?: React.ReactNode;
+  /** Formatted last price, or null when there is no print. */
+  price: string | null;
+  /** Formatted signed 24h change, or null. */
+  change: string | null;
+  /** The rest of the line: best bid and ask, mark, funding, volume. */
+  stats?: readonly StatCell[];
+  /** At the end: the as-of time, a favourite star. */
+  aside?: React.ReactNode;
+  /** The header's accessible name ("Market"). */
+  label: string;
+  priceTestId?: string;
+  dense?: boolean;
+  'data-testid'?: string;
+}
+
+/**
+ * The line at the top of a market (the desk and the markets room): its mark, symbol and badges; the last price large
+ * with its 24h change; then its figures as a stat strip, and an aside at the end.
+ */
+export function MarketHeader({
+  asset,
+  symbol,
+  name,
+  badges,
+  price,
+  change,
+  stats,
+  aside,
+  label,
+  priceTestId,
+  dense,
+  'data-testid': testId,
+}: MarketHeaderProps) {
+  return (
+    <section className="lt-market-header" aria-label={label} data-dense={dense || undefined} data-testid={testId}>
+      <span className="lt-market-header-id">
+        <AssetIcon asset={asset} />
+        <span className="lt-market-symbol">{symbol}</span>
+        {name ? <span className="lt-market-full">{name}</span> : null}
+        {badges}
+      </span>
+      <span className="lt-market-header-price">
+        <Price className="lt-market-header-last" value={price} data-testid={priceTestId} />
+        <Pct value={change} arrow />
+      </span>
+      {stats && stats.length > 0 ? <StatStrip cells={stats} dense /> : null}
+      {aside !== undefined ? <span className="lt-market-header-aside">{aside}</span> : null}
+    </section>
+  );
+}

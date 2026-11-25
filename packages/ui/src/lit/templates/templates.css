@@ -1374,6 +1374,20 @@ button.lt-tab:focus-visible {
   outline-offset: 2px;
 }
 
+/* A desk ticket's order-type tabs wrap inside the narrow ticket column instead of fading off after two tabs. */
+.lt-desk > [data-region='ticket'] .lt-tabs {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  animation: none;
+  mask-image: none;
+}
+
+.lt-desk > [data-region='ticket'] .lt-tab {
+  min-block-size: 2rem;
+  padding-inline: var(--lit-gap-item);
+  font-size: var(--lit-type-label-size);
+}
+
 .lt-tab-panel {
   display: flex;
   flex-direction: column;
@@ -3110,20 +3124,22 @@ button.lt-tab:focus-visible {
 }
 
 .lt-menu-layer {
+  z-index: 50;
   outline: none;
 }
 
 .lt-menu {
   display: flex;
   flex-direction: column;
+  gap: 0.125rem;
   min-inline-size: 12rem;
+  max-inline-size: min(26rem, calc(100vw - 2rem));
   max-block-size: var(--available-height);
   overflow-y: auto;
-  padding: calc(var(--lit-gap-item) / 2);
-  background: var(--lit-glass-bg);
-  backdrop-filter: var(--lit-glass-blur);
-  border: 1px solid var(--lit-glass-rim);
-  border-radius: var(--lit-radius-control);
+  padding: var(--lit-gap-item);
+  background: var(--lit-solid-bg-raised);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-tile);
   box-shadow: var(--lit-glass-shadow);
   outline: none;
 }
@@ -3131,9 +3147,12 @@ button.lt-tab:focus-visible {
 .lt-menu-item {
   display: flex;
   align-items: center;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
   min-block-size: var(--lit-control-h);
+  padding-block: 0.375rem;
   padding-inline: var(--lit-gap-item);
-  border-radius: calc(var(--lit-radius-control) / 2);
+  border-radius: calc(var(--lit-radius-tile) / 2);
   color: var(--lit-text-1);
   cursor: pointer;
   outline: none;

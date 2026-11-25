@@ -2359,3 +2359,85 @@ a.lit-button {
 .lt-chart[data-tone='down'] {
   --lt-chart-soft: var(--lit-down);
 }
+
+/* ---- Stat strip and market header (market-parts.tsx) ---- */
+.lt-stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  row-gap: var(--lit-gap-item);
+}
+.lt-stat-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-inline: var(--lit-gap-section);
+  border-inline-start: 1px solid var(--lit-line);
+  min-inline-size: 0;
+}
+.lt-stat-strip > div:first-child {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+.lt-stat-strip dt {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+  white-space: nowrap;
+}
+.lt-stat-strip dd {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+  white-space: nowrap;
+}
+.lt-stat-strip dd[data-direction='up'] {
+  color: var(--lit-up-text);
+}
+.lt-stat-strip dd[data-direction='down'] {
+  color: var(--lit-down-text);
+}
+.lt-stat-strip[data-dense] > div {
+  padding-inline: var(--lit-gap-item);
+}
+.lt-stat-strip[data-dense] dt {
+  font-size: var(--lit-type-micro-size);
+  line-height: var(--lit-type-micro-line);
+}
+.lt-stat-strip[data-dense] dd {
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+}
+.lt-market-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lit-gap-item) var(--lit-gap-section);
+  min-inline-size: 0;
+}
+.lt-market-header-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-market-header-price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+.lt-market-header-last {
+  font-family: var(--lit-font-figure);
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+}
+.lt-market-header:not([data-dense]) .lt-market-header-last {
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  font-weight: var(--lit-type-figure-weight);
+}
+.lt-market-header-aside {
+  margin-inline-start: auto;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
