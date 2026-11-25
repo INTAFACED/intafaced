@@ -3,7 +3,9 @@
 // betaVoltDefine gives the beta `betaRoomList(beta-screens.json rooms, rooms)` (the rooms Order 1's journey steps showed), and the app hides a path when `betaHides` says so
 // (apps/customer/src/app/beta-volt.ts), as it does a room a switched-off feature holds (feature-registry.ts betaHidden).
 // Read here through the same files, so the beta and this check share one rule.
-// tooling/ci/journey-verdict.mjs runs it to name the steps whose screens no tester can open (`notOnBeta`).
+// tooling/ci/journey-verdict.mjs runs it to name the steps whose screens no tester can open (`notOnBeta`). The beta shows only
+// Order 1's screens (project-state decision PR #4049, Nino approves "the Order 1 screens the beta shows. Everything else waits until after Phantom's first wave."), so the list is what the hosted beta serves, and a step is proven only where a tester reaches it
+// there (project-state decision PR #4016). A step whose screen is not on the list is still named, until a newer report is read.
 // Needs @intafaced/contracts and @intafaced/i18n built (the route table imports them), as the verdict job does.
 //   node tooling/ci/beta-hides.mjs < paths.json   prints { "hidden": [...the given paths it hides], "rooms": n, "hiddenRooms": n }
 import { readFileSync } from 'node:fs';

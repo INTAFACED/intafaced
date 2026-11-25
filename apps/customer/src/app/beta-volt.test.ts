@@ -1,4 +1,4 @@
-// The beta shows only Order 1's screens (owner decision, 25 Nov 2026): with the beta's list, built from beta-screens.json as
+// The beta shows only Order 1's screens: with the beta's list, built from beta-screens.json as
 // vite.config.ts builds it, no door or menu row opens a room no Order 1 step showed; without it, every door and row shows.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList, betaRooms, setBetaAccess } from './beta-volt';

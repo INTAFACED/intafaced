@@ -1,7 +1,7 @@
 import { hasPattern, matchPath } from './path-match';
 
 /**
- * The beta shows only Order 1's screens (owner decision, 25 Nov 2026: "The beta shows only Order 1's screens"). The beta's
+ * The beta shows only Order 1's screens. The beta's
  * build (`INTAFACED_BETA_VOLT_ONLY=1`, set by tooling/beta/beta-host.mjs) defines this list from beta-screens.json, the
  * rooms an Order 1 journey step showed (scripts/beta-screens.mjs); every other build leaves it undefined and hides nothing.
  * Each row is a room's route, in the route table's order, and whether the beta shows it.
