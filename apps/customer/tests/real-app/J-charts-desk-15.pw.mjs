@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { openFold } from './futures-desk.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -238,7 +239,8 @@ async function startsLine(browser) {
 
 const chart = () => page.getByTestId('venue-chart');
 const host = () => chart().getByTestId('pc-host');
-const trading = () => page.getByTestId('venue-market').getByTestId('chart-trading');
+/** The chart's order tools, inside the desk's "Chart trading" disclosure, opened. */
+const trading = async () => (await openFold(page, 'venue-chart-trading')).getByTestId('venue-market').getByTestId('chart-trading');
 const ticket = () => page.getByRole('form', { name: 'Order from the chart' });
 const priceField = () => ticket().getByLabel(/Limit price/);
 const amountField = () => ticket().getByLabel(/Amount/);
@@ -301,7 +303,7 @@ test(`${J} #1 projects a buy limit at a TEST price below the market: a preview-s
   await expect(host()).toBeVisible();
   await expect(chart().getByTestId('chart-trading-overlay')).toHaveCount(1, { timeout: 20_000 });
   const door = doorCalls();
-  await trading().getByRole('button', { name: 'Order on chart' }).click();
+  await (await trading()).getByRole('button', { name: 'Order on chart' }).click();
   await ticket().getByLabel('Side').selectOption('buy');
   await priceField().fill(BELOW);
   await amountField().fill(AMOUNT);
@@ -555,10 +557,10 @@ test(`${J} #6 opens the chart of a halted market: order entry on the chart is di
     await page.goto(`/trade/spot/${s.halted}`);
     await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
     await expect(host()).toBeVisible({ timeout: 20_000 });
-    const refusal = trading().getByTestId('chart-trading-refusal');
+    const refusal = (await trading()).getByTestId('chart-trading-refusal');
     await expect(refusal).toHaveText(`Order entry on the chart is off: ${s.halted} is halted on ${displayName}.`, { timeout: 30_000 });
     await expect(refusal).toHaveAttribute('data-code', 'trade.chart.order_entry_refused');
-    await expect(trading().getByRole('button', { name: 'Order on chart' })).toBeDisabled();
+    await expect((await trading()).getByRole('button', { name: 'Order on chart' })).toBeDisabled();
     // No plus button and no order menu on the halted chart.
     const box = await host().boundingBox();
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);

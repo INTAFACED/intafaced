@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
-import { BookLadder, MarketHeader, Segmented, StateBlock, TradeTape } from '@intafaced/ui/lit';
+import { BookLadder, Fold, MarketHeader, Segmented, StateBlock, TradeTape } from '@intafaced/ui/lit';
 import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { fractionDigits } from '../../../data/decimal';
@@ -204,7 +204,6 @@ export function VenueMarketPanel({
                 value={interval}
                 onChange={setChartInterval}
               />
-              {chartTools}
             </div>
             <div className="lt-canvas">
               {chart === null && candles.failure ? (
@@ -230,10 +229,19 @@ export function VenueMarketPanel({
                 />
               )}
             </div>
-            {chartTrade}
           </div>
-          {/* Below the chart's fixed-height box: the ticket and reviews would otherwise take the chart's own height. */}
-          {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
+          {/* Trading from the chart (the chart's market, the DOM, click trading and orders placed on the chart) behind one
+              disclosure under it, so the chart sits right under its title. Below the chart's fixed-height box: the
+              ticket and reviews would otherwise take the chart's own height. */}
+          {chartTools || chartTrade || chartOrders ? (
+            <Fold title={t('Chart trading')} data-testid="venue-chart-trading">
+              <div className="lt-stack">
+                {chartTools}
+                {chartTrade}
+                {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
+              </div>
+            </Fold>
+          ) : null}
         </div>
 
         <div className="xd-book-tape" data-testid="venue-book-tape">

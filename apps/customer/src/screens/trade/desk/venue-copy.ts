@@ -121,6 +121,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Market details': 'Market details',
   'Order options': 'Order options',
   'New order': 'New order',
+  'Chart trading': 'Chart trading',
   'Buy size': 'Buy {amount} {asset}',
   'Sell size': 'Sell {amount} {asset}',
   'Pending checking': 'Looking up your {side} of {amount} {asset} on the venue by its client id {id}…',

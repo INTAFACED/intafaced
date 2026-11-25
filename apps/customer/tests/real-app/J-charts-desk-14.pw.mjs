@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { openFold } from './futures-desk.mjs';
 import { keyName } from './key-name.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -257,13 +258,16 @@ async function startsLine(browser) {
 const dom = (page) => page.getByRole('region', { name: 'Depth of market' });
 const ladder = (page) => dom(page).getByRole('grid', { name: 'Depth of market' });
 const tapeRegion = (page) => page.getByRole('region', { name: 'Time and sales' });
-const chartTrade = (page) => page.getByRole('group', { name: 'Trade from the chart' });
+/** The chart's click-trading row, inside the desk's "Chart trading" disclosure, opened. */
+const chartTrade = async (page) => (await openFold(page, 'venue-chart-trading')).getByRole('group', { name: 'Trade from the chart' });
 const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side="buy"]');
 const sellForm = (page) => page.locator('form[data-testid="dk-form"][data-side="sell"]');
 
 /** Open the DOM from the chart's own button, unless it is already showing. */
 async function openDom(page) {
-  const button = page.getByTestId('venue-chart').getByRole('button', { name: /^(Open|Close) DOM$/ });
+  const button = (await openFold(page, 'venue-chart-trading'))
+    .getByTestId('venue-chart-trading')
+    .getByRole('button', { name: /^(Open|Close) DOM$/ });
   if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
   await expect(dom(page)).toBeVisible();
 }
@@ -496,7 +500,7 @@ test(`${J} #1 opens the DOM from the chart; it binds to the chart's symbol and r
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const door = doorCalls(page);
   await openDom(page);
-  await expect(page.getByTestId('venue-chart').getByRole('button', { name: 'Close DOM' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('venue-chart-trading').getByRole('button', { name: 'Close DOM' })).toHaveAttribute('aria-pressed', 'true');
   await expect(dom(page)).toHaveAttribute('data-symbol', SYMBOL);
   await expect(dom(page).getByRole('heading', { name: `Depth of market for ${SYMBOL}` })).toBeVisible();
   await expect(dom(page).getByTestId('venue-test')).toBeVisible();
@@ -508,7 +512,7 @@ test(`${J} #1 opens the DOM from the chart; it binds to the chart's symbol and r
 
   // The chart's symbol changes, from the chart's own market list: the DOM is still open, bound to the new symbol, with
   // the same ladder settings, and its ladder is that market's venue book.
-  await page.getByTestId('venue-chart').getByLabel('Chart market').selectOption(s.second);
+  await (await openFold(page, 'venue-chart-trading')).getByTestId('venue-chart-trading').getByLabel('Chart market').selectOption(s.second);
   await expect(page).toHaveURL(new RegExp(`/trade/spot/${s.second}$`));
   await expect(page.getByTestId('if-desk')).toHaveAttribute('data-market', s.second);
   await expect(dom(page)).toHaveAttribute('data-symbol', s.second);
@@ -520,7 +524,7 @@ test(`${J} #1 opens the DOM from the chart; it binds to the chart's symbol and r
   const second = await venueBook(s.second);
   expect(second.bids.length).toBeGreaterThan(0);
   // Back to BTC-USDC: bound again, to its venue book.
-  await page.getByTestId('venue-chart').getByLabel('Chart market').selectOption(SYMBOL);
+  await (await openFold(page, 'venue-chart-trading')).getByTestId('venue-chart-trading').getByLabel('Chart market').selectOption(SYMBOL);
   await expect(dom(page)).toHaveAttribute('data-symbol', SYMBOL);
   await ladderIsVenueBook(page, SYMBOL);
   // Reading sends nothing: no prepare or submit, no signature, the venue holds the same orders, the ledger posts nothing.
@@ -735,7 +739,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   const owner = ownerOf(s);
   const ledgerBefore = await ledgerView(s.account);
   const wallet = await deskWithDom(page, s);
-  await chartTrade(page).getByLabel('Click size (BTC)').fill(SMALL);
+  await (await chartTrade(page)).getByLabel('Click size (BTC)').fill(SMALL);
   const door = doorCalls(page);
   const openBefore = await venueOpen(owner);
   const review = reviewSheet(page);
@@ -800,7 +804,7 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   const openBefore = await venueOpen(owner);
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const door = doorCalls(page);
-  const group = chartTrade(page);
+  const group = await chartTrade(page);
   const buy = group.getByTestId('of-chart-buy');
   const sell = group.getByTestId('of-chart-sell');
   const spread = group.getByTestId('of-chart-spread');
@@ -890,7 +894,7 @@ test(`${J} #6 turns instant placement on: a click sends after the settings summa
   const owner = ownerOf(s);
   const ledgerBefore = await ledgerView(s.account);
   const wallet = await deskWithDom(page, s);
-  await chartTrade(page).getByLabel('Click size (BTC)').fill(SMALL);
+  await (await chartTrade(page)).getByLabel('Click size (BTC)').fill(SMALL);
   const door = doorCalls(page);
   const review = reviewSheet(page);
 
@@ -967,8 +971,8 @@ test(`${J} #6 turns instant placement on: a click sends after the settings summa
   run.write({ instantOrder: { price: restPrice, key: intent.clientOrderKey } });
 
   // A market order from the chart still opens the review with instant placement on: its price can move.
-  await chartTrade(page).getByLabel('Order kind').selectOption({ label: 'Market' });
-  await chartTrade(page).getByTestId('of-chart-buy').click();
+  await (await chartTrade(page)).getByLabel('Order kind').selectOption({ label: 'Market' });
+  await (await chartTrade(page)).getByTestId('of-chart-buy').click();
   await expect(review).toContainText('Review your buy');
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
@@ -985,7 +989,7 @@ test(`${J} #6 turns instant placement on: a click sends after the settings summa
   expect((await instantRecord(s.account)).value).toEqual({ on: false, agreement: null, agreedAt: null });
   const afterReload = doorCalls(page);
   await setLadder(page, 'Single', '1 tick');
-  await chartTrade(page).getByLabel('Click size (BTC)').fill(SMALL);
+  await (await chartTrade(page)).getByLabel('Click size (BTC)').fill(SMALL);
   await pressAskCell(page, 3);
   await expect(review).toBeVisible();
   await review.getByRole('button', { name: 'Cancel' }).click();
@@ -1013,7 +1017,7 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const door = doorCalls(page);
   const answers = prepareAnswers(page);
   const review = reviewSheet(page);
-  const clickSize = chartTrade(page).getByLabel('Click size (BTC)');
+  const clickSize = (await chartTrade(page)).getByLabel('Click size (BTC)');
   const cancelReview = page.getByTestId('of-cancel-review');
   const close = oneClick(page).getByTestId('of-close-all');
   await expect(instantSwitch(page)).toHaveAttribute('aria-checked', 'false');
