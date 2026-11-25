@@ -43,8 +43,4 @@ regexes = [
   # most of what this file exists to catch.
   '''c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470''',
   '''4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45''',
-  # A Hyperliquid spot token's public id (its `spotMeta` answer, 16 bytes), as a venue recording keeps it
-  # (packages/venue-hyperliquid/recordings/). Only that key with exactly 32 hex digits: a 64-hex private key under any
-  # name, this one included, still fails.
-  '''^tokenId": "0x[0-9a-f]{32}"$''',
 ]
