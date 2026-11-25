@@ -79,6 +79,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
         takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
         builderFeeCapBps: { known: true, value: BUILDER_FEE_CAP_BPS[m.kind] },
+        // The venue's own word on it: `meta` and `spotMeta` list the markets Hyperliquid trades and flag a delisted perp
+        // (`isDelisted`, dropped by `loadMarkets`); it publishes no halt, limit-only or cancel-only state, so a listed
+        // market is trading. Never null here, which a reader takes as not known (and the markets list as not open).
+        status: 'trading',
       };
       // What this adapter does not read from the venue: `market-terms.ts`, never here.
       return { ...read, ...unreadMarketTerms() };
