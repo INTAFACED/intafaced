@@ -17,14 +17,6 @@
   color: inherit;
   text-decoration: none;
 }
-.ld-sr {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .ld [data-tone='up'] {
   color: var(--lit-up-text);
 }
@@ -68,23 +60,6 @@
   color: var(--lit-text-3);
   font-size: 0.9286rem;
   line-height: 1.2857rem;
-}
-.ld-featured-chart,
-.ld-ticket-chart,
-.ld-tile,
-.ld-col-trend {
-  position: relative;
-  overflow: hidden;
-}
-.ld-featured-chart .lt-chart,
-.ld-ticket-chart .lt-chart {
-  block-size: 100%;
-  margin: 0;
-}
-.ld-featured-chart svg,
-.ld-ticket-chart svg {
-  inline-size: 100%;
-  block-size: 100%;
 }
 .ld-board {
   padding: 1.2857rem 0.5714rem 0.5714rem;
