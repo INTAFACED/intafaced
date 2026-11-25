@@ -71,6 +71,5 @@ export const landingCopy = defineCopy('public-landing', {
   trustPasskeysBody: 'Made for you when you sign up, with no seed phrase. Freeze everything in one tap.',
   trustFees: 'Fees before you confirm',
   trustFeesBody: 'Every order shows its full cost, ours and the venue’s, before you press the button.',
-  placeholder: 'Placeholder',
   closingTitle: 'Open an account in two minutes.',
 });

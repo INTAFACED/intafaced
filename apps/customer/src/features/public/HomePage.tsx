@@ -112,8 +112,8 @@ export function HomePage() {
       <Moving lines={lines} t={t} />
 
       <section className="ld-trust" aria-label={t('trustFees')}>
-        <TrustItem title={t('trustReserves')} body={t('trustReservesBody')} badge={t('placeholder')} />
-        <TrustItem title={t('trustLicences')} body={t('trustLicencesBody')} badge={t('placeholder')} />
+        <TrustItem title={t('trustReserves')} body={t('trustReservesBody')} />
+        <TrustItem title={t('trustLicences')} body={t('trustLicencesBody')} />
         <TrustItem title={t('trustPasskeys')} body={t('trustPasskeysBody')} />
         <TrustItem title={t('trustFees')} body={t('trustFeesBody')} />
       </section>
@@ -314,13 +314,10 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
   );
 }
 
-function TrustItem({ title, body, badge }: { title: string; body: string; badge?: string }) {
+function TrustItem({ title, body }: { title: string; body: string }) {
   return (
     <div className="ld-trust-item">
-      <h3>
-        {title}
-        {badge ? <span className="ld-badge">{badge}</span> : null}
-      </h3>
+      <h3>{title}</h3>
       <p>{body}</p>
     </div>
   );

@@ -430,7 +430,7 @@
 .ld-trust {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-block: 0.5714rem 5.7143rem;
+  margin-block: 0.5714rem 2.8571rem;
   padding-block: 0.5714rem;
   border-radius: 1.5714rem;
   background: var(--lit-solid-bg);
@@ -466,14 +466,6 @@
   color: var(--lit-text-2);
   font-size: 0.9643rem;
   line-height: 1.45;
-}
-.ld-badge {
-  padding: 0.0714rem 0.5714rem;
-  border-radius: var(--lit-radius-key);
-  box-shadow: inset 0 0 0 1px var(--lit-warn-text);
-  color: var(--lit-warn-text);
-  font-size: 0.8571rem;
-  font-weight: 400;
 }
 
 /* B's balance slab beside the three doors. */
@@ -527,7 +519,7 @@
 }
 .ld-doors span {
   color: var(--lit-text-3);
-  font-size: var(--lit-type-micro-size);
+  font-size: 1rem;
 }
 .ld-slab {
   display: grid;
