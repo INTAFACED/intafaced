@@ -976,7 +976,17 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     for (const m of anon) {
       expect([m.minOrderNotional, m.priceBandBps, m.maxOpenOrders]).toEqual([a('10'), null, 1000]);
     }
-    expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => [null, null, null]));
+    // A listed market is trading, as the venue lists it; no largest order is published.
+    expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => ['trading', null, null]));
+  });
+
+  it('a perp the venue flags delisted is not listed at all, so no market it lists is ever drawn trading after delisting', async () => {
+    const fake = fakeVenue();
+    fake.info.meta = () => ({ universe: [...META.universe, { name: 'OLD', szDecimals: 2, maxLeverage: 3, isDelisted: true }] });
+    const listed = (await venueWith(fake).markets(null)).value.map((m) => [m.symbol, m.status]);
+    expect(listed).not.toContainEqual(['OLD-PERP', 'trading']);
+    expect(listed.map(([s]) => s)).not.toContain('OLD-PERP');
+    expect(listed).toContainEqual(['BTC-PERP', 'trading']);
   });
 });
 
