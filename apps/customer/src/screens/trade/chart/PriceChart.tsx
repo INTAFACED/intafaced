@@ -21,8 +21,12 @@ import {
   planUpdate,
   priceFormat,
   stepOf,
+  thinRange,
+  toBand,
   toBar,
   toLinePoint,
+  toMidPoint,
+  withAlpha,
   toVolumeBar,
   type FillMark,
   type Marker,
@@ -89,7 +93,10 @@ export interface ChartOrderLine {
 
 export interface PriceChartProps {
   candles: readonly Candle[];
-  mode: 'candles' | 'line';
+  /** `thin`: a market that trades only inside its own spread, drawn as a band from each candle's low to high with its mid. */
+  mode: 'candles' | 'line' | 'thin';
+  /** In `thin` mode, the legend's words for it ("Thin market: 160 of 172 candles traded inside the spread"). */
+  thinNote?: string;
   interval: ChartInterval;
   /** Changes when the market or interval changes: the view is fitted again, otherwise it is left where the person put it. */
   resetKey: string;
@@ -138,6 +145,7 @@ export function PriceChart({
   timeZone,
   labels,
   onHost,
+  thinNote,
 }: PriceChartProps) {
   // Prices draw at the market's tick, at most five significant figures; orders on the chart keep the market's tick.
   const tickSize = shownTick(marketTick, candles.at(-1)?.c ?? null);
@@ -148,6 +156,7 @@ export function PriceChart({
   const main = useRef<SeriesApi | null>(null);
   const volume = useRef<SeriesApi | null>(null);
   const averages = useRef<SeriesApi[]>([]);
+  const mid = useRef<SeriesApi | null>(null);
   const markers = useRef<{ setMarkers(markers: Marker[]): void } | null>(null);
   const lines = useRef<unknown[]>([]);
   const shown = useRef<readonly Candle[] | null>(null);
@@ -259,20 +268,42 @@ export function PriceChart({
     if (!lib || !api) return;
     const c = readColors();
     if (main.current) api.removeSeries(main.current);
+    if (mid.current) api.removeSeries(mid.current);
+    mid.current = null;
     markers.current = null;
     lines.current = [];
     shown.current = null;
+    const band = withAlpha(c.text, 0.08);
     main.current =
-      mode === 'line'
-        ? api.addSeries(lib.LineSeries, { color: c.accent, lineWidth: 2, priceFormat: priceFormat(tickSize, language) })
-        : api.addSeries(lib.CandlestickSeries, {
-            upColor: c.up,
-            downColor: c.down,
-            wickUpColor: c.up,
-            wickDownColor: c.down,
+      mode === 'thin'
+        ? api.addSeries(lib.CandlestickSeries, {
+            upColor: band,
+            downColor: band,
+            wickVisible: false,
             borderVisible: false,
+            lastValueVisible: false,
+            priceLineVisible: false,
             priceFormat: priceFormat(tickSize, language),
-          });
+            // At least 5% either side of the last price: a narrow spread sits calm in the middle, never fills the chart.
+            autoscaleInfoProvider: (base: () => { priceRange: { minValue: number; maxValue: number } | null } | null) => {
+              const last = latest.current.at(-1);
+              const found = base();
+              if (!last) return found;
+              return { ...found, priceRange: thinRange(chartValue(last.c), found?.priceRange ?? null) };
+            },
+          })
+        : mode === 'line'
+          ? api.addSeries(lib.LineSeries, { color: c.accent, lineWidth: 2, priceFormat: priceFormat(tickSize, language) })
+          : api.addSeries(lib.CandlestickSeries, {
+              upColor: c.up,
+              downColor: c.down,
+              wickUpColor: c.up,
+              wickDownColor: c.down,
+              borderVisible: false,
+              priceFormat: priceFormat(tickSize, language),
+            });
+    if (mode === 'thin')
+      mid.current = api.addSeries(lib.LineSeries, { color: c.text, lineWidth: 2, priceFormat: priceFormat(tickSize, language) });
     // The axis follows the first series on it (the averages were added first), so they carry the price format too.
     averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles', priceFormat: priceFormat(tickSize, language) }));
     if (host.current) handHost.current?.({ chart: api, main: main.current, element: host.current, tickSize: marketTick });
@@ -287,10 +318,11 @@ export function PriceChart({
     if (!series || !vol || candles.length === 0) return;
     const c = readColors();
     const plan = planUpdate(shown.current, candles);
-    const point = (mode === 'line' ? toLinePoint : toBar) as (c: Candle) => unknown;
+    const point = (mode === 'thin' ? toBand : mode === 'line' ? toLinePoint : toBar) as (c: Candle) => unknown;
     const volColors = { up: c.volUp, down: c.volDown };
     if (plan.kind === 'reset') {
       series.setData(candles.map(point));
+      mid.current?.setData(candles.map(toMidPoint));
       vol.setData(candles.map((x) => toVolumeBar(x, volColors)));
       averages.current.forEach((s, i) => s.setData(movingAverage(candles, MA_PERIODS[i]!)));
       if (fittedFor.current !== resetKey) {
@@ -301,6 +333,7 @@ export function PriceChart({
       const tail = candles.slice(plan.from);
       for (const x of tail) {
         series.update(point(x));
+        mid.current?.update(toMidPoint(x));
         vol.update(toVolumeBar(x, volColors));
       }
       const since = Math.floor(tail[0]!.t / 1000);
@@ -351,6 +384,7 @@ export function PriceChart({
     const series = main.current;
     if (!series) return;
     const c = readColors();
+    if (mode === 'thin') return;
     series.applyOptions(
       mode === 'line' ? { color: c.accent } : { upColor: c.up, downColor: c.down, wickUpColor: c.up, wickDownColor: c.down },
     );
@@ -365,7 +399,7 @@ export function PriceChart({
     <div className="lt-stack-tight lt-tight">
       {/* The named picture is the legend's strip; the plot stays outside it, because the engine draws the attribution
           link the licence asks for inside the plot, and an image may hold no link (axe nested-interactive). */}
-      <div role="img" aria-label={labels.chart}>
+      <div role="img" aria-label={mode === 'thin' && thinNote ? `${labels.chart}. ${thinNote}` : labels.chart}>
         {legend && focus ? (
           <div data-testid="pc-legend" className="lt-row lt-note lt-num" aria-hidden="true">
             <span>{formatTime(Math.floor(focus.t / 1000))}</span>
@@ -384,6 +418,7 @@ export function PriceChart({
             <span className="lt-signed" data-direction={legend.direction}>
               {labels.change} {legend.change}
             </span>
+            {mode === 'thin' && thinNote ? <span data-testid="pc-thin">{thinNote}</span> : null}
             {mode === 'candles' ? (
               <span className="lt-line-key">
                 {MA_PERIODS.map((p, i) => (

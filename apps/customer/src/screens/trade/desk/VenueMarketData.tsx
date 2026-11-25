@@ -12,6 +12,7 @@ import { forwardFill, type OhlcvRow } from '../../../data/derive';
 import type { Candle } from '../../../data/types';
 import { CHART_INTERVALS, type ChartInterval } from '../chart/candles';
 import { PriceChart, type ChartOrderLine } from '../chart/PriceChart';
+import { thinShare } from '../chart/chart-data';
 import type { ChartOrderHost } from '../../charts/chart-host';
 import { deskCopy } from './copy';
 import { zoneName } from './time';
@@ -148,6 +149,8 @@ export function VenueMarketPanel({
   const last: VenuePrint | undefined = tape.data?.value[0];
   const bid = book.data?.value.bids[0];
   const ask = book.data?.value.asks[0];
+  // A market that mostly trades inside its own spread: its candles show the spread, not a price moving (testnet PURR).
+  const thin = chart && bid && ask ? thinShare(chart, bid.price, ask.price) : null;
   const failure = book.failure ?? tape.failure ?? candles.failure;
   const price = (value: string) => displayAmount(value);
   // An exchange column reads straight down: every row padded to the most decimals any row in view has, never past the
@@ -217,7 +220,8 @@ export function VenueMarketPanel({
               ) : (
                 <PriceChart
                   candles={chart}
-                  mode="candles"
+                  mode={thin ? 'thin' : 'candles'}
+                  thinNote={thin ? d('Thin market', { inside: String(thin.inside), total: String(thin.total) }) : undefined}
                   interval={interval}
                   resetKey={`${market.symbol}:${interval}`}
                   tickSize={market.tickSize}

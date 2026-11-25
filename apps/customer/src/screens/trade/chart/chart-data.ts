@@ -24,6 +24,51 @@ export const toBar = (c: Candle): Bar => ({
   close: chartValue(c.c),
 });
 
+/** A thin market's band: each candle as a box from its low to its high, the range it traded in. */
+export const toBand = (c: Candle): Bar => ({
+  time: toSeconds(c.t),
+  open: chartValue(c.h),
+  high: chartValue(c.h),
+  low: chartValue(c.l),
+  close: chartValue(c.l),
+});
+
+/** A thin market's line: the middle of each candle's own range, (high + low) / 2. */
+export const toMidPoint = (c: Candle): { time: number; value: number } => ({
+  time: toSeconds(c.t),
+  value: (chartValue(c.h) + chartValue(c.l)) / 2,
+});
+
+/**
+ * How many of the traded candles stayed inside the pair's own spread (low at or above the best bid, high at or below the
+ * best ask), when that is most of them: a market that only trades across its own spread, whose candles say nothing of a
+ * price moving. Null when most candles moved outside it, or when nothing traded.
+ */
+export function thinShare(candles: readonly Candle[], bid: Decimal, ask: Decimal): { inside: number; total: number } | null {
+  const lo = chartValue(bid);
+  const hi = chartValue(ask);
+  const traded = candles.filter((c) => !c.filled);
+  const inside = traded.filter((c) => chartValue(c.l) >= lo && chartValue(c.h) <= hi).length;
+  return traded.length > 0 && inside * 2 > traded.length ? { inside, total: traded.length } : null;
+}
+
+/** A thin market's axis: at least 5% either side of the last price, so a narrow spread sits calm in the middle. */
+export function thinRange(last: number, range: { minValue: number; maxValue: number } | null): { minValue: number; maxValue: number } {
+  return {
+    minValue: Math.min(range?.minValue ?? last, last * 0.95),
+    maxValue: Math.max(range?.maxValue ?? last, last * 1.05),
+  };
+}
+
+/** A `#rgb` or `#rrggbb` colour at `alpha`, as the chart engine takes it; any other colour as it is. */
+export function withAlpha(color: string, alpha: number): string {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())?.[1];
+  if (!hex) return color;
+  const full = hex.length === 3 ? [...hex].map((x) => x + x).join('') : hex;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export const toLinePoint = (c: Candle): { time: number; value: number } => ({ time: toSeconds(c.t), value: chartValue(c.c) });
 
 export function toVolumeBar(c: Candle, colors: { up: string; down: string }): { time: number; value: number; color: string } {

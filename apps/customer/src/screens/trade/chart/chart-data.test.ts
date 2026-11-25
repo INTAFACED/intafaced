@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../../../data/types';
-import { fillMarkers, legendValues, movingAverage, planUpdate, priceFormat, shownTick, toBar, toVolumeBar } from './chart-data';
+import {
+  fillMarkers,
+  legendValues,
+  movingAverage,
+  planUpdate,
+  priceFormat,
+  shownTick,
+  thinRange,
+  thinShare,
+  toBand,
+  toBar,
+  toMidPoint,
+  toVolumeBar,
+  withAlpha,
+} from './chart-data';
 
 const candle = (t: number, o: string, h: string, l: string, c: string, v = '1'): Candle => ({ t, o, h, l, c, v, filled: false });
 const MIN = 60_000;
@@ -110,5 +124,55 @@ describe('shownTick', () => {
     expect(shownTick('0.00000001', '0.0021840')).toBe('0.0000001');
     expect(shownTick('0.01', '4.5342')).toBe('0.01');
     expect(shownTick('0.00000001', null)).toBe('0.00000001');
+  });
+});
+
+describe('a thin market: candles that only trade across the pair’s own spread', () => {
+  // Testnet PURR-USDC on 25 Nov: every trade at the best bid (4.5342) or the best ask (4.5795).
+  const bid = '4.5342';
+  const ask = '4.5795';
+  const purr = [
+    candle(0, bid, ask, bid, ask),
+    candle(MIN, ask, ask, ask, ask),
+    candle(2 * MIN, ask, ask, bid, bid),
+    candle(3 * MIN, bid, bid, bid, bid),
+  ];
+
+  it('counts the traded candles inside the spread when they are most of them', () => {
+    expect(thinShare(purr, bid, ask)).toEqual({ inside: 4, total: 4 });
+  });
+
+  it('leaves out forward-filled candles, which traded nothing', () => {
+    const filled: Candle = { ...candle(4 * MIN, ask, ask, ask, ask), filled: true };
+    expect(thinShare([...purr, filled], bid, ask)).toEqual({ inside: 4, total: 4 });
+  });
+
+  it('is null once most candles move outside the spread, so candles come back', () => {
+    const moving = [candle(0, '4.40', '4.60', '4.38', '4.55'), candle(MIN, '4.55', '4.70', '4.50', '4.66'), purr[1]!];
+    expect(thinShare(moving, bid, ask)).toBeNull();
+  });
+
+  it('is null with no traded candle', () => {
+    expect(thinShare([], bid, ask)).toBeNull();
+  });
+
+  it('draws each candle as a box from its low to its high, and its mid as the line', () => {
+    expect(toBand(purr[0]!)).toEqual({ time: 0, open: 4.5795, high: 4.5795, low: 4.5342, close: 4.5342 });
+    expect(toMidPoint(purr[0]!).value).toBeCloseTo(4.55685, 6);
+    expect(toMidPoint(purr[3]!).value).toBe(4.5342);
+  });
+
+  it('keeps the axis at least 5% either side of the last price, wider when the data is', () => {
+    const r = thinRange(4.5342, { minValue: 4.5342, maxValue: 4.5795 });
+    expect(r.minValue).toBeCloseTo(4.30749, 5);
+    expect(r.maxValue).toBeCloseTo(4.76091, 5);
+    expect(thinRange(100, { minValue: 50, maxValue: 200 })).toEqual({ minValue: 50, maxValue: 200 });
+    expect(thinRange(100, null)).toEqual({ minValue: 95, maxValue: 105 });
+  });
+
+  it('turns a hex colour into the band’s soft fill, and leaves any other colour as it is', () => {
+    expect(withAlpha('#909090', 0.08)).toBe('rgba(144, 144, 144, 0.08)');
+    expect(withAlpha('#fff', 0.5)).toBe('rgba(255, 255, 255, 0.5)');
+    expect(withAlpha('rgb(1, 2, 3)', 0.08)).toBe('rgb(1, 2, 3)');
   });
 });
