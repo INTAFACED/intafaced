@@ -151,20 +151,28 @@ function requireIdentityUrl(raw: string | undefined): string {
 /** The room names where the key is kept without naming the vendor (user-facing copy names no partner). */
 const OWNER_PROVIDER_DISPLAY_NAME = 'your wallet provider';
 
+/** The owner's provider as the room names it. Export and a second passkey are not offered by this build's page. */
+export const OWNER_PROVIDER_INFO: ProtocolEmbeddedWalletProvider = Object.freeze({
+  id: 'turnkey',
+  displayName: OWNER_PROVIDER_DISPLAY_NAME,
+  test: false,
+  // Export and a second passkey run in the provider's own browser flow, which this build's page does not carry yet:
+  // the room says so in words instead of offering a button that fails.
+  capabilities: Object.freeze({ export: false, recovery: false }),
+});
+
+/** The labelled TEST provider as the room names it. */
+export function testProviderInfo(offers: { export: boolean } = { export: true }): ProtocolEmbeddedWalletProvider {
+  return { id: 'test', displayName: TEST_PROVIDER_DISPLAY_NAME, test: true, capabilities: { export: offers.export, recovery: true } };
+}
+
 /**
  * The owner's provider (`turnkey`), reached through svc-identity's `embeddedWallet.provision`, which holds the provider's
  * API key. The call carries the person's own edge-signed principal, so svc-identity makes the wallet for that person
  * only; without one nothing is asked. A 409 is the provider refusing the passkey; any other failure is down.
  */
 export function identityProvisionAdapter(identityUrl: string, fetcher: typeof fetch = fetch): EmbeddedWalletProviderAdapter {
-  const info: ProtocolEmbeddedWalletProvider = {
-    id: 'turnkey',
-    displayName: OWNER_PROVIDER_DISPLAY_NAME,
-    test: false,
-    // Export and a second passkey run in the provider's own browser flow, which this build's page does not carry yet:
-    // the room says so in words instead of offering a button that fails.
-    capabilities: { export: false, recovery: false },
-  };
+  const info = OWNER_PROVIDER_INFO;
   return {
     info,
     async createWallet(input) {
@@ -218,12 +226,7 @@ export function testProviderAdapter(
   fetcher: typeof fetch = fetch,
   offers: { export: boolean } = { export: true },
 ): EmbeddedWalletProviderAdapter {
-  const info: ProtocolEmbeddedWalletProvider = {
-    id: 'test',
-    displayName: TEST_PROVIDER_DISPLAY_NAME,
-    test: true,
-    capabilities: { export: offers.export, recovery: true },
-  };
+  const info = testProviderInfo(offers);
   const call = async (path: string, init?: RequestInit): Promise<{ status: number; body: unknown }> => {
     let res: Response;
     try {

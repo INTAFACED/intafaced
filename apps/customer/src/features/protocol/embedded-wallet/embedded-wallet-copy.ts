@@ -5,6 +5,9 @@ import { defineCopy } from '../../../shared/i18n';
 // the region's own reason, which is the owner's words on the per-country switch.
 const en = {
   title: 'My wallet',
+  // The wallet's name where a room offers to connect a browser wallet ("Connect {name}").
+  announceName: 'INTAFACED wallet',
+  announceNameTest: 'INTAFACED wallet (TEST)',
   description: 'Your own self-custody wallet, made with a passkey. No seed phrase to write down.',
   backToWallet: 'Wallet',
   stepCreate: 'Create',

@@ -160,7 +160,7 @@ export function MoverTile({ symbol, quote, price, change, trend, trendLabel, hre
         </span>
         <Pct value={change} />
       </span>
-      <Price className="lt-mover-price" value={price} />
+      <Price className="lt-mover-price" value={price} cents />
       {trend && trend.length > 1 ? <Sparkline values={trend} label={trendLabel ?? symbol} tone={toneOf(change)} size="row" /> : null}
     </>
   );
@@ -230,7 +230,7 @@ export interface MarketHeaderProps {
   badges?: React.ReactNode;
   /** Formatted last price, or null when there is no print. */
   price: string | null;
-  /** Formatted signed 24h change, or null. */
+  /** Formatted signed 24h change, or null when the venue publishes none (then nothing is drawn). */
   change: string | null;
   /** The rest of the line: best bid and ask, mark, funding, volume. */
   stats?: readonly StatCell[];
@@ -270,11 +270,48 @@ export function MarketHeader({
         {badges}
       </span>
       <span className="lt-market-header-price">
-        <Price className="lt-market-header-last" value={price} data-testid={priceTestId} />
-        <Pct value={change} arrow />
+        <Price className="lt-market-header-last" value={price} cents={!dense} data-testid={priceTestId} />
+        {/* An unpublished change is left out, never drawn as a dash beside the price. */}
+        {change !== null ? <Pct value={change} arrow /> : null}
       </span>
       {stats && stats.length > 0 ? <StatStrip cells={stats} dense /> : null}
       {aside !== undefined ? <span className="lt-market-header-aside">{aside}</span> : null}
     </section>
+  );
+}
+
+export interface MarketTileProps {
+  /** The market as the venue lists it ("BTC-USD", "PURR/USDC"). */
+  symbol: string;
+  /** Formatted last price, or null when the venue publishes none (then no price line is drawn). */
+  price: string | null;
+  /** Formatted signed 24h change, or null when the venue publishes none (then nothing is drawn). */
+  change: string | null;
+  /** The market the desk is on now. */
+  selected?: boolean;
+  onSelect?: () => void;
+  className?: string;
+  'data-testid'?: string;
+}
+
+/**
+ * One market in a desk's strip of pairs: a flat tile with the symbol and its 24h change on top and the last price under
+ * them, pressed to switch the desk to it. A figure the venue does not publish is left out, never drawn as a dash.
+ */
+export function MarketTile({ symbol, price, change, selected, onSelect, className, 'data-testid': testId }: MarketTileProps) {
+  return (
+    <button
+      type="button"
+      className={clsx('lt-market-tile', className)}
+      aria-pressed={selected ?? false}
+      onClick={onSelect}
+      data-testid={testId}
+    >
+      <span className="lt-market-tile-top">
+        <span className="lt-market-symbol">{symbol}</span>
+        {change !== null ? <Pct value={change} /> : null}
+      </span>
+      {price !== null ? <Price className="lt-market-tile-price" value={price} cents /> : null}
+    </button>
   );
 }

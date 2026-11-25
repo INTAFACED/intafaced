@@ -126,8 +126,9 @@ tabs overlap, so "OTO" covers "Market".
   under `umask 077`, straight into `~/.intafaced/beta/state/vendors.local.json`; then delete the key and the download.
   Show only that each name is set, never a value. No service reads them until a start asks: svc-identity and
   svc-protocol with `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey`, svc-pay with `LOCAL_STACK_PAY_SCREENER=opensanctions`.
-  The beta sets neither yet. A wallet at his provider can't sign from the Customer app yet, so a tester could not
-  approve a trading session. With the TEST list, the vendor clears no custodial send.
+  The beta sets the wallet provider's switch (`beta-host.mjs`, `BETA_STACK_SETTINGS`): each new tester's wallet is
+  made at his provider, and a tester who already has a TEST wallet keeps signing at the TEST provider. It leaves the
+  screening vendor's switch off: with the TEST list, the vendor clears no custodial send.
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main
   removes it.

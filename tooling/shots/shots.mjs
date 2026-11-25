@@ -79,7 +79,8 @@ function serve() {
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/')) return void res.writeHead(503).end();
     let target = resolve(DIST, `.${decodeURIComponent(url.pathname)}`);
-    if (!target.startsWith(DIST + sep)) return void res.writeHead(403).end();
+    // `/` resolves to DIST itself, which serves the page like any other route.
+    if (target !== DIST && !target.startsWith(DIST + sep)) return void res.writeHead(403).end();
     if (!existsSync(target) || statSync(target).isDirectory()) target = join(DIST, 'index.html');
     res.writeHead(200, { ...headers, 'content-type': MIME[extname(target)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(readFileSync(target));
@@ -140,6 +141,14 @@ async function main() {
           const r = route.request();
           const answer = demoAnswer(r.url(), r.method(), r.postData(), { signedIn: room.signedIn, now: DEMO_NOW });
           if (answer) return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
+          // Signed out, the session check is refused as identity refuses it with no session (401), so the app draws its
+          // signed-out page instead of waiting on an answer that never comes.
+          if (!room.signedIn && r.url().includes('/api/identity/trpc/auth.refresh'))
+            return route.fulfill({
+              status: 401,
+              contentType: 'application/json',
+              body: JSON.stringify({ error: { message: 'No session.', code: -32001, data: { code: 'UNAUTHORIZED', httpStatus: 401 } } }),
+            });
           unanswered.add(`${r.method()} ${new URL(r.url()).pathname}`);
           return route.fulfill({
             status: 503,
@@ -154,7 +163,13 @@ async function main() {
         await page.goto(`http://127.0.0.1:${PORT}${room.path}`);
         await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
         const connect = page.getByRole('button', { name: 'Connect TEST Wallet' }).first();
-        if (room.signedIn && (await connect.isVisible().catch(() => false))) {
+        if (
+          room.signedIn &&
+          (await connect.waitFor({ state: 'visible', timeout: 5_000 }).then(
+            () => true,
+            () => false,
+          ))
+        ) {
           await connect.click();
           const sheet = page.getByRole('button', { name: 'Continue in wallet' });
           if (await sheet.isVisible({ timeout: 1500 }).catch(() => false)) await sheet.click();

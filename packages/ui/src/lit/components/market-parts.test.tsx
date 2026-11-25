@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MarketHeader, MarketTable, MoverTile, StatStrip, type MarketRow } from '../index.js';
+import { MarketHeader, MarketTable, MarketTile, MoverTile, StatStrip, type MarketRow } from '../index.js';
 
 const labels = { caption: 'Markets', market: 'Market', price: 'Price', change: '24h', trend: '7 days', volume: 'Volume' };
 const btc: MarketRow = {
@@ -107,11 +107,47 @@ describe('MarketHeader', () => {
     expect(html).toContain('data-unknown="true"');
     expect(html).not.toContain('lt-stat-strip');
   });
+
+  it('leaves out a 24h change the venue does not publish, so no dash sits beside the price', () => {
+    const html = renderToStaticMarkup(<MarketHeader label="Market" asset="PURR" symbol="PURR/USDC" price="4.5342" change={null} />);
+    expect(html).not.toContain('data-slot="pct"');
+    expect(html).toContain('4.5342');
+  });
 });
 
 describe('MoverTile quote', () => {
   it('draws the quote side quieter after the symbol, so two pairs of one coin read apart', () => {
     const html = renderToStaticMarkup(<MoverTile symbol="BTC" quote="USDT" price="65,337.43" change="+0.47%" />);
     expect(html).toContain('<span class="lt-market-symbol">BTC</span><span class="lt-market-full">/USDT</span>');
+  });
+});
+
+describe('big figures draw their cents as the look sets them', () => {
+  it('splits two-place cents on a tile price, keeps a coin price whole, and leaves a table price full', () => {
+    expect(renderToStaticMarkup(<MoverTile symbol="BTC" price="$64,827.55" change="+0.47%" />)).toContain(
+      '$64,827<span class="lt-cents">.55</span>',
+    );
+    expect(renderToStaticMarkup(<MoverTile symbol="PURR" price="0.21840" change="+12.46%" />)).toContain('>0.21840</span>');
+    const table = renderToStaticMarkup(<MarketTable labels={labels} rows={[btc]} />);
+    expect(table).toContain('$97,240.12');
+    expect(table).not.toContain('lt-cents');
+  });
+});
+
+describe('MarketTile', () => {
+  it('draws the pair, its change and its last price, and marks the market the desk is on', () => {
+    const html = renderToStaticMarkup(<MarketTile symbol="BTC-USD" price="97,240.12" change="+1.84%" selected />);
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('<span class="lt-market-symbol">BTC-USD</span>');
+    expect(html).toContain('+1.84%');
+    expect(html).toContain('lt-market-tile-price');
+  });
+
+  it('leaves out a price and a change the venue does not publish, never a dash', () => {
+    const html = renderToStaticMarkup(<MarketTile symbol="PURR/USDC" price={null} change={null} />);
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).not.toContain('data-slot="pct"');
+    expect(html).not.toContain('lt-market-tile-price');
+    expect(html).not.toContain('data-unknown');
   });
 });
