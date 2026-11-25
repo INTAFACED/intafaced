@@ -312,8 +312,10 @@ const TILES: Partial<RoleMap> = {
   'solid-bg-raised': '#151616',
   'radius-panel': '6px',
   'radius-tile': '6px',
+  'solid-rim': 'rgba(255, 255, 255, 0)',
+  'solid-rim-dim': 'rgba(255, 255, 255, 0)',
 };
-/** No panel paint: a panel is the black page itself, grouped by hairlines (the owner's batch2/15). */
+/** No panel paint: a panel is the black page itself, edged by one even hairline (the solid rim, set in voltDark) as the picked samples draw it (the owner's batch2/15). */
 const NO_PANELS: Partial<RoleMap> = {
   'solid-bg': '#000000',
   'solid-bg-raised': '#1A1A1A',
@@ -342,11 +344,14 @@ const voltDark: Partial<RoleMap> = {
   'text-disabled': '#86857F',
   line: 'rgba(243, 242, 236, 0.07)',
   'line-strong': 'rgba(243, 242, 236, 0.13)',
-  accent: '#E0F83A',
-  'accent-hot': '#F2FFB0',
-  'accent-deep': '#2F3A05',
+  // Lime only on the one main action, as the owner's pick draws it: the accent family a
+  // link, the current step, a checked box, a chart line, a split bar's first part or an active chip reads is bone. The
+  // main action's lime is `primary-bg`; `accent-fill` stays lime for the older rooms' primary keys (`--if-lime`).
+  accent: '#F3F2EC',
+  'accent-hot': '#FFFFFF',
+  'accent-deep': '#1C1C1A',
   'accent-pair': '#F3F2EC',
-  'accent-text': '#E0F83A',
+  'accent-text': '#F3F2EC',
   'accent-fill': '#E0F83A',
   'accent-fill-2': '#CDE82A',
   'on-accent': '#0A0A09',
@@ -356,8 +361,8 @@ const voltDark: Partial<RoleMap> = {
   'down-text': '#FF7A73',
   'solid-bg-sunken': '#0A0A0A',
   'solid-lip': 'none',
-  'solid-rim': 'rgba(255, 255, 255, 0)',
-  'solid-rim-dim': 'rgba(255, 255, 255, 0)',
+  'solid-rim': 'rgba(243, 242, 236, 0.1)',
+  'solid-rim-dim': 'rgba(243, 242, 236, 0.1)',
   'solid-wall': '#050505',
   'solid-shadow': 'none',
   sheen: 'linear-gradient(transparent, transparent)',

@@ -306,6 +306,16 @@ describe('movers and sparklines', () => {
     stop();
   });
 
+  it("draws a venue market keyed with a dash (BTC-USDT) from its pair's ticker keyed with a slash", async () => {
+    const dense = Array.from({ length: 12 }, (_, i) => String(i + 1));
+    const withSpark = Object.fromEntries(Object.entries(TICKERS).map(([s, t]) => [s, { ...t, sparkline: dense }]));
+    const { api } = fakeApi(standardRoutes({ '/tickers': () => withSpark }));
+    const { snap, stop } = await read(sparklinesSource(envFor(api), ['BTC-USDT']));
+    if (snap.status !== 'ready') throw new Error('not ready');
+    expect(snap.data['BTC-USDT']).toEqual(dense);
+    stop();
+  });
+
   it('replaces a crude 5-point server sparkline with 15 minute closes, one request per symbol (critic M2)', async () => {
     const crude = Object.fromEntries(Object.entries(TICKERS).map(([s, t]) => [s, { ...t, sparkline: ['1', '2', '3', '4', '5'] }]));
     const quarter = Math.floor(NOW / 900_000) * 900_000;
