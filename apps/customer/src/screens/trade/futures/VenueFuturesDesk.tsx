@@ -4,6 +4,7 @@ import { Button, Segmented, Switch } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
+import { CLOSE_SLIPPAGE_PERCENT } from '@intafaced/contracts/trade-venue-door';
 import {
   canonicalDecimal,
   draftId,
@@ -88,8 +89,6 @@ import type { RoutePreview } from '../../../features/trade/venue-api';
 /** Resting order types the futures desk names; any the venue does not list is shown with its refusal and sends nothing. */
 const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
 const MODES: readonly VenueMarginMode[] = ['isolated', 'cross'];
-/** How far from the mark a close's worst price sits when it is a limit order (no market type), in percent. */
-const CLOSE_SLIPPAGE_PERCENT = 5n;
 /** A label the person puts on an order: the orders room's own rule (up to 36 letters, digits and . _ : -, no spaces). */
 export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
 

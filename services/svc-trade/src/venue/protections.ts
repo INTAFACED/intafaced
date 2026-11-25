@@ -4,6 +4,7 @@ import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, type Principal } from '@intafaced/auth';
 import { JurisdictionError } from '@intafaced/contracts/trpc';
+import { CLOSE_SLIPPAGE_PERCENT } from '@intafaced/contracts/trade-venue-door';
 import type { AccountFreezeRead } from '../quant/live-run/ports.js';
 import { assertPlaceEligible } from '../spot/place-eligibility.js';
 import {
@@ -75,9 +76,6 @@ const FIELDS: Readonly<Record<ProtectionKind, readonly ('triggerPrice' | 'limitP
   trailing_stop: ['trailingDistance'],
 };
 const PRICE_FIELDS = ['triggerPrice', 'limitPrice', 'trailingDistance'] as const;
-
-/** A fired market exit's worst price, from its trigger: 5% past it, the same slippage limit the desk's Close uses. */
-const EXIT_SLIPPAGE_PERCENT = 5n;
 
 export const VENUE_LABEL = 'Rests on the venue as its trigger order';
 export const ENGINE_LABEL = 'Runs on our engine under your agent permission';
@@ -169,12 +167,12 @@ const onTick = (price: Amount, tick: Amount, up: boolean): Amount => {
   return up && down !== price ? add(down, tick) : down;
 };
 
-/** A sell's worst price below its trigger, a buy's above, on the market's tick. */
-function worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
+/** A fired market exit's worst price: CLOSE_SLIPPAGE_PERCENT past its trigger (a sell's below, a buy's above), on the tick. */
+export function worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
   const raw =
     side === 'sell'
-      ? div(mul(from, parseAmount(String(100n - EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'floor')
-      : div(mul(from, parseAmount(String(100n + EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'ceil');
+      ? div(mul(from, parseAmount(String(100n - CLOSE_SLIPPAGE_PERCENT))), parseAmount('100'), 'floor')
+      : div(mul(from, parseAmount(String(100n + CLOSE_SLIPPAGE_PERCENT))), parseAmount('100'), 'ceil');
   return onTick(raw, tick, side === 'buy');
 }
 
