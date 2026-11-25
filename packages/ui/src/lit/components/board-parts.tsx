@@ -15,6 +15,7 @@ import * as React from 'react';
 import { clsx } from 'clsx';
 import { AssetIcon } from './asset-icon.js';
 import { TileRow } from './page-grid.js';
+import { Price } from './b2-values.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
 type Tone = 'up' | 'down' | 'neutral';
@@ -86,7 +87,7 @@ export function MarketHero({
           </span>
         </div>
         <p className="lt-market-hero-price" dir="ltr">
-          {price}
+          <Price value={price} cents />
         </p>
         <p className="lt-market-hero-change">{change}</p>
         {action ? <div className="lt-market-hero-go">{action}</div> : null}

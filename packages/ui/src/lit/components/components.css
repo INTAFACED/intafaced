@@ -2484,8 +2484,6 @@ a.lit-button {
   padding: 1.75rem;
   border-radius: var(--lit-radius-panel);
   background: var(--lit-solid-bg);
-  border: 1px solid var(--lit-line);
-  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
 }
 .lt-market-hero-main {
   display: flex;
@@ -2514,8 +2512,7 @@ a.lit-button {
   font-family: var(--lit-font-figure);
   font-size: clamp(2.5rem, 3.4vw, 4.5rem);
   white-space: nowrap;
-  font-weight: 600;
-  font-stretch: 125%;
+  font-weight: var(--lit-type-figure-weight);
   letter-spacing: -0.02em;
   line-height: 1.05;
   color: var(--lit-text-1);
