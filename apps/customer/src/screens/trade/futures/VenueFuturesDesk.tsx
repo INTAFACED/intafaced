@@ -132,6 +132,21 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
       {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
     </>
   );
+  if (!markets.data && !markets.failure)
+    // The venue's contracts are still being read: the desk's own loading state in its full shape, never a bare page.
+    return (
+      <div data-testid="if-futures" className="xd" data-venue="on">
+        <DeskTemplate
+          title={t('Futures on venue')}
+          description={v('Reading markets')}
+          mode="pro"
+          state={{ kind: 'loading' }}
+          instrument={null}
+          chart={null}
+          ticket={null}
+        />
+      </div>
+    );
   if (markets.data && perps.length > 0)
     return (
       <div data-testid="if-futures" className="xd" data-venue="on">
