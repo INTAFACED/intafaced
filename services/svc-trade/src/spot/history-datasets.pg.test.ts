@@ -165,6 +165,42 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
     expect(await store.downloadDataset('not-a-uuid')).toBeNull();
   });
 
+  it('keeps the file first published for a window still open, so a manifest read then a download agree; rebuilds it once closed', async () => {
+    const store = new SqlHistoryDatasets(db.sql, { bookIntervalMs: 5000 });
+    const market = { id: MARKET_ID, symbol: 'BTC/USDT' };
+    const today = new Date().toISOString().slice(0, 10);
+    const fill = async (seq: number) => {
+      const fillId = `00000000-0000-4000-9000-${String(seq).padStart(12, '0')}`;
+      await db.sql`
+        INSERT INTO trade.fills (id, order_id, counter_order_id, market_id, user_id, side, price, qty, quote_amount, fee_asset, fee_amount, fee_bps, liquidity, sequence, ts)
+        VALUES (${fillId}, ${ORDER_TAKER}, ${ORDER_MAKER}, ${MARKET_ID}, ${USER_A}, 'buy', 65000, 0.01, 650, 'BTC', 0, 0, 'taker', ${seq}, now())
+      `;
+    };
+
+    await fill(1);
+    const published = await store.buildTradesDataset(market, today);
+    expect(published!.rowCount).toBe(1);
+
+    // A print lands and the job runs again while the day is open: the published file and its checksum stay.
+    await fill(2);
+    const again = await store.buildTradesDataset(market, today);
+    expect(again!.id).toBe(published!.id);
+    expect(again!.sha256).toBe(published!.sha256);
+    expect(again!.rowCount).toBe(1);
+    const dl = await store.downloadDataset(published!.id);
+    expect(dl!.sha256).toBe(published!.sha256);
+    expect(createHash('sha256').update(dl!.payloadGzip).digest('hex')).toBe(published!.sha256);
+
+    // Once the window has closed, the next build publishes the whole day.
+    await db.sql`UPDATE trade.history_datasets SET window_end = now() - interval '1 second' WHERE id = ${published!.id}`;
+    const closed = await store.buildTradesDataset(market, today);
+    expect(closed!.id).toBe(published!.id);
+    expect(closed!.rowCount).toBe(2);
+    expect(closed!.sha256).not.toBe(published!.sha256);
+    const final = await store.downloadDataset(published!.id);
+    expect(createHash('sha256').update(final!.payloadGzip).digest('hex')).toBe(closed!.sha256);
+  });
+
   it('refuses book snapshot capture and build when bookIntervalMs is blank, and succeeds when set', async () => {
     const market = { id: MARKET_ID, symbol: 'BTC/USDT' };
     const blank = new SqlHistoryDatasets(db.sql, { bookIntervalMs: null });

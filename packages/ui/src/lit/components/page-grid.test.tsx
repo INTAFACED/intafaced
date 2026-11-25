@@ -34,3 +34,11 @@ describe('PanelHead and TileRow', () => {
     expect(renderToStaticMarkup(<TileRow min="narrow" />)).toContain('data-min="narrow"');
   });
 });
+
+describe('PageGrid panels', () => {
+  it('marks a board that draws its panels as flat tiles, so the look scopes the tile material to it', () => {
+    const html = renderToStaticMarkup(<PageGrid panels="tiles">x</PageGrid>);
+    expect(html).toContain('<div class="lt-page" data-scale="auto" data-panels="tiles">');
+    expect(renderToStaticMarkup(<PageGrid>x</PageGrid>)).not.toContain('data-panels');
+  });
+});

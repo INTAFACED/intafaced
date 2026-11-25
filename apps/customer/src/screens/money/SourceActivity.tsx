@@ -64,6 +64,7 @@ export function SourceActivity({
   hidden,
   source = null,
   includeOrders = true,
+  recent,
 }: {
   status: VenueUp;
   filters: ActivityFilters;
@@ -73,6 +74,8 @@ export function SourceActivity({
   source?: SourceKind | null;
   /** Group fills by order and include resting (Set aside) and cancelled orders (J-portfolio-03 #3). */
   includeOrders?: boolean;
+  /** Only the newest this many lines, with no lede, notes or filters (Assets' recent activity, owner's pick A). */
+  recent?: number;
 }) {
   const chainId = status.chainId ?? APP_CHAIN_ID;
   return (
@@ -85,6 +88,7 @@ export function SourceActivity({
         hidden={hidden}
         source={source}
         includeOrders={includeOrders}
+        recent={recent}
       />
     </WalletProvider>
   );
@@ -106,6 +110,7 @@ function Sources({
   hidden,
   source,
   includeOrders,
+  recent,
 }: {
   status: VenueUp;
   chainId: number;
@@ -114,6 +119,7 @@ function Sources({
   hidden: boolean;
   source: SourceKind | null;
   includeOrders: boolean;
+  recent?: number;
 }) {
   const { t } = sourcesCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -198,6 +204,40 @@ function Sources({
   const shown = all.filter((line) => keepLine(line, filters, timeZone, asset, titleOf(line, t)));
   const narrowed = asset !== null || filters.q.trim() !== '' || filters.dir !== 'all' || filters.from !== '' || filters.to !== '';
   const anyReading = asked.some((part) => part.state === 'reading');
+
+  if (recent !== undefined) {
+    const newest = shown.slice(0, recent);
+    if (newest.length === 0) return <p className="lt-hint">{anyReading ? t('Venue reading') : t('Nothing yet body')}</p>;
+    return (
+      <div className="lt-table-scroll">
+        <table data-testid="assets-recent-table" className="lt-table">
+          <thead>
+            <tr>
+              <th scope="col">{t('Activity')}</th>
+              <th scope="col">{t('Date')}</th>
+              <th scope="col" className="lt-end">
+                {t('Amount')}
+              </th>
+              <th scope="col">{t('Status')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {newest.map((line) => (
+              <LineRow
+                key={line.id}
+                line={line}
+                group={orderLines(all, line)}
+                t={t}
+                hidden={hidden}
+                zone={timeZone}
+                test={line.source === 'venue' && status.test}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="activity-by-source" data-user={userId ?? ''} className="lt-stack">

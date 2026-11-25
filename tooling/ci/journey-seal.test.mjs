@@ -51,6 +51,7 @@ import {
   JOURNEYS_WORKFLOW,
   SEAL,
   getTried,
+  betaOfArtifact,
 } from './journey-seal.mjs';
 
 const REPO = 'INTAFACED/intafaced';
@@ -3687,4 +3688,108 @@ test('a pure revert of a merge on main passes the seal and is not waited on; one
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061), as the merge seal reads it.
+test("betaOfArtifact: the run's own notOnBeta list, or unread for a missing, unread or listless set-aside.json", () => {
+  const ex = (text) => () => {
+    if (text instanceof Error) throw text;
+    return text;
+  };
+  assert.deepEqual(betaOfArtifact('z', ex(JSON.stringify({ notOnBeta: [{ step: 'J-a-01#1', paths: ['/h'] }] }))), {
+    steps: [{ step: 'J-a-01#1', paths: ['/h'] }],
+  });
+  assert.deepEqual(betaOfArtifact('z', ex(JSON.stringify({ notOnBeta: [], betaUnread: 'no dist' }))), { unread: 'no dist' });
+  assert.match(betaOfArtifact('z', ex(JSON.stringify({ steps: [] }))).unread, /no notOnBeta list/);
+  assert.match(betaOfArtifact('z', ex(new Error('unzip: 11'))).unread, /no readable set-aside.json/);
+  assert.match(betaOfArtifact('z', ex('not json')).unread, /no readable set-aside.json/);
+});
+
+test("fullVerdict and the beta lane: a pull request's hidden non-money red holds nothing; money, tester path, main's runs and an unread list do", () => {
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const files = { 'J-algo-dev-01': 'J-algo-dev-01.pw.mjs', 'J-identity-01': 'J-identity-01.pw.mjs', 'J-bank-05': 'J-bank-05.pw.mjs' };
+  const rep = (failing, beta) => ({
+    ...readReport({
+      suites: Object.entries(files).map(([id, file]) => ({
+        file,
+        specs: [spec(`${id} #1`, `${id}#1` === failing ? 'unexpected' : 'expected', file)],
+      })),
+    }),
+    beta,
+  });
+  const named = rep(null);
+  const inputs = {
+    baseline: { run: { number: 100, id: 1 }, steps: [] },
+    money: { 'J-algo-dev-01#1': false, 'J-identity-01#1': false, 'J-bank-05#1': true },
+    guard: { 'J-algo-dev-01#1': false, 'J-identity-01#1': false, 'J-bank-05#1': true },
+    owners: { 'J-algo-dev-01': 'algo-dev', 'J-identity-01': 'identity', 'J-bank-05': 'bank' },
+    orders: { 'J-algo-dev-01': 1, 'J-identity-01': 1, 'J-bank-05': 1 },
+    reports: new Map(),
+  };
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
+  const hidden = { steps: ['J-algo-dev-01#1', 'J-identity-01#1', 'J-bank-05#1'].map((step) => ({ step, paths: ['/hidden'] })) };
+  const pr = run(1, { head_branch: 'beta/home', event: 'pull_request', created_at: '2026-11-25T06:00:00Z' });
+  const mainRun = run(2, { head_branch: 'main', event: 'push', created_at: '2026-11-25T06:00:00Z' });
+  const v = (failing, r = pr, beta = hidden) => fullVerdict({ repo: REPO, report: rep(failing, beta), run: r, inputs, read });
+  const off = v('J-algo-dev-01#1');
+  assert.deepEqual(off.red, [], "a hidden non-money step's red holds no pull request");
+  assert.deepEqual(
+    off.offBeta.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'and is still listed',
+  );
+  assert.deepEqual(
+    v('J-identity-01#1').red.map((x) => x.step),
+    ['J-identity-01#1'],
+    'a tester-path step still blocks',
+  );
+  assert.deepEqual(
+    v('J-bank-05#1').red.map((x) => x.step),
+    ['J-bank-05#1'],
+    'a money step still blocks',
+  );
+  assert.deepEqual(
+    v('J-algo-dev-01#1', mainRun).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    "main's runs keep every step",
+  );
+  const other = run(3, { head_branch: 'fix/10883', event: 'pull_request', created_at: '2026-11-25T06:00:00Z' });
+  assert.deepEqual(
+    v('J-algo-dev-01#1', other).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'a pull request off a beta branch keeps every step',
+  );
+  const fork = run(4, { head_branch: 'beta/home', event: 'pull_request', head_repository: { full_name: 'someone/fork' } });
+  assert.deepEqual(
+    v('J-algo-dev-01#1', fork).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    "a fork's beta branch keeps every step",
+  );
+  assert.deepEqual(
+    v('J-algo-dev-01#1', pr, { unread: 'no dist' }).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'unread: everything gates',
+  );
+  assert.deepEqual(
+    v('J-algo-dev-01#1', pr, null).red.map((x) => x.step),
+    ['J-algo-dev-01#1'],
+    'no list: everything gates',
+  );
+});
+
+test('judgeTouchedRun: a beta run whose only red is outside the beta passes the touched journeys, and says so', async () => {
+  const r = run(1, { head_branch: 'beta/home', event: 'pull_request' });
+  const got = await judgeTouchedRun({
+    sha: HEAD,
+    repo: REPO,
+    files: ['J-algo-dev-01.pw.mjs'],
+    runs: [r],
+    reportOf: async () => ({ states: { 'J-algo-dev-01#1': 'failed' }, files: {}, ran: ['J-algo-dev-01.pw.mjs'] }),
+    verdictOf: async () => ({ red: [], offBeta: [{ step: 'J-algo-dev-01#1', why: 'failing, not in the baseline', money: false }] }),
+  });
+  assert.equal(got.ok, true);
+  assert.match(
+    got.lines.join('\n'),
+    /1 red step\(s\) outside the beta's own journeys, money and sign-in hold no beta pull request[^\n]*J-algo-dev-01#1/,
+  );
 });

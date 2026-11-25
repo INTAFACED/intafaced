@@ -1,7 +1,7 @@
 // volt-room: /register
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Button, Field, Radio } from '@intafaced/ui/lit';
-import { FlowTemplate, SelectField } from '@intafaced/ui/lit/templates';
+import { Button, ChoiceTile, Field, Logo, PageColumn, PageGrid, RadioTrack, Surface, TileRow, WalletCard } from '@intafaced/ui/lit';
+import { SelectField, Stepper } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { FailureNote } from '../../shared/failure-note';
 import { singleFlight } from '../../shared/password';
@@ -195,176 +195,172 @@ export function SignUp() {
                 ? t(code)
                 : null;
 
+  const steps = [t('step1'), t('step2'), t('step3')];
   return (
-    <FlowTemplate
-      title={t('title')}
-      description={t('intro')}
-      steps={{ labels: [t('step1'), t('step2')], current: pending ? 1 : 0 }}
-      state={{ kind: 'ready' }}
-      step={
-        <div className="lt-stack" data-testid="auth-form">
-          <ol className="lt-list lt-stack" aria-label={t('stepsLabel')}>
-            <li className="lt-stack" data-step={pending ? 'done' : 'current'} aria-current={pending ? undefined : 'step'}>
-              <span className="lt-hint">{t('stepNumber', { number: 1 })}</span>
-              <h2>{t('step1')}</h2>
-              {!pending && (
-                <form ref={form} method="post" className="lt-stack" onSubmit={start}>
-                  <fieldset className="lt-group lt-stack" disabled={busy}>
-                    <legend>{t('accountType')}</legend>
-                    {(['individual', 'business'] as const).map((kind) => (
-                      <Radio
-                        key={kind}
-                        name="accountType"
-                        value={kind}
-                        checked={accountType === kind}
-                        onSelect={() => setAccountType(kind)}
-                      >
-                        {t(kind)} <small className="lt-muted">{t(kind === 'individual' ? 'individualHint' : 'businessHint')}</small>
-                      </Radio>
-                    ))}
-                  </fieldset>
-                  <fieldset className="lt-group lt-stack" disabled={busy}>
-                    <legend>{t('channel')}</legend>
-                    {(['email', 'phone'] as const).map((kind) => (
-                      <Radio key={kind} name="channel" value={kind} checked={channel === kind} onSelect={() => setChannel(kind)}>
-                        {t(kind)}
-                      </Radio>
-                    ))}
-                  </fieldset>
-                  {channel === 'email' ? (
-                    <Field
-                      label={t('emailField')}
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      maxLength={320}
-                      required
-                      disabled={busy}
-                    />
-                  ) : (
-                    <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" maxLength={20} required disabled={busy} />
-                  )}
-                  <Field
-                    label={t('handle')}
-                    name="handle"
-                    autoComplete="username"
-                    hint={t('handleHint')}
-                    minLength={3}
-                    maxLength={32}
-                    pattern="[a-zA-Z0-9_]+"
-                    required
-                    disabled={busy}
+    <PageGrid layout="even" data-template="sign-up">
+      <PageColumn>
+        <Surface className="lt-stack lt-auth-panel" data-testid="auth-form">
+          <Stepper labels={steps} current={pending ? 1 : 0} />
+          <header className="lt-stack">
+            <h1 className="lt-title">{pending ? t('checkEmail') : t('title')}</h1>
+            {!pending && <p className="lt-description">{t('intro')}</p>}
+          </header>
+          {!pending && (
+            <form ref={form} method="post" className="lt-stack" onSubmit={start} aria-label={t('step1')}>
+              <fieldset className="lt-group lt-tile-row" data-min="narrow" disabled={busy}>
+                <legend>{t('accountType')}</legend>
+                {(['individual', 'business'] as const).map((kind) => (
+                  <ChoiceTile
+                    key={kind}
+                    name="accountType"
+                    value={kind}
+                    checked={accountType === kind}
+                    onSelect={() => setAccountType(kind)}
+                    title={t(kind)}
+                    detail={t(kind === 'individual' ? 'individualHint' : 'businessHint')}
                   />
-                  <Field
-                    label={t('password')}
-                    name="password"
-                    type="password"
-                    autoComplete="new-password"
-                    hint={t('passwordRule')}
-                    maxLength={200}
-                    required
-                    disabled={busy}
-                  />
-                  {screening === 'unset' && (
-                    <p className="lt-note" role="status">
-                      {t('screeningUnset')}
-                    </p>
-                  )}
-                  <SelectField
-                    label={t('country')}
-                    name="country"
-                    required
-                    disabled={busy}
-                    value={country}
-                    onChange={(next) => {
-                      setCountry(next);
-                      setSubdivision('');
-                    }}
-                    options={[
-                      { value: '', label: t('countryPick'), disabled: true },
-                      ...countries.map((c) => ({ value: c.code, label: c.name })),
-                    ]}
-                  />
-                  {provinces.length > 0 && (
-                    <SelectField
-                      key={country}
-                      label={t('subdivision')}
-                      name="subdivision"
-                      disabled={busy}
-                      value={subdivision}
-                      onChange={setSubdivision}
-                      options={[{ value: '', label: t('subdivisionPick') }, ...provinces.map((p) => ({ value: p.code, label: p.name }))]}
-                    />
-                  )}
-                  <fieldset className="lt-group lt-stack" disabled={busy}>
-                    <legend>{t('usPerson')}</legend>
-                    <small className="lt-muted">{t('usPersonHint')}</small>
-                    {(['yes', 'no'] as const).map((answer) => (
-                      <Radio key={answer} name="usPerson" value={answer}>
-                        {t(answer === 'yes' ? 'usPersonYes' : 'usPersonNo')}
-                      </Radio>
-                    ))}
-                  </fieldset>
-                  <SelectField
-                    label={t('nationality')}
-                    name="nationality"
-                    disabled={busy}
-                    value={nationality}
-                    onChange={setNationality}
-                    options={[{ value: '', label: t('nationalityPick') }, ...countries.map((c) => ({ value: c.code, label: c.name }))]}
-                  />
-                  <Field label={t('dateOfBirth')} name="dateOfBirth" type="date" max={todayIso()} required disabled={busy} />
-                  <div className="lt-actions">
-                    <Button tone="primary" type="submit" disabled={busy || restoring} aria-describedby={problem ? problemId : undefined}>
-                      {busy ? t('sending') : t('create')}
-                    </Button>
-                  </div>
-                </form>
+                ))}
+              </fieldset>
+              <fieldset className="lt-group lt-stack" disabled={busy}>
+                <legend>{t('channel')}</legend>
+                <RadioTrack
+                  name="channel"
+                  value={channel}
+                  onChange={(next) => setChannel(next as Channel)}
+                  options={(['email', 'phone'] as const).map((kind) => ({ value: kind, label: t(kind) }))}
+                />
+              </fieldset>
+              {channel === 'email' ? (
+                <Field label={t('emailField')} name="email" type="email" autoComplete="email" maxLength={320} required disabled={busy} />
+              ) : (
+                <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" maxLength={20} required disabled={busy} />
               )}
-              {!pending && <SocialSignIn />}
-            </li>
-            <li className="lt-stack" data-step={pending ? 'current' : 'upcoming'} aria-current={pending ? 'step' : undefined}>
-              <span className="lt-hint">{t('stepNumber', { number: 2 })}</span>
-              <h2>{pending ? t('checkEmail') : t('step2')}</h2>
-              {pending && (
-                <form ref={form} method="post" className="lt-stack" onSubmit={confirm}>
-                  <p role="status" className="lt-muted">
-                    {t('checkEmailBody', { email: pending.email })}
-                  </p>
-                  {resent && <p className="lt-muted">{t('resent')}</p>}
-                  <Field
-                    label={t('code')}
-                    name="code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={12}
-                    required
-                    disabled={busy}
-                    aria-describedby={problem ? problemId : undefined}
-                  />
-                  <div className="lt-actions">
-                    <Button tone="primary" type="submit" disabled={busy}>
-                      {busy ? t('confirming') : t('confirm')}
-                    </Button>
-                    <Button tone="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
-                      {t('resend')}
-                    </Button>
-                    <Button
-                      tone="quiet"
-                      disabled={busy}
-                      onClick={() => {
-                        setPending(null);
-                        setRefusal(null);
-                      }}
-                    >
-                      {t('differentEmail')}
-                    </Button>
-                  </div>
-                  {wait > 0 && <small className="lt-muted">{t('resendIn', { seconds: wait })}</small>}
-                </form>
+              <div className="lt-tile-row">
+                <Field
+                  label={t('handle')}
+                  name="handle"
+                  autoComplete="username"
+                  hint={t('handleHint')}
+                  minLength={3}
+                  maxLength={32}
+                  pattern="[a-zA-Z0-9_]+"
+                  required
+                  disabled={busy}
+                />
+                <Field
+                  label={t('password')}
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  hint={t('passwordRule')}
+                  maxLength={200}
+                  required
+                  disabled={busy}
+                />
+              </div>
+              {screening === 'unset' && (
+                <p className="lt-note" role="status">
+                  {t('screeningUnset')}
+                </p>
               )}
-            </li>
-          </ol>
+              <div className="lt-tile-row">
+                <SelectField
+                  label={t('country')}
+                  name="country"
+                  required
+                  disabled={busy}
+                  value={country}
+                  onChange={(next) => {
+                    setCountry(next);
+                    setSubdivision('');
+                  }}
+                  options={[
+                    { value: '', label: t('countryPick'), disabled: true },
+                    ...countries.map((c) => ({ value: c.code, label: c.name })),
+                  ]}
+                />
+                <Field label={t('dateOfBirth')} name="dateOfBirth" type="date" max={todayIso()} required disabled={busy} />
+              </div>
+              {provinces.length > 0 && (
+                <SelectField
+                  key={country}
+                  label={t('subdivision')}
+                  name="subdivision"
+                  disabled={busy}
+                  value={subdivision}
+                  onChange={setSubdivision}
+                  options={[{ value: '', label: t('subdivisionPick') }, ...provinces.map((p) => ({ value: p.code, label: p.name }))]}
+                />
+              )}
+              <fieldset className="lt-group lt-stack" disabled={busy}>
+                <legend>{t('usPerson')}</legend>
+                <small className="lt-muted">{t('usPersonHint')}</small>
+                <RadioTrack
+                  name="usPerson"
+                  options={(['yes', 'no'] as const).map((answer) => ({
+                    value: answer,
+                    label: t(answer === 'yes' ? 'usPersonYes' : 'usPersonNo'),
+                  }))}
+                />
+              </fieldset>
+              <SelectField
+                label={t('nationality')}
+                name="nationality"
+                disabled={busy}
+                value={nationality}
+                onChange={setNationality}
+                options={[{ value: '', label: t('nationalityPick') }, ...countries.map((c) => ({ value: c.code, label: c.name }))]}
+              />
+              <Button
+                tone="primary"
+                size="lg"
+                block
+                type="submit"
+                disabled={busy || restoring}
+                aria-describedby={problem ? problemId : undefined}
+              >
+                {busy ? t('sending') : t('create')}
+              </Button>
+            </form>
+          )}
+          {!pending && <SocialSignIn />}
+          {pending && (
+            <form ref={form} method="post" className="lt-stack" onSubmit={confirm} aria-label={t('step2')}>
+              <p role="status" className="lt-muted">
+                {t('checkEmailBody', { email: pending.email })}
+              </p>
+              {resent && <p className="lt-muted">{t('resent')}</p>}
+              <Field
+                label={t('code')}
+                name="code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={12}
+                required
+                disabled={busy}
+                aria-describedby={problem ? problemId : undefined}
+              />
+              <Button tone="primary" size="lg" block type="submit" disabled={busy}>
+                {busy ? t('confirming') : t('confirm')}
+              </Button>
+              <div className="lt-actions">
+                <Button tone="secondary" disabled={busy || wait > 0} onClick={() => void resend()}>
+                  {t('resend')}
+                </Button>
+                <Button
+                  tone="quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    setPending(null);
+                    setRefusal(null);
+                  }}
+                >
+                  {t('differentEmail')}
+                </Button>
+              </div>
+              {wait > 0 && <small className="lt-muted">{t('resendIn', { seconds: wait })}</small>}
+            </form>
+          )}
           {problem ? (
             <div id={problemId} className="lt-refusal" role="alert">
               <p className="lt-refusal-body">{problem}</p>
@@ -406,8 +402,29 @@ export function SignUp() {
               {t('signIn')}
             </a>
           </p>
-        </div>
-      }
-    />
+        </Surface>
+      </PageColumn>
+      <PageColumn>
+        <Surface className="lt-stack lt-auth-stage">
+          <WalletCard mark={<Logo variant="wordmark" size={18} />} label={t('stageWalletLabel')} value={t('stageWalletValue')} />
+          <h2 className="lt-hero-line">{t('stageTitle')}</h2>
+          <p className="lt-description">{t('stageBody')}</p>
+          <TileRow min="narrow">
+            {(
+              [
+                ['factWallet', 'factWalletHint'],
+                ['factFee', 'factFeeHint'],
+                ['factVerify', 'factVerifyHint'],
+              ] as const
+            ).map(([title, hint]) => (
+              <Surface key={title} material="raised" className="lt-stack">
+                <strong>{t(title)}</strong>
+                <small className="lt-muted">{t(hint)}</small>
+              </Surface>
+            ))}
+          </TileRow>
+        </Surface>
+      </PageColumn>
+    </PageGrid>
   );
 }
