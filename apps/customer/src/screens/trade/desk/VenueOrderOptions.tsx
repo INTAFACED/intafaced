@@ -48,10 +48,18 @@ export function NotOfferedChips({ types }: { types: readonly string[] }) {
     <span className="xd-not-offered">
       <span aria-hidden="true">{v('Not offered list')}</span>
       {types.map((x) => (
-        <Button key={x} tone="quiet" size="sm" disabled aria-disabled="true" data-not-offered={x}>
+        // The full name is the button's label ("Stop: not offered by this venue"); the line's lead says the rest once. A
+        // visually hidden span would join the name with a space before its colon.
+        <Button
+          key={x}
+          tone="quiet"
+          size="sm"
+          disabled
+          aria-disabled="true"
+          aria-label={`${word(v, 'type', x)}: ${v('Not offered')}`}
+          data-not-offered={x}
+        >
           {word(v, 'type', x)}
-          {/* The full words stay in the button's text for screen readers and find-in-page; the line's lead says them once. */}
-          <span data-sr-only>: {v('Not offered')}</span>
         </Button>
       ))}
     </span>
