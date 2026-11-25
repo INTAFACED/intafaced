@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { marketDetails } from './futures-desk.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -139,7 +140,7 @@ async function venueMarket(owner, symbol) {
 }
 
 /** A row of the desk's rules panel by its rule. */
-const ruleRow = (page, rule) => page.getByTestId('venue-rules').locator(`[data-rule="${rule}"]`);
+const ruleRow = async (page, rule) => (await marketDetails(page)).getByTestId('venue-rules').locator(`[data-rule="${rule}"]`);
 const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side="buy"]');
 
 /** A limit buy through our door, as the API places it. */
@@ -225,10 +226,10 @@ test(`${J} #2 reads the market's rules on the ticket and in the market list: tic
   expect(own.maxOpenOrders).toBe(RULES.maxOpenOrders);
 
   await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
-  const panel = page.getByTestId('venue-rules');
+  const panel = (await marketDetails(page)).getByTestId('venue-rules');
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId('venue-rules-source')).toHaveText(`As ${venue.displayName} publishes them`);
-  const shown = async (rule) => (await ruleRow(page, rule).locator('dd').innerText()).replace(/,/g, '');
+  const shown = async (rule) => (await (await ruleRow(page, rule)).locator('dd').innerText()).replace(/,/g, '');
   const figure = (text) => /[\d.]+/.exec(text)?.[0];
   expect(await shown('tick')).toMatch(/ USDC$/);
   expect(sameDecimal(figure(await shown('tick')), own.tickSize)).toBe(true);
@@ -242,7 +243,7 @@ test(`${J} #2 reads the market's rules on the ticket and in the market list: tic
   expect(sameDecimal(percent, String(Number(own.priceBandBps) / 100))).toBe(true);
   expect(await shown('cap')).toBe(`Up to ${own.maxOpenOrders} open orders on your venue account`);
   // Read as written: the figures are the venue's own strings, and the comma here is the sentence's.
-  await expect(ruleRow(page, 'largest').locator('dd')).toHaveText(`${own.maxOrderQty} ${base}, or ${own.maxOrderNotional} USDC`);
+  await expect((await ruleRow(page, 'largest')).locator('dd')).toHaveText(`${own.maxOrderQty} ${base}, or ${own.maxOrderNotional} USDC`);
   await expect(panel).not.toContainText('Not published');
   await stepPicture();
 
@@ -297,9 +298,9 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   // On the desk: each unpublished rule reads "Not published by <venue>", and the trader can still place a limit buy
   // on the venue and cancel it.
   await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
-  await expect(ruleRow(page, 'min').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
-  await expect(ruleRow(page, 'band').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
-  await expect(ruleRow(page, 'cap').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
+  await expect((await ruleRow(page, 'min')).locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
+  await expect((await ruleRow(page, 'band')).locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
+  await expect((await ruleRow(page, 'cap')).locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
   await buyForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('20');
   await buyForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1');
   const buyButton = buyForm(page).getByRole('button', { name: `Buy ${base}`, exact: true });
@@ -331,7 +332,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   const refusedPage = await (await browser.newContext()).newPage();
   try {
     await openVenueDesk(refusedPage, c.account, `/trade/spot/${noBand}`, c.walletKey);
-    await expect(ruleRow(refusedPage, 'band').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
+    await expect((await ruleRow(refusedPage, 'band')).locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
     const previewWait = refusedPage.waitForResponse(
       (res) => res.url().includes('/api/v1/venue/preview') && res.request().method() === 'POST',
     );

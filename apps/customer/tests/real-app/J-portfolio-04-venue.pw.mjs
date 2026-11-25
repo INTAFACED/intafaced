@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { marketDetails } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -209,7 +210,7 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
   const address = page.getByTestId('venue-wallet-address');
   await connectWhenAsked(page, address);
   await expect(address).toHaveText(wallet.address);
-  const panel = page.getByTestId('venue-sub-accounts');
+  const panel = (await marketDetails(page)).getByTestId('venue-sub-accounts');
   await panel.getByLabel('Name for a new sub-account').fill(SUB_NAME);
   await panel.getByRole('button', { name: 'Open sub-account' }).click();
   await continueInWallet(page);

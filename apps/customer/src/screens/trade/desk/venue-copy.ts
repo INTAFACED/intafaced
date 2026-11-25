@@ -110,6 +110,8 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
 
   // An earlier order with no definite answer (J-cex-spot-02 #3, #4)
   'Pending title': 'Checking your earlier order with the venue',
+  'Market details': 'Market details',
+  'Order options': 'Order options',
   'Pending checking': 'Looking up your {side} of {amount} {asset} on the venue by its client id {id}…',
   'Pending missing': 'The venue has no order under client id {id} so far. It may still arrive; nothing is sent again unless you ask.',
   'Pending wait': 'New orders wait until the venue has answered about this order.',

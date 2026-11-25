@@ -25,7 +25,7 @@ import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueOrdersCopy } from '../../../features/trade/orders/venue-orders-copy';
 import { deskCopy } from './copy';
-import { Button, DateInput } from '@intafaced/ui/lit';
+import { Button, DateInput, Fold } from '@intafaced/ui/lit';
 import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useDeviceSetting } from '../../../features/trade/hooks';
@@ -409,8 +409,11 @@ export function VenueSpotDesk({
               ) : null}
             </label>
           ) : null}
-          <VenueSelfTradeSelect market={market} />
         </div>
+        {/* What the venue does when an order meets the person's own: there when asked for, off the ticket's face. */}
+        <Fold title={t('Order options')} data-testid="venue-ticket-options">
+          <VenueSelfTradeSelect market={market} />
+        </Fold>
         <TabPanel id="venue-type" value={activeType} current={activeType}>
           <div className="lt-stack">
             {(['buy', 'sell'] as const).map((side) => (
@@ -446,7 +449,6 @@ export function VenueSpotDesk({
   );
   const accountSide = (
     <div className="lt-stack" data-testid="venue-side">
-      <FeeCurrencyRow />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       <VenueAccountPanel
         status={status}
@@ -464,7 +466,6 @@ export function VenueSpotDesk({
         }}
         withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
       />
-      {owner && <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />}
       {owner && pending.length > 0 ? (
         <section className="lt-panel" data-testid="venue-pending" aria-label={t('Pending title')}>
           <h2 className="lt-panel-title">{t('Pending title')}</h2>
@@ -480,7 +481,16 @@ export function VenueSpotDesk({
           {found}
         </p>
       ) : null}
-      <VenueMarketRules market={market} venueName={status.venue.displayName} />
+      {/* The fee coin, sub-accounts and the venue's rules: there when asked for, never on the desk's face. */}
+      <Fold title={t('Market details')} data-testid="venue-market-details">
+        <div className="lt-stack">
+          <FeeCurrencyRow />
+          {owner && (
+            <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
+          )}
+          <VenueMarketRules market={market} venueName={status.venue.displayName} />
+        </div>
+      </Fold>
     </div>
   );
   const bottom = (

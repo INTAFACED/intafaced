@@ -1,4 +1,5 @@
 // World: book, gates, restart, stack
+import { marketDetails } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -645,7 +646,7 @@ test(`${J} #9 chooses to pay trading fees in IFC: at launch the row is disabled 
   const s = state();
   const market = run.read().marketA;
   const wallet = await openVenueDesk(page, s.account, desk(market.symbol), s.walletKey);
-  const row = page.getByTestId('venue-fee-currency');
+  const row = (await marketDetails(page)).getByTestId('venue-fee-currency');
   await expect(row).toBeVisible();
   const ifc = row.getByRole('button', { name: 'IFC', exact: true });
   await expect(ifc).toBeDisabled();

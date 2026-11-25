@@ -23,7 +23,7 @@ import { useSignPrepared } from '../futures/VenueProtect';
 import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Fold } from '@intafaced/ui/lit';
 import { DecimalInput, Sheet } from '@intafaced/ui/lit/templates';
 import { placesOf } from './text';
 import { spotVenueCopy } from './venue-copy';
@@ -504,20 +504,22 @@ export function VenueSideForm({
         readOnly={unit === 'base'}
         aria-label={valueLabel}
       />
-      <label className="lt-field">
-        <span className="lt-label">{t('Tag label')}</span>
-        <input
-          type="text"
-          value={tag}
-          maxLength={32}
-          onChange={(event) => edit(() => setTag(event.target.value))}
-          aria-label={t('Tag label')}
-          aria-describedby={`dk-tag-note-${side}`}
-        />
-        <span className="lt-note" id={`dk-tag-note-${side}`}>
-          {t('Tag note')}
-        </span>
-      </label>
+      <Fold title={t('Tag label')} data-testid="dk-tag-fold">
+        <label className="lt-field">
+          <span className="lt-label">{t('Tag label')}</span>
+          <input
+            type="text"
+            value={tag}
+            maxLength={32}
+            onChange={(event) => edit(() => setTag(event.target.value))}
+            aria-label={t('Tag label')}
+            aria-describedby={`dk-tag-note-${side}`}
+          />
+          <span className="lt-note" id={`dk-tag-note-${side}`}>
+            {t('Tag note')}
+          </span>
+        </label>
+      </Fold>
       {shownWorst ? (
         <p className="lt-note lt-num" data-testid="venue-worst-price">
           {t('Worst price line', { price: displayAmount(shownWorst), quote: market.quoteAsset })}

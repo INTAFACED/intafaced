@@ -1,4 +1,5 @@
 // World: book, market, gates, restart, stack
+import { openFold, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ORIGIN, api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits, tool } from './stack.mjs';
@@ -118,7 +119,7 @@ const pickSide = (page, side) =>
 const orderTab = (page, name) => page.getByTestId('dk-order').locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 const line = (scope, name) => scope.locator(`[data-line="${name}"]`);
 const tifTrigger = (page) => page.getByTestId('venue-tif').getByRole('combobox');
-const stpTrigger = (page) => page.getByTestId('venue-self-trade').getByRole('combobox');
+const stpTrigger = async (page) => (await ticketOptions(page)).getByTestId('venue-self-trade').getByRole('combobox');
 
 /** A number as the desk draws it ("60,010", "0.0016 USDC"), as scaled units. */
 function shownUnits(text) {
@@ -785,17 +786,17 @@ test(`${J} #8 chooses the self-trade mode and crosses their own resting order: t
   const m = await market();
   expect(m.selfTrade).toEqual({ known: true, value: 'cancel_resting' });
   // The picker: the venue's rule chosen, the others listed disabled with "not offered by this venue"; trying one sends nothing.
-  await expect(stpTrigger(page)).toHaveText('Cancel my resting order');
+  await expect(await stpTrigger(page)).toHaveText('Cancel my resting order');
   const sent = writes(page);
   const asked = wallet.requests.length;
-  await stpTrigger(page).click();
+  await (await stpTrigger(page)).click();
   for (const name of ['Cancel the new order', 'Cancel both']) {
     const option = page.getByRole('option', { name: `${name} · not offered by this venue`, exact: true });
     await expect(option).toHaveAttribute('aria-disabled', 'true');
     await option.click({ force: true });
   }
   await page.keyboard.press('Escape');
-  await expect(stpTrigger(page)).toHaveText('Cancel my resting order');
+  await expect(await stpTrigger(page)).toHaveText('Cancel my resting order');
   await page.waitForTimeout(500);
   expect(sent).toEqual([]);
   expect(wallet.requests.length).toBe(asked);
@@ -874,7 +875,7 @@ test(`${J} #9 adds a client tag and types the order in value: the tag shows on t
   await expect.poll(async () => toUnits(await form.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(amount);
   // The tag, shown in the review and kept with the order.
   const tag = `js3-${randomBytes(3).toString('hex')}`;
-  await form.getByRole('textbox', { name: 'Tag (optional)' }).fill(tag);
+  await (await openFold(form, 'dk-tag-fold')).getByRole('textbox', { name: 'Tag (optional)' }).fill(tag);
   await form.getByRole('button', { name: 'Buy BTC' }).click();
   await expect(line(reviewSheet(page), 'tag')).toHaveText(tag);
   await confirmAndSign(page, wallet, 'buy');
