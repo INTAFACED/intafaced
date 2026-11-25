@@ -135,6 +135,8 @@ export const whereCopy = defineCopy('money.where', {
   'Row action': 'Action',
   'Move to venue': 'Move to venue',
   'Moving pending': 'Pending',
+  'Show balances': 'Show balances',
+  'Hide balances': 'Hide balances',
   'Own wallet title': 'Connect your own wallet',
   'Own wallet unnamed': 'Your connected wallet',
   'Own wallet connected': 'Connected',

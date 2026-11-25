@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Info } from 'lucide-react';
+import { ArrowDown, ArrowLeftRight, ArrowUp, Eye, EyeOff, Info, TrendingUp } from 'lucide-react';
 import { AssetIcon, Button, ButtonLink, Fold, PanelHead, Tag } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { PartnerHolds } from '../../features/money';
@@ -14,7 +14,7 @@ import { WalletProvider } from '../../features/protocol/wallet/WalletProvider';
 import { useAsOfText, useOwner } from '../../features/trade/venue/VenueKit';
 import { WalletBar } from '../../features/trade/permissions/venue-parts';
 import type { VenueUp } from '../../features/trade/venue-api';
-import { usePreferences } from '../../shared/preferences';
+import { savePreferences, usePreferences } from '../../shared/preferences';
 import { shortOrderId, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
 import { assetName, moneyCopy } from './copy';
@@ -177,9 +177,20 @@ function Read({
           <div className="money-where__head">
             {standing.prices || pricesFailed ? (
               <section className="money-where__total" aria-labelledby="assets-total-title">
-                <h2 id="assets-total-title" className="lt-hint">
-                  {totalLine(standing, t)}
-                </h2>
+                <div className="lt-actions">
+                  <h2 id="assets-total-title" className="lt-hint">
+                    {totalLine(standing, t)}
+                  </h2>
+                  <Button
+                    tone="quiet"
+                    size="sm"
+                    onClick={() => savePreferences({ hideBalances: !hideBalances })}
+                    aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
+                    data-testid="assets-eye"
+                  >
+                    {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+                  </Button>
+                </div>
                 <StandingTotal
                   standing={standing}
                   pricesFailed={pricesFailed}
@@ -358,17 +369,17 @@ function ReadAgo({ iso, words, t }: { iso: string; words: 'Read venue' | 'Read c
 
 /** Where the person goes from the total (J-portfolio-01 #1): each a real room on the launch model, none a dead end. */
 const ACTIONS = [
-  { id: 'Fund venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue') },
-  { id: 'Withdraw venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue#withdraw') },
-  { id: 'Convert', href: () => (isHiddenPath('/trade/convert') ? null : '/trade/convert') },
-  { id: 'Trade', href: () => buyHref(null, null, false, 'pro') },
+  { id: 'Fund venue', icon: ArrowDown, href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue') },
+  { id: 'Withdraw venue', icon: ArrowUp, href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue#withdraw') },
+  { id: 'Convert', icon: ArrowLeftRight, href: () => (isHiddenPath('/trade/convert') ? null : '/trade/convert') },
+  { id: 'Trade', icon: TrendingUp, href: () => buyHref(null, null, false, 'pro') },
 ] as const;
 
 /** The action keys beside the total: money in first, the one lit key; the rest secondary (owner's pick A). */
 function QuickActions({ t }: { t: T }) {
   const live = ACTIONS.flatMap((action) => {
     const href = action.href();
-    return href ? [{ id: action.id, href }] : [];
+    return href ? [{ id: action.id, icon: action.icon, href }] : [];
   });
   return (
     <nav data-testid="assets-actions" className="lt-actions money-where__actions" aria-label={t('Actions')}>
@@ -376,6 +387,7 @@ function QuickActions({ t }: { t: T }) {
         const variant = index === 0 ? 'primary' : 'secondary';
         return (
           <a key={action.id} className={`lt-button lt-button-${variant}`} data-variant={variant} href={action.href}>
+            <action.icon size={16} aria-hidden="true" />
             {t(action.id)}
           </a>
         );
@@ -443,10 +455,10 @@ function AssetCell({
 }
 
 /**
- * The price, value, share and source cells of `asset` in a valued part (J-portfolio-01 #1): the published price, dollars
- * to the cent, its share of the total, and the source that reports it. An asset with no published price shows "No price
- * published" for its price and value and no share, never a zero. The face shows the value; price, share and source stay
- * in the row for assistive tech and the journeys, visually hidden (owner's pick A: Asset, amounts, Value, one action).
+ * The value cell of `asset` in a valued part (J-portfolio-01 #1: "with amount, price, value, share and source"): the
+ * value, dollars to the cent, and under it, quiet, the published price, its share of the total and the source that
+ * reports it, each in its own marked span. An asset with no published price shows "No price published" for its price and
+ * value and no share, never a zero.
  */
 function ValueCells({
   valued,
@@ -464,32 +476,33 @@ function ValueCells({
 }) {
   const row = valued?.rows.find((r) => r.asset === asset && r.key === rowKey);
   return (
-    <>
-      <td data-cell="price" data-label={t('Price')} data-align="end" className="lt-num">
-        {row?.priceUsd ? dollars(row.priceUsd) : t('No price published')}
-      </td>
-      <td data-cell="value" data-label={t('Value')} data-align="end" className="lt-num">
-        {row?.valueUsd ? dollars(row.valueUsd) : t('No price published')}
-      </td>
-      <td data-cell="share" data-label={t('Share')} data-align="end" className="lt-num">
-        {row?.share ? t('Share of total', { share: row.share }) : '—'}
-      </td>
-      <td data-cell="source" data-label={t('Source')} data-source={valued?.id ?? ''} className="lt-hint">
-        {source}
-      </td>
-    </>
+    <td data-label={t('Value')} data-align="end">
+      <span className="lt-stack lt-stack-tight">
+        <span data-cell="value" className="lt-num">
+          {row?.valueUsd ? dollars(row.valueUsd) : t('No price published')}
+        </span>
+        <span className="lt-hint">
+          <span data-cell="price" title={t('Price')}>
+            {row?.priceUsd ? dollars(row.priceUsd) : t('No price published')}
+          </span>
+          {' · '}
+          <span data-cell="share" title={t('Share')}>
+            {row?.share ? t('Share of total', { share: row.share }) : '—'}
+          </span>
+          {' · '}
+          <span data-cell="source" title={t('Source')} data-source={valued?.id ?? ''}>
+            {source}
+          </span>
+        </span>
+      </span>
+    </td>
   );
 }
 
 /** One table header cell; `hidden` ones name a column kept for assistive tech only. */
 type Head = { text: string; hidden?: boolean; end?: boolean; action?: boolean };
 
-const valueHeads = (t: T): Head[] => [
-  { text: t('Price'), end: true },
-  { text: t('Value'), end: true },
-  { text: t('Share'), end: true },
-  { text: t('Source') },
-];
+const valueHeads = (t: T): Head[] => [{ text: t('Value'), end: true }];
 
 /** A source's table in a named region: one header row, then the rows. */
 function SourceTable({ headers, children, label }: { headers: readonly Head[]; children: ReactNode; label: string }) {

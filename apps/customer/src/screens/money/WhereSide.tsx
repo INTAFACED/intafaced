@@ -1,4 +1,7 @@
 import { Button, ButtonLink, PanelHead, Tag } from '@intafaced/ui/lit';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
+import { useSession } from '../../features/session';
+import { useResource } from '../../shared/resource';
 import { KeyValue, Stepper } from '@intafaced/ui/lit/templates';
 import type { VenueDeposit } from '@intafaced/contracts/protocol-venue-account';
 import { useWallet } from '../../features/protocol';
@@ -14,8 +17,9 @@ export type DepositsRead = Resource<{ value: readonly VenueDeposit[] }>;
 
 /**
  * Assets' side column (the owner's Money target, 25 Nov): what is on its way into the venue account, step by step; where
- * a withdrawal goes; the wallet the person connected; and the emergency freeze. Each reads its own source and says so
- * when it can't; nothing here is an address book or a control the app does not have.
+ * a withdrawal goes; the wallet the person connected; the emergency freeze, kept in the Security room; and, at the foot,
+ * the person's verification level. Each reads its own source and says so when it can't; nothing here is an address book
+ * or a control the app does not have.
  */
 export function WhereSide({ owner, deposits, t }: { owner: string; deposits: DepositsRead; t: T }) {
   return (
@@ -24,6 +28,7 @@ export function WhereSide({ owner, deposits, t }: { owner: string; deposits: Dep
       <WithdrawTo owner={owner} t={t} />
       <OwnWallet owner={owner} t={t} />
       <Emergency t={t} />
+      <YourLevel t={t} />
     </>
   );
 }
@@ -85,7 +90,7 @@ function WithdrawTo({ owner, t }: { owner: string; t: T }) {
       <div className="lt-row lt-row-between lt-row-nowrap" data-testid="venue-wallet">
         <span className="lt-stack lt-stack-tight money-where__address">
           <span>{t('Withdraw to wallet')}</span>
-          <span className="lt-mono lt-hint" title={owner}>
+          <span className="lt-hint" title={owner}>
             {shortAddress(owner)}
           </span>
         </span>
@@ -113,9 +118,12 @@ function OwnWallet({ owner, t }: { owner: string; t: T }) {
       <div className="lt-row lt-row-between lt-row-nowrap">
         <span className="lt-stack lt-stack-tight money-where__address">
           <span>{wallet.connected?.info.name ?? t('Own wallet unnamed')}</span>
-          <span className="lt-mono lt-hint" data-testid="venue-wallet-address" data-address={owner}>
+          <span className="lt-hint">{shortAddress(owner)}</span>
+          {/* The whole address once, small (the venue rooms name it venue-wallet-address; the journeys that open /money
+              connect through it and match it exactly). */}
+          <small className="lt-hint lt-wrap" data-testid="venue-wallet-address" data-address={owner}>
             {owner}
-          </span>
+          </small>
         </span>
         <Tag tone="up">{t('Own wallet connected')}</Tag>
       </div>
@@ -150,6 +158,44 @@ function Emergency({ t }: { t: T }) {
         </ButtonLink>
       ) : (
         <p className="lt-refusal">{t('Freeze not here')}</p>
+      )}
+    </section>
+  );
+}
+
+const LEVEL_WORD = { none: 'Level none', basic: 'Level basic', full: 'Level full', institutional: 'Level institutional' } as const;
+const LEVEL_SENTENCE = {
+  none: 'Level none sentence',
+  basic: 'Level basic sentence',
+  full: 'Level full sentence',
+  institutional: 'Level institutional sentence',
+} as const;
+
+/** The person's level as a chip beside the title, one sentence under it, and the way to Verification; at the rail's foot. */
+function YourLevel({ t }: { t: T }) {
+  const { api, userId } = useSession();
+  const { resource } = useResource((signal) => api.call(IDENTITY_KYC_STATUS, { limit: 1 }, { signal }), `where-level:${userId ?? ''}`);
+  const room = isHiddenPath('/verification') ? null : '/verification';
+  const level = resource.status === 'ready' ? resource.data : null;
+  return (
+    <section className="lt-stack" aria-labelledby="where-level-title" data-testid="assets-level">
+      <PanelHead
+        title={<span id="where-level-title">{t('Level title')}</span>}
+        aside={
+          level ? (
+            <Tag tone={level.tier === 'none' ? 'neutral' : 'up'} data-testid="assets-level-tier" data-tier={level.tier}>
+              {t(LEVEL_WORD[level.tier])}
+            </Tag>
+          ) : undefined
+        }
+      />
+      {level ? (
+        <p className="lt-hint">
+          {t(level.tier === 'basic' && level.tradingOnly ? 'Level basic trading sentence' : LEVEL_SENTENCE[level.tier])}{' '}
+          {room ? <a href={room}>{t('Level open')}</a> : null}
+        </p>
+      ) : (
+        <p className="lt-hint">{resource.status === 'loading' ? t('Level reading') : t('Level unread')}</p>
       )}
     </section>
   );
