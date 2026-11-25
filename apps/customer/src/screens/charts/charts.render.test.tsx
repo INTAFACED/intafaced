@@ -476,6 +476,19 @@ describe('chart workbench', () => {
     expect(pressed()).toEqual(['15m']);
   });
 
+  it('folds Chart tools in a multi-chart grid so the plots come first, and re-opens them on a single chart', async () => {
+    await open();
+    const details = () => [...host.querySelectorAll<HTMLDetailsElement>('section[data-testid="cw"] details')];
+    expect(details()).toHaveLength(1);
+    expect(details()[0]!.open).toBe(true);
+    await choose('Layout', 'grid');
+    expect(details()).toHaveLength(4);
+    expect(details().every((node) => !node.open)).toBe(true);
+    await choose('Layout', 'single');
+    expect(details()).toHaveLength(1);
+    expect(details()[0]!.open).toBe(true);
+  });
+
   it('states how deep the loaded history goes', async () => {
     world.history = { status: 'loaded', bars: [bar(-60_000, '1')], earliest: -60_000, since: -120_000 };
     await open();

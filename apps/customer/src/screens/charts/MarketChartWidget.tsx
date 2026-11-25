@@ -41,8 +41,9 @@ import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
 import { DateInput } from '@intafaced/ui/lit';
 
-/** The chart's tools start open, except on a phone-width screen, where the chart comes first. */
-function toolsOpenAtFirst(): boolean {
+/** The chart's tools start open, except on a phone-width screen or in a multi-chart grid, where the chart comes first. */
+function toolsOpenAtFirst(compact = false): boolean {
+  if (compact) return false;
   return typeof window === 'undefined' || typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 760px)').matches;
 }
 
@@ -73,6 +74,8 @@ export interface WidgetProps {
   markets?: readonly DeskMarket[];
   /** A command from the workbench's keys (open the replay panel), new each time by its nonce. */
   command?: { kind: 'replay'; nonce: number } | null;
+  /** In a multi-chart grid each cell is narrow, so the chart's tools start folded and the plot sits above the fold. */
+  compact?: boolean;
 }
 
 const STYLE_LABEL = {
@@ -104,6 +107,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   onHost,
   command,
   markets,
+  compact = false,
 }: WidgetProps) {
   const { t } = chartsCopy.useCopy();
   const { timeZone, language } = usePreferences();
@@ -178,7 +182,8 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const drawnBars = replayBars(all, replay.replay);
   const [percent, setPercent] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(toolsOpenAtFirst);
+  const [toolsState, setToolsState] = useState(() => ({ compact, open: toolsOpenAtFirst(compact) }));
+  const toolsOpen = toolsState.compact === compact ? toolsState.open : toolsOpenAtFirst(compact);
   const [replayNote, setReplayNote] = useState<string | null>(null);
   useEffect(() => {
     if (command?.kind === 'replay') setReplayOpen((open) => !open);
@@ -393,7 +398,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         </div>
       </div>
       {/* On a phone the chart's own tools fold under one line, so the chart comes before them; wider, they start open. */}
-      <details className="lt-stack" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
+      <details className="lt-stack" open={toolsOpen} onToggle={(event) => setToolsState({ compact, open: event.currentTarget.open })}>
         <summary className="lt-link">{t('Chart tools')}</summary>
         <div className="lt-toolbar">
           {onScheme && (

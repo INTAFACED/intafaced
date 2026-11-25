@@ -264,6 +264,8 @@ test(`${J} #5 copies, exports and deletes a layout, then recovers the deleted on
     // An interval from More: the More button names it.
     await expect(page.getByTestId('dk-chart').getByTestId('dk-more')).toContainText(label(savedInterval));
   }
+  await expect(page.getByRole('img', { name: 'Price chart of BTC/USDT', exact: true })).toBeVisible();
+  await expect(page.getByTestId('dk-chart').getByTestId('pc-host').locator('canvas').first()).toBeVisible();
 });
 
 test(`${J} #6 saves a chart template with indicators and drawings and applies it to another symbol; the desk's chart options are honoured`, async ({
@@ -349,6 +351,8 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
     await expect(deskChart.getByRole('button', { name: 'Templates' })).toHaveCount(0);
     await expect(deskChart.getByRole('button', { name: 'Indicators' })).toHaveCount(0);
     await expect(deskStyles.locator('[aria-pressed="true"]')).toHaveCount(1);
+    await expect(canvas(second, 'ETH/USDT')).toBeVisible();
+    await expect(deskChart.getByTestId('pc-host').locator('canvas').first()).toBeVisible();
   } finally {
     await other.close();
   }
