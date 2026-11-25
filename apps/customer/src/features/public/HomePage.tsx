@@ -118,8 +118,6 @@ export function HomePage() {
           <TrustStrip
             label={t('trustFees')}
             cells={[
-              { key: 'reserves', title: t('trustReserves'), body: t('trustReservesBody') },
-              { key: 'licences', title: t('trustLicences'), body: t('trustLicencesBody') },
               { key: 'wallet', title: t('trustPasskeys'), body: t('trustPasskeysBody') },
               { key: 'fees', title: t('trustFees'), body: t('trustFeesBody') },
             ]}
