@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AssetIcon } from '@intafaced/ui/lit';
+import { AssetIcon, ToggleChips } from '@intafaced/ui/lit';
 import { AreaChart, Sparkline } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../../features/session/session';
 import { assetName, marketsCopy } from './copy';
@@ -62,19 +62,13 @@ export function Board({ entries, mode }: { entries: readonly Entry[]; mode: Mode
       <section className="mkt-hero" aria-label={t('{pair} today', { pair })} data-testid="mkt-hero">
         <div className="mkt-hero__main">
           {top.length > 1 ? (
-            <div className="mkt-hero__picks" role="group" aria-label={t('Show a market')}>
-              {top.slice(0, 4).map((entry) => (
-                <button
-                  key={entry.market.symbol}
-                  type="button"
-                  className="mkt-pick"
-                  aria-pressed={entry === hero}
-                  onClick={() => setChosen(entry.market.symbol)}
-                >
-                  <AssetIcon asset={entry.market.base} size="sm" />
-                  {entry.market.base}
-                </button>
-              ))}
+            <div className="mkt-hero__picks">
+              <ToggleChips
+                label={t('Show a market')}
+                options={top.slice(0, 4).map((entry) => ({ value: entry.market.symbol, label: entry.market.base }))}
+                value={hero.market.symbol}
+                onChange={(value) => value && setChosen(value)}
+              />
             </div>
           ) : null}
           <div className="mkt-hero__name">
@@ -115,7 +109,7 @@ export function Board({ entries, mode }: { entries: readonly Entry[]; mode: Mode
               soft
             />
           ) : (
-            <p className="mkt-dim mkt-hero__nochart">{t('No price history for {pair} yet.', { pair })}</p>
+            <p className="mkt-dim mkt-hero__nochart">{t('No price history for {pair} here.', { pair })}</p>
           )}
         </div>
       </section>

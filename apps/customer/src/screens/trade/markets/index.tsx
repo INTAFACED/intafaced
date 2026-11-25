@@ -276,7 +276,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         ) : null}
 
         {tab === 'perps' && perpEntries.every((entry) => entry.ticker === undefined) ? (
-          <StatusNote data-testid="mkt-perps-note" tone="neutral" title={t('Prices for perpetuals aren’t on this list yet.')}>
+          <StatusNote data-testid="mkt-perps-note" tone="neutral" title={t('The venue publishes no perpetual prices to this list.')}>
             {t('Open one to trade it on the futures desk.')}
           </StatusNote>
         ) : null}
