@@ -4,8 +4,8 @@
 // procedures there, and parallel builds collided in it; a shape goes in its area's contracts-<area>.ts instead.
 // Judged by the lint ratchet: a new copy fails, the copies on main are the baseline (tooling/ci/lint-ratchet.mjs).
 const FIX =
-  "put the shape in its area file (contracts-<area>.ts) and the procedure in that area's `<area>Reads` or `<area>Writes`; " +
-  'this file only composes the areas';
+  'put the shape in its area file (contracts-<area>.ts) and the call in a record in @intafaced/contracts; this file only ' +
+  'composes the areas';
 
 /** The names one top-level statement declares, with the node to report on. */
 function declared(statement) {

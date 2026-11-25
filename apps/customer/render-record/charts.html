@@ -166,6 +166,9 @@
 <button type="button" aria-pressed="false">Heikin Ashi</button>
 </div>
 </div>
+<details class="cw-tools" open="">
+<summary class="cw-tools-summary">Chart tools<span aria-hidden="true"> ▾</span>
+</summary>
 <div class="cw-bar cw-bar--options">
 <label class="cw-select cw-select--inline">
 <span>Colours</span>
@@ -223,6 +226,7 @@
 <button type="button" class="cw-option">Public page</button>
 </span>
 </div>
+</details>
 <p class="cw-banner" role="status" data-testid="chart-banner" data-kind="lifecycle">Market state unavailable. Order entry is refused until the market state can be read.</p>
 <div class="cw-canvas">
 <div class="wc-root">
@@ -373,14 +377,14 @@
 </div>
 </div>
 </section>
-<div class="ct-bar" data-testid="chart-trading" data-locked="true">
+<div class="lt-toolbar" data-testid="chart-trading" data-locked="true">
 <p class="cw-note" role="status" data-testid="chart-trading-refusal" data-code="trade.chart.order_entry_refused">Order entry is refused: the market state can’t be read.</p>
 <button type="button" aria-expanded="false" disabled="">Order on chart</button>
 </div>
 </div>
 </div>
-<p class="cw-source" data-testid="chart-source">Source: executed trades on this venue; seeded fills are not counted. A quiet interval is drawn as a flat bar at the previous close, marked filled: no trade happened in it.</p>
-<p class="cw-feed" data-testid="chart-feed">Feed connected · Read from the service every 10 seconds. Last read 0 s ago</p>
+<p class="cw-source" data-testid="chart-source">Based on executed trades on this venue. Quiet periods show flat bars at the previous close.</p>
+<p class="cw-feed" data-testid="chart-feed">Feed connected · Refreshes every 10 seconds. Last read 0 s ago</p>
 <p class="cw-feed" data-testid="chart-depth">121 bars loaded. Scroll back for more.</p>
 </section>
 </div>

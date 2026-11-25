@@ -39,12 +39,15 @@ import type { ChartOrderHost } from '../../charts/chart-host';
 import { OWNER_VALUE_UNSET, ownerValue, useChartOwnerCounts } from '../../charts/owner-values';
 import { protectionCheck, samePrice, snapToTick } from '../../charts/trading/chart-orders';
 import { pricePane } from '../../charts/trading/ChartTrading';
-import '../../charts/trading/chart-trading.css';
 import { chartOrdersCopy } from './venue-chart-orders-copy';
+import { Button, ChartMark, ChartOverlay } from '@intafaced/ui/lit';
 
 type Side = 'buy' | 'sell';
 type T = ReturnType<typeof chartOrdersCopy.useCopy>['t'];
 type Note = { tone: 'good' | 'bad'; text: string; code?: string };
+
+/** A note's look by its tone. */
+const NOTE_CLASS = { good: 'lt-note lt-note-good', bad: 'lt-note lt-note-bad' } as const;
 type Move =
   | { stage: 'protect'; order: VenueOrder; price: string; distance: string; limit: string }
   | { stage: 'review'; order: VenueOrder; price: string; intent: OrderIntent; actionKey: string; preview: VenuePreview };
@@ -364,7 +367,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
       });
     });
 
-  const onHandleDown = (event: ReactPointerEvent<HTMLButtonElement>, order: VenueOrder) => {
+  const onHandleDown = (event: ReactPointerEvent<HTMLElement>, order: VenueOrder) => {
     if (locked || busy || !host) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -372,11 +375,11 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
     setDrag({ id: order.venueClientOrderId ?? '', y: event.clientY - top, from: event.clientY - top });
   };
   const onHandleCancel = () => setDrag(null);
-  const onHandleMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const onHandleMove = (event: ReactPointerEvent<HTMLElement>) => {
     if (!drag || !host) return;
     setDrag({ ...drag, y: event.clientY - host.element.getBoundingClientRect().top });
   };
-  const onHandleUp = (event: ReactPointerEvent<HTMLButtonElement>, order: VenueOrder) => {
+  const onHandleUp = (event: ReactPointerEvent<HTMLElement>, order: VenueOrder) => {
     if (!drag || !host) return;
     const y = event.clientY - host.element.getBoundingClientRect().top;
     const from = drag.from;
@@ -397,27 +400,22 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
   const overlay =
     stage && host && pane
       ? createPortal(
-          <div className="ct-overlay" data-testid="chart-trading-overlay" data-pane-top={pane.top} data-pane-height={pane.height}>
+          <ChartOverlay data-testid="chart-trading-overlay" data-pane-top={pane.top} data-pane-height={pane.height}>
             {projected && projectedY !== null && (
-              <div
-                className="ct-line ct-line--preview"
-                data-testid="chart-preview-line"
-                data-side={side}
-                data-price={projected}
-                style={{ insetBlockStart: `${projectedY}px` }}
-              >
+              <ChartMark kind="preview" y={projectedY} data-testid="chart-preview-line" data-side={side} data-price={projected}>
                 {t(side === 'buy' ? 'Preview buy' : 'Preview sell')} · {displayAmount(projected)} · {t('Not placed')}
-              </div>
+              </ChartMark>
             )}
             {lineOrders.map((order) => {
               const id = order.venueClientOrderId ?? '';
               const y = drag?.id === id ? drag.y : yOf(order.price);
               if (y === null) return null;
               return (
-                <button
+                <ChartMark
                   key={id}
-                  type="button"
-                  className="ct-line ct-line--order"
+                  as="button"
+                  kind="line"
+                  y={y}
                   data-testid="chart-order-line"
                   data-client-order-id={id}
                   data-side={order.side}
@@ -430,7 +428,6 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
                     asset: market.baseAsset,
                     price: displayAmount(order.price),
                   })}
-                  style={{ insetBlockStart: `${y}px` }}
                   onPointerDown={(event) => onHandleDown(event, order)}
                   onPointerMove={onHandleMove}
                   onPointerUp={(event) => onHandleUp(event, order)}
@@ -438,29 +435,24 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
                   onLostPointerCapture={onHandleCancel}
                 >
                   {sideWord(order.side)} {displayAmount(order.remaining)} {market.baseAsset}
-                </button>
+                </ChartMark>
               );
             })}
             {cursor && !locked && (
-              <button
-                type="button"
-                className="ct-plus"
+              <ChartMark
+                as="button"
+                kind="plus"
+                y={cursor.y}
                 data-testid="chart-axis-plus"
                 data-price={cursor.price}
                 aria-label={t('Create at', { price: displayAmount(cursor.price) })}
-                style={{ insetBlockStart: `${cursor.y}px` }}
                 onClick={() => openTicketAt(cursor.price)}
               >
                 +
-              </button>
+              </ChartMark>
             )}
             {menu && !locked && (
-              <div
-                className="ct-menu"
-                role="menu"
-                aria-label={t('Order menu')}
-                style={{ insetBlockStart: `${menu.y}px`, insetInlineStart: `${menu.x}px` }}
-              >
+              <ChartMark kind="menu" y={menu.y} x={menu.x} role="menu" aria-label={t('Order menu')}>
                 <button type="button" role="menuitem" onClick={() => openTicketAt(menu.price, 'buy')}>
                   {t('Menu buy', { price: displayAmount(menu.price) })}
                 </button>
@@ -470,32 +462,32 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
                 <button type="button" role="menuitem" onClick={() => setMenu(null)}>
                   {t('Menu close')}
                 </button>
-              </div>
+              </ChartMark>
             )}
-          </div>,
+          </ChartOverlay>,
           stage,
         )
       : null;
 
   return (
-    <div className="ct-bar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
+    <div className="lt-stack-tight lt-tight" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
       {refusal !== null ? (
-        <p className="lt-hint" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
+        <p className="lt-note" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
           {refusal}
         </p>
       ) : owner === null ? (
-        <p className="lt-hint" role="status" data-testid="chart-trading-refusal">
+        <p className="lt-note" role="status" data-testid="chart-trading-refusal">
           {t('No wallet')}
         </p>
       ) : null}
-      <button type="button" aria-expanded={open} disabled={locked} onClick={() => setOpen((v) => !v)}>
+      <Button tone="secondary" size="sm" aria-expanded={open} disabled={locked} onClick={() => setOpen((v) => !v)}>
         {t('Order on chart')}
-      </button>
+      </Button>
       {open && (
-        <form className="ct-ticket" aria-label={t('Ticket title')} onSubmit={place}>
-          <fieldset disabled={locked || busy}>
-            <label className="of-field">
+        <form className="lt-stack-tight lt-tight" aria-label={t('Ticket title')} onSubmit={place}>
+          <fieldset className="lt-row" disabled={locked || busy}>
+            <label className="lt-field">
               <span>{t('Side')}</span>
               <select
                 value={side}
@@ -508,7 +500,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
                 <option value="sell">{t('Sell')}</option>
               </select>
             </label>
-            <label className="of-field">
+            <label className="lt-field">
               <span>{t('Limit price', { quote: market.quoteAsset })}</span>
               <input
                 ref={priceField}
@@ -522,7 +514,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
                 }}
               />
             </label>
-            <label className="of-field">
+            <label className="lt-field">
               <span>{t('Amount', { base: market.baseAsset })}</span>
               <input
                 type="text"
@@ -535,12 +527,14 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
                 }}
               />
             </label>
-            <button type="submit">{t('Place')}</button>
+            <Button tone="primary" size="sm" type="submit">
+              {t('Place')}
+            </Button>
           </fieldset>
         </form>
       )}
       {review && (
-        <div className="ct-review" role="dialog" aria-label={t('Review order')} data-testid="chart-order-review">
+        <div className="lt-callout" role="dialog" aria-label={t('Review order')} data-testid="chart-order-review">
           <p>
             {t('Review line', {
               side: sideWord(review.intent.side),
@@ -557,32 +551,32 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
             })}
           </p>
           <p>{t('Review before send')}</p>
-          <button type="button" onClick={confirm} disabled={busy || locked}>
+          <Button tone="primary" size="sm" onClick={confirm} disabled={busy || locked}>
             {t('Confirm')}
-          </button>
-          <button type="button" onClick={() => setReview(null)} disabled={busy}>
+          </Button>
+          <Button tone="secondary" size="sm" onClick={() => setReview(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
+          </Button>
         </div>
       )}
       {lost && (
-        <button type="button" onClick={sendAgain} disabled={busy || locked} data-testid="chart-send-again">
+        <Button tone="secondary" size="sm" onClick={sendAgain} disabled={busy || locked} data-testid="chart-send-again">
           {t('Send again')}
-        </button>
+        </Button>
       )}
       {move?.stage === 'protect' && (
-        <div className="ct-review" role="alertdialog" aria-label={t('Protection title')} data-testid="chart-protection">
+        <div className="lt-callout" role="alertdialog" aria-label={t('Protection title')} data-testid="chart-protection">
           <p>{t('Protection ask', { price: displayAmount(move.price), distance: move.distance, limit: move.limit })}</p>
-          <button type="button" disabled={busy || locked} onClick={() => void work(() => reviewMove(move.order, move.price))}>
+          <Button tone="primary" size="sm" disabled={busy || locked} onClick={() => void work(() => reviewMove(move.order, move.price))}>
             {t('Protection continue')}
-          </button>
-          <button type="button" onClick={() => setMove(null)} disabled={busy}>
+          </Button>
+          <Button tone="secondary" size="sm" onClick={() => setMove(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
+          </Button>
         </div>
       )}
       {move?.stage === 'review' && (
-        <div className="ct-review" role="dialog" aria-label={t('Review move')} data-testid="chart-move-review">
+        <div className="lt-callout" role="dialog" aria-label={t('Review move')} data-testid="chart-move-review">
           <p>
             {t('Move line', {
               side: sideWord(move.order.side),
@@ -596,22 +590,16 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
           <p data-testid="chart-move-lock" data-lock={move.preview.lock.amount}>
             {t('Move lock', { lock: `${displayAmount(move.preview.lock.amount)} ${move.preview.lock.asset}` })}
           </p>
-          <button type="button" onClick={confirmMove} disabled={busy || locked}>
+          <Button tone="primary" size="sm" onClick={confirmMove} disabled={busy || locked}>
             {t('Confirm')}
-          </button>
-          <button type="button" onClick={() => setMove(null)} disabled={busy}>
+          </Button>
+          <Button tone="secondary" size="sm" onClick={() => setMove(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
+          </Button>
         </div>
       )}
       {note && (
-        <p
-          className={note.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
-          role="status"
-          data-testid="chart-trading-note"
-          data-tone={note.tone}
-          data-code={note.code}
-        >
+        <p className={NOTE_CLASS[note.tone]} role="status" data-testid="chart-trading-note" data-tone={note.tone} data-code={note.code}>
           {note.text}
         </p>
       )}

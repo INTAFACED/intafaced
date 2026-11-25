@@ -1,9 +1,9 @@
 import { Button } from '@intafaced/ui/lit';
-import { fmtAmount, fmtPrice, fmtUsd, type MarketRow } from '../../../data';
+import { fmtAmount, fmtPct, fmtPrice, fmtUsd, type MarketRow } from '../../../data';
 import type { Draft, Preview } from '../../../features/trade/trade-api';
 import { KitDialog } from '../kit-parts';
 import { buyCopy } from './copy';
-import { costRows } from './cost';
+import { costRows, spreadOf } from './cost';
 import { formatGet } from './cost-format';
 import { fractionDigits } from './trade-math';
 
@@ -12,6 +12,9 @@ export interface ReviewState {
   preview: Preview;
   /** The price the order was sized from, to say what it costs "about". */
   price: string | null;
+  /** The book's best bid and best ask when the review opened: a buy fills near the ask, a sell near the bid. */
+  bid: string | null;
+  ask: string | null;
   /** True once the service's numbers moved while the customer was looking: they must confirm the new ones. */
   changed: boolean;
 }
@@ -55,6 +58,8 @@ export function BuyReview({
   const getValue = (rows && formatGet(rows.get, market.base, places, t)) ?? '—';
   const payValue = rows?.estimated == null ? '—' : fmtUsd(rows.estimated);
   const limitValue = rows?.limit == null ? '—' : fmtUsd(rows.limit);
+  const spread = review ? spreadOf(review.bid, review.ask) : null;
+  const tick = (value: string | null) => (value === null ? '—' : `$${fmtPrice(value, market.tickSize)}`);
   if (!review) return null;
   return (
     <KitDialog
@@ -81,15 +86,33 @@ export function BuyReview({
           label={t('Price')}
           value={price === null ? '—' : t('Price per coin', { price: `$${fmtPrice(price, market.tickSize)}`, coin: market.base })}
         />
+        <Row label={t('Best bid')} value={tick(review.bid)} data-testid="review-bid" />
+        <Row label={t('Best ask')} value={tick(review.ask)} data-testid="review-ask" />
         <Row
-          label={t('Fee')}
+          label={t('Spread')}
           value={
-            review.preview.estimatedFee === null
+            spread === null
               ? '—'
-              : `${fmtAmount(review.preview.estimatedFee, { places: 8 })} ${review.preview.feeAsset ?? ''}`.trim()
+              : t('Spread value', {
+                  width: `$${fmtPrice(spread.width, market.tickSize)}`,
+                  share: fmtPct(spread.ratio, { places: 3, signed: false }),
+                })
           }
-          data-testid="review-fee"
+          data-testid="review-spread"
         />
+        <div>
+          <dt>{t('Fee')}</dt>
+          <dd>
+            <span data-testid="review-fee">
+              {review.preview.estimatedFee === null
+                ? '—'
+                : `${fmtAmount(review.preview.estimatedFee, { places: 8 })} ${review.preview.feeAsset ?? ''}`.trim()}
+            </span>
+            {rows?.fee?.usd != null ? (
+              <span data-testid="review-fee-usd"> {t('Fee in dollars', { value: fmtUsd(rows.fee.usd) })}</span>
+            ) : null}
+          </dd>
+        </div>
         <Row label={buying ? t('Most you can pay') : t('Least you get')} value={limitValue} data-testid="review-limit" />
         {protection !== null ? (
           <Row

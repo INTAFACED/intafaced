@@ -598,6 +598,8 @@ export type TradeErrorCode =
   | 'trade.price_band_unset'
   /** No operator open-order cap is published for the pair: an order that can rest is refused, never capped by a default. */
   | 'trade.open_orders_cap_unset'
+  /** No operator minimum order value is published for the pair: orders are refused, never floored by a default. */
+  | 'trade.min_notional_unset'
   /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
@@ -803,7 +805,11 @@ export type TradeErrorCode =
    * Pre-market conversion (or params read) refused: the owner has not set the flat funding rate
    * and the mark clamp band for this market. Blank stays blank; the market row is left as it was.
    */
-  | 'trade.premarket_params_unset';
+  | 'trade.premarket_params_unset'
+  /** Historical book snapshot interval (`TRADE_HISTORY_BOOK_INTERVAL_MS`) is blank; no book dataset is built. */
+  | 'trade.history_book_interval_unset'
+  /** Requested historical dataset id does not exist. */
+  | 'trade.history_dataset_not_found';
 
 export class TradeError extends Error {
   /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */

@@ -97,52 +97,46 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Token governance</h1>
-<p class="lt-muted">Exact stake records, access and governance.</p>
+<h1 class="lt-title">Token governance</h1>
+<p class="lt-description">Your stakes, access tier and governance.</p>
 </div>
 </header>
+<div class="lt-body">
+<div class="lt-toolbar">
+<section class="lt-region" data-region="filters">
+<div class="lt-tabs" role="group" aria-label="Token sections">
+<button type="button" class="lt-tab" aria-pressed="false">Staking</button>
+<button type="button" class="lt-tab" aria-pressed="true">Governance</button>
+<button type="button" class="lt-tab" aria-pressed="false">Economy</button>
+<button type="button" class="lt-tab" aria-pressed="false">Burn</button>
+</div>
+</section>
+</div>
+<div class="lt-grid lt-grid-list-detail">
+<section class="lt-region" data-region="list" aria-label="Records">
 <div class="lt-stack">
-<div class="tabs" role="group" aria-label="Token sections">
-<button type="button" class="" aria-pressed="false">Staking</button>
-<button type="button" class="selected" aria-pressed="true">Governance</button>
-<button type="button" class="" aria-pressed="false">Economy</button>
-<button type="button" class="" aria-pressed="false">Burn</button>
-</div>
-<div class="token-governance">
-<section class="if-panel" data-live="false" aria-label="Governance space">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Governance space</h2>
-</header>
-<div class="if-panel__body">
-<div lang="und" style="display: contents;">
+<section aria-label="Governance space" class="lt-stack">
+<h2>Governance space</h2>
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<div class="token-governance-layout">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Proposals</h2>
-<button type="button" class="button button--secondary " aria-expanded="false">New proposal</button>
-</header>
-<div class="if-panel__body">
-<div class="more-toolbar">
+<section class="lt-stack">
+<div class="lt-toolbar">
+<h2>Proposals</h2>
+<button aria-expanded="false" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">New proposal</button>
+</div>
+<div class="lt-toolbar">
 <label class="lt-field">
-<span>Status</span>
-<select>
+<span id="_r_3_-label">Status</span>
+<select aria-labelledby="_r_3_-label">
 <option value="all">All</option>
 <option value="draft">Draft</option>
 <option value="open">Open</option>
@@ -154,8 +148,8 @@
 </select>
 </label>
 <label class="lt-field">
-<span>Kind</span>
-<select>
+<span id="_r_4_-label">Kind</span>
+<select aria-labelledby="_r_4_-label">
 <option value="all">All</option>
 <option value="listing">Listing</option>
 <option value="fee_param">Fee parameter</option>
@@ -163,83 +157,59 @@
 <option value="grant">Grant</option>
 </select>
 </label>
-<label class="lt-field" for="field-_r_3_">
-<span id="field-_r_3_-label">Search proposals</span>
-<input maxlength="200" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" type="search" value="">
-</label>
+<div class="lit-field-control">
+<label for="_r_5_">Search proposals</label>
+<input maxlength="200" id="_r_5_" type="search" value="">
 </div>
-<div lang="und" style="display: contents;">
+</div>
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<div id="token-selected-proposal">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Selected original proposal</h2>
-</header>
-<div class="if-panel__body">
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>Choose a proposal to read its body, voting window and tally.</h3>
-</div>
-</div>
-</section>
-</div>
-</div>
-<section class="if-panel" data-live="false" aria-label="Delegation">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Delegation</h2>
-</header>
-<div class="if-panel__body">
-<div lang="und" style="display: contents;">
+<section aria-label="Delegation" class="lt-stack">
+<h2>Delegation</h2>
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-<div class="more-inline">
-<label class="lt-field" for="field-_r_4_">
-<span id="field-_r_4_-label">Delegate to (account id)</span>
-<input maxlength="128" id="field-_r_4_" aria-labelledby="field-_r_4_-label" aria-invalid="false" value="">
-</label>
-<button type="button" class="button button--secondary ">Delegate</button>
+<div class="lt-toolbar">
+<div class="lit-field-control">
+<label for="_r_6_">Delegate to (account id)</label>
+<input maxlength="128" id="_r_6_" value="">
 </div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Delegate</button>
 </div>
 </section>
-<section class="if-panel" data-live="false" aria-label="Treasury">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Treasury</h2>
-</header>
-<div class="if-panel__body">
+<section aria-label="Treasury" class="lt-stack">
+<h2>Treasury</h2>
 <p>Figures exactly as the token service reports them, in IFC.</p>
-<div lang="und" style="display: contents;">
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
 </div>
+</section>
+<section class="lt-region" data-region="detail" aria-label="Details">
+<div id="token-selected-proposal" class="lt-stack">
+<section>
+<h2>Selected original proposal</h2>
+<div class="lt-empty">
+<h3 class="lt-empty-title">Choose a proposal to read its body, voting window and tally.</h3>
+</div>
+</section>
+</div>
+</section>
 </div>
 </div>
 </div>

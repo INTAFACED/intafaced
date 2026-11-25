@@ -5,8 +5,9 @@
 }
 .token-governance-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 352px) minmax(0, 1fr);
-  gap: var(--if-space-8);
+  /* One column at every width: the proposal table's six columns (with its dates and votes) need the page's full width. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--if-space-6);
   align-items: start;
 }
 .token-governance-layout > *,
@@ -134,11 +135,6 @@
   cursor: pointer;
   font-weight: 500;
   padding: var(--if-space-4) 0;
-}
-@media (max-width: 900px) {
-  .token-governance-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 @media (max-width: 440px) {
   .token-governance-heading {

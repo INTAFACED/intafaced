@@ -13,6 +13,7 @@ import type { KbLibraryBook } from './kb-library.js';
 import { createSupportRouter } from './router.js';
 import { SupportError, type SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
+import type { ReadGrants } from './read-grants.js';
 import type { VerificationChecks } from './verification-checks.js';
 
 /**
@@ -127,6 +128,7 @@ const replies: Record<string, unknown> = {
   'authoring.saveTemplate': template,
   'checks.record': check,
   'checks.list': { required: 2, matched: 1, attemptsAllowed: 5, attemptsUsed: 1, checks: [check] },
+  'reads.read': { kind: 'balance', readAt: AT, grantExpiresAt: AT, balances: { USDT: { free: '1.5', used: '0', total: '1.5' } } },
 };
 /** The part and method each record's handler reaches last; the refusal planted there is what the handler meets. */
 const METHOD: Record<DeskRecord['path'], string> = {
@@ -144,7 +146,7 @@ const METHOD: Record<DeskRecord['path'], string> = {
   attachmentDownloadOps: 'support.attachmentDownload',
   verificationChecks: 'checks.list',
   recordVerificationCheck: 'checks.record',
-  readDisclosure: 'checks.disclose',
+  readDisclosure: 'reads.read',
   attachmentStatus: 'support.attachmentStatus',
   setAttachmentSettings: 'support.attachmentLimits',
   contactChannels: 'contact.get',
@@ -163,8 +165,6 @@ const next = new Map<string, Error>();
 const answer = (key: string) => {
   const planted = next.get(key);
   if (planted) throw planted;
-  // A read behind the gate has no answer: it always refuses, as `VerificationChecks.disclose` does.
-  if (key === 'checks.disclose') throw new SupportError('refused', 'support.verification_checks_required');
   return replies[key];
 };
 const part = <T>(name: string) =>
@@ -188,6 +188,13 @@ const supportRouter = createSupportRouter(
   u,
   u,
   part<VerificationChecks>('checks'),
+  u,
+  u,
+  u,
+  u,
+  u,
+  u,
+  part<ReadGrants>('reads'),
 );
 const app = Fastify();
 
@@ -243,9 +250,14 @@ describe("svc-support's desk settings routes are mounted from their records", ()
   it.each(cases)('$label', async ({ record, sample }) => {
     const res = await send(record, sample.input);
     if (sample.verdict === 'refuse') expect(res.statusCode, res.body).toBe(400);
-    // A read behind the gate takes the input and refuses by its code: it has no success answer.
-    else if (record.path === 'readDisclosure') expect(res.statusCode, res.body).toBe(412);
     else expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it("a desk read under the customer's grant answers with what the grant's read gave, unchanged", async () => {
+    const record = SUPPORT_DESK_SETTINGS_PROCEDURES.find((r) => r.path === 'readDisclosure')!;
+    const accepted: ProcedureSample = record.samples.find((s: ProcedureSample) => s.verdict === 'accept')!;
+    const res = await send(record, accepted.input);
+    expect((JSON.parse(res.body) as { result: { data: unknown } }).result.data).toEqual(replies['reads.read']);
   });
 
   it.each(refusals)('$label leaves with the status its record names', async ({ record, code, status }) => {

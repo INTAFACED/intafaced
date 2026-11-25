@@ -112,7 +112,7 @@
 <section class="lt-region" data-region="meta" aria-label="Details">
 <section aria-labelledby="dev-access">
 <h2 id="dev-access">Who gets access</h2>
-<p>Access follows the account and the permissions on its key. No access tiers are published in this build, so none are listed here.</p>
+<p>Access follows your account and the permissions on your API key. No separate access tiers are published.</p>
 </section>
 </section>
 <section class="lt-region" data-region="body" aria-label="Article">
@@ -140,44 +140,44 @@
 </p>
 <p data-testid="developers-access">Public market data needs no key. Your own orders, balances and positions need a key from your signed-in account, and a key does only what its permissions allow. Withdrawals are never reachable with a key.</p>
 <ul>
-<li>
-<a class="lt-link" href="/developers/permissions">Permissions</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/permissions">Permissions</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/authentication">Authentication</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/authentication">Authentication</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/rest">REST conventions</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/rest">REST conventions</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/reference">API reference</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/reference">API reference</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/websocket">WebSocket streams</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/websocket">WebSocket streams</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/rate-limits">Rate limits</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/rate-limits">Rate limits</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/errors">Errors</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/errors">Errors</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/order-types">Order types</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/order-types">Order types</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/bot-policy">Bot policy</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/bot-policy">Bot policy</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/idempotency">Idempotency</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/idempotency">Idempotency</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/versioning">Versioning</a> <small>Waits for DV-versioning-01</small>
+<li data-section-state="waiting" data-waits-for="DV-versioning-01">
+<a class="lt-link" href="/developers/versioning">Versioning</a> <small>Not published — waiting on the API versioning guide</small>
 </li>
-<li>
-<a class="lt-link" href="/developers/changelog">Changelog</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/changelog">Changelog</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/data-terms">Market data terms</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/data-terms">Market data terms</a>
 </li>
 </ul>
 </section>
@@ -186,16 +186,16 @@
 <p>
 <small>Order routing and market data over FIX and other protocols.</small>
 </p>
-<p data-testid="developers-access">FIX sessions are not opened from this portal: FIX access waits for its onboarding and session policy (DV-fix-01). The connectivity options say what is available today.</p>
+<p data-testid="developers-access">FIX sessions are not opened from this portal: FIX access is waiting on onboarding and session policy. The connectivity options say what is available today.</p>
 <ul>
-<li>
-<a class="lt-link" href="/developers/connectivity">Connectivity</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/connectivity">Connectivity</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/fix">FIX</a> <small>Waits for DV-fix-01</small>
+<li data-section-state="waiting" data-waits-for="DV-fix-01">
+<a class="lt-link" href="/developers/fix">FIX</a> <small>Not published — waiting on FIX onboarding and session policy</small>
 </li>
-<li>
-<a class="lt-link" href="/developers/protocols">Choosing a protocol</a> <small>Waits for DV-websocket-01</small>
+<li data-section-state="waiting" data-waits-for="DV-websocket-01">
+<a class="lt-link" href="/developers/protocols">Choosing a protocol</a> <small>Not published — waiting on the protocol comparison guide</small>
 </li>
 </ul>
 </section>
@@ -206,13 +206,13 @@
 </p>
 <p data-testid="developers-access">For merchant accounts: payment keys and webhooks are made inside the merchant portal, and sandboxes in the developer sandbox.</p>
 <ul>
-<li>
+<li data-section-state="published">
 <a class="lt-link" href="/developers/webhooks">Webhooks</a> <small>Published</small>
 </li>
-<li>
+<li data-section-state="published">
 <a class="lt-link" href="/developers/sandbox">Sandbox</a> <small>Published</small>
 </li>
-<li>
+<li data-section-state="published">
 <a class="lt-link" href="/developers/business-cards">Business cards API</a> <small>Published</small>
 </li>
 </ul>
@@ -224,7 +224,7 @@
 </p>
 <p data-testid="developers-access">A registered app acts for a person only after that person consents to the permissions it asks for.</p>
 <ul>
-<li>
+<li data-section-state="published">
 <a class="lt-link" href="/developers/apps">Registered apps</a> <small>Published</small>
 </li>
 </ul>
@@ -236,32 +236,32 @@
 </p>
 <p data-testid="developers-access">Open to everyone: reading these pages needs no account.</p>
 <ul>
-<li>
-<a class="lt-link" href="/developers/quickstart">Quickstart</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/quickstart">Quickstart</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/sdks">Libraries</a> <small>Waits for DV-tools-01</small>
+<li data-section-state="waiting" data-waits-for="DV-tools-01">
+<a class="lt-link" href="/developers/sdks">Libraries</a> <small>Not published — waiting on official client libraries</small>
 </li>
-<li>
-<a class="lt-link" href="/developers/cli">Command line</a> <small>Waits for DV-tools-02</small>
+<li data-section-state="waiting" data-waits-for="DV-tools-02">
+<a class="lt-link" href="/developers/cli">Command line</a> <small>Not published — waiting on the command-line tool</small>
 </li>
-<li>
-<a class="lt-link" href="/developers/mcp">Assistant tools</a> <small>Waits for DV-tools-02</small>
+<li data-section-state="waiting" data-waits-for="DV-tools-02">
+<a class="lt-link" href="/developers/mcp">Assistant tools</a> <small>Not published — waiting on assistant tools</small>
 </li>
-<li>
-<a class="lt-link" href="/developers/quant">Strategy API</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/quant">Strategy API</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/explorer">API explorer</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/explorer">API explorer</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/openapi">Machine-readable specs</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/openapi">Machine-readable specs</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/support">Developer support</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/support">Developer support</a>
 </li>
-<li>
-<a class="lt-link" href="/developers/status">Service status</a> <small>Page in this portal</small>
+<li data-section-state="page">
+<a class="lt-link" href="/developers/status">Service status</a>
 </li>
 </ul>
 </section>

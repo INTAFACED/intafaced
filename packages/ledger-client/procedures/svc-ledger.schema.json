@@ -222,6 +222,157 @@
         }
       ]
     },
+    "ledger.operatorReverse": {
+      "service": "svc-ledger",
+      "transport": "http",
+      "method": "POST",
+      "path": "/trpc/operatorReverse",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-ops"]
+      },
+      "refusals": {
+        "ledger.tx_not_found": "NOT_FOUND",
+        "ledger.invalid_entry": "BAD_REQUEST",
+        "ledger.reversal_already_reversed": "CONFLICT",
+        "ledger.insufficient_funds": "BAD_REQUEST",
+        "ledger.owner_identity_space": "BAD_REQUEST",
+        "ledger.unauthenticated": "UNAUTHORIZED",
+        "ledger.caller_forbidden": "FORBIDDEN",
+        "ledger.idempotency_conflict": "CONFLICT",
+        "ledger.frozen": "PRECONDITION_FAILED",
+        "ledger.custody_layer_off": "PRECONDITION_FAILED",
+        "ledger.writes_blocked_store_unavailable": "SERVICE_UNAVAILABLE",
+        "ledger.writes_blocked_store_disk_full": "SERVICE_UNAVAILABLE",
+        "ledger.writes_blocked_clock_skew": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "originalTxId": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "ordinal": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          },
+          "caseRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          }
+        },
+        "required": ["originalTxId", "ordinal", "reason", "caseRef"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "txId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "pattern": "^ops:reversal:[0-9a-f-]{36}:[1-9][0-9]{0,18}$"
+          },
+          "postedAt": {
+            "type": "string"
+          },
+          "reverses": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        },
+        "required": ["txId", "idempotencyKey", "postedAt", "reverses"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "LOCAL TEST wrong account",
+            "caseRef": "case-1"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "originalTxId": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+            "ordinal": "1234567890123456789",
+            "reason": "x",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "not-a-uuid",
+            "ordinal": "1",
+            "reason": "r",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "0",
+            "reason": "r",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1.5",
+            "reason": "r",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "   ",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "r",
+            "caseRef": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "r",
+            "caseRef": "c",
+            "entries": []
+          }
+        }
+      ]
+    },
     "ledger.postRecipe": {
       "service": "svc-ledger",
       "transport": "http",

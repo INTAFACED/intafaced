@@ -265,24 +265,10 @@
 </div>
 <p id="_r_30_-hint" data-slot="field-hint" class="text-xs text-fg-2" data-filled="">Made once for this request, so sending it again cannot create a second schedule.</p>
 </div>
-<p role="note" class="m-0 text-sm text-warn">We could not read whether the slice scheduler is running, so a schedule cannot be created now.</p>
+<p role="note" class="m-0 text-sm text-warn">Could not check whether scheduled execution is active, so new schedules are temporarily unavailable.</p>
 <button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill w-full">Review schedule</button>
 </section>
 <div class="lt-stack">
-<div class="flex flex-wrap items-end gap-2">
-<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex flex-col gap-1.5 min-w-64 flex-1">
-<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_31_" for="base-ui-_r_32_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Open by id</label>
-</div>
-<div class="min-w-0">
-<div data-slot="input" data-kind="text" data-density="dense" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<input id="base-ui-_r_32_" aria-label="Open by id" aria-describedby="_r_33_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="" aria-labelledby="base-ui-_r_31_">
-</div>
-</div>
-<p id="_r_33_-hint" data-slot="field-hint" class="text-xs text-fg-2">Any schedule id you have, for example one made on another device.</p>
-</div>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Open</button>
-</div>
 <div class="lt-stack" aria-live="polite">
 </div>
 <div data-slot="empty-state" data-variant="refused" data-size="inline" role="status" class="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 text-left">
@@ -296,11 +282,25 @@
 </span>
 <div class="flex min-w-0 flex-col gap-1 flex-1 basis-48">
 <p data-slot="empty-state-title" class="m-0 font-medium text-fg text-base">We could not load this</p>
-<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-sm">The connection dropped or the service did not answer. Nothing was changed.</p>
+<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-sm">The connection dropped or did not answer. Nothing was changed.</p>
 </div>
 <div data-slot="empty-state-actions" class="flex flex-wrap items-center gap-2 ml-auto">
 <button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Try again</button>
 </div>
+</div>
+<div class="lt-field-row">
+<div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex flex-col gap-1.5 min-w-64 flex-1">
+<div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
+<label id="base-ui-_r_31_" for="base-ui-_r_32_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Find a schedule by reference</label>
+</div>
+<div class="min-w-0">
+<div data-slot="input" data-kind="text" data-density="dense" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h-dense) text-sm px-2 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
+<input id="base-ui-_r_32_" aria-label="Find a schedule by reference" aria-describedby="_r_33_-hint" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="" aria-labelledby="base-ui-_r_31_">
+</div>
+</div>
+<p id="_r_33_-hint" data-slot="field-hint" class="text-xs text-fg-2">Paste a schedule reference to open one not shown in the list.</p>
+</div>
+<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Open</button>
 </div>
 </div>
 </div>

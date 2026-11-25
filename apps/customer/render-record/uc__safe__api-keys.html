@@ -131,24 +131,6 @@
 </header>
 <div class="lt-body">
 <div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav aria-label="API key sections">
-<ul>
-<li>
-<a class="lt-link" href="#api-keys-safety">Keeping a key safe</a>
-</li>
-<li>
-<a class="lt-link" href="#api-keys-cap">Keys on this account</a>
-</li>
-<li>
-<a class="lt-link" href="#api-version-title">API version</a>
-</li>
-<li>
-<a class="lt-link" href="#api-keys-apps">Connected apps</a>
-</li>
-</ul>
-</nav>
-</section>
 <section class="lt-region" data-region="sections" aria-label="Settings">
 <div class="lt-sections">
 <section data-testid="security__card" aria-labelledby="api-keys-safety">
@@ -161,6 +143,16 @@
 <li>For an automated agent, use a key on a sub-account that holds only what the agent may use.</li>
 <li>No key can withdraw or move money off the platform. That needs you, signed in on a device.</li>
 </ul>
+<p>
+<a class="lt-link lt-link-alone" href="/developers/permissions">See which endpoints each permission reaches <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
+</p>
+<p>
+<a class="lt-link lt-link-alone" href="/developers/idempotency">How to retry API orders safely with an Idempotency-Key <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
+</p>
 </section>
 <div class="lt-stack">
 <div data-testid="failure" class="lt-refusal" role="status">
@@ -175,7 +167,7 @@
 </div>
 <section data-testid="api-version" aria-labelledby="api-version-title">
 <h2 id="api-version-title">API version</h2>
-<p class="lt-hint">A program names the API version it was written for in the intafaced-version header. A key call without the header uses this account default. With neither, the call is refused, never answered as the newest version.</p>
+<p class="lt-hint">Choose the API version your keys use when a program does not request a specific version. If neither is set, API calls are refused instead of switching automatically to a newer version.</p>
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
@@ -185,7 +177,7 @@
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
-<h3>Published versions</h3>
+<h3>Available versions</h3>
 <ul data-testid="api-version__versions">
 <li>
 <code>2026-11-20</code> · newest</li>
@@ -203,7 +195,7 @@
 <li>
 <code>POST /api/v1/orders stopPx</code> · Use instead: <code>stopPrice</code> · Deprecated in 2026-11-20 · Removal date: removal date not set</li>
 </ul>
-<p class="lt-hint">A reply to a request that sends a deprecated field carries the Deprecation header and an intafaced-advisories entry.</p>
+<p class="lt-hint">API responses flag deprecated fields automatically so you know when to update your integration.</p>
 </section>
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">

@@ -1,43 +1,43 @@
 import './account.css';
-import { Button } from '@intafaced/ui';
-import { WithAccount } from '../../access/WithAccount';
-import { readyAccess, useMerchantAccess } from '../../access/MerchantAccess';
-import { Gate } from '../../components';
+import { readyAccess, useMerchantAccess, type MerchantAccessValue } from '../../access/MerchantAccess';
 import type { RoomTable } from '../../rooms-model';
-import { Activity } from '../activity/Activity';
+import { ActivityRoom } from '../activity/Activity';
 import { ComplianceRoom } from '../onboarding/Compliance';
-import { Onboarding } from '../onboarding/Onboarding';
+import { OnboardingRoom } from '../onboarding/Onboarding';
 import { BusinessSettingsRoom } from '../profile/BusinessSettings';
 import { Security } from '../security/Security';
 import { InvitationsOnly, TeamRoom } from '../team/Team';
 import { NoBusiness } from '../../access/NoBusiness';
-import { Network } from '../network/Network';
+import { NetworkRoom as NetworkList } from '../network/Network';
 import { NetworkChildRoom } from '../network/NetworkChild';
 import { PermissionsRoom as PermissionsSettings } from '../network/Permissions';
 import { LinkButton } from '../../volt/parts';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
 import type { PortalApi } from '../../api';
 import { accountCopy } from './copy';
-import { OwnerSetsUp } from './ui';
 import type { Access } from '../../access/resolve';
 
-const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
-  <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
-    {label}
-  </Button>
-);
 const t = portalCopy.t;
 
 /** A person who belongs to a business without owning it. */
 export const isTeamMember = (access: Access): boolean => access.status === 'ready' && access.role !== 'owner';
+
+/**
+ * No business, and this session may not open one: the service refused even `merchant.me` and the session carries no
+ * `pay:onboard` (issued only with two-step sign-in). The setup page then starts with turning that on, not a refusal.
+ */
+const cannotOpenYet = ({ access, merchant, sessionScopes }: MerchantAccessValue): boolean =>
+  access.status === 'none' &&
+  merchant.status === 'failed' &&
+  merchant.failure.reason === 'forbidden' &&
+  !(sessionScopes?.has('pay:onboard') ?? false);
 
 /** The account's own mode, for pages that belong to platform accounts only. */
 function useMode(): string | null {
   return readyAccess(useMerchantAccess())?.mode ?? null;
 }
 function NetworkRoom({ portal }: { portal: PortalApi }) {
-  const mode = useMode();
-  return <WithAccount>{({ merchantId }) => <Network portal={portal} merchantId={merchantId} mode={mode} />}</WithAccount>;
+  return <NetworkList portal={portal} mode={useMode()} />;
 }
 function NetworkChildPage({ portal, child }: { portal: PortalApi; child: string }) {
   return <NetworkChildRoom portal={portal} childId={child} mode={useMode()} />;
@@ -77,30 +77,24 @@ export const accountRooms: RoomTable = {
   },
   onboarding: {
     withoutBusiness: 'render',
+    ownTitle: true,
     header: (route) => ({
       title: route.step
         ? t(route.step === 'business' ? 'step1Title' : route.step === 'verification' ? 'step2Title' : 'step3Title')
         : t('pageOnboarding'),
       purpose: t('purposeOnboarding'),
-      action: link('/pay/merchant', t('openDashboard')),
+      action: <LinkButton href="/pay/merchant">{t('openDashboard')}</LinkButton>,
     }),
     // A signed-in team member (a business exists, and they are not its owner) has nothing to set up: the owner does that.
-    render: (route, { portal, access, starterFee }) =>
-      isTeamMember(access.access) ? (
-        <OwnerSetsUp />
-      ) : (
-        <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
-          {(record) => (
-            <Onboarding
-              step={route.step}
-              portal={portal}
-              merchant={record}
-              reloadMerchant={access.reloadMerchant}
-              starterFee={starterFee}
-            />
-          )}
-        </Gate>
-      ),
+    render: (route, { portal, access, starterFee }) => (
+      <OnboardingRoom
+        step={route.step}
+        portal={portal}
+        access={access}
+        starterFee={starterFee}
+        blocked={isTeamMember(access.access) ? 'team' : cannotOpenYet(access) ? 'two-step' : null}
+      />
+    ),
   },
   team: {
     header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: <LinkButton href="#invite">{t('actInvite')}</LinkButton> }),
@@ -114,10 +108,12 @@ export const accountRooms: RoomTable = {
   },
   activity: {
     header: () => ({ title: settingsCopy.t('activityTitle'), purpose: settingsCopy.t('activityPurpose') }),
-    render: (_route, { portal }) => <WithAccount>{() => <Activity portal={portal} />}</WithAccount>,
+    ownTitle: true,
+    render: (_route, { portal }) => <ActivityRoom portal={portal} />,
   },
   network: {
     header: () => ({ title: settingsCopy.t('networkTitle'), purpose: settingsCopy.t('networkPurpose') }),
+    ownTitle: true,
     render: (_route, { portal }) => <NetworkRoom portal={portal} />,
   },
   'network-child': {

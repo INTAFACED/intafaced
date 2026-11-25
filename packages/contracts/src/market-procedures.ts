@@ -210,7 +210,21 @@ export const marketListingDetailSchema = z
         periodSeconds: z.number().int().positive().nullable(),
       })
       .strict(),
-    performance: z.object({ reported: z.literal(false) }).strict(),
+    /**
+     * The seller's track record from stored fills: how many fills of their own orders svc-trade settled, and when the
+     * first was. A count, never a return or a profit. `reported: false` when svc-market can't read it; never zero.
+     */
+    performance: z.union([
+      z.object({ reported: z.literal(false) }).strict(),
+      z
+        .object({
+          reported: z.literal(true),
+          basis: z.literal('seller_own_fills'),
+          fills: z.number().int().nonnegative(),
+          firstFillAt: z.string().datetime().nullable(),
+        })
+        .strict(),
+    ]),
   })
   .strict();
 export type MarketListingDetail = z.output<typeof marketListingDetailSchema>;
@@ -589,8 +603,8 @@ export const MARKET_MY_LISTINGS = defineProcedure({
 
 /**
  * One shopfront listing by id. Unknown and not-on-the-shopfront are both `market.listing_not_found`; a blank commission
- * is `market.commission_not_configured`, before the read. No seller user id. Performance is unreported: a listing stores
- * no source to read it from.
+ * is `market.commission_not_configured`, before the read. No seller user id. Performance is the seller's track record
+ * from stored fills (svc-trade), or unreported when it can't be read.
  */
 export const MARKET_LISTING = defineProcedure({
   ...base,

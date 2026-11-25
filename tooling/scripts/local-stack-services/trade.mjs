@@ -129,6 +129,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // snapshot only when the schedule in force has a tier programme with a snapshot time (spot/fee-tier-jobs.ts), so
     // with the boot schedule below it does nothing; J-cex-spot-10 #5-#6 publishes a TEST programme. Blank is off.
     TRADE_FEE_TIER_JOBS_INTERVAL_MS: '5000',
+    // LOCAL TEST, not an owner decision (RC-cex-spot-05; J-cex-spot-15 #10): book snapshot capture interval and
+    // historical dataset materializer tick. `LOCAL_STACK_TRADE_HISTORY_BOOK_INTERVAL=off` leaves the owner book
+    // interval blank so book datasets refuse `trade.history_book_interval_unset`.
+    TRADE_HISTORY_BOOK_INTERVAL_MS:
+      process.env.LOCAL_STACK_TRADE_HISTORY_BOOK_INTERVAL === 'off' ? '' : testValue('TRADE_HISTORY_BOOK_INTERVAL_MS'),
+    TRADE_HISTORY_JOBS_INTERVAL_MS: '2000',
     TRADE_VIP_PROOF_KEY: secrets.tradeVipProofKey,
     // LOCAL TEST, not an owner decision (option B, 2026-10-13). Fee schedule reference: OKX's public
     // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
@@ -149,7 +155,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // Opens refuse trade.futures_unconfigured without a profit source, and liquidation prices stay unknown without
     // the ladder. The ladder is the coarse mechanism-test table (ladder-policy.test-harness.ts), not a risk opinion.
     TRADE_FUTURES_ENABLED: 'true',
-    TRADE_FUTURES_TEST_SEED: 'true',
+    // `LOCAL_STACK_TEST_MARKETS=off` (the beta's stack, tooling/beta/beta-host.mjs) keeps every `test = true` listing off
+    // the board and refuses it by symbol: the journeys' TEST fixtures (an untraded book, a shut session, a delisting) are
+    // not markets a tester can use (#10599). The rows stay in the database and come back with the switch.
+    TRADE_FUTURES_TEST_SEED: process.env.LOCAL_STACK_TEST_MARKETS === 'off' ? 'false' : 'true',
     TRADE_FUTURES_JOBS_ENABLED: 'true',
     TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available',
     // `LOCAL_STACK_TRADE_FUTURES_LADDER=off` on a restart leaves the ladder blank, so J-derivatives-02 #2 sees "tiers
@@ -298,8 +307,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
           // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
           // J-derivatives-14's TEST perpetual XDEV-PERP (the one a developer reads and trades through our API).
+          // PURR-USDC: the one spot pair Hyperliquid's test network trades every day (its BTC-USDC has no bids and no
+          // print since 10 Nov 2026), so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
+          // PURR-USDC, so the seed skips it there.
           TRADE_USER_VENUE_TEST_LISTINGS:
-            'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
+            'BTC-USDC,PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:

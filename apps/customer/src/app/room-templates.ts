@@ -53,6 +53,8 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/developers/changelog': { template: 'reading' },
   '/developers/changelog/upcoming': { template: 'reading' },
   '/developers/errors/auth': { template: 'reading' },
+  '/developers/permissions': { template: 'reading' },
+  '/developers/idempotency': { template: 'reading' },
   '/developers/:section': { template: 'reading' },
   '/developers/sandbox/:sandboxId': { template: 'settings' },
   '/developers/sandbox/:sandboxId/keys/new': { template: 'flow' },
@@ -181,6 +183,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/pay/merchant': { template: 'overview' },
   '/pay/money': { template: 'overview' },
   '/pay/money/activity': { template: 'record-list' },
+  '/pay/money/top-up': { template: 'flow' },
   '/pay/links': { template: 'record-list' },
   '/pay/links/new': { template: 'flow' },
   '/pay/checkout': { template: 'settings' },
@@ -409,6 +412,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/analytics/:pair': { template: 'monitor' },
   '/rulebook': { template: 'reading' },
   '/trade/screener': { template: 'record-list' },
+  '/trade/markets/downloads': { template: 'record-list' },
 };
 
 /** Merchant portal pages behind `/pay/:page` and `/pay/:page/:child`. */

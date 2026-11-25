@@ -18,6 +18,8 @@ import {
   BANK_RAIL_SENDS_PAYEES,
 } from '@intafaced/contracts/bank-rail-sends-procedures';
 import { BANK_SAFETY_REGION_NOTICE } from '@intafaced/contracts/bank-safety-procedures';
+import { RefusalCode } from '../../shared/RefusalCode';
+import { withCode } from '../../shared/reference';
 
 const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
 
@@ -45,7 +47,7 @@ function Sends({ rows }: { rows: readonly RailSend[] }) {
           <span>
             {t(`rail_${row.rail}` as Key)} · <span lang="und">{row.recipient}</span>
             <br />
-            <small className="lt-muted">{t('reference', { code: row.refusalCode })}</small>
+            <RefusalCode className="lt-muted" code={row.refusalCode} line={(code) => t('reference', { code })} />
           </span>
         </div>
       ))}
@@ -186,9 +188,9 @@ export function BankRailSend() {
     setChecking(false);
     if (!checked.ok) {
       if (checked.code === 'bank.payee_cooling_active' && payee?.cooling.endsAt) {
-        setProblem(`${t('coolingActive', { time: date(payee.cooling.endsAt) })} ${t('reference', { code: checked.code })}`);
+        setProblem(withCode(t('coolingActive', { time: date(payee.cooling.endsAt) }), checked.code, (code) => t('reference', { code })));
       } else if (checked.code === 'bank.payee_cooling_unset') {
-        setProblem(`${t('coolingUnset')} ${t('reference', { code: checked.code })}`);
+        setProblem(withCode(t('coolingUnset'), checked.code, (code) => t('reference', { code })));
       } else {
         setProblem(checked.message || t('missing'));
       }
@@ -254,7 +256,7 @@ export function BankRailSend() {
                 {shown.partner === null && (
                   <p className="lt-refusal" role="status" data-testid="rail-send-notice">
                     {t('noPartner', { rail: t(`rail_${shown.rail}` as Key) })}{' '}
-                    {shown.blocker && <small className="lt-muted">{t('reference', { code: shown.blocker })}</small>}
+                    {shown.blocker && <RefusalCode className="lt-muted" code={shown.blocker} line={(code) => t('reference', { code })} />}
                   </p>
                 )}
                 {rail && !payee && (
@@ -318,7 +320,7 @@ export function BankRailSend() {
                 <p>{t('keptBody')}</p>
                 <p>
                   {t('noPartner', { rail: t(`rail_${outcome.rail}` as Key) })}{' '}
-                  <small className="lt-muted">{t('reference', { code: outcome.refusalCode })}</small>
+                  <RefusalCode className="lt-muted" code={outcome.refusalCode} line={(code) => t('reference', { code })} />
                 </p>
               </div>
             )}

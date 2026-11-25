@@ -7,10 +7,11 @@ import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { devicesCopy as copy } from './devices-copy';
-import { byFamily, deviceName, deviceList } from './devices-api';
+import { byFamily, deviceName } from './devices-api';
 import { idleSince } from './identity-session-guards';
 import { IDENTITY_REVOKE_SESSION_FAMILY } from '@intafaced/contracts/identity-revoke-session-family-procedures';
 import { IDENTITY_REVOKE_OTHER_SESSIONS } from '@intafaced/contracts/identity-revoke-other-sessions-procedures';
+import { IDENTITY_LIST_SESSIONS } from '@intafaced/contracts/identity-list-sessions-procedures';
 
 const LIMIT = 100;
 
@@ -37,9 +38,7 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'listSessions', { userId, limit: LIMIT }, deviceList, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_LIST_SESSIONS, { userId, limit: LIMIT }, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `devices:${userId}`,
   );
 

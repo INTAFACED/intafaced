@@ -77,7 +77,7 @@ async function network(context) {
   return state;
 }
 const gate = (page) => page.getByRole('link', { name: 'Sign in', exact: true });
-const formAlternate = (page) => page.locator('.public-auth-form-links a');
+const formAlternate = (page) => page.locator('[data-testid="auth-form-links"] a');
 async function returnContext(page, original) {
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(original);
   expect(new URL(await formAlternate(page).getAttribute('href'), page.url()).searchParams.get('redirect')).toBe(original);
@@ -201,6 +201,6 @@ test('fragment-only supported destination keeps its room label and exact authent
   await network(context);
   const original = '/blueprint#identity-profile';
   await page.goto('/login?redirect=' + encodeURIComponent(original));
-  await expect(page.locator('.public-auth-context')).toContainText('Identity Blueprint');
+  await expect(page.locator('[data-testid="public-auth-context"]')).toContainText('Identity Blueprint');
   await authenticate(page, 'register', original);
 });

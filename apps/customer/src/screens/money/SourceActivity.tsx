@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
-import { Badge } from '@intafaced/ui';
 import { useApi, useSession } from '../../features/session/session';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
@@ -9,10 +8,10 @@ import { usePolled } from '../../features/protocol/wallet/use-polled';
 import { createExplorerApi } from '../../features/protocol/explorer/explorer-api';
 import { createVenueAccountApi } from '../../features/protocol/venue-wallet/venue-account-api';
 import { venueConvertApi } from '../../features/trade/venue-convert-api';
-import { WalletBar, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
+import { WalletBar, readAllVenueOrders, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
-import { Amount, Button, StateBlock } from './ui-deps';
+import { Amount, Button, StateBlock, Tag } from '@intafaced/ui/lit';
 import { coinHref, fmtAmount, useActivity } from './deps';
 import { stamp } from './time';
 import type { ActivityFilters } from './activity-filter';
@@ -45,6 +44,9 @@ const FILTER_WORD = {
   address: 'filter address',
 } as const;
 
+/** The kit's colour for an amount, by the way the money went. */
+const AMOUNT_TONE = { in: 'lt-up', out: 'lt-down' } as const;
+
 /** How often the wallet and the venue are read again while the list is open. */
 const READ_EVERY_MS = 3_000;
 /** Every fill the venue keeps for the account: the venue's own list, from its first. */
@@ -61,6 +63,7 @@ export function SourceActivity({
   asset,
   hidden,
   source = null,
+  includeOrders = true,
 }: {
   status: VenueUp;
   filters: ActivityFilters;
@@ -68,11 +71,21 @@ export function SourceActivity({
   hidden: boolean;
   /** One source's lines only (J-portfolio-01 #6: the records behind one figure), or every source's. */
   source?: SourceKind | null;
+  /** Group fills by order and include resting (Set aside) and cancelled orders (J-portfolio-03 #3). */
+  includeOrders?: boolean;
 }) {
   const chainId = status.chainId ?? APP_CHAIN_ID;
   return (
     <WalletProvider chainId={chainId} scope="activity">
-      <Sources status={status} chainId={chainId} filters={filters} asset={asset} hidden={hidden} source={source} />
+      <Sources
+        status={status}
+        chainId={chainId}
+        filters={filters}
+        asset={asset}
+        hidden={hidden}
+        source={source}
+        includeOrders={includeOrders}
+      />
     </WalletProvider>
   );
 }
@@ -92,6 +105,7 @@ function Sources({
   asset,
   hidden,
   source,
+  includeOrders,
 }: {
   status: VenueUp;
   chainId: number;
@@ -99,6 +113,7 @@ function Sources({
   asset: string | null;
   hidden: boolean;
   source: SourceKind | null;
+  includeOrders: boolean;
 }) {
   const { t } = sourcesCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -121,27 +136,30 @@ function Sources({
   const venueRead = usePolled(
     async (signal) => {
       if (!owner) return null;
-      const [fills, deposits, conversions] = await Promise.all([
+      const [fills, deposits, conversions, orders] = await Promise.all([
         venue.fills(owner, ALL_FILLS_SINCE, signal),
         venueAccount.deposits(owner, signal),
         converts.history(owner, signal),
+        includeOrders ? readAllVenueOrders(venue, owner, signal) : Promise.resolve({ ok: true as const, data: [] }),
       ]);
       if (!fills.ok) return fills;
       // A venue that publishes no deposit list still has its fills: the list says the deposits aren't offered.
       if (!deposits.ok && !/not_offered/.test(`${deposits.code ?? ''} ${deposits.message}`)) return deposits;
       // A deployment with no venue Convert wired has no conversions: its fills are trades. Any other failure is a failure.
       if (!conversions.ok && !/venue_convert_unwired/.test(`${conversions.code ?? ''} ${conversions.message}`)) return conversions;
+      if (!orders.ok) return orders;
       return {
         ok: true as const,
         data: {
           fills: fills.data.value,
           deposits: deposits.ok ? deposits.data.value : [],
           conversions: conversions.ok ? conversions.data.conversions : [],
+          orders: orders.data,
           asOf: fills.data.asOf,
         },
       };
     },
-    `activity:venue:${owner ?? 'none'}`,
+    `activity:venue:${owner ?? 'none'}:${includeOrders ? 'orders' : 'records'}`,
     READ_EVERY_MS,
   );
   const bank = useActivity({});
@@ -154,7 +172,7 @@ function Sources({
     : { state: 'off' };
   const venuePart: Part = owner
     ? partOf(venueRead, (read) => ({
-        lines: venueLines(read.fills, read.deposits, venueName, read.conversions),
+        lines: venueLines(read.fills, read.deposits, venueName, read.conversions, read.orders, { includeOrders }),
         note: t('Venue read', { name: venueName, time: asOfText(read.asOf) }),
       }))
     : { state: 'off' };
@@ -185,7 +203,7 @@ function Sources({
     <div data-testid="activity-by-source" data-user={userId ?? ''} className="lt-stack">
       <p className="lt-muted">{t('Lede')}</p>
       <WalletBar />
-      <div className="money-sources">
+      <div className="lt-stack lt-stack-tight">
         {!source || source === 'wallet' ? (
           <SourceNote
             kind="wallet"
@@ -209,7 +227,6 @@ function Sources({
         <StateBlock
           kind="refused"
           testId="money-state"
-          className="money-state"
           title={t('No matches')}
           body={t('Filters unanswerable', { names: blocked.map((name) => t(FILTER_WORD[name])).join(', ') })}
         />
@@ -217,49 +234,48 @@ function Sources({
         <StateBlock
           kind="empty"
           testId="money-state"
-          className="money-state"
           title={narrowed ? t('No matches') : t('Nothing yet')}
           body={narrowed ? t('No matches body') : t('Nothing yet body')}
         />
       ) : (
-        <table data-testid="money-table" className="money-table money-table--activity">
-          <colgroup>
-            <col className="money-act-col--what" />
-            <col className="money-act-col--time" />
-            <col className="money-act-col--amount" />
-            <col className="money-act-col--status money-cell--status" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th scope="col">{t('Activity')}</th>
-              <th scope="col">{t('Date')}</th>
-              <th scope="col" className="money-num">
-                {t('Amount')}
-              </th>
-              <th scope="col" className="money-cell--status">
-                {t('Status')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((line) => (
-              <LineRow
-                key={line.id}
-                line={line}
-                group={orderLines(all, line)}
-                t={t}
-                hidden={hidden}
-                zone={timeZone}
-                test={line.source === 'venue' && status.test}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="lt-table-scroll">
+          <table data-testid="money-table" className="lt-table">
+            <thead>
+              <tr>
+                <th scope="col">
+                  <span className="lt-nowrap">{t('Activity')}</span>
+                </th>
+                <th scope="col">
+                  <span className="lt-nowrap">{t('Date')}</span>
+                </th>
+                <th scope="col" className="lt-end">
+                  {t('Amount')}
+                </th>
+                <th scope="col">
+                  <span className="lt-nowrap">{t('Status')}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((line) => (
+                <LineRow
+                  key={line.id}
+                  line={line}
+                  group={orderLines(all, line)}
+                  t={t}
+                  hidden={hidden}
+                  zone={timeZone}
+                  test={line.source === 'venue' && status.test}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {!source ? <CopiedFees /> : null}
       {bank.status === 'ready' && bank.data.hasMore && partner.length > 0 ? (
-        <div className="money-more">
-          <Button variant="secondary" size={40} loading={bank.data.loadingMore} onClick={bank.data.loadMore}>
+        <div data-testid="money-more" className="lt-row">
+          <Button tone="secondary" busy={bank.data.loadingMore} onClick={bank.data.loadMore}>
             {t('Partner more')}
           </Button>
         </div>
@@ -289,7 +305,7 @@ function SourceNote({
       {test && part.state === 'read' ? (
         <>
           {' '}
-          <Badge tone="warn">{t('TEST')}</Badge>
+          <Tag tone="warn">{t('TEST')}</Tag>
         </>
       ) : null}
     </p>
@@ -299,6 +315,8 @@ function SourceNote({
 function titleOf(line: SourceLine, t: T): string {
   if (line.source === 'wallet') return line.direction === 'in' ? t('Received in your wallet') : t('Sent from your wallet');
   if (line.source === 'venue') {
+    if (line.kind === 'order_hold') return t('Set aside for an order');
+    if (line.kind === 'order_cancelled') return t('Order cancelled · nothing spent');
     if (line.detail?.kind === 'trade' && line.detail.convert)
       return t('Converted {from} to {to}', { from: line.detail.convert.from, to: line.detail.convert.to });
     if (line.detail?.kind === 'trade') return t(line.detail.side === 'buy' ? 'Bought {asset}' : 'Sold {asset}', { asset: line.asset });
@@ -329,12 +347,14 @@ function subOf(line: SourceLine, t: T): string | null {
   if (!detail) return null;
   switch (detail.kind) {
     case 'trade': {
-      const parts = [
+      const parts: string[] = [];
+      if (detail.fills && detail.fills.length > 1) parts.push(t('{count} fills', { count: String(detail.fills.length) }));
+      parts.push(
         t(detail.side === 'buy' ? 'Paid {amount} {asset}' : 'Got {amount} {asset}', {
           amount: exact(detail.quote.amount),
           asset: detail.quote.asset,
         }),
-      ];
+      );
       if (detail.fee)
         parts.push(
           t(detail.fee.rebate ? 'Rebate {amount} {asset}' : 'Fee {amount} {asset}', {
@@ -344,6 +364,13 @@ function subOf(line: SourceLine, t: T): string | null {
         );
       return parts.join(' · ');
     }
+    case 'order':
+      return t(detail.side === 'buy' ? 'Order buy {amount} {base} at {price} {quote}' : 'Order sell {amount} {base} at {price} {quote}', {
+        amount: exact(detail.orderAmount),
+        base: detail.base,
+        price: exact(detail.price),
+        quote: detail.quote,
+      });
     case 'space':
       return t('In account {name}', { name: detail.name });
     case 'confirming':
@@ -375,80 +402,91 @@ function LineRow({
 }) {
   const up = line.direction === 'in';
   const counted = line.state === 'completed';
+  const holding = line.state === 'set_aside';
   const sub = subOf(line, t);
   const amount = exact(line.amount);
   const [open, setOpen] = useState(false);
   const fill = line.source === 'venue' && line.detail?.kind === 'trade' ? line.detail : null;
+  const orderId = line.detail?.kind === 'trade' || line.detail?.kind === 'order' ? (line.detail.order ?? undefined) : undefined;
   const partsId = `money-act-parts-${line.id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
   return (
     <>
       <tr
         data-testid="money-act"
-        className="money-act"
         data-kind={line.kind}
         data-type={typeOf(line.kind)}
         data-source={line.source}
         data-ref={line.ref}
+        data-order={orderId}
         data-state={line.state}
       >
-        <td>
-          <div className="money-act__what">
-            <span className="money-act__text">
+        <td data-label={t('Activity')}>
+          <div className="lt-row lt-row-nowrap">
+            <span className="lt-stack lt-stack-tight">
               {fill ? (
-                <Button
-                  variant="ghost"
-                  size={28}
-                  shape="rounded"
-                  data-testid="money-act__title"
-                  aria-expanded={open}
-                  aria-controls={partsId}
-                  onClick={() => setOpen((was) => !was)}
-                >
-                  {titleOf(line, t)}
-                </Button>
+                <span className="lt-row">
+                  <Button
+                    tone="quiet"
+                    size="sm"
+                    data-testid="money-act__title"
+                    aria-expanded={open}
+                    aria-controls={partsId}
+                    onClick={() => setOpen((was) => !was)}
+                  >
+                    {titleOf(line, t)}
+                  </Button>
+                </span>
               ) : (
-                <span data-testid="money-act__title" className="money-act__title">
+                <span data-testid="money-act__title" className="lt-strong">
                   {titleOf(line, t)}
                 </span>
               )}
               {sub ? (
-                <span data-testid="money-act__sub" className="money-act__sub">
+                <span data-testid="money-act__sub" className="lt-hint">
                   {sub}
                 </span>
               ) : null}
-              <span data-testid="money-act__source" className="money-act__sub" data-source={line.source}>
+              <span data-testid="money-act__source" className="lt-hint" data-source={line.source}>
                 {sourceLabel(line, t)}
                 {test ? (
                   <>
                     {' '}
-                    <Badge tone="warn">{t('TEST')}</Badge>
+                    <Tag tone="warn">{t('TEST')}</Tag>
                   </>
                 ) : null}
               </span>
-              {/* The source's own reference (J-cex-spot-07 #6): a transaction hash, a fill id, a deposit or a partner move id. */}
-              <span data-testid="money-act__ref" className="money-act__sub money-act__ref">
+              {/* The source's own reference (J-cex-spot-07 #6): a transaction hash, a fill id, an order id, a deposit or a partner move id. */}
+              <span data-testid="money-act__ref" className="lt-hint lt-wrap">
                 {t('Source reference {ref}', { ref: line.ref })}
               </span>
             </span>
           </div>
         </td>
-        <td data-testid="money-act__time" className="money-act__time">
-          <time dateTime={line.at}>{stamp(line.at, zone)}</time>
+        <td data-testid="money-act__time" data-label={t('Date')} className="lt-nowrap">
+          <time className="lt-nowrap" dateTime={line.at}>
+            {stamp(line.at, zone)}
+          </time>
         </td>
-        <td className="money-num">
+        <td data-testid="money-act__amount" data-label={t('Amount')} className="lt-end">
           <Amount
-            value={counted ? `${up ? '+' : '−'}${amount} ${line.asset}` : `${amount} ${line.asset}`}
+            value={counted || holding ? `${up ? '+' : '−'}${amount} ${line.asset}` : `${amount} ${line.asset}`}
             hidden={hidden}
-            className={counted ? (up ? 'text-up-text' : 'text-down-text') : undefined}
+            className={counted ? AMOUNT_TONE[line.direction] : undefined}
             data-direction={line.direction}
           />
         </td>
-        <td data-testid="money-act__status" className="money-act__status money-cell--status">
+        <td data-testid="money-act__status" data-label={t('Status')}>
           {line.state === 'completed' ? (
-            <span data-testid="money-act__done" className="money-act__done">
+            <span data-testid="money-act__done" className="lt-row lt-row-nowrap lt-nowrap">
               <Check size={14} aria-hidden="true" />
               {t('Completed')}
             </span>
+          ) : line.state === 'set_aside' ? (
+            <span data-testid="money-act__hold" className="lt-muted lt-nowrap">
+              {t('Set aside')}
+            </span>
+          ) : line.state === 'cancelled' ? (
+            <span>{t('Cancelled')}</span>
           ) : line.state === 'confirming' && line.detail?.kind === 'confirming' ? (
             <span>
               {t('Confirming {count} of {required}', { count: String(line.detail.confirmations), required: String(line.detail.required) })}
@@ -504,17 +542,20 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
   const record = read.data?.value ?? null;
   const parts = fillParts(group, record);
   const bought = line.detail?.kind === 'trade' && line.detail.side === 'buy';
+  const multiFill = line.detail?.kind === 'trade' && (line.detail.fills?.length ?? 1) > 1;
   return (
-    <tr data-testid="money-act__parts-row" className="money-act__parts-row">
+    <tr data-testid="money-act__parts-row">
       <td colSpan={4}>
         <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="lt-stack">
-          <h3 className="money-detail__h">{t('Parts of this order')}</h3>
-          <p className="lt-hint" data-label="fill-reference">
-            {t('Fill reference')} <code className="money-code">{line.ref}</code>
-          </p>
+          <h3 className="lt-heading">{t('Parts of this order')}</h3>
+          {!multiFill ? (
+            <p className="lt-hint" data-label="fill-reference">
+              {t('Fill reference')} <code className="lt-mono">{line.ref}</code>
+            </p>
+          ) : null}
           {order ? (
             <p className="lt-hint" data-label="order-reference">
-              {t('Order reference')} <code className="money-code">{order}</code>
+              {t('Order reference')} <code className="lt-mono">{order}</code>
             </p>
           ) : null}
           {record && OPEN.has(record.status) ? (
@@ -522,12 +563,12 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
               {t('Still held', { amount: exact(record.locked), asset: record.lockedAsset })}
             </p>
           ) : null}
-          <table className="money-table money-table--activity">
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('Part')}</th>
                 <th scope="col">{t('Source reference')}</th>
-                <th scope="col" className="money-num">
+                <th scope="col" className="lt-end">
                   {t('Amount')}
                 </th>
               </tr>
@@ -540,15 +581,15 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
                   data-part={part.part}
                   data-from-hold={part.fromHold ? 'yes' : undefined}
                 >
-                  <td>{partWord(part.part, part.fromHold, t)}</td>
-                  <td>
-                    <code className="money-code">{part.fill ?? order ?? ''}</code>
+                  <td data-label={t('Part')}>{partWord(part.part, part.fromHold, t)}</td>
+                  <td data-label={t('Source reference')}>
+                    <code className="lt-mono">{part.fill ?? order ?? ''}</code>
                   </td>
-                  <td className="money-num">
+                  <td data-label={t('Amount')} className="lt-end">
                     <Amount
                       value={`${part.up ? '+' : '−'}${exact(part.amount)} ${part.asset}`}
                       hidden={hidden}
-                      className={part.up ? 'text-up-text' : 'text-down-text'}
+                      className={part.up ? AMOUNT_TONE.in : AMOUNT_TONE.out}
                       data-direction={part.up ? 'in' : 'out'}
                     />
                   </td>
@@ -557,9 +598,9 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
             </tbody>
           </table>
           {bought ? (
-            <Button variant="secondary" size={40} nativeButton={false} role="link" render={<a href={coinHref(line.asset, 'simple')} />}>
+            <a className="lt-button lt-button-secondary" href={coinHref(line.asset, 'simple')}>
               {t('See {asset} history', { asset: line.asset })}
-            </Button>
+            </a>
           ) : null}
         </section>
       </td>

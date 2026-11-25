@@ -7,7 +7,6 @@ import { useResource } from '../../shared/resource';
 import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { SettingsTemplate, Sheet as KitSheet } from '@intafaced/ui/lit/templates';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
-import { apiVersionCopy } from './api-version-copy';
 import { Failure, Loading } from './kit-parts';
 import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import { OrgKeys } from './OrgKeys';
@@ -28,6 +27,16 @@ export function KeySafety() {
         <li>{t('safetyAgents')}</li>
         <li>{t('safetyWithdraw')}</li>
       </ul>
+      <p>
+        <a className="lt-link lt-link-alone" href="/developers/permissions">
+          {t('permissionsTableLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+        </a>
+      </p>
+      <p>
+        <a className="lt-link lt-link-alone" href="/developers/idempotency">
+          {t('idempotencyGuideLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+        </a>
+      </p>
     </section>
   );
 }
@@ -120,7 +129,6 @@ export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClos
  */
 export function ApiKeys() {
   const { t, languageFor, requestedLocale } = copy.useCopy();
-  const versionTitle = apiVersionCopy.useCopy().t('title');
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readDeveloperKeys(api, signal), `developer-keys:${userId}`);
   // The names of the sub-accounts keys are bound to; a key whose sub-account is not listed shows its id instead.
@@ -302,30 +310,9 @@ export function ApiKeys() {
             {t('create')}
           </a>
         }
-        index={
-          <nav aria-label={t('sectionsLabel')}>
-            <ul>
-              {INDEX.map(([id, label]) => (
-                <li key={id}>
-                  <a className="lt-link" href={`#${id}`}>
-                    {label === 'versionTitle' ? versionTitle : t(label)}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
         sections={sections}
         explain={<p>{t('explain')}</p>}
       />
     </div>
   );
 }
-
-/** The room's sections, each a link to its heading. */
-const INDEX = [
-  ['api-keys-safety', 'safetyTitle'],
-  ['api-keys-cap', 'capTitle'],
-  ['api-version-title', 'versionTitle'],
-  ['api-keys-apps', 'appsTitle'],
-] as const;

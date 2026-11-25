@@ -112,7 +112,7 @@
 <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
 <div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
 <h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Options</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-sm">Read the contracts, price a strategy, and place paper option orders. Live option orders are blocked until the settlement rule is published.</p>
+<p data-slot="page-header-description" class="m-0 text-fg-2 text-sm">View option contracts, model a strategy, and place practice orders. Live option orders are unavailable until settlement rules are published.</p>
 <div data-slot="page-header-meta" class="flex flex-wrap items-center gap-2 pt-1 text-xs text-fg-2">
 <span role="status" data-slot="status-chip" data-freshness="live" data-density="comfortable" class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-accent-text">
 <svg data-shape="dot" aria-hidden="true" viewBox="0 0 12 12" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -125,9 +125,8 @@
 </span>
 </span>
 </span>
-<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Live orders: not read</span>
-<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Paper orders: blocked</span>
-<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Greeks: not tried</span>
+<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Checking live orders</span>
+<span data-slot="badge" data-tone="neutral" data-variant="outline" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs border border-current/40 text-fg-2">Practice orders unavailable</span>
 </div>
 </div>
 </div>
@@ -151,7 +150,7 @@
 </div>
 <div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_4_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus pt-3" aria-labelledby="base-ui-_r_3_">
 <div class="lt-stack">
-<div class="flex flex-wrap items-center gap-2">
+<div class="lt-toolbar">
 <button type="button" tabindex="0" id="base-ui-_r_10_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Underlying" class="inline-flex w-fit min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
 <span data-slot="select-value" class="truncate">All underlyings</span>
 <span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
@@ -215,7 +214,7 @@
 </div>
 <section aria-label="Order ticket" class="flex flex-col gap-3 rounded-sm border border-line bg-panel p-4">
 <h2 class="m-0 text-md font-medium text-fg">Order ticket</h2>
-<p class="lt-hint">Pick a contract in the chain to start an order.</p>
+<p class="lt-hint">No option contracts are listed right now.</p>
 <div data-orientation="horizontal" role="group" data-slot="segmented-control" aria-label="Buy or sell" class="relative grid items-stretch rounded-pill bg-field p-0.5 w-full h-10 text-base" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
 <span aria-hidden="true" style="width: calc((100% - 4px) / 2); transform: translateX(0%);" class="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-pill transition-[transform,background-color] duration-(--if-t-tab) ease-if bg-up">
 </span>
@@ -269,7 +268,7 @@
 </label>
 <p class="lt-hint">The order only rests on the book and is refused if it would fill at once.</p>
 </div>
-<p role="status" class="m-0 text-sm text-warn">Pick a contract in the chain first.</p>
+<p role="status" class="m-0 text-sm text-warn">No option contracts are listed right now.</p>
 <button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill w-full">Review order</button>
 </section>
 </div>

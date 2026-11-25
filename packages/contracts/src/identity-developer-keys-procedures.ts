@@ -65,6 +65,7 @@ export const DEVELOPER_KEY_REFUSALS = {
   'identity.developer_role_none': 'FORBIDDEN',
   'identity.key_rotate_overlap_unset': 'PRECONDITION_FAILED',
   'identity.key_rotate_overlap_too_long': 'BAD_REQUEST',
+  'identity.rate_limits_unset': 'PRECONDITION_FAILED',
 } as const satisfies Record<string, RefusalStatus>;
 
 /** How svc-identity sends each developer team refusal. */

@@ -11,8 +11,9 @@ import { continueInWallet, venueForThisFile, venueRecord } from './venue.mjs';
 // J-derivatives-06's venue steps, "I watch and top up the margin on an isolated position", on the person's own venue
 // account (the launch money model: the venue holds the position and its margin, the ledger posts nothing), in the running
 // app against the stack's TEST venue simulator (packages/venue-sim). One test per step, titled "J-derivatives-06 #<n>",
-// run in order on one TEST account; #5 to #7 are not here yet (each lands with its own build), and J-derivatives-06.pw.mjs
-// holds the same journey on our own futures engine.
+// run in order on one TEST account; J-derivatives-06.pw.mjs holds the custodial branch, checked on our own futures engine
+// (its own-engine stop keeps a #5 title there, marked as the custodial Later branch: the merge seal fails closed on a
+// journey file left with no step title, and no title may be declared twice across the journey files).
 //
 // The Starts line, made at the start of #1 straight on the TEST venue with the person's own key: a TEST isolated long of
 // 0.02 BTC-PERP at 10x, taken from the TEST makers' ladder. Every figure the page shows is checked against the TEST
@@ -377,4 +378,325 @@ test(`${J} #4 turns on auto top-up, setting the margin level that starts it, the
   } finally {
     await venueAt('/test/set-mark', { symbol: BTC, price: markBefore });
   }
+});
+
+// ── #5: a pre-liquidation stop ──
+
+const STOP_LEVEL = '50';
+const esc = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** The venue's own listing of BTC-PERP: its tick, and the prices it judges trigger orders on. */
+const btcMarket = async (owner) => (await record(null, owner, '/markets')).find((m) => m.symbol === BTC);
+/** The venue's open trigger orders on BTC-PERP for the account, as the venue lists them. */
+const triggersOn = async (owner) => (await record(null, owner, '/open-orders')).filter((o) => o.symbol === BTC && o.trigger);
+/** The position's margin with its unrealised result were the mark at `price`: margin + size × (price − entry) for a long. */
+const equityAt = (p, price) => toUnits(p.margin) + (toUnits(p.size) * (toUnits(price) - toUnits(p.entryPrice))) / 10n ** 18n;
+
+test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance level, shown on the position`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+  const venue = await venueNow();
+  // TEST control: the venue judges trigger orders on BTC-PERP's mark (its TEST listing declares none until a step needs
+  // them), put back after the step.
+  await venueAt('/test/market-triggers', { symbol: BTC, sources: ['mark', 'last'] });
+  const key = privateKeyToAccount(s.walletKey);
+  let stopId = null;
+  try {
+    const market = await btcMarket(s.owner);
+    expect(market.triggerSources).toContain('mark');
+    const p = await positionOn(venue, s.owner);
+    expect(p.maintenanceMargin.known).toBe(true);
+    expect(p.liquidationPrice.known).toBe(true);
+    expect(await triggersOn(s.owner)).toEqual([]);
+    const maintenance = toUnits(p.maintenanceMargin.value);
+
+    const wallet = await openVenueRoom(page, s, ROOM);
+    const door = doorCalls(page);
+    const row = page.getByTestId('positions-all').locator(`tr[data-venue="${venue.id}"][data-symbol="${BTC}"]`);
+    await row.getByRole('button', { name: 'Pre-liquidation stop', exact: true }).click();
+    const panel = page.getByTestId('pre-liquidation-stop-panel');
+    await expect(panel).toContainText(`Pre-liquidation stop on ${BTC}`);
+    // The figures the level is turned into a price from are the venue's own.
+    await expect(panel.locator('[data-line="maintenance"]')).toHaveText(p.maintenanceMargin.value);
+    await expect(panel.locator('[data-line="liquidation"]')).toHaveText(p.liquidationPrice.value);
+    await expect(panel.locator('[data-line="mark"]')).toHaveText(p.markPrice);
+    const current = panel.getByRole('region', { name: 'On this position now', exact: true });
+    await expect(current).toContainText('No pre-liquidation stop set.');
+    const box = panel.getByRole('textbox', { name: 'Close at margin ratio (%)', exact: true });
+    const set = panel.getByRole('button', { name: 'Set stop', exact: true });
+    const why = panel.getByTestId('pre-liquidation-stop-why');
+
+    // At 100% the venue liquidates: refused in words before anything is sent.
+    await box.fill('100');
+    await expect(why).toHaveText('Enter a percent above 0 and below 100, to two places at most.');
+    await expect(set).toBeDisabled();
+    // Below the ratio now (maintenance over the margin with its result, a few percent here), a stop would close at once.
+    expect(maintenance * 100n * 10n ** 18n).toBeGreaterThan(toUnits('1') * toUnits(withResult(p)));
+    await box.fill('1');
+    await expect(why).toHaveText(
+      'The margin ratio already stands at that level: a stop there would close the position at once. Set a higher level.',
+    );
+    await expect(set).toBeDisabled();
+    expect(door.of('protections')).toEqual([]);
+    expect(door.of('submit')).toEqual([]);
+
+    // At the maintenance level the person sets: the mark, on the venue's tick, at which the venue's maintenance requirement
+    // over the margin with its result reaches it, or the tick just before it, never after.
+    await box.fill(STOP_LEVEL);
+    const would = panel.getByTestId('pre-liquidation-stop-would');
+    await expect(would).toHaveText(new RegExp(`^Closes ${esc(SIZE)} ${BTC} when ${esc(venue.name)}’s mark reaches \\d+\\.$`));
+    const trigger = /reaches (\d+)\.$/.exec(await would.innerText())[1];
+    const tick = toUnits(market.tickSize);
+    expect(toUnits(trigger) % tick).toBe(0n);
+    // Ratio at or under the level at the trigger (the margin with its result at least maintenance ÷ level) ...
+    const atOrUnder = (price) => equityAt(p, price) * toUnits(STOP_LEVEL) >= maintenance * 100n * 10n ** 18n;
+    expect(atOrUnder(trigger), `the ratio at ${trigger} has passed ${STOP_LEVEL}%`).toBe(true);
+    // ... and past it one tick further down: no later tick would still be in time.
+    expect(atOrUnder(fromUnits(toUnits(trigger) - tick)), `one tick below ${trigger} the ratio is still ${STOP_LEVEL}% or under`).toBe(
+      false,
+    );
+    // A long's stop lies between the venue's liquidation price and its mark now.
+    expect(toUnits(trigger)).toBeGreaterThan(toUnits(p.liquidationPrice.value));
+    expect(toUnits(trigger)).toBeLessThan(toUnits(p.markPrice));
+
+    // Every order on the venue carries our builder fee, which this account hasn't approved: the panel says so, and Set
+    // stop asks for that one-time approval first (checked in the sheet), then the wallet signs the close order.
+    await expect(panel.getByTestId('pre-liquidation-stop-approve')).toContainText(
+      `Your account on ${venue.name} hasn’t approved our builder fee of`,
+    );
+    const asked = signatures(wallet);
+    await set.click();
+    // Two sheets, one after the other: the builder-fee approval, then the close order itself.
+    await continueInWallet(page);
+    await continueInWallet(page);
+    await expect(panel.getByTestId('pre-liquidation-stop-said')).toHaveText(
+      `Set: ${venue.name} holds the close order at mark ${trigger}.`,
+      {
+        timeout: 20_000,
+      },
+    );
+    // The approval and one close order, each signed once by the person's wallet and sent once.
+    expect(signatures(wallet)).toBe(asked + 2);
+    const prepared = door.of('prepare');
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0].body.intent).toMatchObject({ kind: 'approve_builder_fee' });
+    const created = door.of('protections');
+    expect(created).toHaveLength(1);
+    expect(created[0].body).toMatchObject({
+      owner: s.owner,
+      symbol: BTC,
+      kind: 'stop_loss',
+      side: 'sell',
+      quantity: SIZE,
+      triggerPrice: trigger,
+      triggerSource: 'mark',
+    });
+    stopId = created[0].body.clientOrderId;
+    expect(stopId).toMatch(/^pls-5000-/);
+    expect(door.of('submit')).toHaveLength(2);
+    // On the venue: one reduce-only sell of the whole position, waiting on the mark at that price.
+    const resting = await triggersOn(s.owner);
+    expect(resting).toHaveLength(1);
+    expect(resting[0]).toMatchObject({ side: 'sell', reduceOnly: true, trigger: { role: 'stop_loss', source: 'mark', state: 'waiting' } });
+    expect(same(resting[0].trigger.price, trigger)).toBe(true);
+    expect(same(resting[0].amount, (await positionOn(venue, s.owner)).size)).toBe(true);
+
+    // Shown on the position: its row, and the panel read back from the venue's own order.
+    await expect(row.getByTestId('pre-liquidation-stop')).toHaveText(`Stop ${STOP_LEVEL}% · close at ${trigger}`, { timeout: 20_000 });
+    await expect(current).toContainText(
+      `Closes at margin ratio ${STOP_LEVEL}%: close order at mark ${trigger} for ${SIZE}, resting on ${venue.name}.`,
+    );
+    // The position is still open: the stop waits.
+    expect(same((await positionOn(venue, s.owner)).size, SIZE)).toBe(true);
+    await stepPicture();
+
+    // A second stop is refused while one rests; the person removes this one, signed once, and the venue holds none.
+    await expect(panel).toContainText('A pre-liquidation stop already rests on this position. Remove it first, then set the new level.');
+    await expect(box).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Remove stop', exact: true }).click();
+    await continueInWallet(page);
+    await expect(panel.getByTestId('pre-liquidation-stop-said')).toHaveText(`Removed: ${venue.name} cancelled the close order.`, {
+      timeout: 20_000,
+    });
+    expect(signatures(wallet)).toBe(asked + 3);
+    expect(await triggersOn(s.owner)).toEqual([]);
+    await expect(row.getByTestId('pre-liquidation-stop')).toHaveCount(0, { timeout: 20_000 });
+    await expect(current).toContainText('No pre-liquidation stop set.');
+    await ledgerUntouched(s);
+  } finally {
+    // A stop left resting would close the position when #6 moves the mark: cancelled straight on the venue.
+    if (stopId && (await triggersOn(s.owner)).length > 0)
+      await signedOnVenue(venue, key, { kind: 'cancel_order', symbol: BTC, clientOrderKey: `protection:${s.owner}:stop_loss:${stopId}` });
+    await venueAt('/test/market-triggers', { symbol: BTC, sources: [] });
+  }
+});
+
+// ── #6 and #7: margin and liquidation-risk alerts, and the Margin calls tab ──
+
+const RATIO_LEVEL = '40';
+const ONE = 10n ** 18n;
+/** The venue's maintenance requirement for the position, as it publishes it. */
+const maintenanceOf = (p) => {
+  expect(p.maintenanceMargin?.known, 'the TEST venue publishes a maintenance requirement on BTC-PERP').toBe(true);
+  return p.maintenanceMargin.value;
+};
+/** The margin ratio in percent as svc-trade states it: maintenance × 100 over the margin with its result, floored. */
+const ratioOf = (maintenance, marginWithResult) => fromUnits((toUnits(maintenance) * 100n * ONE) / toUnits(marginWithResult));
+/** What a margin call asks: the margin that brings the ratio back to `level` percent, rounded up, less what there is. */
+const askedFor = (maintenance, level, marginWithResult) => {
+  const num = toUnits(maintenance) * 100n * ONE;
+  const den = toUnits(level);
+  return fromUnits((num + den - 1n) / den - toUnits(marginWithResult));
+};
+const ALERT_TITLE = { margin: `Margin alert: ${BTC}`, margin_call: `Margin call: ${BTC}`, liquidation: `Liquidation alert: ${BTC}` };
+
+test(`${J} #6 receives margin and liquidation-risk alerts: one alert per crossing; with no risk levels set the toggle says "set your risk levels" and the liquidation alert still fires`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(600_000);
+  const s = state();
+  const venue = await venueNow();
+  await openVenueRoom(page, s, ROOM);
+  const start = await positionOn(venue, s.owner);
+  const markBefore = start.markPrice;
+  const maintenance = maintenanceOf(start);
+  /** Each crossing the person should be told of, with the venue's figures at it and when it happened. */
+  const crossings = [];
+  try {
+    const panel = await openMargin(page, venue);
+    const ra = panel.getByTestId('risk-alerts-panel');
+    await expect(ra).toContainText(`Risk alerts on ${BTC}`);
+    const toggle = ra.getByTestId('risk-alerts-toggle');
+    const sw = toggle.getByRole('switch', { name: 'Risk alerts', exact: true });
+    const said = ra.locator('[data-line="ra-state"]');
+    await expect(said).toHaveText('Off.', { timeout: 20_000 });
+    await expect(sw).toHaveAttribute('aria-checked', 'false');
+    // The figures it watches are the venue's own.
+    await expect(ra.locator('[data-line="ra-margin"]')).toHaveText(withResult(start));
+    await expect(ra.locator('[data-line="ra-ratio"]')).toHaveText(`${ratioOf(maintenance, withResult(start))}%`);
+    const rows = ra.getByTestId('risk-alerts').locator('tbody tr');
+
+    /** Moves the margin with its result to `target`, and waits for our engine to have judged it (its row, or re-armed). */
+    const moveTo = async (target, expectRow) => {
+      const before = Date.now();
+      await marginWithResultTo(venue, s.owner, target);
+      if (expectRow) {
+        crossings.push({ ...expectRow, marginWithResult: target, from: before });
+        await expect(rows).toHaveCount(crossings.length, { timeout: 30_000 });
+        crossings.at(-1).to = Date.now();
+      }
+    };
+
+    // With no risk levels set, the toggle turned on says to set them, and the liquidation alert still fires.
+    await sw.click();
+    await expect(sw).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 });
+    await expect(toggle).toContainText('set your risk levels');
+    await expect(said).toHaveText(
+      'On, with no risk levels: set your risk levels for margin alerts and margin calls. The liquidation alert still goes out at 100%.',
+    );
+    await expect(toggle).toHaveAttribute('data-armed-liquidation', 'true');
+
+    // Crossing 1: the ratio reaches 100%, the venue's own maintenance requirement. One liquidation alert.
+    const past = fromUnits(toUnits(maintenance) - toUnits('0.5'));
+    await moveTo(past, { kind: 'liquidation', level: '100' });
+    await expect(rows.first()).toHaveAttribute('data-kind', 'liquidation');
+    await expect(toggle).toHaveAttribute('data-armed-liquidation', 'false', { timeout: 20_000 });
+    // Further past it: the same crossing, nothing more.
+    await moveTo(fromUnits(toUnits(maintenance) - toUnits('1')));
+    // Back on the safe side re-arms it (our engine has judged the margin since, and sent nothing for it).
+    await moveTo(withResult(start));
+    await expect(toggle).toHaveAttribute('data-armed-liquidation', 'true', { timeout: 20_000 });
+    await expect(rows).toHaveCount(1);
+    // Crossing 2: a second fall is a second alert.
+    await moveTo(past, { kind: 'liquidation', level: '100' });
+
+    // The person sets both risk levels; the alerts stay on.
+    await moveTo(withResult(start));
+    await expect(toggle).toHaveAttribute('data-armed-liquidation', 'true', { timeout: 20_000 });
+    const marginLevel = fromUnits(toUnits(withResult(start)) - toUnits('20'));
+    await ra.getByRole('textbox', { name: 'Margin level for a margin alert (USDC)', exact: true }).fill(marginLevel);
+    await ra.getByRole('textbox', { name: 'Margin ratio level for a margin call (%)', exact: true }).fill(RATIO_LEVEL);
+    await ra.getByRole('button', { name: 'Save risk levels', exact: true }).click();
+    await expect(ra.getByTestId('risk-alerts-said')).toHaveText('Saved.', { timeout: 20_000 });
+    await expect(said).toHaveText(`On: margin alert at ${marginLevel} USDC, margin call at ${RATIO_LEVEL}%, liquidation alert at 100%.`);
+    await expect(toggle).not.toContainText('set your risk levels');
+
+    // Crossing 3: the margin falls to the margin level: one margin alert.
+    await moveTo(fromUnits(toUnits(marginLevel) - toUnits('1')), { kind: 'margin', level: marginLevel });
+    await expect(toggle).toHaveAttribute('data-armed-margin', 'false', { timeout: 20_000 });
+    // Crossing 4: the ratio rises to 40%: one margin call; the margin alert is the same crossing, so not sent again.
+    const at40 = toUnits(askedFor(maintenance, RATIO_LEVEL, '0'));
+    const callAt = fromUnits(at40 - toUnits('0.25'));
+    await moveTo(callAt, { kind: 'margin_call', level: RATIO_LEVEL });
+    await expect(rows.first()).toHaveAttribute('data-kind', 'margin_call');
+    await expect(toggle).toHaveAttribute('data-armed-call', 'false', { timeout: 20_000 });
+    await expect(rows).toHaveCount(4);
+    run.write({ crossings });
+
+    // Each alert in the person's inbox, once, in words naming the venue's figures at the crossing.
+    await page.goto('/notifications');
+    const inbox = page.getByTestId('nf-row');
+    for (const kind of ['margin', 'margin_call', 'liquidation'])
+      await expect(inbox.filter({ hasText: ALERT_TITLE[kind] })).toHaveCount(crossings.filter((c) => c.kind === kind).length, {
+        timeout: 30_000,
+      });
+    const ratioPast = ratioOf(maintenance, past);
+    await expect(inbox.filter({ hasText: ALERT_TITLE.liquidation }).first()).toContainText(
+      `Your ${BTC} margin ratio reached ${ratioPast}%: at 100% the venue liquidates the position. Add ${askedFor(maintenance, '100', past)} USDC of margin to bring it back to 100%.`,
+    );
+    await expect(inbox.filter({ hasText: ALERT_TITLE.margin })).toContainText(
+      `The margin on your ${BTC} position, with its unrealised result, fell to ${fromUnits(toUnits(marginLevel) - toUnits('1'))} USDC, at or below your level of ${marginLevel} USDC.`,
+    );
+    await expect(inbox.filter({ hasText: ALERT_TITLE.margin_call })).toContainText(
+      `Your ${BTC} margin ratio reached ${ratioOf(maintenance, callAt)}%, at or above your level of ${RATIO_LEVEL}%. Add ${askedFor(maintenance, RATIO_LEVEL, callAt)} USDC of margin to bring it back to ${RATIO_LEVEL}%.`,
+    );
+    await stepPicture();
+    await ledgerUntouched(s);
+  } finally {
+    await venueAt('/test/set-mark', { symbol: BTC, price: markBefore });
+  }
+});
+
+test(`${J} #7 opens the Margin calls tab: the margin call with its time and what was asked`, async ({ page, stepPicture }) => {
+  test.setTimeout(300_000);
+  const s = state();
+  const { crossings } = run.read();
+  if (!crossings?.length) throw new Error(`${J} #6 sent no alerts, so there is no margin call to open`);
+  const venue = await venueNow();
+  const maintenance = maintenanceOf(await positionOn(venue, s.owner));
+  await openVenueRoom(page, s, ROOM);
+  const tab = page.getByRole('tab', { name: 'Margin calls', exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  const room = page.getByTestId('margin-calls-room');
+  await expect(room).toContainText(`Margin calls on ${venue.name}`);
+  // Margin calls and liquidation alerts, newest first; margin alerts stay in each position's Margin panel.
+  const calls = crossings.filter((c) => c.kind !== 'margin').reverse();
+  const rows = room.getByTestId('margin-calls').locator('tbody tr');
+  await expect(rows).toHaveCount(calls.length, { timeout: 30_000 });
+  for (const [i, c] of calls.entries()) {
+    const row = rows.nth(i);
+    await expect(row).toHaveAttribute('data-kind', c.kind);
+    await expect(row.locator('[data-cell="market"]')).toHaveText(BTC);
+    await expect(row.locator('[data-cell="alert"]')).toHaveText(
+      c.kind === 'margin_call' ? `Margin call at ${c.level}%` : `Liquidation alert at ${c.level}%`,
+    );
+    await expect(row.locator('[data-cell="margin"]')).toHaveText(c.marginWithResult);
+    await expect(row.locator('[data-cell="ratio"]')).toHaveText(`${ratioOf(maintenance, c.marginWithResult)}%`);
+    // What was asked: the margin that brings the ratio back to the level, from the venue's figures at the crossing.
+    await expect(row.locator('[data-cell="asked"]')).toHaveText(
+      `Add ${askedFor(maintenance, c.level, c.marginWithResult)} USDC to bring the margin ratio back to ${c.level}%`,
+    );
+    // Its time: the instant our engine sent it, between the fall and the alert appearing, shown to the second.
+    const time = row.locator('[data-cell="time"] time');
+    const at = Date.parse(await time.getAttribute('datetime'));
+    expect(at).toBeGreaterThanOrEqual(c.from - 1000);
+    expect(at).toBeLessThanOrEqual(c.to + 1000);
+    await expect(time).toHaveText(/\d{1,2}:\d{2}:\d{2}/);
+  }
+  await stepPicture();
+  await ledgerUntouched(s);
 });

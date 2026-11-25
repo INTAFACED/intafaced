@@ -8,7 +8,7 @@ use service_kit::nats::{ConsumerSpec, Envelope};
 use service_kit::pg::Pool;
 
 use crate::own::automation::{AutoRuns, SUBJECT_PREFIX, TriggerEvent, deliver_trigger_event};
-use crate::own::freeze_applied::on_self_freeze_applied;
+use crate::own::freeze_applied::{on_self_freeze_applied, on_support_account_frozen};
 
 /// One event svc-agents consumes: its `defineEvent(service, entity, verb, version, …)` and the durable it is taken
 /// under.
@@ -54,6 +54,16 @@ pub const SELF_FREEZE_APPLIED: Taken = Taken {
     durable: "agents-identity-self-freeze-frozen",
 };
 
+/// `supportAccountFrozen`: a support agent froze the customer's account from their request (J-support-public-20 #7).
+pub const SUPPORT_ACCOUNT_FROZEN: Taken = Taken {
+    event: "supportAccountFrozen",
+    service: "identity",
+    entity: "support_account_freeze",
+    verb: "frozen",
+    version: 1,
+    durable: "agents-identity-support-account-freeze-frozen",
+};
+
 /// The own agents' event triggers on a settled fill (AG-sessions-02).
 pub const FILL_SETTLED: Taken = Taken {
     event: "fillSettled",
@@ -65,7 +75,7 @@ pub const FILL_SETTLED: Taken = Taken {
 };
 
 /// Every event the binary takes.
-pub const TAKEN: [Taken; 2] = [SELF_FREEZE_APPLIED, FILL_SETTLED];
+pub const TAKEN: [Taken; 3] = [SELF_FREEZE_APPLIED, SUPPORT_ACCOUNT_FROZEN, FILL_SETTLED];
 
 /// A payload string field the work reads: present and not blank, or the delivery is refused (and nak'd), as the
 /// catalog's schema refuses it.
@@ -84,6 +94,16 @@ pub fn on_self_freeze(pool: &Pool, env: &Envelope) -> Result<(), String> {
     on_self_freeze_applied(pool, &env.payload)
         .map(|_| ())
         .map_err(|e| format!("self-freeze not applied: {e:?}"))
+}
+
+/// One `supportAccountFrozen` delivery: the support agent's freeze applied once under its id, in one transaction.
+pub fn on_support_freeze(pool: &Pool, env: &Envelope) -> Result<(), String> {
+    for k in ["userId", "freezeId", "since"] {
+        field(&env.payload, k)?;
+    }
+    on_support_account_frozen(pool, &env.payload)
+        .map(|_| ())
+        .map_err(|e| format!("support account freeze not applied: {e:?}"))
 }
 
 /// One `fillSettled` delivery: `deliverTriggerEvent` for the fill's owner, the run row under the fill's id its

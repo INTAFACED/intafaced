@@ -5,10 +5,13 @@
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { createOrderRequestSchema, orderTypeSchema } from '@intafaced/exchange-contract';
+import { decodeVenueWire } from '@intafaced/venue-contracts';
 import {
   SPOT_ORDER_TYPE_SEND,
   SPOT_ORDER_TYPES_PATH,
   SPOT_TICKET_ORDER_TYPES,
+  VENUE_SPOT_ORDER_TYPE_NOT_OFFERED,
+  VENUE_SPOT_OTHER_ORDER_TYPES,
   spotOrderTypesSchema,
   type SpotTicketOrderType,
 } from '@intafaced/contracts/spot-order-types';
@@ -63,5 +66,69 @@ describe('spot order types', () => {
       expect(readOcoFromBody(example(id))).toBeNull();
       expect(readBracketFromBody(example(id))).toBeNull();
     }
+  });
+
+  it('when the user-venue door is on, derives accepted and refused types from the venue spot market in ticket order', async () => {
+    const app = Fastify();
+    registerPublicRest(app, {
+      ...deps,
+      venueSpotMarkets: async () => [
+        { symbol: 'BTC-PERP', kind: 'perpetual', orderTypes: ['limit', 'market'], timeInForce: ['GTC', 'IOC'] },
+        { symbol: 'BTC-USDC', kind: 'spot', orderTypes: ['limit', 'market'], timeInForce: ['GTC', 'IOC', 'ALO'] },
+        { symbol: 'ETH-USDC', kind: 'spot', orderTypes: ['limit'], timeInForce: ['GTC', 'ALO'] },
+      ],
+    });
+    await app.ready();
+
+    const first = await app.inject({ method: 'GET', url: SPOT_ORDER_TYPES_PATH });
+    expect(first.statusCode).toBe(200);
+    const body = spotOrderTypesSchema.parse(first.json());
+    expect(body.source).toBe('venue');
+    expect(body.symbol).toBe('BTC-USDC');
+    expect(body.accepted.map((row) => row.id)).toEqual(['limit', 'market']);
+    expect(body.accepted[0]?.timeInForce).toEqual(['GTC', 'IOC', 'ALO']);
+    expect(body.accepted[1]?.timeInForce).toEqual(['IOC']);
+    expect(body.refused).toEqual(VENUE_SPOT_OTHER_ORDER_TYPES.map((id) => ({ id, code: VENUE_SPOT_ORDER_TYPE_NOT_OFFERED })));
+    for (const row of body.accepted) {
+      expect(decodeVenueWire(row.send.example)).toMatchObject({ kind: 'place_order', symbol: 'BTC-USDC', type: row.id });
+    }
+
+    const eth = await app.inject({ method: 'GET', url: `${SPOT_ORDER_TYPES_PATH}?symbol=ETH-USDC` });
+    expect(eth.statusCode).toBe(200);
+    const ethBody = spotOrderTypesSchema.parse(eth.json());
+    expect(ethBody.symbol).toBe('ETH-USDC');
+    expect(ethBody.accepted.map((row) => row.id)).toEqual(['limit']);
+    expect(ethBody.accepted[0]?.timeInForce).toEqual(['GTC', 'ALO']);
+
+    const unknown = await app.inject({ method: 'GET', url: `${SPOT_ORDER_TYPES_PATH}?symbol=NO-SUCH-PAIR` });
+    expect(unknown.statusCode).toBe(400);
+    expect(unknown.json().intafacedCode).toBe('trade.venue.unknown_market');
+    await app.close();
+  });
+
+  it('refuses 503 honestly when the venue door is on but unreachable or lists no spot market', async () => {
+    const down = Fastify();
+    registerPublicRest(down, {
+      ...deps,
+      venueSpotMarkets: async () => {
+        throw new Error('venue unreachable');
+      },
+    });
+    await down.ready();
+    const downRes = await down.inject({ method: 'GET', url: SPOT_ORDER_TYPES_PATH });
+    expect(downRes.statusCode).toBe(503);
+    expect(downRes.json().intafacedCode).toBe('trade.venue.venue_down');
+    await down.close();
+
+    const empty = Fastify();
+    registerPublicRest(empty, {
+      ...deps,
+      venueSpotMarkets: async () => [{ symbol: 'BTC-PERP', kind: 'perpetual', orderTypes: ['limit'], timeInForce: ['GTC'] }],
+    });
+    await empty.ready();
+    const emptyRes = await empty.inject({ method: 'GET', url: SPOT_ORDER_TYPES_PATH });
+    expect(emptyRes.statusCode).toBe(503);
+    expect(emptyRes.json().intafacedCode).toBe('trade.venue.not_offered');
+    await empty.close();
   });
 });

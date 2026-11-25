@@ -16,13 +16,16 @@ let postmortemLoad: Loadable<PublishedPostmortem[]> = { status: 'loading' };
 vi.mock('../../data/hooks', () => ({
   useDataEnv: () => ({ poller: { source: (key: string) => ({ key }) }, api: {}, userId: null }),
   useSource: (source: { key: string }) =>
-    source.key === 'public-status-maintenance'
-      ? maintenanceLoad
-      : source.key === 'public-status-page'
-        ? pageLoad
-        : source.key === 'public-status-postmortems'
-          ? postmortemLoad
-          : load,
+    // This deployment's venue door is off, so /status reads its own modes (the venue's are J-cex-spot-14 #2's own test).
+    source.key === 'venue-market-states'
+      ? { status: 'refused', code: 'trade.user_venue_off' }
+      : source.key === 'public-status-maintenance'
+        ? maintenanceLoad
+        : source.key === 'public-status-page'
+          ? pageLoad
+          : source.key === 'public-status-postmortems'
+            ? postmortemLoad
+            : load,
 }));
 
 import { StatusRoom as StatusPage } from './status-room/StatusRoom';

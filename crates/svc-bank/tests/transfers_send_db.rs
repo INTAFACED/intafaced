@@ -419,6 +419,8 @@ struct Owner {
     remind: Option<&'static str>,
     /// Notices wired to the recorder; none is `NoBus`.
     bus: bool,
+    /// The TEST partner's stated send fee; none is its own `SEND_FEE`.
+    partner_send_fee: Option<&'static str>,
 }
 
 /// `personal-pay.db.test.ts`'s bank: the TEST reminder rule, two in any 24 hours.
@@ -427,6 +429,7 @@ fn pay_owner() -> Owner {
         review: None,
         remind: Some(r#"{"cap":2,"windowSeconds":86400}"#),
         bus: true,
+        partner_send_fee: None,
     }
 }
 
@@ -436,6 +439,7 @@ fn review_owner() -> Owner {
         review: Some(r#"{"USDT":"50"}"#),
         remind: None,
         bus: true,
+        partner_send_fee: None,
     }
 }
 
@@ -448,9 +452,13 @@ struct Bank {
     owner: Owner,
 }
 
-fn partner_wiring() -> PartnerWiring {
+fn partner_wiring(o: &Owner) -> PartnerWiring {
+    let partner = TestPartner::new().unwrap();
     PartnerWiring {
-        partner: Some(TestPartner::new().unwrap()),
+        partner: Some(match o.partner_send_fee {
+            Some(fee) => partner.with_send_fee(amt(fee)),
+            None => partner,
+        }),
         freeze: Box::new(Open),
         custody_layer: "off".to_owned(),
         cash_legs: None,
@@ -519,7 +527,7 @@ fn door_for(db: &TestDb, b: &Book, identity: &Identity, bus: &Recorder, o: &Owne
         store: db.store(),
     })
     .unwrap()
-    .with_partner(partner_wiring())
+    .with_partner(partner_wiring(o))
     .with_spaces(spaces_wiring(b))
     .with_transfers(transfers_wiring(identity, bus, o))
 }
@@ -577,7 +585,7 @@ impl Bank {
         now: Option<Instant>,
         f: impl FnOnce(&transfers::Deps<'_>) -> T,
     ) -> T {
-        let partner = partner_wiring();
+        let partner = partner_wiring(o);
         let spaces = spaces_wiring(&self.ledger);
         let w = transfers_wiring(&self.identity, &self.bus, o);
         let store = self.store();
@@ -1053,6 +1061,28 @@ fn the_recovery_pass_announces_owed_sends_older_than_the_grace_keeps_failures_ow
 }
 
 #[test]
+fn a_posted_send_records_its_own_fee_and_the_network_fee_its_book_stated() {
+    let Some(b) = bank_with(pay_owner()) else {
+        return;
+    };
+    let from = b.ready(true);
+    b.svc(|d| service_send(d, ADA, "send-fees-own-book", &from, BOB, "4", None))
+        .unwrap();
+    // Our published fee (free here) and, on our own book, which crosses no network, a network fee of "0": recorded with
+    // the send, so the activity row shows what this payment cost, not today's terms.
+    assert_eq!(
+        b.rows(
+            "SELECT fee::text, network_fee::text FROM bank.personal_transfers \
+              WHERE transfer_id = 'send-fees-own-book'"
+        ),
+        [[
+            Some("0.000000000000000000".to_owned()),
+            Some("0.000000000000000000".to_owned())
+        ]]
+    );
+}
+
+#[test]
 fn with_no_notices_wired_a_send_still_posts_and_its_notice_stays_owed() {
     let Some(b) = bank_with(pay_owner()) else {
         return;
@@ -1119,6 +1149,53 @@ fn refuses_a_send_when_no_limits_are_published_nothing_reserved_nothing_posted()
 }
 
 #[test]
+fn a_quote_names_the_network_fee_the_partner_holding_the_money_reports_and_null_when_it_says_none()
+{
+    // A TEST partner that states a send fee our own book never gives, so the quote shows whose figure it answered.
+    let Some(b) = bank_with(Owner {
+        partner_send_fee: Some("0.5"),
+        ..pay_owner()
+    }) else {
+        return;
+    };
+    b.sql(
+        "INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) \
+         VALUES ('EUR', 1000, 5000, 0)",
+    );
+    let quote = |b: &Bank| {
+        call(
+            b,
+            ADA,
+            RW,
+            "transfers.quote",
+            r#"{"assetId":"EUR","amount":"25"}"#,
+        )
+        .ok()
+    };
+    let set = |input: &str| call(&b, ADA, RW, "testPartner.set", input).ok();
+    set(r#"{"custody":"off"}"#);
+    let held = quote(&b);
+    // The partner's own stated send fee, as its figure: not our own book's "0", and not the null of a fee it does not
+    // give.
+    assert_eq!(
+        held.get("networkFee"),
+        Some(&Json::str("0.5")),
+        "{}",
+        held.compact()
+    );
+    assert_eq!(held.get("withinPerTransfer"), Some(&Json::Bool(true)));
+    set(r#"{"fee":"unknown"}"#);
+    let unknown = quote(&b);
+    assert_eq!(
+        unknown.get("networkFee"),
+        Some(&Json::Null),
+        "{}",
+        unknown.compact()
+    );
+    assert!(b.ledger.p2p().is_empty());
+}
+
+#[test]
 fn quotes_only_a_published_zero_fee_and_refuses_an_unpublished_or_unwired_fee() {
     let Some(b) = bank_with(pay_owner()) else {
         return;
@@ -1150,6 +1227,8 @@ fn quotes_only_a_published_zero_fee_and_refuses_an_unpublished_or_unwired_fee() 
             ("remainingToday", Json::str("100")),
             ("fee", Json::str("0")),
             ("feeBlocker", Json::Null),
+            // On our own book a send crosses no network.
+            ("networkFee", Json::str("0")),
             ("withinPerTransfer", Json::Bool(true)),
             ("withinDaily", Json::Bool(true)),
         ])
@@ -2029,6 +2108,108 @@ fn holds_a_send_above_the_line_in_review_with_its_reason_class_nothing_taken_and
     to_user(&b, ADA, &send_of("small-send-1", &from, BOB, "50")).ok();
     assert_eq!(b.ledger.p2p().len(), 1);
     assert_eq!(b.ledger.available(BOB), "50");
+}
+
+/// J-pay-01 #6: a send whose partner answer was lost reads Confirming while the partner does not answer, and Completed
+/// under the partner's one move once it does; the read never moves money, and the send's own retry answers that move.
+#[test]
+fn a_send_whose_partner_answer_was_lost_reads_confirming_until_the_partner_answers_then_completed_under_its_one_move()
+ {
+    let Some(b) = bank_with(pay_owner()) else {
+        return;
+    };
+    let set = |user: &str, input: &str| call(&b, user, RW, "testPartner.set", input).ok();
+    set(ADA, r#"{"custody":"off"}"#);
+    set(BOB, r#"{"custody":"off"}"#);
+    let from = primary(&b, ADA);
+    primary(&b, BOB);
+    b.sql(
+        "INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) \
+         VALUES ('USDT', 1000, 10000, 0)",
+    );
+    call(
+        &b,
+        ADA,
+        RW,
+        "testPartner.fund",
+        r#"{"fundId":"fund-confirming-1","assetId":"USDT","amount":"100"}"#,
+    )
+    .ok();
+    let send = with_field(
+        &send_of("confirming-send-1", &from, BOB, "2"),
+        "note",
+        Json::str("Coffee, TEST"),
+    );
+    // The partner makes the move and its answer is lost: the bank keeps the send reserved.
+    set(ADA, r#"{"nextReply":"lost"}"#);
+    to_user(&b, ADA, &send).refused("SERVICE_UNAVAILABLE", "did not answer");
+    let key = "bank.transfer.p2p:confirming-send-1:0";
+    let partner = b.door.partner().partner.as_ref().unwrap();
+    let made = partner.lock().book.by_key(key).cloned().unwrap();
+    let read = |user: &str| {
+        call(
+            &b,
+            user,
+            READ,
+            "transfers.sent",
+            r#"{"transferId":"confirming-send-1"}"#,
+        )
+    };
+    // While the partner does not answer, the bank cannot know: Confirming, with no reference and nothing posted.
+    set(ADA, r#"{"down":true}"#);
+    let confirming = read(ADA).ok();
+    for (k, v) in [
+        ("transferId", "confirming-send-1"),
+        ("status", "confirming"),
+        ("amount", "2"),
+        ("assetId", "USDT"),
+        ("note", "Coffee, TEST"),
+        ("toHandle", "bob"),
+        ("partnerMove", "null"),
+        ("ledgerTxId", "null"),
+        ("postedAt", "null"),
+    ] {
+        assert_eq!(s(&confirming, k), v, "{k}");
+    }
+    assert_eq!(
+        b.count("SELECT count(*) FROM bank.personal_transfers WHERE status = 'reserved'"),
+        1
+    );
+    // Only the sender reads it: the recipient and a stranger get the same not-found as a missing id.
+    for who in [BOB, CY] {
+        read(who).refused("NOT_FOUND", "bank.personal_transfer_not_found");
+    }
+    // The partner answers: the read adopts its one move under the send's key, and the send reads Completed.
+    set(ADA, r#"{"down":false}"#);
+    let completed = read(ADA).ok();
+    assert_eq!(s(&completed, "status"), "completed");
+    assert_eq!(
+        completed.get("partnerMove").map(|m| s(m, "id")),
+        Some(made.id.clone())
+    );
+    assert_ne!(s(&completed, "postedAt"), "null");
+    assert_eq!(read(ADA).ok(), completed);
+    // The send's own retry answers that move; the partner made exactly one, and the ledger posted nothing.
+    let retried = to_user(&b, ADA, &send).ok();
+    assert_eq!(
+        retried.get("partnerMove").map(|m| s(m, "id")),
+        Some(made.id.clone())
+    );
+    let moves = partner.lock().moves(
+        ADA,
+        &svc_bank::partner::MovesQuery {
+            limit: 100,
+            before: None,
+            asset_id: None,
+            pay_ins: false,
+        },
+    );
+    assert_eq!(moves.iter().filter(|m| m.key == key).count(), 1);
+    assert_eq!(
+        b.count("SELECT count(*) FROM bank.personal_transfers WHERE status = 'posted'"),
+        1
+    );
+    assert!(b.ledger.p2p().is_empty());
 }
 
 #[test]

@@ -29,6 +29,7 @@ import {
   InMemoryNonceSource,
   PERP_COLLATERAL_ASSET,
   mapOrderStatus,
+  withCancelReason,
   type FetchLike,
   type HyperliquidNonceSource,
 } from './venue.js';
@@ -298,6 +299,25 @@ describe('prepare builds exactly what the wallet signs', () => {
       'builder_fee_not_approved',
     );
     await refusedWith(venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('0.05') } })), 'not_offered');
+  });
+
+  it('#10657: a perp order and a spot sell each carry their own builder fee, each refused above its own protocol cap', async () => {
+    const fake = fakeVenue();
+    fake.info.maxBuilderFee = () => 10_000; // the trader approved 1000 bps: only the venue's cap binds here
+    const venue = venueWith(fake);
+    const perp = await venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('10') } }));
+    expect(perp.builderFee).toEqual({ builder: BUILDER, feeBps: a('10') });
+    await refusedWith(
+      venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('10.1') } })),
+      'builder_fee_above_cap',
+    );
+    const spotSell = order({ symbol: 'PURR-USDC', side: 'sell', amount: a('10'), price: a('0.1') });
+    const spot = await venue.prepare(account, ownerSigner, { ...spotSell, builderFee: { builder: BUILDER, feeBps: a('100') } });
+    expect(spot.builderFee).toEqual({ builder: BUILDER, feeBps: a('100') });
+    await refusedWith(
+      venue.prepare(account, ownerSigner, { ...spotSell, builderFee: { builder: BUILDER, feeBps: a('100.1') } }),
+      'builder_fee_above_cap',
+    );
   });
 
   it('an agent: refused when the venue does not list it, refused owner-only actions', async () => {
@@ -716,6 +736,14 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(() => mapOrderStatus('somethingNew')).toThrow();
   });
 
+  it('a self-trade cancel is named as one; any other cancel word leaves the reason unsaid (J-derivatives-04 #7)', () => {
+    const order = { venueClientOrderId: '0x1', status: 'canceled', cancelReason: null };
+    expect(mapOrderStatus('selfTradeCanceled')).toBe('canceled');
+    expect(withCancelReason(order, 'selfTradeCanceled').cancelReason).toBe('self_trade');
+    expect(withCancelReason(order, 'marginCanceled')).toBe(order);
+    expect(withCancelReason(order, 'canceled')).toBe(order);
+  });
+
   it('order history: every state the venue reports, newest placed first, with when it was placed (J-cex-spot-06 #1)', async () => {
     const fake = fakeVenue();
     const order = (oid: number, sz: string, origSz: string, timestamp: number) => ({
@@ -745,6 +773,44 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     ]);
     // A cancelled order locks nothing; the open one still locks its remainder's margin.
     expect(history[1]!.order.locked).toBe(ZERO);
+    expect(history.every((r) => r.order.origin === 'user')).toBe(true);
+  });
+
+  it('order history maps trigger and liquidation orders to their origin (J-derivatives-04 #2)', async () => {
+    const fake = fakeVenue();
+    const base = {
+      coin: 'ETH',
+      side: 'A',
+      limitPx: '2900',
+      sz: '0',
+      origSz: '0.1',
+      tif: 'Ioc',
+      reduceOnly: true,
+      timestamp: NOW,
+    };
+    fake.info.historicalOrders = () => [
+      {
+        order: { ...base, oid: 11, cloid: `0x${'1'.repeat(32)}`, orderType: 'Stop Market', isTrigger: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+      {
+        order: { ...base, oid: 12, cloid: `0x${'2'.repeat(32)}`, orderType: 'Take Profit Market', isTrigger: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+      {
+        order: { ...base, oid: 13, cloid: `0x${'3'.repeat(32)}`, orderType: 'Liquidation', isLiquidation: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+    ];
+    const history = (await venueWith(fake).orderHistory(account)).value;
+    expect(history.map((r) => [r.order.venueOrderId, r.order.origin])).toEqual([
+      ['11', 'stop'],
+      ['12', 'take_profit'],
+      ['13', 'liquidation'],
+    ]);
   });
 
   it('open orders: a spot buy holds its notional; a perp order its margin at the account leverage', async () => {
@@ -903,9 +969,24 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       { known: true, value: a('1') },
     ]);
     expect((await venue.markets(account)).value.find((m) => m.symbol === 'PURR-USDC')!.takerFeeBps).toEqual({ known: false });
-    // The venue publishes no builder-fee cap through info, so none is typed in: every market reads "not known".
-    expect(anon.map((m) => m.builderFeeCapBps)).toEqual(anon.map(() => ({ known: false })));
-    expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => [null, null, null]));
+    // The builder-fee cap is the venue's protocol-wide one by kind: 0.1% on perps, 1% on spot.
+    expect(eth.builderFeeCapBps).toEqual({ known: true, value: a('10') });
+    expect(anon.find((m) => m.symbol === 'PURR-USDC')!.builderFeeCapBps).toEqual({ known: true, value: a('100') });
+    // Smallest order value ($10 / 10 quote) and default open-order cap (1000) are published; price band stays null.
+    for (const m of anon) {
+      expect([m.minOrderNotional, m.priceBandBps, m.maxOpenOrders]).toEqual([a('10'), null, 1000]);
+    }
+    // A listed market is trading, as the venue lists it; no largest order is published.
+    expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => ['trading', null, null]));
+  });
+
+  it('a perp the venue flags delisted is not listed at all, so no market it lists is ever drawn trading after delisting', async () => {
+    const fake = fakeVenue();
+    fake.info.meta = () => ({ universe: [...META.universe, { name: 'OLD', szDecimals: 2, maxLeverage: 3, isDelisted: true }] });
+    const listed = (await venueWith(fake).markets(null)).value.map((m) => [m.symbol, m.status]);
+    expect(listed).not.toContainEqual(['OLD-PERP', 'trading']);
+    expect(listed.map(([s]) => s)).not.toContain('OLD-PERP');
+    expect(listed).toContainEqual(['BTC-PERP', 'trading']);
   });
 });
 
@@ -1310,5 +1391,109 @@ describe('feeStatus reads userFees and sends nothing (J-cex-spot-10 #2 #6)', () 
     fake.info.userFees = () => ({});
     const s = (await venueWith(fake).feeStatus(null)).value;
     expect(s).toEqual({ schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+  });
+});
+
+describe("public market data: best prices, prints and candles, no account (the desks' book, tape and chart)", () => {
+  const book = (bids: [string, string][], asks: [string, string][]) => () => ({
+    coin: 'BTC',
+    time: NOW,
+    levels: [bids.map(([px, sz]) => ({ px, sz, n: 1 })), asks.map(([px, sz]) => ({ px, sz, n: 1 }))],
+  });
+
+  it('best prices are the top of the public book; an empty side is null', async () => {
+    const fake = fakeVenue();
+    fake.info.l2Book = book(
+      [
+        ['58737', '0.1'],
+        ['58730', '1'],
+      ],
+      [],
+    );
+    const read = await venueWith(fake).bestPrices('BTC-PERP');
+    expect(read.value).toEqual({ symbol: 'BTC-PERP', bid: a('58737'), ask: null });
+    expect(read.reportedAt?.getTime()).toBe(NOW);
+  });
+
+  it('prints: newest first, at most limit, the taker side named, the id kept exact (a hash past a safe number)', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    fake.info.recentTrades = (b) => {
+      asked = b;
+      return [
+        { coin: 'BTC', side: 'A', px: '58731.0', sz: '0.00002', time: NOW - 2000, hash: '0xaa', tid: 614600037758557 },
+        { coin: 'BTC', side: 'B', px: '58740.5', sz: '0.5', time: NOW - 1000, hash: '0xbb', tid: 2 ** 60 },
+        { coin: 'BTC', side: 'B', px: '58700', sz: '1', time: NOW - 3000, hash: '0xcc', tid: 7 },
+      ];
+    };
+    const read = await venueWith(fake).trades('BTC-PERP', 2);
+    expect(asked).toEqual({ type: 'recentTrades', coin: 'BTC' });
+    expect(read.value).toEqual([
+      { tradeId: '0xbb', symbol: 'BTC-PERP', price: a('58740.5'), amount: a('0.5'), takerSide: 'buy', tradedAt: new Date(NOW - 1000) },
+      {
+        tradeId: '614600037758557',
+        symbol: 'BTC-PERP',
+        price: a('58731'),
+        amount: a('0.00002'),
+        takerSide: 'sell',
+        tradedAt: new Date(NOW - 2000),
+      },
+    ]);
+    expect(read.reportedAt?.getTime()).toBe(NOW - 1000);
+  });
+
+  it('a price sent as a JSON number is refused, never read as a float', async () => {
+    const fake = fakeVenue();
+    fake.info.recentTrades = () => [{ coin: 'BTC', side: 'B', px: 58740.5, sz: '0.5', time: NOW, hash: '0xbb', tid: 1 }];
+    await expect(venueWith(fake).trades('BTC-PERP', 5)).rejects.toThrow(/not a string/);
+  });
+
+  it('candles: the window asked is limit intervals back from now, oldest first, the newest limit kept', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    const c = (t: number, o: string, cl: string) => ({
+      t,
+      T: t + 3_599_999,
+      s: 'BTC',
+      i: '1h',
+      o,
+      c: cl,
+      h: '59953',
+      l: '58856',
+      v: '1.13873',
+      n: 3,
+    });
+    fake.info.candleSnapshot = (b) => {
+      asked = b;
+      return [
+        c(NOW - 3_600_000, '58959', '58731'),
+        c(NOW - 3 * 3_600_000, '59216', '59312'),
+        c(NOW - 2 * 3_600_000, '59365', '59146'),
+        { ...c(NOW, '58731', '58731'), v: '0.0', n: 0 }, // no print in this interval: not a candle
+      ];
+    };
+    const read = await venueWith(fake).candles('BTC-PERP', '1h', 2);
+    expect(asked).toEqual({ type: 'candleSnapshot', req: { coin: 'BTC', interval: '1h', startTime: NOW - 2 * 3_600_000, endTime: NOW } });
+    expect(read.value.map((x) => [x.openAt.getTime(), x.openPrice, x.closePrice])).toEqual([
+      [NOW - 2 * 3_600_000, a('59365'), a('59146')],
+      [NOW - 3_600_000, a('58959'), a('58731')],
+    ]);
+    expect(read.value[0]).toMatchObject({ highPrice: a('59953'), lowPrice: a('58856'), baseVolume: a('1.13873') });
+  });
+
+  it('candles from a time start there; an interval the venue does not publish and an unlisted market are refused', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    fake.info.candleSnapshot = (b) => ((asked = b), []);
+    await venueWith(fake).candles('ETH-PERP', '15m', { limit: 10, since: new Date(NOW - 60_000) });
+    expect(asked).toEqual({ type: 'candleSnapshot', req: { coin: 'ETH', interval: '15m', startTime: NOW - 60_000, endTime: NOW } });
+    await refusedWith(venueWith(fake).candles('BTC-PERP', '6h', 10), 'not_offered');
+    await refusedWith(venueWith(fake).candles('DOGE-PERP', '1h', 10), 'unknown_market');
+    await refusedWith(venueWith(fake).trades('DOGE-PERP', 10), 'unknown_market');
+  });
+
+  it('a failed read is venue_down: nothing changed', async () => {
+    const fake = fakeVenue();
+    await refusedWith(venueWith(fake).trades('BTC-PERP', 10), 'venue_down'); // no recentTrades handler: HTTP 400
   });
 });

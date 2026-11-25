@@ -313,6 +313,8 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'menu-reach.mjs':
+    "which journey steps showed a screen no link path reaches from the front page or Home on the hosted beta's build, from a journeys run's crawl record (menu-reach.pw.mjs) and recorded screens, for project-state's count. Not a doctrine gate: it judges nothing and needs a run's report; real-app-journeys.yml runs it with its tests, menu-reach.test.mjs.",
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'brief-cases.mjs':
     "not a gate: scores the CI review's and the proof reader's briefs on the real cases beside them, by hand, on the signed-in reviewer CLI (project-state#2847: nothing runs on every push). Its tests are brief-cases.test.mjs.",
@@ -332,6 +334,8 @@ export const NOT_GATES = {
     "not a gate: real-app-journeys.yml's `Main's journeys first` job, which defers a Real-app journeys run off main while a main run's jobs wait for runners, without holding a runner: the deferred run selects no journeys and ends, and the `release` job re-runs it when main's planner finishes (a hand-dispatched full run is also deferred while 2 others hold runners; INTAFACED/project-state#1574 item 3). It reads GitHub's Actions API, so a laptop verify has no input; its tests are main-first.test.mjs.",
   'model-check.mjs':
     "the plan of model-check.yml: which TLA+ models a change is checked against (every model, when a modelled service, a path a COVERS.md names or the check itself changes), failing on a model nothing runs. Not a doctrine gate: it needs the pull request's changed files, and the models need Java and minutes, so the Model check workflow runs it; its tests are model-check.test.mjs.",
+  'beta-hides.mjs':
+    "which customer-app paths the hosted beta hides, by the beta build's own rule (beta-volt.ts betaHides over volt-count.ts); journey-verdict.mjs runs it on a journeys run's recorded screens to name the steps not proven on the beta (notOnBeta). Not a doctrine gate: it judges nothing on its own and needs a run's screens; its tests are in journey-verdict.test.mjs.",
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
   'look-paths.mjs':
@@ -398,6 +402,8 @@ export const NOT_GATES = {
     "not a gate: it finds, at run time from the tree judged (the pull request's head), which tooling files a journeys run or a unit-test job can reach; journey-touch.mjs, journey-seal.mjs, ci-affected.mjs and ci-jobs-seal.mjs import it, so a change no journey reaches runs no journeys and only its readers' unit tests, and a scan that can't run keeps today's rules. Its tests are `tooling/ci/tooling-reach.test.mjs`, a tooling test the `tooling-tests` gate runs.",
   'journey-reach-map.mjs':
     "the touched-journeys map (R3 C4): `build` reads the `journey-reach` records of main's newest whole full Real-app journeys runs (gh run download) into tooling/ci/journey-reach-map.json, and refuses (a full map) with fewer than 3; journey-touch.mjs and the seal read it so product code runs only the journeys recorded reaching it, else the full suite (shared setup, scripts, admin-app paths, packages it can't map, event subscribers, a stale, missing or switched-off map; REACH_MAP_MODE = 'full' turns it off). A merge-seal input, not a gate of its own; `tooling/ci/journey-reach-map.test.mjs` holds its planted cases. Its `verify` (rebuild from main's runs up to the newest run the map names, compared byte for byte) runs in the Doctrine gates job of ci.yml when a pull request changes the map, with main's copy and the job's read-only token, NOT here: it needs NETWORK and a token. `.github/workflows/journey-reach-map.yml` builds the map in CI and keeps it as an artifact.",
+  'judge-repair.mjs':
+    "merge-seal step, the seal job's first: a pull request that changes only the CI review's or the seal's own code (JUDGE_FILES) passes when every other workflow's newest run on its exact head is green and the CI review PASSed it with no FAIL standing for its code (any attempt of any review run on this head or on a head with the same tree); anything else, or any error, passes nothing and the seal's other steps judge it. Needs a GitHub token and a pull request, so a laptop verify has no input; `tooling/ci/judge-repair.test.mjs` holds its planted cases.",
   'factory-switch.mjs':
     "merge-seal step and sweep: the factory switch, the one-line file FACTORY on the branch factory-switch, read through the contents API; only `run` passes, and anything else or an unreadable answer fails the seal closed (also read by journey-seal.mjs). `--sweep` runs from factory-sweep.yml on that branch and re-runs the open pull requests' seals on a flip. Needs a GitHub token, so a laptop verify cannot run it; `tooling/ci/factory-switch.test.mjs` checks the verdict, the read and the sweep.",
   'app-token.mjs':

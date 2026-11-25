@@ -3,8 +3,12 @@ import type { RecurringBuys } from './recurring/recurring-buys.js';
 import { recurringRouter } from './recurring/router.js';
 import type { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { autoTopUpRouter } from './venue/auto-top-up-router.js';
+import type { VenueRiskAlerts } from './venue/risk-alerts.js';
+import { riskAlertsRouter } from './venue/risk-alerts-router.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
+import { venueAccountAdminRouter } from './admin/venue-account-admin.js';
+import type { VenueAccountReadDeps } from './admin/venue-account-read.js';
 import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
 import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
@@ -795,6 +799,8 @@ export function createTradeRouter(
   venueGrid?: VenueGrid | null,
   recurring?: RecurringBuys | null,
   autoTopUp?: VenueAutoTopUp | null,
+  venueAccounts?: VenueAccountReadDeps | null,
+  riskAlerts?: VenueRiskAlerts | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -845,6 +851,7 @@ export function createTradeRouter(
       insuranceAdminRouter(insuranceTopups),
       builderFeeAdminRouter(builderFees),
       agentDeskAdminRouter(agentDesk),
+      venueAccountAdminRouter(venueAccounts),
       quantLiveAdminRouter(quantHalts),
     ),
     /**
@@ -877,6 +884,8 @@ export function createTradeRouter(
     bots: router({ grid: gridRouter(grid, venueGrid), recurring: recurringRouter(recurring) }),
     /** `autoTopUp.*`: auto top-up of an isolated position's margin on the person's own venue account (venue/auto-top-up-router.ts). */
     autoTopUp: autoTopUpRouter(autoTopUp),
+    /** `riskAlerts.*`: margin and liquidation-risk alerts on a position on the person's own venue account (venue/risk-alerts-router.ts). */
+    riskAlerts: riskAlertsRouter(riskAlerts),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

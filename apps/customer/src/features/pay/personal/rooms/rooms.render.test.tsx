@@ -14,11 +14,23 @@ const world = vi.hoisted(() => ({
   feed: { status: 'loading' } as unknown,
   // The bank's answer to `transfers.held` (PP-send-request-10): by default no held send has this id.
   held: null as unknown,
+  // The bank's answers to `transfers.sent`, in turn (J-pay-01 #6): by default the id is not the person's own send.
+  sent: [] as unknown[],
   asked: [] as Array<{ procedure: string; input: unknown }>,
   // One client for the whole file, as the session gives one: a new object each render would re-run every read.
   api: {
     query: async (_module: string, procedure: string, input: unknown) => {
       world.asked.push({ procedure, input });
+      if (procedure === 'transfers.sent')
+        return (
+          world.sent.shift() ?? {
+            ok: false,
+            reason: 'error',
+            status: 404,
+            code: 'bank.personal_transfer_not_found',
+            message: 'Transfer not found',
+          }
+        );
       return (
         world.held ?? { ok: false, reason: 'error', status: 404, code: 'bank.held_send_not_found', message: 'No held payment with that id' }
       );
@@ -55,6 +67,7 @@ beforeEach(() => {
   world.userId = 'u1';
   world.feed = { status: 'loading' };
   world.held = null;
+  world.sent = [];
   world.asked = [];
   localStorage.clear();
   history.replaceState(null, '', '/pay');
@@ -280,6 +293,52 @@ describe('personal Pay rooms render', () => {
     expect(host.querySelector('[data-testid="payment-held-note"]')?.textContent).toBe(
       'The check did not pass, so nothing was sent and nothing left your account.',
     );
+  });
+
+  it('reads the sender’s own send as Confirming, and Completed with the partner’s reference once the bank knows (J-pay-01 #6)', async () => {
+    world.feed = { status: 'ready', data: { items: [], hasMore: false, loadingMore: false, moreFailed: false, loadMore: () => undefined } };
+    const sent = {
+      transferId: 'sent-send-1',
+      status: 'confirming',
+      amount: '2',
+      assetId: 'USDT',
+      note: 'Coffee, TEST',
+      toHandle: 'test_friend',
+      partnerMove: null,
+      ledgerTxId: null,
+      createdAt: '2026-11-04T10:00:00.000Z',
+      postedAt: null,
+    };
+    world.sent = [
+      { ok: true, data: sent },
+      {
+        ok: true,
+        data: {
+          ...sent,
+          status: 'completed',
+          partnerMove: { id: 'move-7', label: 'TEST partner bank' },
+          postedAt: '2026-11-04T10:01:00.000Z',
+        },
+      },
+    ];
+    await open('/pay/history/sent-send-1');
+    expect(world.asked).toEqual([
+      { procedure: 'transfers.held', input: { transferId: 'sent-send-1' } },
+      { procedure: 'transfers.sent', input: { transferId: 'sent-send-1' } },
+    ]);
+    const status = () => host.querySelector('[data-testid="payment-status"]');
+    expect(status()?.textContent).toBe('Confirming');
+    expect(status()?.getAttribute('data-status')).toBe('confirming');
+    expect(host.querySelector('[data-testid="payment-partner-reference"]')).toBeNull();
+    expect(host.textContent).toContain('2 USDT');
+    expect(host.textContent).toContain('@test_friend');
+    expect(host.textContent).not.toContain('This payment is not in your latest activity');
+    await act(async () => button('Check again')!.click());
+    expect(status()?.textContent).toBe('Completed');
+    expect(status()?.getAttribute('data-status')).toBe('completed');
+    expect(host.querySelector('[data-testid="payment-partner-reference"]')?.textContent).toBe('move-7');
+    expect(host.textContent).toContain('TEST partner bank reference');
+    expect(button('Check again')).toBeUndefined();
   });
 
   it('covers every room in the table', () => {

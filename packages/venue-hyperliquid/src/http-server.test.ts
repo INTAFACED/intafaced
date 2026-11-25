@@ -62,7 +62,8 @@ describe('the venue protocol over HTTP (answerUserVenue)', () => {
       label: 'TEST',
       chainId: 421_614,
       deposit: null,
-      venue: { id: 'hyperliquid-testnet', proofLevel: 'partner-sandbox' },
+      // Orders are L1 actions under chain 1337, which no wallet signs on: a trading session's key signs them.
+      venue: { id: 'hyperliquid-testnet', proofLevel: 'partner-sandbox', tradesSignedBy: 'session_key' },
     });
     for (const spec of Object.values(USER_VENUE_READS)) {
       const [s] = await post(venue, spec.path, { account: RECORDED_ORDER_ACCOUNT });
@@ -105,5 +106,39 @@ describe('a running venue names its source and lists its replay misses', () => {
       '/info {"type":"meta"}',
       '/info {"type":"spotMeta"}',
     ]);
+  });
+});
+
+describe('a user-signed action as the running venue sends it to the wallet', () => {
+  it('the typed data names the wallet chain GET /venue names, and its uint64 nonce travels as a decimal string', async () => {
+    const owner = `0x${'ab'.repeat(20)}`;
+    const { server, url } = await startHyperliquidVenueServer({
+      host: '127.0.0.1',
+      port: 0,
+      appEnv: 'test',
+      fetch: replayRecording({ label: 'TEST', note: '', calls: [] }),
+      clock: () => new Date(RECORDED_ORDER_NOW_MS),
+    });
+    try {
+      const res = await fetch(`${url}/prepare`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          encodeVenueWire({
+            account: { venueId: 'hyperliquid-testnet', owner, subAccount: null },
+            signer: { kind: 'owner', address: owner },
+            intent: { kind: 'approve_builder_fee', builder: `0x${'cd'.repeat(20)}`, maxFeeBps: parseAmount('0.5') },
+          }),
+        ),
+      });
+      expect(res.status).toBe(200);
+      const prepared = (await res.json()) as { typedData: { domain: { chainId: number }; message: { nonce: unknown } } };
+      expect(prepared.typedData.domain.chainId).toBe(HL_TESTNET_WALLET_CHAIN_ID);
+      expect(prepared.typedData.message.nonce).toMatch(/^\d+$/);
+      // The server is still up after the answer: a second request is answered.
+      expect((await fetch(`${url}/health`)).status).toBe(200);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });

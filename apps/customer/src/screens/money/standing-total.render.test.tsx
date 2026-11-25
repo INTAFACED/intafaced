@@ -96,3 +96,21 @@ describe('Where you stand: each figure’s state and the total’s time', () => 
     expect(html).toMatch(new RegExp(`data-testid="standing-as-of" data-held="known"[^]*dateTime="${older}"`));
   });
 });
+
+describe('Where you stand: a TEST part names its TEST adapter (J-home-ia-11 #3)', () => {
+  it('each TEST part is labelled TEST and names the adapter it is read from; a part that is not TEST names none', () => {
+    const read = { state: 'read' as const, asOf: FRESH, rows: [{ asset: 'USDC', amount: '5' }] };
+    const html = draw([
+      { id: 'wallet', label: 'Local test chain', read, test: true },
+      { id: 'venue', label: 'TEST venue simulator', read, test: true },
+      { id: 'partner', label: 'Real partner bank', read },
+    ]);
+    const part = (id: string) => html.match(new RegExp(`<li[^>]*data-part="${id}"[^]*?</li>`))?.[0] ?? '';
+    expect(part('wallet')).toMatch(/data-testid="standing-part-test">TEST</);
+    expect(part('wallet')).toMatch(/data-testid="standing-part-adapter">from the TEST adapter Local test chain</);
+    expect(part('venue')).toMatch(/data-testid="standing-part-test">TEST</);
+    expect(part('venue')).toMatch(/data-testid="standing-part-adapter">from the TEST adapter TEST venue simulator</);
+    expect(part('partner')).not.toContain('standing-part-test');
+    expect(part('partner')).not.toContain('standing-part-adapter');
+  });
+});

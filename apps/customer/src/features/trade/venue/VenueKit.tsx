@@ -1,9 +1,8 @@
 import { useCallback, useRef, type ReactNode } from 'react';
-import { Badge, Checkbox } from '@intafaced/ui';
-import { Button, DataTable } from '../../../shared/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
-import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
-import { WalletProvider, usePolled, useWallet } from '../../protocol';
+import { WalletProvider, signWithSessionKey, usePolled, useWallet } from '../../protocol';
 import {
   keys,
   walletTypedData,
@@ -24,8 +23,10 @@ import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
 import { VENUE_POLL_MS } from './poll';
 import { useAsOfText, useVenueApi, word } from './venue-words';
+import { fillTotal, groupVenueFillsByOrder, readAllVenueOrders, type VenueFillGroup } from './venue-fill-groups';
+import { chooseSigner, signerOfSignature, type DeskSigner, type SessionSigning } from './session-signer';
 
-export { VENUE_POLL_MS };
+export { VENUE_POLL_MS, fillTotal, readAllVenueOrders };
 export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
 export { OutcomeLine, ReadBack } from './volt/VoltVenue';
 
@@ -34,9 +35,9 @@ export function TestMark({ test }: { test: boolean }) {
   const { t } = venueCopy.useCopy();
   if (!test) return null;
   return (
-    <Badge tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
+    <Tag tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
       {t('TEST')}
-    </Badge>
+    </Tag>
   );
 }
 
@@ -50,7 +51,7 @@ export function AsOfLine({ asOf }: { asOf: string | null }) {
   const text = useAsOfText();
   if (!asOf) return null;
   return (
-    <p className="lt-muted" data-testid="venue-as-of">
+    <p className="lt-quiet" data-testid="venue-as-of">
       {text(asOf)}
     </p>
   );
@@ -73,8 +74,8 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
   const { t } = venueCopy.useCopy();
   return (
-    <header className="dk-panel dk-venue-head" data-testid="venue-header" aria-label={t('Venue')}>
-      <h1 className="dk-tab-title">
+    <header className="lt-panel" data-testid="venue-header" aria-label={t('Venue')}>
+      <h1 className="lt-panel-title">
         {title} <TestMark test={status.test} />
       </h1>
       <p data-testid="venue-name">
@@ -211,8 +212,10 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;
-  if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') return intent.changeKey;
+  if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode' || intent.kind === 'set_position_mode')
+    return intent.changeKey;
   if (
+    intent.kind === 'move_position' ||
     intent.kind === 'spot_perps_transfer' ||
     intent.kind === 'vault_transfer' ||
     intent.kind === 'staking_transfer' ||
@@ -222,14 +225,28 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   return actionKey ?? '';
 }
 
+/** The refusal codes the desk gives an action it could not sign for want of a trading session (session-signer.ts). */
+export const SESSION_NEEDED = 'trade.venue_session_needed';
+export const SESSION_KEY_GONE = 'trade.venue_session_key_gone';
+
 /**
  * Prepare → the wallet signs → submit, once per business key. A second call with a key still in flight is the same call
  * (a double press asks for one signature); a key the door already holds comes back with its stored action, so a signed
  * one is never signed again: its first definite answer stands, and one with no definite answer is read back.
+ *
+ * With `session` (a venue whose trades a trading session's key signs, session-signer.ts), an order, cancel, change or
+ * leverage is prepared for the live session key and signed by it here, with no wallet prompt; approvals and every move of
+ * funds stay the owner wallet's. Without a live key on such a venue, nothing is prepared: the desk offers the session.
  */
-export function useVenueActions(owner: string | null) {
+export function useVenueActions(owner: string | null, session: SessionSigning | null = null) {
   const venue = useVenueApi();
   const wallet = useWallet();
+  const { t } = venueCopy.useCopy();
+  // The session as of the press, read when the action runs (a session started after this render signs the next press).
+  const sessionNow = useRef(session);
+  sessionNow.current = session;
+  // The signer each key was prepared with on this page: a retry of the key is the same action, signed by the same signer.
+  const signers = useRef(new Map<string, DeskSigner>());
   const inFlight = useRef(new Map<string, Promise<ActionResult>>());
   // The signed bytes of this page's own actions, in memory only, so a submit refused before it was sent can be re-sent as
   // the same bytes. A key whose bytes may have reached the venue is never sent again.
@@ -264,8 +281,12 @@ export function useVenueActions(owner: string | null) {
       if (running) return running;
       const job = (async (): Promise<ActionResult> => {
         if (!owner) return { kind: 'wallet_failed', message: '' };
+        const choice = chooseSigner(intent.kind, owner, sessionNow.current, signers.current.get(key));
+        if ('needs' in choice) return { kind: 'refused', code: SESSION_NEEDED, message: t('Session needed'), beforeWallet: true };
+        const signer = choice.signer;
         const prepared = await venue.prepare({
           owner,
+          signer,
           intent,
           actionKey: opts.actionKey,
           stepUpApprovalId: opts.stepUpApprovalId,
@@ -274,6 +295,7 @@ export function useVenueActions(owner: string | null) {
         if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
         const answer = prepared.data;
         const p = answer.prepared;
+        signers.current.set(key, signer);
         const next = preparedStep(answer, {
           kept: signatures.current.get(answer.actionKey),
           refusedBeforeSend: refusedBeforeSend.current.has(answer.actionKey),
@@ -287,10 +309,22 @@ export function useVenueActions(owner: string | null) {
           case 'resend':
             return submitSigned(answer.actionKey, p, next.signature);
           case 'wait':
+            // A session key prompts nobody, so there is no other prompt to wait for: it signs here.
+            if (signer.role === 'agent') break;
             promptedHere.current.add(answer.actionKey);
             return { kind: 'waiting' };
           case 'sign':
             break;
+        }
+        if (signer.role === 'agent') {
+          // The session key signs it here: no wallet prompt. A key that is no longer this sign-in's live session key signs
+          // nothing; the stored action waits unsigned, and the desk says the session ended.
+          const live = sessionNow.current?.live ?? null;
+          if (!live || live.address.toLowerCase() !== signer.address)
+            return { kind: 'refused', code: SESSION_KEY_GONE, message: t('Session key gone'), beforeWallet: true };
+          const signature = await signWithSessionKey(live, p);
+          signatures.current.set(answer.actionKey, signature);
+          return submitSigned(answer.actionKey, p, signature);
         }
         promptedHere.current.add(answer.actionKey);
         const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
@@ -304,7 +338,7 @@ export function useVenueActions(owner: string | null) {
       void job.finally(() => inFlight.current.delete(key));
       return job;
     },
-    [owner, venue, wallet, submitSigned],
+    [owner, venue, wallet, submitSigned, t],
   );
 
   /**
@@ -318,8 +352,11 @@ export function useVenueActions(owner: string | null) {
       // The signature this page made, or one the page kept for the key across a reload (J-cex-spot-02 #4): the same bytes.
       const kept = signatures.current.get(key) ?? opts.signature;
       if (!kept) return run(intent, opts);
+      // The same key under the signer it was signed by, or the door would read it as a different action.
+      const signer = signers.current.get(key) ?? signerOfSignature(owner ?? '', kept.signedBy);
       const prepared = await venue.prepare({
         owner: owner ?? '',
+        signer,
         intent,
         actionKey: opts.actionKey,
         ...(opts.venueId ? { venueId: opts.venueId } : {}),
@@ -348,43 +385,51 @@ export function ReadProblem({ failure, venueName }: { failure: { message: string
   if (!failure) return null;
   const down = failure.code === 'trade.venue.venue_down';
   return (
-    <p className="lt-refusal" role="alert" data-testid="venue-read-problem">
+    <p className="lt-note lt-note-bad" role="alert" data-testid="venue-read-problem">
       {down ? t('Venue down', { venue: venueName, detail: failure.message }) : t('Read failed', { detail: failure.message })}
     </p>
+  );
+}
+
+/** Free, used and total per asset, as the venue reads them; each row and figure marked for the room's tests. */
+export function BalanceTable({ label, rows }: { label: string; rows: readonly VenueBalance[] }) {
+  const { t } = venueCopy.useCopy();
+  return (
+    <Table
+      caption={label}
+      dense
+      scroll
+      columns={[
+        { key: 'asset', label: t('Asset'), cell: (b) => b.asset },
+        { key: 'free', label: t('Free'), align: 'end', cell: (b) => displayAmount(b.free), cellMarks: () => ({ 'data-cell': 'free' }) },
+        { key: 'used', label: t('Used'), align: 'end', cell: (b) => displayAmount(b.locked), cellMarks: () => ({ 'data-cell': 'used' }) },
+        { key: 'total', label: t('Total'), align: 'end', cell: (b) => displayAmount(b.total), cellMarks: () => ({ 'data-cell': 'total' }) },
+      ]}
+      rows={rows}
+      rowKey={(b) => b.asset}
+      rowMarks={(b) => ({ 'data-asset': b.asset })}
+    />
   );
 }
 
 export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[]> | null; test: boolean }) {
   const { t } = venueCopy.useCopy();
   return (
-    <section className="dk-panel" aria-label={t('Balances')} data-testid="venue-balances">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Balances')} data-testid="venue-balances">
+      <h2 className="lt-panel-title">
         {t('Balances')} <TestMark test={test} />
       </h2>
       {balances && balances.value.length > 0 ? (
-        <DataTable label={t('Balances')} headers={[t('Asset'), t('Free'), t('Used'), t('Total')]}>
-          {balances.value.map((b) => (
-            <tr key={b.asset} data-asset={b.asset}>
-              <td>{b.asset}</td>
-              <td className="lt-num" data-cell="free">
-                {displayAmount(b.free)}
-              </td>
-              <td className="lt-num" data-cell="used">
-                {displayAmount(b.locked)}
-              </td>
-              <td className="lt-num" data-cell="total">
-                {displayAmount(b.total)}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <BalanceTable label={t('Balances')} rows={balances.value} />
       ) : balances ? (
-        <p className="lt-muted">{t('No balances')}</p>
+        <p className="lt-quiet">{t('No balances')}</p>
       ) : null}
       <AsOfLine asOf={balances?.asOf ?? null} />
     </section>
   );
 }
+
+type FillTableRow = { kind: 'fill'; fill: VenueFill; ofOrder: string | null } | { kind: 'order'; group: VenueFillGroup; first: VenueFill };
 
 export function FillsTable({
   fills,
@@ -392,6 +437,8 @@ export function FillsTable({
   symbol,
   tagOf,
   withTotal = false,
+  orders,
+  groupByOrder = false,
 }: {
   fills: AsOf<VenueFill[]> | null;
   test: boolean;
@@ -400,64 +447,169 @@ export function FillsTable({
   withTotal?: boolean;
   /** The person's own tag on an order, by client id; given, the table has a Tag column. */
   tagOf?: (clientOrderId: string) => string | undefined;
+  /** The account's venue orders keyed by lowercase venueClientOrderId, so each trade names its order's type (J-portfolio-03 #5). */
+  orders?: ReadonlyMap<string, VenueOrder>;
+  /** When true, orders that filled in parts sit under one order header row with their fills grouped beneath (J-portfolio-03 #5). */
+  groupByOrder?: boolean;
 }) {
   const { t } = venueCopy.useCopy();
   const asOfText = useAsOfText();
   const rows = (fills?.value ?? []).filter((f) => !symbol || f.symbol === symbol);
+  const showType = Boolean(orders) || groupByOrder;
+  const orderOf = (id: string | null): VenueOrder | undefined => (id ? orders?.get(id.toLowerCase()) : undefined);
+  const typeWordOf = (id: string | null): string | null => {
+    const order = orderOf(id);
+    return order ? word(t, 'type', order.type) : null;
+  };
+  const tableRows: FillTableRow[] = groupByOrder
+    ? groupVenueFillsByOrder(rows).flatMap((group): FillTableRow[] => {
+        const [first] = group.fills;
+        if (!first) return [];
+        if (group.fills.length === 1) return [{ kind: 'fill', fill: first, ofOrder: null }];
+        return [
+          { kind: 'order', group, first },
+          ...group.fills.map((fill): FillTableRow => ({ kind: 'fill', fill, ofOrder: group.order })),
+        ];
+      })
+    : rows.map((fill): FillTableRow => ({ kind: 'fill', fill, ofOrder: null }));
   return (
     <div data-testid="venue-fills">
       <TestMark test={test} />
-      {rows.length === 0 ? (
-        <p className="lt-muted">{t('No fills')}</p>
+      {tableRows.length === 0 ? (
+        <p className="lt-quiet">{t('No fills')}</p>
       ) : (
-        <DataTable
-          label={t('Trade history')}
-          headers={[
-            t('Time'),
-            t('Market'),
-            t('Side'),
-            t('Price'),
-            t('Amount'),
-            ...(withTotal ? [t('Total')] : []),
-            t('Role'),
-            t('Venue fee'),
-            t('Our builder fee'),
-            t('Fee asset'),
-            t('Realised result'),
-            ...(tagOf ? [t('Tag')] : []),
+        <Table
+          caption={t('Trade history')}
+          dense
+          scroll
+          columns={[
+            {
+              key: 'time',
+              label: t('Time'),
+              cell: (r: FillTableRow) => asOfText(r.kind === 'fill' ? r.fill.filledAt : r.first.filledAt),
+            },
+            { key: 'market', label: t('Market'), cell: (r) => (r.kind === 'fill' ? r.fill.symbol : r.first.symbol) },
+            { key: 'side', label: t('Side'), cell: (r) => word(t, 'side', r.kind === 'fill' ? r.fill.side : r.first.side) },
+            ...(showType
+              ? [
+                  {
+                    key: 'type',
+                    label: t('Type'),
+                    cell: (r) => {
+                      if (r.kind === 'fill') return typeWordOf(r.fill.venueClientOrderId) ?? '—';
+                      const typeWord = typeWordOf(r.group.order);
+                      return typeWord
+                        ? t('Order of fills', { type: typeWord, count: r.group.fills.length })
+                        : t('Order of fills no type', { count: r.group.fills.length });
+                    },
+                    cellMarks: () => ({ 'data-cell': 'type' }),
+                  } satisfies Column<FillTableRow>,
+                ]
+              : []),
+            {
+              key: 'price',
+              label: t('Price'),
+              align: 'end',
+              cell: (r) => (r.kind === 'fill' ? displayAmount(r.fill.price) : r.group.average ? displayAmount(r.group.average) : '—'),
+              cellMarks: () => ({ 'data-cell': 'price' }),
+            },
+            {
+              key: 'amount',
+              label: t('Amount'),
+              align: 'end',
+              cell: (r) => displayAmount(r.kind === 'fill' ? r.fill.amount : r.group.amount),
+              cellMarks: () => ({ 'data-cell': 'amount' }),
+            },
+            ...(withTotal
+              ? [
+                  {
+                    key: 'total',
+                    label: t('Total'),
+                    align: 'end',
+                    cell: (r) =>
+                      r.kind === 'fill'
+                        ? `${displayAmount(fillTotal(r.fill))} ${r.fill.symbol.split('-')[1] ?? ''}`
+                        : `${displayAmount(r.group.total)} ${r.first.symbol.split('-')[1] ?? ''}`,
+                    cellMarks: () => ({ 'data-cell': 'total' }),
+                  } satisfies Column<FillTableRow>,
+                ]
+              : []),
+            {
+              key: 'role',
+              label: t('Role'),
+              cell: (r) => (r.kind === 'fill' ? word(t, 'role', r.fill.role) : '—'),
+              cellMarks: () => ({ 'data-cell': 'role' }),
+            },
+            {
+              key: 'venue-fee',
+              label: t('Venue fee'),
+              align: 'end',
+              cell: (r) =>
+                r.kind === 'fill' ? (
+                  <VenueFeeCell amount={r.fill.venueFee} />
+                ) : r.group.venueFee !== null ? (
+                  <VenueFeeCell amount={r.group.venueFee} />
+                ) : (
+                  '—'
+                ),
+              cellMarks: () => ({ 'data-cell': 'venue-fee' }),
+            },
+            {
+              key: 'builder-fee',
+              label: t('Our builder fee'),
+              align: 'end',
+              cell: (r) => (r.kind === 'fill' ? r.fill.builderFee : (r.group.builderFee ?? '—')),
+              cellMarks: () => ({ 'data-cell': 'builder-fee' }),
+            },
+            {
+              key: 'fee-asset',
+              label: t('Fee asset'),
+              cell: (r) => (r.kind === 'fill' ? r.fill.feeAsset : (r.group.feeAsset ?? '—')),
+            },
+            {
+              key: 'realised',
+              label: t('Realised result'),
+              align: 'end',
+              cell: (r) =>
+                r.kind === 'fill'
+                  ? r.fill.realisedPnl === null
+                    ? t('Not known')
+                    : r.fill.realisedPnl
+                  : r.group.realisedPnl === null
+                    ? '—'
+                    : r.group.realisedPnl,
+              cellMarks: () => ({ 'data-cell': 'realised' }),
+            },
+            ...(tagOf
+              ? [
+                  {
+                    key: 'tag',
+                    label: t('Tag'),
+                    cell: (r) => {
+                      const id = r.kind === 'fill' ? r.fill.venueClientOrderId : r.group.order;
+                      return id ? (tagOf(id) ?? '') : '';
+                    },
+                    cellMarks: () => ({ 'data-cell': 'tag' }),
+                  } satisfies Column<FillTableRow>,
+                ]
+              : []),
           ]}
-        >
-          {rows.map((f) => (
-            <tr key={f.fillId} data-fill={f.fillId} data-client-order-id={f.venueClientOrderId ?? ''}>
-              <td>{asOfText(f.filledAt)}</td>
-              <td>{f.symbol}</td>
-              <td>{word(t, 'side', f.side)}</td>
-              <td className="lt-num" data-cell="price">
-                {displayAmount(f.price)}
-              </td>
-              <td className="lt-num" data-cell="amount">
-                {displayAmount(f.amount)}
-              </td>
-              {withTotal ? (
-                <td className="lt-num" data-cell="total">
-                  {displayAmount(fillTotal(f))} {f.symbol.split('-')[1] ?? ''}
-                </td>
-              ) : null}
-              <td data-cell="role">{word(t, 'role', f.role)}</td>
-              <td className="lt-num" data-cell="venue-fee">
-                <VenueFeeCell amount={f.venueFee} />
-              </td>
-              <td className="lt-num" data-cell="builder-fee">
-                {f.builderFee}
-              </td>
-              <td>{f.feeAsset}</td>
-              <td className="lt-num" data-cell="realised">
-                {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
-              </td>
-              {tagOf ? <td data-cell="tag">{f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''}</td> : null}
-            </tr>
-          ))}
-        </DataTable>
+          rows={tableRows}
+          rowKey={(r) => (r.kind === 'fill' ? r.fill.fillId : `order:${r.group.order}`)}
+          rowMarks={(r) =>
+            r.kind === 'fill'
+              ? {
+                  'data-fill': r.fill.fillId,
+                  ...(r.ofOrder ? { 'data-of': r.ofOrder, 'data-part': 'fill' } : {}),
+                  'data-client-order-id': r.fill.venueClientOrderId ?? '',
+                }
+              : {
+                  'data-part': 'order',
+                  ...(r.group.order ? { 'data-order': r.group.order } : {}),
+                  'data-client-order-id': r.group.order ?? '',
+                }
+          }
+        />
       )}
       <AsOfLine asOf={fills?.asOf ?? null} />
     </div>
@@ -479,11 +631,6 @@ function VenueFeeCell({ amount }: { amount: string }) {
       </span>
     );
   return <>{amount}</>;
-}
-
-/** A fill's total: its price times its size, exact (both are the venue's decimals). */
-export function fillTotal(f: VenueFill): string {
-  return formatAmount(mul(parseAmount(f.price), parseAmount(f.amount), 'half-up'));
 }
 
 /**
@@ -522,81 +669,114 @@ export function OrdersTable({
     <div data-testid="venue-open-orders">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="lt-muted">{t('No open orders')}</p>
+        <p className="lt-quiet">{t('No open orders')}</p>
       ) : (
-        <DataTable
-          label={t('Open orders')}
-          headers={[
-            ...(select ? [select.header] : []),
-            t('Market'),
-            t('Side'),
-            t('Type'),
-            t('Time in force'),
-            t('Price'),
-            t('Amount'),
-            t('Filled'),
-            t('Locked'),
-            t('Status'),
-            ...(tagOf ? [t('Tag')] : []),
-            '',
-          ]}
-        >
-          {rows.map((o) => (
-            <tr key={o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`} data-client-order-id={o.venueClientOrderId ?? ''}>
-              {select ? (
-                <td data-cell="select">
-                  {o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
-                    <Checkbox
-                      aria-label={select.label(o.venueClientOrderId)}
-                      checked={select.selected.has(o.venueClientOrderId)}
-                      onCheckedChange={() => select.onToggle(o.venueClientOrderId!)}
-                    />
-                  ) : null}
-                </td>
-              ) : null}
-              <td>
-                {o.venueClientOrderId ? (
+        <Table
+          caption={t('Open orders')}
+          dense
+          scroll
+          columns={[
+            ...(select
+              ? [
+                  {
+                    key: 'select',
+                    label: select.header,
+                    cell: (o) =>
+                      o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                        <Checkbox
+                          label={<span className="lt-sr">{select.label(o.venueClientOrderId)}</span>}
+                          checked={select.selected.has(o.venueClientOrderId)}
+                          onChange={() => select.onToggle(o.venueClientOrderId!)}
+                        />
+                      ) : null,
+                    cellMarks: () => ({ 'data-cell': 'select' }),
+                  } satisfies Column<VenueOrder>,
+                ]
+              : []),
+            {
+              key: 'market',
+              label: t('Market'),
+              cell: (o: VenueOrder) =>
+                o.venueClientOrderId ? (
                   <a className="lt-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
                     {o.symbol}
                   </a>
                 ) : (
                   o.symbol
-                )}
-              </td>
-              <td>{word(t, 'side', o.side)}</td>
-              <td>{word(t, 'type', o.type)}</td>
-              <td data-cell="tif">{word(t, 'tif', o.timeInForce)}</td>
-              <td className="lt-num" data-cell="price">
-                {displayAmount(o.price)}
-              </td>
-              <td className="lt-num" data-cell="amount">
-                {displayAmount(o.amount)}
-              </td>
-              <td className="lt-num" data-cell="filled">
-                {displayAmount(o.filled)}
-              </td>
-              <td className="lt-num" data-cell="locked">
-                {displayAmount(o.locked)} {o.lockedAsset}
-              </td>
-              <td data-cell="status">{word(t, 'status', o.status)}</td>
-              {tagOf ? <td data-cell="tag">{o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''}</td> : null}
-              <td>
-                {onEdit && o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
-                  <>
-                    <Button variant="secondary" onClick={() => onEdit(o)} aria-label={t('Edit order', { id: o.venueClientOrderId })}>
-                      {t('Edit')}
-                    </Button>{' '}
-                  </>
-                ) : null}
-                {o.venueClientOrderId && o.status !== 'filled' ? (
-                  <Button variant="secondary" onClick={() => onCancel(o)}>
-                    {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
-                  </Button>
-                ) : null}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+                ),
+            },
+            { key: 'side', label: t('Side'), cell: (o) => word(t, 'side', o.side) },
+            { key: 'type', label: t('Type'), cell: (o) => word(t, 'type', o.type) },
+            {
+              key: 'tif',
+              label: t('Time in force'),
+              cell: (o) => word(t, 'tif', o.timeInForce),
+              cellMarks: () => ({ 'data-cell': 'tif' }),
+            },
+            {
+              key: 'price',
+              label: t('Price'),
+              align: 'end',
+              cell: (o) => displayAmount(o.price),
+              cellMarks: () => ({ 'data-cell': 'price' }),
+            },
+            {
+              key: 'amount',
+              label: t('Amount'),
+              align: 'end',
+              cell: (o) => displayAmount(o.amount),
+              cellMarks: () => ({ 'data-cell': 'amount' }),
+            },
+            {
+              key: 'filled',
+              label: t('Filled'),
+              align: 'end',
+              cell: (o) => displayAmount(o.filled),
+              cellMarks: () => ({ 'data-cell': 'filled' }),
+            },
+            {
+              key: 'locked',
+              label: t('Locked'),
+              align: 'end',
+              cell: (o) => `${displayAmount(o.locked)} ${o.lockedAsset}`,
+              cellMarks: () => ({ 'data-cell': 'locked' }),
+            },
+            { key: 'status', label: t('Status'), cell: (o) => word(t, 'status', o.status), cellMarks: () => ({ 'data-cell': 'status' }) },
+            ...(tagOf
+              ? [
+                  {
+                    key: 'tag',
+                    label: t('Tag'),
+                    cell: (o) => o.label ?? (o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''),
+                    cellMarks: () => ({ 'data-cell': 'tag' }),
+                  } satisfies Column<VenueOrder>,
+                ]
+              : []),
+            {
+              key: 'actions',
+              label: '',
+              cell: (o) => (
+                <>
+                  {onEdit && o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                    <>
+                      <Button tone="secondary" onClick={() => onEdit(o)} aria-label={t('Edit order', { id: o.venueClientOrderId })}>
+                        {t('Edit')}
+                      </Button>{' '}
+                    </>
+                  ) : null}
+                  {o.venueClientOrderId && o.status !== 'filled' ? (
+                    <Button tone="secondary" onClick={() => onCancel(o)}>
+                      {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
+                    </Button>
+                  ) : null}
+                </>
+              ),
+            },
+          ]}
+          rows={rows}
+          rowKey={(o) => o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`}
+          rowMarks={(o) => ({ 'data-client-order-id': o.venueClientOrderId ?? '' })}
+        />
       )}
       <AsOfLine asOf={orders?.asOf ?? null} />
     </div>

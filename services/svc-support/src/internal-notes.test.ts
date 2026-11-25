@@ -99,6 +99,9 @@ const READS_A_REQUEST = [
   'ticketAttachments',
   'attachmentDownload',
   'myTicketProperties',
+  // The customer's grant for support to read, and the reads under it (J-support-public-20 #2): times and the reader, no text.
+  'grantRead',
+  'readAccess',
 ] as const;
 /**
  * A guest's link reads and replies on one request (SP-tickets-01). Its answer is the owner's own `getTicket` and
@@ -206,6 +209,8 @@ describe('internal notes', () => {
       ticketAttachments: await customer.ticketAttachments({ ticketId, limit: 100 }),
       attachmentDownload: await customer.attachmentDownload({ attachmentId: own.id }),
       myTicketProperties: await customer.myTicketProperties({ ticketId }),
+      grantRead: await customer.grantRead({ ticketId, seconds: 3600 }),
+      readAccess: await customer.readAccess({ ticketId }),
       attach: await customer.attach({ ticketId, clientRequestId: 'file-2', contentType: 'text/plain', bodyBase64: BODY }),
       comment: await customer.comment({ ticketId, body: 'TEST still declined', clientRequestId: 'customer-1' }),
       close: null,

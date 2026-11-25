@@ -1,7 +1,7 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
   holdingsTitle: 'My holdings',
-  assetNote: 'The staking asset is not published to this app, so amounts are shown without a unit.',
+  assetNote: 'No staking token is set, so amounts are shown without a token symbol.',
   hidden: 'Hidden',
   sActive: 'Active stake',
   sLocked: 'Still locked',
@@ -28,7 +28,7 @@ const en = {
   ticketLock: 'Lock length',
   ticketReview: 'Review stake',
   ticketBlocked:
-    'Unavailable: staking is closed because the staking asset’s identity is not published to this app. The amount is checked here but nothing is sent. No return or yield is promised for any term.',
+    'Staking is closed because no staking token is set. You can check an amount here, and nothing is sent. No return or yield is promised for any term.',
   ticketInvalid: 'Enter a positive number.',
   export: 'Export my stakes (CSV)',
   exported: 'Stakes exported.',
@@ -36,7 +36,7 @@ const en = {
 } as const;
 const es = {
   holdingsTitle: 'Mis posiciones',
-  assetNote: 'El activo de staking no se publica a esta app, así que las cantidades se muestran sin unidad.',
+  assetNote: 'No se ha fijado ningún token de staking, así que los importes se muestran sin símbolo.',
   hidden: 'Oculto',
   sActive: 'Staking activo',
   sLocked: 'Aún bloqueado',
@@ -63,7 +63,7 @@ const es = {
   ticketLock: 'Duración del bloqueo',
   ticketReview: 'Revisar staking',
   ticketBlocked:
-    'No disponible: el staking está cerrado porque la identidad del activo de staking no está publicada en esta app. La cantidad se comprueba aquí pero no se envía nada. No se promete ningún rendimiento para ningún plazo.',
+    'El staking está cerrado porque no se ha fijado ningún token de staking. Puedes comprobar un importe aquí y no se envía nada. No se promete ningún rendimiento para ningún plazo.',
   ticketInvalid: 'Introduce un número positivo.',
   export: 'Exportar mis stakings (CSV)',
   exported: 'Stakings exportados.',
@@ -71,7 +71,7 @@ const es = {
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   holdingsTitle: 'Mes avoirs',
-  assetNote: 'L’actif de staking n’est pas publié dans cette app : les montants sont affichés sans unité.',
+  assetNote: 'Aucun token de staking n’est défini : les montants sont affichés sans symbole.',
   hidden: 'Masqué',
   sActive: 'Staking actif',
   sLocked: 'Encore verrouillé',
@@ -98,7 +98,7 @@ const fr = {
   ticketLock: 'Durée du verrouillage',
   ticketReview: 'Examiner le staking',
   ticketBlocked:
-    'Indisponible : le staking est fermé car l’identité de l’actif de staking n’est pas publiée dans cette app. Le montant est vérifié ici mais rien n’est envoyé. Aucun rendement n’est promis, quelle que soit la durée.',
+    'Le staking est fermé car aucun token de staking n’est défini. Tu peux vérifier un montant ici et rien n’est envoyé. Aucun rendement n’est promis, quelle que soit la durée.',
   ticketInvalid: 'Saisis un nombre positif.',
   export: 'Exporter mes stakings (CSV)',
   exported: 'Stakings exportés.',

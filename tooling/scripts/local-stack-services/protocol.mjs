@@ -53,7 +53,14 @@ function lendingMarket() {
   return JSON.parse(readFileSync(file, 'utf8')).lendingMarket ?? null;
 }
 
-export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
+/** The TEST swap gas paymaster from the chain's own record (J-dex-protocol-02 #7), read only when switched on. */
+function swapPaymaster() {
+  const file = chainRecordPath();
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, 'utf8')).swapPaymaster ?? null;
+}
+
+export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, PUBLIC_ORIGIN }) => ({
   name: 'protocol',
   env: () => {
     const chain = testChain?.() ?? null;
@@ -93,7 +100,7 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // the address book refuses protocol.wallet_session_unset until the owner sets all three.
       PROTOCOL_WALLET_SESSION_SECRET: `TEST-${createHash('sha256').update(`protocol wallet session\0${secrets.internal}`).digest('hex')}`,
       PROTOCOL_WALLET_SESSION_TTL_SECONDS: '3600',
-      PROTOCOL_WALLET_SESSION_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
+      PROTOCOL_WALLET_SESSION_ORIGINS: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, ...(PUBLIC_ORIGIN ? [PUBLIC_ORIGIN] : [])].join(','),
       // LOCAL TEST only (same profile): the venue wallet connection (J-wallet-09). A one-minute lifetime, so the journey's
       // expiry step waits a minute, and a wallet sanctions list of one TEST address the journey derives from a TEST seed.
       // Production stays blank and connecting refuses protocol.venue_connection_ttl_unset / protocol.wallet_sanctions_unset.
@@ -147,6 +154,13 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_GAS_PERCENTILES: '10,50,90',
       PROTOCOL_GAS_HISTORY_BLOCKS: '20',
       PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
+      // LOCAL TEST only (J-dex-protocol-02 #7): `LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER=on` points svc-protocol at the
+      // seeded funded ScopedPaymaster on the TEST chain so `amm.feeLevels` reports `sponsored: true`. Off (the default)
+      // and in production it stays blank, so `sponsored` is false ("You pay the network fee").
+      ...(() => {
+        const paymaster = chain && process.env.LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER === 'on' ? swapPaymaster() : null;
+        return paymaster ? { PROTOCOL_SWAP_PAYMASTER_ADDRESS: paymaster } : {};
+      })(),
       // LOCAL TEST only, labelled in the same file: the seeded fee relay, its TEST relayer and the gas a relayed swap is
       // priced for. Production stays blank and paying the fee in a token refuses protocol.fee_relay_unset.
       ...(chain?.feeRelay

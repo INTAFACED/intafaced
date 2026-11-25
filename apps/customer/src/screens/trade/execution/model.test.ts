@@ -49,7 +49,7 @@ const draft: PlanDraft = {
 describe('create blocker', () => {
   it('with the scheduler off the form refuses with its reason', () => {
     expect(createBlocker({ createEnabled: true, jobsEnabled: false }, true)).toBe('Scheduler off block');
-    expect(execCopy.t('Scheduler off block')).toMatch(/slice scheduler is off/);
+    expect(execCopy.t('Scheduler off block')).toMatch(/Scheduled execution is paused/);
   });
 
   it('an unread policy or creating switched off blocks too; a closed market blocks only once the scheduler runs', () => {

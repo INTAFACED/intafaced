@@ -10,6 +10,9 @@ import { READY_WAIT_MS, betaPaths, frontAction, frontUnitText, readied, round, s
 import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
+/** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
+const SETTINGS =
+  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 
@@ -20,6 +23,8 @@ function home() {
   fs.writeFileSync(path.join(paths.checkout, '.git'), 'gitdir: x\n');
   fs.mkdirSync(paths.state, { recursive: true });
   fs.writeFileSync(paths.screening, '{}');
+  // The running stack is already on the beta's own settings; the settings tests below take this away.
+  fs.writeFileSync(paths.settings, `${SETTINGS}\n`);
   return paths;
 }
 const readStatus = (paths) => JSON.parse(fs.readFileSync(paths.status, 'utf8'));
@@ -265,4 +270,102 @@ test('a round on a stack already on its chain restarts nothing', async () => {
   const end = await round(paths, io);
   assert.ok(!seen.some((s) => s.step === 'stop'));
   assert.equal(end.upSince, '2026-11-23T04:00:00Z');
+});
+
+test('the first round wanting the Hyperliquid test network stops the stack on the stand-in venue and starts it whole there, behind the updating page (#10603)', async () => {
+  const paths = home();
+  fs.rmSync(paths.settings);
+  fs.writeFileSync(
+    paths.status,
+    JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z', upSince: '2026-11-23T04:00:00Z' }),
+  );
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.deepEqual(
+    seen.map((s) => s.step),
+    ['stop', 'stop', 'launch', 'check', 'readied', 'readied'],
+  );
+  for (const s of seen) assert.deepEqual([s.state, s.shown], ['updating', 'updating'], s.step);
+  assert.equal(end.state, 'up');
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`, 'the launch records the settings it started on');
+  // The next round finds the stack on its settings and restarts nothing.
+  const again = fakes(paths, { head: OLD, target: OLD });
+  await round(paths, again.io);
+  assert.ok(!again.seen.some((s) => s.step === 'stop'));
+});
+
+test('a launch that fails leaves the settings unrecorded, so the next round restarts onto them again', async () => {
+  const paths = home();
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=on\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD, launch: 1 });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'down');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker naming another venue restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), 'LOCAL_STACK_USER_VENUE=on\n');
+});
+
+test("a stack on the beta's venue that still lists the journeys' TEST markets is stopped and started whole without them (#10599)", async () => {
+  const paths = home();
+  // The marker #10603's launch wrote: the venue alone, so svc-trade still runs with the TEST listings on its board.
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=hl-testnet\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker without the TEST markets setting restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
+});
+
+test('a stack without TEST valuation prices is stopped and started whole with them so Home and Money show a total (#10632)', async () => {
+  const paths = home();
+  // The marker #10614's launch wrote: venue and TEST markets off, so svc-ops still returns valuation.prices_unset.
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker without LOCAL_STACK_VALUATION_PRICES=test restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
+});
+
+test('a stack on localhost passkeys is stopped and started whole on the public name, so passkeys work there', async () => {
+  const paths = home();
+  // The marker the beta wrote before passkeys took its public name.
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker without LOCAL_STACK_PUBLIC_ORIGIN restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
+});
+
+// ── Each merge reaches the beta in the next round ──────────────────────────────
+
+test('a round 30 minutes after the last update still moves to a moved main, and round.log names both commits', async () => {
+  const paths = home();
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths);
+  const end = await round(paths, io);
+  assert.ok(
+    seen.some((s) => s.step === 'checkout'),
+    'the checkout moves',
+  );
+  assert.equal(end.state, 'up');
+  assert.equal(end.sha, NEW);
+  assert.equal(end.updatedAt, '2026-11-23T09:00:00.000Z');
+  assert.match(fs.readFileSync(paths.log, 'utf8'), /round: update \(checkout aaaaaaaaa, main bbbbbbbbb\)/);
 });

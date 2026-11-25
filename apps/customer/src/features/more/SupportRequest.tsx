@@ -21,6 +21,7 @@ import {
   type TicketStatus,
 } from './support-desk';
 import { SupportRequestActions } from './SupportRequestActions';
+import { SupportReadAccess } from './SupportReadAccess';
 import { type MyTicketProperties, type Ticket } from './support-schemas';
 import {
   SUPPORT_COMMENT,
@@ -242,6 +243,7 @@ export function SupportRequest({
                 )}
               </KitRead>
               <SupportEvents ticketId={ticket.id} ticketUpdatedAt={ticket.updatedAt} />
+              <SupportReadAccess ticket={ticket} action={action} />
               {canReply(ticket.status) ? (
                 <div className="lt-stack">
                   <TextAreaField

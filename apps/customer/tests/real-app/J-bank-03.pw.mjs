@@ -232,7 +232,9 @@ test(`${J} #1 opens cash out and enters the amount: the partner's quote with its
   await expect(page.getByTestId('cash-out-quote')).toHaveCount(0);
   await see(page, '60');
   await expect(page.getByRole('alert')).toContainText('That is more than your available balance.');
-  await expect(page.getByRole('alert')).toContainText('bank.cash_out_over_available');
+  // A Bank refusal no step names ends in plain words; its code stays on data-code.
+  await expect(page.getByRole('alert').locator('[data-code="bank.cash_out_over_available"]')).toBeAttached();
+  await expect(page.getByRole('alert')).not.toContainText('bank.cash_out_over_available');
 
   // The quote: the partner's fee and what arrives, in euros, against the balance at the partner bank.
   await see(page, '20');
@@ -299,7 +301,8 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
     return `${text.slice(0, text.lastIndexOf(' '))}, ${text.slice(text.lastIndexOf(' ') + 1)}`;
   }, fresh.coolingOffEndsAt);
   await expect(blocker).toContainText(`This account is new. Money can be sent to it from ${shownEnd}, when its cooling-off ends.`);
-  await expect(blocker).toContainText('bank.offramp_cooling_active');
+  await expect(blocker.locator('[data-code="bank.offramp_cooling_active"]')).toBeAttached();
+  await expect(blocker).not.toContainText('bank.offramp_cooling_active');
   await expect(page.getByTestId('cash-out-quote').getByText('not set')).toHaveCount(2);
   expect(await api.query('cashOut.quote', { assetId: 'USDT', amount: '20', linkedAccountId: fresh.accountId })).toMatchObject({
     ok: true,
@@ -308,7 +311,7 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
   // Asked anyway, it is kept refused and nothing reaches the partner: no payout reference, the balance untouched.
   await page.getByRole('button', { name: 'Cash out', exact: true }).click();
   await confirmItsMe(page);
-  await expect(page.getByTestId('cash-out-kept')).toContainText('bank.offramp_cooling_active');
+  await expect(page.getByTestId('cash-out-kept').locator('[data-code="bank.offramp_cooling_active"]').first()).toBeAttached();
   const [kept] = (await api.query('cashOut.requests', { limit: 10 })).data;
   expect(kept).toMatchObject({ status: 'refused', refusalCode: 'bank.offramp_cooling_active', payoutRef: null, partnerMoveId: null });
   expect(await usdt(api)).toBe('50');
@@ -334,7 +337,7 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
     // partner move, the partner balance untouched.
     await page.getByRole('button', { name: 'Cash out', exact: true }).click();
     await confirmItsMe(page);
-    await expect(page.getByTestId('cash-out-kept')).toContainText('bank.offramp_cooling_unset');
+    await expect(page.getByTestId('cash-out-kept').locator('[data-code="bank.offramp_cooling_unset"]').first()).toBeAttached();
     const [keptBlank] = (await blank.query('cashOut.requests', { limit: 10 })).data;
     expect(keptBlank).toMatchObject({
       status: 'refused',

@@ -103,6 +103,14 @@ export interface VenueTrigger {
  */
 export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
 
+/**
+ * Where a venue order came from, as the venue reports it (J-derivatives-04 #2): `user` for an order the account
+ * placed directly, `stop` for a stop trigger order, `take_profit` for a take-profit trigger order, `liquidation` for
+ * a liquidation order the venue placed on the account, `adl` for an auto-deleverage.
+ */
+export type VenueOrderOrigin = 'user' | 'stop' | 'take_profit' | 'liquidation' | 'adl';
+export const VENUE_ORDER_ORIGINS: readonly VenueOrderOrigin[] = ['user', 'stop', 'take_profit', 'liquidation', 'adl'];
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -115,6 +123,12 @@ export interface PlaceUserOrderIntent {
   /** `ALO` is post-only. A market order is sent as `IOC` at its worst price. */
   readonly timeInForce: VenueTimeInForce;
   readonly reduceOnly: boolean;
+  /**
+   * Optional trader label on this order (J-derivatives-04 #2): up to 36 letters, digits and `. _ : -` with no spaces.
+   * Stored with the prepared order by our door (and echoed by the TEST venue); a real venue that carries no label
+   * ignores it and our door attaches it on read.
+   */
+  readonly label?: string | null;
   /**
    * Set on a trigger order: it rests on the venue until `trigger.source` crosses `trigger.price`, then is sent as this
    * order. Absent or `null`: an ordinary order, sent to the book at once.
@@ -362,6 +376,35 @@ export interface SetAccountModeIntent {
 }
 
 /**
+ * Switch one perpetual between one-way and hedge mode on the owner's account (J-derivatives-05 #3), signed by the owner's
+ * wallet. Offered only on a venue whose descriptor declares more than one of `positionModes`. The venue refuses a switch
+ * while the account holds a position or a resting order on `symbol`, in its own words.
+ */
+export interface SetPositionModeIntent {
+  readonly kind: 'set_position_mode';
+  readonly symbol: string;
+  readonly mode: VenuePositionMode;
+  /** The business key of this change (`position-mode:<owner>:<symbol>:<mode>:<draft>`). */
+  readonly changeKey: string;
+}
+
+/**
+ * Move the whole open position on `symbol`, with the margin it holds, between the owner's main account and one of its
+ * sub-accounts (J-derivatives-05 #7), signed by the owner's wallet on the MAIN account. Offered only on a venue whose
+ * descriptor declares `positionMoves`. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface MovePositionIntent {
+  readonly kind: 'move_position';
+  /** The sub-account's venue id, as `create_sub_account` returned it. */
+  readonly subAccount: string;
+  /** `into_sub_account`: main → sub. `out_of_sub_account`: sub → main. */
+  readonly direction: 'into_sub_account' | 'out_of_sub_account';
+  readonly symbol: string;
+  /** The business key of this move (`position-move:<owner>:<draft>`): a retry re-sends the same bytes, so it moves once. */
+  readonly moveKey: string;
+}
+
+/**
  * Add margin to, or remove margin from, the account's open isolated position on one perpetual (J-derivatives-06 #2 #3),
  * one signed venue action (Hyperliquid: `updateIsolatedMargin`). `add` moves free collateral into the position's margin;
  * `remove` moves it back, and the venue refuses a removal that would take the margin below its own limit for the
@@ -464,6 +507,8 @@ export type VenueIntent =
   | UpdateIsolatedMarginIntent
   | SpotPerpsTransferIntent
   | SetAccountModeIntent
+  | SetPositionModeIntent
+  | MovePositionIntent
   | VaultTransferIntent
   | StakingTransferIntent
   | StakingDelegateIntent;
@@ -481,6 +526,8 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'market_margin_transfer',
   'spot_perps_transfer',
   'set_account_mode',
+  'set_position_mode',
+  'move_position',
   'vault_transfer',
   'staking_transfer',
   'staking_delegate',
@@ -490,6 +537,7 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
 export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueIntentKind>([
   'create_sub_account',
   'sub_account_transfer',
+  'move_position',
   'market_margin_transfer',
   'vault_transfer',
   'staking_transfer',
@@ -667,8 +715,18 @@ export type VenueRefusalCode =
   | 'agent_cap_exceeded'
   /** The venue's market is halted: it takes no new order. */
   | 'market_halted'
+  /** The venue's market takes limit orders only (J-cex-spot-14 #3). */
+  | 'market_limit_only'
   /** The venue's market takes cancels only. */
   | 'market_cancel_only'
+  /** The venue's market session is closed; orders are not queued while it is closed (J-cex-spot-14 #6). */
+  | 'market_closed'
+  /** The venue's market is inside its opening window and takes limit orders only (J-cex-spot-14 #7). */
+  | 'opening_window'
+  /** The venue's market is in the higher-risk zone and takes limit orders only (J-cex-spot-14 #7). */
+  | 'higher_risk_zone'
+  /** An order on a higher-risk zone market exceeds the zone's per-order cap (J-cex-spot-14 #7). */
+  | 'zone_cap_exceeded'
   /** The venue delisted the market. */
   | 'market_delisted'
   /** The order is larger than the venue's own largest order size or notional for the market. */
@@ -832,9 +890,17 @@ export interface UserVenueOrder {
    * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
    * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing); `linked` when the
    * other trigger order attached to the same entry filled first, so this one never closes what that one already did;
-   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time.
+   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time;
+   * `self_trade` when the account's own new order would have traded with it and the venue's self-trade rule
+   * (`selfTrade`, `cancel_resting`) cancelled it instead (J-derivatives-04 #7).
    */
-  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | null;
+  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null;
+  /** Where the order came from, as the venue reports it (J-derivatives-04 #2). Absent on an older adapter. */
+  readonly origin?: VenueOrderOrigin;
+  /** The venue's own id for what placed it (e.g. a liquidation part id `liq-1-1`), when not the person directly. */
+  readonly originRef?: string | null;
+  /** The trader's label on this order, when one was set (J-derivatives-04 #2). */
+  readonly label?: string | null;
 }
 
 /**
@@ -1394,7 +1460,7 @@ export interface UserVenueFeed {
  * the venue's, `known: false` (or `null`) where it publishes none; never ours.
  */
 export interface UserVenueSession {
-  readonly state: 'open' | 'off_hours';
+  readonly state: 'open' | 'off_hours' | 'closed';
   /** The home market's name, as the venue publishes it. */
   readonly homeMarket: string;
   /** What the venue does with the market while its home market is closed, in its words. */
@@ -1448,6 +1514,22 @@ export interface UserVenueMarginTier {
 export interface UserVenueCollateral {
   readonly asset: string;
   readonly haircut: MaybeKnown<Amount>;
+}
+
+/**
+ * The venue's current price band around its reference price (J-derivatives-02 #5 #8): `widthBps` is the band width in
+ * force now (scaled bps), `usualWidthBps` its usual width, `bandReference` the price it is centered on, `bandLow` and
+ * `bandHigh` the resulting bounds in the quote asset, `widened` true while wider than usual, and `reason` the venue's
+ * own words for why (or `null` when usual).
+ */
+export interface UserVenuePriceBand {
+  readonly widthBps: Amount;
+  readonly usualWidthBps: Amount;
+  readonly bandReference: Amount;
+  readonly bandLow: Amount;
+  readonly bandHigh: Amount;
+  readonly widened: boolean;
+  readonly reason: string | null;
 }
 
 /** A market's open interest as the venue reports it: the size open now, and the cap its deployer set (`null`: none). */
@@ -1575,8 +1657,8 @@ export interface UserVenueMarket {
   readonly maxOrderNotional: Amount | null;
   /**
    * The venue's smallest order value in the quote asset (price times size), or `null` when it publishes none. An order
-   * below it is refused `order_below_venue_min`. Never a guessed floor: on a spot market our door refuses an order while
-   * this is `null` (`trade.venue_rule_unpublished`, J-cex-spot-04 #6).
+   * below it is refused `order_below_venue_min`. Never a guessed floor: when a venue leaves a rule unpublished (`null`),
+   * the desk shows it as not published and leaves enforcement to the venue (J-cex-spot-04 #6).
    */
   readonly minOrderNotional: Amount | null;
   /**
@@ -1585,6 +1667,11 @@ export interface UserVenueMarket {
    * when the venue publishes no band.
    */
   readonly priceBandBps: Amount | null;
+  /**
+   * The venue's current price band with its usual width, bounds and whether a dynamic range has widened it
+   * (J-derivatives-02 #5 #8); `known: false` or absent where the venue publishes none (never invented by us).
+   */
+  readonly priceBand?: MaybeKnown<UserVenuePriceBand>;
   /**
    * The most open orders the venue lets one account hold, or `null` when it publishes none. An order past it is refused
    * `open_orders_above_venue_cap`.
@@ -1657,6 +1744,14 @@ export interface UserVenueMarket {
    * list. Nothing else the account holds counts toward buying power. Optional on the wire for venues that report none.
    */
   readonly collateral?: MaybeKnown<readonly UserVenueCollateral[]>;
+  /**
+   * When a new listing's opening window ends (limit orders only until then, J-cex-spot-14 #7), or `null` when none is
+   * in force. Optional on the wire for venues that report none.
+   */
+  readonly openingWindowEndsAt?: Date | null;
+  /** Higher-risk zone flag (`'higher_risk'`) and its per-order quote cap (J-cex-spot-14 #7). Optional on the wire. */
+  readonly zone?: 'higher_risk' | null;
+  readonly zoneOrderCap?: Amount | null;
 }
 
 /** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
@@ -1682,12 +1777,12 @@ export interface VenueBestPrices {
 }
 
 /**
- * A venue market's own state: `trading` takes orders; `halted` takes no new order; `cancel_only` takes cancels only;
- * `delisted` is gone from the venue. The venue refuses an order its state does not admit (`market_halted`,
- * `market_cancel_only`, `market_delisted`).
+ * A venue market's own state: `trading` takes orders; `limit_only` takes limit orders only; `halted` takes no new order;
+ * `cancel_only` takes cancels only; `delisted` is gone from the venue. The venue refuses an order its state does not
+ * admit (`market_limit_only`, `market_halted`, `market_cancel_only`, `market_delisted`).
  */
-export type UserVenueMarketStatus = 'trading' | 'halted' | 'cancel_only' | 'delisted';
-export const USER_VENUE_MARKET_STATUSES: readonly UserVenueMarketStatus[] = ['trading', 'halted', 'cancel_only', 'delisted'];
+export type UserVenueMarketStatus = 'trading' | 'limit_only' | 'halted' | 'cancel_only' | 'delisted';
+export const USER_VENUE_MARKET_STATUSES: readonly UserVenueMarketStatus[] = ['trading', 'limit_only', 'halted', 'cancel_only', 'delisted'];
 
 /** One price level of a venue's book: the size resting there, in the base asset. */
 export interface VenueBookLevel {
@@ -1704,6 +1799,8 @@ export interface VenueBook {
   readonly symbol: string;
   readonly bids: readonly VenueBookLevel[];
   readonly asks: readonly VenueBookLevel[];
+  /** Monotonic book sequence incremented on every resting-book change, for delta/resume streams (J-cex-spot-14 #8). */
+  readonly sequence?: number;
 }
 
 /**
@@ -1868,6 +1965,18 @@ export interface VenueOrderPreview {
     readonly initialMargin: MaybeKnown<Amount>;
     /** Of the position after the order fills in full; `known: false` where the venue publishes none. */
     readonly liquidationPrice: MaybeKnown<Amount>;
+    /**
+     * The venue margin tier this order puts the position into (J-derivatives-02 #6), where the venue publishes margin
+     * tiers; `null` or absent when the venue publishes no tiers. `confirmRequired` is true when an opening order moves
+     * into a higher tier than the current same-side position (or opens directly past tier 1).
+     */
+    readonly riskTier?: {
+      readonly current: number | null;
+      readonly projected: number;
+      readonly maxLeverageBps: number;
+      readonly maintenanceRate: Amount;
+      readonly confirmRequired: boolean;
+    } | null;
   } | null;
 }
 
@@ -1926,10 +2035,30 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * declared is never offered.
    */
   readonly positionModes?: readonly VenuePositionMode[];
+  /**
+   * True when the venue moves an open position, with its margin, between the owner's main account and a sub-account
+   * (`move_position`, J-derivatives-05 #7). A venue that declares nothing moves none: the room refuses the move in words.
+   */
+  readonly positionMoves?: boolean;
+  /**
+   * Who signs this venue's trading actions (orders, cancels, changes, leverage): `owner_wallet` when the owner's wallet
+   * signs them on the network it is on; `session_key` when their EIP-712 domain names a chain no wallet signs on
+   * (Hyperliquid's L1 actions name chain 1337), so they are signed by an agent key the owner approved once (the trading
+   * session, svc-trade src/venue/session-key.ts). A venue that declares none is read as `owner_wallet` (`tradesSignedByOf`).
+   */
+  readonly tradesSignedBy?: VenueTradeSigner;
+}
+
+export type VenueTradeSigner = 'owner_wallet' | 'session_key';
+
+/** Who signs `venue`'s trading actions: what it declares, or the owner's wallet when it declares none. */
+export function tradesSignedByOf(venue: Pick<UserVenueDescriptor, 'tradesSignedBy'>): VenueTradeSigner {
+  return venue.tradesSignedBy === 'session_key' ? 'session_key' : 'owner_wallet';
 }
 
 /** How a venue holds positions on one contract: one net position, or a long and a short side by side. */
 export type VenuePositionMode = 'one_way' | 'hedge';
+const VENUE_POSITION_MODES: readonly VenuePositionMode[] = ['one_way', 'hedge'];
 
 /** The position modes `venue` offers: what it declares, or one-way only when it declares none. */
 export function positionModesOf(venue: UserVenueDescriptor): readonly VenuePositionMode[] {
@@ -2026,9 +2155,15 @@ export interface UserVenue {
 
   /**
    * The newest `limit` candles of `symbol`'s own prints on `interval`, oldest first, no account (J-cex-spot-01 #5: the
-   * desk's chart). Refuses `unknown_market` for a symbol it does not list. Optional, as `trades`.
+   * desk's chart; J-charts-desk-01: the chart workbench). When `since` is given, only candles whose bucket starts at or
+   * after `since` are returned (at most the newest `limit` of those). Refuses `unknown_market` for a symbol it does not
+   * list. Optional, as `trades`.
    */
-  candles?(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>>;
+  candles?(
+    symbol: string,
+    interval: VenueCandleInterval,
+    query: number | { readonly limit: number; readonly since?: Date },
+  ): Promise<AsOf<readonly VenueCandle[]>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**
@@ -2177,6 +2312,11 @@ export interface UserVenue {
   accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
   /** The account's mode, its spot and perps balances in standard mode, and its daily action count (J-derivatives-29). */
   accountMode?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>>;
+  /**
+   * The position mode the account holds `symbol` in, as the venue reports it (J-derivatives-05 #3). A venue with one mode
+   * need not offer the read: its descriptor's one mode is the mode.
+   */
+  positionMode?(account: UserVenueAccount, symbol: string): Promise<AsOf<VenuePositionMode>>;
   /** The vaults the venue lists, each with its lock-up, profit share, value and past return (J-derivatives-31 #1). */
   vaults?(): Promise<AsOf<readonly UserVenueVault[]>>;
   /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
@@ -2375,6 +2515,26 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
       });
     }
     assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
+  if (intent.kind === 'set_position_mode') {
+    if (!VENUE_POSITION_MODES.includes(intent.mode)) {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `position mode "${String(intent.mode)}" is not one the venue knows`,
+      });
+    }
+    assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
+  if (intent.kind === 'move_position') {
+    if (intent.direction !== 'into_sub_account' && intent.direction !== 'out_of_sub_account') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `move direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
   }
 }
 

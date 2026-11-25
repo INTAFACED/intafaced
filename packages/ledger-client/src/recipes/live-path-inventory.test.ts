@@ -86,10 +86,33 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
   for (const service of existsSync(cratesRoot) ? readdirSync(cratesRoot) : []) {
     const src = join(cratesRoot, service, 'src');
     if (!service.startsWith('svc-') || !existsSync(src)) continue;
-    for (const full of rustSources(src)) {
-      const text = (readFileSync(full, 'utf8').split('#[cfg(test)]')[0] ?? '').replace(/\/\/.*$/gm, '');
-      if (!/\.post_recipe\(/.test(text)) continue;
+    const live = rustSources(src).map(
+      (full) => [full, (readFileSync(full, 'utf8').split('#[cfg(test)]')[0] ?? '').replace(/\/\/.*$/gm, '')] as const,
+    );
+    // The crate's recipe wrappers: a `fn` with a `recipe: &str` parameter in a file that posts (crates/svc-bank's
+    // `loans::service::post`). A file that hands one a string literal naming a recipe is that recipe's caller too.
+    const wrappers = [
+      ...new Set(
+        live
+          .filter(([, text]) => /\.post_recipe\(/.test(text))
+          .flatMap(([, text]) => [...text.matchAll(/\bfn\s+([a-z_][a-z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)/g)])
+          .filter((m) => /\brecipe\s*:\s*&str\b/.test(m[2] ?? ''))
+          .map((m) => m[1] ?? ''),
+      ),
+    ].filter(Boolean);
+    const wrapperCall = wrappers.length > 0 ? new RegExp(`(?<![.\\w])(?:${wrappers.join('|')})\\s*\\(([^;]*)`, 'g') : undefined;
+    for (const [full, text] of live) {
       const rel = relative(repoRoot, full).replace(/\\/g, '/');
+      if (!/\.post_recipe\(/.test(text)) {
+        for (const m of wrapperCall === undefined ? [] : text.matchAll(wrapperCall))
+          for (const [, name] of (m[1] ?? '').matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)) {
+            if (name === undefined || !Object.hasOwn(recipes, name)) continue;
+            const list = found.get(name) ?? [];
+            if (!list.includes(rel)) list.push(rel);
+            found.set(name, list);
+          }
+        continue;
+      }
       const variants = [...text.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)].map(([, v]) => [
         '',
         (v ?? '').charAt(0).toLowerCase() + (v ?? '').slice(1),

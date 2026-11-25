@@ -9,7 +9,6 @@ import { authoredRefusal, callAs, type ApiResult, type AppProcedure } from '../.
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { bankReads, type BankRead, type BankWrite } from './contracts';
 import { sendWrite, writeName } from './write-flow';
 import { createMoneyClient, readSpaces, type Space, type TransferDraft } from './client';
 import {
@@ -28,20 +27,9 @@ export { amount, date };
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
 export const bps = (value: number) => `${value / 100}%`;
-export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
-  const { api, userId } = useSession();
-  return useResource<z.infer<(typeof bankReads)[K]>>(
-    async (signal) => {
-      if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
-      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
-      return api.query('bank', procedure, input, bankReads[procedure] as unknown as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
-    },
-    `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
-  );
-}
 /**
- * `useBankRead` through the call's record: the path and input type come from the record, and the answer is parsed by
- * `record.output` and the record's `accept` checks. The request, the refusals and the cache key are `useBankRead`'s.
+ * One bank read through its record: the path and input type come from the record, and the answer is parsed by
+ * `record.output` and the record's `accept` checks.
  */
 export function useBankRecord<R extends AppProcedure & { readonly module: 'bank'; readonly kind: 'query' }>(
   record: R,
@@ -124,18 +112,16 @@ export function Section({
   );
 }
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
+  // A list shorter than its limit is the whole list, and is seen whole: no count line under it.
+  if (count < limit) return null;
   return (
     <div className="money-continuation">
       <span>
         {count}
         <Text k="components.records.returned.requested.limit" />.{' '}
-        {count >= limit
-          ? limit < 200
-            ? copyText('components.more.records.may.exist')
-            : copyText('components.this.service.has.no.continuation.beyond.200')
-          : copyText('components.this.list.has.no.total.count.or')}
+        {limit < 200 ? copyText('components.more.records.may.exist') : copyText('components.this.service.has.no.continuation.beyond.200')}
       </span>
-      {count >= limit && limit < 200 && (
+      {limit < 200 && (
         <Button variant="secondary" onClick={onMore}>
           <Text k="components.load.up.to" />
           {Math.min(200, limit + 50)}
@@ -202,11 +188,9 @@ export type ActionSpec = {
    * `stepUp`: its approval is spent by the first send.
    */
   resendSame?: boolean;
-} & (
-  | { record: BankWriteRecord; procedure?: never }
-  /** By name, while the call has no record: the call-records codemod moves it to `record` once one is written. */
-  | { procedure: BankWrite; record?: never }
-);
+  /** The write, by its record: a bank write has no other way to name its call. */
+  record: BankWriteRecord;
+};
 /** The original opened action's owner, API, mount and observed full-URL lifetime. */
 export type BankActionContext = { current: () => boolean };
 export const positiveMoney = (asset: string | undefined, name = 'amount', label = copyText('form.amount')): ActionField => ({

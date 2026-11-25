@@ -886,6 +886,8 @@ const touchedPull = async ({
   text = { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': BANK13 },
   states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' },
   runs = [run(1)],
+  baseText = {},
+  ran = ['J-bank-13.pw.mjs'],
 }) =>
   sealPull({
     repo: REPO,
@@ -896,12 +898,12 @@ const touchedPull = async ({
       runs: async () => runs,
       reportOf: reports({
         // The CANARY too: a product path no map narrows runs its bounded set (journey-touch.mjs pullPick).
-        1: { states, ran: ['J-bank-13.pw.mjs', ...CANARY] },
+        1: { states, ran: [...ran, ...CANARY] },
       }),
       // The run on the head is clean by the journeys verdict, so these cases judge the step naming alone.
       verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
       files: async () => files,
-      text: async (f, ref) => (ref === HEAD ? (text[f] ?? null) : null),
+      text: async (f, ref) => (ref === HEAD ? (text[f] ?? null) : ref === OLD ? (baseText[f] ?? null) : null),
     },
   });
 
@@ -1010,6 +1012,126 @@ test('titleBeforePush: a title naming none of the steps is no longer refused (th
   const none = titleBeforePush({ title: 'x', touched: t('J-dev-01', []) });
   assert.equal(none.ok, false, 'a journey file with no readable step');
   assert.match(none.lines.join('\n'), /the seal fails closed/);
+});
+
+// ---- A journey split across files: a companion file of unnumbered checks beside the file holding its steps ----
+
+// A journey test file's text from its titles, written so no `test(` call is typed into this file.
+const pwText = (...titles) => `const J = 'J-x-04';\n${titles.map((t) => `${'test'}(\`${t}\`, async () => {});`).join('\n')}\n`;
+const X04 = 'apps/customer/tests/real-app/J-x-04.pw.mjs';
+const X04_VENUE = 'apps/customer/tests/real-app/J-x-04-venue.pw.mjs';
+const VENUE = pwText(...[1, 2, 3, 4, 5, 6, 7].map((n) => `\${J} #${n} on the venue`));
+const CUSTODIAL_BASE = pwText(
+  '${J} #1, the custodial branch: orders',
+  '${J} #2, the custodial branch: origin',
+  '${J}, the custodial branch: refused',
+);
+const CUSTODIAL_HEAD = pwText(
+  '${J}, the custodial branch: orders',
+  '${J}, the custodial branch: origin',
+  '${J}, the custodial branch: refused',
+);
+const X04_STATES = Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((n) => [`J-x-04#${n}`, 'passed']));
+const xText = (at) => async (f, ref) => at[ref]?.[f] ?? null;
+const xFiles = async () => new Set(['J-x-04.pw.mjs', 'J-x-04-venue.pw.mjs', 'J-x-05.pw.mjs', 'look-sweep-390.pw.mjs']);
+
+test('#10825: retitling the last numbered steps out of a companion file judges the steps its base held, on the head', async () => {
+  const touched = await touchedSteps({
+    paths: [X04, X04_VENUE],
+    head: HEAD,
+    base: OLD,
+    text: xText({ [HEAD]: { [X04]: CUSTODIAL_HEAD, [X04_VENUE]: VENUE }, [OLD]: { [X04]: CUSTODIAL_BASE, [X04_VENUE]: VENUE } }),
+    journeyFiles: xFiles,
+  });
+  const custodial = touched.filter((t) => t.file === X04);
+  assert.deepEqual(custodial, [{ file: X04, journey: 'J-x-04', steps: ['J-x-04#1', 'J-x-04#2'], from: 'base' }]);
+  // #10825's own title names them: they are judged as title steps, on the head, where the venue file holds them.
+  assert.equal(judgeTouched({ title: 'tests: J-x-04 #1 #2 #3 #4 #5 #7 retitle custodial checks', body: '', touched }).ok, true);
+  // A title naming none: the base's steps are derived and judged on the head, never dropped.
+  const v = judgeTouched({ title: 'tests: retitle custodial checks', body: '', touched: custodial });
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.derived, ['J-x-04#1', 'J-x-04#2']);
+  assert.match(
+    v.lines.join('\n'),
+    /J-x-04\.pw\.mjs retitles out the last of its steps, J-x-04 #1, J-x-04 #2, .*judges them all on this head/,
+  );
+  assert.deepEqual(titleBeforePush({ title: null, touched: custodial }), { ok: true, need: ['J-x-04 #1 #2'] });
+  // The whole seal: both steps pass on the head (from the venue file), so it passes with no body line.
+  const files = [X04, X04_VENUE];
+  const text = { [X04]: CUSTODIAL_HEAD, [X04_VENUE]: VENUE };
+  const baseText = { [X04]: CUSTODIAL_BASE, [X04_VENUE]: VENUE };
+  const ran = ['J-x-04.pw.mjs', 'J-x-04-venue.pw.mjs'];
+  const green = await touchedPull({ title: 'tests: retitle custodial checks', files, text, baseText, states: X04_STATES, ran });
+  assert.equal(green.ok, true, green.lines.join('\n'));
+  assert.match(green.lines.join('\n'), /J-x-04#1: passed in run 1/);
+  // Planted: #1 failing on the head and named nowhere still fails the seal, and the line that would leave it is printed.
+  const red = { ...X04_STATES, 'J-x-04#1': 'failed' };
+  const bad = await touchedPull({ title: 'tests: retitle custodial checks', files: [X04], text, baseText, states: red, ran });
+  assert.equal(bad.ok, false, 'a step retitled out of the file is still judged on the head');
+  assert.match(bad.lines.join('\n'), /J-x-04#1: failed in run 1/);
+  assert.match(bad.lines.join('\n'), /Left-or-replaced: J-x-04 #1$/m);
+  const gone = await touchedPull({ title: 'x', files: [X04], text, baseText, states: { 'J-x-04#2': 'passed' }, ran });
+  assert.equal(gone.ok, false, 'a retitled step no run on the head reports fails');
+  assert.match(gone.lines.join('\n'), /J-x-04#1: no finished Real-app journeys run on this head reports it/);
+});
+
+test('a companion file with no numbered step at the head or the base passes when another file of its journey holds them', async () => {
+  const at = { [HEAD]: { [X04]: CUSTODIAL_HEAD, [X04_VENUE]: VENUE }, [OLD]: { [X04]: CUSTODIAL_HEAD.replace('refused', 'no') } };
+  const touched = await touchedSteps({ paths: [X04], head: HEAD, base: OLD, text: xText(at), journeyFiles: xFiles });
+  assert.deepEqual(touched, [{ file: X04, journey: 'J-x-04', steps: [], siblings: [X04_VENUE] }]);
+  const v = judgeTouched({ title: 'tests: J-x-04 custodial check waits', body: '', touched });
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.derived, []);
+  assert.match(
+    v.lines.join('\n'),
+    /J-x-04's steps live in .*J-x-04-venue\.pw\.mjs, so it changes none, and its run on this head must still be clean/,
+  );
+  assert.deepEqual(titleBeforePush({ title: 'x', touched }), { ok: true, need: [] });
+  // A new companion file (no base) is the same.
+  const fresh = await touchedSteps({ paths: [X04], head: HEAD, base: OLD, text: xText({ [HEAD]: at[HEAD] }), journeyFiles: xFiles });
+  assert.equal(judgeTouched({ title: 'x', body: '', touched: fresh }).ok, true);
+});
+
+test('planted: a file with no numbered step anywhere still fails closed when no file of its journey holds one', async () => {
+  const X99 = 'apps/customer/tests/real-app/J-x-99.pw.mjs';
+  const typo = pwText('J-x-99 step 1 opens it', 'J-x-99 step 2 closes it');
+  const list = async () => new Set(['J-x-99.pw.mjs', 'J-x-99-notes.pw.mjs', 'J-x-990.pw.mjs', 'J-x-04-venue.pw.mjs']);
+  const at = {
+    [HEAD]: {
+      [X99]: typo,
+      'apps/customer/tests/real-app/J-x-99-notes.pw.mjs': typo,
+      'apps/customer/tests/real-app/J-x-990.pw.mjs': pwText('J-x-990 #1 x'),
+      [X04_VENUE]: VENUE,
+    },
+    [OLD]: { [X99]: typo },
+  };
+  const touched = await touchedSteps({ paths: [X99], head: HEAD, base: OLD, text: xText(at), journeyFiles: list });
+  assert.deepEqual(touched, [{ file: X99, journey: 'J-x-99', steps: [], siblings: [] }], "another journey's steps are no sibling's");
+  for (const title of ['x', 'tests: J-x-99 #1 #2', 'tests: J-x-04 #1']) {
+    const v = judgeTouched({ title, body: 'Left-or-replaced: J-x-99 #1', touched });
+    assert.equal(v.ok, false, title);
+    assert.match(
+      v.lines.join('\n'),
+      /J-x-99\.pw\.mjs changes a journey test, but no `test\(` titled `J-x-99 #n` could be read in it.*fails closed/,
+    );
+  }
+  assert.equal(titleBeforePush({ title: 'x', touched }).ok, false);
+  // Without a way to list the journey's files, nothing is a sibling: it fails closed as before.
+  const blind = await touchedSteps({
+    paths: [X04],
+    head: HEAD,
+    base: OLD,
+    text: xText({ [HEAD]: { [X04]: CUSTODIAL_HEAD, [X04_VENUE]: VENUE } }),
+  });
+  assert.equal(judgeTouched({ title: 'x', body: '', touched: blind }).ok, false);
+  // Through the whole seal, whose io here lists no journey files: the companion file alone fails closed.
+  const sealed = await touchedPull({
+    title: 'tests: J-x-04 custodial check',
+    files: [X04],
+    text: { [X04]: CUSTODIAL_HEAD },
+    ran: ['J-x-04.pw.mjs'],
+  });
+  assert.equal(sealed.ok, false);
 });
 
 test('the recheck takes a pull request whose body gained an exemption line, so leaving steps there re-runs the seal', () => {
@@ -1825,7 +1947,11 @@ test('recheckTargets: only pull requests with auto-merge armed are re-sealed; ar
     (await recheckTargets({ finished, pulls: list, sha, repo: 'o/r', filesOf })).map((p) => p.number);
   assert.deepEqual(await numbers('CI'), [1, 3], 'after CI: every armed pull request on the head, none that is not armed');
   assert.deepEqual(await numbers('Real-app journeys'), [3], 'after a journeys run: armed and naming steps');
-  assert.deepEqual(await numbers('CI review'), [1, 3], 'after the CI review: every armed pull request on the head');
+  assert.deepEqual(
+    await numbers('CI review', [...pulls, { ...pr(6, 'J-x #1', null), draft: true }]),
+    [1, 2, 3, 4],
+    'after the CI review: every ready pull request on the head, armed or not (sealedOnReview), never a draft',
+  );
   assert.deepEqual(await numbers('CI', [pr(5, 'J-x #1', null)]), [], 'disarmed again before the re-check read it: left alone');
   // Planted: without the filter, an unarmed pull request named by its title would be re-sealed after a journeys run.
   const unfiltered = await recheckTargets({
@@ -2135,12 +2261,16 @@ test("#1574: on a pull request ci.yml's seal reads only CI's own jobs and the sw
   for (const name of PR_READ_STEPS_LIST)
     assert.match(ifOf(name), /github\.event_name == 'merge_group'/, `${name} runs only on a merge queue's commit`);
   assert.match(ifOf('The factory switch says run'), /github\.event_name == 'pull_request'/);
-  // merge-seal.yml, the default branch's copy, still runs both on every pull request, with no `if:` that skips them for one.
+  // merge-seal.yml, the default branch's copy, still runs both on every pull request, with no `if:` that skips them for one
+  // but a change to the judges alone that judge-repair.mjs passed.
   const ms = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
-  assert.match(ms, /- name: Require the named journey steps on this exact head\n\s+if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(
     ms,
-    /- name: Require the CI review on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.needed\.outcome == 'success' \}\}/,
+    /- name: Require the named journey steps on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.repair\.outputs\.pass != 'true' \}\}/,
+  );
+  assert.match(
+    ms,
+    /- name: Require the CI review on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.repair\.outputs\.pass != 'true' && steps\.needed\.outcome == 'success' \}\}/,
   );
 });
 const PR_READ_STEPS_LIST = ['Require the named journey steps on this exact head', 'Require the CI review on this exact head'];

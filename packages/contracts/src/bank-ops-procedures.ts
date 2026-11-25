@@ -541,6 +541,44 @@ export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
   ],
 });
 
+/**
+ * J-derivatives-26 #8: one customer's spending balances as the partner that holds their money reports them, for the
+ * founder console (`admin:read`). Each figure is the one the customer's own `spaces.list` shows, with the partner's label
+ * as its source and the partner's as-of time; a stale figure says so, and a figure the partner has not reported refuses
+ * by name. `heldByPartner: false` with no spaces when no partner holds this person's money: ledger figures are never
+ * mixed in. Audited before anything is read; writes nothing.
+ */
+export const BANK_OPS_CUSTOMER_PARTNER_BALANCES = defineProcedure({
+  ...base,
+  name: 'bank.ops.customerPartnerBalances',
+  kind: 'query',
+  path: 'ops.customerPartnerBalances',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: { 'bank.ops_audit_unavailable': 'SERVICE_UNAVAILABLE', 'bank.partner_balance_not_known': 'PRECONDITION_FAILED' },
+  input: z.object({ userId: z.string().guid() }).strict(),
+  output: z.object({
+    userId: z.string(),
+    heldByPartner: z.boolean(),
+    spaces: z.array(
+      z.object({
+        spaceId: z.string(),
+        assetId: assetIdSchema,
+        kind: z.string(),
+        name: z.string(),
+        balance: signedAmount,
+        source: z.string(),
+        asOf: z.string(),
+        state: z.enum(['known', 'stale']),
+        staleAfterMs: z.number(),
+      }),
+    ),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: { userId: '11111111-1111-4111-8111-111111111111', extra: 1 } },
+  ],
+});
+
 export const BANK_OPS_CUSTOMER_BALANCE_ENTRIES = defineProcedure({
   ...base,
   name: 'bank.ops.customerBalanceEntries',

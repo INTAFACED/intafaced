@@ -1,4 +1,6 @@
 // volt-room: /bank/limits
+import { isVerifyFirst } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import { BANK_TRANSFERS_QUOTE } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_FEES_PARTNER } from '@intafaced/contracts/bank-fees-procedures';
 import { BANK_PLANS_LIST } from '@intafaced/contracts/bank-plans-procedures';
@@ -91,11 +93,14 @@ function LimitsRoom() {
   const sendFees = useBankRecord(BANK_FEES_SCHEDULE_GET, undefined);
   const accountFees = useBankRecord(BANK_FEES_ACCOUNT, undefined);
   const plans = useBankRecord(BANK_PLANS_LIST, undefined);
-  const refusal = (failure: { code?: string | null; message: string }) => (
-    <p role="alert" data-code={failure.code ?? ''}>
-      {t('failed', { message: failure.message })}
-    </p>
-  );
+  const refusal = (failure: { code?: string | null; message: string }) =>
+    isVerifyFirst(failure) ? (
+      <VerifyFirstNote code={failure.code ?? undefined} />
+    ) : (
+      <p role="alert" data-code={failure.code ?? ''}>
+        {t('failed', { message: failure.message })}
+      </p>
+    );
 
   return (
     <div data-testid="bank-limits">
