@@ -517,7 +517,7 @@
   gap: 0.75rem;
 }
 
-/* Lime is Deposit's alone on Home A: the split bar runs white to grey, and quiet keys and links take the text roles. */
+/* The split bar runs white to grey, as the owner's pick draws it: the kit's first three parts are all bone, one colour. */
 .hm-split .lt-parts-bar {
   block-size: 0.375rem;
 }
@@ -535,16 +535,6 @@
 }
 .hm-split :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='4'] {
   background: var(--lit-line);
-}
-.hm .lit-button[data-tone='quiet'] {
-  color: var(--lit-text-2);
-}
-.hm .lit-button[data-tone='quiet']:hover,
-.hm .lit-button[data-tone='quiet'][aria-expanded='true'] {
-  color: var(--lit-text-1);
-}
-.hm .lt-link {
-  color: var(--lit-text-1);
 }
 
 /* Spendable now's own "How this is worked out": closed, each source line and note stays in the page, unseen. */
