@@ -1750,21 +1750,9 @@ button.lt-menu-item:focus-visible {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
 }
 
-.lt-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+/* PanelHead keeps the templates' panel head and title (templates.css) and adds only its spacing to what follows. */
+.lt-panel-head[data-part='panel-head'] {
   margin-block-end: 0.75rem;
-}
-.lt-panel-title {
-  margin: 0;
-  font-size: var(--lit-type-heading-size);
-  line-height: var(--lit-type-heading-line);
-  font-weight: 600;
-  letter-spacing: var(--lit-type-heading-tracking);
-  color: var(--lit-text-1);
 }
 .lt-panel-aside {
   display: flex;
@@ -2138,4 +2126,179 @@ a.lt-mover:hover {
 .lt-parts[data-legend='row'] .lt-parts-value {
   color: var(--lit-text-1);
   font-weight: 600;
+}
+
+/* A link drawn as a button: never underlined. */
+a.lit-button {
+  text-decoration: none;
+}
+
+/* A chart or line that fills its container's height (inside a tile). */
+.lt-chart[data-fit] {
+  block-size: 100%;
+}
+.lt-chart[data-fit] svg {
+  block-size: 100%;
+}
+
+/* A stat whose label sits under its figure. */
+.lt-stat[data-label-below] > .lt-hint:first-child {
+  order: 1;
+}
+
+/* A market row opens its market from anywhere on the row, not only its name. */
+.lt-market-table .lt-table tbody tr {
+  position: relative;
+}
+.lt-market-table .lt-row-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.lt-market-table .lt-market-action {
+  position: relative;
+  z-index: 1;
+}
+
+/* Front pages' type: the wide face, large and tight. */
+.lt-display {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-size: clamp(2.75rem, 5.4vw, 8.5rem);
+  line-height: 0.95;
+  font-weight: 700;
+  font-stretch: 125%;
+  letter-spacing: -0.035em;
+  color: var(--lit-text-1);
+}
+.lt-display-line {
+  display: block;
+}
+.lt-display-second {
+  color: var(--lit-text-3);
+}
+.lt-section-title {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-size: clamp(1.5rem, 2.4vw, 2.5rem);
+  line-height: 1.1;
+  font-weight: 600;
+  font-stretch: 118%;
+  letter-spacing: -0.02em;
+  color: var(--lit-text-1);
+}
+
+.lt-live-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-3);
+}
+.lt-live-mark-dot {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 999px;
+  background: var(--lit-up);
+  box-shadow: 0 0 0.5rem var(--lit-up);
+}
+.lt-live-mark[data-off] .lt-live-mark-dot {
+  background: var(--lit-text-disabled);
+  box-shadow: none;
+}
+
+.lt-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-sheen), var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip);
+  overflow: hidden;
+}
+.lt-strip > li {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  padding-block: 1.25rem;
+  padding-inline: 1.375rem;
+  /* Hairlines between cells: each cell draws its start and top edge, pulled under its neighbour's; the panel clips the outer ones. */
+  border-inline-start: 1px solid var(--lit-line);
+  border-block-start: 1px solid var(--lit-line);
+  margin-inline-start: -1px;
+  margin-block-start: -1px;
+}
+.lt-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+.lt-strip-title {
+  font-weight: 600;
+}
+.lt-strip-body {
+  font-size: var(--lit-type-label-size);
+  line-height: 1.45;
+  color: var(--lit-text-2);
+}
+.lt-warn-badge {
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px currentColor;
+  color: var(--lit-warn-text);
+  font-size: var(--lit-type-micro-size);
+  white-space: nowrap;
+}
+
+.lt-featured {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 1.5rem;
+  min-block-size: 7.5rem;
+  padding-block: 1rem;
+  padding-inline: 1.25rem 1rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--lit-line);
+  color: inherit;
+  text-decoration: none;
+}
+.lt-featured-figure {
+  display: grid;
+  align-content: center;
+  gap: 0.25rem;
+}
+.lt-featured-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--lit-type-label-size);
+}
+.lt-featured-price {
+  font-size: clamp(2rem, 2.6vw, 2.75rem);
+  line-height: 1.05;
+  font-weight: 600;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+}
+.lt-featured-chart {
+  min-inline-size: 0;
+  min-block-size: 5rem;
+}
+@container room (max-width: 599px) {
+  .lt-featured {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* An up or down filled chart fades in its own direction's colour, not the accent. */
+.lt-chart[data-tone='up'] {
+  --lt-chart-soft: var(--lit-up);
+}
+.lt-chart[data-tone='down'] {
+  --lt-chart-soft: var(--lit-down);
 }

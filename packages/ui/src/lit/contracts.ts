@@ -363,6 +363,13 @@ export const components = {
   ProgressSegments: 'Progress as N segments, the done ones lit, said in words',
   ActivityRow: 'One line of activity: a circle, what and when, the signed amount at the end (in reads up), masked with hide-balances',
   ActivityList: 'The named list ActivityRows sit in',
+  ButtonLink: "A link drawn as the kit's Button (primary, secondary, quiet; sm, md, lg): a call to action that goes somewhere",
+  Display: "The page's display headline in the wide face, with an optional dimmed second line",
+  SectionTitle: "A front page's section title in the wide face, a step under Display",
+  LiveDot: 'A small glowing dot in the up colour beside its words; grey when off',
+  TrustStrip: 'Equal cells in one panel divided by hairlines: a title, an optional badge, a short body',
+  WarnBadge: 'A warn-toned pill for a value that is not real yet',
+  FeaturedMarket: 'The busiest market in a sunken tile: mark and name, the price large, its change, its chart filling the end',
 } as const;
 export type ComponentName = keyof typeof components;
 

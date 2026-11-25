@@ -60,6 +60,8 @@ interface SeriesProps {
   live?: boolean;
   /** Faint horizontal guide lines behind the line (a hero chart). */
   grid?: boolean;
+  /** Fill the container's height instead of the kit's fixed one (a chart inside a tile). */
+  fit?: boolean;
   /** The last point's value, formatted ("$24,860.40"): drawn in a pill over a dot, with a dashed line down from it. */
   marker?: string;
 }
@@ -73,6 +75,7 @@ function Series({
   fill,
   soft = false,
   grid = false,
+  fit = false,
   marker,
 }: SeriesProps & { fill: boolean; soft?: boolean }) {
   const gradient = `lt-chart-soft-${React.useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -85,7 +88,7 @@ function Series({
   // Where the marker sits, as a share of the drawing (the chart is drawn left to right in every language).
   const at = { inlineStart: `${((end.x / W) * 100).toFixed(2)}%`, blockStart: `${((end.y / H) * 100).toFixed(2)}%` };
   return (
-    <figure className="lt-chart" data-tone={tone} data-marked={marker === undefined ? undefined : ''} dir="ltr">
+    <figure className="lt-chart" data-tone={tone} data-marked={marker === undefined ? undefined : ''} data-fit={fit || undefined} dir="ltr">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
         {grid
           ? [0.25, 0.5, 0.75].map((f) => (
@@ -139,11 +142,14 @@ export function Sparkline({
   values,
   tone,
   size = 'card',
+  fit = false,
 }: {
   label: string;
   values: readonly DecimalString[];
   tone?: 'up' | 'down' | 'neutral';
   size?: 'card' | 'row';
+  /** Fill the container's height instead of the kit's fixed one. */
+  fit?: boolean;
 }) {
   if (values.length < 2) return null;
   const { x, y, ys } = scale(values.map((value, i) => ({ at: String(i), value })));
@@ -151,7 +157,12 @@ export function Sparkline({
   const first = ys[0] ?? 0;
   const last = ys.at(-1) ?? first;
   return (
-    <figure className="lt-chart lt-spark" data-size={size} data-tone={tone ?? (last > first ? 'up' : last < first ? 'down' : 'neutral')}>
+    <figure
+      className="lt-chart lt-spark"
+      data-size={size}
+      data-fit={fit || undefined}
+      data-tone={tone ?? (last > first ? 'up' : last < first ? 'down' : 'neutral')}
+    >
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
         <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
       </svg>

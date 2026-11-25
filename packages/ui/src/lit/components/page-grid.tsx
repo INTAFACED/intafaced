@@ -65,7 +65,7 @@ export function PanelHead({
 }: Omit<Div, 'title'> & { title: React.ReactNode; aside?: React.ReactNode; level?: 2 | 3 }) {
   const H = level === 2 ? 'h2' : 'h3';
   return (
-    <div {...rest} className={clsx('lt-panel-head', className)}>
+    <div {...rest} className={clsx('lt-panel-head', className)} data-part="panel-head">
       <H className="lt-panel-title">{title}</H>
       {aside === undefined ? null : <div className="lt-panel-aside">{aside}</div>}
     </div>
