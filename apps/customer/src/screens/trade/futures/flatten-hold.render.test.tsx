@@ -98,6 +98,26 @@ describe('Flatten (desk A)', () => {
     expect(run.mock.calls[0]![0].clientOrderKey).toBe(run.mock.calls[1]![0].clientOrderKey);
   });
 
+  it('a close that throws reads as unknown, the rest still close, the button comes back, and a second hold re-sends it', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('TEST network drop'))
+      .mockResolvedValue({ kind: 'refused', code: 'trade.test', message: 'TEST refused', beforeWallet: true });
+    const positions = [position('BTC-PERP', 'long', '0.5'), position('ETH-PERP', 'short', '2')];
+    act(() =>
+      root.render(<FlattenHold positions={positions} markets={[market('BTC-PERP'), market('ETH-PERP')]} owner={OWNER} run={run} />),
+    );
+    press('pointerdown');
+    await act(async () => void (await vi.advanceTimersByTimeAsync(650)));
+    press('pointerup');
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(button().disabled).toBe(false);
+    press('pointerdown');
+    await act(async () => void (await vi.advanceTimersByTimeAsync(650)));
+    expect(run).toHaveBeenCalledTimes(4);
+    expect(run.mock.calls[2]![0].clientOrderKey).toBe(run.mock.calls[0]![0].clientOrderKey);
+  });
+
   it('is not shown with no position open', () => {
     act(() => root.render(<FlattenHold positions={[]} markets={[market('BTC-PERP')]} owner={OWNER} run={vi.fn()} />));
     expect(host.querySelector('[data-testid="venue-flatten"]')).toBeNull();

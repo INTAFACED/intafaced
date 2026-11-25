@@ -2360,7 +2360,9 @@ export function FlattenHold({
         reduceOnly: true,
         clientOrderKey: keys.close(owner, position.symbol, id),
         builderFee: null,
-      });
+        // A close that throws, rather than answering, may still have reached the venue: it reads as unknown, keeps its id
+        // so a second hold re-sends the same close, and the rest still close and the button comes back.
+      }).catch((): ActionResult => ({ kind: 'unknown', clientOrderId: null, nonce: null }));
       if (!keepsDraft(answer)) ids.current.delete(key);
       done.push({ symbol: position.symbol, text: outcomeText(v, answer) });
     }
