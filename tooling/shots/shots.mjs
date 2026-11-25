@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * PNPM SHOTS: the key Customer rooms as the beta shows them, at a phone (390), a laptop (1440) and a wide screen (2560),
- * on the demo world (apps/customer/tests/real-app/demo-world: the beta's recorded market reads with the venue on, and
+ * on the demo world (apps/customer/tests/demo-world: the beta's recorded market reads with the venue on, and
  * the look gate's TEST account). No service runs and nothing reaches the network: the built app (apps/customer/dist)
  * is served here and every /api call is answered by the demo world or refused. The clock is frozen at the recording's
  * time, Math.random is seeded and motion is stopped, so two runs on one commit draw the same pictures.
@@ -18,8 +18,8 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
-import { DEMO_NOW, demoAnswer } from '../../apps/customer/tests/real-app/demo-world/index.mjs';
-import { demoWalletKey } from '../../apps/customer/tests/real-app/demo-world/seed.mjs';
+import { DEMO_NOW, demoAnswer } from '../../apps/customer/tests/demo-world/index.mjs';
+import { demoWalletKey } from '../../apps/customer/tests/demo-world/seed.mjs';
 import { installTestWallet } from '../../apps/customer/tests/real-app/test-wallet.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');

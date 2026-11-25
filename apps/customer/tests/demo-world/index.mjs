@@ -4,7 +4,7 @@
  *   1. tooling/shots/recording/: every market read the beta's rooms made, signed out and signed in, recorded from the beta by
  *      tooling/shots/record-demo.mjs (TEST figures from the test network; nothing about the recording's tester kept);
  *   2. the seeded trader (seed.mjs): their venue balances, positions, orders and fills, priced from the recording;
- *   3. the look gate's TEST account (../look-fixtures.mjs): the signed-in person, their balances, bank, identity and
+ *   3. the look gate's TEST account (tooling/ci/look-gate's fixture answers): the signed-in person, their balances, bank, identity and
  *      notices, and their venue wallet;
  *   4. last, a module's own read the recording's tester made (verification levels, deposit assets, notices) where the
  *      TEST account has no fixture; never a sign-in, session or key call.
@@ -13,7 +13,7 @@
  * with no data says so honestly.
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { fixtureAnswer } from '../../../../../tooling/ci/look-gate/fixture-answer.mjs';
+import { fixtureAnswer } from '../../../../tooling/ci/look-gate/fixture-answer.mjs';
 import { seededAccount } from './seed.mjs';
 
 /**
@@ -21,7 +21,7 @@ import { seededAccount } from './seed.mjs';
  * (feed-<symbol>.json), which answers signed in or out alike and wins over a read the beta refused.
  */
 function load() {
-  const dir = new URL('../../../../../tooling/shots/recording/', import.meta.url);
+  const dir = new URL('../../../../tooling/shots/recording/', import.meta.url);
   const beta = JSON.parse(readFileSync(new URL('beta.json', dir), 'utf8'));
   const calls = { signedOut: { ...beta.calls.signedOut }, signedIn: { ...beta.calls.signedIn } };
   for (const name of readdirSync(dir)
