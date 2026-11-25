@@ -1,0 +1,63 @@
+{
+  "inputs": {},
+  "bodies": [
+    "{\"statusCode\":500,\"error\":\"Internal Server Error\",\"message\":\"replay stub: sql\"}",
+    "{\"provenance\":\"this venue's own matching sequence\",\"schemas\":[{\"kind\":\"trades\",\"schemaVersion\":\"1\",\"format\":\"ndjson\",\"compression\":\"gzip\",\"checksumAlgorithm\":\"sha256\",\"provenance\":\"this venue's own matching sequence\",\"fields\":[{\"name\":\"schemaVersion\",\"type\":\"string\",\"description\":\"Schema version identifier (\\\"1\\\").\"},{\"name\":\"symbol\",\"type\":\"string\",\"description\":\"Market symbol (e.g. BTC/USDT).\"},{\"name\":\"id\",\"type\":\"string\",\"description\":\"Public tape id (the engine match sequence as a string; never an order or account id).\"},{\"name\":\"sequence\",\"type\":\"integer\",\"description\":\"Monotonic matching engine sequence number for this market.\"},{\"name\":\"side\",\"type\":\"string\",\"description\":\"Taker side: \\\"buy\\\" or \\\"sell\\\".\"},{\"name\":\"price\",\"type\":\"decimal_string\",\"description\":\"Execution price as an exact decimal string.\"},{\"name\":\"qty\",\"type\":\"decimal_string\",\"description\":\"Executed base quantity as an exact decimal string.\"},{\"name\":\"quoteAmount\",\"type\":\"decimal_string\",\"description\":\"Executed quote notional as an exact decimal string.\"},{\"name\":\"ts\",\"type\":\"iso8601_utc\",\"description\":\"UTC execution timestamp.\"}]},{\"kind\":\"candles\",\"schemaVersion\":\"1\",\"format\":\"ndjson\",\"compression\":\"gzip\",\"checksumAlgorithm\":\"sha256\",\"provenance\":\"this venue's own matching sequence\",\"fields\":[{\"name\":\"schemaVersion\",\"type\":\"string\",\"description\":\"Schema version identifier (\\\"1\\\").\"},{\"name\":\"symbol\",\"type\":\"string\",\"description\":\"Market symbol.\"},{\"name\":\"timeframe\",\"type\":\"string\",\"description\":\"Candle bucket interval (\\\"1m\\\").\"},{\"name\":\"openTimeMs\",\"type\":\"integer\",\"description\":\"Bucket start time in Unix milliseconds.\"},{\"name\":\"openTime\",\"type\":\"iso8601_utc\",\"description\":\"Bucket start time in UTC ISO-8601.\"},{\"name\":\"open\",\"type\":\"decimal_string\",\"description\":\"First trade price in the bucket, ordered by engine sequence.\"},{\"name\":\"high\",\"type\":\"decimal_string\",\"description\":\"Highest trade price in the bucket.\"},{\"name\":\"low\",\"type\":\"decimal_string\",\"description\":\"Lowest trade price in the bucket.\"},{\"name\":\"close\",\"type\":\"decimal_string\",\"description\":\"Last trade price in the bucket, ordered by engine sequence.\"},{\"name\":\"volume\",\"type\":\"decimal_string\",\"description\":\"Summed base trade quantity in the bucket.\"}]},{\"kind\":\"book_snapshots\",\"schemaVersion\":\"1\",\"format\":\"ndjson\",\"compression\":\"gzip\",\"checksumAlgorithm\":\"sha256\",\"provenance\":\"this venue's own matching sequence\",\"fields\":[{\"name\":\"schemaVersion\",\"type\":\"string\",\"description\":\"Schema version identifier (\\\"1\\\").\"},{\"name\":\"symbol\",\"type\":\"string\",\"description\":\"Market symbol.\"},{\"name\":\"sequence\",\"type\":\"integer\",\"description\":\"Matching engine book sequence at capture time.\"},{\"name\":\"capturedAt\",\"type\":\"iso8601_utc\",\"description\":\"UTC capture timestamp.\"},{\"name\":\"bids\",\"type\":\"array<[decimal_string, decimal_string]>\",\"description\":\"Bid levels [price, qty], highest price first.\"},{\"name\":\"asks\",\"type\":\"array<[decimal_string, decimal_string]>\",\"description\":\"Ask levels [price, qty], lowest price first.\"}]}]}"
+  ],
+  "answers": {
+    "GET /api/v1/history/datasets": {
+      "absent anon": [500, 0],
+      "absent no-scope": [500, 0],
+      "absent trader": [500, 0],
+      "absent all": [500, 0],
+      "absent all-US": [500, 0],
+      "absent svc-trade": [500, 0],
+      "absent svc-ops": [500, 0],
+      "absent svc-identity": [500, 0],
+      "absent svc-campaigns": [500, 0],
+      "absent svc-bank": [500, 0],
+      "absent svc-token": [500, 0],
+      "absent svc-support": [500, 0],
+      "absent svc-market": [500, 0],
+      "absent svc-fix": [500, 0],
+      "absent svc-agents": [500, 0],
+      "absent svc-tax": [500, 0]
+    },
+    "GET /api/v1/history/datasets/:id/download": {
+      "absent anon": [500, 0],
+      "absent no-scope": [500, 0],
+      "absent trader": [500, 0],
+      "absent all": [500, 0],
+      "absent all-US": [500, 0],
+      "absent svc-trade": [500, 0],
+      "absent svc-ops": [500, 0],
+      "absent svc-identity": [500, 0],
+      "absent svc-campaigns": [500, 0],
+      "absent svc-bank": [500, 0],
+      "absent svc-token": [500, 0],
+      "absent svc-support": [500, 0],
+      "absent svc-market": [500, 0],
+      "absent svc-fix": [500, 0],
+      "absent svc-agents": [500, 0],
+      "absent svc-tax": [500, 0]
+    },
+    "GET /api/v1/history/schemas": {
+      "absent anon": [200, 1],
+      "absent no-scope": [200, 1],
+      "absent trader": [200, 1],
+      "absent all": [200, 1],
+      "absent all-US": [200, 1],
+      "absent svc-trade": [200, 1],
+      "absent svc-ops": [200, 1],
+      "absent svc-identity": [200, 1],
+      "absent svc-campaigns": [200, 1],
+      "absent svc-bank": [200, 1],
+      "absent svc-token": [200, 1],
+      "absent svc-support": [200, 1],
+      "absent svc-market": [200, 1],
+      "absent svc-fix": [200, 1],
+      "absent svc-agents": [200, 1],
+      "absent svc-tax": [200, 1]
+    }
+  }
+}
