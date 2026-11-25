@@ -63,6 +63,14 @@
     scrollbar-width: thin;
   }
 }
+/* A phone: the book and tape scroll in a short box of their own, so the ticket and positions stay near the chart. */
+@container room (max-width: 1023px) {
+  .xd-book-tape {
+    max-block-size: 18rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+}
 /* A wide screen: the book and the tape side by side, both always in view. */
 @container room (min-width: 2000px) {
   .xd-market-split {
