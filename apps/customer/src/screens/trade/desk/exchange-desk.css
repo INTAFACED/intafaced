@@ -425,7 +425,7 @@
 /* A position row stays one line high: its close percent, Close and the other actions sit in one compact row. The
    percent field keeps its accessible name; its visible label moves to screen readers. */
 /* The row's actions wrap inside their own cell rather than running past the table's edge. */
-.xd [data-testid='venue-positions'] td:last-child {
+.xd [data-testid='venue-positions'] .lt-table td:last-child {
   white-space: normal;
   min-inline-size: 14rem;
 }
