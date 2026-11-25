@@ -1,0 +1,103 @@
+import { useMemo } from 'react';
+import { KeyValue, Stepper } from '@intafaced/ui/lit/templates';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
+import type { VenueDeposit } from '@intafaced/contracts/protocol-venue-account';
+import { useSession } from '../../features/session';
+import { createVenueAccountApi } from '../../features/protocol/venue-wallet/venue-account-api';
+import { useResource } from '../../shared/resource';
+import { isHiddenPath } from './deps';
+import { whereCopy } from './where-it-sits-copy';
+
+type T = ReturnType<typeof whereCopy.useCopy>['t'];
+
+/**
+ * Assets' side column (owner's pick, 25 Nov: direction A, "Ledger"): what is on its way into the venue account, step by
+ * step; where a withdrawal goes; and the person's verification level. Each reads its own source and says so when it can't.
+ */
+export function WhereSide({ owner, t }: { owner: string; t: T }) {
+  return (
+    <>
+      <MovingNow owner={owner} t={t} />
+      <WithdrawTo owner={owner} t={t} />
+      <YourLevel t={t} />
+    </>
+  );
+}
+
+/** The steps of a deposit as the venue reports it: signed in the wallet, seen on chain while confirming, then credited. */
+function depositStep(deposit: VenueDeposit): number {
+  return deposit.status === 'credited' ? 3 : 1;
+}
+
+function MovingNow({ owner, t }: { owner: string; t: T }) {
+  const { api } = useSession();
+  const account = useMemo(() => createVenueAccountApi(api), [api]);
+  const { resource } = useResource((signal) => account.deposits(owner, signal), `where-moving:${owner}`);
+  const moving = resource.status === 'ready' ? resource.data.value.filter((d) => d.status === 'confirming') : [];
+  const recent = resource.status === 'ready' ? resource.data.value.filter((d) => d.status !== 'confirming').slice(0, 2) : [];
+  const steps = [t('Moving signed'), t('Moving on chain'), t('Moving credited')];
+  return (
+    <section className="lt-stack" aria-labelledby="where-moving-title" data-testid="assets-moving">
+      <h2 id="where-moving-title">{t('Moving title')}</h2>
+      {resource.status === 'loading' ? <p className="lt-hint">{t('Moving reading')}</p> : null}
+      {resource.status === 'failed' ? <p className="lt-hint">{t('Moving unread')}</p> : null}
+      {resource.status === 'ready' && moving.length === 0 ? <p className="lt-hint">{t('Moving none')}</p> : null}
+      {moving.map((deposit) => (
+        <div key={deposit.depositRef} className="lt-stack" data-deposit-status={deposit.status}>
+          <KeyValue
+            rows={[
+              { label: t('Moving into venue'), value: `${deposit.amount} ${deposit.asset}` },
+              {
+                label: t('Moving confirmations'),
+                value: t('Moving confirmations value', { n: String(deposit.confirmations), of: String(deposit.required) }),
+              },
+            ]}
+          />
+          <Stepper labels={steps} current={depositStep(deposit)} />
+        </div>
+      ))}
+      {recent.length > 0 ? (
+        <KeyValue
+          label={t('Moving recent')}
+          rows={recent.map((d) => ({
+            label: `${d.amount} ${d.asset}`,
+            value: d.status === 'credited' ? t('Moving done') : t('Moving not credited'),
+          }))}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+/** Where a withdrawal from the venue account goes: the connected wallet, unless the person edits it at the withdrawal. */
+function WithdrawTo({ owner, t }: { owner: string; t: T }) {
+  return (
+    <section className="lt-stack" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
+      <h2 id="where-withdraw-title">{t('Withdraw to title')}</h2>
+      <KeyValue rows={[{ label: t('Withdraw to wallet'), value: owner, ltr: true, note: t('Withdraw to ready') }]} />
+      <p className="lt-hint">{t('Withdraw to note')}</p>
+    </section>
+  );
+}
+
+const LEVEL_WORD = { none: 'Level none', basic: 'Level basic', full: 'Level full', institutional: 'Level institutional' } as const;
+
+function YourLevel({ t }: { t: T }) {
+  const { api, userId } = useSession();
+  const { resource } = useResource((signal) => api.call(IDENTITY_KYC_STATUS, { limit: 1 }, { signal }), `where-level:${userId ?? ''}`);
+  const room = isHiddenPath('/verification') ? null : '/verification';
+  return (
+    <section className="lt-stack" aria-labelledby="where-level-title" data-testid="assets-level">
+      <h2 id="where-level-title">{t('Level title')}</h2>
+      {resource.status === 'ready' ? (
+        <p>
+          {t(LEVEL_WORD[resource.data.tier])}
+          {resource.data.tradingOnly ? ` ${t('Level trading only')}` : ''}
+        </p>
+      ) : (
+        <p className="lt-hint">{resource.status === 'loading' ? t('Level reading') : t('Level unread')}</p>
+      )}
+      {room ? <a href={room}>{t('Level open')}</a> : null}
+    </section>
+  );
+}
