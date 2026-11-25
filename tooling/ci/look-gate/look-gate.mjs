@@ -721,6 +721,16 @@ export const CLIPPED_COPY = (generatedId) => {
     return `${el.tagName.toLowerCase()}${id ? `#${id}` : cls ? `.${cls}` : ''}`;
   };
   const cuts = (v) => v === 'hidden' || v === 'clip';
+  // A box around the text that is visually hidden: clipped to nothing, or a 1 px box that cuts what it holds.
+  const hiddenAround = (el) => {
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const ac = getComputedStyle(a);
+      if (ac.clipPath.startsWith('inset(50%')) return true;
+      const ar = a.getBoundingClientRect();
+      if ((ar.width <= 1 || ar.height <= 1) && (cuts(ac.overflowX) || cuts(ac.overflowY))) return true;
+    }
+    return false;
+  };
   const out = new Map();
   for (const own of document.querySelectorAll('[data-look-gate-copy]')) {
     // The kit gallery's picture of a page (scaled down, cut by its frame on purpose) is not copy a person reads there.
@@ -735,6 +745,8 @@ export const CLIPPED_COPY = (generatedId) => {
     // readers (a 1 px clipped box): nobody sees it cut.
     const drawn = el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
     if (!drawn || c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
+    // Inside a visually hidden box (the kit's .lt-sr: a chart's data table for screen readers), the same: nobody sees it.
+    if (hiddenAround(el)) continue;
     const clamp = c.webkitLineClamp && c.webkitLineClamp !== 'none';
     const wide = (cuts(c.overflowX) || c.textOverflow === 'ellipsis') && el.scrollWidth > el.clientWidth + 1;
     const tall = (cuts(c.overflowY) || clamp) && el.scrollHeight > el.clientHeight + 1;
@@ -1390,6 +1402,8 @@ async function selfTestBrowser(eq) {
     );
     await cut(`<div data-look-gate-picture><div class="row" style="${box}">%</div></div>`);
     eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'the marker without inert is no exemption');
+    await cut('<div class="lt-sr" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">%</div>');
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text inside a visually hidden box is not cut');
 
     // Targets: two 16 px buttons stacked edge to edge clash; the same inside an inert picture of a page are no targets.
     const pair =

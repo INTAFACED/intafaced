@@ -37,7 +37,7 @@ const OUT = resolve(ROOT, argOut > 0 ? process.argv[argOut + 1] : 'tooling/shots
 export const WALK = [
   '/',
   '/trade',
-  '/trade/spot/BTC-USDC',
+  '/trade/spot/PURR-USDC',
   '/trade/futures',
   '/trade/futures?symbol=ETH-PERP',
   '/trade/convert',
@@ -46,6 +46,12 @@ export const WALK = [
   '/verification',
   '/fees',
 ];
+
+/**
+ * Public reads the beta answers that its own walk may not ask yet (a screen whose read is not on the beta's build): each
+ * read once from the front, signed out, so the demo world answers it for the build the pictures are taken of.
+ */
+export const PUBLIC_READS = ['/api/v1/venue/tickers', '/api/v1/venue/spreads'];
 
 /** The reads kept: market and venue reads under /api/v1. Every other call (identity, bank, notify...) is the TEST account's. */
 export const KEPT = /^\/api\/v1\//;
@@ -251,6 +257,12 @@ async function main() {
   phase = 'signedIn';
   await walk();
   await browser.close();
+  for (const path of PUBLIC_READS) {
+    const key = callKey('GET', path);
+    if (Object.hasOwn(calls.signedOut, key)) continue;
+    const res = await fetch(new URL(path, FRONT));
+    calls.signedOut[key] = { status: res.status, json: await res.json() };
+  }
 
   // The venue's own public feed for every market the beta lists there, signed in or out alike.
   const states =
