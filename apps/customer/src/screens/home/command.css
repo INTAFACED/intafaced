@@ -76,19 +76,15 @@
   align-items: center;
   gap: 0.125rem;
   color: var(--lit-text-1);
-  font-weight: 600;
-  font-size: var(--lit-type-label-size);
   text-decoration: none;
 }
 .hm-link:hover {
   color: var(--lit-accent-text);
 }
 
-/* The big figure: Home A's size. */
+/* The big figure: the kit's hero size, held inside its column so 200% text never scrolls the page sideways. */
 .hm-hero [data-slot='hero-number'] {
-  font-size: min(clamp(2.75rem, 4.6vw, 5.25rem), 14cqi);
-  line-height: 1;
-  letter-spacing: -0.035em;
+  font-size: min(var(--lit-type-hero-size), 14cqi);
 }
 
 .hm-chart {
@@ -232,30 +228,15 @@
   margin: 0;
 }
 
-/* Pill tabs on a sunken track (Home A's range and view switches), until the kit's own land. */
+/* The range and view switches keep their own width; their look is the kit's. */
 .hm .lt-segmented {
   display: inline-flex;
   flex-wrap: wrap;
   max-inline-size: 100%;
-  gap: 0.125rem;
-  padding: 0.1875rem;
-  border: 0;
-  border-radius: 62rem;
-  background: var(--lit-solid-bg-sunken);
-  box-shadow: inset 0 0 0 1px var(--lit-line);
 }
 .hm .lt-segment {
   flex: none;
-  min-block-size: 0;
-  padding: 0.375rem 0.75rem;
-  border: 0;
-  border-radius: 62rem;
-  font-size: var(--lit-type-label-size);
-  line-height: 1.25;
-}
-.hm .lt-segment[aria-checked='true'] {
-  background: var(--lit-solid-bg-raised);
-  box-shadow: var(--lit-solid-lip);
+  padding-inline: 0.75rem;
 }
 
 /* A balance the bank refuses (not verified yet): the step itself, large, where the figure would be. */
@@ -268,15 +249,10 @@
   justify-items: start;
 }
 .hm-hero [data-slot='state-block'][data-kind='refused'] > :first-child {
-  font-size: clamp(1.75rem, 2.6vw, 2.75rem);
-  line-height: 1.1;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-.hm-hero [data-slot='state-block'][data-kind='refused'] .lt-button {
-  background: var(--lit-primary-bg);
-  box-shadow: var(--lit-primary-shadow);
-  color: var(--lit-primary-fg);
+  font-size: var(--lit-type-title-size);
+  line-height: var(--lit-type-title-line);
+  font-weight: var(--lit-type-title-weight);
+  letter-spacing: var(--lit-type-title-tracking);
 }
 
 .hm {
@@ -302,7 +278,7 @@
   margin: 0;
   flex: 1;
   font-size: var(--lit-type-label-size);
-  font-weight: 500;
+  font-weight: var(--lit-type-label-weight);
   color: var(--lit-text-2);
 }
 .hm-started-next {
@@ -312,10 +288,10 @@
   text-decoration: none;
 }
 .hm-started-headline {
-  font-size: clamp(1.375rem, 1.6vw, 1.625rem);
-  line-height: 1.2;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+  letter-spacing: var(--lit-type-heading-tracking);
 }
 .hm-started-hint {
   color: var(--lit-text-2);
@@ -370,10 +346,10 @@
 
 /* Side panels' titles: Home A's quiet panel heads, not page headings. */
 .hm-rail-sec h2 {
-  font-size: 1.0625rem;
-  line-height: 1.4;
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+  letter-spacing: var(--lit-type-heading-tracking);
 }
 .hm-rail-sec .lt-title-row {
   margin-block-end: 0.25rem;
@@ -385,7 +361,6 @@
 }
 .hm-rail-sec [data-slot='state-block'] > :first-child {
   font-size: var(--lit-type-body-size);
-  font-weight: 600;
 }
 .hm-rail-sec [data-slot='state-block'] p {
   color: var(--lit-text-2);
@@ -456,7 +431,6 @@
 .hm-rail-sec .lt-rows .lt-row-link > :last-child:not(.lt-lines) {
   flex: none;
   white-space: nowrap;
-  font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: end;
 }
@@ -520,9 +494,4 @@
 /* Spendable now's own "How this is worked out": closed, each source line and note stays in the page, unseen. */
 .hm [data-how='closed'] :is([data-how-line], [data-part-source]) {
   display: none;
-}
-
-/* Inside Your next step, what needs the person reads as the step itself. */
-.hm-next section[aria-labelledby='home-work-title'] .lt-rows {
-  font-size: 1.125rem;
 }
