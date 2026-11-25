@@ -27,7 +27,6 @@ import {
   HL_TESTNET_VENUE_ID,
   HyperliquidTestnetUserVenue,
   InMemoryNonceSource,
-  keylessStandIn,
   PERP_COLLATERAL_ASSET,
   mapOrderStatus,
   withCancelReason,
@@ -416,91 +415,7 @@ describe('prepare builds exactly what the wallet signs', () => {
     expect(() => new HyperliquidTestnetUserVenue({ appEnv: 'test', walletChainId: 0 })).toThrow(/wallet chain/);
   });
 
-  // Hyperliquid takes an agent's expiry only in its name, `<name> valid_until <ms>`, at most 180 days ahead (exchange
-  // endpoint, "Approve an API wallet"); the session key (J-wallet-22 #8) is approved with one.
-  it('approveAgent with an expiry signs `<name> valid_until <ms>`, and an expiry past or beyond 180 days refuses', async () => {
-    const fake = fakeVenue();
-    const venue = venueWith(fake);
-    const until = new Date(NOW + 8 * 3_600_000);
-    const agent = await venue.prepare(account, ownerSigner, {
-      kind: 'approve_agent',
-      agentAddress: AGENT,
-      agentName: 'trading-session',
-      validUntil: until,
-    });
-    expect((agent.typedData as UserSignedTypedData).message.agentName).toBe(`trading-session valid_until ${until.getTime()}`);
-    await venue.submit(agent, await sign(ownerKey, agent));
-    expect((fake.exchangeBodies[0]!.action as Record<string, unknown>).agentName).toBe(`trading-session valid_until ${until.getTime()}`);
-    const day = 86_400_000;
-    await refusedWith(
-      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: 'x', validUntil: new Date(NOW - 1) }),
-      'venue_rejected',
-    );
-    await refusedWith(
-      venue.prepare(account, ownerSigner, {
-        kind: 'approve_agent',
-        agentAddress: AGENT,
-        agentName: 'x',
-        validUntil: new Date(NOW + 181 * day),
-      }),
-      'not_offered',
-    );
-    const longest = await venue.prepare(account, ownerSigner, {
-      kind: 'approve_agent',
-      agentAddress: AGENT,
-      agentName: 'x',
-      validUntil: new Date(NOW + 179 * day),
-    });
-    expect((longest.typedData as UserSignedTypedData).message.agentName).toMatch(/^x valid_until \d+$/);
-  });
-
-  // The venue has no revoke: an agent is deregistered by approving another under its name ("Nonces and API wallets").
-  it("revoke_agent approves, under the agent's own name, a keyless address new to this revoke that lapses in a day", async () => {
-    const fake = fakeVenue();
-    fake.info.extraAgents = () => [{ name: `trading-session valid_until ${NOW + 3_600_000}`, address: AGENT, validUntil: NOW + 3_600_000 }];
-    const venue = venueWith(fake);
-    const revoke = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
-    const message = (revoke.typedData as UserSignedTypedData).message;
-    expect((revoke.typedData as UserSignedTypedData).primaryType).toBe('HyperliquidTransaction:ApproveAgent');
-    expect(message.agentAddress).toBe(keylessStandIn(AGENT, revoke.nonce));
-    // A fixed vector: the derivation is keccak256 of the revoked address and the nonce, its last 20 bytes.
-    expect(keylessStandIn('0x00000000000000000000000000000000000000a1', '1762646400000')).toBe(
-      '0x81ac6ec1caafeda86fe627ea69432025ca9610af',
-    );
-    expect(message.agentAddress).not.toBe(AGENT);
-    expect(message.agentName).toBe(`trading-session valid_until ${Number(revoke.nonce) + 86_400_000}`);
-    const outcome = await venue.submit(revoke, await sign(ownerKey, revoke));
-    expect(outcome).toMatchObject({ definite: true, accepted: true });
-    expect(fake.exchangeBodies[0]!.action).toMatchObject({ type: 'approveAgent', agentAddress: keylessStandIn(AGENT, revoke.nonce) });
-    // Sent again after it landed (its answer lost): the stand-in is listed, so it is done, and nothing is posted twice.
-    fake.info.extraAgents = () => [
-      { name: `trading-session valid_until ${NOW + 86_400_000}`, address: keylessStandIn(AGENT, revoke.nonce), validUntil: null },
-    ];
-    expect(await venue.submit(revoke, await sign(ownerKey, revoke))).toMatchObject({ definite: true, accepted: true });
-    expect(fake.exchangeBodies).toHaveLength(1);
-    // ...but only with the owner's own signature over it.
-    await refusedWith(venue.submit(revoke, { ...(await sign(strangerKey, revoke)), signedBy: OWNER }), 'signature_mismatch');
-    expect(fake.exchangeBodies).toHaveLength(1);
-    fake.info.extraAgents = () => [{ name: `trading-session valid_until ${NOW + 3_600_000}`, address: AGENT, validUntil: NOW + 3_600_000 }];
-    // A second revoke gets a different stand-in, so no address is ever approved twice.
-    const again = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
-    expect((again.typedData as UserSignedTypedData).message.agentAddress).not.toBe(message.agentAddress);
-    // The account's one unnamed agent is replaced by an unnamed stand-in, which carries no expiry.
-    fake.info.extraAgents = () => [{ name: '', address: AGENT, validUntil: null }];
-    const unnamed = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
-    expect((unnamed.typedData as UserSignedTypedData).message.agentName).toBe('');
-    await refusedWith(
-      venue.prepare({ ...account, subAccount: '0x1719884eb866cb12b2287399b15f7db5e7d775ea' }, ownerSigner, {
-        kind: 'revoke_agent',
-        agentAddress: AGENT,
-      }),
-      'not_offered',
-    );
-    // An agent key can never revoke.
-    await refusedWith(venue.prepare(account, agentSigner, { kind: 'revoke_agent', agentAddress: AGENT }), 'agent_not_permitted');
-  });
-
-  it('approveBuilderFee and approveAgent: the testnet typed data; a nameless agent, a revoke of no agent and amend refuse', async () => {
+  it('approveBuilderFee and approveAgent: the testnet typed data; an agent expiry, revoke and amend refuse', async () => {
     const fake = fakeVenue();
     const venue = venueWith(fake);
     const fee = await venue.prepare(account, ownerSigner, { kind: 'approve_builder_fee', builder: BUILDER, maxFeeBps: a('1') });
@@ -527,14 +442,10 @@ describe('prepare builds exactly what the wallet signs', () => {
       nonce: Number(agent.nonce),
     });
     await refusedWith(
-      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: ' ', validUntil: null }),
-      'venue_rejected',
+      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: 'x', validUntil: new Date(NOW + 1) }),
+      'not_offered',
     );
-    await refusedWith(
-      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: 'x valid_until 1', validUntil: null }),
-      'venue_rejected',
-    );
-    await refusedWith(venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: OWNER }), 'venue_rejected');
+    await refusedWith(venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT }), 'not_offered');
     await refusedWith(
       venue.prepare(account, ownerSigner, { kind: 'create_sub_account', name: 'TEST sub', subAccountKey: 'sub:owner:1' }),
       'not_offered',
