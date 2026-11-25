@@ -1910,6 +1910,21 @@ a.lt-mover:hover {
     display: block;
   }
 }
+/* With room for it (22rem, so at 200% text it keeps the two-line row), a phone row is one line: name, price, change. */
+@container room (min-width: 22rem) and (max-width: 599px) {
+  .lt-market-table .lt-table tr {
+    grid-template-columns: minmax(0, 1fr) auto 4.5rem;
+    grid-template-rows: auto;
+    min-block-size: 3.25rem;
+  }
+  .lt-market-table .lt-table td:nth-child(1) {
+    grid-row: 1;
+  }
+  .lt-market-table .lt-table td:nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
 
 /* On a phone a row of market tiles swipes sideways (two and a bit in view) instead of stacking into a tall column. */
 @container room (max-width: 599px) {
@@ -1924,6 +1939,14 @@ a.lt-mover:hover {
   }
   .lt-tile-row[data-min='card'] > * {
     scroll-snap-align: start;
+  }
+  /* A phone tile is 42% of the row: its price a step smaller, so "$64,827.55" stays inside it. */
+  .lt-mover-price {
+    font-size: var(--lit-type-heading-size);
+    line-height: var(--lit-type-heading-line);
+  }
+  .lt-mover-top {
+    flex-wrap: wrap;
   }
 }
 
@@ -2198,6 +2221,12 @@ a.lit-button {
   font-stretch: 125%;
   letter-spacing: -0.035em;
   color: var(--lit-text-1);
+}
+/* Beside a live panel (the hero layout) the headline follows the page's width, so each line stays one line in its 5/12 column. */
+@container lt-page (min-width: 64rem) {
+  .lt-page-grid[data-layout='hero'] .lt-display {
+    font-size: clamp(2.75rem, 4.2cqi, 8.5rem);
+  }
 }
 .lt-display-line {
   display: block;

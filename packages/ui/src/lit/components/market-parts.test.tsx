@@ -55,3 +55,10 @@ describe('MoverTile', () => {
     expect(html).toContain('data-direction="down"');
   });
 });
+
+describe('MoverTile quote', () => {
+  it('draws the quote side quieter after the symbol, so two pairs of one coin read apart', () => {
+    const html = renderToStaticMarkup(<MoverTile symbol="BTC" quote="USDT" price="65,337.43" change="+0.47%" />);
+    expect(html).toContain('<span class="lt-market-symbol">BTC</span><span class="lt-market-full">/USDT</span>');
+  });
+});
