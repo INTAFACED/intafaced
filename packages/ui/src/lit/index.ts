@@ -70,3 +70,4 @@ export {
   type TapePrint,
   type TradeTapeProps,
 } from './components/exchange.js';
+export { ChoiceTile, RadioTrack, WalletCard, type RadioTrackOption } from './components/auth-parts.js';
