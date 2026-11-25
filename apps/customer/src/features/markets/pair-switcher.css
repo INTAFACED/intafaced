@@ -233,7 +233,7 @@
     }
     .psw {
       max-block-size: calc(100dvh - 3.5rem);
-      border-radius: 1.4286rem;
+      border-radius: var(--lit-radius-panel);
     }
     .psw-row {
       grid-template-columns: 2rem minmax(0, 1fr) auto auto;
