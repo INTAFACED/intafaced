@@ -8,6 +8,8 @@ import * as React from 'react';
 import { formatMoney, reconcileParts, type Part } from '../templates/money.js';
 import type { DecimalString } from '../templates/types.js';
 import type { DataMarks } from './b2-table.js';
+import { useHideBalances } from '../../components/numbers.js';
+import { HIDDEN_MASK } from './b2-values.js';
 
 export interface Point {
   /** ISO date or time. */
@@ -34,17 +36,21 @@ function scale(points: readonly Point[]) {
 
 function DataTable({ caption, rows, asset }: { caption: string; rows: readonly { label: string; value: DecimalString }[]; asset: string }) {
   return (
-    <table className="lt-sr">
-      <caption>{caption}</caption>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.label}>
-            <th scope="row">{r.label}</th>
-            <td>{formatMoney({ value: r.value, asset })}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    // Hidden in a box rather than on the table itself: a table ignores the hidden box's 1px height, so its rows would
+    // still stretch the page by their full height.
+    <div className="lt-sr">
+      <table>
+        <caption>{caption}</caption>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <th scope="row">{r.label}</th>
+              <td>{formatMoney({ value: r.value, asset })}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -52,10 +58,16 @@ interface SeriesProps {
   label: string;
   points: readonly Point[];
   asset: string;
-  /** `up` or `down` colours the line by direction; `neutral` uses the light. */
-  tone?: 'up' | 'down' | 'neutral';
+  /** `up` or `down` colours the line by direction; `neutral` uses the light; `ink` the text colour (a balance's hero line). */
+  tone?: 'up' | 'down' | 'neutral' | 'ink';
   /** Data is live (not stale): a live dot marks the last point. */
   live?: boolean;
+  /** Faint horizontal guide lines behind the line (a hero chart). */
+  grid?: boolean;
+  /** Fill the container's height instead of the kit's fixed one (a chart inside a tile). */
+  fit?: boolean;
+  /** The last point's value, formatted ("$24,860.40"): drawn in a pill over a dot, with a dashed line down from it. */
+  marker?: string;
 }
 
 function Series({
@@ -66,6 +78,9 @@ function Series({
   live = false,
   fill,
   soft = false,
+  grid = false,
+  fit = false,
+  marker,
 }: SeriesProps & { fill: boolean; soft?: boolean }) {
   const gradient = `lt-chart-soft-${React.useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   if (points.length < 2) return null;
@@ -73,9 +88,20 @@ function Series({
   const d = ys.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const area = `${d} L${x(points.length - 1).toFixed(1)},${H - PAD} L${x(0).toFixed(1)},${H - PAD} Z`;
   const last = points.length - 1;
+  const end = { x: x(last), y: y(ys[last] ?? 0) };
+  // Where the marker sits, as a share of the drawing (the chart is drawn left to right in every language).
+  const at = { inlineStart: `${((end.x / W) * 100).toFixed(2)}%`, blockStart: `${((end.y / H) * 100).toFixed(2)}%` };
   return (
-    <figure className="lt-chart" data-tone={tone}>
+    <figure className="lt-chart" data-tone={tone} data-marked={marker === undefined ? undefined : ''} data-fit={fit || undefined} dir="ltr">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
+        {grid
+          ? [0.25, 0.5, 0.75].map((f) => (
+              <line key={f} className="lt-chart-grid" x1={0} x2={W} y1={H * f} y2={H * f} vectorEffect="non-scaling-stroke" />
+            ))
+          : null}
+        {marker !== undefined ? (
+          <line className="lt-chart-drop" x1={end.x} x2={end.x} y1={end.y} y2={H - PAD} vectorEffect="non-scaling-stroke" />
+        ) : null}
         {fill && soft ? (
           <defs>
             <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
@@ -88,8 +114,14 @@ function Series({
           <path className="lt-chart-area" data-soft={soft || undefined} d={area} style={soft ? { fill: `url(#${gradient})` } : undefined} />
         ) : null}
         <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
-        {live ? <circle className="lt-chart-live" data-live="" cx={x(last)} cy={y(ys[last]!)} r={4} /> : null}
+        {live ? <circle className="lt-chart-live" data-live="" cx={end.x} cy={end.y} r={4} /> : null}
       </svg>
+      {marker !== undefined ? (
+        <span className="lt-chart-marker" style={{ insetInlineStart: at.inlineStart, insetBlockStart: at.blockStart }} aria-hidden="true">
+          <span className="lt-chart-marker-dot" />
+          <span className="lt-chart-marker-pill">{marker}</span>
+        </span>
+      ) : null}
       <DataTable caption={label} asset={asset} rows={points.map((p) => ({ label: p.at, value: p.value }))} />
     </figure>
   );
@@ -114,11 +146,14 @@ export function Sparkline({
   values,
   tone,
   size = 'card',
+  fit = false,
 }: {
   label: string;
   values: readonly DecimalString[];
   tone?: 'up' | 'down' | 'neutral';
   size?: 'card' | 'row';
+  /** Fill the container's height instead of the kit's fixed one. */
+  fit?: boolean;
 }) {
   if (values.length < 2) return null;
   const { x, y, ys } = scale(values.map((value, i) => ({ at: String(i), value })));
@@ -126,7 +161,12 @@ export function Sparkline({
   const first = ys[0] ?? 0;
   const last = ys.at(-1) ?? first;
   return (
-    <figure className="lt-chart lt-spark" data-size={size} data-tone={tone ?? (last > first ? 'up' : last < first ? 'down' : 'neutral')}>
+    <figure
+      className="lt-chart lt-spark"
+      data-size={size}
+      data-fit={fit || undefined}
+      data-tone={tone ?? (last > first ? 'up' : last < first ? 'down' : 'neutral')}
+    >
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
         <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
       </svg>
@@ -326,6 +366,8 @@ export function Parts({
   asset,
   otherLabel = 'Other',
   refusedLabel = 'These parts don’t add up to the total shown, so they aren’t drawn.',
+  hidden,
+  legend = 'list',
 }: {
   label: string;
   total: DecimalString;
@@ -333,7 +375,13 @@ export function Parts({
   asset: string;
   otherLabel?: string;
   refusedLabel?: string;
+  /** Masks the amounts (the bar stays); without it, the person's hide-balances switch decides. */
+  hidden?: boolean;
+  /** `row`: the legend on one wrapping line under the bar (a hero panel); `list` (default): one row per part. */
+  legend?: 'list' | 'row';
 }) {
+  const hideFromSwitch = useHideBalances();
+  const masked = hidden ?? hideFromSwitch;
   const r = reconcileParts(total, parts, otherLabel);
   if (!r.ok) {
     return (
@@ -344,7 +392,7 @@ export function Parts({
   }
   const t = plot(total) || 1;
   return (
-    <figure className="lt-parts" aria-label={label}>
+    <figure className="lt-parts" aria-label={label} data-legend={legend}>
       <div className="lt-parts-bar" aria-hidden="true">
         {r.parts.map((p, i) => (
           <span key={p.label} data-part={i} style={{ flexGrow: plot(p.value) / t }} />
@@ -355,8 +403,8 @@ export function Parts({
           <li key={p.label}>
             <span className="lt-parts-swatch" data-part={i} aria-hidden="true" />
             <span>{p.label}</span>
-            <span className="lt-parts-value" dir="ltr" data-ltr="">
-              {formatMoney({ value: p.value, asset })}
+            <span className="lt-parts-value" dir="ltr" data-ltr="" data-hidden={masked || undefined}>
+              {masked ? HIDDEN_MASK : formatMoney({ value: p.value, asset })}
             </span>
           </li>
         ))}

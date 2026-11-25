@@ -1,0 +1,48 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// Data downloads (RC-cex-spot-05; J-cex-spot-15 #10). English source; other languages fall back to English.
+const en = {
+  title: 'Data downloads',
+  description: 'Downloadable historical trades, candles and order book snapshots with SHA-256 checksums and completeness metrics.',
+  backToMarkets: 'Markets',
+  filterKind: 'Dataset type',
+  kindAll: 'All',
+  kindTrades: 'Trades',
+  kindCandles: 'Candles',
+  kindBookSnapshots: 'Book snapshots',
+  searchLabel: 'Filter by market or day',
+  searchPlaceholder: 'e.g. BTC/USDT or 2026-11-24',
+  bookUnsetTitle: 'Book snapshots are not configured',
+  bookUnsetBody: 'No capture interval is set for order book snapshots, so no book snapshot files are published.',
+  emptyTitle: 'No historical datasets published',
+  emptyBody: 'Datasets appear once a published window has recorded trades, candles or book snapshots.',
+  emptyFilteredTitle: 'No datasets match your filter',
+  emptyFilteredBody: 'Clear the filter or choose another dataset type.',
+  clearFilter: 'Clear filter',
+  failedTitle: 'Data downloads couldn’t load',
+  failedBody: 'Nothing is shown rather than an old or incomplete list. Try again.',
+  tryAgain: 'Try again',
+  refusedTitle: 'Dataset request refused',
+  refusedBody: 'This dataset type is not currently published.',
+  colMarket: 'Market',
+  colKind: 'Type',
+  colWindow: 'Published window (UTC)',
+  colRows: 'Rows',
+  colCompleteness: 'Completeness',
+  colChecksum: 'SHA-256 checksum',
+  colCorrections: 'Corrections',
+  colFile: 'File',
+  download: 'Download .ndjson.gz',
+  downloadSuperseding: 'Download superseding file',
+  noGaps: 'No gaps',
+  gapsLabel: 'Gaps: {gaps}',
+  noCorrections: 'None',
+  correctionDetail: 'Seq {from}–{to}: {reason}',
+  schemasHeading: 'Published file schemas',
+  schemasLead: 'Every file is gzip-compressed NDJSON with a SHA-256 checksum over the compressed bytes. Provenance: {provenance}.',
+  schemaVersion: 'Version {version}',
+  explain:
+    'Files contain public market data only (engine match sequences, candle buckets and book snapshots), never account or order identifiers. Corrections are append-only and keep the original file intact.',
+} as const;
+
+export const dataDownloadsCopy = defineCopy('trade.dataDownloads', en);

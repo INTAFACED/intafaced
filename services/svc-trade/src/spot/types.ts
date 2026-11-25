@@ -803,7 +803,11 @@ export type TradeErrorCode =
    * Pre-market conversion (or params read) refused: the owner has not set the flat funding rate
    * and the mark clamp band for this market. Blank stays blank; the market row is left as it was.
    */
-  | 'trade.premarket_params_unset';
+  | 'trade.premarket_params_unset'
+  /** Historical book snapshot interval (`TRADE_HISTORY_BOOK_INTERVAL_MS`) is blank; no book dataset is built. */
+  | 'trade.history_book_interval_unset'
+  /** Requested historical dataset id does not exist. */
+  | 'trade.history_dataset_not_found';
 
 export class TradeError extends Error {
   /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */
