@@ -160,6 +160,19 @@
   :root .tb-search-panel {
     inset-block-start: calc(var(--lit-topbar-h) + var(--if-banner-offset, 0rem));
   }
+  /* The controls close up to the brand too: the cluster sits at the bar's end whatever this gap is. */
+  :root .tb {
+    gap: 0.7143rem;
+    container: tb / inline-size;
+  }
+}
+/* Signed out on a phone with text too large for the bar (200%), Sign up steps aside and Log in stays: the brand keeps its
+   mark and wordmark at every width (Nino, 25 Nov), and the bar never runs past the screen (issue 10984). The bar needs
+   the lockup, drawn 151px whatever the text size, and Log in and Sign up, which grow with it. */
+@container tb (width < calc(151px + 12.8571rem)) { /* look-drift-allow: the logo's drawn width, which text size never changes */
+  :root .tb .tb-signup {
+    display: none;
+  }
 }
 :root .tb-login,
 :root .tb-signup {
@@ -242,15 +255,17 @@
   color: var(--lit-text-3);
   font-weight: 600;
 }
-/* The bell's count: a ring of the bar's own colour cuts it from the bell. */
+/* The bell's count: a ring of the bar's own colour cuts it from the bell. The pill stands clear of its digits' text box
+   (the font's ascent and descent, wider than the glyphs): a pill only as tall as the line put the box's corners on the
+   ring, where the count read 1:1 (issue 10984). */
 :root .tb .tb-badge {
-  inset-block-start: -0.2857rem;
-  inset-inline-end: -0.4286rem;
-  min-inline-size: 1.0714rem;
-  block-size: 1.0714rem;
-  padding-inline: 0.2143rem;
+  inset-block-start: -0.4286rem;
+  inset-inline-end: -0.5714rem;
+  min-inline-size: 1.4286rem;
+  block-size: 1.4286rem;
+  padding-inline: 0.3571rem;
   font-size: 0.7857rem;
-  line-height: 1.0714rem;
+  line-height: 1.4286rem;
   box-shadow: 0 0 0 0.1429rem var(--lit-solid-bg);
 }
 /* The account: a plain icon, as the bar's other icons. */

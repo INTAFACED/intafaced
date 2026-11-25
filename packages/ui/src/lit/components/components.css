@@ -212,6 +212,8 @@
   justify-content: center;
   padding-inline: 12px;
   text-align: center;
+  /* A word longer than its share (a long translation) breaks inside the segment rather than spilling over the next. */
+  overflow-wrap: anywhere;
 }
 /* The chosen segment is lifted in the raised material, never lime: lime is only the screen's one main action. */
 .lit-segmented button[aria-pressed='true'],
@@ -919,7 +921,8 @@
 }
 .lit-button[data-tone='down'] {
   background: var(--lit-down);
-  color: var(--lit-text-1);
+  /* Dark on the loss colour, as Buy: light text on it measures 2.67:1. */
+  color: var(--lit-page);
 }
 .lit-button[data-size='sm'] {
   min-block-size: 32px;
@@ -2563,8 +2566,11 @@ a.lit-button {
 .lt-book-pick {
   all: unset;
   cursor: pointer;
-  display: block;
+  display: flex;
+  align-items: center;
   inline-size: 100%;
+  /* A level is a 24px target (WCAG 2.5.8): the levels touch, so none may be shorter (issue 10984). */
+  min-block-size: 1.7143rem;
 }
 .lt-book-pick:focus-visible {
   outline: 2px solid var(--lit-focus);
@@ -2578,6 +2584,10 @@ a.lit-button {
 }
 .lt-book-mid th {
   text-align: start;
+}
+/* The spread line wraps where its words are longer than the ladder's column (a long translation), never spills. */
+.lt-book-mid td {
+  white-space: normal;
 }
 .lt-tape-row[data-taker='buy'] .lt-tape-price {
   color: var(--lit-up-text);

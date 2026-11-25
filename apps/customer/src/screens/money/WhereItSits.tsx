@@ -504,10 +504,13 @@ type Head = { text: string; hidden?: boolean; end?: boolean; action?: boolean };
 
 const valueHeads = (t: T): Head[] => [{ text: t('Value'), end: true }];
 
-/** A source's table in a named region: one header row, then the rows. */
+/**
+ * A source's table in a named region: one header row, then the rows. The region never scrolls (a phone stacks its rows),
+ * so it is no tab stop: focused, a phone's stacked table is taller than the space between the top bar and the dock.
+ */
 function SourceTable({ headers, children, label }: { headers: readonly Head[]; children: ReactNode; label: string }) {
   return (
-    <div tabIndex={0} role="region" aria-label={label} className="money-where__table">
+    <div role="region" aria-label={label} className="money-where__table">
       <table className="lt-table">
         <thead>
           <tr>
