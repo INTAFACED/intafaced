@@ -47,7 +47,7 @@ const placesOf = (step) => (step.split('.')[1] ?? '').length;
 /** A figure on `step` with every decimal place it allows, then one keystroke finer: a digit past them, or a decimal mark. */
 const finer = (onStep, step) => (placesOf(step) > 0 ? `${onStep}5` : `${onStep}.`);
 
-test(`${J} #3 types an amount below the smallest order, or finer than the lot or tick: "Too small" in words; finer digits cannot be typed; nothing is previewed or sent`, async ({
+test(`${J} #3 types an amount below the smallest order, or finer than the lot or tick: "Too small" in words; finer digits cannot be typed; nothing is previewed or sent, on Hyperliquid's test network`, async ({
   page,
   stepPicture,
 }) => {

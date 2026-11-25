@@ -63,7 +63,7 @@ async function desk(page) {
   return { wallet, owner, market };
 }
 
-test(`${J} #5 chooses the margin mode: the modes the venue offers for the contract, the others listed as not offered by this venue; nothing changes`, async ({
+test(`${J} #5 chooses the margin mode: the modes the venue offers for the contract, the others listed as not offered by this venue; nothing changes, on Hyperliquid's test network`, async ({
   page,
   stepPicture,
 }) => {
@@ -96,7 +96,7 @@ test(`${J} #5 chooses the margin mode: the modes the venue offers for the contra
   expect((await venueRecord(owner, '/balances')).value).toEqual(before.value);
 });
 
-test(`${J} #7 looks at the order types: market and limit as offered; resting types that are not live are listed with the honest refusal and no network write`, async ({
+test(`${J} #7 looks at the order types: market and limit as offered; resting types that are not live are listed with the honest refusal and no network write, on Hyperliquid's test network`, async ({
   page,
   stepPicture,
 }) => {
