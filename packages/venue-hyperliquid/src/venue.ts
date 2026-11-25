@@ -658,7 +658,8 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
   private async post(
     body: string,
   ): Promise<{ kind: 'json'; json: Json } | { kind: 'unknown'; reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' }> {
-    // A signed action may change what any read answers (an order, a builder approval, a new session key).
+    // A signed action may change what any read answers (an order, a builder approval, a new session key): what was kept
+    // is dropped before it is sent, and again once the venue answers, so a read made while it was in flight is not kept.
     this.forgetReads();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -697,6 +698,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       }
     } finally {
       clearTimeout(timer);
+      this.forgetReads();
     }
   }
 }

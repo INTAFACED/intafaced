@@ -253,7 +253,9 @@ export abstract class HyperliquidCore {
           if (epoch === this.readsEpoch) this.keep(key, text);
           return text;
         })
-        .finally(() => this.reading.delete(key));
+        .finally(() => {
+          if (this.reading.get(key) === inFlight) this.reading.delete(key);
+        });
       this.reading.set(key, inFlight);
     }
     return parseJson(await inFlight);
