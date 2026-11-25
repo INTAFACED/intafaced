@@ -11,7 +11,7 @@ export const landingCopy = defineCopy('public-landing', {
   createShort: 'Create account',
   emailLabel: 'Email address',
   emailPlaceholder: 'you@example.com',
-  passkeySignIn: 'Sign in with a passkey',
+  passkeySignIn: 'Continue with a passkey',
   heroNote: 'A beta with TEST money only. Crypto is volatile; you can lose money.',
   statMarkets: 'markets open now',
   statVolume: 'traded in 24h',
