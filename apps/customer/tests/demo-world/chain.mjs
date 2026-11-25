@@ -11,9 +11,9 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { demoWalletKey } from './seed.mjs';
 
 /** The demo wallet's TEST gas, in wei: 0.42 TEST ETH. */
-export const DEMO_GAS_WEI = 420_000_000_000_000_000n;
+const DEMO_GAS_WEI = 420_000_000_000_000_000n;
 /** The one block the chain has, numbered as a test network's would be. */
-export const DEMO_BLOCK = 98_765_432n;
+const DEMO_BLOCK = 98_765_432n;
 
 const hex = (v) => `0x${BigInt(v).toString(16)}`;
 const refused = (code, message) => ({ error: { code, message } });
