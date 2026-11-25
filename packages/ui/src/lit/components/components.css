@@ -1686,3 +1686,98 @@ button.lt-menu-item:focus-visible {
   flex: none;
   color: var(--lit-text-2);
 }
+
+/* Page layout (page-grid.tsx): one width, gutter and rhythm for every beta screen, from the owner's landing A and
+   home A. One column under 64rem of the page's own width; the layout's columns from there; a step larger on an
+   ultra-wide screen so 2560 reads like 1440. */
+.lt-page {
+  container: lt-page / inline-size;
+  inline-size: 100%;
+  max-inline-size: 150rem;
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 2vw, 2.5rem);
+  padding-block: 1.25rem 3.75rem;
+  box-sizing: border-box;
+}
+@media (min-width: 125rem) {
+  .lt-page[data-scale='auto'] {
+    zoom: 1.2;
+  }
+}
+.lt-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.lt-page-col {
+  display: grid;
+  gap: 1rem;
+  min-inline-size: 0;
+  align-content: start;
+}
+@container lt-page (min-width: 64rem) {
+  .lt-page-grid[data-layout='split'] {
+    grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  }
+  .lt-page-grid[data-layout='hero'] {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: clamp(1.5rem, 3vw, 3.5rem);
+    align-items: center;
+  }
+  .lt-page-grid[data-layout='even'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lt-page-col[data-span='all'] {
+    grid-column: 1 / -1;
+  }
+}
+
+.lt-tile-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.75rem;
+}
+.lt-tile-row[data-min='narrow'] {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+}
+.lt-tile-row[data-min='wide'] {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
+
+.lt-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-block-end: 0.75rem;
+}
+.lt-panel-title {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: 600;
+  letter-spacing: var(--lit-type-heading-tracking);
+  color: var(--lit-text-1);
+}
+.lt-panel-aside {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-num {
+  font-family: var(--lit-font-figure);
+  font-variant-numeric: tabular-nums;
+  font-stretch: 112%;
+  white-space: nowrap;
+}
+.lt-num[data-dir='up'] {
+  color: var(--lit-up-text);
+}
+.lt-num[data-dir='down'] {
+  color: var(--lit-down-text);
+}

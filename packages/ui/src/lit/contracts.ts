@@ -349,6 +349,12 @@ export const components = {
   Payee: 'The person money is about to go to, as the lookup found them: face, name, handle, a confirmed badge and a tick; nothing guessed',
   StatusNote:
     'Where something stands, in the flow (still confirming, held for review, could not load): title, words, the caller’s actions; polite, an alert only for a failure',
+  PageGrid:
+    "The page's width, gutter and columns (split 8:4, hero 5:7, even, full): one column under 64rem of its own width, a step larger on an ultra-wide screen",
+  PageColumn: 'One column of a PageGrid, its panels stacked with the page gap; span all for a band across every column',
+  TileRow: 'A row of equal tiles that wraps by width (narrow 11rem, card 14rem, wide 18rem)',
+  PanelHead: "A panel's head: its title as a heading at the start, an aside at the end",
+  Num: 'A number drawn with tabular digits and the figure cut, optionally up or down coloured',
 } as const;
 export type ComponentName = keyof typeof components;
 
