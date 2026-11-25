@@ -967,6 +967,24 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: "Candles of the venue's own prints on the spot market listed on one asset, oldest first, with the market's symbol",
   },
   {
+    name: 'venueChartMarkets',
+    method: 'GET',
+    path: '/api/v1/venue/chart-markets',
+    product: 'accounts',
+
+    summary:
+      'Public chart metadata for every listed venue market (tick and lot size, status, listing routing and offered intervals), signed in or out',
+  },
+  {
+    name: 'venueChartCandles',
+    method: 'GET',
+    path: '/api/v1/venue/chart-candles',
+    product: 'accounts',
+
+    summary:
+      "Candles of the venue's own prints on one listed market, oldest first, up to 720 bars with an optional start time, signed in or out",
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
@@ -1055,6 +1073,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
+  },
+  {
+    name: 'venueArrivals',
+    method: 'GET',
+    path: '/api/v1/venue/arrivals',
+    product: 'accounts',
+
+    summary: 'Credits into your venue account from outside it (deposits and transfers in), as the venue records them',
   },
   {
     name: 'venueDepositRoutes',
@@ -1322,6 +1348,47 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
 
     summary:
       'The venue’s published fee tiers, each listed market’s maker and taker rates, the venue’s cap on a builder fee there, and our builder fee: blank reads not set',
+  },
+  {
+    name: 'venueMarketStates',
+    method: 'GET',
+    path: '/api/v1/venue/market-states',
+    product: 'accounts',
+
+    summary:
+      'Each market we list on the venue, signed in or not: the venue’s own trading state and session beside our listing (when it opens, when it is delisted, our routing), as of the venue read',
+  },
+  {
+    name: 'venuePublicBook',
+    method: 'GET',
+    path: '/api/v1/venue/public-book',
+    product: 'accounts',
+
+    summary: 'Public order book and sequence for a listed venue market, signed in or out',
+  },
+  {
+    name: 'venueTickers',
+    method: 'GET',
+    path: '/api/v1/venue/tickers',
+    product: 'accounts',
+
+    summary: 'Public 24 h tickers and spreads for every listed venue spot market, derived from the venue’s book and trade tape',
+  },
+  {
+    name: 'venueSpreads',
+    method: 'GET',
+    path: '/api/v1/venue/spreads',
+    product: 'accounts',
+
+    summary: 'Public best bid, best ask and exact spread for every listed venue spot market',
+  },
+  {
+    name: 'venueAnalytics',
+    method: 'GET',
+    path: '/api/v1/venue/analytics',
+    product: 'accounts',
+
+    summary: 'Public aggressor differential and window stats for a listed venue market; a blank window refuses',
   },
   {
     name: 'venueMarketVenues',

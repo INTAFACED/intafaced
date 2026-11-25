@@ -107,6 +107,7 @@ export function doorLabel(door: Door, locale: UiLocale = currentPreferences().la
 }
 const publicSearchable = new Set([
   '/help',
+  '/help/official-channels',
   '/status',
   '/notice',
   '/lab',
@@ -159,6 +160,28 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
 }
 
 export const defaultDeskPair = 'BTC-USDT';
+
+const MENU_SPOT_KEY = 'if.menuSpot';
+
+/** Marks that the trader clicked a generic Spot menu link (Trade › Spot or Pro Trade tab). */
+export function markMenuSpotNavigation(): void {
+  try {
+    sessionStorage.setItem(MENU_SPOT_KEY, '1');
+  } catch {
+    /* private mode or SSR */
+  }
+}
+
+/** Reads and clears the one-shot flag set when opening the default spot pair from a menu click. */
+export function consumeMenuSpotNavigation(): boolean {
+  try {
+    const marked = sessionStorage.getItem(MENU_SPOT_KEY) === '1';
+    if (marked) sessionStorage.removeItem(MENU_SPOT_KEY);
+    return marked;
+  } catch {
+    return false;
+  }
+}
 /** The pair of a desk path (`/trade/spot/ETH-USDT`, `/exchange/ETH_USDT`), as "ETH/USDT"; null for any other path. */
 export function deskPairLabel(path: string): string | null {
   const match = /^\/(?:trade\/spot|exchange)\/([^/]+)$/.exec(path);

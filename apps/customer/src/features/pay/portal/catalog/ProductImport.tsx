@@ -1,5 +1,7 @@
+// volt-room: /pay/products/import
+// volt-room: portal:product-import
 import { useState, type ChangeEvent } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import {
   PRODUCT_IMPORT_COLUMNS,
   PRODUCT_IMPORT_MAX_CHARS,
@@ -8,16 +10,20 @@ import {
   type ProductImport as ImportAnswer,
   type ProductImportProblem,
 } from '@intafaced/contracts/merchant-catalog';
-import { EmptyState, Field } from '../../ui-kit';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
 import { DateTime } from '../ui/DateTime';
-import { EntityList } from '../ui/EntityList';
+import { FlowRoom } from '../volt/FlowRoom';
+import { Empty, EntityList, LinkButton, Section } from '../volt/parts';
 import { useMayAddProducts } from './access';
 import { inMode, useCatalogMode } from './mode';
 import { catalogCopy as c } from './copy';
 
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
+
+/** `/pay/products/import` on the flow template (J-merchant-03 step 5): every role reads; the page gates adding. */
+export function ProductImportRoom({ portal }: { portal: PortalApi }) {
+  return <FlowRoom need="products.read">{() => <ProductImport portal={portal} />}</FlowRoom>;
+}
 
 /**
  * `/pay/products/import` (J-merchant-03 step 5): pick a CSV file, check it (a dry run that writes nothing), then import
@@ -67,13 +73,12 @@ export function ProductImport({ portal }: { portal: PortalApi }) {
     }
   }
 
-  if (!may.allowed)
-    return <EmptyState title={t('importTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</EmptyState>;
+  if (!may.allowed) return <Empty title={t('importTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</Empty>;
   return (
-    <PaySection title={t('importTitle')} description={t('importPurpose')}>
+    <Section title={t('importTitle')} description={t('importPurpose')}>
       <div data-testid="form-stack" className="lt-stack">
         {mode === 'test' && (
-          <p className="pp-callout" role="note">
+          <p className="lt-callout" role="note">
             {t('testCatalogueImportNote')}
           </p>
         )}
@@ -87,25 +92,25 @@ export function ProductImport({ portal }: { portal: PortalApi }) {
           onChange={(e) => void picked(e)}
         />
         {note && (
-          <p className="pp-callout" role="alert">
+          <p className="lt-callout lt-callout-bad" role="alert">
             {note}
           </p>
         )}
         {file && !answer && (
           <div className="lt-actions">
-            <Button variant="primary" disabled={busy !== null} onClick={() => void send(false)}>
+            <Button tone="primary" disabled={busy !== null} onClick={() => void send(false)}>
               {busy === 'check' ? t('importChecking') : t('importCheck')}
             </Button>
           </div>
         )}
         {refused && (
-          <p className="pp-callout" role="alert">
+          <p className="lt-callout lt-callout-bad" role="alert">
             {refused}
           </p>
         )}
         {file && answer && <ImportAnswerView answer={answer} busy={busy} onImport={() => void send(true)} />}
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -124,7 +129,6 @@ function ImportFormat() {
           { header: t('importColColumn'), cell: (column) => <code>{column}</code> },
           { header: t('importColMeaning'), cell: (column) => t(`importColumn_${column}`) },
         ]}
-        card={(column) => ({ title: column, status: t(`importColumn_${column}`) })}
       />
     </div>
   );
@@ -136,7 +140,7 @@ function ImportAnswerView({ answer, busy, onImport }: { answer: ImportAnswer; bu
   if (answer.imported)
     return (
       <div className="lt-stack">
-        <p className="pp-confirmed" role="status">
+        <p className="lt-note-good" role="status">
           {answer.replayed
             ? t(answer.rows === 1 ? 'importReplayedOne' : 'importReplayed', { count: String(answer.rows) })
             : t(answer.rows === 1 ? 'importDoneOne' : 'importDone', { count: String(answer.rows) })}
@@ -149,16 +153,14 @@ function ImportAnswerView({ answer, busy, onImport }: { answer: ImportAnswer; bu
         {answer.products.length < answer.rows && <p className="lt-muted">{t('importSomeDeleted')}</p>}
         <ImportedProducts products={answer.products} />
         <div className="lt-actions">
-          <Button variant="secondary" nativeButton={false} role="link" render={<a href={inMode('/pay/products', mode)} />}>
-            {t('importBack')}
-          </Button>
+          <LinkButton href={inMode('/pay/products', mode)}>{t('importBack')}</LinkButton>
         </div>
       </div>
     );
   if (answer.problemCount > 0)
     return (
       <div className="lt-stack">
-        <p className="pp-callout" role="alert">
+        <p className="lt-callout lt-callout-bad" role="alert">
           {t(answer.problemCount === 1 ? 'importProblemsOne' : 'importProblems', { count: String(answer.problemCount) })}
         </p>
         <ProblemList problems={answer.problems} />
@@ -169,11 +171,11 @@ function ImportAnswerView({ answer, busy, onImport }: { answer: ImportAnswer; bu
     );
   return (
     <div className="lt-stack">
-      <p className="pp-confirmed" role="status">
+      <p className="lt-note-good" role="status">
         {t(answer.rows === 1 ? 'importReadyOne' : 'importReady', { count: String(answer.rows) })}
       </p>
       <div className="lt-actions">
-        <Button variant="primary" disabled={busy !== null} onClick={onImport}>
+        <Button tone="primary" disabled={busy !== null} onClick={onImport}>
           {busy === 'import'
             ? t('importImporting')
             : t(answer.rows === 1 ? 'importCommitOne' : 'importCommit', { count: String(answer.rows) })}
@@ -195,11 +197,6 @@ function ProblemList({ problems }: { problems: readonly ProductImportProblem[] }
         { header: t('importColColumn'), cell: (p) => (p.column ? <code>{p.column}</code> : t('importWholeLine')) },
         { header: t('importColProblem'), cell: (p) => t(`importProblem_${p.problem}`) },
       ]}
-      card={(p) => ({
-        title: t('importLineCard', { line: String(p.line), column: p.column ?? t('importWholeLine') }),
-
-        status: t(`importProblem_${p.problem}`),
-      })}
     />
   );
 }
@@ -217,7 +214,6 @@ function ImportedProducts({ products }: { products: readonly MerchantProduct[] }
         { header: t('colType'), cell: (row) => t(`type_${row.type}`) },
         { header: t('colId'), cell: (row) => <code>{row.productKey}</code> },
       ]}
-      card={(row) => ({ title: row.name, status: t(`type_${row.type}`) })}
     />
   );
 }

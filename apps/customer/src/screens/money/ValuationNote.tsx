@@ -17,11 +17,14 @@ export function ValuationNote({
   copy,
   refreshMs,
   timeZone,
+  priceSourceNote,
 }: {
   view: MoneyView;
   copy: Copy;
   refreshMs: number;
   timeZone: Preferences['timeZone'];
+  /** Optional line naming the published price list and venue behind the prices (launch model). */
+  priceSourceNote?: string;
 }) {
   const { t } = copy;
   return (
@@ -37,6 +40,11 @@ export function ValuationNote({
             })
           : t('Valued on this device at {time}', { time: clockTime(view.asOf, timeZone) })}
       </p>
+      {priceSourceNote ? (
+        <p className="lt-hint" data-testid="valuation-source">
+          {priceSourceNote}
+        </p>
+      ) : null}
       <p className="lt-hint">{t('Stable coins rule')}</p>
       <table data-testid="money-table" className="lt-table">
         <thead>

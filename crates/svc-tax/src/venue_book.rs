@@ -92,10 +92,10 @@ pub fn venue_arrival_lines(a: &VenueAccountActivity) -> Result<Vec<InflowLine>, 
                 posted_at: when(&x.arrived_at)?,
                 asset_id: x.asset.clone(),
                 amount: amount(&x.amount)?,
-                reason: if x.kind == "deposit" {
-                    "deposit.venue".to_owned()
-                } else {
-                    VENUE_TRANSFER_IN.to_owned()
+                reason: match x.kind.as_str() {
+                    "deposit" => "deposit.venue".to_owned(),
+                    "reward" => "venue.staking.reward".to_owned(),
+                    _ => VENUE_TRANSFER_IN.to_owned(),
                 },
             })
         })

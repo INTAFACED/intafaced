@@ -58,17 +58,38 @@ export function Surface({
 }
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  /** primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. */
-  tone?: 'primary' | 'secondary' | 'quiet';
-  size?: 'md' | 'lg';
+  /**
+   * primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. up and down: a desk's Buy and
+   * Sell, in the market's gain and loss colours (with their words, never colour alone).
+   */
+  tone?: 'primary' | 'secondary' | 'quiet' | 'up' | 'down';
+  /** sm: a dense desk or table control. */
+  size?: 'sm' | 'md' | 'lg';
   block?: boolean;
+  /** Working: the button stays in focus order, says it is busy and takes no click (no second submit, no second action). */
+  busy?: boolean;
 };
 
-export function Button({ tone = 'secondary', size = 'md', block, className, type = 'button', ...rest }: ButtonProps) {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { tone = 'secondary', size = 'md', block, busy = false, className, type = 'button', onClick, ...rest },
+  ref,
+) {
   return (
     <button
       {...rest}
+      ref={ref}
       type={type}
+      disabled={rest.disabled && !busy}
+      aria-busy={busy || rest['aria-busy'] || undefined}
+      aria-disabled={busy || rest['aria-disabled'] || undefined}
+      onClick={
+        busy
+          ? (event) => {
+              // Busy: no second submit and no second action, while focus stays where it was.
+              event.preventDefault();
+            }
+          : onClick
+      }
       className={clsx('lit-button', className)}
       data-slot="button"
       data-variant={tone === 'quiet' ? 'ghost' : tone}
@@ -77,7 +98,7 @@ export function Button({ tone = 'secondary', size = 'md', block, className, type
       data-block={block || undefined}
     />
   );
-}
+});
 
 export type ActionKeyProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: React.ReactNode; label: string; lit?: boolean };
 
@@ -117,8 +138,8 @@ export function Switch({ checked, onChange, label, className, onClick, ...rest }
 }
 
 export type SegmentedProps<T extends string> = {
-  /** Each pill's words, and its full name where the words are short (`1D` named "One day", also its tooltip). */
-  options: readonly { value: T; label: string; name?: string }[];
+  /** Each pill's words, and its full name where the words are short (`1D` named "One day", also its tooltip). `disabled`: a choice listed but not open now (the room says why beside it). */
+  options: readonly { value: T; label: string; name?: string; disabled?: boolean }[];
   value: T;
   onChange: (v: T) => void;
   label: string;
@@ -141,6 +162,7 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
           aria-pressed={o.value === value}
           aria-label={o.name}
           title={o.name}
+          disabled={o.disabled}
           onClick={() => onChange(o.value)}
         >
           {o.label}
@@ -401,11 +423,12 @@ export const FinePrint = ({ className, ...rest }: React.HTMLAttributes<HTMLSpanE
   <span {...rest} className={clsx('lit-fine', className)} />
 );
 
+/** A small tag with words, toned by what it marks (colour is never the only cue: the words say it). */
 export const Tag = ({
   tone,
   className,
   ...rest
-}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' }) => (
+}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' | 'warn' | 'error' }) => (
   <span {...rest} className={clsx('lit-tag', className)} data-tone={tone} />
 );
 

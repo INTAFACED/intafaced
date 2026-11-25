@@ -45,6 +45,7 @@ const messages = {
   'Movers unranked': 'No 24-hour price to compare, so not ranked: {assets}',
   'How these values are worked out': 'How these values are worked out',
   'Valued at {time}, refreshed every {seconds} seconds': 'Valued at {time}. This page asks for new prices every {seconds} seconds.',
+  'Valuation price sources': 'Prices come from {published} and last trades on {venue}.',
   'Valued on this device at {time}': 'Worked out on this device at {time}, from the latest prices it could read.',
   'Stable coins rule':
     'USDT, USDC and USD count as exactly $1. Any other coin is valued at the last trade on its USDT market, or its USDC market if it has no USDT market. A coin with no price is listed as not counted, never as zero.',
@@ -232,10 +233,10 @@ const messages = {
   'View last': 'Last trade',
   'View day': '24 hours',
   'View all rule':
-    'All time is realised plus unrealised: what your sales locked in and what what is still open would make at today’s price.',
+    'All time is realised plus unrealised: what your sales locked in and what what is still open would make if sold now, at the best bid.',
   'View realised rule': 'What your sales locked in: what each sale received less the cost of the lots it used.',
-  'View unrealised rule': 'What what is still open would make at today’s price, less what it cost.',
-  'View last rule': 'How your newest trade did: a sale’s result, or what a buy still open would make at today’s price.',
+  'View unrealised rule': 'What what is still open would make if sold now, at the best bid, less what it cost.',
+  'View last rule': 'How your newest trade did: a sale’s result, or what a buy still open would make if sold now, at the best bid.',
   'View day rule':
     'How what is open now moved in the last 24 hours. A coin bought inside the 24 hours counts from what it cost, not from the price a day ago.',
   'Figure cost unknown': 'Not known: some cost is not known',
@@ -348,7 +349,7 @@ const messages = {
     'The result of your sales: what you received, after fees, less the cost of the lots they used. Not known as soon as any sale has no cost.',
   'How realised is worked out': 'How realised is worked out',
   'Unrealised rule':
-    'What the coins you bought are worth now at today’s price, less what they cost. Not known as soon as any coin has no cost or no price.',
+    'What the coins you bought would get if sold now, at the best bid, less what they cost. Not known as soon as any coin has no cost or no price.',
   'How unrealised is worked out': 'How unrealised is worked out',
   'Not known': 'Not known',
   'Cost unknown': 'Cost unknown',

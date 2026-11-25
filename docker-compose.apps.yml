@@ -2480,18 +2480,17 @@ services:
     ports: ['127.0.0.1:3100:3100']
     healthcheck: *healthcheck
 
-  # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, runs
-  # once (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded),
-  # then runs, in this order: the founder seed (init, then enrol through svc-identity's own doors) and the TEST content
-  # seed (apply, then status, which prints what it made: Home's TEST deposit, TEST notice and inbox row, and the Earn,
-  # Loans and P2P rows), stopping at the first step that fails. Each script keeps its own guards: the founder seed enrols
-  # only through a loopback edge, so this service shares the host's network and reaches svc-edge on its published :4000
-  # once it is healthy; the TEST content seed refuses unless a local test stack marker with a loopback database is in
-  # LOCAL_STACK_STATE. KNOWN GAP on a plain compose stack: identity reads the founder invites at boot from the host's
-  # .env.founder.local (`pnpm local:founder init` before `up`), while this container's `init` would write its own copy in
-  # /app, which the image's `node` user cannot write (run 41170820323: EACCES on /app/.env.founder.local), so `init` stops
-  # the run there; were it written, `enrol` would be refused by identity, and compose writes no stack marker, so the
-  # content step would refuse too. The run creates nothing (#6853). `pnpm local:stack` runs the same scripts and seeds.
+  # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, with
+  # docker-compose.tester.yml layered on (its wiring: the state folder, the stack id, the loopback ports), runs once
+  # (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded), then
+  # runs, in this order: the founder step (enrol the local test founder pair through svc-identity's own doors, wait until
+  # identity runs with their ids, confirm their emails), the founders' TEST verification (each submits its own
+  # `full` request, the two TEST operators approve it, as the stack's gates do), the TEST personal transfer
+  # limits (the gates' `terms`) and the TEST content seed (apply, home, then status, which prints
+  # what it made), stopping at the first step that fails. Each script keeps its own guards: they reach the stack only on
+  # the loopback ports its compose marker lists (this service shares the host's network), and only once the database on
+  # that port holds the marker's stack id. Before `up`, `node tooling/scripts/local-test-compose-env.mjs` writes the env
+  # file, the marker and the founder vault draft into LOCAL_STACK_STATE.
   seed:
     <<: *app
     container_name: intafaced-seed
@@ -2507,8 +2506,9 @@ services:
       [
         'node',
         'tooling/scripts/local-tester-seed.mjs',
-        'local-founder-seed.mjs init',
-        'local-founder-seed.mjs enrol',
+        'local-tester-founders.mjs enrol',
+        'local-test-gates.mjs verify',
+        'local-test-gates.mjs terms',
         'local-test-seed.mjs apply',
         'local-test-seed.mjs home',
         'local-test-seed.mjs status',

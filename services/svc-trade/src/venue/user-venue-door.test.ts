@@ -469,6 +469,30 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     expect(markets).toHaveBeenCalledTimes(2);
   });
 
+  it('reading markets() never resets the 5s miss-reread window for a market added right afterwards', async () => {
+    let t = Date.UTC(2026, 10, 9, 12);
+    const { d } = door({ builder: null, now: () => new Date(t) });
+    const venue = await d.venue();
+    const listed = venue.markets.bind(venue);
+    const markets = vi.spyOn(venue, 'markets');
+    // Prime marketList at t, then advance past the 5s miss window and call d.markets() (e.g. svc-ws polling /tickers).
+    await d.preview(principal, owner, order(44, { price: a('50000') }));
+    expect(markets).toHaveBeenCalledTimes(1);
+    t += 10_000;
+    await d.markets();
+    expect(markets).toHaveBeenCalledTimes(2);
+    // 1s after d.markets(), a brand-new market appears on the venue; preview must still re-read and find it.
+    t += 1_000;
+    markets.mockImplementationOnce(async (account) => {
+      const list = await listed(account);
+      return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'FRESH-USDC' }] };
+    });
+    await expect(d.preview(principal, owner, order(45, { symbol: 'FRESH-USDC', side: 'sell' }))).rejects.toMatchObject({
+      refusal: { code: 'builder_fee_not_published' },
+    });
+    expect(markets).toHaveBeenCalledTimes(3);
+  });
+
   it('blank builder fee: every order that would carry one refuses builder_fee_not_published, nothing stored; a spot buy carries none and goes ahead', async () => {
     const { d, store } = door({ builder: null });
     const sell = order(4, { side: 'sell', amount: a('0.01'), price: a('72000') });
@@ -758,5 +782,68 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     expect(readDepositRoute({ ...ROUTE, tokenDecimals: 19 })).toBeNull();
     expect(readDepositRoute({ ...ROUTE, chainId: '84532' })).toBeNull();
     expect(readDepositRoute({ ...ROUTE, asset: ' ' })).toBeNull();
+  });
+
+  it('stores and enriches order labels per person, filters history by origin and label, and refuses invalid labels (J-derivatives-04 #1 #2)', async () => {
+    const d = door();
+    const account = await d.account(owner);
+    sim.deposit(account, 'USDC', a('100'), `84532:${'0x'.padEnd(66, '9')}:0`);
+    // An invalid label is refused before anything is prepared or stored.
+    await expect(
+      d.prepare(principal, {
+        owner,
+        signer,
+        intent: {
+          kind: 'place_order',
+          symbol: 'BTC-USDC',
+          side: 'buy',
+          type: 'limit',
+          amount: a('0.001'),
+          price: a('40000'),
+          timeInForce: 'GTC',
+          reduceOnly: false,
+          label: 'two words',
+          clientOrderKey: 'order:jd04:bad-label',
+          builderFee: null,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'trade.order_label_invalid', status: 400 });
+
+    // A valid labelled order is stored, signed and enriched on openOrders, orderHistory, orderByClientId and orderRecord.
+    const prepared = await d.prepare(principal, {
+      owner,
+      signer,
+      intent: {
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'buy',
+        type: 'limit',
+        amount: a('0.001'),
+        price: a('40000'),
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        label: 'grid-7',
+        clientOrderKey: 'order:jd04:labelled-1',
+        builderFee: null,
+      },
+    });
+    const sig = await sign(prepared.prepared);
+    const submitted = await d.submit(principal, prepared.actionKey, sig);
+    expect(submitted.outcome).toMatchObject({ definite: true, accepted: true });
+    const cloid = prepared.prepared.venueClientOrderId!;
+
+    const open = (await d.openOrders(principal, account)).value.find((o) => o.venueClientOrderId === cloid);
+    expect(open).toMatchObject({ origin: 'user', originRef: null, label: 'grid-7' });
+    const byId = (await d.orderByClientId(principal, account, cloid)).value;
+    expect(byId).toMatchObject({ origin: 'user', originRef: null, label: 'grid-7' });
+    const rec = await d.orderRecord(principal, account, cloid);
+    expect(rec).toMatchObject({ venueName: sim.venue.displayName, origin: 'user', originRef: null, label: 'grid-7' });
+    const page = await d.orderHistory(principal, account, { label: 'grid-7', origin: 'user' });
+    expect(page.venueName).toBe(sim.venue.displayName);
+    expect(page.orders.map((r) => r.order.venueClientOrderId)).toEqual([cloid]);
+    await expect(d.orderHistory(principal, account, { label: 'bad label' })).rejects.toMatchObject({
+      code: 'trade.order_label_invalid',
+      status: 400,
+    });
   });
 });

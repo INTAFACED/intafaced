@@ -181,7 +181,7 @@ test.describe(`${J} #2 with the owner's stale age widened (TEST)`, () => {
         )
         .toBeLessThanOrEqual(15);
       await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
-      await expect(banner(page)).toContainText(`past the ${owner.delayedBoundarySeconds} s boundary on a real-time market`);
+      await expect(banner(page)).toContainText(`updates pause after ${owner.delayedBoundarySeconds} s without a trade`);
       await stepPicture();
     });
   });
@@ -218,7 +218,7 @@ test.describe(`${J} #2 with the owner's stale age widened (TEST)`, () => {
         )
         .toBeLessThanOrEqual(60);
       await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
-      await expect(banner(page)).toContainText("This market's data class is delayed");
+      await expect(banner(page)).toContainText('Delayed market data');
       await stepPicture();
     });
   });
@@ -341,8 +341,8 @@ test.describe(`${J} #4 on our own outage, opened after svc-trade has stopped`, (
       .toBeLessThanOrEqual(15);
     expect(await chipSeconds(page)).toBeGreaterThan(staleAge);
     await expect(banner(page)).toHaveAttribute('data-kind', 'stale');
-    await expect(banner(page)).toContainText(`past the ${staleAge} s stale age, so the candles shown are not live.`);
-    await expect(banner(page)).toContainText(`Last trade ${await bannerTime(page, lastTrade)}.`);
+    await expect(banner(page)).toContainText(`(over ${staleAge} s old).`);
+    await expect(banner(page)).toContainText(`Last trade: ${await bannerTime(page, lastTrade)}.`);
     expect(await newestTradeMs(ETH), 'no ETH trade landed while the chart read it').toBe(lastTrade);
     await expect(chip(page)).not.toContainText('Real-time');
     await stepPicture();
@@ -370,7 +370,7 @@ test.describe(`${J} #4 on our own outage, opened after svc-trade has stopped`, (
       await expect(chip(page)).toHaveAttribute('data-status', 'down', { timeout: 60_000 });
       await expect(chip(page)).toContainText('Down');
       await expect(banner(page)).toHaveAttribute('data-kind', 'down');
-      await expect(banner(page)).toContainText(`Last trade ${await bannerTime(page, lastTrade)}.`);
+      await expect(banner(page)).toContainText(`Last trade: ${await bannerTime(page, lastTrade)}.`);
       await expect(feedLine(page)).toContainText('Feed down');
       // Never shown as live while it stays stopped.
       await page.waitForTimeout(5_000);

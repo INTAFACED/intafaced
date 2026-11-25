@@ -3,8 +3,24 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  CUSTODY_LAYER_OFF_CODE,
+  LedgerError,
+  MemoryLedger,
+  movesCustomerBalance,
+  parseAmount,
+  recipes,
+  rewardOwedAccount,
+  type LedgerClient,
+  type PostRequest,
+} from '@intafaced/ledger-client';
+import type { CampaignParticipant } from '@intafaced/contracts';
+import type { CampaignDefinitionInput } from '@intafaced/contracts/campaigns-catalogue';
+import { CampaignService } from './campaigns.js';
 import { DropService, claimKeyOf } from './drops.js';
 import { CampaignsError } from './codes.js';
+import { PayoutSaga, ledgerRewardId } from './payouts.js';
+import { partial } from '@intafaced/service-kit/testing';
 
 /**
  * Seasons and limited drops against real Postgres (RC-campaigns-04, J-campaigns-20 #5): a private database per run with
@@ -105,9 +121,7 @@ if (!db) {
       expect(await code(drops.createDrop({ ...base, count: '  ' }))).toBe('drop.count_unset');
       expect(await code(drops.createDrop({ ...base, count: '0' }))).toBe('drop.count_invalid');
       expect(await code(drops.createDrop({ ...base, count: '2.5' }))).toBe('drop.count_invalid');
-      expect(await code(drops.createDrop({ ...base, count: '3', value: { asset: 'USDT', amount: '10' } }))).toBe(
-        'campaigns.reward_saga_unwired',
-      );
+      expect(await code(drops.createDrop({ ...base, count: '3', campaignId: 'campaign_any' }))).toBe('campaigns.reward_saga_unwired');
       expect(await code(drops.createDrop({ ...base, count: '3', opensAt: '' }))).toBe('campaigns.window_unset');
       expect(await code(drops.createDrop({ ...base, count: '3', opensAt: '2026-10-24T11:00:00' }))).toBe('campaigns.timezone_unset');
       const [dropRows] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.drops`;
@@ -163,6 +177,7 @@ if (!db) {
         state: 'live',
         points: '0',
         taskCampaigns: 0,
+        pointsBlocker: 'owner.decision',
       });
       expect(room.drops).toEqual([
         expect.objectContaining({ id: open.id, state: 'open', remaining: 1, count: 2, mine: expect.objectContaining({ dropId: open.id }) }),
@@ -214,6 +229,236 @@ if (!db) {
       expect(await code(drops.publishDrop({ id: drop.id, actor: B }))).toBe('season.not_published');
       await drops.publishSeason({ id: season.id, actor: B });
       await expect(drops.publishDrop({ id: drop.id, actor: B })).resolves.toMatchObject({ status: 'published' });
+    });
+  });
+
+  describe('limited drops with value (Postgres, the reward saga on the in-memory ledger)', () => {
+    const acct = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    const FUNDER = '00000000-0000-4000-8000-0000000000f6';
+    const HOUR = 3_600_000;
+    let book: MemoryLedger;
+    let saga: PayoutSaga;
+    let campaigns: CampaignService;
+    let paidTo: string[];
+    const participants = {
+      read: async (userId: string): Promise<CampaignParticipant> => ({
+        userId,
+        accountType: 'individual',
+        region: 'DE',
+        status: 'active',
+        kycTier: 'full',
+      }),
+    };
+
+    beforeEach(async () => {
+      await db!.truncateAll();
+      book = new MemoryLedger();
+      const ledger: LedgerClient = {
+        post: async (request: PostRequest) => {
+          if (movesCustomerBalance(request.entries)) throw new LedgerError('custody layer off', CUSTODY_LAYER_OFF_CODE);
+          return book.post(request);
+        },
+        balance: (ref) => book.balance(ref),
+        balances: (t, id) => book.balances(t, id),
+        getTx: (id) => book.getTx(id),
+        getTxByKey: (key) => book.getTxByKey(key),
+      };
+      await book.post(recipes.deposit({ userId: FUNDER, assetId: 'USDC', amount: parseAmount('100'), rail: 'test', railRef: 'seed' }));
+      await book.post(
+        recipes.feeCharge({
+          chargeId: 'seed',
+          userId: FUNDER,
+          module: 'trade',
+          mode: 'asset',
+          assetId: 'USDC',
+          amount: parseAmount('100'),
+        }),
+      );
+      await book.post(recipes.sweepFeesToRewards({ windowId: 'seed', sourceModule: 'trade', assetId: 'USDC', amount: parseAmount('100') }));
+      saga = new PayoutSaga({
+        sql: db!.sql,
+        ledger,
+        reconcileAfterSeconds: 0,
+        rewardCeiling: { perCampaign: parseAmount('100'), total: parseAmount('1000') },
+      });
+      campaigns = new CampaignService({ sql: db!.sql, timeZone: () => 'UTC', participants });
+      paidTo = [];
+    });
+
+    const valued = () =>
+      new DropService({
+        sql: db!.sql,
+        tgeSchedule: () => null,
+        saga,
+        payTo: async (accountId) => {
+          paidTo.push(accountId);
+          return false;
+        },
+        campaigns,
+        now: () => new Date(),
+      });
+
+    async function dropCampaign(over: Partial<CampaignDefinitionInput> = {}) {
+      const definition: CampaignDefinitionInput = {
+        name: `TEST drop campaign ${Math.random().toString(36).slice(2, 8)}`,
+        type: 'drop',
+        rules: 'TEST rules: each claim of the drop is worth the reward, paid to your connected wallet.',
+        startsAt: new Date(Date.now() - HOUR).toISOString(),
+        endsAt: new Date(Date.now() + 24 * HOUR).toISOString(),
+        participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
+        budget: { asset: 'USDC', limit: '0.03' },
+        limits: { perCustomer: { count: 1, periodSeconds: 86_400 }, totalRedemptions: null },
+        reward: { asset: 'USDC', amount: '0.01' },
+        ...over,
+      };
+      const c = await campaigns.create({ definition, actor: A });
+      await campaigns.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await campaigns.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      await campaigns.transition({ id: c.id, action: 'activate', revision: 1, actor: A });
+      return c;
+    }
+
+    async function valuedDrop(campaignId: string, count: string) {
+      const drops = valued();
+      const drop = await drops.createDrop({
+        title: 'TEST valued drop',
+        count,
+        opensAt: new Date(Date.now() - HOUR).toISOString(),
+        campaignId,
+        actor: A,
+      });
+      return drops.publishDrop({ id: drop.id, actor: B });
+    }
+
+    const intents = () =>
+      db!.sql<{ reward_key: string; account_id: string; amount: string; state: string }[]>`
+        SELECT reward_key, account_id, amount::text AS amount, state FROM campaigns.reward_intents ORDER BY reward_key`;
+
+    it('a drop with value names a live drop campaign with its reward set; anything else refuses and writes nothing', async () => {
+      const drops = valued();
+      const base = { title: 'TEST', count: '3', opensAt: new Date().toISOString(), actor: A };
+      expect(await code(drops.createDrop({ ...base, campaignId: 'campaign_missing' }))).toBe('drop.campaign_invalid');
+      const airdrop = await campaigns.create({
+        definition: {
+          name: 'TEST not a drop',
+          type: 'task',
+          rules: 'TEST rules',
+          startsAt: new Date(Date.now() - HOUR).toISOString(),
+          endsAt: new Date(Date.now() + HOUR).toISOString(),
+          participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
+          budget: { asset: 'USDC', limit: '1' },
+          limits: { perCustomer: { count: 1, periodSeconds: 86_400 }, totalRedemptions: null },
+          reward: { asset: 'USDC', amount: '0.01' },
+        },
+        actor: A,
+      });
+      expect(await code(drops.createDrop({ ...base, campaignId: airdrop.id }))).toBe('drop.campaign_invalid');
+      const [n] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.drops`;
+      expect(n!.n).toBe(0);
+      const c = await dropCampaign();
+      const drop = await valuedDrop(c.id, '3');
+      expect(drop).toMatchObject({ kind: 'value', value: { campaignId: c.id, asset: 'USDC', amount: '0.01' } });
+    });
+
+    it('five concurrent claims of a valued drop of three: three claims, three rewards owed once each, the ledger owing exactly that', async () => {
+      const c = await dropCampaign();
+      const drop = await valuedDrop(c.id, '3');
+      const drops = valued();
+      const results = await Promise.allSettled(
+        Array.from({ length: 5 }, (_, i) => drops.claim({ dropId: drop.id, accountId: acct(i), forwarded: { 'x-test': '1' } })),
+      );
+      const won = results.filter((r) => r.status === 'fulfilled');
+      expect(won).toHaveLength(3);
+      for (const r of results.filter((x): x is PromiseRejectedResult => x.status === 'rejected')) {
+        expect((r.reason as CampaignsError).code).toBe('drop.sold_out');
+      }
+      const rows = await intents();
+      expect(rows).toHaveLength(3);
+      for (const row of rows) {
+        expect(row.reward_key).toBe(claimKeyOf(drop.id, row.account_id));
+        expect(row.state).toBe('owed');
+        expect(parseAmount(row.amount)).toBe(parseAmount('0.01'));
+        expect((await book.balance(rewardOwedAccount(ledgerRewardId(c.id, row.reward_key)))).amount).toBe(parseAmount('0.01'));
+      }
+      // Each claimer's wallet was noted on their own claim, before it was owed.
+      expect(paidTo.sort()).toEqual(rows.map((r) => r.account_id).sort());
+      // The room shows each winner's reward, owed, with no chain reference until it is paid.
+      const winner = rows[0]!.account_id;
+      const mine = (await drops.room(winner)).drops[0]!.mine!;
+      expect(mine).toMatchObject({
+        kind: 'value',
+        reward: { rewardKey: claimKeyOf(drop.id, winner), asset: 'USDC', amount: '0.01', state: 'owed', chainTx: null },
+      });
+    });
+
+    it('a second claim returns the first and owes nothing more; a crash after the commit leaves it for the reconciler', async () => {
+      const c = await dropCampaign();
+      const drop = await valuedDrop(c.id, '2');
+      const first = await valued().claim({ dropId: drop.id, accountId: acct(1) });
+      const again = await valued().claim({ dropId: drop.id, accountId: acct(1) });
+      expect(again).toMatchObject({ created: false, claim: { claimKey: first.claim.claimKey } });
+      expect((await intents()).map((r) => r.state)).toEqual(['owed']);
+      // A saga that never answers (the process stopped after the commit): the claim and its reward stand, open, and the
+      // reconciler owes the same key once.
+      const silent = new DropService({
+        sql: db!.sql,
+        tgeSchedule: () => null,
+        saga: partial<PayoutSaga>({
+          attempt: async () => {
+            throw new Error('TEST: stopped');
+          },
+        }),
+        now: () => new Date(),
+      });
+      const second = await silent.claim({ dropId: drop.id, accountId: acct(2) });
+      expect(second.created).toBe(true);
+      expect((await intents()).find((r) => r.account_id === acct(2))?.state).toBe('qualified');
+      await saga.reconcile();
+      await saga.reconcile();
+      const rows = await intents();
+      expect(rows.map((r) => r.state)).toEqual(['owed', 'owed']);
+      const key = claimKeyOf(drop.id, acct(2));
+      expect((await book.balance(rewardOwedAccount(ledgerRewardId(c.id, key)))).amount).toBe(parseAmount('0.01'));
+    });
+
+    it('a claim by an account its campaign’s participation rules leave out refuses and claims or owes nothing', async () => {
+      const c = await dropCampaign({ participation: { exclusions: [], regionScope: 'listed', restrictedRegions: ['DE'] } });
+      const drop = await valuedDrop(c.id, '3');
+      expect(await code(valued().claim({ dropId: drop.id, accountId: acct(1) }))).toBe('campaigns.region_blocked');
+      // With no way to read the rules, the claim refuses rather than skipping them.
+      const blind = new DropService({ sql: db!.sql, tgeSchedule: () => null, saga });
+      expect(await code(blind.claim({ dropId: drop.id, accountId: acct(2) }))).toBe('campaigns.participant_unread');
+      // An account that cannot be read is refused too.
+      const unread = new DropService({
+        sql: db!.sql,
+        tgeSchedule: () => null,
+        saga,
+        campaigns: new CampaignService({
+          sql: db!.sql,
+          timeZone: () => 'UTC',
+          participants: { read: async () => Promise.reject(new Error('identity down')) },
+        }),
+      });
+      expect(await code(unread.claim({ dropId: drop.id, accountId: acct(3) }))).toBe('campaigns.participant_unread');
+      const [row] = await db!.sql<{ remaining: number; claims: number }[]>`
+        SELECT d.remaining, (SELECT count(*)::int FROM campaigns.drop_claims c WHERE c.drop_id = d.id) AS claims
+        FROM campaigns.drops d WHERE d.id = ${drop.id}`;
+      expect(row).toEqual({ remaining: 3, claims: 0 });
+      expect(await intents()).toHaveLength(0);
+      expect(paidTo).toEqual([]);
+    });
+
+    it('a claim the budget has no room for refuses and claims nothing', async () => {
+      const c = await dropCampaign({ budget: { asset: 'USDC', limit: '0.01' } });
+      const drop = await valuedDrop(c.id, '3');
+      const drops = valued();
+      await drops.claim({ dropId: drop.id, accountId: acct(1) });
+      expect(await code(drops.claim({ dropId: drop.id, accountId: acct(2) }))).toBe('campaigns.budget_exhausted');
+      const [row] = await db!.sql<{ remaining: number; claims: number }[]>`
+        SELECT d.remaining, (SELECT count(*)::int FROM campaigns.drop_claims c WHERE c.drop_id = d.id) AS claims
+        FROM campaigns.drops d WHERE d.id = ${drop.id}`;
+      expect(row).toEqual({ remaining: 2, claims: 1 });
+      expect(await intents()).toHaveLength(1);
     });
   });
 }

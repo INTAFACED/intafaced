@@ -176,6 +176,8 @@ export async function startHyperliquidVenueServer(
   const venue = new HyperliquidTestnetUserVenue({
     appEnv: opts.appEnv,
     betaPosture: opts.betaPosture ?? null,
+    // The wallet signs a user-signed action on the chain `GET /venue` names, so the typed data's domain names that chain too.
+    walletChainId: HL_TESTNET_WALLET_CHAIN_ID,
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
     ...(opts.clock ? { clock: opts.clock } : {}),
     ...(opts.nonceSource ? { nonceSource: opts.nonceSource } : {}),

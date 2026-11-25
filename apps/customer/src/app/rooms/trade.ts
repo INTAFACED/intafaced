@@ -218,6 +218,16 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     screen: 'trade/futures',
   },
   {
+    // A contract's own address (/trade/futures/BTC-PERP) opens the desk on that contract, as /trade/spot/:pair does for spot.
+    path: '/trade/futures/:pair',
+    title: 'Futures',
+    description: 'Perpetual and dated contracts',
+    door: 'Trade',
+    area: 'trade',
+    alias: '/trade/futures?symbol=:pair',
+    hidden: true,
+  },
+  {
     path: '/trade/options',
     title: 'Options',
     description: 'Calls, strikes and puts',

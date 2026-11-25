@@ -14,7 +14,7 @@ export function QuantApiPage({ title }: { title: string }) {
         <h2 id="quant-key">{t('keyTitle')}</h2>
         <p>{t('keyBody')}</p>
         <a className="lt-link lt-link-alone" href="/uc/safe/api-keys/new">
-          /uc/safe/api-keys/new
+          {t('createKeyLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
         </a>
       </section>
       <section aria-labelledby="quant-endpoints" data-testid="developers-quant-endpoints">

@@ -232,7 +232,8 @@ export const campaignViewSchema = z.object({
   timeZone: z.string(),
   windows: campaignWindowsSchema,
   participation: participationRulesSchema,
-  budget: campaignBudgetSchema,
+  /** Null when the owner set no cap (a trial pass or a fee-saver coupon campaign, which pay nothing): no budget line is drawn. */
+  budget: campaignBudgetSchema.nullable(),
   /** Null reads "not set". */
   reward: campaignRewardSchema.nullable(),
   tasks: campaignTasksSchema.nullable(),

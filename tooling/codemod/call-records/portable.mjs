@@ -130,6 +130,47 @@ function chainOf(n) {
   return { base: n, factory: undefined, methods };
 }
 
+/** The expression a single-return arrow or function returns, or undefined. */
+function returnedExpr(fn) {
+  fn = unwrap(fn);
+  if (!fn || !/^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type)) return undefined;
+  if (fn.body.type !== 'BlockStatement') return unwrap(fn.body);
+  const body = fn.body.body;
+  if (body.length === 1 && body[0].type === 'ReturnStatement' && body[0].argument) return unwrap(body[0].argument);
+  return undefined;
+}
+
+/** Follows a function identifier to its declaration or arrow init, locally or through an import. */
+function followFunction(q, id) {
+  let fn = id;
+  for (let i = 0; i < 5 && unwrap(fn)?.type === 'Identifier'; i++) {
+    const b = bindingOf(q, fn, unwrap(fn).name);
+    if (b.kind === 'function') return { q, fn: b.declaration };
+    if (b.kind === 'var' && b.declarator.init) {
+      fn = b.declarator.init;
+      continue;
+    }
+    if (b.kind === 'import') {
+      const file = b.from.startsWith('.')
+        ? resolveRelative(q.file, b.from)
+        : b.from.startsWith('@intafaced/contracts')
+          ? resolveRelative(join(CONTRACTS, 'x.ts'), `./${b.from === '@intafaced/contracts' ? 'index' : b.from.split('/').pop()}.js`)
+          : undefined;
+      if (!file) break;
+      q = load(file);
+      const d = top(q, b.imported);
+      if (d.kind === 'function') return { q, fn: d.declaration };
+      if (d.kind === 'var' && d.declarator.init) {
+        fn = d.declarator.init;
+        continue;
+      }
+    }
+    break;
+  }
+  fn = unwrap(fn);
+  return fn && /^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type) ? { q, fn } : undefined;
+}
+
 /** The node one step down from a schema expression, with the file it is in. */
 function down(q, n, step) {
   const f = follow(q, n);
@@ -149,6 +190,10 @@ function down(q, n, step) {
     return base && base !== n ? down(q, base, step) : undefined;
   }
   const a = base.arguments;
+  if (factory === 'lazy') {
+    const inner = returnedExpr(a[0]);
+    return inner ? down(q, inner, step) : undefined;
+  }
   if (step.prop && (factory === 'object' || factory === 'strictObject' || factory === 'looseObject')) return propIn(q, a[0], step.prop);
   if (step.elem && factory === 'array') return { q, n: a[0] };
   if (step.option !== undefined && (factory === 'union' || factory === 'discriminatedUnion')) {
@@ -266,12 +311,32 @@ function fix(target, construct) {
 function refinementOf(target, doorNames) {
   let found = follow(target.q, target.n);
   let named = unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name : undefined;
-  // `accountArchiveStateSchema.nullable()`: a wrapper that adds no check carries the refinement of the schema it wraps.
+  // `accountArchiveStateSchema.nullable()`, `z.lazy(() => X).nullable().default(null)`, or a single-return helper
+  // (`unique(schema, max)`): unwrap wrappers, lazy getters and helper calls to reach the schema carrying the refinement.
+  const transparent = (name) => WRAPPERS.includes(name) || name === 'default' || name === 'readonly';
   for (let i = 0; found && i < 10; i++) {
     const { base, factory, methods } = chainOf(found.n);
-    if (factory || !methods.length || !methods.every((m) => WRAPPERS.includes(m.name))) break;
-    if (unwrap(base)?.type === 'Identifier') named = unwrap(base).name;
-    found = follow(found.q, base);
+    if (factory === 'lazy' && methods.every((m) => transparent(m.name))) {
+      const inner = returnedExpr(base.arguments[0]);
+      if (!inner) break;
+      found = follow(found.q, inner);
+      continue;
+    }
+    if (!factory && methods.length && methods.every((m) => transparent(m.name))) {
+      if (unwrap(base)?.type === 'Identifier') named = unwrap(base).name;
+      found = follow(found.q, base);
+      continue;
+    }
+    const call = !factory && !methods.length ? unwrap(found.n) : undefined;
+    if (call?.type === 'CallExpression' && call.callee.type === 'Identifier') {
+      const resolved = followFunction(found.q, call.callee);
+      const inner = resolved && returnedExpr(resolved.fn);
+      if (!inner) break;
+      named = call.callee.name;
+      found = { q: resolved.q, n: inner };
+      continue;
+    }
+    break;
   }
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
   const says = [];

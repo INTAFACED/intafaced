@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::clients::bank::BankOwnSpaces;
 use crate::clients::ledger::HttpLedger;
-use crate::clients::prices::TradePrices;
+use crate::clients::prices::{TradePrices, VenueSpotPrices};
 use crate::clients::venue::TradeVenueActivity;
 use crate::edge::EdgeKey;
 use crate::env::TaxEnv;
@@ -28,6 +28,7 @@ pub const TAX_DATABASE_POOL_MAX_UNSET: &str = "tax.database_pool_max_unset";
 pub struct Ports {
     pub ledger: Arc<HttpLedger>,
     pub prices: Option<Arc<TradePrices>>,
+    pub venue_prices: Option<Arc<VenueSpotPrices>>,
     pub spaces: Option<Arc<BankOwnSpaces>>,
     pub venue: Option<Arc<TradeVenueActivity>>,
     pub basis: Option<Arc<PgBasisStore>>,
@@ -44,6 +45,9 @@ impl Ports {
     }
     pub fn as_prices(&self) -> Option<Arc<dyn PriceAtTime>> {
         self.prices.clone().map(|p| p as Arc<dyn PriceAtTime>)
+    }
+    pub fn as_venue_prices(&self) -> Option<Arc<dyn PriceAtTime>> {
+        self.venue_prices.clone().map(|p| p as Arc<dyn PriceAtTime>)
     }
     pub fn as_closes(&self) -> Option<Arc<dyn CloseSeriesSource>> {
         self.prices.clone().map(|p| p as Arc<dyn CloseSeriesSource>)
@@ -95,6 +99,10 @@ pub fn ports(env: &TaxEnv, fetch: &Arc<dyn Fetch>) -> Result<Ports, String> {
             .trade_url
             .as_deref()
             .map(|u| Arc::new(TradePrices::new(u, fetch.clone()))),
+        venue_prices: env
+            .trade_url
+            .as_deref()
+            .map(|u| Arc::new(VenueSpotPrices::new(u, fetch.clone()))),
         spaces: env.bank_url.as_deref().map(|u| {
             Arc::new(BankOwnSpaces::new(
                 Some(u),
@@ -145,6 +153,7 @@ pub fn wire(env: &TaxEnv, ports: &Ports) -> Result<Wire, String> {
         now: Box::new(system_now),
         deposit_basis,
         prices: ports.as_prices(),
+        venue_prices: ports.as_venue_prices(),
         closes: ports.as_closes(),
         basis: ports.as_basis(),
         choices: ports.as_choices(),

@@ -422,6 +422,21 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
       await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
       'the pending list widens the page',
     ).toBe(true);
+    // The venue account card's address and controls fit inside its own box too, whatever hex characters the address holds.
+    const accountPanel = page.getByTestId('venue-account');
+    const accountBox = await accountPanel.boundingBox();
+    const addrBox = await accountPanel.getByTestId('venue-wallet-address').boundingBox();
+    expect(
+      addrBox && accountBox && addrBox.x >= accountBox.x && addrBox.x + addrBox.width <= accountBox.x + accountBox.width + 1,
+      'the connected wallet address overflows the venue account panel',
+    ).toBe(true);
+    for (const button of await accountPanel.getByRole('button').all()) {
+      const b = await button.boundingBox();
+      expect(
+        b && accountBox && b.x >= accountBox.x && b.x + b.width <= accountBox.x + accountBox.width + 1,
+        'a venue account button overflows its panel',
+      ).toBe(true);
+    }
     // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving nothing more happens over a few passes of our engine (one a second)
     await new Promise((r) => setTimeout(r, 3_000));
     const fills = await fillsOf(s, cloid);

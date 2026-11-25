@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { academyReviewStateSchema, type AcademyReviewState, type AcademyReviewTask } from '@intafaced/contracts/academy-courses';
+import { Button, Radio } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Loading } from '../../shared/ui';
 import { useApi } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
-import { AcademyRefusal } from './AcademyLmsParts';
+import { AcademyRefusal } from './academy-refusal';
 import { byteSize } from './AcademyAssignment';
+import { Waiting } from './volt-parts';
 import { ACADEMY_PEER_REVIEW } from '@intafaced/contracts/academy-peer-review-procedures';
 import { ACADEMY_PEER_REVIEW_FILE } from '@intafaced/contracts/academy-peer-review-file-procedures';
 
@@ -60,18 +61,18 @@ export function ReviewForm({
       }}
     >
       <strong>{self ? t('rvYourWork') : t('rvClassmate', { n: task.ordinal ?? 1 })}</strong>
-      <p lang="und" style={{ whiteSpace: 'pre-wrap' }}>
+      <p lang="und" className="lt-pre-wrap">
         {task.text ?? t('rvNoText')}
       </p>
       {task.file && (
-        <p data-testid="academy-lms-meta" className="academy-lms-meta">
+        <p data-testid="academy-lms-meta" className="lt-actions lt-hint">
           <span lang="und">
             {task.file.fileName
               ? t('rvFile', { name: task.file.fileName, size: byteSize(task.file.bytes) })
               : t('rvFilePeer', { size: byteSize(task.file.bytes) })}
           </span>
           {onOpenFile && (
-            <Button type="button" variant="secondary" disabled={opening} onClick={onOpenFile}>
+            <Button type="button" tone="secondary" disabled={opening} onClick={onOpenFile}>
               {opening ? t('rvOpeningFile') : t('rvOpenFile')}
             </Button>
           )}
@@ -80,19 +81,18 @@ export function ReviewForm({
       {task.criteria.map((criterion, i) => (
         <fieldset key={criterion.name} className="lt-stack">
           <legend lang="und">{criterion.name}</legend>
-          <span data-testid="academy-lms-meta" className="academy-lms-meta">
+          <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
             {criterion.levels.map((level) => (
-              <label key={level} className="academy-lms-choice">
-                <input
-                  type="radio"
-                  name={`${task.id}-${i}`}
-                  value={level}
-                  aria-label={t('rvLevel', { criterion: criterion.name, level })}
-                  checked={marks[i] === level}
-                  onChange={() => setMarks((all) => all.map((mark, n) => (n === i ? level : mark)))}
-                />
+              <Radio
+                key={level}
+                name={`${task.id}-${i}`}
+                value={level}
+                aria-label={t('rvLevel', { criterion: criterion.name, level })}
+                checked={marks[i] === level}
+                onSelect={() => setMarks((all) => all.map((mark, n) => (n === i ? level : mark)))}
+              >
                 <span lang="und">{level}</span>
-              </label>
+              </Radio>
             ))}
           </span>
         </fieldset>
@@ -102,7 +102,7 @@ export function ReviewForm({
           {t('rvMissingLevel', { criterion: missing })}
         </p>
       )}
-      <Button type="submit" variant="primary" disabled={sending}>
+      <Button type="submit" tone="primary" disabled={sending}>
         {sending ? t('rvSending') : self ? t('rvSendSelf') : t('rvSend')}
       </Button>
     </form>
@@ -136,7 +136,7 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
         <AcademyRefusal failure={view.resource.failure} retry={view.reload} />
       </section>
     );
-  if (!state) return <Loading />;
+  if (!state) return <Waiting />;
 
   const send = async (task: AcademyReviewTask, marks: string[]) => {
     if (inFlight.current) return;

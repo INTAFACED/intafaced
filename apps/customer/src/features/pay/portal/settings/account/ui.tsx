@@ -1,8 +1,6 @@
 import type { ReactNode } from 'react';
-import { EmptyState } from '../../../ui-kit';
+import { Empty, LinkButton, NotLive } from '../../volt/parts';
 import { accountCopy } from './copy';
-import { NotLiveCard } from '../../chrome/NotLiveCard';
-import './account.css';
 
 /**
  * A part of a page that cannot work yet, for a reason outside the page. `reason` names what it is waiting for
@@ -12,14 +10,34 @@ import './account.css';
  */
 export function Blocker({ reason, title, needs, children }: { reason: string; title?: string; needs?: string; children?: ReactNode }) {
   return (
-    <NotLiveCard reason={reason} title={title} needs={needs}>
+    <NotLive reason={reason} title={title} needs={needs}>
       {children}
-    </NotLiveCard>
+    </NotLive>
   );
 }
 
 /** Setup belongs to the account owner. A team member who opens it is told so, instead of being led into steps they cannot finish. */
 export function OwnerSetsUp() {
   const { t } = accountCopy.useCopy();
-  return <EmptyState title={t('ownerSetsUpTitle')}>{t('ownerSetsUpBody')}</EmptyState>;
+  return <Empty title={t('ownerSetsUpTitle')}>{t('ownerSetsUpBody')}</Empty>;
+}
+
+/**
+ * A person with no business whose session cannot open one: it carries no `pay:onboard`, which needs two-step sign-in,
+ * so the service refuses even the read of their own (absent) record. Setup's first step for them is turning it on.
+ */
+export function TwoStepFirst() {
+  const { t } = accountCopy.useCopy();
+  return (
+    <Empty
+      title={t('twoStepFirstTitle')}
+      action={
+        <LinkButton href="/settings/security" tone="primary">
+          {t('twoStepFirstAction')}
+        </LinkButton>
+      }
+    >
+      {t('twoStepFirstBody')}
+    </Empty>
+  );
 }

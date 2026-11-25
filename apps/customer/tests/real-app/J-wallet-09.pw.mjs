@@ -106,6 +106,7 @@ async function connectAndSign(page, button = 'Connect to my account') {
 
 test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on the blank or set sanctions list, or from a blocked region, is refused with its reason`, async ({
   page,
+  stepPicture,
 }) => {
   // Two restarts of svc-protocol for the blank list, and two of svc-protocol and Edge for the blocked region.
   test.setTimeout(480_000);
@@ -191,6 +192,7 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
   await expect(message).toContainText(/Expiration Time: \d{4}-\d{2}-\d{2}T/);
   // The wallet's own sheet shows the same message before it signs anything.
   await expect(sheet(page).locator('[data-sheet-payload]')).toContainText(address);
+  await stepPicture();
   await sheet(page).getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByText('You cancelled the signature')).toBeVisible();
   expect((await recorded(who)).connections).toEqual([]);
@@ -376,7 +378,7 @@ async function roomSettled(page) {
   ).toBeVisible();
 }
 
-test(`${J} #4 lets the connection expire: every signed action refuses until the wallet signs again`, async ({ page }) => {
+test(`${J} #4 lets the connection expire: every signed action refuses until the wallet signs again`, async ({ page, stepPicture }) => {
   test.setTimeout(180_000);
   const { who, walletKey, deposited } = state();
   if (!deposited) throw new Error(`${J} #3 made no deposit, so this step can't see that nothing moved on the venue`);
@@ -415,6 +417,7 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
     await expect(page.getByText('Your wallet must sign again')).toBeVisible();
     await expect(page.getByText('protocol.venue_connection_expired')).toBeVisible();
     await expect(sheet(page)).toHaveCount(0);
+    if (action === 'withdraw') await stepPicture();
   }
   expect(wallet.sends).toEqual([]);
   // Nothing moved on the venue: its own record still holds exactly #3's deposit, and no agent key.

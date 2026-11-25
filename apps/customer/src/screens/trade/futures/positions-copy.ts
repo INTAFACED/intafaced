@@ -23,7 +23,7 @@ const messages = {
   'Positions retry': 'Try again',
   'Positions stale note': 'These figures are old. Actions that depend on the mark price are off until the next update.',
   'Positions margin call badge': 'Margin call',
-  'Positions mark unavailable': 'The service does not publish this on open positions.',
+  'Positions mark unavailable': 'Not shown on open positions.',
   'Close all off': 'Close all is off: {reason}',
   'Close all none': 'No position to close.',
   'Col contract': 'Contract',
@@ -51,9 +51,9 @@ const messages = {
   'Band liquidation': 'Liquidatable',
   'Band unknown': 'Unknown',
   'Ratio value': '{pct}% {band}',
-  'Unknown why maintenance': 'The service does not publish the maintenance margin on positions, so the margin ratio is not shown.',
-  'Unknown why collateral': 'The service has not published the margin held, so the margin ratio is not shown.',
-  'Unknown why pnl': 'The service does not publish profit and loss on positions, so it and the margin ratio are not shown.',
+  'Unknown why maintenance': 'Maintenance margin is not available for this position, so the margin ratio is not shown.',
+  'Unknown why collateral': 'Margin held is not available for this position, so the margin ratio is not shown.',
+  'Unknown why pnl': 'Profit and loss is not available for this position, so it and the margin ratio are not shown.',
   'Unknown why equity': 'The ratio cannot be worked out from the published figures.',
 
   // Actions
@@ -103,8 +103,8 @@ const messages = {
   'Margin amount': 'Amount ({asset})',
   'Margin free': 'Free balance: {free} {asset}',
   'Margin free unknown': 'Your free balance isn’t known right now, so it can’t be checked here.',
-  'Margin recompute': 'The service recomputes the liquidation price after the change. No new price is shown until it answers.',
-  'Margin reduce note': 'The service refuses a removal that takes the position below its initial margin or would liquidate it.',
+  'Margin recompute': 'Your liquidation price updates after the change. No new price is shown until confirmed.',
+  'Margin reduce note': 'A removal that takes the position below its initial margin or would liquidate it is refused.',
   'Margin add button': 'Add margin',
   'Margin reduce button': 'Remove margin',
   'Problem empty': 'Enter an amount.',
@@ -117,7 +117,7 @@ const messages = {
   'Leverage position line': '{contract}, {side}. Leverage now: {leverage}x.',
   'Leverage field': 'New leverage (x)',
   'Leverage cap': 'Highest leverage offered: {cap}x.',
-  'Leverage cap unknown': 'The service checks the highest leverage when you confirm.',
+  'Leverage cap unknown': 'The highest allowed leverage is checked when you confirm.',
   'Leverage warning':
     'Raising leverage releases margin from this position and needs a readable order book. Lowering it asks for more margin.',
   'Leverage preset': 'Set leverage to {value}x',
@@ -128,7 +128,7 @@ const messages = {
   'Retry close title': 'Retry close',
   'Close summary': '{contract}, {side}. Size {size}. Mark {mark}.',
   'Close summary no mark':
-    '{contract}, {side}. Size {size}. The service closes at the mark it accepts when you confirm; it is not shown here because positions do not carry one.',
+    '{contract}, {side}. Size {size}. Closes at the live mark price when you confirm; open positions do not show one here.',
   'Close mark word':
     'The close is a reduce-only market order on the futures book. It fills at the best prices there, never past the price at which this position’s margin is gone.',
   'Close size field': 'Size to close',
@@ -165,7 +165,7 @@ const messages = {
 
   // Detail
   'Detail title': 'Position {contract}',
-  'Detail description': 'Every figure the service published for this position.',
+  'Detail description': 'All available figures for this position.',
   'Detail position': 'Position',
   'Detail margin call': 'Margin call',
   'Detail margin call none': 'No delivered margin call.',
@@ -281,7 +281,7 @@ const messages = {
   'Protect part problem overPosition': 'That is more than the position holds.',
   'Protect covers whole': 'Covers the whole position',
   'Protect covers part': 'Covers {part} of {size}; {rest} not covered by it',
-  'Protect estimate unknown': 'The result at this price cannot be worked out from what the service publishes.',
+  'Protect estimate unknown': 'The estimated result at this price cannot be calculated from the available figures.',
   'Protect problem invalid': 'Enter a price above zero.',
   'Protect save': 'Save',
   'Protect remove': 'Remove both',

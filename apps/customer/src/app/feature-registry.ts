@@ -137,10 +137,11 @@ export const features: readonly Feature[] = [
     id: 'supported-assets',
     label: 'Supported assets',
     paths: ['/uc/assets'],
-    status: 'blocked',
-    reason: 'svc-ledger’s asset registry through svc-bank; unproven on main',
-    unlock: 'J-wallet-01 #5 green in the Real-app journeys run on main',
+    status: 'live',
+    reason: 'svc-ledger’s asset registry through svc-bank, proven on main',
+    unlock: 'already live',
     tab: 'money',
+    checked: 'Real-app journeys run 11655, J-wallet-01 #5',
   },
   {
     id: 'repeat-buy',
@@ -323,9 +324,19 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-add-money',
+    label: 'Add money',
+    paths: ['/bank/ramps/new'],
+    status: 'live',
+    reason: 'Card, bank pull and bank transfer purchases run through the configured pay-in partner',
+    unlock: 'already live',
+    tab: 'money',
+    checked: 'Real-app journeys run 11655, J-wallet-01 #3 and J-bank-02 #1 to #7',
+  },
+  {
     id: 'bank-ramps',
     label: 'Add money and cash out',
-    paths: ['/bank/ramps', '/bank/ramps/new', '/bank/ramps/accounts', '/bank/ramps/cash-out'],
+    paths: ['/bank/ramps', '/bank/ramps/accounts', '/bank/ramps/cash-out'],
     status: 'blocked',
     reason:
       'No payment partner is connected (rail.bank, rail.card), so no linked bank account can be verified; J-bank-02 proves only the refused ending',
@@ -551,6 +562,26 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'developer-permissions',
+    label: 'API permissions reference',
+    paths: ['/developers/permissions'],
+    status: 'live',
+    reason: 'Published permission-to-endpoint table from the exchange contract, proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked: 'Real-app journeys run 11739, J-developer-03 #7',
+  },
+  {
+    id: 'developer-idempotency',
+    label: 'Idempotent order placement',
+    paths: ['/developers/idempotency'],
+    status: 'live',
+    reason: 'Published API idempotency, retry and cursor pagination rules, proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked: 'Real-app journeys run 11739, J-developer-05 #5',
+  },
+  {
     id: 'developer-portal',
     label: 'Developer portal',
     paths: ['/developers', '/developers/*'],
@@ -570,21 +601,19 @@ export const features: readonly Feature[] = [
     tab: 'trade',
   },
   {
+    id: 'p2p-contract-escrow',
+    label: 'Person-to-person (contract escrow)',
+    paths: ['/p2p', '/ctc', '/uc/order', '/p2p/orders', '/p2p/orders/*'],
+    status: 'live',
+    reason: 'Browsing offers and trading with contract escrow on /p2p and /uc/order run on svc-p2p and svc-protocol, proven on main',
+    unlock: 'already live',
+    tab: 'pay',
+    checked: '2026-11-24, Real-app journeys run 11739 (J-p2p-21 #1 to #5 passed on the real stack with proof v2 FAITHFUL reads).',
+  },
+  {
     id: 'p2p',
     label: 'Person-to-person',
-    paths: [
-      '/p2p',
-      '/ctc',
-      '/uc/ad',
-      '/uc/ad/*',
-      '/uc/order',
-      '/p2p/orders',
-      '/p2p/orders/*',
-      '/p2p/access',
-      '/p2p/methods',
-      '/chat',
-      '/checkuser',
-    ],
+    paths: ['/uc/ad', '/uc/ad/*', '/p2p/access', '/p2p/methods', '/chat', '/checkuser'],
     status: 'blocked',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',
@@ -644,8 +673,20 @@ export const features: readonly Feature[] = [
     tab: 'trade',
   },
   {
+    id: 'agents',
+    label: 'Agents',
+    paths: ['/agents', '/agents/new', '/agents/connect', '/agents/:agentId'],
+    status: 'live',
+    reason:
+      'The agents catalogue, builder, outside-assistant connect and own-agent rooms run on svc-agents and svc-trade from the signed-in session',
+    unlock: 'already live',
+    tab: 'more',
+    checked:
+      '2026-11-24, Real-app journeys run 11600 (J-agents-08 #1 to #7) and run 11739 (J-agents-21 #1 to #19 passed on the real stack with proof v2 FAITHFUL and SHOWN pictures).',
+  },
+  {
     id: 'more-rooms',
-    label: 'Academy, Agents, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
+    label: 'Academy, Agents extras, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
     paths: [
       '/academy',
       '/academy/learning',
@@ -657,13 +698,9 @@ export const features: readonly Feature[] = [
       '/academy/learning/course/:slug',
       '/academy/learning/course/:slug/assignment/:itemId',
       '/academy/:slug',
-      '/agents',
       '/agents/team',
       '/agents/approvals',
-      '/agents/connect',
-      '/agents/new',
       '/agents/runs/:runId',
-      '/agents/:agentId',
       '/quant',
       '/quant/sandbox',
       '/quant/strategies',
@@ -754,22 +791,44 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'notices',
+    label: 'Notices',
+    paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id'],
+    status: 'live',
+    reason: 'svc-notify serves published notices on /notice and /notice/:id (with /announcement aliases), proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked:
+      '2026-11-24, Real-app journeys run 11739 (J-cex-spot-10 #10 passed on the real stack with proof v2 FAITHFUL and SHOWN picture).',
+  },
+  {
     id: 'public-extras',
-    label: 'Notices, Lab, App, Partner',
-    paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id', '/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
+    label: 'Lab, App, Partner',
+    paths: ['/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
     status: 'blocked',
     reason: 'No service behind them; what the Lab holds is an owner decision',
     unlock: 'per feature; the Lab when the owner records what it holds',
     tab: 'public',
   },
   {
+    id: 'official-channels',
+    label: 'Official channels and scam guides',
+    paths: ['/help/official-channels'],
+    status: 'live',
+    reason:
+      'svc-support serves the published official channel list (and an honest unpublished state when blank) alongside the scam guides on /help/official-channels',
+    unlock: 'already live',
+    tab: 'public',
+    checked: '2026-11-24, Real-app journeys run 11739 (J-identity-13 #1 passed on the real stack with proof v2 FAITHFUL).',
+  },
+  {
     id: 'owner-blank-pages',
-    label: 'Platform status, trading rulebook, support chat, official channels and the money mule policy',
-    paths: ['/status', '/rulebook', '/support/chat', '/help/official-channels', '/help/mule-policy'],
+    label: 'Platform status, trading rulebook, support chat and the money mule policy',
+    paths: ['/status', '/rulebook', '/support/chat', '/help/mule-policy'],
     status: 'blocked',
     reason:
-      'Owner values not set: the components the status page reports on, the published rulebook, support hours, the official channel list and the mule policy wording, so each page says it is blank or shows TEST text',
-    unlock: 'the owner sets the status components, publishes the rulebook, the channel list and the mule policy, and sets support hours',
+      'Owner values not set: the components the status page reports on, the published rulebook, support hours and the mule policy wording, so each page says it is blank or shows TEST text',
+    unlock: 'the owner sets the status components, publishes the rulebook and the mule policy, and sets support hours',
     tab: 'public',
   },
   {
@@ -868,6 +927,16 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
  */
 export function betaOffFeatureFor(path: string, access = betaAccess()): Feature | undefined {
   if (!betaRooms()) return undefined;
+  // An exact live row (such as /developers/permissions or /developers/idempotency inside /developers/*) takes precedence over a broader blocked wildcard.
+  if (
+    features.some(
+      (feature) =>
+        feature.status === 'live' &&
+        (feature.needs === undefined || access[feature.needs]) &&
+        feature.paths.some((pattern) => pattern === path),
+    )
+  )
+    return undefined;
   return features.find(
     (feature) =>
       (feature.status === 'blocked' || (feature.needs !== undefined && !access[feature.needs])) &&
