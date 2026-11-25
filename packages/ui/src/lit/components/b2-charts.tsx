@@ -81,7 +81,7 @@ function Series({
   const d = ys.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const area = `${d} L${x(points.length - 1).toFixed(1)},${H - PAD} L${x(0).toFixed(1)},${H - PAD} Z`;
   const last = points.length - 1;
-  const end = { x: x(last), y: y(ys[last]!) };
+  const end = { x: x(last), y: y(ys[last] ?? 0) };
   // Where the marker sits, as a share of the drawing (the chart is drawn left to right in every language).
   const at = { inlineStart: `${((end.x / W) * 100).toFixed(2)}%`, blockStart: `${((end.y / H) * 100).toFixed(2)}%` };
   return (
@@ -107,7 +107,7 @@ function Series({
           <path className="lt-chart-area" data-soft={soft || undefined} d={area} style={soft ? { fill: `url(#${gradient})` } : undefined} />
         ) : null}
         <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
-        {live ? <circle className="lt-chart-live" data-live="" cx={x(last)} cy={y(ys[last]!)} r={4} /> : null}
+        {live ? <circle className="lt-chart-live" data-live="" cx={end.x} cy={end.y} r={4} /> : null}
       </svg>
       {marker !== undefined ? (
         <span className="lt-chart-marker" style={{ insetInlineStart: at.inlineStart, insetBlockStart: at.blockStart }} aria-hidden="true">
