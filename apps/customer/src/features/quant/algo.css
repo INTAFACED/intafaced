@@ -184,3 +184,8 @@ table.preview-passes {
 .preview-passes :is(th, td):last-child {
   padding-inline-end: 0;
 }
+
+/* The save state sits clear of the save button above it, never on its edge (look gate, #10890). */
+.quant-save > p {
+  margin-block-start: var(--lit-gap-item);
+}

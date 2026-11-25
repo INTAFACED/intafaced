@@ -185,11 +185,18 @@
   border-radius: var(--lit-radius-control);
   background: var(--lit-solid-bg-sunken);
   box-shadow: inset 0 0 0 1px var(--lit-control-rim);
+  /* Labels stay on one line; when they are longer than the screen (large text, a long language) the track scrolls
+     sideways inside itself rather than pushing the page wider. Its padding holds the focus ring. */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 .lit-segmented button {
   flex: 1;
   min-height: calc(var(--lit-control-h) - 16px);
-  min-width: 24px;
+  /* Never narrower than its words on one line: a label folded onto two lines touches the track's rim. */
+  min-width: max-content;
+  white-space: nowrap;
   border: 0;
   border-radius: calc(var(--lit-radius-control) - 4px);
   background: none;
