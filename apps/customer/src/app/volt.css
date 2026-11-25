@@ -11,8 +11,8 @@
   font-family: var(--lit-font-ui);
 }
 
-/* The top bar, the app's and the public pages' alike, measured from Home A and Landing A (the owner's picks, 25 Nov;
-   the root is 14px, so 1rem = 14px). Its inline padding is the page gutter of the kit's PageGrid, so the bar's edges line
+/* The top bar, the app's and the public pages' alike, as the owner picked it (25 Nov 12:17 WITA, "1A, 2B, 3A"): the
+   page's own black with no rule under it, the open door underlined at the bar's edge (the root is 14px, so 1rem = 14px). Its inline padding is the page gutter of the kit's PageGrid, so the bar's edges line
    up with the panels below; from 2000px of screen it draws 1.2 times larger, as PageGrid's page does. */
 :root :is(.tb, .public-header) {
   position: sticky;
@@ -20,14 +20,14 @@
   z-index: 40;
   display: flex;
   align-items: center;
-  block-size: 4.2857rem;
+  /* The kit's top-bar height, a whole pixel: a fractional bar puts every page below it off the pixel grid, and the
+     chart's drawings then land a pixel away from the pointer (J-charts-desk-05 #1). It also holds at 200% text. */
+  block-size: var(--lit-topbar-h);
   gap: 1.7143rem;
   padding-block: 0;
   padding-inline: clamp(1rem, 2vw, 2.5rem);
-  background: var(--lit-glass-bg);
-  -webkit-backdrop-filter: var(--lit-glass-blur);
-  backdrop-filter: var(--lit-glass-blur);
-  border-block-end: 1px solid var(--lit-line);
+  background: var(--lit-page);
+  border-block-end: 1px solid transparent;
   box-shadow: none;
 }
 @media (min-width: 125rem) {
@@ -48,11 +48,6 @@
 @media (max-width: 50rem) {
   :root .public-header {
     gap: 0.5714rem;
-  }
-  /* A phone's bar is the kit's top-bar height, which holds at 200% text: a bar that doubled with the text would leave a
-     tall panel no room between it and the phone dock (the look gate's obscured-focus check, /trade/terminal). */
-  :root :is(.tb, .public-header) {
-    block-size: var(--lit-topbar-h);
   }
 }
 :root .public-header > nav a {
@@ -105,16 +100,11 @@
     display: none;
   }
 }
-:root .tb-nav {
-  align-self: center;
-}
 :root .tb-nav > ul {
   gap: 0.2857rem;
 }
 :root .tb-tab {
-  block-size: 2.5714rem;
   padding-inline: 0.8571rem;
-  border-radius: 50rem;
   color: var(--lit-text-2);
   font-size: 1rem;
   font-weight: 500;
@@ -128,10 +118,9 @@
 }
 :root .tb-tab[aria-current='page'] {
   color: var(--lit-text-1);
-  background: var(--lit-solid-bg-raised);
 }
 :root .tb-tab[aria-current='page']::after {
-  content: none;
+  background: var(--lit-text-1);
 }
 :root .tb-right {
   gap: 1.7143rem;
@@ -164,7 +153,7 @@
     display: none;
   }
   :root .tb-search-panel {
-    inset-block-start: calc(4.2857rem + var(--if-banner-offset, 0rem));
+    inset-block-start: calc(var(--lit-topbar-h) + var(--if-banner-offset, 0rem));
   }
 }
 :root .tb-login,
@@ -259,17 +248,17 @@
   line-height: 1.0714rem;
   box-shadow: 0 0 0 0.1429rem var(--lit-solid-bg);
 }
-/* The account: a stone disc. */
+/* The account: a plain icon, as the bar's other icons. */
 :root .tb-account > .tb-icon-button {
   inline-size: 2.4286rem;
   block-size: 2.4286rem;
-  background: color-mix(in srgb, var(--lit-text-1) 86%, var(--lit-page));
-  color: var(--lit-page);
+  background: none;
+  color: var(--lit-text-1);
 }
 :root .tb-account > .tb-icon-button:hover,
 :root .tb-account > .tb-icon-button[aria-expanded='true'] {
-  background: var(--lit-text-2);
-  color: var(--lit-page);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
 }
 
 /* Every money figure in the wide grotesk. */
