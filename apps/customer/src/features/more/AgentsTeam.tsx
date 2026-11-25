@@ -27,7 +27,9 @@ import {
   AGENTS_TEAM_USAGE,
 } from '@intafaced/contracts/agents-team-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
-import type { ApiResult, RefusalReason } from '../../shared/api';
+import { isVerifyFirst, type ApiResult, type RefusalReason } from '../../shared/api';
+import { uiCopy } from '../../shared/ui-copy';
+import { verifyFirstRefusal } from '../../shared/verify-first';
 import { Button, Checkbox, EmptyState, Field, Select } from '@intafaced/ui/lit';
 import { KeyValue, SettingsTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../shared/resource';
@@ -93,8 +95,18 @@ const refusalCodeOf = (failed: Refusal): string =>
 const ANSWER_UNKNOWN = new Set<RefusalReason>(['unreachable', 'aborted', 'uncertain', 'invalid_response']);
 function RefusalText({ failed }: { failed: Refusal }) {
   const { t } = agentsTeamCopy.useCopy();
+  const shared = uiCopy.useCopy();
   const code = refusalCodeOf(failed);
   const key = Object.hasOwn(ERR_KEYS, code) ? ERR_KEYS[code as keyof typeof ERR_KEYS] : null;
+  if (isVerifyFirst(failed))
+    return (
+      <>
+        {shared.t('verifyFirst')}{' '}
+        <a className="lt-link" href="/verification">
+          {shared.t('verifyNow')}
+        </a>
+      </>
+    );
   return (
     <>
       {key ? t(key) : t('err_other')} <code lang="zxx">{code}</code>
@@ -200,6 +212,8 @@ type T = ReturnType<typeof agentsTeamCopy.useCopy>['t'];
 function refusedState(t: T, failed: Refusal, title: string, action?: { label: string; href: string }): RoomState {
   const code = refusalCodeOf(failed);
   const key = Object.hasOwn(ERR_KEYS, code) ? ERR_KEYS[code as keyof typeof ERR_KEYS] : null;
+  // A person not yet verified reads the app's one ask to verify and its link, never the gate's code.
+  if (isVerifyFirst(failed)) return { kind: 'refused', refusal: verifyFirstRefusal(title) };
   return {
     kind: 'refused',
     refusal: {

@@ -2,6 +2,7 @@ import { defineCopy } from '../../shared/i18n';
 
 const messages = {
   'Public navigation': 'Public navigation',
+  Menu: 'Menu',
   Trade: 'Trade',
   Help: 'Help',
   About: 'About',
@@ -20,8 +21,7 @@ const messages = {
     'Keep your money, trading and payments connected. A clear everyday account. A trading desk built for focus.',
   'Create your account': 'Create your account',
   'Explore the desk': 'Explore the desk',
-  'Product availability depends on your account, region and connected services.':
-    'Product availability depends on your account, region and connected services.',
+  'Product availability depends on your account and region.': 'Product availability depends on your account and region.',
   'Four connected experiences': 'Four connected experiences',
   Money: 'Money',
   'What you hold.': 'What you hold.',
@@ -107,9 +107,8 @@ const messages = {
   'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.':
     'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.',
   'Clear information comes first.': 'Clear information comes first.',
-  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
-  'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
-    'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
+  'Available funds stay distinct from funds on hold. Missing prices stay blank instead of guessed. When a feature is unavailable, the page explains why before you act.':
+    'Available funds stay distinct from funds on hold. Missing prices stay blank instead of guessed. When a feature is unavailable, the page explains why before you act.',
   'Create an account': 'Create an account',
   'Contact support': 'Contact support',
   'Account notifications belong to your private inbox. They are not public announcements.':
@@ -138,6 +137,7 @@ const messages = {
 export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.public', messages, {
   es: {
     'Public navigation': 'Navegación pública',
+    Menu: 'Menú',
     Trade: 'Operar',
     Help: 'Ayuda',
     About: 'Acerca de',
@@ -155,8 +155,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'Mantén conectados tu dinero, tus operaciones y tus pagos. Una cuenta clara para cada día. Una mesa de operaciones para concentrarte.',
     'Create your account': 'Crea tu cuenta',
     'Explore the desk': 'Explora la mesa',
-    'Product availability depends on your account, region and connected services.':
-      'La disponibilidad del producto depende de tu cuenta, región y servicios conectados.',
+    'Product availability depends on your account and region.': 'La disponibilidad del producto depende de tu cuenta y tu región.',
     'Four connected experiences': 'Cuatro experiencias conectadas',
     Money: 'Dinero',
     'What you hold.': 'Lo que tienes.',
@@ -243,8 +242,8 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.':
       'Dinero es tu punto de partida diario. Operar muestra el mercado y los detalles de las órdenes. Pagar mantiene tus pagos en contexto. Más reúne aprendizaje, investigación y el resto del producto.',
     'Clear information comes first.': 'La información clara es lo primero.',
-    'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
-      'Los fondos disponibles se distinguen de los retenidos. Los precios ausentes siguen ausentes. Si un servicio o canal no está conectado, el producto explica la limitación antes de que actúes.',
+    'Available funds stay distinct from funds on hold. Missing prices stay blank instead of guessed. When a feature is unavailable, the page explains why before you act.':
+      'Los fondos disponibles se distinguen de los retenidos. Los precios que faltan quedan en blanco en lugar de estimarse. Cuando una función no está disponible, la página explica el motivo antes de que actúes.',
     'Create an account': 'Crear una cuenta',
     'Contact support': 'Contactar con soporte',
     'Account notifications belong to your private inbox. They are not public announcements.':
@@ -269,6 +268,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
   },
   fr: {
     'Public navigation': 'Navigation publique',
+    Menu: 'Menu',
     Trade: 'Négocier',
     Help: 'Aide',
     About: 'À propos',
@@ -286,8 +286,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'Gardez votre argent, vos opérations et vos paiements connectés. Un compte clair au quotidien. Une console de négociation conçue pour la concentration.',
     'Create your account': 'Créez votre compte',
     'Explore the desk': 'Explorez la console',
-    'Product availability depends on your account, region and connected services.':
-      'La disponibilité des produits dépend de votre compte, de votre région et des services connectés.',
+    'Product availability depends on your account and region.': 'La disponibilité des produits dépend de votre compte et de votre région.',
     'Four connected experiences': 'Quatre expériences connectées',
     Money: 'Argent',
     'What you hold.': 'Ce que vous détenez.',
@@ -374,8 +373,8 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.':
       'Argent est votre point de départ au quotidien. Négocier présente le marché et les détails des ordres. Payer garde vos paiements en contexte. Plus réunit l’apprentissage, la recherche et le reste du produit.',
     'Clear information comes first.': 'La clarté de l’information passe avant tout.',
-    'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
-      'Les fonds disponibles restent distincts des fonds réservés. Les prix absents restent absents. Si un service ou un circuit n’est pas connecté, le produit explique la limite avant toute action.',
+    'Available funds stay distinct from funds on hold. Missing prices stay blank instead of guessed. When a feature is unavailable, the page explains why before you act.':
+      'Les fonds disponibles restent distincts des fonds réservés. Les prix manquants restent vides au lieu d’être estimés. Lorsqu’une fonction est indisponible, la page explique pourquoi avant toute action.',
     'Create an account': 'Créer un compte',
     'Contact support': 'Contacter l’assistance',
     'Account notifications belong to your private inbox. They are not public announcements.':

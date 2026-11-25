@@ -11,6 +11,9 @@ import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
+import { betaHides } from './beta-volt';
+import { BetaNotInVolt } from './BetaNotInVolt';
+import { useBetaAccess } from './BetaAccess';
 import { LegacyRoom, preloadAccountRoutes, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { preloadScreen, screens } from './screens';
@@ -98,6 +101,8 @@ export function App() {
   const search = current.slice(path.length);
   const room = findRoom(path);
   const { session, restoring, restoreFailed, retryRestore } = useSession();
+  // The beta's build reads what the account can use and draws the menus again when it changes (beta-volt.ts).
+  useBetaAccess();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const voltKit = !room && path === '/kit';
@@ -207,6 +212,7 @@ export function App() {
         </Page>
       </div>
     );
+  else if (betaHides(path)) body = <BetaNotInVolt />;
   else if (room?.screen) {
     const Screen = screens[room.screen];
     body = (
@@ -227,6 +233,16 @@ export function App() {
   // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
   const content = redirectTo ? null : restoring ? (
     fallback
+  ) : room?.area === 'public' && session && !room.publicFrame ? (
+    // A signed-in person reading help, status, notices, fees or the developer pages keeps the app header.
+    <Shell door={undefined} path={path}>
+      {ribbon}
+      <div className="legacy-room">
+        <Suspense fallback={fallback}>
+          <PublicRoutes path={path} SharedResult={SharedResultRoute} framed />
+        </Suspense>
+      </div>
+    </Shell>
   ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">
       {ribbon}
@@ -248,7 +264,7 @@ export function App() {
       <Web3Shell path={path}>
         <RoomBoundary key={path}>
           {ribbon}
-          <ProtocolRoutes path={path} />
+          {betaHides(path) ? <BetaNotInVolt /> : <ProtocolRoutes path={path} />}
         </RoomBoundary>
       </Web3Shell>
     </Suspense>

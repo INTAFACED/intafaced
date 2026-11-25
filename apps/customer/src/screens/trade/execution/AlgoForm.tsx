@@ -497,7 +497,7 @@ export function AlgoForm({
         ) : sizes.state === 'refused' ? (
           <Why code={sizes.code}>{t('Slice sizes refused')}</Why>
         ) : (
-          <p className="m-0 text-sm text-fg-2">{t('Slice sizes loading')}</p>
+          <p className="lt-hint">{t('Slice sizes loading')}</p>
         )}
       </ConfirmDialog>
     </section>

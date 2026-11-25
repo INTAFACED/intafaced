@@ -3,6 +3,8 @@ import { type MyInvitee } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Empty, Failure, Loading } from './kit-parts';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { Users } from 'lucide-react';
 import { RecordTable } from '../../shared/record/record-parts';
 import { referralInviteesCopy } from './referral-invitees-copy';
 import { CAMPAIGNS_REFERRAL_INVITEES } from '@intafaced/contracts/campaigns-referral-procedures';
@@ -31,7 +33,8 @@ function useWhen() {
   }, [renderedLocale]);
 }
 
-export function ReferralInvitees() {
+/** `first`: the invitees are what this view is for, so an empty list is drawn as the room's first state. */
+export function ReferralInvitees({ first = false }: { first?: boolean } = {}) {
   const api = useApi();
   const { t } = referralInviteesCopy.useCopy();
   const list = useResource((signal) => api.call(CAMPAIGNS_REFERRAL_INVITEES, {}, { signal }), 'referral-invitees');
@@ -55,7 +58,17 @@ export function ReferralInvitees() {
           </div>
         ) : r.data.invitees.length === 0 ? (
           <div data-testid="referral-invitees-empty">
-            <Empty title={t('emptyTitle')}>{t('emptyBody')}</Empty>
+            {first ? (
+              <FirstState
+                icon={<Users size={24} />}
+                title={t('emptyTitle')}
+                body={t('emptyBody')}
+                points={[t('firstPointJoined'), t('firstPointSteps'), t('firstPointPrivate')]}
+                action={{ label: t('firstAction'), href: '/uc/promotion/mycards' }}
+              />
+            ) : (
+              <Empty title={t('emptyTitle')}>{t('emptyBody')}</Empty>
+            )}
           </div>
         ) : (
           <>

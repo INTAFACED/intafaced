@@ -1,142 +1,29 @@
+// volt-room: /pay/products/new
+// volt-room: portal:product-new
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Button } from '@intafaced/ui';
-import { PRODUCT_TYPES, type MerchantProduct, type ProductImageRules } from '@intafaced/contracts/merchant-catalog';
-import { EmptyState, Field } from '../../ui-kit';
+import { Button, Field } from '@intafaced/ui/lit';
+import { PRODUCT_TYPES, type ProductImageRules } from '@intafaced/contracts/merchant-catalog';
 import { navigate } from '../../../../app/location';
 import { useResource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
-import { Facts, Gate, MoreFooter, PortalFailure, PortalLoading, SelectField } from '../components';
-import { base64Of } from '../settings/onboarding/Application';
-import { DateTime } from '../ui/DateTime';
-import { DetailHeader } from '../ui/DetailHeader';
-import { EntityList } from '../ui/EntityList';
-import { Freshness } from '../ui/Freshness';
-import { useServerList } from '../ui/useServerList';
-import { useReadAt, useUrlParam } from '../hooks';
+import { base64Of } from '../settings/onboarding/files';
 import { useBodyRequestId } from '../payments/invoice-model';
+import { FlowRoom } from '../volt/FlowRoom';
+import { Empty, Gate, Section, SelectField } from '../volt/parts';
 import { useMayAddProducts } from './access';
-import { ProductAvailabilitySection } from './Availability';
-import { CatalogCopyControl } from './CatalogCopy';
-import { inMode, useCatalogMode, type CatalogMode as Mode } from './mode';
-import { ProductImport } from './ProductImport';
-import { ProductPrices } from './Prices';
+import { useCatalogMode } from './mode';
 import { catalogCopy as c } from './copy';
 import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText, type ProductDraft } from './model';
 
+export { ProductList } from './ProductList';
+
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
+const IMAGE_NOTE_OK = 'lt-note-good';
+const IMAGE_NOTE_BAD = 'lt-callout lt-callout-bad';
 
-/** `/pay/products`, `/pay/products/new`, `/pay/products/import` and `/pay/products/:productId` (J-merchant-03 steps 1, 2, 4 and 5). */
-export function Products({ portal, route }: { portal: PortalApi; route: { room: string; param?: string } }) {
-  if (route.room === 'product-new') return <ProductCreate portal={portal} />;
-  if (route.room === 'product-import') return <ProductImport portal={portal} />;
-  if (route.room === 'product' && route.param) return <ProductDetail portal={portal} productId={route.param} />;
-  return <ProductList portal={portal} />;
-}
-
-const addButton = (label: string, importLabel: string, mode: Mode) => (
-  <div className="lt-actions">
-    <Button variant="primary" nativeButton={false} role="link" render={<a href={inMode('/pay/products/new', mode)} />}>
-      {label}
-    </Button>
-    <Button variant="secondary" nativeButton={false} role="link" render={<a href={inMode('/pay/products/import', mode)} />}>
-      {importLabel}
-    </Button>
-  </div>
-);
-
-/**
- * One catalogue (Catalogue › Live or Test), active products first. Copy to live or Copy to test sits above it. An archived product is listed only under Show › Archived products; an empty
- * active list says whether archived products exist, so "No products yet" is said only of a catalogue that has none.
- */
-export function ProductList({ portal }: { portal: PortalApi }) {
-  const { t } = c.useCopy();
-  const may = useMayAddProducts();
-  const [shown, setShown] = useUrlParam('status', 'active');
-  const [mode, setMode] = useCatalogMode();
-  const status = shown === 'archived' ? 'archived' : 'active';
-  const list = useServerList(
-    (f, cursor, signal) => portal.products(f.status, cursor, signal, f.mode),
-    { status, mode },
-    (p: MerchantProduct) => p.id,
-  );
-  const readAt = useReadAt(list.state.status === 'ready', list.state);
-  return (
-    <div className="lt-stack">
-      <Freshness asOf={readAt} />
-      <SelectField
-        label={t('catalogueLabel')}
-        value={mode}
-        onChange={(value) => setMode(value === 'test' ? 'test' : 'live')}
-        options={[
-          ['live', t('mode_live')],
-          ['test', t('mode_test')],
-        ]}
-      />
-      <CatalogCopyControl key={mode} portal={portal} from={mode} />
-      <SelectField
-        label={t('showLabel')}
-        value={status}
-        onChange={setShown}
-        options={[
-          ['active', t('show_active')],
-          ['archived', t('show_archived')],
-        ]}
-      />
-      {list.state.status === 'loading' && <PortalLoading />}
-      {list.state.status === 'failed' && <PortalFailure result={list.state.failure} retry={() => list.reload()} />}
-      {list.state.status === 'ready' &&
-        (list.state.items.length === 0 && !list.state.hasMore ? (
-          status === 'archived' ? (
-            <EmptyState title={t('emptyArchivedTitle')}>{t('emptyArchivedBody')}</EmptyState>
-          ) : (
-            <EmptyActive portal={portal} mode={mode} add={may.allowed ? addButton(t('add'), t('importLink'), mode) : undefined} />
-          )
-        ) : (
-          <>
-            {may.allowed && addButton(t('add'), t('importLink'), mode)}
-            <EntityList
-              label={t('listLabel')}
-              rows={list.state.items}
-              rowKey={(row) => row.id}
-              href={(row) => productHref(row.id)}
-              columns={[
-                { header: t('colName'), cell: (row) => <strong>{row.name}</strong> },
-                { header: t('colType'), cell: (row) => t(`type_${row.type}`) },
-                { header: t('colId'), cell: (row) => <code>{row.productKey}</code> },
-                { header: t('colStatus'), cell: (row) => t(`status_${row.status}`) },
-                { header: t('colAdded'), cell: (row) => <DateTime value={row.createdAt} /> },
-              ]}
-              card={(row) => ({ title: row.name, time: <DateTime value={row.createdAt} />, status: t(`status_${row.status}`) })}
-            />
-            <MoreFooter state={list.state} onMore={list.loadMore} />
-          </>
-        ))}
-    </div>
-  );
-}
-
-/** An empty active list: "No products yet" only when nothing is archived either. */
-function EmptyActive({ portal, mode, add }: { portal: PortalApi; mode: Mode; add: ReturnType<typeof addButton> | undefined }) {
-  const { t } = c.useCopy();
-  const may = useMayAddProducts();
-  const { resource, reload } = useResource(
-    (signal) => portal.products('archived', undefined, signal, mode),
-    `portal:catalog:archived-probe:${mode}`,
-  );
-  if (resource.status === 'loading') return <PortalLoading />;
-  if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={reload} />;
-  if (resource.data.items.length > 0)
-    return (
-      <EmptyState title={t('emptyActiveTitle')} action={add}>
-        {t('emptyActiveBody')}
-      </EmptyState>
-    );
-  return (
-    <EmptyState title={t('emptyTitle')} action={add}>
-      {t(may.allowed ? 'emptyBody' : may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}
-    </EmptyState>
-  );
+/** `/pay/products/new` on the flow template (J-merchant-03): every role reads; the page gates adding. */
+export function ProductNewRoom({ portal }: { portal: PortalApi }) {
+  return <FlowRoom need="products.read">{() => <ProductCreate portal={portal} />}</FlowRoom>;
 }
 
 export function ProductCreate({ portal }: { portal: PortalApi }) {
@@ -175,12 +62,12 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
     }
   }
 
-  if (!may.allowed) return <EmptyState title={t('newTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</EmptyState>;
+  if (!may.allowed) return <Empty title={t('newTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</Empty>;
   return (
-    <PaySection title={t('newTitle')} description={t('newPurpose')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+    <Section title={t('newTitle')} description={t('newPurpose')}>
+      <div data-testid="form-stack" className="lt-stack">
         {mode === 'test' && (
-          <p className="pp-callout" role="note">
+          <p className="lt-callout" role="note">
             {t('testCatalogueNote')}
           </p>
         )}
@@ -253,17 +140,17 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
           )}
         </Gate>
         {refused && (
-          <p className="pp-callout" role="alert">
+          <p className="lt-callout lt-callout-bad" role="alert">
             {refused}
           </p>
         )}
         <div className="lt-actions">
-          <Button variant="primary" disabled={!draft.name.trim() || busy || uploading} onClick={() => void save()}>
+          <Button tone="primary" disabled={!draft.name.trim() || busy || uploading} onClick={() => void save()}>
             {busy ? t('saving') : t('save')}
           </Button>
         </div>
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -356,15 +243,15 @@ function ImagePicker({
       />
       {busy && <p className="lt-muted">{t('imageUploading')}</p>}
       {note && (
-        <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
+        <p className={note.ok ? IMAGE_NOTE_OK : IMAGE_NOTE_BAD} role={note.ok ? 'status' : 'alert'}>
           {note.text}
         </p>
       )}
       {imageId && (
         <>
-          {preview && <img className="pp-product-image" src={preview} alt={t('imagePreviewAlt')} width={160} />}
+          {preview && <img className="lt-media" src={preview} alt={t('imagePreviewAlt')} width={160} />}
           <Button
-            variant="secondary"
+            tone="secondary"
             onClick={() => {
               onChange(null);
               setPreview(null);
@@ -374,164 +261,6 @@ function ImagePicker({
             {t('imageRemove')}
           </Button>
         </>
-      )}
-    </div>
-  );
-}
-
-function ProductImage({ portal, imageId, name }: { portal: PortalApi; imageId: string; name: string }) {
-  const { t } = c.useCopy();
-  const { resource } = useResource((signal) => portal.productImage(imageId, signal), `portal:catalog:image:${imageId}`);
-  if (resource.status !== 'ready') return null;
-  return (
-    <img
-      className="pp-product-image"
-      src={`data:${resource.data.contentType};base64,${resource.data.dataBase64}`}
-      alt={t('imageAlt', { name })}
-      width={160}
-    />
-  );
-}
-
-export function ProductDetail({ portal, productId }: { portal: PortalApi; productId: string }) {
-  const { t } = c.useCopy();
-  const { resource, reload } = useResource((signal) => portal.product(productId, signal), `portal:catalog:product:${productId}`);
-  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
-  return (
-    <Gate resource={resource} retry={reload} rows={4}>
-      {(product) => (
-        <div className="lt-stack">
-          <DetailHeader
-            back={{ href: inMode('/pay/products', product.mode), label: t('back') }}
-            title={product.name}
-            status={t(`status_${product.status}`)}
-          />
-          {product.status === 'archived' && <p className="pp-callout">{t('archivedNotice')}</p>}
-          <ProductActions
-            portal={portal}
-            product={product}
-            onDone={(text) => {
-              setNote({ ok: true, text });
-              reload();
-            }}
-            onRefused={(text) => setNote({ ok: false, text })}
-          />
-          {note && (
-            <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
-              {note.text}
-            </p>
-          )}
-          <Facts
-            items={[
-              [t('factName'), product.name],
-              [t('factType'), t(`type_${product.type}`)],
-              [t('factId'), <code key="id">{product.productKey}</code>],
-              [t('factCatalogue'), t(`mode_${product.mode}`)],
-              ...(product.copiedFrom
-                ? ([
-                    [
-                      t('factCopiedFrom'),
-                      <a key="from" className="lt-link" href={productHref(product.copiedFrom)}>
-                        {t(product.mode === 'live' ? 'copiedFromTest' : 'copiedFromLive')}
-                      </a>,
-                    ],
-                  ] as const)
-                : []),
-              [t('factUnit'), product.unitLabel ?? t('none')],
-              [t('factDescriptor'), product.statementDescriptor ?? t('none')],
-              ...(product.event
-                ? ([
-                    [t('factStarts'), <DateTime key="starts" value={product.event.startsAt} />],
-                    [t('factLocation'), product.event.location],
-                  ] as const)
-                : []),
-              [t('factStatus'), t(`status_${product.status}`)],
-              [t('factAdded'), <DateTime key="added" value={product.createdAt} />],
-            ]}
-          />
-          {product.imageId ? (
-            <ProductImage portal={portal} imageId={product.imageId} name={product.name} />
-          ) : (
-            <p className="lt-muted">{t('noImage')}</p>
-          )}
-          <ProductPrices portal={portal} product={product} />
-          <ProductAvailabilitySection portal={portal} product={product} />
-        </div>
-      )}
-    </Gate>
-  );
-}
-
-/**
- * Archive, unarchive or delete a product (M-adv-payments-core-20). Archiving is undone by Unarchive. Deleting asks once
- * more, and the service refuses it for a product that has any price (`pay.product_has_prices`), so a product a
- * subscription or a document names is archived instead.
- */
-function ProductActions({
-  portal,
-  product,
-  onDone,
-  onRefused,
-}: {
-  portal: PortalApi;
-  product: MerchantProduct;
-  onDone: (text: string) => void;
-  onRefused: (text: string) => void;
-}) {
-  const { t } = c.useCopy();
-  const may = useMayAddProducts();
-  const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  if (!may.allowed) return null;
-
-  async function act(run: () => Promise<{ ok: true } | { ok: false; message: string }>, done: () => void) {
-    setBusy(true);
-    try {
-      const result = await run();
-      if (result.ok) done();
-      else onRefused(result.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const archived = product.status === 'archived';
-  return (
-    <div className="lt-actions">
-      <Button
-        variant="secondary"
-        disabled={busy}
-        onClick={() =>
-          void act(
-            () => (archived ? portal.unarchiveProduct(product.id) : portal.archiveProduct(product.id)),
-            () => onDone(t(archived ? 'unarchivedDone' : 'archivedDone')),
-          )
-        }
-      >
-        {t(archived ? 'unarchive' : 'archive')}
-      </Button>
-      {confirming ? (
-        <div className="lt-actions" role="group" aria-label={t('deleteProduct')}>
-          <span>{t('deleteConfirm')}</span>
-          <Button
-            variant="sell"
-            disabled={busy}
-            onClick={() =>
-              void act(
-                () => portal.deleteProduct(product.id),
-                () => navigate(inMode('/pay/products', product.mode)),
-              ).finally(() => setConfirming(false))
-            }
-          >
-            {t('deleteProduct')}
-          </Button>
-          <Button variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>
-            {t('deleteKeep')}
-          </Button>
-        </div>
-      ) : (
-        <Button variant="secondary" disabled={busy} onClick={() => setConfirming(true)}>
-          {t('deleteProduct')}
-        </Button>
       )}
     </div>
   );

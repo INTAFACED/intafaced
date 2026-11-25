@@ -5,11 +5,13 @@ import { fundedTrader, signIn } from './desk.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-06, in the running app (docs/roadmap/journeys.json): watch and top up the margin on an isolated position.
-// One test per step, titled "J-derivatives-06 #<n>", run in order on one TEST account funded with TEST USDT. The contract
+// At launch #1 to #4 run on the person's own venue account (J-derivatives-06-venue.pw.mjs); the first two tests here are
+// the custodial branch, which waits for later, on our own futures engine, kept and titled as no step's, and #5 is its step.
+// Run in order on one TEST account funded with TEST USDT. The contract
 // is the TEST perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST ladder. The
 // mark follows the stack's TEST book, which the TEST market maker walks, so every figure that needs the mark is compared
-// with the service's own answer read at the same moment. Not here yet: #3, #4, #6 and #7 (each lands with its own
-// slice; #3's floor waits on an owner decision).
+// with the service's own answer read at the same moment. #1 to #4, #6 and #7 are proven on the person's own venue
+// account in J-derivatives-06-venue.pw.mjs.
 const J = 'J-derivatives-06';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -42,19 +44,37 @@ async function until(read, ok, what, ms = 30_000) {
  * rate the order a tier above the one the preview named, which svc-trade refuses trade.risk_limit_confirm_required. Held,
  * both ladders rest as the maker's last cycle left them, so the preview and the order read one depth and one mark. Asked
  * for once each book has both sides, and timed from before the ask.
+ *
+ * A hold keeps a book as the maker's last cycle left it, one-sided too: just after a stack restart the maker's first
+ * cycle can rest only one side (its other quotes refused trade.operator_throttle while the old ones still count as open),
+ * and a hold taken then never gets the other side back. So a book held one-sided is let go and held again once both
+ * sides are up, a few times at most.
  */
 async function openLong(me) {
   const { body } = await me.get('/api/v1/positions');
   const open = body.find((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open');
   if (open) return open;
-  await bestPrices('BTC/USDT', 50, 60_000);
-  await bestPrices(SYMBOL, 50, 60_000);
-  const heldAt = Date.now();
-  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
-  tool('local-test-market.mjs', 'hold', SYMBOL);
-  try {
+  const release = () => {
+    tool('local-test-market.mjs', 'release', SYMBOL);
+    tool('local-test-market.mjs', 'release', 'BTC/USDT');
+  };
+  let heldAt;
+  for (let attempt = 1; ; attempt++) {
     await bestPrices('BTC/USDT', 50, 60_000);
     await bestPrices(SYMBOL, 50, 60_000);
+    heldAt = Date.now();
+    tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+    tool('local-test-market.mjs', 'hold', SYMBOL);
+    try {
+      await bestPrices('BTC/USDT', 50, 10_000);
+      await bestPrices(SYMBOL, 50, 10_000);
+      break;
+    } catch (oneSided) {
+      release();
+      if (attempt >= 4) throw oneSided;
+    }
+  }
+  try {
     const preview = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
     expect(preview.status, JSON.stringify(preview.body)).toBe(200);
     const placed = await me.post('/api/v1/futures/orders', {
@@ -76,8 +96,7 @@ async function openLong(me) {
     expect(Date.now() - heldAt, 'the hold lapsed before the TEST long opened').toBeLessThan(HOLD_MAX_MS);
     return positions.find((p) => p.symbol === SYMBOL && p.side === 'long');
   } finally {
-    tool('local-test-market.mjs', 'release', SYMBOL);
-    tool('local-test-market.mjs', 'release', 'BTC/USDT');
+    release();
   }
 }
 
@@ -113,7 +132,9 @@ const expected = (s) => ({
   ratio: exactPct(s.marginRatio),
 });
 
-test(`${J} #1 opens Account metrics: equity, available, used margin and margin ratio as exact decimals`, async ({ page }) => {
+test(`${J}, the custodial Later branch, checked on our own book: Account metrics show equity, available, used margin and margin ratio as exact decimals`, async ({
+  page,
+}) => {
   const who = await fundedTrader(page, 'jd6', '1000');
   run.reset({ account: who });
   const me = await api(who);
@@ -176,7 +197,9 @@ test(`${J} #1 opens Account metrics: equity, available, used margin and margin r
   await expect(region.getByRole('status')).toHaveCount(0);
 });
 
-test(`${J} #2 adds margin to a position: the margin and liquidation price after, from the service`, async ({ page }) => {
+test(`${J}, the custodial Later branch, checked on our own book: adding margin to a position shows the margin and liquidation price after, from the service`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   const { positionId } = run.read();
@@ -241,7 +264,9 @@ test(`${J} #2 adds margin to a position: the margin and liquidation price after,
   expect(toUnits((await me.balances()).USDT.free)).toBe(freeBefore - toUnits(ADD));
 });
 
-test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance level, shown on the position`, async ({ page }) => {
+test(`${J} #5, the custodial Later branch, checked on our own book: a pre-liquidation stop is a close order at the maintenance level, shown on the position`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   const { positionId } = run.read();

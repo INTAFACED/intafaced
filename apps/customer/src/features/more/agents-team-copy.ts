@@ -2,10 +2,10 @@ import { defineCopy } from '../../shared/i18n';
 
 const en = {
   title: 'Team',
-  description: "Agent roles, the business pool, project limits, runs, approvals and usage for your business's team.",
+  description: 'Manage who on your team can build, run and approve agents, and set spending limits.',
   sectionsLabel: 'Team sections',
   explain:
-    'A deny always wins over an allow. A team run spends from the business pool, inside the member’s allocation and every project limit they are on; an action an agent holds waits for a second approver.',
+    'If a role is both allowed and denied, deny wins. Team runs count against the shared business budget, each member’s limit and any project limits; held actions wait for another approver.',
   businessTitle: 'Business',
   businessPick: 'Business',
   businessClosedName: '{name} (closed)',
@@ -155,8 +155,8 @@ const en = {
   err_cap_exceeded: 'This run would pass your agent’s spend cap, so it did not start.',
   err_funds_insufficient: 'The business’s payment method cannot cover this run.',
   err_session_closed: 'That run is closed.',
-  err_fee_asset_unset: 'The agents fee asset is unset on this service, so a pool or project limit has no asset and is refused.',
-  err_capability_unavailable: 'The agents database is not connected here.',
+  err_fee_asset_unset: 'No billing currency is set for agents, so team and project limits cannot be saved.',
+  err_capability_unavailable: 'Team agent records are unavailable right now.',
   err_other: 'Refused.',
   retry: 'Read again',
 } as const;

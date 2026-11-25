@@ -104,32 +104,23 @@
 </header>
 <div class="lt-body">
 <div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav aria-label="Room sections">
-<ul>
-<li>
-<a class="lt-link" href="#pay-room-details">Details</a>
-</li>
-</ul>
-</nav>
-</section>
 <section class="lt-region" data-region="sections" aria-label="Settings">
 <section id="pay-room-details" aria-labelledby="pay-room-details-title">
 <h2 id="pay-room-details-title">Details</h2>
 <dl class="lt-kv">
-<div data-unset="true">
+<div data-slot="key-value-row" data-unset="true">
 <dt>Send to a person</dt>
 <dd>
 <bdi>Not set</bdi>
 </dd>
 </div>
-<div data-unset="true">
+<div data-slot="key-value-row" data-unset="true">
 <dt>Receive by request</dt>
 <dd>
 <bdi>Not set</bdi>
 </dd>
 </div>
-<div data-unset="true">
+<div data-slot="key-value-row" data-unset="true">
 <dt>Send abroad</dt>
 <dd>
 <bdi>Not set</bdi>
@@ -151,6 +142,8 @@
 </section>
 </div>
 </div>
+</div>
+<div class="lit-toasts" role="status" aria-live="polite" data-slot="toast-region">
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">

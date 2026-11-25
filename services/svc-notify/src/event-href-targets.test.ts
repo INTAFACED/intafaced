@@ -47,6 +47,8 @@ const LIVE_ROOMS = [
   '/quant/strategies/:id',
   // The Academy Rooms tab, where a learner reaches their course discussions (J-academy-18 #2).
   '/academy/rooms',
+  // The positions room, where a venue position's margin alerts and margin calls are (J-derivatives-06 #6 #7).
+  '/trade/positions',
 ];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */

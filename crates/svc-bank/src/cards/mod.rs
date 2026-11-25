@@ -444,7 +444,8 @@ pub fn note_status_event(
 }
 
 /// `updateStatus`: set a card's status under its row lock (`set` is the SQL `SET` list, its values bound from `$2`).
-/// True when the status it had differs from `status`, so two callers making the same change hear it once.
+/// True when the status it had differs from `status`, so two callers making the same change hear it once. A closed card
+/// stays closed: the check reads the locked row, so a caller that read the card before another closed it is refused.
 pub fn update_status(
     tx: &mut postgres::Transaction<'_>,
     card_id: &str,
@@ -452,6 +453,20 @@ pub fn update_status(
     params: &[&(dyn postgres::types::ToSql + Sync)],
     status: &str,
 ) -> Result<bool, Refusal> {
+    if status != "closed" {
+        let locked = tx
+            .query_opt(
+                "SELECT status::text FROM bank.cards WHERE id = $1::text::uuid FOR UPDATE",
+                &[&card_id],
+            )
+            .map_err(|e| pg(&e))?;
+        if locked.is_some_and(|r| r.get::<_, String>(0) == "closed") {
+            return Err(refuse(
+                "bank.card_not_active",
+                "A closed card cannot be reopened",
+            ));
+        }
+    }
     let mut all: Vec<&(dyn postgres::types::ToSql + Sync)> = vec![&card_id];
     all.extend_from_slice(params);
     let rows = tx

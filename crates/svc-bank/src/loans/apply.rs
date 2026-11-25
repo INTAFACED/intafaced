@@ -3,7 +3,7 @@
 //! down. Every input here is non-negative where it is used (a quantity, a price, a principal); for those the
 //! TypeScript's `(x + d - 1n) / d` is exactly the ceiling this takes.
 
-use service_kit::money::{Amount, Rounding, mul_div, mul_rounded};
+use service_kit::money::{Amount, Rounding, mul_div, mul_ratio, mul_rounded};
 
 use super::risk::{Round, ltv_bps};
 
@@ -40,14 +40,8 @@ pub fn minimum_collateral(
     // The closed-form estimate, then grown until it fits: a starting point, never the answer.
     // ceil(debt·BPS·ONE / (cap·price)) = ceil(ceil(debt·BPS·ONE / price) / cap) for positive integers.
     let per_price = mul_div(debt_value, BPS * ONE, collateral_price, Rounding::Ceil);
-    // `per_price / cap`, rounded up: the cap is a count of basis points, carried here as a scaled divisor.
-    let mut hi = mul_div(
-        per_price,
-        Amount::UNIT,
-        Amount::from_scaled(i128::from(max_ltv_bps)),
-        Rounding::Ceil,
-    )
-    .saturating_add(Amount::UNIT);
+    let mut hi = mul_ratio(per_price, 1, i128::from(max_ltv_bps), Rounding::Ceil)
+        .saturating_add(Amount::UNIT);
     while !fits(hi) {
         match hi.checked_times(2) {
             Some(next) => hi = next,
@@ -83,10 +77,10 @@ pub fn liquidation_price(
     }
     // ceil(debt·BPS·ONE / (ltv·collateral)), taken as ceil(ceil(debt·BPS·ONE / collateral) / ltv).
     let per_collateral = mul_div(debt_value, BPS * ONE, collateral, Rounding::Ceil);
-    Ok(mul_div(
+    Ok(mul_ratio(
         per_collateral,
-        Amount::UNIT,
-        Amount::from_scaled(i128::from(liquidation_ltv_bps)),
+        1,
+        i128::from(liquidation_ltv_bps),
         Rounding::Ceil,
     ))
 }
@@ -114,13 +108,7 @@ pub fn origination_fee(raw: Option<&str>) -> OriginationFee {
 
 /// `originationFeeOn`: the fee on `principal` at `bps`, rounded up in the debt asset.
 pub fn origination_fee_on(principal: Amount, bps: i64) -> Amount {
-    // `principal * bps / BPS`: both factors past the principal are counts of basis points.
-    mul_div(
-        principal,
-        Amount::from_scaled(i128::from(bps)),
-        Amount::from_scaled(BPS),
-        Rounding::Ceil,
-    )
+    mul_ratio(principal, i128::from(bps), BPS, Rounding::Ceil)
 }
 
 #[cfg(test)]

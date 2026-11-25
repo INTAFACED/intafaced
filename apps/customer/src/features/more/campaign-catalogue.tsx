@@ -1,19 +1,14 @@
 import { useMemo, useState } from 'react';
-import {
-  CAMPAIGN_TYPES,
-  CATALOGUE_CAMPAIGN_STATES,
-  campaignCatalogueSchema,
-  campaignViewSchema,
-  myCampaignsSchema,
-  type CampaignType,
-  type CampaignView,
-} from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGN_TYPES, CATALOGUE_CAMPAIGN_STATES, type CampaignType, type CampaignView } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Select } from '@intafaced/ui/lit';
 import { FailureBox, LoadingLine, RecordTable } from '../../shared/record/record-parts';
-import { EmptyNote } from './volt-parts';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { Gift } from 'lucide-react';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
+import { CAMPAIGNS_CATALOGUE_LIST, CAMPAIGNS_CATALOGUE_GET } from '@intafaced/contracts/campaigns-catalogue-procedures';
+import { CAMPAIGNS_PARTICIPATION_MINE } from '@intafaced/contracts/campaigns-participation-procedures';
 
 /**
  * The campaign rooms read from svc-campaigns (CM-campaign-types-01, J-campaigns-01): the catalogue at /campaigns, one
@@ -80,10 +75,7 @@ export function CampaignCatalogue() {
   const when = useWhen();
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
-  const catalogue = useResource(
-    (signal) => api.query('campaigns', 'catalogue.list', undefined, campaignCatalogueSchema, { signal }),
-    'campaigns-catalogue',
-  );
+  const catalogue = useResource((signal) => api.call(CAMPAIGNS_CATALOGUE_LIST, undefined, { signal }), 'campaigns-catalogue');
   const any = { value: '', label: t('filterAny') };
   return (
     <div className="lt-stack">
@@ -109,9 +101,13 @@ export function CampaignCatalogue() {
           ) : catalogue.resource.status === 'failed' ? (
             <FailureBox result={catalogue.resource.failure} retry={catalogue.reload} />
           ) : catalogue.resource.data.campaigns.length === 0 ? (
-            <EmptyNote title={<Copy k="catalogueNone" />}>
-              <Copy k="catalogueNoneBody" />
-            </EmptyNote>
+            <FirstState
+              icon={<Gift size={24} />}
+              title={t('catalogueNone')}
+              body={t('catalogueNoneBody')}
+              points={[t('firstPointCompete'), t('firstPointTasks'), t('firstPointVouchers')]}
+              action={{ label: t('firstCatalogueAction'), href: '/campaigns/mine' }}
+            />
           ) : (
             <CampaignTable
               campaigns={catalogue.resource.data.campaigns.filter((c) => (!type || c.type === type) && (!status || c.state === status))}
@@ -123,14 +119,17 @@ export function CampaignCatalogue() {
       <section>
         <h2>{t('typesTitle')}</h2>
         {catalogue.resource.status === 'ready' ? (
-          <ul className="lt-rows" aria-label={t('typesLabel')} data-testid="campaign-types">
+          <dl className="lt-kv" aria-label={t('typesLabel')} data-testid="campaign-types">
             {catalogue.resource.data.types.map((row) => (
-              <li key={row.type} data-testid="campaign-type" data-type={row.type} data-code={row.blocker ?? undefined}>
-                <strong>{t(`type_${row.type}`)}</strong>: {row.blocker ? t('typeParked') : t('typeOpen')}
-                {row.blocker ? <p className="lt-hint">{t(`owner.decision.${row.type as 'gift_card' | 'points'}`)}</p> : null}
-              </li>
+              <div key={row.type} data-testid="campaign-type" data-type={row.type} data-code={row.blocker ?? undefined}>
+                <dt>{t(`type_${row.type}`)}</dt>
+                <dd>
+                  {row.blocker ? t('typeParked') : t('typeOpen')}
+                  {row.blocker ? <span className="lt-kv-note">{t(`owner.decision.${row.type as 'gift_card' | 'points'}`)}</span> : null}
+                </dd>
+              </div>
             ))}
-          </ul>
+          </dl>
         ) : (
           <LoadingLine label={t('catalogueLoading')} />
         )}
@@ -174,10 +173,7 @@ export function MyCampaigns() {
   const api = useApi();
   const { Copy, t } = campaignCatalogueCopy.useCopy();
   const when = useWhen();
-  const mine = useResource(
-    (signal) => api.query('campaigns', 'participation.mine', undefined, myCampaignsSchema, { signal }),
-    'campaigns-mine',
-  );
+  const mine = useResource((signal) => api.call(CAMPAIGNS_PARTICIPATION_MINE, undefined, { signal }), 'campaigns-mine');
   return (
     <section>
       <h2>{t('mineTitle')}</h2>
@@ -187,7 +183,12 @@ export function MyCampaigns() {
         ) : mine.resource.status === 'failed' ? (
           <FailureBox result={mine.resource.failure} retry={mine.reload} />
         ) : mine.resource.data.campaigns.length === 0 ? (
-          <EmptyNote title={<Copy k="mineNone" />} />
+          <FirstState
+            icon={<Gift size={24} />}
+            title={t('mineNone')}
+            body={t('mineNoneBody')}
+            action={{ label: t('firstMineAction'), href: '/campaigns' }}
+          />
         ) : (
           <RecordTable label={t('mineLabel')} headers={[t('colName'), t('colType'), t('colState'), t('colWindow'), t('colJoined')]}>
             {mine.resource.data.campaigns.map(({ campaign: c, participation }) => (
@@ -216,8 +217,5 @@ export function MyCampaigns() {
 /** One campaign as svc-campaigns publishes it, for its own page (`campaign-detail/CampaignDetailRoom.tsx`). */
 export function useCampaignView(campaignId: string) {
   const api = useApi();
-  return useResource(
-    (signal) => api.query('campaigns', 'catalogue.get', { id: campaignId }, campaignViewSchema, { signal }),
-    `campaign-${campaignId}`,
-  );
+  return useResource((signal) => api.call(CAMPAIGNS_CATALOGUE_GET, { id: campaignId }, { signal }), `campaign-${campaignId}`);
 }

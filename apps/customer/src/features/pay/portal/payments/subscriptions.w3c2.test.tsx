@@ -284,7 +284,7 @@ it('prefills and locks the original charge path after reload and links to that m
         reload={noop}
       />,
     );
-    expect(out).toMatch(/<select disabled=""><option[^>]*value=""[^>]*>[^<]*<\/option><option[^>]*value="crypto_invoice" selected=""/);
+    expect(out).toMatch(/<select[^>]*disabled=""><option[^>]*value=""[^>]*>[^<]*<\/option><option[^>]*value="crypto_invoice" selected=""/);
     expect(out).toContain(`/pay/subscriptions?mandateId=${D}`);
     expect(out).toContain('TEST-customer');
     expect(pay.guard.reference(key)).toBe('TEST-original-attempt');

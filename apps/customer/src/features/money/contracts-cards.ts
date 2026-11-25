@@ -96,11 +96,4 @@ const cardFraudReportSchema = z.object({
 });
 export type CardFraudReport = z.infer<typeof cardFraudReportSchema>;
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const cardsReads = {} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const cardsWrites = {
-  'cards.controls.block': cardControlsSchema,
-  'cards.controls.lift': cardControlsSchema,
-} as const;

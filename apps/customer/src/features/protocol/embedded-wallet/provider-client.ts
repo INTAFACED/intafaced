@@ -1,4 +1,13 @@
 import type { EmbeddedWalletPasskey, ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
+import {
+  getAddress,
+  hashMessage,
+  hashTypedData,
+  isAddress,
+  recoverMessageAddress,
+  recoverTypedDataAddress,
+  type TypedDataDefinition,
+} from 'viem';
 import { base64url } from '../../session';
 
 /**
@@ -84,17 +93,21 @@ function bytes(value: string): ArrayBuffer {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
 }
 const random = (n: number) => crypto.getRandomValues(new Uint8Array(n));
+type Transport = NonNullable<EmbeddedWalletPasskey['registration']>['transports'][number];
+const TRANSPORTS: readonly string[] = ['ble', 'internal', 'nfc', 'usb', 'hybrid', 'smart-card'] satisfies readonly Transport[];
+const isTransport = (t: string): t is Transport => TRANSPORTS.includes(t);
 const supported = () => typeof window !== 'undefined' && window.isSecureContext && !!window.PublicKeyCredential && !!navigator.credentials;
 
 /** A new ES256 passkey on this device, for the wallet. The relying party is this page's own host. */
 export async function createWalletPasskey(): Promise<ClientResult<EmbeddedWalletPasskey>> {
   if (!supported()) return { ok: false, failure: 'unsupported' };
   try {
+    const challenge = random(32);
     const credential = await navigator.credentials.create({
       publicKey: {
         rp: { name: 'INTAFACED wallet' },
         user: { id: random(16), name: 'wallet', displayName: 'Your wallet' },
-        challenge: random(32),
+        challenge,
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
         attestation: 'none',
@@ -105,7 +118,22 @@ export async function createWalletPasskey(): Promise<ClientResult<EmbeddedWallet
       return { ok: false, failure: 'passkey' };
     const publicKey = credential.response.getPublicKey();
     if (!publicKey || credential.response.getPublicKeyAlgorithm() !== -7) return { ok: false, failure: 'unsupported' };
-    return { ok: true, data: { credentialId: base64url(credential.rawId), publicKey: base64url(publicKey), algorithm: -7 } };
+    // The registration travels too: a provider that binds a passkey only from its registration checks it there.
+    const transports = (credential.response.getTransports?.() ?? []).filter(isTransport);
+    return {
+      ok: true,
+      data: {
+        credentialId: base64url(credential.rawId),
+        publicKey: base64url(publicKey),
+        algorithm: -7,
+        registration: {
+          challenge: base64url(challenge.buffer),
+          clientDataJson: base64url(credential.response.clientDataJSON),
+          attestationObject: base64url(credential.response.attestationObject),
+          transports,
+        },
+      },
+    };
   } catch {
     return { ok: false, failure: 'passkey' };
   }
@@ -226,8 +254,149 @@ export function testProviderClient(
   };
 }
 
+/** The owner's provider's API, which the page reaches directly: the Customer app's CSP names it in connect-src. */
+export const OWNER_PROVIDER_API = 'https://api.turnkey.com';
+const SIGN_RAW_PAYLOAD = 'ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2';
+
+/** The wallet the owner's provider signs for: its address and the provider's `<sub-organisation>/<wallet>` id. */
+export interface OwnerProviderWallet {
+  address: string;
+  providerWalletId: string;
+}
+
+type Fetcher = (url: string, init: { method: 'POST'; headers: Record<string, string>; body: string }) => Promise<Response>;
+
+const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * The WebAuthn challenge the provider checks a passkey stamp against: the UTF-8 bytes of the hex SHA-256 of the exact
+ * request body (as the provider's Apache-2.0 `webauthn-stamper` makes it), base64url for `assertWalletPasskey`.
+ */
+export async function stampChallenge(body: string): Promise<string> {
+  const digest = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)));
+  return base64url(new TextEncoder().encode(digest).buffer);
+}
+
+/** `r`, `s` and the provider's `v` (`00` or `01`, the y parity) as one 65-byte signature. Null when malformed. */
+export function joinSignature(result: unknown): `0x${string}` | null {
+  if (!result || typeof result !== 'object') return null;
+  const { r, s, v } = result as Record<string, unknown>;
+  if (typeof r !== 'string' || typeof s !== 'string' || typeof v !== 'string') return null;
+  if (!/^[0-9a-fA-F]{1,64}$/.test(r) || !/^[0-9a-fA-F]{1,64}$/.test(s) || !/^0*[01]$/.test(v)) return null;
+  return `0x${r.padStart(64, '0')}${s.padStart(64, '0')}${v.endsWith('1') ? '1c' : '1b'}`.toLowerCase() as `0x${string}`;
+}
+
+/**
+ * The owner's provider's client (turnkey). The page signs at the provider with the person's own passkey: the provider's
+ * sign-raw-payload activity on the person's sub-organisation, `signWith` the wallet's address, carrying the EIP-191 or
+ * EIP-712 hash, stamped with a WebAuthn assertion whose challenge commits to that exact body (`X-Stamp-WebAuthn`). No
+ * INTAFACED service sees the request or the signature before the person's own page sends it on. The signature is checked
+ * to recover to the wallet's address before it is used.
+ *
+ * Sending a transaction, export and a second passkey run in the provider's own browser flow, which this page does not
+ * carry yet: each answers `unsupported`, so the room says so in words. The provider reports export and recovery as not
+ * offered, so the room shows no button for them.
+ */
+export function ownerProviderClient(
+  deps: {
+    wallet?: OwnerProviderWallet | null;
+    create?: typeof createWalletPasskey;
+    assert?: typeof assertWalletPasskey;
+    fetch?: Fetcher;
+  } = {},
+): EmbeddedWalletClient {
+  const unsupported = async () => ({ ok: false as const, failure: 'unsupported' as const });
+  const assert = deps.assert ?? assertWalletPasskey;
+  const send: Fetcher = deps.fetch ?? ((url, init) => fetch(url, { ...init, credentials: 'omit' }));
+
+  /** The wallet's signature over one 32-byte hash, after the person's passkey; checked to come from the wallet. */
+  async function signHash(
+    walletId: string,
+    hash: `0x${string}`,
+    recover: (signature: `0x${string}`) => Promise<string>,
+  ): Promise<ClientResult<{ signature: string; address: string }>> {
+    const wallet = deps.wallet;
+    const subOrganizationId = walletId.split('/')[0];
+    if (!wallet || wallet.providerWalletId !== walletId || !subOrganizationId || !isAddress(wallet.address))
+      return { ok: false, failure: 'refused' };
+    const body = JSON.stringify({
+      type: SIGN_RAW_PAYLOAD,
+      timestampMs: String(Date.now()),
+      organizationId: subOrganizationId,
+      parameters: {
+        signWith: getAddress(wallet.address),
+        payload: hash,
+        encoding: 'PAYLOAD_ENCODING_HEXADECIMAL',
+        hashFunction: 'HASH_FUNCTION_NO_OP',
+      },
+    });
+    const assertion = await assert(await stampChallenge(body), []);
+    if (!assertion.ok) return assertion;
+    const stamp = JSON.stringify({
+      authenticatorData: assertion.data.authenticatorData,
+      clientDataJson: assertion.data.clientDataJSON,
+      credentialId: assertion.data.credentialId,
+      signature: assertion.data.signature,
+    });
+    let res: Response;
+    try {
+      res = await send(`${OWNER_PROVIDER_API}/public/v1/submit/sign_raw_payload`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'X-Stamp-WebAuthn': stamp },
+        body,
+      });
+    } catch {
+      return { ok: false, failure: 'down' };
+    }
+    if (res.status >= 500) return { ok: false, failure: 'down' };
+    if (res.status !== 200) return { ok: false, failure: 'refused' };
+    let answer: unknown;
+    try {
+      answer = await res.json();
+    } catch {
+      return { ok: false, failure: 'down' };
+    }
+    const activity = (answer as { activity?: { status?: unknown; result?: { signRawPayloadResult?: unknown } } } | null)?.activity;
+    if (activity?.status !== 'ACTIVITY_STATUS_COMPLETED') return { ok: false, failure: 'refused' };
+    const signature = joinSignature(activity.result?.signRawPayloadResult);
+    if (!signature) return { ok: false, failure: 'down' };
+    let signer: string;
+    try {
+      signer = await recover(signature);
+    } catch {
+      return { ok: false, failure: 'refused' };
+    }
+    if (signer.toLowerCase() !== wallet.address.toLowerCase()) return { ok: false, failure: 'refused' };
+    return { ok: true, data: { signature, address: getAddress(wallet.address) } };
+  }
+
+  return {
+    createPasskey: deps.create ?? createWalletPasskey,
+    signMessage: (walletId, message) =>
+      signHash(walletId, hashMessage(message), (signature) => recoverMessageAddress({ message, signature })),
+    async signTypedData(walletId, typedData) {
+      const t = typedData as TypedDataDefinition;
+      let hash: `0x${string}`;
+      try {
+        hash = hashTypedData(t);
+      } catch {
+        return { ok: false, failure: 'refused' };
+      }
+      return signHash(walletId, hash, (signature) => recoverTypedDataAddress({ ...t, signature }));
+    },
+    exportKey: unsupported,
+    addRecoveryPasskey: unsupported,
+    sendTransaction: unsupported,
+    read: async () => null,
+  };
+}
+
 /** The client for the provider svc-protocol names; null for a provider this build has no client for. */
-export function embeddedWalletClient(provider: ProtocolEmbeddedWalletProvider | null): EmbeddedWalletClient | null {
+export function embeddedWalletClient(
+  provider: ProtocolEmbeddedWalletProvider | null,
+  wallet: OwnerProviderWallet | null = null,
+): EmbeddedWalletClient | null {
   if (provider?.id === 'test' && provider.test) return testProviderClient();
+  if (provider?.id === 'turnkey' && !provider.test) return ownerProviderClient({ wallet });
   return null;
 }

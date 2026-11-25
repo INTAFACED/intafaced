@@ -13,8 +13,8 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
   const { userId } = useSession();
   const { t } = algoCopy.useCopy();
   return (
-    <div className="more-grid">
-      <QuantRooms active="home" paper={paper} />
+    <div className="lt-stack">
+      <QuantRooms paper={paper} />
       <p className="more-badge">{t('simulated')}</p>
       {userId ? (
         <SignedIn paper={paper} userId={userId} />

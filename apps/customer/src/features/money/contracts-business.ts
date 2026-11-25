@@ -36,12 +36,4 @@ export const teamSchema = z.object({
 export const pendingApprovalsSchema = z.array(pendingApprovalSchema);
 export const myRoleSchema = z.object({ role: memberRoleSchema });
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const businessReads = {} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const businessWrites = {
-  'business.approve': z.object({ transferId: z.string(), ledgerTxId: z.string() }),
-  'business.reject': z.object({ ok: z.literal(true) }),
-  'business.cancel': z.object({ ok: z.literal(true) }),
-} as const;

@@ -27,6 +27,7 @@ import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk, type KycProfileErrorCode } from './kyc/profile.js';
 import { IDENTITY_KYC_PROFILE_PROCEDURES } from '@intafaced/contracts/identity-kyc-profile-procedures';
+import { IDENTITY_KYC_GET_DOCUMENT } from '@intafaced/contracts/identity-kyc-procedures';
 import type { ProcedureSample } from '@intafaced/contracts/procedure';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
@@ -2569,7 +2570,9 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
 describe('kyc.getDocument is compliance-only bytes, never a public/user read', () => {
   it('getDocument is mounted behind admin:compliance', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
-    expect(src).toMatch(/getDocument:\s*scopedProcedure\('admin:compliance'\)/);
+    // Mounted from its record, whose access is the compliance scope alone (mountRecord enforces the record's access).
+    expect(src).toMatch(/getDocument:\s*mountRecord\(\s*IDENTITY_KYC_GET_DOCUMENT,/);
+    expect(IDENTITY_KYC_GET_DOCUMENT.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
     expect(src).toContain('vault.getFor');
     expect(src).not.toMatch(/readDocument|downloadDocument/);
     expect(src).toContain('storeDocument');

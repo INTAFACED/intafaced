@@ -26,7 +26,7 @@ const SCORES = [5, 4, 3, 2, 1] as const;
 /** The most purchases one read returns (svc-market `myPurchases`, which has no cursor). */
 const PURCHASES_READ = 50;
 
-/** `/market/<listingId>`: one listing's own page, with its terms, seller, reviews and performance basis. */
+/** `/market/<listingId>`: one listing's own page, with its terms, seller, reviews, and the seller's track record with its basis. */
 export function MarketListingPage({ listingId }: { listingId: string }) {
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
@@ -152,8 +152,25 @@ function ListingBody({ detail }: { detail: MarketListingDetail }) {
         </section>
         <section aria-labelledby="market-listing-performance">
           <h3 id="market-listing-performance">{t('performance')}</h3>
-          <p>{t('performanceNone')}</p>
-          <p className="lt-hint">{t('performanceBasis')}</p>
+          {detail.performance.reported ? (
+            <>
+              <KeyValue
+                rows={[
+                  { label: t('performanceFills'), value: <span lang="zxx">{detail.performance.fills}</span> },
+                  {
+                    label: t('performanceFirstFill'),
+                    value: detail.performance.firstFillAt ? date(detail.performance.firstFillAt) : t('performanceNoFill'),
+                  },
+                ]}
+              />
+              <p className="lt-hint">{t('performanceBasisFills')}</p>
+            </>
+          ) : (
+            <>
+              <p>{t('performanceNone')}</p>
+              <p className="lt-hint">{t('performanceBasis')}</p>
+            </>
+          )}
         </section>
       </div>
     </Section>

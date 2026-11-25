@@ -1,10 +1,6 @@
 import { TRPCError } from '@trpc/server';
-import {
-  protocolOpsHiddenOutputSchema,
-  protocolOpsReasonCodesOutputSchema,
-  protocolOpsReasonCodesSetInputSchema,
-} from '@intafaced/contracts/protocol-ops';
-import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { protocolOpsHiddenOutputSchema } from '@intafaced/contracts/protocol-ops';
+import { publicProcedure, router } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED, OpsError } from '../codes.js';
 import type { ListingDesk } from './wiring.js';
 import type { ReasonCodesInForce } from './reason-codes.js';
@@ -17,11 +13,10 @@ import {
   OPS_PROTOCOL_LISTING_POOLS_RESTORE,
   OPS_PROTOCOL_LISTING_MARKETS_DELIST,
   OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+  OPS_PROTOCOL_LISTING_REASON_CODES_SET,
 } from '@intafaced/contracts/ops-protocol-listing-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from '../refusal.js';
-
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
 function deskError(err: unknown): never {
   if (err instanceof OpsError) {
@@ -162,17 +157,18 @@ export function createProtocolListingRouter(desk: ListingDesk | undefined) {
         },
         opsRefusal,
       ),
-      set: scopedProcedure('admin:write', guards)
-        .input(protocolOpsReasonCodesSetInputSchema)
-        .output(protocolOpsReasonCodesOutputSchema)
-        .mutation(async ({ ctx, input }) => {
+      set: mountRecord(
+        OPS_PROTOCOL_LISTING_REASON_CODES_SET,
+        async ({ ctx, input }) => {
           try {
             const d = require(desk);
             return reasonCodesOutput(await d.reasonCodes.set(input.codes, ctx.principal.userId), d.now());
           } catch (err) {
             return deskError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
     }),
     /**
      * The public hide list: ids only, no reason and no signer. Without storage it refuses; a reader must never take an

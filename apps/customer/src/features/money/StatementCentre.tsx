@@ -4,7 +4,7 @@ import { Button } from '../../shared/ui';
 import { useSession } from '../session';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { type LineTotal } from './contracts';
-import { LineTotals } from './StatementExtras';
+import { LineTotals } from './LineTotals';
 import { DepthPanel } from './DepthParts';
 import { dayIsOver, endedBy, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
 import { statementCentreCopy } from './statement-centre-copy';
@@ -13,6 +13,7 @@ import { refusedWords } from './statement-refusals';
 import { StatementDocuments } from './StatementDocuments';
 import './bank-depth.css';
 import { BANK_STATEMENTS_EXPORT, BANK_STATEMENTS_JOBS_CREATE } from '@intafaced/contracts/bank-statements-procedures';
+import { DateInput } from '@intafaced/ui/lit';
 
 type Said =
   | { kind: 'done'; name: string; count: number; fingerprint: string; totals: readonly LineTotal[] | null }
@@ -138,17 +139,17 @@ export function StatementCentre() {
         ) : report === 'balances' ? (
           <label className="lt-field">
             <span>{t('asOf')}</span>
-            <input type="date" value={asOf} onChange={(event) => changed(setAsOf)(event.target.value)} />
+            <DateInput type="date" value={asOf} onChange={(event) => changed(setAsOf)(event.target.value)} />
           </label>
         ) : (
           <div className="bd-choice-row">
             <label className="lt-field">
               <span>{t('from')}</span>
-              <input type="date" value={days.from} onChange={(event) => changed(setDays)({ ...days, from: event.target.value })} />
+              <DateInput type="date" value={days.from} onChange={(event) => changed(setDays)({ ...days, from: event.target.value })} />
             </label>
             <label className="lt-field">
               <span>{t('to')}</span>
-              <input type="date" value={days.to} onChange={(event) => changed(setDays)({ ...days, to: event.target.value })} />
+              <DateInput type="date" value={days.to} onChange={(event) => changed(setDays)({ ...days, to: event.target.value })} />
             </label>
           </div>
         )}

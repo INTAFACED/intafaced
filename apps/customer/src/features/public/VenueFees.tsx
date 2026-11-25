@@ -49,22 +49,22 @@ export function TiersTable({ schedule, current, t }: { schedule: VenueFeeTiers; 
         {schedule.tiers.map((tier) => (
           <tr key={tier.name} data-tier={tier.name} aria-current={current === tier.name ? 'true' : undefined}>
             <th scope="row">
-              {tier.name}
+              <span className="lt-nowrap">{tier.name}</span>
               {current === tier.name ? ` (${t('yours')})` : ''}
             </th>
-            <td data-align="end" data-cell="from">
+            <td data-align="end" data-cell="from" data-label={t('colFrom', { asset: schedule.volumeAsset })}>
               {tier.fromVolume}
             </td>
-            <td data-cell="spot-maker">
+            <td data-cell="spot-maker" data-label={t('colSpotMaker')}>
               <RateCell rate={tier.spot.makerFeeBps} t={t} />
             </td>
-            <td data-cell="spot-taker">
+            <td data-cell="spot-taker" data-label={t('colSpotTaker')}>
               <RateCell rate={tier.spot.takerFeeBps} t={t} />
             </td>
-            <td data-cell="perp-maker">
+            <td data-cell="perp-maker" data-label={t('colPerpMaker')}>
               <RateCell rate={tier.perpetual.makerFeeBps} t={t} />
             </td>
-            <td data-cell="perp-taker">
+            <td data-cell="perp-taker" data-label={t('colPerpTaker')}>
               <RateCell rate={tier.perpetual.takerFeeBps} t={t} />
             </td>
           </tr>
@@ -134,13 +134,13 @@ function VenueFeesBody({ fees, t }: { fees: VenuePublicFees['value']; t: T }) {
           {fees.markets.map((m) => (
             <tr key={m.symbol} data-market={m.symbol}>
               <th scope="row">{m.symbol}</th>
-              <td data-cell="venue-maker">
+              <td data-cell="venue-maker" data-label={t('colVenueMaker')}>
                 <RateCell rate={m.makerFeeBps} t={t} />
               </td>
-              <td data-cell="venue-taker">
+              <td data-cell="venue-taker" data-label={t('colVenueTaker')}>
                 <RateCell rate={m.takerFeeBps} t={t} />
               </td>
-              <td data-cell="builder-fee">
+              <td data-cell="builder-fee" data-label={t('colBuilder')}>
                 {m.builderFeeBps.known ? (
                   <>
                     {t('pct', { pct: bpsToPercent(m.builderFeeBps.value) })}
@@ -150,7 +150,7 @@ function VenueFeesBody({ fees, t }: { fees: VenuePublicFees['value']; t: T }) {
                   t('notSet')
                 )}
               </td>
-              <td data-cell="builder-cap">
+              <td data-cell="builder-cap" data-label={t('colCap')}>
                 {m.builderFeeCapBps.known ? t('pct', { pct: bpsToPercent(m.builderFeeCapBps.value) }) : t('notSet')}
               </td>
             </tr>
@@ -252,20 +252,24 @@ function StakingDiscountView({ discount, builder, t }: { discount: Discount; bui
             return (
               <tr key={m.symbol} data-market={m.symbol}>
                 <th scope="row">{m.symbol}</th>
-                <td data-cell="maker-before" data-value={bps(m.before.makerFeeBps)}>
+                <td data-cell="maker-before" data-label={t('colVenueMakerBefore')} data-value={bps(m.before.makerFeeBps)}>
                   <RateCell rate={m.before.makerFeeBps} t={t} />
                 </td>
-                <td data-cell="maker-after" data-value={bps(m.after.makerFeeBps)}>
+                <td data-cell="maker-after" data-label={t('colVenueMakerAfter')} data-value={bps(m.after.makerFeeBps)}>
                   <RateCell rate={m.after.makerFeeBps} t={t} />
                 </td>
-                <td data-cell="taker-before" data-value={bps(m.before.takerFeeBps)}>
+                <td data-cell="taker-before" data-label={t('colVenueTakerBefore')} data-value={bps(m.before.takerFeeBps)}>
                   <RateCell rate={m.before.takerFeeBps} t={t} />
                 </td>
-                <td data-cell="taker-after" data-value={bps(m.after.takerFeeBps)}>
+                <td data-cell="taker-after" data-label={t('colVenueTakerAfter')} data-value={bps(m.after.takerFeeBps)}>
                   <RateCell rate={m.after.takerFeeBps} t={t} />
                 </td>
                 {/* No data-value until our fees answer: "loading" is never read as "not set" (J-cex-spot-21 #4). */}
-                <td data-cell="builder-fee" data-value={builder === null ? undefined : ours?.known ? ours.value : ''}>
+                <td
+                  data-cell="builder-fee"
+                  data-label={t('colBuilder')}
+                  data-value={builder === null ? undefined : ours?.known ? ours.value : ''}
+                >
                   {builder === null
                     ? t('loading')
                     : ours === null

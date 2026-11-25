@@ -21,7 +21,8 @@
     --tb-lime: var(--if-lime);
     --tb-on-lime: var(--if-on-lime);
     --tb-ease: var(--if-ease);
-    min-height: 100dvh;
+    /* the page with the TEST banner is exactly the screen tall, not the screen and the banner */
+    min-height: calc(100dvh - var(--if-banner-offset, 0px));
     background: var(--tb-bg);
     color: var(--tb-fg);
   }

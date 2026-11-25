@@ -20,6 +20,7 @@ import { merchantMetricsSnapshotSchema, metricsFreshnessSchema, payAssetAmountSc
 import { payHaltOperatorStatusSchema } from './pay-halts.js';
 import { merchantStarterFeeSchema } from './merchant-portal.js';
 import { payDestinationDefaultSchema } from './pay-portal-reads.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * FOUNDER ADMIN — wire contract (workstream W0, built by W2/W4).
@@ -206,8 +207,8 @@ export const founderControlAuditEntrySchema = z
     secondActorId: z.string().min(1).max(256).nullable(),
     requestId: payRequestIdSchema.nullable(),
     reason: z.string().min(1).max(4000),
-    before: z.unknown().nullable(),
-    after: z.unknown().nullable(),
+    before: jsonValueSchema.nullable(),
+    after: jsonValueSchema.nullable(),
     createdAt: payTimestampSchema,
   })
   .strict();

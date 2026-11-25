@@ -12,7 +12,8 @@ import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
-import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { readOf } from '@/lib/desk-read';
+import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 import { ACADEMY_HEALTH } from '@intafaced/contracts/academy-health-procedures';
 import { ACADEMY_CURRICULUM_INVENTORY } from '@intafaced/contracts/academy-curriculum-inventory-procedures';
 import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculum-depth-procedures';
@@ -55,9 +56,6 @@ import {
   BANK_OPS_FAILED_TRANSFERS,
   BANK_OPS_TRANSFER_DETAIL,
 } from '@intafaced/contracts/bank-ops-2-procedures';
-
-/** A read whose call has a record: its module and path are the record's, never typed again here. */
-export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -509,7 +507,7 @@ const bankSections: readonly DeskSection[] = [
     id: 'customer-balances',
     title: 'Customer balances',
     intro:
-      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. It needs the treasury permission on your session; a session without it is refused in words. The support view of the same figures waits on the customer consent grant (PF-ops-01) and is not here.',
+      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. The balances need the operator read permission (admin:read) or the treasury permission; the entries behind them need the treasury permission. A session without them is refused in words.',
     reads: [],
     unavailable: [],
     disabledActions: [],
@@ -915,7 +913,8 @@ export const BANK_CUSTOMER_BALANCES: ReadSpec = {
     amount('collateral', 'Collateral'),
   ],
   emptyText: 'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
-  forbiddenText: FORBID_BANK_TREASURY,
+  forbiddenText:
+    'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read or the treasury permission admin:treasury).',
   refusals: CUSTOMER_BALANCE_REFUSALS,
 };
 

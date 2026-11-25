@@ -13,9 +13,15 @@ import {
   IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
   IDENTITY_KYC_CAPABILITIES_GET_FOR,
   IDENTITY_KYC_CAPABILITIES_SET,
+  IDENTITY_KYC_APPROVE,
 } from '@intafaced/contracts/identity-kyc-procedures';
 import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
 import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
+import {
+  IDENTITY_COMPLIANCE_FREEZE_IDENTITY,
+  IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY,
+} from '@intafaced/contracts/identity-compliance-procedures';
+import { PAY_ACCOUNT_CONTROLS_HISTORY, PAY_ACCOUNT_CONTROLS_CHANGE } from '@intafaced/contracts/pay-account-controls-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -120,9 +126,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'KYC approve',
     summary: 'Approve a pending KYC record — grants custodial access at that tier. Requires MFA on the token.',
-    edgeModule: 'identity',
-    procedure: 'kyc.approve',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_KYC_APPROVE),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -246,9 +250,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'Freeze identity',
     summary: 'Freeze a user: status frozen, sessions revoked, sub-accounts revoked.',
-    edgeModule: 'identity',
-    procedure: 'compliance.freezeIdentity',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_COMPLIANCE_FREEZE_IDENTITY),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -259,9 +261,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'identity',
     label: 'Unfreeze identity',
     summary: 'Restore a frozen user to active. Does not re-open revoked sub-accounts.',
-    edgeModule: 'identity',
-    procedure: 'compliance.unfreezeIdentity',
-    kind: 'mutation',
+    ...toolOf(IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY),
     authority: 'module',
     scope: 'admin:compliance',
     consequential: true,
@@ -357,9 +357,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Merchant status history',
     summary: 'Why a merchant is suspended / closed — newest first.',
-    edgeModule: 'pay',
-    procedure: 'merchantState.history',
-    kind: 'query',
+    ...toolOf(PAY_ACCOUNT_CONTROLS_HISTORY),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -373,9 +371,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Set merchant status',
     summary: 'Suspend, reinstate, close, or set pending — with a recorded reason. Actor is the token subject.',
-    edgeModule: 'pay',
-    procedure: 'merchantState.set',
-    kind: 'mutation',
+    ...toolOf(PAY_ACCOUNT_CONTROLS_CHANGE),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,

@@ -6,7 +6,7 @@
  * the other test files in tooling/scripts/ ran only when someone remembered `pnpm local:stack:test`, so a change to the stack
  * script could land with its own tests red. This runs every `*.test.mjs` it finds under tooling/ (not in node_modules,
  * and not pay-sim's vitest files, which turbo runs), so a new test file is covered the day it lands, with no list to forget
- * to update. The one file that needs a build first runs in CI's build job instead (NEEDS_BUILD).
+ * to update. The files that need a build first run in CI's build job instead (NEEDS_BUILD).
  *
  * It is a gate in tooling/ci/gates.mjs (`tooling-tests`), so `pnpm verify` runs what CI runs. A tree with no test
  * files refuses by name instead of reporting zero failures over nothing (tooling/ci/empty-denominator-gate.mjs).
@@ -23,9 +23,18 @@ const ROOT = process.cwd();
 const DIR = join(ROOT, 'tooling');
 // gate-tools.test.mjs only imports two of the files below; running it too would run those twice.
 const ENTRY_ONLY = new Set(['tooling/scripts/gate-tools.test.mjs']);
-// It reads packages/contracts/dist and skips itself without it, so here it would only ever skip: CI's build job runs it
-// after the build (.github/workflows/ci.yml, "Tooling tests that need the build").
-export const NEEDS_BUILD = ['tooling/preview/outreach/fixture.test.mjs'];
+/**
+ * The files that read a build, each with the one output that proves everything it reads was built: CI's build job runs a
+ * file when its output is there (.github/workflows/ci.yml, "Tooling tests that need the build"), and on a build of the
+ * whole repo fails when one is missing. The fixture reads packages/contracts/dist. deep-entries reads the Customer
+ * app's modules, which import built packages (contracts and i18n today): the app's own build builds every one (turbo's
+ * ^build), and every change that can move its list builds the app (tooling-tests.test.mjs). Waiting on contracts alone
+ * failed every service-only pull request, whose build had contracts but not i18n (#10764, 24 Nov 2026).
+ */
+export const NEEDS_BUILD = {
+  'tooling/preview/outreach/fixture.test.mjs': 'packages/contracts/dist/index.js',
+  'tooling/lint/deep-entries.test.mjs': 'apps/customer/dist/index.html',
+};
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo']);
 // The whole run's limit, and each file's: a file that leaves a server running is stopped and named, not left to hold the
 // gates job until its 10-minute limit. The run took about 4 of its 5 minutes one file at a time by 22 Nov (#9648 and
@@ -57,7 +66,7 @@ export function testFiles(dir = DIR) {
     }
   };
   if (existsSync(dir)) walk(dir);
-  const elsewhere = new Set([...ENTRY_ONLY, ...NEEDS_BUILD]);
+  const elsewhere = new Set([...ENTRY_ONLY, ...Object.keys(NEEDS_BUILD)]);
   return found.filter((f) => !elsewhere.has(f)).sort();
 }
 

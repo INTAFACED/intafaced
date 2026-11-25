@@ -102,7 +102,7 @@ export function LeaderPage({ leaderRef, onFollow }: { leaderRef: string; onFollo
   if (profile.status === 'error' && profile.failure) {
     return (
       <Page width="full" className="cb-page" landmark={false}>
-        <ModeNav active="copy" />
+        <ModeNav />
         <PageHeader title={t('Leader')} actions={back} />
         <RefusalNote failure={profile.failure} retry={profile.reload} />
       </Page>
@@ -111,7 +111,7 @@ export function LeaderPage({ leaderRef, onFollow }: { leaderRef: string; onFollo
 
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="copy" />
+      <ModeNav />
       <PageHeader
         title={leader?.displayName ?? t('Leader')}
         description={t('What the platform published about this leader, and the leader’s own trades.')}

@@ -2,7 +2,8 @@
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 import { linkedAccountSchema } from './contracts-accounts';
-import { BANK_TRANSFERS_LIST_SCHEDULES, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { BANK_CALENDAR_WINDOW } from '@intafaced/contracts/bank-calendar-procedures';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -87,35 +88,10 @@ const directDebitsViewSchema = z.object({
 });
 export type DirectDebitsView = z.infer<typeof directDebitsViewSchema>;
 /** svc-bank `bank.calendar.window` (J-bank-06 #5, BK-acct-10): what is dated in a window, and how each source answered. */
-export const calendarSources = ['standing_orders', 'bills', 'direct_debits', 'loans', 'earn'] as const;
-export type CalendarSource = (typeof calendarSources)[number];
-const calendarItemSchema = z.object({
-  source: z.enum(calendarSources),
-  refId: z.string(),
-  key: z.string(),
-  date: z.string(),
-  label: z.string().nullable(),
-  assetId: z.string(),
-  amount: money.nullable(),
-  status: z.enum(['upcoming', 'paused', 'done', 'failed', 'skipped', 'refused']),
-  reasonCode: z.string().nullable(),
-});
-export type CalendarItem = z.infer<typeof calendarItemSchema>;
-const calendarViewSchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  items: z.array(calendarItemSchema),
-  sources: z.array(
-    z.object({
-      source: z.enum(calendarSources),
-      state: z.enum(['ok', 'not_set', 'refused', 'unavailable']),
-      count: z.number().int(),
-      code: z.string().nullable(),
-      complete: z.boolean(),
-    }),
-  ),
-});
-export type CalendarView = z.infer<typeof calendarViewSchema>;
+export { CALENDAR_SOURCES as calendarSources } from '@intafaced/contracts/bank-calendar-procedures';
+export type CalendarView = ProcedureOutput<typeof BANK_CALENDAR_WINDOW>;
+export type CalendarItem = CalendarView['items'][number];
+export type CalendarSource = CalendarItem['source'];
 /** svc-bank `bank.rules.*` (J-bank-06 #6, BK-acct-10): the payment reminder rule, and money rules waiting on the owner. */
 export const reminderLeadChoices = [24, 48, 72, 168] as const;
 const reminderRuleSchema = z.object({
@@ -250,32 +226,3 @@ export const railPayeeCheckSchema = z.object({
   rail: z.enum(BANK_RAILS),
   recipient: z.string(),
 });
-
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const paymentsReads = {
-  'calendar.window': calendarViewSchema,
-  // Read by name through Activity's source table; its schema is the record's own, so it cannot drift from the bank's.
-  'transfers.listSchedules': BANK_TRANSFERS_LIST_SCHEDULES.output,
-} as const;
-
-/** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const paymentsWrites = {
-  // A move into a space: the ledger's transaction, or, where the partner bank holds both sides (OWNER 226), the partner's
-  // one move and no ledger transaction. Exactly one book made it; a reply naming neither, or both, is never a confirmation.
-  'transfers.create': z
-    .object({
-      ledgerTxId: z.string().min(1).nullable(),
-      amount: money,
-      partnerMove: z
-        .object({ id: z.string().min(1), label: z.string().min(1), movedAt: z.string() })
-        .nullable()
-        .optional(),
-    })
-    .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null)),
-  // The ActionSpec dispatch table names this write; its reply schema is the record's own (the send itself goes through
-  // the money client's transfer, which checks the reply against the review).
-  'transfers.toUser': BANK_TRANSFERS_TO_USER.output,
-  'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
-  'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),
-  'transfers.resume': z.object({ status: z.string(), nextRunAt: z.string(), skipped: z.array(z.number().int()) }),
-} as const;

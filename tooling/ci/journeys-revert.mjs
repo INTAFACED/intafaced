@@ -14,7 +14,7 @@
  *            its job ends and, on a step that passed in the run before and failed outright in that shard, starts the same
  *            revert jobs at once, before the other shards and the whole run end (plant 1, project-state #2065: its failing
  *            shard ended 7 minutes before its run). `trigger` at the run's end starts nothing a run already started.
- *   confirm  After a revert this opened merges (journeys-back.yml, on the push): starts main-bisect.yml's `confirm` job,
+ *   confirm  After a revert this opened merges (main-trust.yml `back`, after PR checks on the push): starts main-bisect.yml's `confirm` job,
  *            which runs the failing journeys alone on main's head in their own group, so the break shows as back in one
  *            journey's time instead of behind main's queue and a full run. Main's full run still runs to its end. A
  *            main journeys run still going on a commit that holds the culprit and not the revert is cancelled, so the
@@ -227,9 +227,9 @@ export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, 
       ? [`- Control: \`${control.slice(0, 10)}\`, the last commit where these steps passed, passes again on the same kind of runner`]
       : []),
     '',
-    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other. To keep the change instead, fix it forward and close this.`,
+    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other and merges by itself. Don't close it to keep the change: main is green again only once it merges, and the change comes back in a new pull request with its fix.`,
     '',
-    `Revert: close this pull request; the culprit stays on \`${base}\`.`,
+    `Revert: once merged, the change returns in a new pull request with its fix (or \`git revert\` of this one).`,
   ].join('\n');
 }
 
@@ -881,7 +881,7 @@ async function openRevert(env, revoke) {
       armed = q.json?.errors?.length ? `not armed: ${String(q.json.errors[0].message).slice(0, 200)}` : 'armed (squash)';
     }
     await comment(
-      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. Let it merge; to keep this change, open it again in a new pull request with its fix.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
     );
     summary([
       `### Journeys revert`,

@@ -50,6 +50,11 @@ import { chainIsMainnet, loadNetworkRegistry, networksRegistryPathFromSetting } 
 
 /** The recording's index: who may call each procedure, and the shard files below it. */
 const INDEX = new URL('./wire-replay.golden.json', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
 /** One recorded shard in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
@@ -152,6 +157,7 @@ export function createReplayProtocolRouter() {
     swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
     swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,
     swapFeeCapWei: () => env.PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI,
+    swapPaymasterAddress: () => (isZeroAddress(env.PROTOCOL_SWAP_PAYMASTER_ADDRESS) ? null : env.PROTOCOL_SWAP_PAYMASTER_ADDRESS),
     feeRelay: () =>
       !isZeroAddress(env.PROTOCOL_FEE_RELAY_ADDRESS) && env.PROTOCOL_FEE_RELAY_URL && env.PROTOCOL_FEE_RELAY_GAS_LIMIT !== null
         ? {
@@ -431,12 +437,12 @@ async function writeGolden(g: Golden) {
 }
 
 function readGolden(): Golden {
-  const index = JSON.parse(readFileSync(INDEX, 'utf8')) as { callers: unknown; shards: string[] };
+  const index = JSON.parse(readFileSync(INDEX, 'utf8').replaceAll(RECORDED_STACK, '')) as { callers: unknown; shards: string[] };
   const g: Golden = { callers: index.callers, inputs: {}, answers: {} };
   // A shard the index does not name is a leftover, and fails like a missing one.
   expect(readdirSync(GOLDEN).sort()).toEqual(index.shards.map((s) => `${s}.json`).sort());
   for (const shardName of index.shards) {
-    const shard = JSON.parse(readFileSync(goldenJson(shardName), 'utf8')) as {
+    const shard = JSON.parse(readFileSync(goldenJson(shardName), 'utf8').replaceAll(RECORDED_STACK, '')) as {
       inputs: Record<string, Samples>;
       bodies: string[];
       answers: Record<string, Record<string, [number, number]>>;

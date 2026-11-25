@@ -39,6 +39,8 @@ const en = {
   show: 'Show passes',
   allPasses: 'All passes',
   lossPasses: 'Loss-making passes',
+  bestParameters: 'Best parameters',
+  bestRow: 'fast average {fast} bars, slow average {slow} bars',
   pass: 'Pass',
   profit: 'Profit',
   profitFactor: 'Profit factor',

@@ -103,22 +103,24 @@
 <h1 class="lt-title">Person-to-person</h1>
 </div>
 </header>
-<div class="lt-body">
-<section class="lt-region" data-region="rooms">
-<nav class="lt-tabs" aria-label="P2P rooms">
+<div class="lt-room-section">
+<div data-testid="p2p-rooms">
+<nav class="lt-tabs" aria-label="P2P rooms" data-region="section-tabs">
 <a href="/p2p" class="lt-tab" aria-current="page">Offers</a>
 <a href="/uc/order" class="lt-tab">Your orders</a>
 <a href="/uc/ad" class="lt-tab">Your offers</a>
 <a href="/p2p/methods" class="lt-tab">Payment methods</a>
 <a href="/p2p/access" class="lt-tab">Trading access</a>
 </nav>
-</section>
+</div>
+</div>
+<div class="lt-body">
 <div class="lt-grid lt-grid-main-side">
 <div class="lt-col-main">
 <section class="lt-region" data-region="sections" aria-label="Activity">
 <section data-testid="pay-section">
 <h2>Before you trade</h2>
-<p class="lt-hint">Each requirement for taking an ad, as the service checks it right now.</p>
+<p class="lt-hint">What you need before placing a P2P order.</p>
 <div aria-label="Before you trade" role="region" data-testid="p2p-eligibility">
 <div lang="und">
 <div class="lt-refusal" data-refusal="refused" role="status">
@@ -147,10 +149,15 @@
 <button type="button" aria-pressed="false">I want to buy</button>
 <button type="button" aria-pressed="false">I want to sell</button>
 </div>
-<details>
+<details class="lit-fold">
 <summary>
+<span data-part="title">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.filters">Filters</span>
+</span>
+<span data-part="mark" aria-hidden="true">
+</span>
 </summary>
+<div data-part="body">
 <form data-testid="pay-filters">
 <div class="lit-field-control">
 <label for="_r_3_">Asset</label>
@@ -196,6 +203,7 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
+</div>
 </details>
 <div lang="und">
 <div class="lt-refusal" data-refusal="refused" role="status">
@@ -212,10 +220,15 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.refreshMarket">Refresh offers</span>
 </button>
-<details>
+<details class="lit-fold">
 <summary>
+<span data-part="title">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.known">Open a specific offer</span>
+</span>
+<span data-part="mark" aria-hidden="true">
+</span>
 </summary>
+<div data-part="body">
 <form class="lt-stack">
 <div class="lit-field-control">
 <label for="_r_5_">Offer ID</label>
@@ -225,6 +238,7 @@
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.inspect">Inspect current offer</span>
 </button>
 </form>
+</div>
 </details>
 </section>
 </div>

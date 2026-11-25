@@ -1,9 +1,9 @@
 import { ACADEMY_PROGRAMMES_LIST_MAX, type AcademyProgramme } from '@intafaced/contracts/academy-programmes';
-import { Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyProgrammeHref, academyVerifyHref, formatDay } from './academy-lms';
-import { AcademyRefusal } from './AcademyLmsParts';
+import { AcademyRefusal } from './academy-refusal';
+import { Waiting } from './volt-parts';
 import { useProgrammes } from './AcademyProgrammesList';
 
 /**
@@ -40,7 +40,7 @@ export function ProgrammeCertificates() {
   const any = useProgrammes(1);
   const mine = useProgrammes(MINE_PAGE, true);
   for (const read of [any, mine]) {
-    if (read.resource.status === 'loading') return <Loading />;
+    if (read.resource.status === 'loading') return <Waiting />;
     if (read.resource.status === 'failed') return <AcademyRefusal failure={read.resource.failure} retry={read.reload} />;
   }
   if (any.resource.status !== 'ready' || mine.resource.status !== 'ready') return null;
@@ -58,12 +58,12 @@ export function ProgrammeCertificates() {
       </p>
     );
   return (
-    <div className="academy-lms-grid">
+    <div className="lt-stack">
       {started.map((programme) => {
         const cert = programme.certificate;
         const state = cert.state === 'earned' ? (cert.status === 'revoked' ? 'revoked' : 'earned') : 'in_progress';
         return (
-          <article key={programme.slug} className="academy-lms-card" data-certificate={cert.certId} data-state={state}>
+          <article key={programme.slug} className="lt-stack" data-certificate={cert.certId} data-state={state}>
             <h4 lang="und">{programme.title}</h4>
             <Counts programme={programme} />
             {cert.state === 'earned' ? (
@@ -78,7 +78,7 @@ export function ProgrammeCertificates() {
                 <p data-testid="programme-certificate-serial">
                   {t('sheetSerial')} <code lang="zxx">{cert.publicId}</code>
                 </p>
-                <a className="academy-learning-link" href={academyVerifyHref(cert.publicId)}>
+                <a className="lt-link lt-link-alone" href={academyVerifyHref(cert.publicId)}>
                   <Copy k="programmeCertCheck" />
                 </a>
               </>
@@ -87,7 +87,7 @@ export function ProgrammeCertificates() {
                 <Copy k="programmeCertPending" params={{ count: programme.courses.length }} />
               </p>
             )}
-            <a className="academy-learning-link" href={academyProgrammeHref(programme.slug)}>
+            <a className="lt-link lt-link-alone" href={academyProgrammeHref(programme.slug)}>
               <Copy k="programmeOpen" />
             </a>
           </article>

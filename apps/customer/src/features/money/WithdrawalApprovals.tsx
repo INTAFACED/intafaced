@@ -93,7 +93,7 @@ function List({ current }: { current: () => boolean }) {
   return (
     <Section
       title={t('yours')}
-      description={t('window', { limit })}
+      description={t('window')}
       actions={
         <Button
           tone="secondary"
@@ -151,9 +151,11 @@ function List({ current }: { current: () => boolean }) {
               <EmptyState title={t('empty')} body={t('emptyNote')} />
             )}
             <div role="status">
-              <p>
-                {t('returned', { count: requests.length, limit })} {requests.length >= limit ? t('more') : ''}
-              </p>
+              {requests.length >= limit && (
+                <p>
+                  {t('returned', { count: requests.length })} {t('more')}
+                </p>
+              )}
               {requests.length >= limit && limit < 200 && (
                 <Button
                   tone="secondary"
@@ -322,7 +324,6 @@ export function WithdrawalApprovals({ context, search }: { context: ApprovalRead
       title={t('title')}
       description={t('description')}
       state={{ kind: 'ready' }}
-      summary={<p className="lt-hint">{t('money')}</p>}
       list={
         <>
           {!requested.ok ? (

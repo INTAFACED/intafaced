@@ -50,9 +50,7 @@ import { useBankView } from './bank-context';
 import { CardsRoom } from './cards-room/CardsRoom';
 import { BankOverview } from './bank-overview/BankOverviewRoom';
 import { SpacesRoom } from './spaces/SpacesRoom';
-import { AddMoney } from './AddMoney';
-import { WalletProvider } from '../protocol';
-import { addMoneyCopy } from './add-money-copy';
+import { AddMoneyRoom } from './add-money/AddMoneyRoom';
 import { LinkedAccountsRoom } from './linked-accounts/LinkedAccountsRoom';
 import { DirectDebitsRoom } from './direct-debits/DirectDebitsRoom';
 import { directDebitsCopy } from './direct-debits-copy';
@@ -87,27 +85,24 @@ import { SalaryRoom } from './Salary';
 import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
-import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
+import { bankLabels } from './bank-frame/bank-rooms';
+import { BankTabs } from './bank-frame/BankFrame';
 import {
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_TO_USER,
+  BANK_TRANSFERS_RESUME,
+  BANK_TRANSFERS_PAUSE,
 } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
 import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
-import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
+import {
+  BANK_TRANSFERS_CREATE,
+  BANK_TRANSFERS_SCHEDULE,
+  BANK_TRANSFERS_SCHEDULE_TO_USER,
+  BANK_TRANSFERS_UPDATE_SCHEDULE,
+} from '@intafaced/contracts/bank-transfers-2-procedures';
 
-export function BankNavigation({ current }: { current: string }) {
-  return (
-    <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
-      {bankRooms.map((room) => (
-        <a key={room} href={bankRoomHref(room)} aria-current={current === room ? 'page' : undefined}>
-          <Text k={bankLabels[room]} />
-        </a>
-      ))}
-    </nav>
-  );
-}
 function BankPage({
   room,
   title,
@@ -132,7 +127,7 @@ function BankPage({
         ) : undefined
       }
     >
-      <BankNavigation current={room} />
+      <BankTabs where={false} />
       {children}
     </Page>
   );
@@ -259,7 +254,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
-                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
+                record: row.status === 'paused' ? BANK_TRANSFERS_RESUME : BANK_TRANSFERS_PAUSE,
                 facts: [
                   [copyText('rooms.schedule'), row.id],
                   [copyText('rooms.amount'), amount(row.amount, row.assetId)],
@@ -390,8 +385,8 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                         <h3 lang="und" dir="auto">
                           {row.cadence} · {row.status}
                         </h3>
-                        <p className="money-standing-row-reference">
-                          <span className="money-visually-hidden">
+                        <p className="lt-wrap">
+                          <span className="lt-sr">
                             <Copy k="reference" />
                           </span>
                           <bdi lang="zxx" dir="ltr">
@@ -483,9 +478,11 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
-      <DirectDebitsLink />
-      <CalendarLink />
-      <RulesLink />
+      <div className="lt-stack money-transfer-links">
+        <DirectDebitsLink />
+        <CalendarLink />
+        <RulesLink />
+      </div>
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {
@@ -590,9 +587,9 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ...(scheduled
                           ? destination === 'space'
                             ? { record: BANK_TRANSFERS_SCHEDULE }
-                            : { procedure: 'transfers.scheduleToUser' as const }
+                            : { record: BANK_TRANSFERS_SCHEDULE_TO_USER }
                           : destination === 'space'
-                            ? { procedure: 'transfers.create' as const }
+                            ? { record: BANK_TRANSFERS_CREATE }
                             : { record: BANK_TRANSFERS_TO_USER }),
                         initial: { fromSpaceId: from.id },
                         fields: [
@@ -692,18 +689,6 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
       </Section>
       <BankRailSend />
       <Schedules open={open} />
-    </BankPage>
-  );
-}
-/** `/bank/ramps/new`: add money, inside the Ramps room. */
-function AddMoneyRoom() {
-  const { t } = addMoneyCopy.useCopy();
-  return (
-    <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      {/* The browser wallet's connection, so a purchase can be delivered straight to it (J-dex-protocol-05 #4). */}
-      <WalletProvider>
-        <AddMoney />
-      </WalletProvider>
     </BankPage>
   );
 }

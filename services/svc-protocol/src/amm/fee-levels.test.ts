@@ -66,7 +66,11 @@ describe('feeLevels', () => {
 const edge = createEdgeContext({ secret: 'a-protocol-fee-test-edge-secret-length', serviceName: 'svc-protocol' });
 const anonymous = () => edge({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-fees' });
 
-function caller(overrides: Partial<ProtocolRouterDeps>, onRead: () => void = () => undefined) {
+function caller(
+  overrides: Partial<ProtocolRouterDeps>,
+  onRead: () => void = () => undefined,
+  paymasterFunded: (address: string) => Promise<boolean> = async () => false,
+) {
   const deps = {
     chain: {
       config: { chainId: 84532 },
@@ -74,6 +78,7 @@ function caller(overrides: Partial<ProtocolRouterDeps>, onRead: () => void = () 
         onRead();
         return QUOTE;
       },
+      paymasterFunded,
     },
     registry: {},
     relay: {},
@@ -93,6 +98,32 @@ describe('protocol.amm.feeLevels', () => {
     }).amm.feeLevels();
     expect(fees.levels.normal.overCap).toBe(false);
     expect(fees.blocks).toBe(20);
+    expect(fees.sponsored).toBe(false);
+  });
+
+  it('reports sponsored only when a configured paymaster is funded on chain', async () => {
+    const paymaster = '0x000000000000000000000000000000000000cafe';
+    const funded = await caller(
+      {
+        swapFeeCapWei: () => 100_000_000_000n,
+        gasPercentiles: () => ({ percentiles: [10, 50, 90], blocks: 20 }),
+        swapPaymasterAddress: () => paymaster,
+      },
+      undefined,
+      async (addr) => addr.toLowerCase() === paymaster,
+    ).amm.feeLevels();
+    expect(funded.sponsored).toBe(true);
+
+    const empty = await caller(
+      {
+        swapFeeCapWei: () => 100_000_000_000n,
+        gasPercentiles: () => ({ percentiles: [10, 50, 90], blocks: 20 }),
+        swapPaymasterAddress: () => paymaster,
+      },
+      undefined,
+      async () => false,
+    ).amm.feeLevels();
+    expect(empty.sponsored).toBe(false);
   });
 
   it.each<[string, Partial<ProtocolRouterDeps>, string]>([

@@ -60,7 +60,7 @@ function MarketStar({ asset, favorite }: { asset: string; favorite: FavoriteCont
 }
 
 /** Where the row goes: the caller's own target, else the Buy card (Simple) or the desk (Pro). */
-function useTarget(market: MarketData, cells: MarketCells): string {
+function useTarget(market: MarketData, cells: MarketCells): string | null {
   const signedIn = Boolean(useSession().session);
   return cells.hrefFor ? cells.hrefFor(market, cells.mode) : marketTarget(market, cells.mode, isHiddenPath, signedIn);
 }
@@ -86,7 +86,7 @@ function NameCell({ entry, cells }: { entry: Entry; cells: MarketCells }) {
   return (
     <span className="lt-actions">
       {favorite ? <MarketStar asset={market.base} favorite={favorite} /> : null}
-      <a className="lt-row-link" data-row-link="" href={useTarget(market, cells)}>
+      <Link href={useTarget(market, cells)}>
         <AssetIcon asset={market.base} />
         <span data-testid="mkt-name__ticker">
           {market.base}
@@ -99,8 +99,18 @@ function NameCell({ entry, cells }: { entry: Entry; cells: MarketCells }) {
             {name}
           </span>
         ) : null}
-      </a>
+      </Link>
     </span>
+  );
+}
+
+/** The row's name as its link, or as plain words when it has nowhere shown to go (the beta draws a hidden room's link as nothing). */
+function Link({ href, children }: { href: string | null; children: ReactNode }) {
+  if (href === null) return <span className="lt-row-link">{children}</span>;
+  return (
+    <a className="lt-row-link" data-row-link="" href={href}>
+      {children}
+    </a>
   );
 }
 
@@ -166,15 +176,19 @@ function ActionCell({ market, cells }: { market: MarketData; cells: MarketCells 
   const showDetails = Boolean(session) && !isHiddenPath(coinPath);
   return (
     <span className="lt-actions">
-      <a
-        className="lt-button lt-button-secondary"
-        href={target}
-        aria-label={
-          cells.mode === 'simple' ? t('Buy {asset}', { asset: market.base }) : t('Trade {pair}', { pair: `${market.base}/${market.quote}` })
-        }
-      >
-        {cells.mode === 'simple' ? t('Buy') : t('Trade')}
-      </a>
+      {target === null ? null : (
+        <a
+          className="lt-button lt-button-secondary"
+          href={target}
+          aria-label={
+            cells.mode === 'simple'
+              ? t('Buy {asset}', { asset: market.base })
+              : t('Trade {pair}', { pair: `${market.base}/${market.quote}` })
+          }
+        >
+          {cells.mode === 'simple' ? t('Buy') : t('Trade')}
+        </a>
+      )}
       {showDetails ? (
         <a className="lt-link" href={coinPath} aria-label={t('Details for {asset}', { asset: market.base })}>
           {t('Details')}

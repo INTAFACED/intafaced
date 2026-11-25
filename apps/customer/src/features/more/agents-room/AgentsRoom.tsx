@@ -1,6 +1,7 @@
 // volt-room: /agents
 import { useState } from 'react';
 import { CatalogueTemplate } from '@intafaced/ui/lit/templates';
+import { agentConnectCopy } from '../agent-connect-copy';
 import { t as copyText } from '../copy';
 import { AgentSectionTabs, AgentsSections, type AgentTab } from '../Agents';
 
@@ -15,6 +16,11 @@ export function AgentsRoom({ paper = false }: { paper?: boolean }) {
     <CatalogueTemplate
       title={copyText('moreroutes.agents')}
       description={copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity')}
+      roomAction={
+        <a className="lt-button lt-button-secondary" href="/agents/connect">
+          <agentConnectCopy.Copy k="title" />
+        </a>
+      }
       state={{ kind: 'ready' }}
       filters={<AgentSectionTabs tab={tab} onTab={setTab} />}
       items={<AgentsSections paper={paper} tab={tab} onTab={setTab} />}

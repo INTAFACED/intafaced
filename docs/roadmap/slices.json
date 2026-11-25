@@ -7898,7 +7898,7 @@
     "outside": "`vendor.kyc` (named: identity verification) where the level needs it",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 0
   },
   {
     "id": "D-account-08",

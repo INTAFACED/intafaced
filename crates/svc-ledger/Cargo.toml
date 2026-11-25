@@ -24,6 +24,8 @@ url = "2"
 [dev-dependencies]
 # svc-agents' own ledger client (`metering::ports::LedgerHttp`), held to this door in `tests/agents_ledger_http_pg.rs`.
 svc-agents = { path = "../svc-agents" }
+# svc-bank's own ledger client (`spaces::ports::LedgerHttp`), held to this door in `tests/bank_ledger_http_pg.rs`.
+svc-bank = { path = "../svc-bank" }
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 hmac = "0.12"
 

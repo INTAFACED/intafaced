@@ -4,7 +4,7 @@ import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { cashOutCopy } from './cash-out-copy';
-import { date, funds, useBankRead, useBankRecord } from './components';
+import { date, funds, useBankRecord } from './components';
 import { type CashOutQuote, type CashOutReceipt, type CashOutRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import { WithdrawStepUp } from './WithdrawStepUp';
@@ -16,6 +16,9 @@ import {
   BANK_CASH_OUT_START,
 } from '@intafaced/contracts/bank-cash-out-procedures';
 import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
+import { RefusalCode } from '../../shared/RefusalCode';
+import { shownCode } from '../../shared/reference';
+import { BANK_CURRENCIES_LIST } from '@intafaced/contracts/bank-currencies-procedures';
 
 /**
  * Cash out to a linked bank account (J-bank-03): the amount, one of the person's linked accounts, and what the bank
@@ -51,7 +54,7 @@ export function BlockerWords({ code, rail, coolingOffEndsAt }: { code: string; r
   return (
     <>
       {t(key, { rail, time: coolingOffEndsAt ? date(coolingOffEndsAt) : '' })}{' '}
-      <small className="lt-muted">{t('reference', { code })}</small>
+      <RefusalCode className="lt-muted" code={code} line={(code) => t('reference', { code })} />
     </>
   );
 }
@@ -95,7 +98,7 @@ function QuoteFailure({ failure, retry }: { failure: Refusal; retry: () => void 
   if (failure.code === 'bank.cash_out_over_available') {
     return (
       <p data-testid="failure" className="lt-refusal" role="alert">
-        {t('overAvailable')} <small className="lt-muted">{t('reference', { code: failure.code })}</small>
+        {t('overAvailable')} <RefusalCode className="lt-muted" code={failure.code} line={(code) => t('reference', { code })} />
       </p>
     );
   }
@@ -170,7 +173,7 @@ function ReceiptPanel({ requestId, load }: { requestId: string; load?: LoadRecei
       ) : null}
       {receipt && receipt !== 'loading' && !receipt.ok ? (
         <p data-testid="failure" className="lt-refusal" role="alert">
-          {t('receiptFailed')} <small className="lt-muted">{t('reference', { code: receipt.code ?? '' })}</small>
+          {t('receiptFailed')} <RefusalCode className="lt-muted" code={receipt.code ?? ''} line={(code) => t('reference', { code })} />
         </p>
       ) : null}
     </div>
@@ -194,7 +197,8 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
     return (
       <>
         <small className="lt-muted">
-          {row.rail} · {t('reference', { code: row.refusalCode ?? '' })}
+          {row.rail}
+          {shownCode(row.refusalCode) ? ` · ${t('reference', { code: row.refusalCode! })}` : ''}
         </small>
         <small className="lt-muted" data-testid="cash-out-no-receipt">
           {t('noReceipt_refused')}
@@ -240,7 +244,7 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
         <>
           <span data-testid="cash-out-why">
             {t(FAIL_KEYS[row.failureCode ?? ''] ?? 'fail_other')} {backWords(row, amount, t)}{' '}
-            <small className="lt-muted">{t('reference', { code: row.failureCode ?? '' })}</small>
+            <RefusalCode className="lt-muted" code={row.failureCode ?? ''} line={(code) => t('reference', { code })} />
           </span>
           <small className="lt-muted" data-testid="cash-out-no-receipt">
             {t('noReceipt_failed')}
@@ -251,7 +255,7 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
         <>
           <span data-testid="cash-out-why">
             {t(CANCEL_KEYS[row.failureCode ?? ''] ?? 'cancel_other')} {backWords(row, amount, t)}{' '}
-            <small className="lt-muted">{t('reference', { code: row.failureCode ?? '' })}</small>
+            <RefusalCode className="lt-muted" code={row.failureCode ?? ''} line={(code) => t('reference', { code })} />
           </span>
           <small className="lt-muted" data-testid="cash-out-no-receipt">
             {t('noReceipt_cancelled')}
@@ -271,7 +275,7 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
                 kept: funds(row.remainsPaidOut ?? '', row.assetId),
                 label: at ?? '',
               })}{' '}
-          <small className="lt-muted">{t('reference', { code: row.failureCode ?? '' })}</small>
+          <RefusalCode className="lt-muted" code={row.failureCode ?? ''} line={(code) => t('reference', { code })} />
         </span>
       )}
       {(row.status === 'completed' || row.status === 'returned') && <ReceiptPanel requestId={row.requestId} load={load} />}
@@ -327,7 +331,7 @@ function Requests() {
 export function CashOut() {
   const { t } = cashOutCopy.useCopy();
   const { api, profiles } = useSession();
-  const currencies = useBankRead('currencies.list', { profile: profiles.active });
+  const currencies = useBankRecord(BANK_CURRENCIES_LIST, { profile: profiles.active });
   const linked = useBankRecord(BANK_LINKED_ACCOUNTS_LIST, undefined);
   const assets = currencies.resource.status === 'ready' ? currencies.resource.data.currencies.map((c) => c.assetId) : [];
   const accounts = linked.resource.status === 'ready' ? linked.resource.data.accounts : [];
@@ -373,7 +377,7 @@ export function CashOut() {
           <div className="lt-stack">
             <p className="lt-muted">{t('noAccounts')}</p>
             <div className="lt-actions">
-              <a className="lt-button" href="/bank/ramps/accounts">
+              <a className="lt-button lt-button-primary" href="/bank/ramps/accounts">
                 {t('linkOne')}
               </a>
             </div>

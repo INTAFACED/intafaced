@@ -9,6 +9,8 @@ import { FailureNote, Waiting } from '../more';
 import { useLocation } from '../../app/location';
 import { useSession } from '../session';
 import { invitationCopy as copy } from './invitation-copy';
+import { inviteTimeText } from './invite-time';
+import { usePreferences } from '../../shared/preferences';
 import { ReferrerChange } from './ReferrerChange';
 import { useShareVisit } from './share-visit';
 import {
@@ -410,7 +412,7 @@ export function Invitation() {
       {!parsed.success && !tag && (
         <section data-testid="invitation__card" className="lt-stack">
           <h2>{t(capability ? 'invalid' : 'missing')}</h2>
-          <p className="lt-hint">{t(capability ? 'invalidBody' : 'missingBody')}</p>
+          <p className="lt-hint">{t(capability ? 'invalidBody' : userId ? 'missingSignedInBody' : 'missingBody')}</p>
           <a data-testid="invitation__primary" className="lt-button lt-button-primary" href="/uc/promotion">
             {t('account')} <span className="lt-arrow lt-arrow-out" aria-hidden="true" />
           </a>
@@ -629,12 +631,12 @@ export function Invitation() {
 function AttachWindowNote() {
   const { api } = useSession();
   const { t, requestedLocale } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const { resource, reload } = useResource(
     (signal) => api.call(IDENTITY_AFFILIATES_ATTACH_WINDOW, undefined, { signal }),
     'referral-attach-window',
   );
-  const when = (value: string) =>
-    `${new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value))} UTC`;
+  const when = (value: string) => inviteTimeText(value, requestedLocale, timeZone);
   return (
     <div className="lt-stack" aria-label={t('windowTitle')}>
       <h3>{t('windowTitle')}</h3>

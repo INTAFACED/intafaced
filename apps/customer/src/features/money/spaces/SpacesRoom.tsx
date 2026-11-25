@@ -59,7 +59,7 @@ export function SpacesRoom({ open, search }: { open: (spec: ActionSpec) => void;
     <OverviewTemplate
       {...bankRoomProps('Spaces', copyText('rooms.give.an.asset.a.purpose.inside.the'))}
       state={{ kind: 'ready' }}
-      rooms={<BankTabs current="Spaces" />}
+      section={<BankTabs />}
       hero={
         <div className="lt-body">
           <SelectedSpace
@@ -114,7 +114,7 @@ export function SpacesRoom({ open, search }: { open: (spec: ActionSpec) => void;
                                         : copyText('rooms.named.ledger.subaccount')}
                                     </p>
                                   </div>
-                                  <strong className="lt-mono">{funds(space.balance, space.assetId)}</strong>
+                                  <strong className="lt-mono lt-nowrap">{funds(space.balance, space.assetId)}</strong>
                                 </header>
                                 <dl className="lt-kv">
                                   <div>

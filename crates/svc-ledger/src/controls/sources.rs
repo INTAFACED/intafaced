@@ -32,6 +32,22 @@ pub enum SnapshotRead {
     },
 }
 
+/// `ReportRead`: one reporter's report for an instant (`outsideReportSchema`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportRead {
+    /// The reporter's address is blank.
+    Unset,
+    /// The read failed in any way: never a balance, never "not reported".
+    Unavailable,
+    /// The reporter had published no report by the instant asked: never a match.
+    NotReported,
+    /// The latest report published by the instant, with its own as-of, in the ledger's signed form.
+    Reported {
+        as_of: String,
+        balances: Vec<(String, String)>,
+    },
+}
+
 /// One open item as svc-pay names it (`reconciliationReconcilingItemSchema`'s output), with when svc-pay first saw it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpenItem {
@@ -68,6 +84,10 @@ pub trait Sources: Send + Sync {
     fn open_items(&self, _rail: &str) -> OpenItemsRead {
         OpenItemsRead::Unset
     }
+    /// One reporter's report of our own records at one place, for the instant: a source without reports has none.
+    fn report(&self, _read_at_ms: i64, _reporter: &str, _place: &str) -> ReportRead {
+        ReportRead::Unset
+    }
 }
 
 /// `unsetReconciliationSources()`.
@@ -101,6 +121,8 @@ pub struct Http {
     pub fetch: Arc<dyn Fetch>,
     pub timeout_ms: u64,
     pub open_items: Option<OpenItemsSource>,
+    /// Reporter (`venue`, `partner`) to its report address.
+    pub report_urls: Vec<(String, String)>,
 }
 
 fn url_of<'a>(urls: &'a [(String, String)], rail: &str) -> Option<&'a str> {
@@ -210,6 +232,55 @@ impl Http {
         }
     }
 
+    /// `GET <url>?reporter=&place=&asOf=`: a refused connection, a timeout, a redirect, a non-200 answer, a body the
+    /// schema refuses, a body naming another reporter or place, or a report dated after the instant asked for is
+    /// `unavailable`; `reported: false` is `not reported`.
+    fn read_report(&self, base: &str, read_at_ms: i64, reporter: &str, place: &str) -> ReportRead {
+        let at = service_kit::time::Instant(read_at_ms).iso();
+        let Some(url) = with_query(
+            base,
+            &[("reporter", reporter), ("place", place), ("asOf", &at)],
+        ) else {
+            return ReportRead::Unavailable;
+        };
+        let Ok(res) = self.fetch.fetch(&HttpRequest {
+            method: "GET".to_owned(),
+            url,
+            headers: Vec::new(),
+            body: None,
+            timeout_ms: Some(self.timeout_ms),
+            refuse_redirect: true,
+        }) else {
+            return ReportRead::Unavailable;
+        };
+        if res.status != 200 {
+            return ReportRead::Unavailable;
+        }
+        let Some(read) = json::parse(&res.body)
+            .ok()
+            .and_then(|b| parsed("outsideReport", &b))
+        else {
+            return ReportRead::Unavailable;
+        };
+        if text(&read, "reporter") != reporter || text(&read, "place") != place {
+            return ReportRead::Unavailable;
+        }
+        if matches!(read.get("reported"), Some(Json::Bool(false))) {
+            return ReportRead::NotReported;
+        }
+        let as_of = text(&read, "asOf");
+        match v8_date_parse(&as_of) {
+            Some(when) if when <= read_at_ms => ReportRead::Reported {
+                as_of,
+                balances: list(&read, "balances")
+                    .iter()
+                    .map(|b| (text(b, "assetId"), text(b, "amount")))
+                    .collect(),
+            },
+            _ => ReportRead::Unavailable,
+        }
+    }
+
     /// `readOpenItems`: every open item svc-pay lists for one rail, page by page within one deadline. Every page must
     /// carry the same total and sums, and the items must add up to those sums per asset and kind by kind, in amount and
     /// in count; anything else is `unavailable`, never a partial list.
@@ -226,7 +297,7 @@ impl Http {
         let mut first: Option<String> = None;
         let mut total: i64 = 0;
         let mut net: Vec<(String, Amount)> = Vec::new();
-        let mut by_kind: Vec<(String, Amount)> = Vec::new();
+        let mut by_kind = Kinds::default();
         let mut offset: i64 = 0;
         while offset == 0 || offset < total {
             let body = Json::obj([
@@ -268,14 +339,12 @@ impl Http {
                     for sum in list(&page, "sums") {
                         let asset = text(sum, "assetId");
                         add(&mut net, &asset, parse_amount(&text(sum, "net")).ok()?)?;
-                        tally(
-                            &mut by_kind,
+                        by_kind.tally(
                             &format!("held:{asset}"),
                             parse_amount(&text(sum, "held")).ok()?,
                             i128::from(whole(sum, "heldCount")),
                         )?;
-                        tally(
-                            &mut by_kind,
+                        by_kind.tally(
                             &format!("reversal_unfunded:{asset}"),
                             parse_amount(&text(sum, "reversalUnfunded")).ok()?,
                             i128::from(whole(sum, "reversalUnfundedCount")),
@@ -335,51 +404,78 @@ impl Http {
             return None;
         }
         let mut added: Vec<(String, Amount)> = Vec::new();
-        let mut listed: Vec<(String, Amount)> = Vec::new();
+        let mut listed = Kinds::default();
         for i in &items {
             add(&mut added, &i.asset_id, i.amount)?;
             // Kind by kind, in amount and in count, so two kinds can never swap behind a net that still adds up.
-            tally(
-                &mut listed,
+            listed.tally(
                 &format!("{}:{}", i.kind, i.asset_id),
                 i.amount.checked_abs()?,
                 1,
             )?;
         }
-        if !same(&added, &net) || !same(&listed, &by_kind) {
+        if !same(&added, &net) || !listed.same(&by_kind) {
             return None;
         }
         Some(items)
     }
 }
 
-/// `add`: `amount` onto `key`'s figure; `None` when the sum leaves `i128`, so two figures past its top never clamp
+/// `add`: `value` onto `key`'s figure; `None` when the sum leaves `i128`, so two figures past its top never clamp
 /// to one value and read as equal.
-fn add(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount) -> Option<()> {
+fn add<T: Copy + Plus>(into: &mut Vec<(String, T)>, key: &str, value: T) -> Option<()> {
     match into.iter_mut().find(|(k, _)| k == key) {
-        Some((_, v)) => *v = v.checked_add(amount)?,
-        None => into.push((key.to_owned(), amount)),
+        Some((_, v)) => *v = v.plus(value)?,
+        None => into.push((key.to_owned(), value)),
     }
     Some(())
 }
 
-/// `tally`: one kind's amount under `key` and its count under `#key`, skipping a sum that is zero in both.
-fn tally(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount, count: i128) -> Option<()> {
-    if amount == Amount::ZERO && count == 0 {
-        return Some(());
+/// A figure that adds without wrapping: an amount, or a count.
+trait Plus: Sized {
+    fn plus(self, other: Self) -> Option<Self>;
+}
+
+impl Plus for Amount {
+    fn plus(self, other: Amount) -> Option<Amount> {
+        self.checked_add(other)
     }
-    add(into, key, amount)?;
-    // The count rides in the same figures as the amounts, as the TypeScript's one bigint map holds both; it is a
-    // count, not money, so it goes in as its raw integer on both sides of `same`.
-    add(into, &format!("#{key}"), Amount::from_scaled(count))
+}
+
+impl Plus for i128 {
+    fn plus(self, other: i128) -> Option<i128> {
+        self.checked_add(other)
+    }
+}
+
+/// Each kind's amount and its count, kept apart: a count is not money.
+#[derive(Default)]
+struct Kinds {
+    amounts: Vec<(String, Amount)>,
+    counts: Vec<(String, i128)>,
+}
+
+impl Kinds {
+    /// `tally`: one kind's amount and count under `key`, skipping a sum that is zero in both.
+    fn tally(&mut self, key: &str, amount: Amount, count: i128) -> Option<()> {
+        if amount == Amount::ZERO && count == 0 {
+            return Some(());
+        }
+        add(&mut self.amounts, key, amount)?;
+        add(&mut self.counts, key, count)
+    }
+
+    fn same(&self, other: &Kinds) -> bool {
+        same(&self.amounts, &other.amounts) && same(&self.counts, &other.counts)
+    }
 }
 
 /// Every key of either side holds the same figure on both, a missing one read as zero.
-fn same(a: &[(String, Amount)], b: &[(String, Amount)]) -> bool {
-    let of = |side: &[(String, Amount)], k: &str| {
+fn same<T: Copy + Default + PartialEq>(a: &[(String, T)], b: &[(String, T)]) -> bool {
+    let of = |side: &[(String, T)], k: &str| {
         side.iter()
             .find(|(key, _)| key == k)
-            .map_or(Amount::ZERO, |(_, v)| *v)
+            .map_or(T::default(), |(_, v)| *v)
     };
     a.iter().chain(b).all(|(k, _)| of(a, k) == of(b, k))
 }
@@ -429,5 +525,12 @@ impl Sources for Http {
             return OpenItemsRead::Unset;
         };
         self.read_open_items(url, rail, &source.sign)
+    }
+
+    fn report(&self, read_at_ms: i64, reporter: &str, place: &str) -> ReportRead {
+        let Some(url) = url_of(&self.report_urls, reporter) else {
+            return ReportRead::Unset;
+        };
+        self.read_report(url, read_at_ms, reporter, place)
     }
 }

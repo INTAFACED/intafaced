@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Fold } from '@intafaced/ui/lit';
 import { Field } from './volt/parts';
 import { PAUSED_OFFERS_SHOWN, type PersonalPayApi } from './pay-api';
 import { id, type BoardQuery, type BoardSort, type Offer, type OfferPage } from './schemas';
@@ -299,10 +299,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               </a>
             </p>
           ) : null}
-          <details>
-            <summary>
-              <Copy k="filters" />
-            </summary>
+          <Fold title={<Copy k="filters" />}>
             <form
               data-testid="pay-filters"
 
@@ -392,7 +389,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               </Button>
             </form>
             {currencies.resource.status === 'failed' && <PayFailure result={currencies.resource.failure} retry={currencies.reload} />}
-          </details>
+          </Fold>
           {error && (
             <p role="alert" className="lt-refusal">
               {error === 'invalidId' || error === 'fiatAmountNeedsCurrency' || error === 'fiatAmountInvalid' ? t(error) : payCopy.t(error)}
@@ -513,10 +510,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           <Button tone="quiet" onClick={list.reload}>
             <Copy k="refreshMarket" />
           </Button>
-          <details>
-            <summary>
-              <Copy k="known" />
-            </summary>
+          <Fold title={<Copy k="known" />}>
             <form
               className="lt-stack"
               onSubmit={(event) => {
@@ -534,7 +528,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                 <Copy k="inspect" />
               </Button>
             </form>
-          </details>
+          </Fold>
         </PaySection>
       </div>
       {selected && (

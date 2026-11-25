@@ -162,13 +162,6 @@ fn seat_of(d: &Deps<'_>, account_id: &str, user_id: &str) -> Result<Seat, Refusa
     with(d.store, |c| seat::seat(c, account_id, user_id))
 }
 
-/// `partnerFor`: the guarded partner holding the business owner's money, none when no partner holds it.
-fn partner_for<'a>(d: &'a Deps<'a>, seat: &Seat) -> Option<Held<'a>> {
-    seat.owner_user_id
-        .as_deref()
-        .and_then(|owner| d.custody.bank_for(owner))
-}
-
 /// `accountRow`: the business account's status, name and threshold, in this service's own words.
 struct AccountRow {
     name: String,
@@ -603,7 +596,7 @@ pub fn confirm_run(d: &Deps<'_>, run_id: &str, user_id: &str) -> Result<Json, Re
     let prior = with(d.store, |c| run_row(c, run_id, false))?;
     let seat = seat_of(d, &prior.account_id, user_id)?;
     need(&seat, "propose")?;
-    let partner = partner_for(d, &seat);
+    let partner = seat::partner_of(d, &seat);
     if prior.status == "sending" {
         money_may_move(d)?;
         send_run(d, &prior, partner.as_ref())?;
@@ -757,7 +750,7 @@ pub fn approve_run(d: &Deps<'_>, run_id: &str, user_id: &str) -> Result<Json, Re
             .ok_or_else(|| Refusal::Other("the run's update returned no row".to_owned()))
     })?;
     if next.status == "sending" {
-        send_run(d, &next, partner_for(d, &seat).as_ref())?;
+        send_run(d, &next, seat::partner_of(d, &seat).as_ref())?;
     }
     run(d, run_id, user_id)
 }
@@ -1468,7 +1461,7 @@ pub fn pay_batch(d: &Deps<'_>, ask: &PayBatch<'_>) -> Result<Json, Refusal> {
     }
     let seat = seat_of(d, ask.account_id, ask.user_id)?;
     need(&seat, "propose")?;
-    let partner = partner_for(d, &seat);
+    let partner = seat::partner_of(d, &seat);
     if let Some(prior) = with(d.store, |c| batch_row_or_none(c, ask.batch_id, false))? {
         let lines: Vec<String> = with(d.store, |c| {
             c.query(
@@ -1543,9 +1536,9 @@ pub fn pay_batch(d: &Deps<'_>, ask: &PayBatch<'_>) -> Result<Json, Refusal> {
                 ),
             ));
         }
-        let plain: Vec<seat::Rule> = rules.iter().map(|(_, r)| r.clone()).collect();
+        let plain: Vec<seat::Rule> = rules.iter().map(|t| t.rule.clone()).collect();
         let rule = seat::pick_rule(&plain, total, "", "payroll").and_then(|i| rules.get(i));
-        let needed = rule.map_or(0, |(_, r)| r.approvals);
+        let needed = rule.map_or(0, |t| t.rule.approvals);
         if needed > 0 {
             let pool = seat::approver_pool(tx, ask.account_id, ask.user_id)?;
             if (pool.len() as i64) < needed {
@@ -1587,7 +1580,7 @@ pub fn pay_batch(d: &Deps<'_>, ask: &PayBatch<'_>) -> Result<Json, Refusal> {
                     &format_amount(total),
                     &status,
                     &needed,
-                    &rule.map(|(id, _)| id.as_str()),
+                    &rule.map(|t| t.id.as_str()),
                     &contractor_batch_key(ask.batch_id),
                     &refused.then_some("rail.bank"),
                     &refused,
@@ -1639,7 +1632,7 @@ pub fn approve_batch(d: &Deps<'_>, batch_id: &str, user_id: &str) -> Result<Json
             ),
         ));
     }
-    let partner = partner_for(d, &seat);
+    let partner = seat::partner_of(d, &seat);
     if partner.is_some() {
         money_may_move(d)?;
     }

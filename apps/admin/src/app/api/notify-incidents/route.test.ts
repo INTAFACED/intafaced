@@ -177,6 +177,7 @@ describe('incident desk BFF', () => {
             approval({ approvalId: 'pm', actionType: 'notify.postmortem.publish', targetId: `postmortem:${NOTICE_ID}` }),
             approval({ approvalId: 'other', actionType: 'treasury.payout.release', targetService: 'svc-treasury' }),
           ],
+          pageFull: false,
         }),
     });
     const body = await (await GET(get())).json();
@@ -212,7 +213,7 @@ describe('incident desk BFF', () => {
       'statusPage.postmortems.forIncidents': () => refusal('notify.status_page_unavailable', 412),
       'statusPage.templates.list': () => ok([]),
       'statusPage.definition': () => ok(DEFINITION),
-      'actionApproval.list': () => ok({ approvals: [] }),
+      'actionApproval.list': () => ok({ approvals: [], pageFull: false }),
     });
     expect((await (await GET(get())).json()).postmortems.kind).toBe('failed');
   });

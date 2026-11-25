@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 
 use service_kit::http::{Fetch, HttpRequest};
 use service_kit::json::{self, Json};
-use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, parse_amount, ratio_of};
 use service_kit::time::{Instant, time_clip};
 
 use super::risk::Mark;
@@ -218,9 +218,7 @@ pub fn acceptable_for_liquidation(
             previous - m.price
         };
         // Integer bps, rounded up so a move exactly on the breaker trips it.
-        // A count of basis points: the ratio of two amounts times 10,000, read off the quotient's scaled integer.
-        let deviation_bps =
-            mul_div(delta, Amount::from_scaled(10_000), previous, Rounding::Ceil).scaled();
+        let deviation_bps = ratio_of(delta, previous, 10_000, Rounding::Ceil);
         if deviation_bps > i128::from(policy.max_deviation_bps) {
             return MarkCheck::no(format!(
                 "{}: mark moved {deviation_bps}bps from {} to {}, breaker at {}bps — not liquidating through it",

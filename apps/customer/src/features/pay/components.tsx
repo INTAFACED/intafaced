@@ -2,7 +2,8 @@ import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
 import { isValidElement, useId, useRef, type ReactNode } from 'react';
 import { useOverflows } from '../../shared/use-overflows';
-import type { ApiResult } from '../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
@@ -16,6 +17,7 @@ export { PayTime, payTimeText } from './pay-time';
 
 function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <StateBlock
@@ -38,7 +40,7 @@ function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: 
   );
 }
 
-export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
+function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { requestedLocale } = payCopy.useCopy();
   const authored = payAuthoredMessage(result);
   return (
@@ -154,7 +156,7 @@ export function PayDetails({ values }: { values: [string, ReactNode, string?][] 
     </dl>
   );
 }
-export function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
+function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
   const viewport = useRef<HTMLSpanElement>(null);
   const digits = useRef<HTMLSpanElement>(null);
   const overflows = useOverflows(viewport, digits, value);

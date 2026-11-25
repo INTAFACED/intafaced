@@ -62,9 +62,7 @@ export const pagesCopy = defineCopy('public-pages', {
   campSignIn: 'Sign in to open',
   // About and landing
   insideTitle: 'What is inside today',
-  insideIntro: 'Every room below is part of the app now. Some wait on a connected service and say so when you open them.',
-  rooms: '{count} rooms',
-  roomsOne: '1 room',
+  insideIntro: 'Explore what is in your account today. Anything still being rolled out says so when you open it.',
   andMore: 'and {count} more',
   openDoor: 'Open {door}',
   reachTitle: 'Talk to us',

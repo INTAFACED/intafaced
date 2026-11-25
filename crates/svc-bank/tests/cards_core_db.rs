@@ -1,8 +1,9 @@
 //! Slice `cards`' core doors (programme, list, issue, status, limits, channels, controls, replace) against the Rust door
 //! on a real Postgres. Ports the checks of `cards/cards.test.ts`, `cards/cards-procedures.test.ts`,
-//! `cards/cards-auth-product.test.ts`, `cards/card-sim-not-issuer.money.test.ts`, `cards/card-simulated-true.test.ts`
-//! and the cards doors of `step-up/step-up-money-out.test.ts` that fall on this slice's own calls, each test named after
-//! the TypeScript test's words. Every call enters through the door, as the TypeScript's enter through the router.
+//! `cards/cards-auth-product.test.ts`, `cards/card-sim-not-issuer.money.test.ts`, `cards/card-simulated-true.test.ts`,
+//! the cards doors of `step-up/step-up-money-out.test.ts` and the same-id replace race of
+//! `cards/card-orders.money.test.ts` that fall on this slice's own calls, each test named after the TypeScript test's
+//! words. Every call enters through the door, as the TypeScript's enter through the router.
 //!
 //! The halves that authorise a purchase (`ops.cardAuthorize`) are slice `card-ops`'s and stay there. Identity is a
 //! faithful stand-in for its same-person consume (CAS once; user, session, hash and expiry). Without
@@ -19,7 +20,7 @@
 use crate::support;
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 
 use service_kit::approvals::{ConsumeError, ConsumeInput, Consumed, Facts, PrincipalBinding};
 use service_kit::edge;
@@ -1085,4 +1086,38 @@ fn replaces_a_card_and_keeps_the_asset_ceilings_and_channels() {
         "{}",
         conflict.1.compact()
     );
+}
+
+#[test]
+fn gives_every_same_id_replace_call_at_once_the_one_replacement_card_never_a_duplicate_key_error() {
+    let Some(db) = db() else { return };
+    let b = bank(&db, sim());
+    for _ in 0..40 {
+        let user = uuid();
+        let card_id = uuid();
+        let replacement = uuid();
+        issue(&b, &user, &card_id, "100").ok();
+        let input =
+            format!(r#"{{"cardId":"{card_id}","replacementId":"{replacement}","reason":"lost"}}"#);
+        let start = Barrier::new(6);
+        let answers: Vec<Answer> = std::thread::scope(|s| {
+            let calls: Vec<_> = (0..6)
+                .map(|_| {
+                    s.spawn(|| {
+                        start.wait();
+                        call(&b, &user, "cards.replace", &input)
+                    })
+                })
+                .collect();
+            calls.into_iter().map(|c| c.join().unwrap()).collect()
+        });
+        for a in &answers {
+            assert_eq!(text(&a.ok(), "id"), replacement);
+        }
+        let rows = list(&b, &user);
+        assert_eq!(rows.len(), 2, "one old card and one replacement");
+        let old = rows.iter().find(|r| text(r, "id") == card_id).unwrap();
+        assert_eq!(text(old, "status"), "closed");
+        assert_eq!(text(old, "replacedByCardId"), replacement);
+    }
 }

@@ -89,7 +89,16 @@ export interface HyperliquidTestnetOptions {
    * one shared source to every instance that signs for the same wallet.
    */
   readonly nonceSource?: HyperliquidNonceSource;
+  /**
+   * The chain the person's wallet is on when it signs a user-signed action (approve agent, withdraw, a transfer): the
+   * EIP-712 domain's chain id and the action's `signatureChainId`. A wallet refuses a domain on any other chain, and the
+   * venue takes whichever chain the action names. Defaults to the app's chain, `WALLET_CHAIN_ID`.
+   */
+  readonly walletChainId?: number;
 }
+
+/** The chain the customer app holds a wallet on (Base Sepolia, 84532; apps/customer `APP_CHAIN_ID`), which is not INTACHAIN. */
+const WALLET_CHAIN_ID = 84532;
 
 export interface HlBookLevel {
   readonly price: Amount;
@@ -169,6 +178,8 @@ export abstract class HyperliquidCore {
    * destination in the signed bytes the venue ran under that nonce.
    */
   protected readonly withdrawalDestinations = new Map<string, string>();
+  /** The wallet's chain: every user-signed action is signed under it (`walletChainId`). */
+  readonly chainId: number;
 
   protected constructor(options: HyperliquidTestnetOptions) {
     this.baseUrl = assertTestnetUrl(options.baseUrl ?? HL_TESTNET_API_URL);
@@ -181,12 +192,18 @@ export abstract class HyperliquidCore {
       // b2 change 6: how old this venue's balance and position figures may be before they show as old. Hyperliquid
       // publishes no such limit, so this adapter declares ours: a minute, the same as the TEST venue's.
       figureStaleAfterMs: 60_000,
+      // An order, cancel or leverage change is an L1 action whose EIP-712 domain names chain 1337 (signing.ts L1_DOMAIN),
+      // which no wallet signs on: it is signed by the trading session's agent key, approved once by the owner's wallet.
+      tradesSignedBy: 'session_key',
     };
     refuseTestVenueOutsideTest(this.venue, options.appEnv, options.betaPosture);
     this.fetchImpl = options.fetch ?? (globalThis.fetch as unknown as FetchLike);
     this.clock = options.clock ?? (() => new Date());
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.nonceSource = options.nonceSource ?? new InMemoryNonceSource();
+    const chainId = options.walletChainId ?? WALLET_CHAIN_ID;
+    if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`wallet chain ${String(chainId)} is not a chain id`);
+    this.chainId = chainId;
   }
 
   // ── transport ──────────────────────────────────────────────────────────

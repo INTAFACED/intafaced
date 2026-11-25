@@ -1,7 +1,8 @@
 import { useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { SectionTabs } from '@intafaced/ui/lit/templates';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import { uiCopy } from '../../../shared/ui-copy';
 import { useFailureWords } from '../../../shared/failure-words';
 import { useModalDialog } from '../../../shared/modal-dialog';
@@ -11,7 +12,7 @@ export { Field };
 /**
  * The Web3 rooms' shared parts, drawn only from the Volt kit: the same names, words, roles and ids as the app's
  * old `shared/ui` parts they replace, so a room moves onto its template without changing what a person or a test reads.
- * A part here is judged by volt-count where it lives; one the kit itself should own moves there once a second area needs it.
+ * One the kit itself should own moves there once a second area needs it.
  */
 
 /** A titled part of a room: its heading, then its body. */
@@ -129,6 +130,7 @@ export function Dialog({ title, children, onClose }: { title: ReactNode; childre
 /** A service's refusal in plain words, with Try again only where a second attempt can change it. */
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const w = useFailureWords(result, Boolean(retry));
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div data-testid="failure" className="lt-refusal" role={w.alert ? 'alert' : 'status'}>
       <h3 className="lt-refusal-title">{w.title}</h3>

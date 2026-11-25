@@ -8,7 +8,13 @@ import {
   compromiseStartInputSchema,
   compromiseStartOutputSchema,
 } from './identity-compromise.js';
-import { safetyReadOutputSchema } from './identity-safety.js';
+import {
+  safetyReadOutputSchema,
+  setExtraControlsInputSchema,
+  safetyChangeOutputSchema,
+  clearExtraControlsInputSchema,
+  setLocationConsentInputSchema,
+} from './identity-safety.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-identity `account.*`, one record per call: svc-identity mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -84,4 +90,58 @@ export const IDENTITY_ACCOUNT_SAFETY_READ = defineProcedure({
   output: safetyReadOutputSchema,
   outputChecks: { allowance_amount_holds: { at: 'output.extraControls.allowance.amount', says: 'more than zero' } },
   samples: [{ verdict: 'accept' }],
+});
+
+export const IDENTITY_ACCOUNT_SAFETY_SET_EXTRA_CONTROLS = defineProcedure({
+  ...base,
+  name: 'identity.account.safety.setExtraControls',
+  kind: 'mutation',
+  path: 'account.safety.setExtraControls',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: setExtraControlsInputSchema,
+  checks: { allowance_amount_holds: { at: 'input.allowance.amount', says: 'more than zero' } },
+  output: safetyChangeOutputSchema,
+  outputChecks: { allowance_amount_holds: { at: 'output.extraControls.allowance.amount', says: 'more than zero' } },
+  samples: [
+    { verdict: 'accept', input: { controls: [], allowance: { amount: '1', assetId: 'USDT' }, password: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'allowance_amount_holds',
+      input: { controls: [], allowance: { amount: '0', assetId: 'USDT' }, password: 'placeholder' },
+    },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_SAFETY_CLEAR_EXTRA_CONTROLS = defineProcedure({
+  ...base,
+  name: 'identity.account.safety.clearExtraControls',
+  kind: 'mutation',
+  path: 'account.safety.clearExtraControls',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: clearExtraControlsInputSchema,
+  output: safetyChangeOutputSchema,
+  outputChecks: { allowance_amount_holds: { at: 'output.extraControls.allowance.amount', says: 'more than zero' } },
+  samples: [
+    { verdict: 'accept', input: { password: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_SAFETY_SET_LOCATION_CONSENT = defineProcedure({
+  ...base,
+  name: 'identity.account.safety.setLocationConsent',
+  kind: 'mutation',
+  path: 'account.safety.setLocationConsent',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: setLocationConsentInputSchema,
+  output: safetyChangeOutputSchema,
+  outputChecks: { allowance_amount_holds: { at: 'output.extraControls.allowance.amount', says: 'more than zero' } },
+  samples: [
+    { verdict: 'accept', input: { consent: true } },
+    { verdict: 'refuse', input: 42 },
+  ],
 });

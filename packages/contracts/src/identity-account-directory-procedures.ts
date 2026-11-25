@@ -22,3 +22,36 @@ export const IDENTITY_ACCOUNT_DIRECTORY_HANDLES = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const directoryRow = z
+  .object({
+    id: z.string().guid(),
+    handle: z.string(),
+    status: z.enum(['active', 'frozen', 'closed']),
+    created: z.string().datetime({ offset: true }),
+    kycTier: z.enum(['none', 'basic', 'full', 'institutional']),
+    restrictedAreas: z.array(z.enum(['identity', 'trading'])),
+    emailMasked: z.string(),
+  })
+  .strict();
+
+export const IDENTITY_ACCOUNT_DIRECTORY_SEARCH = defineProcedure({
+  ...base,
+  name: 'identity.accountDirectory.search',
+  kind: 'query',
+  path: 'accountDirectory.search',
+  access: { caller: 'scope', scope: 'admin:compliance' },
+  refusals: {},
+  input: z
+    .object({
+      email: z.string().max(320).optional(),
+      handle: z.string().max(32).optional(),
+      cursor: z.string().max(512).optional(),
+    })
+    .strict(),
+  output: z.object({ rows: z.array(directoryRow), nextCursor: z.string().nullable() }).strict(),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

@@ -25,12 +25,13 @@ import { runJobs } from './run-jobs.mjs';
 import { SHARD_COUNT, classify, narrowCandidates, reachesLook, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
+import { BETA_GATE, isBetaPull } from './journey-verdict.mjs';
 import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
 /** ci.yml's job names (`name:`), keyed as sealNeeded keys its results. */
-export const CI_JOBS = { changes: 'Affected tests', gates: 'Doctrine gates', format: 'Format', build: 'Typecheck & build', rust: 'Rust' };
+export const CI_JOBS = { changes: 'Affected tests', gates: 'Doctrine gates', build: 'Typecheck & build', rust: 'Rust' };
 /** The test matrix's jobs: `Tests (1/16)` … or `Tests (changed)`. */
 export const TEST_JOB = /^Tests \(.+\)$/;
 /** ci.yml's Look job (look-pr.yml, #9325): a reusable workflow, so its jobs are named `Look / Build (before)`,
@@ -95,7 +96,7 @@ export function otherRedJobs(jobs) {
  * (tooling-reach.mjs commitTree), which a change of tooling alone is narrowed by (ci-affected.mjs narrowed), as ci.yml's
  * changes job narrows it by its checkout; null keeps today's rules. Returns { ok, wait, lines }.
  */
-export function judgeCiJobs({ run, jobs, files, forceFull = false, tree = null }) {
+export function judgeCiJobs({ run, jobs, files, forceFull = false, tree = null, betaPull = false }) {
   if (!run)
     return { ok: false, wait: true, lines: ['no CI ran for this pull request on this head: merge origin/main if it conflicts, else push'] };
   const id = `CI run ${run.id} (attempt ${run.run_attempt ?? 1})`;
@@ -110,7 +111,19 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false, tree = null }
   // Customer room or the kit; files unreadable whole count as drawing one. Never a merge queue's commit (main's look
   // gate is the daily one). classify() leaves it out, so until #9920 this seal never asked for it.
   flags.look = !forceFull && (files === null || reachesLook(files));
-  const problems = [...sealNeeded(flags, jobResults(jobs)), ...otherRedJobs(jobs)];
+  const results = jobResults(jobs);
+  // The beta lane (journey-verdict.mjs BETA_GATE, project-state decision PR #4061: "The automatic look check stops
+  // blocking beta screens"): on a beta pull request (a `beta/` branch, isBetaPull) the Look gate still runs and reports,
+  // and never holds the merge. What it guards, clipped copy and layout drift on Customer rooms against their baselines,
+  // is judged by the owner's eye on the beta and by the daily look gate on main (look-gate.yml).
+  const advisory = [];
+  if (betaPull && BETA_GATE === 'lane') {
+    if (results.look !== undefined && results.look !== 'success' && results.look !== 'skipped')
+      advisory.push(`look was ${results.look}: advisory on a beta pull request (the beta lane), so it holds nothing`);
+    flags.look = false;
+    delete results.look;
+  }
+  const problems = [...sealNeeded(flags, results), ...otherRedJobs(jobs)];
   // The full suite is the whole matrix: a pull request's own ci.yml can't narrow it to one passing shard.
   if (flags.full) {
     const names = new Set((jobs ?? []).map((j) => j?.name));
@@ -120,8 +133,9 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false, tree = null }
         `the change needs the full suite, but ${missing.length} of its ${SHARD_COUNT} shards never ran (Tests (${missing[0]}) …)`,
       );
   }
-  if (!problems.length) return { ok: true, wait: false, lines: [`${id}: required jobs succeeded`] };
-  return { ok: false, wait: false, lines: problems.map((p) => `${id}: ${p}`) };
+  const notes = advisory.map((p) => `${id}: ${p}`);
+  if (!problems.length) return { ok: true, wait: false, lines: [`${id}: required jobs succeeded`, ...notes] };
+  return { ok: false, wait: false, lines: [...problems.map((p) => `${id}: ${p}`), ...notes] };
 }
 
 /** The money browser checks' workflow (#8708) and the paths it runs on, as its `pull_request` and `push` triggers list them
@@ -438,6 +452,9 @@ async function verdicts({ get, REPO, sha, queue, PR_NUMBER }) {
   const jobs = run ? await runJobs(`/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest`, get) : [];
   if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
   const files = queue ? [] : await changedFiles(get, REPO, PR_NUMBER);
+  // A beta pull request (the beta lane): its head branch, read from the API, never from the event.
+  const pull = queue ? null : await get(`/repos/${REPO}/pulls/${PR_NUMBER}`);
+  const betaPull = !queue && isBetaPull({ headRef: pull?.head?.ref, headRepo: pull?.head?.repo?.full_name, repo: REPO });
   // The head's tree, for a change that only tooling could narrow: read through git by main's tooling-reach.mjs. A tree
   // that can't be read leaves today's rules.
   let tree = null;
@@ -450,7 +467,7 @@ async function verdicts({ get, REPO, sha, queue, PR_NUMBER }) {
     }
   let ci;
   try {
-    ci = judgeCiJobs({ run, jobs, files, forceFull: queue, tree });
+    ci = judgeCiJobs({ run, jobs, files, forceFull: queue, tree, betaPull });
   } finally {
     tree?.cleanup();
   }

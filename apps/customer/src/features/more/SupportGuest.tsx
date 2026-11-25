@@ -1,5 +1,4 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { SUPPORT_GUEST_REQUEST_PATH } from '@intafaced/contracts/support-guest';
 import { useDataEnv } from '../../data/hooks';
 import { writeContract } from '../../shared/contract-call';
 import type { ApiResult } from '../../shared/api';
@@ -10,7 +9,7 @@ import { categoryLabel, topicFromAddress } from './support-category';
 import { CATEGORY_VALUES } from './support-schemas';
 import { deskCopy } from './support-desk-copy';
 import { guestCopy } from './support-guest-copy';
-import { guestCreate, guestRefusalWords, guestVerify, keptToken, refusalCode } from './support-guest';
+import { guestCreate, guestRefusalWords } from './support-guest';
 import '../../shared/support-desk.css';
 import '../../shared/public-pages.css';
 
@@ -145,58 +144,5 @@ export function GuestNewRequest() {
         </a>
       </p>
     </section>
-  );
-}
-
-/**
- * /support/guest/verify#token=… (SP-tickets-01): the page the emailed link opens. Opening it changes nothing, so a mail
- * scanner that fetches the link opens no request; the person presses Open. The token leaves the address bar once read.
- */
-export function GuestVerify() {
-  const { t } = guestCopy.useCopy();
-  const { api } = useDataEnv();
-  // Kept for this tab only, so a reload before Open still has it while the address bar holds no token.
-  const [token] = useState(() => keptToken('token', 'support-guest-verify'));
-  const [busy, setBusy] = useState(false);
-  const [refusal, setRefusal] = useState<Refusal | null>(null);
-
-  async function open() {
-    if (busy) return;
-    setBusy(true);
-    setRefusal(null);
-    const answer = await writeContract(api, guestVerify, { token });
-    setBusy(false);
-    if (answer.ok) location.assign(`${SUPPORT_GUEST_REQUEST_PATH}#access=${answer.data.access}`);
-    else setRefusal(answer);
-  }
-
-  const code = refusal ? refusalCode(refusal) : null;
-  const dead = !token || code === 'support.guest_link_invalid' || code === 'support.guest_link_expired';
-  return (
-    <div className="pub-page" data-testid="support-guest-verify">
-      <header className="pub-heading">
-        <p className="eyebrow">{t('verifyEyebrow')}</p>
-        <h1>{code === 'support.guest_link_expired' ? t('expiredTitle') : dead ? t('invalidTitle') : t('verifyTitle')}</h1>
-      </header>
-      {dead ? (
-        <div className="pub-notice" role="alert" data-testid="support-guest-link-dead" data-code={code ?? undefined}>
-          <p>{code === 'support.guest_link_expired' ? t('expiredBody') : t('invalidBody')}</p>
-          {code ? <small lang="zxx">{code}</small> : null}
-        </div>
-      ) : (
-        <>
-          <p className="lt-muted">{t('verifyIntro')}</p>
-          <Button onClick={() => void open()} disabled={busy}>
-            {busy ? t('verifying') : t('verifyButton')}
-          </Button>
-          {refusal ? <GuestRefusal refusal={refusal} t={t} /> : null}
-        </>
-      )}
-      <p>
-        <a className="lt-link" href="/support/new" data-testid="support-guest-back">
-          {t('backToForm')}
-        </a>
-      </p>
-    </div>
   );
 }

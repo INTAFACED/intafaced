@@ -97,44 +97,47 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Launch check</h1>
-<p class="lt-muted">
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.scope">Asset launch tasks and participation records</span>
-</p>
+<h1 class="lt-title">Launch check</h1>
+<p class="lt-description">New coins launching here, and the launches you have joined</p>
 </div>
 </header>
-<div class="more-grid">
-<div class="tabs" role="group" aria-label="Launch sections">
-<button type="button" class="" aria-pressed="false">Launches</button>
-<button type="button" class="" aria-pressed="false">Issuer journey</button>
-<button type="button" class="selected" aria-pressed="true">Pre-listing check</button>
-<button type="button" class="" aria-pressed="false">Requirements</button>
-<button type="button" class="" aria-pressed="false">My participation</button>
-</div>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Pre-listing deployer check</h2>
-</header>
-<div class="if-panel__body">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
+<nav class="lt-tabs" aria-label="Launch sections" data-region="section-tabs">
+<a href="/launch" class="lt-tab">Launches</a>
+<a href="/launch/new" class="lt-tab">Issuer journey</a>
+<a href="/launch/check" class="lt-tab" aria-current="page">Pre-listing check</a>
+<a href="/launch/requirements" class="lt-tab">Requirements</a>
+<a href="/launch/mine" class="lt-tab">My participation</a>
+</nav>
+<section class="lt-stack">
+<h2>Pre-listing deployer check</h2>
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.checkIntro">Reads how many liquidity locks and vestings the deployer has on record and flags patterns. It is a note for you, not a badge and not a decision to block or allow anything.</span>
 </p>
-<form class="depth-filters">
-<label class="lt-field" for="field-_r_3_">
-<span id="field-_r_3_-label">Deployer address</span>
-<input maxlength="128" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" value="">
-</label>
-<button type="submit" class="button button--primary " disabled="">
+<form class="lt-stack">
+<div class="lit-field-control">
+<label for="_r_3_">Deployer address</label>
+<input maxlength="128" id="_r_3_" value="">
+</div>
+<div class="lt-actions">
+<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.runCheck">Run check</span>
 </button>
+</div>
 </form>
+</section>
 </div>
 </section>
+</div>
+<div class="lt-col-side">
+</div>
 </div>
 </div>
 </div>

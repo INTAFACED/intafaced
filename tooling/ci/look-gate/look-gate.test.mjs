@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePng } from './png.mjs';
-import { CLIPPED_COPY, GENERATED_ID, HIDE_TEXT_CSS, contrastFindings, focusState, fontFindings, measure } from './look-gate.mjs';
+import { CLIPPED_COPY, GENERATED_ID, HIDE_TEXT_CSS, contrastFindings, fitToPage, focusState, fontFindings, measure } from './look-gate.mjs';
 
 let browser = null;
 let why = '';
@@ -25,16 +25,21 @@ async function pageOf(html, viewport = { width: 400, height: 400 }) {
   return { page, close: () => context.close() };
 }
 
+/** The gate's sizing before 23 Nov: one resize to the height read first. */
+async function oneResize(page) {
+  const { width, height } = page.viewportSize();
+  const full = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
+  if (full > height) await page.setViewportSize({ width, height: full });
+}
+
 /**
- * check()'s contrast pass: the whole page in one viewport (as check() sizes it), measure, then the shot with all text
- * hidden, then the worst pixel under each text box.
+ * check()'s contrast pass: the whole page in one viewport (fitToPage, as check() sizes it), measure, then the shot with
+ * all text hidden, then the worst pixel under each text box.
  */
-async function contrastOn(html, viewport) {
+async function contrastOn(html, viewport, fit = fitToPage) {
   const { page, close } = await pageOf(html, viewport);
   try {
-    const { width, height } = page.viewportSize();
-    const full = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
-    if (full > height) await page.setViewportSize({ width, height: full });
+    await fit(page);
     const m = await page.evaluate(measure, { maxText: 400 });
     const hide = await page.addStyleTag({ content: HIDE_TEXT_CSS });
     const blank = decodePng(await page.screenshot({ animations: 'disabled', caret: 'hide' }));
@@ -79,6 +84,39 @@ test('contrast: low-contrast text a person sees fails, wherever it is on the pag
     'under a fixed bar',
   );
   assert.deepEqual(await contrastOn(`<div inert>${GREY}</div>`), FAINT, 'inert content is still drawn');
+});
+
+test('contrast: a fixed dock is not measured as the background of text it covers only once vh content grows', { skip }, async () => {
+  // /trade/spot's "Market" and /charts' note (22 Nov): a block sized in vh (capped, as the app's clamps are) grows when
+  // the viewport is set to the page's height, the page grows past it, and the dock lands on text the bottom padding
+  // (wider than the dock) keeps clear at any one height. Read again until the height holds, the dock is back over the
+  // padding.
+  const room = (extra = '') => `<div style="background:#111;color:#ddd;padding-bottom:112px">
+    <div style="height:308px"></div>${extra}<div style="height:min(40vh,280px)"></div>
+    <p class="row" style="margin:0;font-size:16px;line-height:20px">Market</p></div>
+    <nav style="position:fixed;inset:auto 0 0 0;height:80px;background:#d0d0d0"></nav>`;
+  const dock = await contrastOn(room(), undefined, oneResize);
+  assert.equal(dock.length, 1, 'one resize: the planted page does put the dock under "Market"');
+  assert.match(dock[0], /^p\.row "Market" 1\.\d\d < 4\.5$/);
+  assert.deepEqual(await contrastOn(room()), [], 'height read until it holds: "Market" on its own panel');
+  // Real low contrast on the same growing page is still caught.
+  assert.deepEqual(
+    await contrastOn(room('<p class="faint" style="margin:0;color:#444;font-size:13px">Rail connection details</p>')),
+    ['p.faint "Rail connection details" 1.93 < 4.5'],
+    'dim text on the growing page',
+  );
+  // The settled height: the page fits its viewport, the dock back over the padding.
+  const { page, close } = await pageOf(room());
+  try {
+    assert.deepEqual(await fitToPage(page), { settled: true, fits: true });
+    assert.deepEqual(
+      await page.evaluate(() => [innerHeight, document.documentElement.scrollHeight]),
+      [720, 720],
+      'the page is 308 + 280 + 20 + 112 px tall at its settled height',
+    );
+  } finally {
+    await close();
+  }
 });
 
 test('contrast: text the browser never draws is not judged (#9596)', { skip }, async () => {
@@ -136,6 +174,16 @@ test('copy at 130%: a row that cuts its label fails; the same in a closed sectio
   assert.deepEqual(await cut(`<details open><summary>More</summary>${row}</details>`), [['span.label', 'is cut by div.row']], 'open');
   assert.deepEqual(await cut(`<details><summary>More</summary>${row}</details>`), [], 'in a closed <details>');
   assert.deepEqual(await cut(`<div style="display:none">${row}</div>`), [], 'under display: none');
+  // A screen-reader-only box around the text (the kit's .lt-sr, holding a chart's data table): nobody sees it cut.
+  const sr = (style) =>
+    `<div class="lt-sr" style="position:absolute;width:1px;height:1px;overflow:hidden;${style}"><table><caption data-look-gate-copy>A chart's data, for screen readers</caption></table></div>`;
+  assert.deepEqual(await cut(sr('clip-path:inset(50%)')), [], 'inside a box clipped to nothing');
+  assert.deepEqual(await cut(sr('')), [], 'inside a 1 px box that cuts what it holds');
+  assert.deepEqual(
+    await cut(`<div style="position:relative">${row}</div>`),
+    [['span.label', 'is cut by div.row']],
+    'a visible box around still cuts',
+  );
 });
 
 test('focus: a control a fixed bar paints over fails; one clear of it passes', { skip }, async () => {

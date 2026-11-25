@@ -26,7 +26,7 @@ export function LayoutFrame({
       <LayoutNavigation key={here} here={here} />
       <div data-testid="pp" className="plo-content pp">
         {!heading ? null : dashboard ? (
-          <h1 className="pp-sr">{t('overviewHeading')}</h1>
+          <h1 className="lt-sr">{t('overviewHeading')}</h1>
         ) : (
           <header data-testid="plo-heading" className="plo-heading">
             <div>

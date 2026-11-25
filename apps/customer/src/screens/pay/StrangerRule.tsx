@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react';
+import { Button, Radio, StatusNote } from '@intafaced/ui/lit';
 import { fetchReceiveRule, setReceiveRule, useSession, type ReceiveRule, type StrangerRule as Rule } from './deps';
 import { payCopy } from './copy';
 
@@ -47,38 +48,27 @@ export function StrangerRule() {
 
   const rule = loaded.status === 'ready' ? loaded.rule : null;
   return (
-    <fieldset className="pay-block pay-stranger" data-testid="stranger-rule" aria-labelledby={titleId} disabled={busy || !rule}>
-      <legend id={titleId} className="pay-section-title">
-        {payCopy.t('Payments from people not in your contacts')}
-      </legend>
+    <fieldset className="lt-stack" data-testid="stranger-rule" aria-labelledby={titleId} disabled={busy || !rule}>
+      <legend id={titleId}>{payCopy.t('Payments from people not in your contacts')}</legend>
       <p className="lt-hint">{payCopy.t('Stranger rule hint')}</p>
       {loaded.status === 'failed' ? (
-        <p className="pay-problem" role="alert">
-          {payCopy.t('Stranger rule load failed')}{' '}
-          <button type="button" className="pay-recent__link" onClick={() => setRevision((n) => n + 1)}>
-            {payCopy.t('Retry')}
-          </button>
-        </p>
+        <StatusNote tone="error" actions={<Button onClick={() => setRevision((n) => n + 1)}>{payCopy.t('Retry')}</Button>}>
+          {payCopy.t('Stranger rule load failed')}
+        </StatusNote>
       ) : null}
-      <label className="pay-stranger__option">
-        <input type="radio" name={name} checked={rule?.strangers === 'pay_in'} onChange={() => void choose('pay_in')} />
+      <Radio name={name} checked={rule?.strangers === 'pay_in'} onSelect={() => void choose('pay_in')}>
         {payCopy.t('Pay them into my balance')}
-      </label>
-      <label className="pay-stranger__option">
-        <input type="radio" name={name} checked={rule?.strangers === 'hold'} onChange={() => void choose('hold')} />
+      </Radio>
+      <Radio name={name} checked={rule?.strangers === 'hold'} onSelect={() => void choose('hold')}>
         {payCopy.t('Hold for me to accept')}
-      </label>
+      </Radio>
       {rule?.strangers === 'hold' && rule.holdDays !== null ? (
         <p className="lt-hint" data-testid="stranger-hold-days">
           {payCopy.t('Stranger hold days {n}', { n: String(rule.holdDays) })}
         </p>
       ) : null}
       {rule && rule.holdDays === null ? <p className="lt-hint">{payCopy.t('Stranger hold unset')}</p> : null}
-      {problem ? (
-        <p className="pay-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
+      {problem ? <StatusNote tone="error">{problem}</StatusNote> : null}
     </fieldset>
   );
 }

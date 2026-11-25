@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../shared/api';
-import { PayAmount, PayDetails, PayTime, ReviewedAction } from './components';
+import { PayAmount, PayDetails, PayTime, ReviewedAction } from './volt/parts';
 import { payCopy } from './copy';
 import { cancelCopy } from './p2p-cancel-copy';
 import { orderCopy } from './p2p-order-copy';
@@ -53,7 +53,7 @@ export function CancelOrder({
         title={payCopy.t('cancelOrder')}
         description={order.t('cancelBody')}
         review={
-          <div className="p2p-order-review">
+          <div className="lt-stack">
             <PayDetails
               values={[
                 ...reviewValues,
@@ -115,7 +115,7 @@ export function OrderRefund({ trade }: { trade: Trade }) {
     : [];
   if (trade.resolution === 'voided') {
     return (
-      <section className="p2p-order-result" aria-label={t('refundTitle')} data-testid="order-refund">
+      <section aria-label={t('refundTitle')} data-testid="order-refund">
         <PayDetails values={who} />
         <p className="lt-muted">
           <Copy k="voided" />
@@ -124,7 +124,7 @@ export function OrderRefund({ trade }: { trade: Trade }) {
     );
   }
   return (
-    <section className="p2p-order-result" aria-label={t('refundTitle')} data-testid="order-refund">
+    <section aria-label={t('refundTitle')} data-testid="order-refund">
       <h3>{t('refundTitle')}</h3>
       <PayDetails
         values={[

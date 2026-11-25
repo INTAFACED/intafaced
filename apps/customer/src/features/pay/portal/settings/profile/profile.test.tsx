@@ -120,6 +120,14 @@ describe('business details', () => {
     expect(out).toContain('TEST Shop');
     expect(out).not.toContain('Coming soon');
   });
+  it('names only the fields a change changed, though the service sends every field before and after it', () => {
+    const { merchantId: _m, version: _v, ...fields } = profile;
+    const out = html({
+      history: list([change({ before: { ...fields, website: null }, after: { ...fields, website: 'https://shop.test' } })]),
+    });
+    expect(out).toContain('<strong>Website</strong>');
+    expect(out).not.toMatch(/<strong>[^<]*Legal business name[^<]*<\/strong>/);
+  });
   it('has loading and failure states for the history', () => {
     expect(html({ history: { status: 'loading' } })).toContain('aria-busy="true"');
     expect(html({ history: list([]) })).toContain('No changes yet');

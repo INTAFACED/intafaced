@@ -900,7 +900,7 @@ test('self-trade: the one mode the engine has is picked and sent; the others are
   await stp.click();
   await expect(page.getByRole('option', { name: 'Cancel this order' })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('option', { name: 'Cancel both orders' })).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByText('the matching engine only cancels the resting order')).toBeVisible();
+  await expect(page.getByText('Only this choice is offered here: your resting order is the one cancelled.')).toBeVisible();
   await shotBoth(page, 'desk-self-trade');
   await page.keyboard.press('Escape');
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
@@ -1007,9 +1007,9 @@ test('trailing stop is listed, disabled, with one reason; nothing is sent', asyn
   await ready(page);
   await page.getByRole('button', { name: 'Other order types (not available)' }).click();
   const menu = page.getByRole('menu');
-  await expect(menu).toContainText('The service does not take this order type.');
+  await expect(menu.getByTestId('dk-type-reason')).toHaveText(['Not offered: the exchange does not take trailing stops on any market.']);
   const items = menu.getByRole('menuitem');
-  await expect(items).toHaveText(['Trailing stop']);
+  await expect(items).toHaveText(['Trailing stopNot offered: the exchange does not take trailing stops on any market.']);
   for (const item of await items.all()) await expect(item).toHaveAttribute('aria-disabled', 'true');
   await shotBoth(page, 'desk-order-kinds-disabled');
   await page.keyboard.press('Escape');

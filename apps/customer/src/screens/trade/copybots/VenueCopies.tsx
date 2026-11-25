@@ -46,7 +46,7 @@ export function VenueCopiedOrders({ follow, api }: { follow: Follow; api: RoomAp
   const rows = resource.status === 'ready' ? resource.data.positions : [];
   const columns: TableColumn<CopyPosition>[] = [
     { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')) },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')), width: '5rem' },
     { id: 'qty', header: t('Amount'), value: (r) => r.qty, numeric: true, cell: (r) => displayAmount(r.qty) },
     { id: 'filled', header: t('Filled'), value: (r) => r.filledQty, numeric: true, cell: (r) => displayAmount(r.filledQty) },
     { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, cell: (r) => displayAmount(r.price) },
@@ -88,15 +88,16 @@ export function VenueCopiedFills({ follow, api }: { follow: Follow; api: RoomApi
   const copies = resource.status === 'ready' ? resource.data.positions : [];
   const rows = copies.flatMap((o) => (o.venue?.fills ?? []).map((f) => ({ ...f, market: o.market, side: o.side })));
   const columns: TableColumn<VenueFillRow & { market: string; side: 'buy' | 'sell' }>[] = [
-    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')) },
-    { id: 'amount', header: t('Amount'), value: (r) => r.amount, numeric: true, cell: (r) => displayAmount(r.amount) },
-    { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, cell: (r) => displayAmount(r.price) },
+    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start', width: 170 },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')), width: 64 },
+    { id: 'amount', header: t('Amount'), value: (r) => r.amount, numeric: true, width: 92, cell: (r) => displayAmount(r.amount) },
+    { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, width: 80, cell: (r) => displayAmount(r.price) },
     {
       id: 'venueFee',
       header: t('Venue fee'),
       value: (r) => r.venueFee,
       numeric: true,
+      width: 240,
       cell: (r) => `${displayAmount(r.venueFee)} ${r.feeAsset}`,
     },
     {
@@ -104,9 +105,10 @@ export function VenueCopiedFills({ follow, api }: { follow: Follow; api: RoomApi
       header: t('Our builder fee'),
       value: (r) => r.builderFee,
       numeric: true,
+      width: 210,
       cell: (r) => `${displayAmount(r.builderFee)} ${r.feeAsset}`,
     },
-    { id: 'at', header: t('Filled at'), value: (r) => new Date(r.filledAt).toLocaleString(), width: 200 },
+    { id: 'at', header: t('Filled at'), value: (r) => new Date(r.filledAt).toLocaleString(), width: 210 },
   ];
   return (
     <>
@@ -116,7 +118,7 @@ export function VenueCopiedFills({ follow, api }: { follow: Follow; api: RoomApi
         rows={rows}
         getRowId={(r) => r.fillId}
         status={resource.status === 'loading' ? 'loading' : 'ready'}
-        minWidth={760}
+        minWidth={1066}
         emptyState={
           <EmptyState size="inline" title={t('No copied fills')} reason={t('A fill appears here when a copy fills on the venue.')} />
         }

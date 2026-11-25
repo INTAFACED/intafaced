@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { PayDetails } from '../volt/parts';
 import { ToggleChips } from '@intafaced/ui/lit';
 import { StatusChip } from '@intafaced/ui/lit/templates';
@@ -10,16 +10,6 @@ import { disputeStages, escrowView, timeLeft, type OrderAction, type OrderFilter
 /** The kit's step mark for a path state: filled when done, ringed when current, hollow otherwise (the words say which). */
 function kitStep(state: StepState): 'done' | 'current' | 'todo' {
   return state === 'done' ? 'done' : state === 'current' ? 'current' : 'todo';
-}
-
-/** A plain, always-visible reason. Used where a control exists but the service behind it does not. */
-export function P2PReason({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="lt-region" role="note" aria-label={title}>
-      <h3>{title}</h3>
-      <p>{children}</p>
-    </section>
-  );
 }
 
 const ACTION_KEY = {

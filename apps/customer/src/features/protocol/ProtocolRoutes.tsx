@@ -2,20 +2,24 @@ import { ParkedProtocolRoom } from './ParkedProtocolRoom';
 import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { ADDRESS_SHAPE, matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
-import { WalletRoom } from './wallet/WalletRoom';
 import { WalletHomeRoom } from './wallet/WalletHomeRoom';
 import { AccountsRoom } from './wallet/AccountsRoom';
 import { ActivityRoom } from './wallet/ActivityRoom';
 import { ReceiveRoom } from './wallet/ReceivePanel';
+import { SafetyPanel } from './wallet/SafetyPanel';
+import { ScanRoom } from './wallet/ScanRoom';
+import { SendRoom } from './wallet/SendRoom';
 import { TrackerRoom } from './wallet/TrackerPanel';
 import { AddressBookRoom } from './wallet/AddressBookRoom';
 import { ApprovalsRoom } from './wallet/ApprovalsRoom';
+import { ClaimLinksRoom } from './wallet/ClaimLinksRoom';
 import { SessionKeysRoom } from './wallet/SessionKeysRoom';
 import { WalletGroupRoom } from './wallet/WalletGroupRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
-import { ConventionPage, HoldingPage } from './wallet/HoldingPages';
+import { ConventionPage } from './wallet/ConventionPage';
+import { HoldingPage } from './wallet/HoldingPages';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
@@ -69,12 +73,17 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'addressBook') return <AddressBookRoom />;
   if (route.wallet === 'approvals') return <ApprovalsRoom />;
   if (route.wallet === 'sessionKeys') return <SessionKeysRoom />;
+  if (route.wallet === 'claimLinks') return <ClaimLinksRoom />;
   if (route.wallet === 'overview') return <WalletHomeRoom />;
   // Receive is drawn on its own monitor template (J-dex-protocol-04 #4).
   if (route.wallet === 'receive') return <ReceiveRoom />;
   // Track an address is drawn on its own monitor template (J-dex-protocol-06 #5 #6).
   if (route.wallet === 'tracker') return <TrackerRoom />;
-  if (route.wallet) return <WalletRoom section={route.wallet} />;
+  // Send and Scan are drawn on their own flow templates (J-dex-protocol-04).
+  if (route.wallet === 'send') return <SendRoom />;
+  if (route.wallet === 'scan') return <ScanRoom />;
+  // Safety is drawn on its own reading template (J-dex-protocol-08).
+  if (route.wallet === 'safety') return <SafetyPanel />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
   if (route.liquidity === 'new') return <NewPool />;

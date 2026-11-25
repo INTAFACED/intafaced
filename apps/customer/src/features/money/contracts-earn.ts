@@ -77,21 +77,4 @@ export const ruleSchema = z.object({
   createdAt: z.string(),
 });
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const earnReads = {
-  'autoInvest.policy': z.object({
-    enabled: z.boolean(),
-    convertWired: z.boolean(),
-    dcaRequiresConvert: z.literal(true),
-    inventsRates: z.literal(false),
-  }),
-} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const earnWrites = {
-  'autoInvest.createDca': ruleSchema,
-  'autoInvest.createThresholdSweep': ruleSchema,
-  'autoInvest.createRoundUp': ruleSchema,
-  'autoInvest.pause': ruleSchema,
-  'autoInvest.resume': ruleSchema,
-} as const;

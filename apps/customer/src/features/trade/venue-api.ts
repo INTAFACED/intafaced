@@ -9,6 +9,7 @@ import {
   type VenueTimeInForce,
   type VenueMarginMode,
   type VenueAccountMode,
+  type VenuePositionMode,
   venueMarketSchema,
   venueMarketMarginSchema,
   venueScheduledCancelSchema,
@@ -26,11 +27,13 @@ import {
   venueOrderRecordSchema,
   venueOrderPageSchema,
   venueFillSchema,
+  venueArrivalSchema,
   venuePositionSchema,
   venueLeverageChangeSchema,
   venueIsolatedMarginSchema,
   venueAccountSummarySchema,
   venueAccountModeSchema,
+  venuePositionModeSchema,
   venueVaultSchema,
   venueVaultHoldingsSchema,
   venueStakingSchema,
@@ -152,6 +155,8 @@ export interface OrderIntent {
   price: string;
   timeInForce: VenueTimeInForce;
   reduceOnly: boolean;
+  /** Optional trader label stored with the order by our door (J-derivatives-04 #2). */
+  label?: string | null;
   clientOrderKey: string;
   /** Our builder fee is the door's (the owner value), never the browser's. */
   builderFee: null;
@@ -195,6 +200,10 @@ export type VenueIntent =
   // the person's own signed venue action.
   | { kind: 'spot_perps_transfer'; direction: 'perps_to_spot' | 'spot_to_perps'; asset: string; amount: string; moveKey: string }
   | { kind: 'set_account_mode'; mode: VenueAccountMode; changeKey: string }
+  // J-derivatives-05 #3 #7: one perpetual switched between one-way and hedge mode, and an open position moved between the
+  // main account and a sub-account, each offered only where the venue offers it and signed by the person's wallet.
+  | { kind: 'set_position_mode'; symbol: string; mode: VenuePositionMode; changeKey: string }
+  | { kind: 'move_position'; subAccount: string; direction: 'into_sub_account' | 'out_of_sub_account'; symbol: string; moveKey: string }
   // J-derivatives-31 #2 #5: USDC put into a venue vault or taken out of it, the person's own signed venue transfer.
   | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string }
   // J-cex-spot-21: HYPE moved between spot and staking, and delegated to or undelegated from a validator, each the person's
@@ -221,6 +230,8 @@ export const keys = {
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
   /** One reverse of a position: its close is `<key>:close` and its open `<key>:open`, each under the one reverse key. */
   reverse: (owner: string, draft: string) => `order:${part(owner)}:reverse:${draft}`,
+  /** One split order batch (J-derivatives-02 #5): children are `<key>:1`, `<key>:2`, ... under this action key. */
+  split: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:split:${draft}`,
   /** The person's own sub-account, by its name: a second press opens the same one (user-venue-door.ts OWN_SUB_ACCOUNT_PREFIX). */
   ownSubAccount: (owner: string, name: string) => `own:sub-account:${part(owner)}:${part(name.trim())}`,
   /** One move between the main account and an own sub-account, by its reviewed draft (OWN_MOVE_PREFIX). */
@@ -260,6 +271,11 @@ export const keys = {
     `class-move:${part(owner)}:${direction === 'perps_to_spot' ? 'to-spot' : 'to-perps'}:${draft}`,
   /** One reviewed change of the account's mode (J-derivatives-29 #7 #8). */
   accountMode: (owner: string, mode: VenueAccountMode, draft: string) => `account-mode:${part(owner)}:${part(mode)}:${draft}`,
+  /** One switch of a perpetual's position mode (J-derivatives-05 #3). */
+  positionMode: (owner: string, symbol: string, mode: VenuePositionMode, draft: string) =>
+    `position-mode:${part(owner)}:${part(symbol)}:${mode === 'hedge' ? 'hedge' : 'one-way'}:${draft}`,
+  /** One move of an open position between the main account and a sub-account (J-derivatives-05 #7). */
+  positionMove: (owner: string, draft: string) => `position-move:${part(owner)}:${draft}`,
   /** One reviewed move into or out of a vault (J-derivatives-31 #2 #5): the same move sent again is the same key. */
   vaultMove: (owner: string, vault: string, direction: 'deposit' | 'withdraw', draft: string) =>
     `vault-move:${part(owner)}:${part(vault)}:${direction}:${draft}`,
@@ -373,6 +389,9 @@ export function venueApi(api: ApiClient) {
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
+    /** Credits into the account from outside it (deposits, transfers in), oldest first (J-portfolio-06 #3). */
+    arrivals: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
+      read('/arrivals', asOf(z.array(venueArrivalSchema)), { owner, ...at }, signal),
     /** The positions on one account: the main account, or one of the owner's sub-accounts, on a venue (J-derivatives-05). */
     positions: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/positions', asOf(z.array(venuePositionSchema)), { owner, ...at }, signal),
@@ -400,6 +419,9 @@ export function venueApi(api: ApiClient) {
     /** The account's mode, its spot and perps balances in standard mode, and the day's action count (J-derivatives-29). */
     accountMode: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/account-mode', asOf(venueAccountModeSchema), { owner, venueId }, signal),
+    /** The position mode the account holds one perpetual in, as the venue reports it (J-derivatives-05 #3). */
+    positionMode: (owner: string, q: { symbol: string; venueId: string }, signal?: AbortSignal) =>
+      read('/position-mode', asOf(venuePositionModeSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
     /** The position's liquidation state on one market and the venue's rules (J-derivatives-07 #1 #3). */
     liquidation: (owner: string, q: { symbol: string; venueId?: string }, signal?: AbortSignal) =>
       read('/liquidation', asOf(venueLiquidationStatusSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
@@ -480,12 +502,14 @@ export function venueApi(api: ApiClient) {
       actionKey?: string;
       stepUpApprovalId?: string | null;
       venueId?: string;
+      /** Who signs it: the owner's wallet (the default), or a trading session's agent key (session-signer.ts). */
+      signer?: { role: 'owner' | 'agent'; address: string };
     }) =>
       write('/prepare', preparedAnswerSchema, {
         ...(input.venueId ? { venueId: input.venueId } : {}),
         ...(input.subAccount ? { subAccount: input.subAccount } : {}),
         owner: input.owner,
-        signer: { role: 'owner', address: input.owner },
+        signer: input.signer ?? { role: 'owner', address: input.owner },
         intent: input.intent,
         actionKey: input.actionKey ?? null,
         stepUpApprovalId: input.stepUpApprovalId ?? null,

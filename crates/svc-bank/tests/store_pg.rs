@@ -66,14 +66,14 @@ fn post(door: &BankDoor, path: &str, service: Option<&str>) -> (u16, Json) {
 fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() {
     let Some(db) = TestDb::new() else { return };
     let ups: Vec<&str> = MIGRATIONS.ups().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(ups.len(), 127);
+    assert_eq!(ups.len(), 128);
 
     let (code, out) = db.binary(false);
     assert_eq!(code, 0, "{out}");
     let mut want: Vec<String> = ups.iter().map(|n| format!("↑ {n}")).collect();
     want.push("✓ migrations up to date".to_owned());
     assert_eq!(out.lines().collect::<Vec<_>>(), want);
-    assert_eq!(db.count("SELECT count(*) FROM bank.__migrations"), 127);
+    assert_eq!(db.count("SELECT count(*) FROM bank.__migrations"), 128);
     // 175 tables, PORT.md's count, and the tracking table.
     assert_eq!(
         db.count("SELECT count(*) FROM pg_tables WHERE schemaname = 'bank' AND tablename <> '__migrations'"),
@@ -126,7 +126,7 @@ fn a_reversal_skips_a_file_the_record_does_not_name() {
     let (code, out) = db.binary(true);
     assert_eq!(code, 0, "{out}");
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines.len(), 127, "126 reversals and the closing line");
+    assert_eq!(lines.len(), 128, "127 reversals and the closing line");
     assert!(
         !out.contains(&format!("↓ {}", latest.replace(".sql", ".down.sql"))),
         "the file never applied is not reversed"
@@ -188,8 +188,8 @@ fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
 
     let (status, empty) = post(&d, "/internal/restore/watermark", Some("svc-ops"));
     assert_eq!(status, 200, "{}", empty.compact());
-    // Every table of the schema is counted, the migrations' record (127 rows) with them, as the TypeScript counts it.
-    assert_eq!(empty.get("position"), Some(&Json::str("127")));
+    // Every table of the schema is counted, the migrations' record (128 rows) with them, as the TypeScript counts it.
+    assert_eq!(empty.get("position"), Some(&Json::str("128")));
     assert_eq!(empty.get("lastWriteAt"), Some(&Json::Null));
     assert_eq!(empty.get("kind"), Some(&Json::str("bank.rows")));
 
@@ -203,7 +203,7 @@ fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
     .unwrap();
     let (status, read) = post(&d, "/internal/restore/watermark", Some("svc-ops"));
     assert_eq!(status, 200, "{}", read.compact());
-    assert_eq!(read.get("position"), Some(&Json::str("129")));
+    assert_eq!(read.get("position"), Some(&Json::str("130")));
     assert_ne!(read.get("integrity"), empty.get("integrity"));
     assert_eq!(
         read.get("lastWriteAt"),
@@ -226,7 +226,7 @@ fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
         .map(|t| {
             let n = match t.as_str() {
                 "spaces" => 2,
-                "__migrations" => 127,
+                "__migrations" => 128,
                 _ => 0,
             };
             (t, n)
@@ -252,7 +252,9 @@ fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
 }
 
 #[test]
-fn a_job_door_answers_401_unsigned_then_names_its_slice() {
+/// Unsigned, a job door answers 401; signed, the call reaches its slice, whose own body check answers (every slice is
+/// ported, so none answers "not ported").
+fn a_job_door_answers_401_unsigned_then_its_slice_checks_the_body() {
     let Some(db) = TestDb::new() else { return };
     db.migrated_in_place();
     let d = door(db.store());
@@ -263,10 +265,10 @@ fn a_job_door_answers_401_unsigned_then_names_its_slice() {
         r#"{"error":"service credentials required","code":"bank.unauthenticated"}"#
     );
     let (status, body) = post(&d, "/internal/jobs/bill-pay/run-due", Some("svc-bank"));
-    assert_eq!(status, 500);
+    assert_eq!(status, 400);
     assert_eq!(
         body.compact(),
-        r#"{"error":"svc-bank in Rust: the business-spend slice is not ported"}"#
+        r#"{"error":"body not in shape","code":"bank.validation_failed"}"#
     );
     d.end();
 }

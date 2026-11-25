@@ -95,18 +95,29 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="if-buy" class="if-buy">
-<nav data-testid="buy-crumbs" class="buy-crumbs" aria-label="Buy crypto">
-<a href="/trade">Trade</a>
+<div data-testid="if-buy">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header data-testid="buy-hero" class="lt-title-row">
+<div>
+<h1 class="lt-title">Buy crypto in a few steps</h1>
+<p class="lt-description">Bitcoin, Ether and more, paid from your USDT or USDC balance.</p>
+</div>
+<div class="lt-room-action">
+<a data-testid="buy-crumbs__history" href="/money/activity?tab=orders" class="lt-button lt-button-secondary">Order history</a>
+</div>
+</header>
+<div class="lt-room-section">
+<nav data-testid="buy-crumbs" class="lt-row" aria-label="Buy crypto">
+<a class="lt-link" href="/trade">Trade</a>
 <span aria-hidden="true">›</span>
 <span aria-current="page">Buy crypto</span>
-<a data-testid="buy-crumbs__history" class="buy-crumbs__history" href="/money/activity?tab=orders">Order history</a>
 </nav>
-<div class="buy-grid">
-<header data-testid="buy-hero" class="buy-hero">
-<h1>Buy crypto in a few steps</h1>
-<p>Bitcoin, Ether and more, paid from your USDT or USDC balance.</p>
-</header>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
 <section data-testid="buy-card" class="lt-region lt-stack" aria-label="Buy or sell">
 <div class="lt-stack">
 <div data-testid="buy-form__top">
@@ -177,98 +188,140 @@
 </div>
 </section>
 </div>
-<section class="buy-orders" aria-label="Your orders" data-testid="your-orders">
-<header class="buy-orders__head">
-<div>
-<h2>Your orders</h2>
-<p>Open orders first, then your latest finished ones.</p>
+</section>
 </div>
-<span role="status" data-slot="status-chip" data-freshness="live" data-density="dense" class="inline-flex items-center gap-1.5 whitespace-nowrap text-2xs text-accent-text" data-testid="orders-freshness">
-<svg data-shape="dot" aria-hidden="true" viewBox="0 0 12 12" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5">
-<circle cx="6" cy="6" r="3.5" fill="currentColor" stroke="none">
-</circle>
-</svg>
-<span>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
+</div>
+<div class="lt-room">
+<section class="lt-panel lt-stack" aria-label="Your orders" data-testid="your-orders">
+<header class="lt-row lt-row-between">
+<div class="lt-stack lt-stack-tight">
+<h2>Your orders</h2>
+<p class="lt-hint">Open orders first, then your latest finished ones.</p>
+</div>
+<div class="lt-row">
+<span data-testid="orders-freshness">
+<span role="status" class="lit-tag" data-tone="up" data-freshness="live">
 <span data-part="word">Live</span>
+<span> <time datetime="2026-10-21T12:00:00.000Z" class="lt-num">12:00:00</time>
 </span>
 </span>
-<a href="/money/activity?tab=orders" role="button" tabindex="0" data-slot="button" data-variant="ghost" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 px-4 text-sm rounded-pill">Open in Activity</a>
+</span>
+<a href="/money/activity?tab=orders" class="lt-button lt-button-secondary">Open in Activity</a>
+</div>
 </header>
-<div data-slot="table" data-density="dense" data-status="ready" class="relative w-full">
-<div data-slot="table-scroll" role="region" aria-label="Your orders" class="w-full overflow-x-auto">
-<table role="grid" style="min-width: 640px;" class="w-full table-fixed border-separate border-spacing-0 text-fg">
-<caption class="sr-only">Your orders</caption>
-<colgroup>
-<col style="width: 130px;">
-<col>
-<col style="width: 80px;">
-<col>
-<col>
-<col style="width: 140px;">
-<col style="width: 100px;">
-</colgroup>
+<div class="lt-table-scroll" tabindex="0" role="region" aria-label="Your orders">
+<table class="lt-table lt-table-dense" data-mode="simple">
+<caption class="lt-sr">Your orders</caption>
 <thead>
-<tr class="h-(--if-table-head-h-dense)">
-<th scope="col" data-align="start" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-2 text-left overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">Time</th>
-<th scope="col" data-align="start" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-2 text-left overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">Market</th>
-<th scope="col" data-align="start" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-2 text-left overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">Side</th>
-<th scope="col" data-align="end" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-2 text-right overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">Amount</th>
-<th scope="col" data-align="end" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-2 text-right overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">Filled</th>
-<th scope="col" data-align="start" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-2 text-left overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">Status</th>
-<th scope="col" data-align="end" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-2 text-right overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">
-<span class="sr-only">Cancel order</span>
-</th>
+<tr>
+<th scope="col" data-align="start">Time</th>
+<th scope="col" data-align="start">Market</th>
+<th scope="col" data-align="start">Side</th>
+<th scope="col" data-align="end">Amount</th>
+<th scope="col" data-align="end">Filled</th>
+<th scope="col" data-align="start">Status</th>
+<th scope="col" data-align="end">Cancel order</th>
 </tr>
 </thead>
 <tbody>
-<tr data-slot="table-row" data-row-index="0" tabindex="0" class="h-(--if-table-row-h-dense) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">Oct 14, 9:00 AM</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">BTC/USDT</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span data-slot="badge" data-tone="up" data-variant="soft" data-density="dense" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-5 px-1.5 text-2xs bg-up-bg-soft text-up-text">Buy</span>
+<tr data-row="">
+<td data-label="Time" data-align="start">
+<a class="lt-row-link" href="/money/activity?tab=orders">
+<bdi>Oct 14, 9:00 AM</bdi>
+</a>
 </td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">0.00008 BTC</td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">0</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span data-slot="badge" data-tone="lime" data-variant="soft" data-density="dense" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-5 px-1.5 text-2xs bg-lime-soft text-accent-text">Open</span>
+<td data-label="Market" data-align="start">
+<bdi>BTC/USDT</bdi>
 </td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Cancel the buy order for BTC/USDT" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-7 px-3 text-sm rounded-pill">Cancel</button>
+<td data-label="Side" data-align="start">
+<bdi>
+<span class="lit-tag" data-tone="up">Buy</span>
+</bdi>
+</td>
+<td data-label="Amount" data-align="end">
+<bdi>0.00008 BTC</bdi>
+</td>
+<td data-label="Filled" data-align="end">
+<bdi>0</bdi>
+</td>
+<td data-label="Status" data-align="start">
+<bdi>
+<span class="lit-tag" data-tone="accent">Open</span>
+</bdi>
+</td>
+<td data-label="Cancel order" data-align="end">
+<bdi>
+<button aria-label="Cancel the buy order for BTC/USDT" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Cancel</button>
+</bdi>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="1" tabindex="-1" class="h-(--if-table-row-h-dense) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">Oct 14, 8:01 AM</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">BTC/USDT</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span data-slot="badge" data-tone="up" data-variant="soft" data-density="dense" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-5 px-1.5 text-2xs bg-up-bg-soft text-up-text">Buy</span>
+<tr data-row="">
+<td data-label="Time" data-align="start">
+<a class="lt-row-link" href="/money/activity?tab=orders">
+<bdi>Oct 14, 8:01 AM</bdi>
+</a>
 </td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">0.00015 BTC</td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">0.00015</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span data-slot="badge" data-tone="neutral" data-variant="soft" data-density="dense" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-5 px-1.5 text-2xs bg-hover text-fg-2">Filled</span>
+<td data-label="Market" data-align="start">
+<bdi>BTC/USDT</bdi>
 </td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-label="Side" data-align="start">
+<bdi>
+<span class="lit-tag" data-tone="up">Buy</span>
+</bdi>
+</td>
+<td data-label="Amount" data-align="end">
+<bdi>0.00015 BTC</bdi>
+</td>
+<td data-label="Filled" data-align="end">
+<bdi>0.00015</bdi>
+</td>
+<td data-label="Status" data-align="start">
+<bdi>
+<span class="lit-tag" data-tone="neutral">Filled</span>
+</bdi>
+</td>
+<td data-label="Cancel order" data-align="end">
+<bdi>—</bdi>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="2" tabindex="-1" class="h-(--if-table-row-h-dense) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">Oct 13, 5:00 PM</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">BTC/USDT</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span data-slot="badge" data-tone="up" data-variant="soft" data-density="dense" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-5 px-1.5 text-2xs bg-up-bg-soft text-up-text">Buy</span>
+<tr data-row="">
+<td data-label="Time" data-align="start">
+<a class="lt-row-link" href="/money/activity?tab=orders">
+<bdi>Oct 13, 5:00 PM</bdi>
+</a>
 </td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">0.0001 BTC</td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">0</td>
-<td data-align="start" class="px-2 text-sm text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span data-slot="badge" data-tone="neutral" data-variant="soft" data-density="dense" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-5 px-1.5 text-2xs bg-hover text-fg-2">Cancelled</span>
+<td data-label="Market" data-align="start">
+<bdi>BTC/USDT</bdi>
 </td>
-<td data-align="end" class="px-2 text-sm text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-label="Side" data-align="start">
+<bdi>
+<span class="lit-tag" data-tone="up">Buy</span>
+</bdi>
+</td>
+<td data-label="Amount" data-align="end">
+<bdi>0.0001 BTC</bdi>
+</td>
+<td data-label="Filled" data-align="end">
+<bdi>0</bdi>
+</td>
+<td data-label="Status" data-align="start">
+<bdi>
+<span class="lit-tag" data-tone="neutral">Cancelled</span>
+</bdi>
+</td>
+<td data-label="Cancel order" data-align="end">
+<bdi>—</bdi>
 </td>
 </tr>
 </tbody>
 </table>
 </div>
-</div>
 </section>
+</div>
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">

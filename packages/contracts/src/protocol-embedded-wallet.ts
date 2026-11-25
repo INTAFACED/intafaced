@@ -39,6 +39,19 @@ export const embeddedWalletPasskeySchema = z.object({
   publicKey: base64url.max(400),
   /** COSE algorithm. ES256 (-7) only. */
   algorithm: z.literal(-7),
+  /**
+   * The passkey's WebAuthn registration, which a provider that binds a passkey only from its registration needs (the
+   * owner's provider does): the challenge the page made it with, its client data and its attestation object, and how
+   * the device reaches it. None of it can sign. Omitted, such a provider refuses the passkey and nothing is made.
+   */
+  registration: z
+    .object({
+      challenge: base64url.max(200),
+      clientDataJson: base64url.max(4000),
+      attestationObject: base64url.max(8000),
+      transports: z.array(z.enum(['ble', 'internal', 'nfc', 'usb', 'hybrid', 'smart-card'])).max(6),
+    })
+    .optional(),
 });
 export type EmbeddedWalletPasskey = z.infer<typeof embeddedWalletPasskeySchema>;
 

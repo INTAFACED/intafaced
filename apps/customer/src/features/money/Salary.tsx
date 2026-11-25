@@ -3,11 +3,11 @@ import { CopyButton } from '../../screens/account/CopyButton';
 import { useSession } from '../session';
 import { AccountDetailsList } from './AccountDetails';
 import { IncomeSorter } from './spaces/IncomeSorter';
-import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec, useBankRecord } from './components';
+import { amount, date, NoRows, ResourceView, Section, useSpaces, type ActionSpec, useBankRecord } from './components';
 import type { AccountDetailsRow, SalaryCredit } from './contracts';
 import { salaryCopy } from './salary-copy';
 import type { Space } from './client';
-import { BANK_SALARY_CREDITS } from '@intafaced/contracts/bank-salary-procedures';
+import { BANK_SALARY_CREDITS, BANK_SALARY_DETAILS, BANK_SALARY_FORM } from '@intafaced/contracts/bank-salary-procedures';
 
 /**
  * `/bank/salary` (J-bank-30): salary paid in by direct deposit. The partner bank's account details the employer pays,
@@ -18,7 +18,7 @@ import { BANK_SALARY_CREDITS } from '@intafaced/contracts/bank-salary-procedures
 export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = salaryCopy.useCopy();
   const { profiles } = useSession();
-  const details = useBankRead('salary.details', { profile: profiles.active });
+  const details = useBankRecord(BANK_SALARY_DETAILS, { profile: profiles.active });
   const spaces = useSpaces(200);
   const credits = useBankRecord(BANK_SALARY_CREDITS, { limit: 50 });
   const spaceRows: Space[] = spaces.resource.status === 'ready' ? (spaces.resource.data as Space[]) : [];
@@ -68,7 +68,7 @@ export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
         <ResourceView resource={credits.resource} reload={credits.reload}>
           {(rows) =>
             rows.length ? (
-              <ul className="money-list" data-testid="salary-credits">
+              <ul data-testid="salary-credits">
                 {rows.map((credit) => (
                   <CreditRow key={credit.networkId} credit={credit} nameOf={nameOf} />
                 ))}
@@ -86,7 +86,7 @@ export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
 function EmployerForm({ row }: { row: AccountDetailsRow }) {
   const { t } = salaryCopy.useCopy();
   const { profiles } = useSession();
-  const form = useBankRead('salary.form', { currency: row.currency, profile: profiles.active });
+  const form = useBankRecord(BANK_SALARY_FORM, { currency: row.currency, profile: profiles.active });
   return (
     <section className="lt-stack" aria-label={t('formTitle', { currency: row.currency })} data-testid={`salary-form-${row.currency}`}>
       <h4>{t('formTitle', { currency: row.currency })}</h4>
@@ -136,7 +136,7 @@ function CreditRow({ credit, nameOf }: { credit: SalaryCredit; nameOf: (spaceId:
         </p>
       )}
       {credit.legs.length > 0 && (
-        <ul className="money-list">
+        <ul>
           {credit.legs.map((leg) => {
             const words = { amount: amount(leg.amount, credit.assetId), space: nameOf(leg.spaceId), code: leg.rejectionCode ?? '' };
             const key = { settled: 'legSettled', rejected: 'legRejected', pending: 'legPending', unsplit: 'legUnsplit' } as const;

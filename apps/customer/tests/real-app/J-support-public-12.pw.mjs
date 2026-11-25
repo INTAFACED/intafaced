@@ -1,8 +1,8 @@
 // World: restart
 import { test, expect } from './journey.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { ADMIN } from './admin.mjs';
 import { signUp } from './desk.mjs';
-import { asDesk, deskPeople } from './help-centre.mjs';
+import { asDesk, deskData, deskPeople } from './help-centre.mjs';
 import { api, restartService } from './stack.mjs';
 
 // J-support-public-12, in the running app (docs/roadmap/journeys.json): a support lead decides who sees which requests and
@@ -29,11 +29,7 @@ const ownDesk = (heartbeatWindow, { fresh = false } = {}) =>
   });
 
 /** A desk call that must succeed; its data. */
-async function desk(who, kind, procedure, input) {
-  const res = await asDesk(who, kind, procedure, input);
-  if (res.json?.result?.data === undefined) throw new Error(`${procedure} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return res.json.result.data;
-}
+const desk = deskData;
 
 /** A desk call that must be refused with `code`; the refusal's status. */
 async function refused(who, kind, procedure, input, code) {
@@ -74,10 +70,9 @@ test.afterAll(async () => {
   });
 });
 
-/** The founder console's support desk, signed in as the lead. */
-async function console_(browser) {
-  const page = await browser.newPage();
-  await founderSignIn(page, 'a');
+/** The founder console's support desk, on the lead's (founder A's) session the `founders` fixture keeps for this file. */
+async function console_(founders) {
+  const { page } = await founders.console('a');
   await page.goto(`${ADMIN}/support`);
   return page;
 }
@@ -101,25 +96,26 @@ const assignedRows = async (ticketId) =>
   (await desk('lead', 'query', 'events', { ticketId, limit: 100 })).filter((e) => e.kind === 'assigned');
 
 test(`${J} #1 the agent directory shows availability and groups; an agent goes busy; a set window turns a silent agent offline; blank says not set`, async ({
-  browser,
+  founders,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
-  const page = await console_(browser);
+  const page = await console_(founders);
   const staff = page.getByTestId('staff-panel');
   // Window blank (as in production): the directory says automatic offline is not set.
   await expect(staff.getByTestId('staff-policy')).toContainText('Automatic offline is not set');
   // Each person's row: its availability (nobody has set one on this new desk: offline) and its groups (teams). The desk has
   // no groups yet (#3 reads it so), so every row's groups cell says None.
   const availability = (id) => staff.getByTestId(`staff-${id}`).getByRole('cell').nth(3);
-  await expect(staff.getByRole('columnheader', { name: 'Groups (teams)' })).toBeVisible();
-  await expect(staff.getByRole('columnheader', { name: 'Availability' })).toBeVisible();
+  await expect(staff.getByRole('columnheader', { name: 'Groups (teams)', exact: true })).toBeVisible();
+  await expect(staff.getByRole('columnheader', { name: 'Availability', exact: true })).toBeVisible();
   for (const id of Object.values(people)) {
     await expect(availability(id)).toHaveText('offline');
     await expect(staff.getByTestId(`staff-groups-${id}`)).toHaveText('None');
   }
   // The agent toggles busy on its own session; the directory shows it, and nobody else's availability moves.
   await setAvailability('agent', people.b, 'busy');
-  await page.getByRole('button', { name: 'Refresh staff' }).click();
+  await page.getByRole('button', { name: 'Refresh staff', exact: true }).click();
   await expect(availability(people.b)).toHaveText('busy');
   for (const id of [people.lead, people.c, people.d, people.e]) await expect(availability(id)).toHaveText('offline');
   await setAvailability('agent', people.b, 'online');
@@ -130,24 +126,34 @@ test(`${J} #1 the agent directory shows availability and groups; an agent goes b
   await page.reload();
   await expect(staff.getByTestId('staff-policy')).toContainText('5 seconds');
   await expect(availability(people.c)).toHaveText('online');
-  await page.waitForTimeout(6_500);
-  await page.getByRole('button', { name: 'Refresh staff' }).click();
+  // svc-support's directory reads C offline once the 5 s window has passed (allowed 6.5 s, as before); the page then shows
+  // it on one refresh.
+  await expect
+    .poll(async () => (await desk('lead', 'query', 'staffList')).find((m) => m.userId === people.c)?.availability, {
+      timeout: 6_500,
+      intervals: [500],
+    })
+    .toBe('offline');
+  await page.getByRole('button', { name: 'Refresh staff', exact: true }).click();
   await expect(availability(people.c)).toHaveText('offline');
   await ownDesk(undefined);
   await page.reload();
   await expect(staff.getByTestId('staff-policy')).toContainText('Automatic offline is not set');
-  await page.close();
+  await stepPicture(page);
 });
 
-test(`${J} #2 a lead sets another agent's availability with a logged reason; an agent cannot set someone else's`, async ({ browser }) => {
-  const page = await console_(browser);
+test(`${J} #2 a lead sets another agent's availability with a logged reason; an agent cannot set someone else's`, async ({
+  founders,
+  stepPicture,
+}) => {
+  const page = await console_(founders);
   const staff = page.getByTestId('staff-panel');
   const reason = `TEST ${J} ${RUN} covering the late shift`;
   await staff.locator('#sd-staff-target').selectOption(people.d);
   await staff.locator('#sd-staff-avail').selectOption('busy');
   await staff.locator('#sd-staff-reason').fill(reason);
-  await staff.getByRole('button', { name: 'Review availability' }).click();
-  await staff.getByRole('button', { name: 'Yes, set busy' }).click();
+  await staff.getByRole('button', { name: 'Review availability', exact: true }).click();
+  await staff.getByRole('button', { name: 'Yes, set busy', exact: true }).click();
   await expect(staff.getByTestId(`staff-${people.d}`)).toContainText('busy');
   // The log has the lead's change with its reason, once.
   const log = page.getByTestId('staff-log');
@@ -158,23 +164,23 @@ test(`${J} #2 a lead sets another agent's availability with a logged reason; an 
   // The agent (founder B) cannot set the same person's availability; nothing changes.
   await refused('agent', 'mutation', 'staffSetAvailability', { userId: people.d, availability: 'online' }, 'support.not_lead');
   expect((await desk('lead', 'query', 'staffList')).find((m) => m.userId === people.d).availability).toBe('busy');
-  await page.close();
+  await stepPicture(page);
 });
 
-test(`${J} #3 visibility settings with no groups say "Visibility is not restricted"`, async ({ browser }) => {
-  const page = await console_(browser);
+test(`${J} #3 visibility settings with no groups say "Visibility is not restricted"`, async ({ founders, stepPicture }) => {
+  const page = await console_(founders);
   expect(await desk('lead', 'query', 'groupsList')).toEqual([]);
   await expect(page.getByTestId('groups-panel').getByTestId('groups-scope')).toContainText('Visibility is not restricted');
-  await page.close();
+  await stepPicture(page);
 });
 
 /** Make a group in the console; its id. */
 async function makeGroup(page, name) {
   const panel = page.getByTestId('groups-panel');
   await panel.locator('#sd-group-edit').selectOption({ label: 'A new group' });
-  await panel.getByLabel('Name').fill(name);
-  await panel.getByRole('button', { name: 'Review group' }).click();
-  await panel.getByRole('button', { name: 'Yes, make it' }).click();
+  await panel.getByLabel('Name', { exact: true }).fill(name);
+  await panel.getByRole('button', { name: 'Review group', exact: true }).click();
+  await panel.getByRole('button', { name: 'Yes, make it', exact: true }).click();
   await expect(panel.getByTestId('groups-outcome')).toBeVisible();
   let id;
   await expect.poll(async () => (id = (await desk('lead', 'query', 'groupsList')).find((g) => g.name === name)?.id)).toBeTruthy();
@@ -188,8 +194,8 @@ async function membership(page, groupName, userId, add) {
   await panel.locator('#sd-group-pick').selectOption({ label: groupName });
   await panel.locator('#sd-group-user').selectOption(userId);
   await panel.locator('#sd-group-op').selectOption({ label: add ? 'Add to the group' : 'Remove from the group' });
-  await panel.getByRole('button', { name: 'Review membership' }).click();
-  await panel.getByRole('button', { name: add ? 'Yes, add them' : 'Yes, remove them' }).click();
+  await panel.getByRole('button', { name: 'Review membership', exact: true }).click();
+  await panel.getByRole('button', { name: add ? 'Yes, add them' : 'Yes, remove them', exact: true }).click();
   await expect(panel.getByTestId('groups-outcome')).toBeVisible();
   await expect
     .poll(async () => (await desk('lead', 'query', 'groupsList')).find((g) => g.name === groupName)?.memberIds.includes(userId))
@@ -208,9 +214,10 @@ async function agentSees(word) {
 }
 
 test(`${J} #4 two groups and an agent in one: the agent's list, search and count show its group and its own; a ticket outside is not found`, async ({
-  browser,
+  founders,
+  stepPicture,
 }) => {
-  const page = await console_(browser);
+  const page = await console_(founders);
   groups.one = { name: `TEST ${J} ${RUN} payments`, id: await makeGroup(page, `TEST ${J} ${RUN} payments`) };
   groups.two = { name: `TEST ${J} ${RUN} trading`, id: await makeGroup(page, `TEST ${J} ${RUN} trading`) };
   await membership(page, groups.one.name, people.b, true);
@@ -236,11 +243,18 @@ test(`${J} #4 two groups and an agent in one: the agent's list, search and count
   // The lead still sees all three.
   const leadList = (await desk('lead', 'query', 'listAll', { limit: 500, q: word })).map((t) => t.id);
   expect(leadList.sort()).toEqual([scoped.inOne, scoped.inTwo, scoped.mine].sort());
-  await page.close();
+  // The agent's own console: its queue (unassigned requests only, so not the one already theirs, which listAll shows
+  // above) searched for this step's word shows the payments request, never the trading one.
+  const { page: agentPage } = await founders.console('b');
+  await agentPage.goto(`${ADMIN}/support?q=${word}`);
+  const queue = agentPage.getByRole('region', { name: 'Support queue', exact: true });
+  await expect(queue.getByRole('row').filter({ hasText: `${word} in payments` })).toHaveCount(1);
+  await expect(queue.getByRole('row').filter({ hasText: `${word} in trading` })).toHaveCount(0);
+  await stepPicture(agentPage);
 });
 
-test(`${J} #5 a membership change shows on the next read, and the group log has one row for it`, async ({ browser }) => {
-  const page = await console_(browser);
+test(`${J} #5 a membership change shows on the next read, and the group log has one row for it`, async ({ founders, stepPicture }) => {
+  const page = await console_(founders);
   const before = await desk('lead', 'query', 'groupsLog', { groupId: groups.two.id });
   await membership(page, groups.two.name, people.b, true);
   const after = await desk('lead', 'query', 'groupsLog', { groupId: groups.two.id });
@@ -258,7 +272,7 @@ test(`${J} #5 a membership change shows on the next read, and the group log has 
   await expect(groupsCell).toContainText(groups.one.name);
   await expect(groupsCell).toContainText(groups.two.name);
   await expect(groupsCell).not.toHaveText('None');
-  await page.close();
+  await stepPicture(page);
 });
 
 const routed = {};
@@ -271,23 +285,24 @@ async function routingFor(page, userId, capacity, skills = '') {
   await staff.locator('#sd-routing-skills').fill(skills);
   // An agent who already has exactly this routing (a blank capacity that was never set, say) has nothing to save: the
   // console says so and offers no save. The shown capacity is still checked below.
-  const unchanged = staff.locator('.dk-why').filter({ hasText: 'That is already their routing.' });
-  const review = staff.getByRole('button', { name: 'Review routing' });
+  const unchanged = staff.getByText('That is already their routing.', { exact: true });
+  const review = staff.getByRole('button', { name: 'Review routing', exact: true });
   // Wait until the form has settled: either the save is offered, or the console says there is nothing to change.
   await expect.poll(async () => (await unchanged.count()) > 0 || (await review.isEnabled())).toBe(true);
   if ((await unchanged.count()) === 0) {
     await review.click();
-    await staff.getByRole('button', { name: 'Yes, save routing' }).click();
+    await staff.getByRole('button', { name: 'Yes, save routing', exact: true }).click();
     await expect(staff.getByTestId('staff-outcome')).toBeVisible();
   }
   await expect(staff.getByTestId(`staff-capacity-${userId}`)).toContainText(capacity === null ? 'Capacity not set' : String(capacity));
 }
 
 test(`${J} #6 round robin for three online agents: five new requests go out in turn, the cursor survives a restart, racing passes make one assignment`, async ({
-  browser,
+  founders,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
-  const page = await console_(browser);
+  const page = await console_(founders);
   // The routed group: B, C and E online with room; D on the desk with a blank capacity.
   routed.group = { name: `TEST ${J} ${RUN} routed`, id: await makeGroup(page, `TEST ${J} ${RUN} routed`) };
   for (const id of [people.b, people.c, people.d, people.e]) await membership(page, routed.group.name, id, true);
@@ -302,8 +317,8 @@ test(`${J} #6 round robin for three online agents: five new requests go out in t
   const panel = page.getByTestId('groups-panel');
   await panel.locator('#sd-group-routing-group').selectOption({ label: routed.group.name });
   await panel.locator('#sd-group-routing-mode').selectOption('round_robin');
-  await panel.getByRole('button', { name: 'Review routing' }).click();
-  await panel.getByRole('button', { name: 'Yes, set routing' }).click();
+  await panel.getByRole('button', { name: 'Review routing', exact: true }).click();
+  await panel.getByRole('button', { name: 'Yes, set routing', exact: true }).click();
   await expect(panel.getByTestId(`group-routing-${routed.group.id}`)).toContainText('In turn');
 
   routed.tickets = [];
@@ -350,11 +365,16 @@ test(`${J} #6 round robin for three online agents: five new requests go out in t
   expect(await assignedRows(race)).toHaveLength(1);
   routed.race = race;
   for (const id of turn.slice(1)) await setAvailability('lead', id, 'online', `TEST ${J} #6 back`);
-  await page.close();
+  // The race's one assignment moved the stored cursor to its winner.
+  await page.reload();
+  await expect(page.getByTestId('groups-panel').getByTestId(`group-routing-${routed.group.id}`)).toContainText(
+    `Last assigned to ${turn[0]}`,
+  );
+  await stepPicture(page);
 });
 
-test(`${J} #7 an agent at capacity, or with a blank capacity, is skipped`, async ({ browser }) => {
-  const page = await console_(browser);
+test(`${J} #7 an agent at capacity, or with a blank capacity, is skipped`, async ({ founders, stepPicture }) => {
+  const page = await console_(founders);
   const turn = [people.b, people.c, people.e].sort();
   const load = async (id) =>
     (await desk('lead', 'query', 'listAll', { limit: 500 })).filter((t) => t.assigneeId === id && ['open', 'pending'].includes(t.status))
@@ -369,22 +389,23 @@ test(`${J} #7 an agent at capacity, or with a blank capacity, is skipped`, async
   expect(await assignee(id)).toBe(turn[2]);
   // D, online in the group with a blank capacity, was never given one.
   expect(await load(people.d)).toBe(0);
+  await stepPicture(page);
   await routingFor(page, turn[1], 10);
-  await page.close();
 });
 
 test(`${J} #8 a required skill nobody has keeps the request queued, and the queue shows support.no_agent_available`, async ({
-  browser,
+  founders,
+  stepPicture,
 }) => {
-  const page = await console_(browser);
+  const page = await console_(founders);
   const id = await request('needs a skill');
   // The lead names the skill on the request, then places it in the routed group.
   await page.goto(`${ADMIN}/support/${id}`);
   const card = page.getByTestId('ticket-routing');
   await expect(card).toContainText('No skill needed');
   await card.locator('#sd-ticket-skill').fill(`test-nobody-${RUN}`);
-  await card.getByRole('button', { name: 'Review skill' }).click();
-  await card.getByRole('button', { name: 'Yes, set skill' }).click();
+  await card.getByRole('button', { name: 'Review skill', exact: true }).click();
+  await card.getByRole('button', { name: 'Yes, set skill', exact: true }).click();
   await expect(card.getByTestId('routing-skill')).toContainText(`test-nobody-${RUN}`);
   await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: id, groupId: routed.group.id });
   expect(await assignee(id)).toBeNull();
@@ -397,10 +418,10 @@ test(`${J} #8 a required skill nobody has keeps the request queued, and the queu
   await page.goto(`${ADMIN}/support`);
   await expect(page.getByTestId(`routing-waiting-${id}`)).toContainText('support.no_agent_available');
   await expect(page.getByTestId(`routing-waiting-${id}`)).toContainText('No agent available');
-  await page.close();
+  await stepPicture(page);
 });
 
-test(`${J} #9 a hand claim racing the worker: exactly one wins and the loser is a no-op`, async () => {
+test(`${J} #9 a hand claim racing the worker: exactly one wins and the loser is a no-op`, async ({ founders, stepPicture }) => {
   const turn = [people.b, people.c, people.e].sort();
   for (const id of turn) await setAvailability('lead', id, 'busy', `TEST ${J} #9 break`);
   const id = await request('claim race');
@@ -415,8 +436,19 @@ test(`${J} #9 a hand claim racing the worker: exactly one wins and the loser is 
   const claimWon = claim.json?.result?.data?.assigneeId === people.b;
   const passWon = pass.json?.result?.data?.status === 'assigned';
   expect([claimWon, passWon].filter(Boolean)).toHaveLength(1);
-  if (claimWon) expect(pass.json.result.data).toMatchObject({ status: 'skipped', reason: 'already_assigned' });
-  else expect(claim.text).toContain('support.claim.already_claimed');
-  expect(await assignee(id)).toBe(claimWon ? people.b : people.c);
+  // The loser changed nothing: a skipped pass, or a claim refused as already claimed.
+  const loser = claimWon
+    ? `${pass.json?.result?.data?.status}:${pass.json?.result?.data?.reason}`
+    : claim.text.includes('support.claim.already_claimed')
+      ? 'support.claim.already_claimed'
+      : claim.text.slice(0, 300);
+  expect(loser).toBe(claimWon ? 'skipped:already_assigned' : 'support.claim.already_claimed');
+  const winner = claimWon ? people.b : people.c;
+  expect(await assignee(id)).toBe(winner);
   expect(await assignedRows(id)).toHaveLength(1);
+  // The lead's console shows the one winner holding the request.
+  const page = await console_(founders);
+  await page.goto(`${ADMIN}/support/${id}`);
+  await expect(page.getByTestId('ticket-holder')).toHaveAttribute('data-user-id', winner);
+  await stepPicture(page);
 });

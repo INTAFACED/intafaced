@@ -14,6 +14,7 @@ import { AuthService } from './auth-service.js';
 import {
   createLimitRequest,
   installApiKeyRateExchange,
+  keyBudgetSet,
   keyRateLimit,
   limitDesk,
   listMyLimitRequests,
@@ -26,11 +27,13 @@ import { hashToken } from './passwords.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 
-// TEST values only: a base tier of 60 refilling 1,200 a minute, a sandbox tier of 30 and 600, a ceiling of 6,000.
+// TEST values only: a base tier of 60 refilling 1,200 a minute, a sandbox tier of 30 and 600, a per-user budget of 75
+// and 1,200, a ceiling of 6,000.
 const RAW = JSON.stringify({
   tiers: [
     { id: 'base', burst: 60, refillPerMinute: 1200 },
     { id: 'sandbox', burst: 30, refillPerMinute: 600 },
+    { id: 'user', burst: 75, refillPerMinute: 1200 },
   ],
   grantCeilingPerMinute: 6000,
 });
@@ -40,12 +43,12 @@ describe('IDENTITY_API_RATE_LIMITS', () => {
   it('is null when blank and never defaults', () => {
     expect(parseRatePolicy(undefined)).toBeNull();
     expect(parseRatePolicy('  ')).toBeNull();
-    expect(POLICY.tiers.map((tier) => tier.id)).toEqual(['base', 'sandbox']);
+    expect(POLICY.tiers.map((tier) => tier.id)).toEqual(['base', 'sandbox', 'user']);
     expect(POLICY.grantCeilingPerMinute).toBe(6000);
     expect(parseRatePolicy(JSON.stringify({ tiers: [{ id: 'base', burst: 1, refillPerMinute: 1 }] }))!.grantCeilingPerMinute).toBeNull();
   });
 
-  it('stops the service on a value it cannot read, a tier named twice, a sandbox above base or a ceiling at or under base', () => {
+  it('stops the service on a value it cannot read, a tier named twice, a sandbox above base, a per-user budget below base or a ceiling at or under base', () => {
     for (const bad of [
       'nope',
       '{"tiers":[]}',
@@ -54,6 +57,8 @@ describe('IDENTITY_API_RATE_LIMITS', () => {
       '{"tiers":[{"id":"base","burst":1,"refillPerMinute":1},{"id":"base","burst":1,"refillPerMinute":1}]}',
       '{"tiers":[{"id":"base","burst":1,"refillPerMinute":1},{"id":"sandbox","burst":2,"refillPerMinute":1}]}',
       '{"tiers":[{"id":"base","burst":1,"refillPerMinute":10}],"grantCeilingPerMinute":10}',
+      '{"tiers":[{"id":"base","burst":2,"refillPerMinute":10},{"id":"user","burst":1,"refillPerMinute":10}]}',
+      '{"tiers":[{"id":"base","burst":2,"refillPerMinute":10},{"id":"user","burst":2,"refillPerMinute":9}]}',
     ]) {
       expect(() => parseRatePolicy(bad), bad).toThrow(/IDENTITY_API_RATE_LIMITS/);
     }
@@ -67,21 +72,25 @@ describe('IDENTITY_API_RATE_LIMITS', () => {
 });
 
 describe('a key’s limit', () => {
-  it('follows its environment’s tier; a grant raises a live key’s refill and keeps the burst', () => {
+  it('follows its environment’s tier; a grant raises a live key’s refill and keeps the burst; the per-user budget rides along', () => {
     expect(keyRateLimit(POLICY, { mode: 'live', rate_refill_per_minute_granted: null })).toEqual({
       tier: 'base',
       burst: 60,
       refillPerMinute: 1200,
+      user: { burst: 75, refillPerMinute: 1200 },
     });
     expect(keyRateLimit(POLICY, { mode: 'sandbox', rate_refill_per_minute_granted: null })).toEqual({
       tier: 'sandbox',
       burst: 30,
       refillPerMinute: 600,
+      user: { burst: 75, refillPerMinute: 1200 },
     });
+    // The per-user budget is never tighter than the key's own grant, so the grant still holds for that key.
     expect(keyRateLimit(POLICY, { mode: 'live', rate_refill_per_minute_granted: 2400 })).toEqual({
       tier: 'granted',
       burst: 60,
       refillPerMinute: 2400,
+      user: { burst: 75, refillPerMinute: 2400 },
     });
     // A grant never lowers a key below its tier, and a sandbox key is never granted.
     expect(keyRateLimit(POLICY, { mode: 'live', rate_refill_per_minute_granted: 100 })?.tier).toBe('base');
@@ -92,6 +101,12 @@ describe('a key’s limit', () => {
     expect(keyRateLimit(null, { mode: 'live', rate_refill_per_minute_granted: 2400 })).toBeNull();
     const baseOnly = parseRatePolicy(JSON.stringify({ tiers: [{ id: 'base', burst: 5, refillPerMinute: 60 }] }));
     expect(keyRateLimit(baseOnly, { mode: 'sandbox', rate_refill_per_minute_granted: null })).toBeNull();
+    // A key tier with no per-user budget is no budget at all: blank never means unlimited.
+    expect(keyRateLimit(baseOnly, { mode: 'live', rate_refill_per_minute_granted: null })).toBeNull();
+    expect(keyBudgetSet(baseOnly, 'live')).toBe(false);
+    expect(keyBudgetSet(null, 'live')).toBe(false);
+    expect(keyBudgetSet(POLICY, 'live')).toBe(true);
+    expect(keyBudgetSet(POLICY, 'sandbox')).toBe(true);
   });
 });
 
@@ -342,9 +357,19 @@ const migrations = readdirSync(drizzleDir)
         }),
       } as unknown as AuthService;
       installApiKeyRateExchange(fake, db.sql, POLICY);
-      expect((await fake.exchangeApiKey(live.secret)).rateLimit).toEqual({ tier: 'base', burst: 60, refillPerMinute: 1200 });
+      expect((await fake.exchangeApiKey(live.secret)).rateLimit).toEqual({
+        tier: 'base',
+        burst: 60,
+        refillPerMinute: 1200,
+        user: { burst: 75, refillPerMinute: 1200 },
+      });
       await db.sql`UPDATE api_keys SET rate_refill_per_minute_granted = 2400 WHERE id = ${live.id}`;
-      expect((await fake.exchangeApiKey(live.secret)).rateLimit).toEqual({ tier: 'granted', burst: 60, refillPerMinute: 2400 });
+      expect((await fake.exchangeApiKey(live.secret)).rateLimit).toEqual({
+        tier: 'granted',
+        burst: 60,
+        refillPerMinute: 2400,
+        user: { burst: 75, refillPerMinute: 2400 },
+      });
       const blank = {
         exchangeApiKey: fake.exchangeApiKey,
       } as AuthService;

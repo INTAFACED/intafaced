@@ -447,3 +447,38 @@ describe('errorFormatter deviceAuthorisation recovery count (I-signin-sessions-1
     }
   });
 });
+
+describe('errorFormatter never sends the server stack (#10604)', () => {
+  const failing = router({
+    refused: publicProcedure.query(() => {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid credentials', cause: new FakeAuthError('auth.invalid_credentials') });
+    }),
+    crashed: publicProcedure.mutation(() => {
+      throw new Error('boom');
+    }),
+  });
+
+  async function body(path: string, method: 'GET' | 'POST'): Promise<string> {
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request(`http://localhost/trpc/${path}`, method === 'POST' ? { method, body: '{}' } : undefined),
+      router: failing,
+      createContext: () => ({}) as Context,
+    });
+    return res.text();
+  }
+
+  for (const [path, method] of [
+    ['refused', 'GET'],
+    ['crashed', 'POST'],
+  ] as const) {
+    it(`${path}: the reply carries its code and message, and no stack or file path`, async () => {
+      const text = await body(path, method);
+      const error = (JSON.parse(text) as { error: { message: string; data: Record<string, unknown> } }).error;
+      expect(error.data).not.toHaveProperty('stack');
+      expect(text).not.toMatch(/\bat\s+\S+\s+\(|file:\/\/|\.[cm]?[jt]s:\d+/);
+      expect(typeof error.data.code).toBe('string');
+      expect(error.message.length).toBeGreaterThan(0);
+    });
+  }
+});

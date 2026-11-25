@@ -46,7 +46,7 @@ const space = (id, kind, name, balance) => ({
 const row = (page, asset) => page.locator(`main a.money-holding[href="/portfolio/${encodeURIComponent(asset)}"]`);
 const quantity = (page, asset) =>
   row(page, asset).locator('.money-quantity-value, .money-holding-values > strong:not(:has(.money-quantity-value))').first();
-const bankNav = (page) => page.locator('main .money-bank-nav');
+const bankNav = (page) => page.locator('main [data-testid="money-bank-nav"]');
 const main = (page) => page.locator('main');
 const currentURL = (page) => page.evaluate(() => location.pathname + location.search + location.hash);
 const pause = () => {

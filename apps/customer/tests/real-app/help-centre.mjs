@@ -216,6 +216,18 @@ export async function asDesk(who, kind, procedure, input) {
   return kind === 'query' ? ctx.edge.query('support', procedure, input, token) : ctx.edge.mutate('support', procedure, input, token);
 }
 
+/** A desk call as the lead that must be answered: its data, or an error naming the refusal. */
+export async function leadAnswers(kind, procedure, input) {
+  return data(await asDesk('lead', kind, procedure, input), procedure);
+}
+
+/** A desk call as the lead that must be refused: the reply's text, which holds its typed code. Answered, it throws. */
+export async function leadRefused(kind, procedure, input) {
+  const res = await asDesk('lead', kind, procedure, input);
+  if (res.json?.result?.data !== undefined) throw new Error(`${procedure} was not refused: ${res.text.slice(0, 300)}`);
+  return res.text;
+}
+
 /** The user ids of the lead (founder A) and the agent (founder B). */
 export async function deskPeople() {
   const { pair } = await founders();
