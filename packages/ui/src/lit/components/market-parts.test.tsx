@@ -54,6 +54,14 @@ describe('MoverTile', () => {
     expect(html).toContain('<a class="lt-mover" href="/m/DOGE">');
     expect(html).toContain('data-direction="down"');
   });
+
+  it('draws the coin’s mark from `asset` when the symbol is a whole pair, keeping the pair’s words', () => {
+    const pair = renderToStaticMarkup(<MoverTile symbol="BTC/USDT" asset="BTC" price="1" change="+1%" />);
+    expect(pair).toContain('<svg');
+    expect(pair).toContain('BTC/USDT');
+    // Without `asset`, the pair's name has no art: the lettered disc, never a guessed logo.
+    expect(renderToStaticMarkup(<MoverTile symbol="BTC/USDT" price="1" change="+1%" />)).not.toContain('<svg');
+  });
 });
 
 describe('StatStrip', () => {
