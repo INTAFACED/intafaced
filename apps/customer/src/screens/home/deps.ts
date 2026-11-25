@@ -2,7 +2,6 @@
 // feature registry (B2). Home draws from the Volt kit (@intafaced/ui/lit) and its own parts (./volt-parts).
 
 export {
-  direction,
   fmtAmount,
   fmtChangeLine,
   fmtPct,
