@@ -546,6 +546,10 @@ describe('b2 controls the desk rooms use', () => {
   it('KeyValue marks each row, so a reader finds a value by its label', () => {
     expect(html(<B2.KeyValue rows={[{ label: 'Start price', value: '0.99' }]} />)).toContain('<div data-slot="key-value-row">');
     expect(html(<B2.TestTag />)).toBe('<span class="lt-test">TEST</span>');
+    // A room's own handle and note reach the label (the venue rooms' TEST mark: its testid and the TEST note).
+    expect(html(<B2.TestTag data-testid="venue-test" title="Every figure here is TEST." />)).toBe(
+      '<span data-testid="venue-test" title="Every figure here is TEST." class="lt-test">TEST</span>',
+    );
     expect(html(<B2.Checkbox label="Random slice sizes" checked onChange={() => undefined} />)).toBe(
       '<label class="lt-field"><input type="checkbox" checked=""/><span>Random slice sizes</span></label>',
     );

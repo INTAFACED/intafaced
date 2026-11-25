@@ -1002,8 +1002,12 @@ function placeCaret(box: HTMLInputElement, at: number) {
 }
 
 /** The TEST label an illustrative figure or sample list carries (AGENTS.md: an illustrative figure says TEST). */
-export function TestTag() {
-  return <span className="lt-test">TEST</span>;
+export function TestTag(props: Omit<React.HTMLAttributes<HTMLSpanElement>, 'className' | 'children'> & { 'data-testid'?: string }) {
+  return (
+    <span {...props} className="lt-test">
+      TEST
+    </span>
+  );
 }
 
 const FRESHNESS_WORDS: Record<Freshness, string> = { live: 'Live', stale: 'Stale', unknown: 'Unknown', refused: 'Refused' };

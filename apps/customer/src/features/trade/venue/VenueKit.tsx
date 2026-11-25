@@ -1,5 +1,6 @@
 import { useCallback, useRef, type ReactNode } from 'react';
-import { Button, Tag } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
+import { TestTag } from '@intafaced/ui/lit/templates';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
 import { WalletProvider, signWithSessionKey, usePolled, useWallet } from '../../protocol';
@@ -35,9 +36,8 @@ export function TestMark({ test }: { test: boolean }) {
   const { t } = venueCopy.useCopy();
   if (!test) return null;
   return (
-    <Tag tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
-      {t('TEST')}
-    </Tag>
+    // The kit's own TEST label (mono, the same on every screen); its words are the kit's, never translated.
+    <TestTag data-testid="venue-test" title={t('Venue TEST note')} />
   );
 }
 
