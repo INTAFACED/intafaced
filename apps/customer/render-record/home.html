@@ -115,16 +115,6 @@
 </circle>
 </svg>
 </button>
-<button aria-expanded="false" aria-controls="_r_3_" aria-label="How this is worked out" data-testid="home-how" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info" aria-hidden="true">
-<circle cx="12" cy="12" r="10">
-</circle>
-<path d="M12 16v-4">
-</path>
-<path d="M12 8h.01">
-</path>
-</svg>
-</button>
 <a class="hm-link" href="/money">Assets<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true">
 <path d="m9 18 6-6-6-6">
 </path>
@@ -144,10 +134,17 @@
 <span class="lt-hint"> Today</span>
 </span>
 </p>
-<div id="_r_3_" data-slot="how" hidden="" class="lt-stack">
+<details data-testid="home-worked-out" class="lit-fold">
+<summary>
+<span data-part="title">How this is worked out</span>
+<span data-part="mark" aria-hidden="true">
+</span>
+</summary>
+<div data-part="body">
 <p class="lt-hint">USDT and USDC count as 1 USD. Other assets are valued at their last price against USDT, or USDC if there is no USDT market. Assets without a price are not counted.</p>
 <p data-testid="home-unpriced-note" class="lt-hint">Excludes 1 coin (no USD price) Not counted: ZED</p>
 </div>
+</details>
 </div>
 <div class="lt-segmented" role="radiogroup" aria-label="Range">
 <button type="button" role="radio" aria-checked="true" class="lt-segment">1D</button>
