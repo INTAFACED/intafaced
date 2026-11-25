@@ -158,3 +158,17 @@ export function Board({ entries, mode }: { entries: readonly Entry[]; mode: Mode
     </div>
   );
 }
+
+/** The board at its final size while the markets load: the hero panel and a strip of movers, so nothing moves. */
+export function BoardSkeleton() {
+  return (
+    <div className="mkt-board" data-testid="mkt-board" aria-hidden="true">
+      <div className="mkt-hero mkt-skeleton" data-size="hero" />
+      <div className="mkt-moving__list">
+        {[0, 1, 2, 3, 4, 5].map((index) => (
+          <div key={index} className="mkt-mover mkt-skeleton" data-size="tile" />
+        ))}
+      </div>
+    </div>
+  );
+}

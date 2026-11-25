@@ -15,7 +15,7 @@ vi.mock('../../../shared/preferences', async (original) => {
 vi.mock('../../../features/session/session', () => ({ useSession: () => ({ session: null }) }));
 
 import { MarketsTable } from './MarketsTable';
-import { TopCards } from './TopCards';
+import { Board } from './Board';
 
 const entry = (base: string, last: string, change: string): Entry => ({
   market: {
@@ -116,12 +116,14 @@ describe("the markets table and top cards in the beta's build", () => {
     const table = renderToStaticMarkup(
       <MarketsTable label="Markets" entries={rows} mode="pro" columns={['name', 'price', 'action']} sort={null} onSortChange={() => {}} />,
     );
-    const cards = renderToStaticMarkup(<TopCards cards={[{ id: 'popular', entries: rows }]} mode="pro" onSeeAll={() => {}} />);
-    for (const html of [table, cards]) {
+    // The board above the list (hero and movers) replaced the top cards; the same guard holds for its links.
+    const board = renderToStaticMarkup(<Board entries={rows} mode="pro" />);
+    for (const html of [table, board]) {
       expect(droppedLinks(html)).toEqual([]);
       expect(html).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
       expect(html).toMatch(/ETH<span[^>]*>\/USDT<\/span>/);
     }
-    expect(cards.match(/data-testid="mkt-card__row"/g)).toHaveLength(2);
+    expect(board.match(/data-testid="mkt-mover"/g)).toHaveLength(2);
+    expect(board).toMatch(/href="\/trade\/spot\/BTC-USDT"/);
   });
 });

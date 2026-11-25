@@ -18,8 +18,9 @@
     gap: 2rem;
     padding: 1.75rem;
     border-radius: var(--lit-radius-panel);
-    background: var(--lit-solid-bg-sunken);
+    background: var(--lit-solid-bg);
     border: 1px solid var(--lit-line);
+    box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
   }
   .mkt-hero__main {
     display: flex;
@@ -290,5 +291,36 @@
   .mkt-toolbar__search {
     inline-size: 100%;
     margin-inline-start: 0;
+  }
+}
+
+/* The board's panels sit on the page, as the reference does: the template's featured region is bare here (unlayered,
+   as the kit's region rule it replaces is). */
+[data-testid='if-markets'] .lt-region[data-region='featured'] {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+@layer components {
+  .mkt-skeleton[data-size='hero'] {
+    min-block-size: 22rem;
+  }
+  .mkt-skeleton[data-size='tile'] {
+    min-block-size: 8.5rem;
+  }
+  .mkt-skeleton {
+    animation: mkt-pulse 1.6s var(--lit-ease) infinite;
+  }
+  @keyframes mkt-pulse {
+    50% {
+      opacity: 0.55;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mkt-skeleton {
+      animation: none;
+    }
   }
 }

@@ -22,8 +22,7 @@ import { KitState } from '../kit-parts';
 import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
-import { TopCardsSkeleton } from './TopCards';
-import { Board } from './Board';
+import { Board, BoardSkeleton } from './Board';
 import './markets.css';
 import { TradeAccess } from './TradeAccess';
 import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, visibleEntries, type Chip } from './select';
@@ -208,7 +207,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     );
   })();
 
-  const featured = marketsLoading ? <TopCardsSkeleton /> : <Board entries={openEntries} mode={layoutMode} />;
+  const featured = marketsLoading ? <BoardSkeleton /> : <Board entries={openEntries} mode={layoutMode} />;
 
   return (
     <Frame meta={meta} featured={featured}>
