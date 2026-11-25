@@ -678,10 +678,6 @@
   align-items: flex-start;
   border-radius: var(--lit-radius-tile);
   padding: var(--lit-pad-panel);
-  /* A refusal never runs past its column: at 130% text on a phone its 20px title wraps instead. */
-  min-inline-size: 0;
-  max-inline-size: 100%;
-  overflow-wrap: anywhere;
 }
 
 .lt-refusal {
