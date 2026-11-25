@@ -1,11 +1,11 @@
 // volt-room: /home
-import { Suspense, lazy, useId, useMemo, useState, type ReactNode } from 'react';
-import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ChevronRight, Eye, EyeOff, Info, QrCode, Send, TrendingUp } from 'lucide-react';
-import { ActionButton, ActionRow, Button, HIDDEN_MASK, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
+import { Suspense, lazy, useMemo, useState } from 'react';
+import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ChevronRight, Eye, EyeOff, QrCode, Send, TrendingUp } from 'lucide-react';
+import { ActionButton, ActionRow, Button, Fold, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { commandCopy } from './command-copy';
+import { standingCopy } from '../money/standing-copy';
 import { ValueChart, ValueRanges, useValueRange } from './ValueChart';
-import { standingSplit } from './SplitBar';
 import { AgentSection, LevelsSection, OpenPositions } from './HomeRail';
 import { HomeMarkets } from './HomeMarkets';
 import { clockTime } from './clock';
@@ -13,7 +13,6 @@ import { homeCopy } from './copy';
 import {
   dec,
   fmtChangeLine,
-  fmtUsd,
   isHiddenPath,
   useActivity,
   useFavorites,
@@ -106,7 +105,6 @@ function ActionKeys({ loading, mode, mainElsewhere = false }: { loading: boolean
 }
 
 /** The one disclosure behind the info key beside the total: closed by default, its lines kept in the page. */
-type How = { id: string; open: boolean; lead?: ReactNode };
 
 /** The rule the total follows, first inside "How this is worked out". */
 function HowLead() {
@@ -124,37 +122,17 @@ function StandingChange({ hidden }: { hidden: boolean }) {
     return (
       <p data-testid="home-change" className="hm-change">
         <span className="lt-hint">{t('Change not known')}</span>
-        <HeroParts hidden={hidden} />
       </p>
     );
   return (
     <p data-testid="home-change" className="hm-change">
       <ChangeText value={fmtChangeLine(valuation.change24hUsd, valuation.change24hPct)} hidden={hidden} suffix={t('today')} />
-      <HeroParts hidden={hidden} />
     </p>
   );
 }
 
-/** Beside today's change: where the total sits, the wallet and the venue account, each as the total adds it. */
-function HeroParts({ hidden }: { hidden: boolean }) {
-  const { t } = commandCopy.useCopy();
-  const standing = useHomeStanding();
-  if (!standing || standing.totalUsd === null) return null;
-  const split = standingSplit(standing);
-  const money = (value: string) => (hidden ? HIDDEN_MASK : fmtUsd(value));
-  const parts = [
-    split.crypto === null ? t('Wallet unread') : t('Wallet {value}', { value: money(split.crypto) }),
-    split.trading === null ? t('Venue unread') : t('Venue {value}', { value: money(split.trading) }),
-  ];
-  if (split.cash !== null && split.cash !== '0') parts.unshift(t('Cash {value}', { value: money(split.cash) }));
-  return (
-    <span className="lt-hint" data-testid="home-parts">
-      {parts.join(' · ')}
-    </span>
-  );
-}
-
-function Balance({ portfolio, hidden, how }: { portfolio: Loadable<HomePortfolio>; hidden: boolean; how: How }) {
+function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
+  const standing = standingCopy.useCopy();
   const { t } = homeCopy.useCopy();
   const { timeZone, displayCurrency } = usePreferences();
 
@@ -190,9 +168,9 @@ function Balance({ portfolio, hidden, how }: { portfolio: Loadable<HomePortfolio
         <p data-testid="home-note" className="lt-hint">
           {t('No crypto yet')}
         </p>
-        <div id={how.id} data-slot="how" hidden={!how.open} className="lt-stack">
-          {how.lead}
-        </div>
+        <Fold title={standing.t('Worked out')} data-testid="home-worked-out">
+          <HowLead />
+        </Fold>
       </>
     );
 
@@ -219,8 +197,8 @@ function Balance({ portfolio, hidden, how }: { portfolio: Loadable<HomePortfolio
         </p>
       ) : null}
       <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="lt-hint" testId="home-note" />
-      <div id={how.id} data-slot="how" hidden={!how.open} className="lt-stack">
-        {how.lead}
+      <Fold title={standing.t('Worked out')} data-testid="home-worked-out">
+        <HowLead />
         {data.source === 'derived' ? (
           <p className="lt-hint">
             {t('Today change rule')} <DerivedTotalTag source={data.source} className="lt-hint" />
@@ -232,7 +210,7 @@ function Balance({ portfolio, hidden, how }: { portfolio: Loadable<HomePortfolio
             {t('Not counted list', { assets: data.unpriced.join(', ') })}
           </p>
         ) : null}
-      </div>
+      </Fold>
     </>
   );
 }
@@ -304,9 +282,6 @@ function HomeSimple() {
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
   const [range, setRange] = useValueRange();
-  const [howOpen, setHowOpen] = useState(false);
-  const howId = useId();
-  const how: How = { id: howId, open: howOpen, lead: <HowLead /> };
   const shown = new Set<HomeTileId>([...main, ...side]);
 
   // The total, its label and the value over time: the panel Home A leads with. The eye, the key to "How this is worked
@@ -324,16 +299,6 @@ function HomeSimple() {
             >
               {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
             </Button>
-            <Button
-              tone="quiet"
-              onClick={() => setHowOpen((open) => !open)}
-              aria-expanded={howOpen}
-              aria-controls={howId}
-              aria-label={command.t('How this is worked out')}
-              data-testid="home-how"
-            >
-              <Info size={16} aria-hidden="true" />
-            </Button>
             {isHiddenPath('/money') ? null : (
               <a className="hm-link" href="/money">
                 {t('Assets')}
@@ -342,9 +307,9 @@ function HomeSimple() {
             )}
           </div>
           {launch ? (
-            <StandingFigure hidden={hideBalances} face={<StandingChange hidden={hideBalances} />} how={how} />
+            <StandingFigure hidden={hideBalances} headline change={<StandingChange hidden={hideBalances} />} foldLead={<HowLead />} />
           ) : (
-            <Balance portfolio={portfolio} hidden={hideBalances} how={how} />
+            <Balance portfolio={portfolio} hidden={hideBalances} />
           )}
         </div>
         {portfolio.status === 'refused' ? null : <ValueRanges range={range} onRange={setRange} />}

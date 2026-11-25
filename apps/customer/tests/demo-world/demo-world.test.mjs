@@ -8,6 +8,7 @@ import {
   venueBestPricesReadSchema,
   venueBookReadSchema,
   venueCandlesReadSchema,
+  venueConvertHistorySchema,
   venueFeeTierSchema,
   venuePublicFeesSchema,
   venueFillSchema,
@@ -19,7 +20,10 @@ import {
   venueTradesReadSchema,
 } from '@intafaced/contracts/trade-venue-door';
 import { tradingSessionStatusSchema } from '@intafaced/contracts/protocol-trading-session';
+import { privateKeyToAccount } from 'viem/accounts';
+import { demoChain } from './chain.mjs';
 import { DEMO_NOW, RECORDING, callKey, demoAnswer, recordedAnswer } from './index.mjs';
+import { demoWalletKey } from './seed.mjs';
 
 // The demo world is only worth its pictures while the app reads it: every answer a desk draws from is parsed here with
 // the app's own schemas, so a schema change that would leave a picture's panel empty fails here first.
@@ -86,6 +90,10 @@ describe('the demo world', () => {
     expect(recordedAnswer('/api/v1/venue/fees?venueId=another-venue', 'GET', { signedIn: true })).toBeNull();
   });
 
+  it('answers the Convert room with no conversions yet, never a failed read', () => {
+    expect(venueConvertHistorySchema.parse(read('/api/v1/venue/convert/history?owner=0xabc').json).conversions).toEqual([]);
+  });
+
   it('keeps nothing about the tester the recording was made with', () => {
     const text = JSON.stringify(RECORDING);
     expect(text).not.toMatch(/local-test\.invalid|zenyoda/i);
@@ -95,5 +103,32 @@ describe('the demo world', () => {
     expect(trpc.length).toBeGreaterThan(0);
     for (const k of trpc) expect(k).not.toMatch(/auth\.|session|apikey|webauthn|passkey|token|secret|recover|device|password/i);
     expect(JSON.stringify(RECORDING.trpc)).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/);
+  });
+});
+
+describe("the demo world's chain", () => {
+  it("answers the wallet read Home and Assets make: the venue network's own gas at one block, at the recording's time", async () => {
+    const { readWallet } = await import('../../src/screens/money/where-it-sits.ts');
+    const { nativeCurrency } = await import('../../src/features/protocol/wallet/transfer.ts');
+    const chainId = read('/api/v1/venue/status').json.chainId;
+    const owner = privateKeyToAccount(demoWalletKey()).address;
+    const node = async (method, params) => {
+      const answer = demoChain(method, params, { chainId, now: DEMO_NOW });
+      if (answer.error) throw Object.assign(new Error(answer.error.message), answer.error);
+      return answer.result;
+    };
+    const native = nativeCurrency(chainId);
+    expect(native).toEqual({ symbol: 'ETH', decimals: 18 });
+    const wallet = await readWallet(node, chainId, owner, [{ address: null, ...native }]);
+    expect(wallet).toMatchObject({ ok: true, asOf: new Date(Math.floor(DEMO_NOW / 1000) * 1000).toISOString(), unread: [] });
+    expect(wallet.rows).toEqual([{ symbol: 'ETH', token: null, amount: '0.42' }]);
+  });
+
+  it('holds nothing for any other address and invents no token balance', () => {
+    const chainId = read('/api/v1/venue/status').json.chainId;
+    const other = demoChain('eth_getBalance', ['0x0000000000000000000000000000000000000001', 'latest'], { chainId, now: DEMO_NOW });
+    expect(BigInt(other.result)).toBe(0n);
+    expect(demoChain('eth_call', [{ to: '0x1', data: '0x70a08231' }], { chainId, now: DEMO_NOW }).error).toBeTruthy();
+    expect(demoChain('eth_sendRawTransaction', ['0x'], { chainId, now: DEMO_NOW }).error).toBeTruthy();
   });
 });

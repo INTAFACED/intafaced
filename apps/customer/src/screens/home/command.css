@@ -467,18 +467,6 @@
 }
 
 /* "How this is worked out": closed by default, its lines kept in the page; open, one quiet block under the figure. */
-.hm [data-slot='how'][hidden] {
-  display: none;
-}
-.hm [data-slot='how'] {
-  gap: 0.5rem;
-  padding: 1rem 1.125rem;
-  border-radius: var(--lit-radius-tile);
-  box-shadow: inset 0 0 0 1px var(--lit-line);
-}
-.hm-label [aria-expanded='true'] {
-  color: var(--lit-text-1);
-}
 
 /* The markets table: Trade on every row, not only on hover (Home A). */
 .hm-markets .lt-market-table .lt-market-action {

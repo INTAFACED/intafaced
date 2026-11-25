@@ -346,7 +346,7 @@ async function offPrice(handle, price) {
 test(`${J} #5 sees the alert level on the chart and drags it: the level line moves and the alert updates once`, async () => {
   // A level the chart shows, with room to drag it up among the bars: the chart's axis keeps the top fifth and the
   // bottom tenth of its price pane as margins outside the bars, and a level dropped in a margin leaves the chart when the
-  // next bar sets a new high or low. Picked at 0.6 and dropped at 0.35 of the pane, it stays among the bars.
+  // next bar sets a new high or low. Picked at 0.6, it has room to be dragged up among the bars.
   await page.goto(CHART);
   await expect(chartHost()).toBeVisible();
   const level = fromCents(cents(String((await axisPriceAt(0.6)).price.toFixed(2))));
@@ -372,12 +372,18 @@ test(`${J} #5 sees the alert level on the chart and drags it: the level line mov
   page.on('request', (request) => {
     if (/notify\.updateAlert\b/.test(request.url()) && request.method() === 'POST') edits.push(request.postData());
   });
-  // Drag the handle up to 0.35 of the price pane, among the bars: the chart names the price it is dropped at.
+  // Drag the handle among the bars: the chart names the price it is dropped at. The drop is chosen from where the level
+  // sits now, not where it was picked: the market moves while the alert is made, and a new high or low rescales the axis.
+  // Up to 0.35 of the pane, or at least 0.12 of it above the level, never into the top quarter; a level already that high
+  // is dragged down by 0.15 of the pane instead.
   const pane = await pricePaneBox();
   const from = atLevel.y + atLevel.height / 2;
-  const to = Math.round(pane.y + pane.height * 0.35);
+  const at = (from - pane.y) / pane.height;
+  const up = at - 0.12 >= 0.25;
+  const toFraction = up ? Math.max(0.25, Math.min(0.35, at - 0.12)) : at + 0.15;
+  const to = Math.round(pane.y + pane.height * toFraction);
   const drag = from - to;
-  expect(drag, 'a drag, not a click').toBeGreaterThan(10);
+  expect(Math.abs(drag), 'a drag, not a click').toBeGreaterThan(10);
   await page.mouse.move(atLevel.x + atLevel.width / 2, from);
   await page.mouse.down();
   await page.mouse.move(atLevel.x + atLevel.width / 2, to, { steps: 12 });
@@ -386,8 +392,8 @@ test(`${J} #5 sees the alert level on the chart and drags it: the level line mov
   await expect(note).toHaveAttribute('data-tone', 'good');
   const moved = /^The alert now watches (\d+(?:\.\d+)?) USDT\.$/.exec(((await note.textContent()) ?? '').trim())?.[1];
   expect(moved, 'the note names the price the service now holds').toBeTruthy();
-  // The new price is where the handle was dropped, within a few pixels' worth of price, and above the old one.
-  expect(cents(moved) > cents(level), `${moved} is above ${level}`).toBe(true);
+  // The new price is where the handle was dropped, within a few pixels' worth of price, on the side it was dragged to.
+  expect(cents(moved) > cents(level), `${moved} is ${up ? 'above' : 'below'} ${level}`).toBe(up);
   expect(Math.abs(Number(moved) - (Number(level) + drag * scale.perPixel)), 'dropped at its pixel').toBeLessThan(4 * scale.perPixel + 0.01);
   // The line moved: one handle, at the new price and its pixel; none left at the old one.
   const movedLine = page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${moved} USDT` });

@@ -91,13 +91,16 @@ export function useHomeStanding(): ReturnType<typeof useStanding>['standing'] | 
 export function StandingFigure({
   hidden,
   pro = false,
-  face,
-  how,
+  headline = false,
+  change,
+  foldLead,
 }: {
   hidden: boolean;
   pro?: boolean;
-  face?: ReactNode;
-  how?: { id: string; open: boolean; lead?: ReactNode };
+  /** Simple Home: the figure, today's change and the parts line, every other line in the total's own fold. */
+  headline?: boolean;
+  change?: ReactNode;
+  foldLead?: ReactNode;
 }) {
   const { t } = standingCopy.useCopy();
   const { displayCurrency } = usePreferences();
@@ -106,7 +109,7 @@ export function StandingFigure({
   if (!read.owner || !read.standing)
     return (
       <>
-        <PartnerBeforeWallet hidden={hidden} pro={pro} how={how} />
+        <PartnerBeforeWallet hidden={hidden} pro={pro} headline={headline} foldLead={foldLead} />
         <div data-testid="home-standing-connect" className="lt-stack">
           <p className="lt-hint">{t('Connect first')}</p>
           <WalletBar />
@@ -121,8 +124,9 @@ export function StandingFigure({
       hidden={hidden}
       pro={pro}
       testId="home-standing"
-      face={face}
-      how={how}
+      face={headline ? 'headline' : 'full'}
+      change={change}
+      foldLead={foldLead}
     />
   );
 }
@@ -159,11 +163,13 @@ export function HomeStanding({ status, hidden, pro = false }: { status: VenueUp;
 function PartnerBeforeWallet({
   hidden,
   pro,
-  how,
+  headline,
+  foldLead,
 }: {
   hidden: boolean;
   pro: boolean;
-  how?: { id: string; open: boolean; lead?: ReactNode };
+  headline: boolean;
+  foldLead?: ReactNode;
 }) {
   const { displayCurrency } = usePreferences();
   const { partner, standing, pricesFailed } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
@@ -176,7 +182,8 @@ function PartnerBeforeWallet({
       hidden={hidden}
       pro={pro}
       testId="home-standing-before-wallet"
-      how={how}
+      face={headline ? 'headline' : 'full'}
+      foldLead={foldLead}
     />
   );
 }

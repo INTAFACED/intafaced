@@ -193,8 +193,11 @@ export function placements(page) {
   return sent;
 }
 
-/** Opens Home's "How this is worked out", where the total's provenance lines sit (closed by default). */
+/** Opens Home's "How this is worked out", the total's own fold where its provenance lines sit (closed by default). */
 export async function openHow(page) {
-  const how = page.getByTestId('home-how');
-  if ((await how.getAttribute('aria-expanded')) !== 'true') await how.click();
+  const fold = page
+    .locator('[data-testid="home-standing"], [data-testid="home-standing-before-wallet"], [data-testid="home-hero"]')
+    .locator('[data-testid="standing-worked-out"], [data-testid="home-worked-out"]')
+    .first();
+  if ((await fold.getAttribute('open')) === null) await fold.locator('summary').click();
 }

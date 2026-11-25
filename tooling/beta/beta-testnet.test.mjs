@@ -12,6 +12,7 @@ import {
   UNKNOWN_AFTER_MS,
   liveDeps,
   readTestnet,
+  judgeAccount,
   testnetCandidates,
   testnetKey,
   testnetStep,
@@ -218,6 +219,35 @@ test('a person whose earlier accounts made no wallet still gets their later one 
     ['m2', 'm3', 'm4'],
   );
   assert.equal(w.dispatches.length, MAX_FUNDED_PER_PERSON);
+  w.done();
+});
+
+test("the daily check's own fresh accounts are not held by the per-person cap; any other account of that invite still is", async () => {
+  const judge = 'zenyoda33-0123456789';
+  const local = new Set([judge]);
+  const email = (i) => `${judge}.ready2026112510${String(i).padStart(2, '0')}@local-test.invalid`;
+  assert.equal(judgeAccount(email(1), judge), true);
+  assert.equal(judgeAccount(`${judge}.demo1@local-test.invalid`, judge), false);
+  assert.equal(judgeAccount(`${alice}.ready202611251000@local-test.invalid`, alice), false);
+  assert.equal(judgeAccount(`${judge}.ready1@local-test.invalid`, judge), false);
+  const users = [1, 2, 3, 4, 5].map((i) => ({ id: `j${i}`, email: email(i) }));
+  users.push({ id: 'd1', email: `${judge}.demo1@local-test.invalid` });
+  const approved = full(...users.map((u) => u.id));
+  const records = Object.fromEntries([1, 2, 3].map((i) => [`k${i}`, { userId: `j${i}`, token: judge, state: 'sent' }]));
+  assert.deepEqual(
+    testnetCandidates({ users, approved, tokens: local, accounts: records }).map((c) => c.userId),
+    ['j4', 'j5'],
+  );
+  // The step sends to a fourth judge account although the invite holds three records.
+  const w = world({ wallets: { j4: addr(44), d1: addr(45) } });
+  fs.writeFileSync(w.file, JSON.stringify({ accounts: records }));
+  await w.step([{ userId: 'j4', email: email(4), token: judge }]);
+  assert.equal(w.dispatches.length, 1);
+  w.finishRuns();
+  await w.step([]);
+  // Any other account of that invite is held: its three records stand.
+  await w.step([{ userId: 'd1', email: `${judge}.demo1@local-test.invalid`, token: judge }]);
+  assert.equal(w.dispatches.length, 1);
   w.done();
 });
 
