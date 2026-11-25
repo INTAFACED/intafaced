@@ -117,6 +117,8 @@ export interface MarketsListProps {
   /** Drawn in place of the rows when there are none. */
   empty: ReactNode;
   label: string;
+  /** Where a row goes when not the spot target (a perpetual opens the futures desk). */
+  targetOf?: (market: MarketData) => string | null;
 }
 
 /** Click order: largest first for figures and A-Z for Name, then the other way, then the service's order. */
@@ -141,6 +143,7 @@ export function MarketsList({
   loading,
   empty,
   label,
+  targetOf,
 }: MarketsListProps) {
   const copy = marketsCopy.useCopy();
   const { t } = copy;
@@ -148,6 +151,8 @@ export function MarketsList({
   const pausedNote = useId();
   const [limit, setLimit] = useState(PAGE_SIZE);
   const pro = mode === 'pro';
+  // A perpetual reads by its contract (BTC-PERP) and is traded, never bought.
+  const perps = targetOf !== undefined;
   const dense = density === 'compact';
 
   const { columns, sorting } = useMemo(() => {
@@ -224,14 +229,14 @@ export function MarketsList({
       cellMarks: () => ({ 'data-col': 'name', 'data-cell': 'name' }),
       cell: (entry) => {
         const { market } = entry;
-        const target = marketTarget(market, mode, isHiddenPath, signedIn);
+        const target = targetOf ? targetOf(market) : marketTarget(market, mode, isHiddenPath, signedIn);
         const full = assetName(market.base, copy);
         const pair = (
           <>
             <span data-testid="mkt-name__ticker">
               {market.base}
               <span data-testid="mkt-name__quote" className="lt-muted">
-                /{market.quote}
+                {perps ? '-PERP' : `/${market.quote}`}
               </span>
             </span>
             {full && !dense ? (
@@ -358,8 +363,12 @@ export function MarketsList({
       cellMarks: () => ({ 'data-col': 'action', 'data-cell': 'action' }),
       cell: (entry) => {
         const { market } = entry;
-        const text = pro ? t('Trade') : t('Buy');
-        const aria = pro ? t('Trade {pair}', { pair: `${market.base}/${market.quote}` }) : t('Buy {asset}', { asset: market.base });
+        const text = pro || perps ? t('Trade') : t('Buy');
+        const aria = perps
+          ? t('Trade {pair}', { pair: market.symbol })
+          : pro
+            ? t('Trade {pair}', { pair: `${market.base}/${market.quote}` })
+            : t('Buy {asset}', { asset: market.base });
         const wrap = (button: ReactNode) => <span className="lt-actions">{button}</span>;
         // Not a tradeable row: the button says why (its title for the pointer), stays reachable by keyboard, and links nowhere.
         const refused = (title: string, describedBy?: string) =>
@@ -375,7 +384,7 @@ export function MarketsList({
           // A shut session is never a tradeable row: an order now is refused and not queued (J-cex-spot-14 #6).
           return refused(t('This market is closed. Orders are not queued while it is closed'));
         if (isPaused(entry)) return refused(t('Orders are paused on this market'), pausedNote);
-        const target = marketTarget(market, mode, isHiddenPath, signedIn);
+        const target = targetOf ? targetOf(market) : marketTarget(market, mode, isHiddenPath, signedIn);
         if (target === null) return wrap(null);
         return wrap(
           <a className="lt-button lt-button-secondary" role="button" href={target} aria-label={aria}>
@@ -400,7 +409,7 @@ export function MarketsList({
       : [name, last, change, chart, volume, action];
     return { columns, sorting };
     // `copy` changes only with the language.
-  }, [pro, dense, mode, signedIn, favorite, timeZone, pausedNote, statuses, copy.renderedLocale]);
+  }, [pro, perps, targetOf, dense, mode, signedIn, favorite, timeZone, pausedNote, statuses, copy.renderedLocale]);
 
   const sorted = useMemo(() => sortRows(entries, sorting, sort), [entries, sorting, sort]);
   const shown = useMemo(() => sorted.slice(0, limit), [sorted, limit]);
@@ -423,7 +432,11 @@ export function MarketsList({
           onSortChange(sort && sort.columnId === next.columnId && sort.direction !== firstDirection(next.columnId) ? null : next)
         }
         onRowActivate={(entry) => {
-          const target = isAnnounced(entry.market) ? null : marketTarget(entry.market, mode, isHiddenPath, signedIn);
+          const target = isAnnounced(entry.market)
+            ? null
+            : targetOf
+              ? targetOf(entry.market)
+              : marketTarget(entry.market, mode, isHiddenPath, signedIn);
           if (target !== null) navigate(target);
         }}
         rowMarks={(entry) => ({ 'data-testid': 'mkt-row', 'data-symbol': entry.market.symbol })}

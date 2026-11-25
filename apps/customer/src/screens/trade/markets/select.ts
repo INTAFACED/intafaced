@@ -15,7 +15,7 @@ export type MarketColumn = 'name' | 'price' | 'change' | 'spark' | 'range' | 'vo
 export const ALL_COLUMNS: readonly MarketColumn[] = ['name', 'price', 'change', 'spark', 'range', 'volume', 'action'];
 
 export type Mode = 'simple' | 'pro';
-export type Tab = 'favorites' | 'spot';
+export type Tab = 'favorites' | 'spot' | 'perps';
 export type Chip = 'all' | 'gainers' | 'losers' | 'new';
 export type SortKey = 'name' | 'price' | 'change' | 'volume';
 export type SortDir = 'asc' | 'desc';

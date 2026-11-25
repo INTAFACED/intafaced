@@ -11,6 +11,8 @@ import {
   useTickers,
   useVenueMarketStates,
   venueListingStatuses,
+  venueMarketRow,
+  isHiddenPath,
   type Loadable,
   type MarketData,
   type TickerRow,
@@ -106,7 +108,18 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   // Upcoming and delisting listings stay on the list with their state named (J-cex-spot-14 #1); they never trade.
   const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry) || isAnnounced(entry.market)), [everyEntry]);
   const hasPaused = openEntries.length < everyEntry.length;
-  const pool = view.status === 'open' ? openEntries : everyEntry;
+  // The venue's perpetuals, on their own tab (the Markets list's default tab stays spot only, J-cex-spot-14 #1).
+  const perpEntries = useMemo(
+    () =>
+      venueStates.status === 'ready'
+        ? entriesFor(venueStates.data.value.markets.filter((m) => m.kind === 'perpetual').map(venueMarketRow), undefined, {
+            includePaused: true,
+          })
+        : [],
+    [venueStates],
+  );
+  const tab = view.tab === 'perps' && perpEntries.length === 0 ? 'spot' : view.tab;
+  const pool = tab === 'perps' ? perpEntries : view.status === 'open' ? openEntries : everyEntry;
   const quotes = useMemo(() => quotesOf(pool.map((entry) => entry.market)), [pool]);
   const showNew = useMemo(() => anyListed(pool), [pool]);
 
@@ -117,9 +130,9 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   const sort: SortState | null = view.sort;
 
   const rows = useMemo(
-    () => visibleEntries(pool, { tab: view.tab, chip, quote, query, sort: null, favorites }, (base) => assetName(base, copy)),
+    () => visibleEntries(pool, { tab, chip, quote, query, sort: null, favorites }, (base) => assetName(base, copy)),
     // `copy` changes only with the language.
-    [pool, view.tab, chip, quote, query, favorites, copy.renderedLocale],
+    [pool, tab, chip, quote, query, favorites, copy.renderedLocale],
   );
   const signedIn = userId != null;
   const signIn = `/login?redirect=${encodeURIComponent(path + search)}`;
@@ -206,11 +219,12 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
             items={[
               { value: 'favorites', label: t('Favorites') },
               { value: 'spot', label: t('Spot') },
+              ...(perpEntries.length > 0 ? [{ value: 'perps', label: t('Perps') }] : []),
             ]}
-            value={view.tab}
-            onChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : 'spot' })}
+            value={tab}
+            onChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : value === 'perps' ? 'perps' : 'spot' })}
           />
-          <div data-testid="mkt-chips" className="mkt-toolbar__chips">
+          <div data-testid="mkt-chips" className="mkt-toolbar__chips" hidden={tab === 'perps'}>
             <ToggleChips
               label={t('Filter by change')}
               options={CHIPS.filter((value) => value !== 'new' || showNew).map((value) => ({
@@ -262,8 +276,14 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
           </StatusNote>
         ) : null}
 
+        {tab === 'perps' && perpEntries.every((entry) => entry.ticker === undefined) ? (
+          <StatusNote data-testid="mkt-perps-note" tone="neutral" title={t('Prices for perpetuals aren’t on this list yet.')}>
+            {t('Open one to trade it on the futures desk.')}
+          </StatusNote>
+        ) : null}
         <MarketsList
           label={t('Markets')}
+          targetOf={tab === 'perps' ? perpTarget : undefined}
           entries={rows}
           mode={layoutMode}
           density={density}
@@ -303,6 +323,12 @@ function NotOffered() {
       </ul>
     </section>
   );
+}
+
+/** A perpetual opens the futures desk on its contract; nowhere where the beta hides the desk. */
+function perpTarget(market: MarketData): string | null {
+  const path = `/trade/futures/${encodeURIComponent(market.symbol)}`;
+  return isHiddenPath('/trade/futures') ? null : path;
 }
 
 /** The freshness of the prices on screen, from the ticker read's own time (UI-SPEC TRD-0079). */

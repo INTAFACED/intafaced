@@ -21,7 +21,7 @@ export type SortColumnId = (typeof SORT_COLUMNS)[number];
 
 export const isSortColumn = (id: string): id is SortColumnId => (SORT_COLUMNS as readonly string[]).includes(id);
 
-const TABS: readonly Tab[] = ['favorites', 'spot'];
+const TABS: readonly Tab[] = ['favorites', 'spot', 'perps'];
 const CHIPS: readonly Chip[] = ['all', 'gainers', 'losers', 'new'];
 const STATUSES: readonly StatusFilter[] = ['open', 'all'];
 const DENSITIES: readonly Density[] = ['comfortable', 'compact'];
