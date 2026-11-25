@@ -18,6 +18,7 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
+import { demoChain } from '../../apps/customer/tests/demo-world/chain.mjs';
 import { DEMO_NOW, demoAnswer } from '../../apps/customer/tests/demo-world/index.mjs';
 import { demoWalletKey } from '../../apps/customer/tests/demo-world/seed.mjs';
 import { installTestWallet } from '../../apps/customer/tests/real-app/test-wallet.mjs';
@@ -73,10 +74,23 @@ function args(argv) {
   return o;
 }
 
-function serve() {
+/** Where the seeded trader's TEST wallet reads its network: the demo chain, served below on loopback. */
+const DEMO_NODE = `http://127.0.0.1:${PORT}/demo-node`;
+
+function serve(chainId) {
   const headers = securityHeaders({});
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/demo-node' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        const call = JSON.parse(body);
+        const answer = demoChain(call.method, call.params, { chainId, now: DEMO_NOW });
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: call.id, ...answer }));
+      });
+      return;
+    }
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/')) return void res.writeHead(503).end();
     let target = resolve(DIST, `.${decodeURIComponent(url.pathname)}`);
     // `/` resolves to DIST itself, which serves the page like any other route.
@@ -121,7 +135,9 @@ async function main() {
   mkdirSync(o.out, { recursive: true });
   const require = createRequire(join(ROOT, 'apps/customer/package.json'));
   const { chromium } = require('@playwright/test');
-  const server = await serve();
+  // The seeded trader's browser wallet (the journeys' TEST wallet, a fixed TEST key) is on the venue's network.
+  const chainId = demoAnswer(`http://x/api/v1/venue/status`, 'GET', null, { signedIn: true })?.json?.chainId ?? null;
+  const server = await serve(chainId);
   const browser = await chromium.launch();
   const report = { at: new Date(DEMO_NOW).toISOString(), recording: 'tooling/shots/recording', shots: [] };
   const rooms = ROOMS.filter((r) => !o.routes || o.routes.includes(r.path));
@@ -157,9 +173,8 @@ async function main() {
           });
         });
         await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: 'shots' }));
-        // The seeded trader's browser wallet (the journeys' TEST wallet, a fixed TEST key), connected where a room asks.
-        const status = demoAnswer(`http://x/api/v1/venue/status`, 'GET', null, { signedIn: true })?.json;
-        if (room.signedIn && status?.chainId) await installTestWallet(page, { chainId: status.chainId, privateKey: demoWalletKey() });
+        // The seeded trader's browser wallet, connected where a room asks, reading its network from the demo chain.
+        if (room.signedIn && chainId) await installTestWallet(page, { chainId, privateKey: demoWalletKey(), rpcUrl: DEMO_NODE });
         await page.goto(`http://127.0.0.1:${PORT}${room.path}`);
         await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
         const connect = page.getByRole('button', { name: 'Connect TEST Wallet' }).first();
