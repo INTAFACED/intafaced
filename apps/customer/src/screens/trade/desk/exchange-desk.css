@@ -352,6 +352,9 @@
     display: none;
   }
 }
+.xd-phone-bar[hidden] {
+  display: none;
+}
 /* A phone: the contracts scroll sideways in one row instead of stacking. */
 @container room (max-width: 1023px) {
   .xd-contracts {
@@ -373,6 +376,11 @@
 }
 .xd-top > .xd-risk-row {
   flex: 1 1 32rem;
+}
+/* The strip fills its header's width (the header aligns its parts by their baseline, which would size the strip to its
+   content), so its tiles and figures wrap and large text never pushes the page past a phone's edge. */
+.xd-top {
+  inline-size: 100%;
 }
 @container room (min-width: 1024px) {
   .xd-top > .xd-risk-row {

@@ -1,5 +1,5 @@
 import { ActionLimitWarning } from '../../../features/trade';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import { VenueMarketPanel, useLastPrint } from '../desk/VenueMarketData';
 import '../desk/exchange-desk.css';
@@ -253,8 +253,17 @@ function Contracts({
   const needsSession = session.on && session.read && sessionLine(session.current, session.held).offer === 'start';
   const { run, resend } = useVenueActions(owner, session.signing);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
-  const ticketRef = useRef<HTMLDivElement>(null);
-  // A phone: the ticket is far below the chart, so Long and Short wait at the bottom and bring it into view.
+  const ticketRef = useRef<HTMLDivElement | null>(null);
+  // A phone: the ticket is far below the chart, so Long and Short wait at the bottom and bring it into view. Once the
+  // ticket is on screen they step aside, so they never sit over its fields.
+  const [ticketShown, setTicketShown] = useState(false);
+  const watchTicket = useCallback((el: HTMLDivElement | null) => {
+    ticketRef.current = el;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const seen = new IntersectionObserver(([entry]) => setTicketShown(entry?.isIntersecting ?? false));
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, []);
   const toTicket = (s: 'buy' | 'sell') => {
     setSide(s);
     ticketRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -338,7 +347,7 @@ function Contracts({
             />
           }
           ticket={
-            <div className="lt-stack" ref={ticketRef}>
+            <div className="lt-stack" ref={watchTicket}>
               {/* No wallet yet: connecting it comes first. Connected: the ticket comes first, the wallet under it. */}
               {owner ? null : <WalletBar />}
               {owner ? (
@@ -414,7 +423,7 @@ function Contracts({
           }
         />
       </PageGrid>
-      <div className="xd-phone-bar" role="group" aria-label={t('Ticket')} data-testid="venue-phone-bar">
+      <div className="xd-phone-bar" role="group" aria-label={t('Ticket')} data-testid="venue-phone-bar" hidden={ticketShown}>
         <Button tone="up" onClick={() => toTicket('buy')}>
           {t('Long')}
         </Button>
