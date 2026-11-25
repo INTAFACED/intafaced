@@ -2440,6 +2440,7 @@ a.lit-button {
   margin-inline-start: auto;
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
+}
 /* ---- Exchange parts (exchange.tsx): the order-book ladder and the trades tape ---- */
 .lt-book,
 .lt-tape {

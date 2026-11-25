@@ -508,3 +508,13 @@
   white-space: nowrap;
   overflow-wrap: normal;
 }
+
+/* The venue's published rules: a long list of short facts, laid out in columns on a computer so it reads as one panel
+   under the desk instead of a run of full-width rows. Layout only; each row keeps the kit's look. */
+@container room (min-width: 1024px) {
+  .xd :is([data-testid='venue-market-rules'], [data-testid='venue-rules']) > .lt-kv {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
+    column-gap: 2rem;
+  }
+}
