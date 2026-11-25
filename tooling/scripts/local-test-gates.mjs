@@ -481,16 +481,19 @@ export function liveSessions(secrets, userIds) {
  */
 export const PERSON_TEST_PARTNER_SCOPES = Object.freeze(['bank:read', 'bank:write']);
 
+/** The scopes of a person's TEST protocol read token: only `protocol:read`, which svc-protocol's person reads need. */
+export const PERSON_PROTOCOL_READ_SCOPES = Object.freeze(['protocol:read']);
+
 /**
- * A short-lived TEST access token on a person's own live session (`liveSessions`), with only the bank scopes, so a TEST
- * tool can make a person's own TEST partner call (`testPartner.*`) on this stack as that person. Edge still checks the
- * session is live.
+ * A short-lived TEST access token on a person's own live session (`liveSessions`), with only the bank scopes (or the
+ * `scopes` given, such as PERSON_PROTOCOL_READ_SCOPES), so a TEST tool can make a person's own TEST partner call
+ * (`testPartner.*`) or read their own record on this stack as that person. Edge still checks the session is live.
  */
-export async function personToken(ctx, { userId, sessionId }, ttlSeconds = 120) {
+export async function personToken(ctx, { userId, sessionId }, ttlSeconds = 120, scopes = PERSON_TEST_PARTNER_SCOPES) {
   if (!UUID_RE.test(userId) || !UUID_RE.test(sessionId)) throw new Error('personToken needs a user id and a live session id');
   return (
     await ctx.tokens.issueAccessToken(
-      { userId, sessionId, scopes: [...PERSON_TEST_PARTNER_SCOPES], tier: 'none', mfa: false },
+      { userId, sessionId, scopes: [...scopes], tier: 'none', mfa: false },
       { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
     )
   ).token;
@@ -620,6 +623,18 @@ class Edge {
       undefined,
       token,
     );
+  } /**
+   * One tRPC call by its written record (`packages/contracts`, shape rule 1), as the app's `api.call` makes it: the path
+   * and kind come from the record, and `data` is the reply only when the record's output schema parses it (else null).
+   */
+  async record(record, input, token) {
+    if (record?.transport !== 'trpc') throw new Error(`Edge.record takes a tRPC record (got ${record?.name ?? 'none'})`);
+    const res =
+      record.kind === 'query'
+        ? await this.query(encodeURIComponent(record.module), encodeURIComponent(record.path), input, token)
+        : await this.mutate(encodeURIComponent(record.module), encodeURIComponent(record.path), input, token);
+    const parsed = record.output.safeParse(res.json?.result?.data);
+    return { ...res, data: parsed.success ? parsed.data : null };
   }
 }
 

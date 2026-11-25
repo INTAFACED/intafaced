@@ -27,6 +27,7 @@ import {
   mailboxRows,
   outsideAddresses,
   reservedHost,
+  selfRestart,
   stackEnv,
   stopCommands,
   unitText,
@@ -332,6 +333,30 @@ test('the service keeps the supervisor running from the beta checkout and leaves
   assert.match(unit, /ExecStart=\/bin\/bash -lc 'exec node tooling\/beta\/beta-host\.mjs serve'/);
   assert.match(unit, /Restart=always/);
   assert.match(unit, /KillMode=process/);
+});
+
+test('a new copy of the supervisor starts at once, so the TEST mailbox is never down for the restart delay (#10888)', () => {
+  // Exiting left systemd's RestartSec=60 between the old copy and the new one: the mailbox (MAILBOX_PORT) refused
+  // every tester waiting for a sign-up code for that minute. Under its own unit, the supervisor asks systemd to
+  // restart it now; run by hand, it exits as before.
+  const calls = [];
+  const systemctl =
+    (pid) =>
+    (...args) => {
+      calls.push(args);
+      if (args[0] === 'show') return { status: 0, stdout: `MainPID=${pid}\n` };
+      return { status: 0, stdout: '' };
+    };
+  assert.equal(selfRestart({ pid: 4242, systemctl: systemctl(4242) }), 'restart');
+  assert.deepEqual(calls.at(-1), ['restart', '--no-block', 'intafaced-beta.service']);
+
+  calls.length = 0;
+  assert.equal(selfRestart({ pid: 4242, systemctl: systemctl(999) }), 'exit', 'run by hand, not as the unit');
+  assert.ok(!calls.some((a) => a[0] === 'restart'));
+
+  const refused = (...args) => (args[0] === 'show' ? { status: 0, stdout: 'MainPID=4242\n' } : { status: 1, stdout: '' });
+  assert.equal(selfRestart({ pid: 4242, systemctl: refused }), 'exit', 'a refused restart falls back to exiting');
+  assert.equal(selfRestart({ pid: 4242, systemctl: () => ({ status: 1, stdout: '' }) }), 'exit', 'no systemd');
 });
 
 test('reserved names never reach a service, so they pass; a real host that only looks like one does not', () => {

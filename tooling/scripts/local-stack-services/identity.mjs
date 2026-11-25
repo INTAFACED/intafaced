@@ -80,7 +80,7 @@ function screeningSwitch(env) {
   return out;
 }
 
-const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, PUBLIC_ORIGIN, identityFounderEnv }) => ({
+const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, PUBLIC_ORIGIN, vendorKeys, identityFounderEnv }) => ({
   name: 'identity',
   env: () => ({
     ...c('svc-identity', PORTS.identity),
@@ -99,6 +99,15 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     WEBAUTHN_RP_ID: PUBLIC_ORIGIN ? new URL(PUBLIC_ORIGIN).hostname : 'localhost',
     WEBAUTHN_RP_NAME: 'INTAFACED (LOCAL TEST)',
     WEBAUTHN_ORIGIN: PUBLIC_ORIGIN ?? CUSTOMER_LOCALHOST_ORIGIN,
+    // The owner's wallet provider (J-wallet-22), only with `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey` on a start, and
+    // only from the box's sealed keys file (vendorKeys): svc-protocol then asks svc-identity for each person's wallet.
+    ...(process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'turnkey'
+      ? vendorKeys(
+          ['TURNKEY_ORGANIZATION_ID', 'TURNKEY_API_PUBLIC_KEY', 'TURNKEY_API_PRIVATE_KEY'],
+          undefined,
+          'LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey',
+        )
+      : {}),
     IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
     IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
     // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.

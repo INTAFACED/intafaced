@@ -78,8 +78,16 @@ ledger, once per account (a fixed ledger reference) and for at most 3 accounts p
 (`~/.intafaced/beta/granted.json`). The same 1000 TEST USDT is kept in that account's TEST partner account, where the
 launch model holds a person's money and which Home and Money read (#10632); every pass puts it back after an svc-bank
 restart, as that person, while they are signed in, and the beta starts svc-ops with `LOCAL_STACK_VALUATION_PRICES=test`
-(the ops profile's labelled TEST price list, `USDC=1,USDT=1`) so Home and Money value that holding with a TEST total. Any other account, uninvited or made on the box, gets nothing. The pass's lines are
-in `round.log`. Test, on the box: `node tooling/beta/beta-host.mjs invited-test --checkout ~/.intafaced/beta/checkout
+(the ops profile's labelled TEST price list, `USDC=1,USDT=1`) so Home and Money value that holding with a TEST total.
+Once such an account has made its own embedded wallet (`/wallet/embedded`), the same pass sends 25 TEST USDC to that
+wallet on Hyperliquid's TEST network, for the futures desk (`tooling/beta/beta-testnet.mjs`, #10842): it reads the
+address through svc-protocol's `protocol.embeddedWallet.status` record as that person, and dispatches
+`hl-testnet-send.yml` on main with `gh`, so the funded testnet key stays in CI and never comes to the box. Once per
+account and address, for at most 3 accounts per person (`~/.intafaced/beta/testnet-funded.json`, written before each
+dispatch), one send at a time; a failed dispatch or run is tried again after 5 minutes, 3 tries in all; a send whose
+run id was lost waits 20 minutes, or until the address shows the funds, before it counts as failed, so a crash makes
+a tester wait, never a second send. Below 25 free TEST USDC at the funder, nothing is sent and `round.log` says so once.
+Any other account, uninvited or made on the box, gets nothing. The pass's lines are in `round.log`. Test, on the box: `node tooling/beta/beta-host.mjs invited-test --checkout ~/.intafaced/beta/checkout
 --watch`, run as below.
 
 **Approve or fund anyone else (an agent, on the box).** Run these under the user's systemd manager, as the stack runs.
@@ -110,6 +118,16 @@ tabs overlap, so "OTO" covers "Market".
   artifact and decrypts it, unseen, into `~/.intafaced/beta/state/screening.local.json` (mode 600,
   `{"regions": "...", "source": "..."}`, the same file `docs/LOCAL-TEST-STACK.md` names). The next round starts the
   stack.
+- **The owner's vendor keys** (his wallet provider's `TURNKEY_ORGANIZATION_ID`, `TURNKEY_API_PUBLIC_KEY`,
+  `TURNKEY_API_PRIVATE_KEY`, and his screening vendor's `OPENSANCTIONS_API_KEY`; his decision is cited in the workflow's
+  header) reach the box the same way, unseen: make a fresh RSA-4096 key on the box (`~/.intafaced/beta/seal/seal.key`,
+  mode 600) and commit its public half as `tooling/beta/seal.pub.pem`; once that is on main, dispatch
+  `beta-screening-seal.yml`, download its artifact, decrypt `key.enc` with that key and `vendors.enc` with the result,
+  under `umask 077`, straight into `~/.intafaced/beta/state/vendors.local.json`; then delete the key and the download.
+  Show only that each name is set, never a value. No service reads them until a start asks: svc-identity and
+  svc-protocol with `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey`, svc-pay with `LOCAL_STACK_PAY_SCREENER=opensanctions`.
+  The beta sets neither yet. A wallet at his provider can't sign from the Customer app yet, so a tester could not
+  approve a trading session. With the TEST list, the vendor clears no custodial send.
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main
   removes it.

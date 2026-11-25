@@ -403,8 +403,9 @@ async function openMarketInMatching(contracts, marketId) {
 }
 
 /**
- * SMOKE RIG ONLY, not owner values: a priced order needs the pair's price band and a resting order its open-order cap
- * (J-cex-spot-04; blank refuses trade.price_band_unset / trade.open_orders_cap_unset). The two smoke founders publish
+ * SMOKE RIG ONLY, not owner values: a priced order needs the pair's price band and minimum order value, and a resting
+ * order its open-order cap (J-cex-spot-04; blank refuses trade.price_band_unset / trade.min_notional_unset /
+ * trade.open_orders_cap_unset). The two smoke founders publish
  * them through svc-trade's own door (admin.risk.set), one proposing and the other approving at identity, with the
  * payload hash `tooling/scripts/local-test-gates.mjs` uses for the local stack. The band is wider than the stack's 10%
  * (half the middle price either side): the trade journeys that run after the smoke on its own database price orders
@@ -417,7 +418,7 @@ async function publishSmokePairLimits(contracts, marketId, { requesterMfa, appro
   // svc-trade's operator scopes, which the operator desk checks itself.
   const operator = { ...requesterMfa, scopes: [...new Set([...(requesterMfa.scopes ?? []), 'admin:read', 'admin:write'])] };
   const current = await tradeCall(contracts, 'query', 'admin.risk.get', { market: marketId }, operator);
-  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'];
+  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker', 'minNotional'];
   const limits = Object.fromEntries(fields.map((f) => [f, SMOKE_PAIR_LIMITS[f] ?? current[f] ?? null]));
   if (fields.every((f) => limits[f] === (current[f] ?? null))) return log(`SEED pair limits ${SYMBOL} already published`);
   const body = { market: marketId, limits, expectedVersion: current.version, reason: 'local-test: CX-8 smoke pair limits' };
@@ -435,7 +436,9 @@ async function publishSmokePairLimits(contracts, marketId, { requesterMfa, appro
     { ...body, approvalId: approved.approvalId, operationId: approved.operationId },
     operator,
   );
-  log(`SEED pair limits ${SYMBOL} (local-test: band ${row.collar}, cap ${row.throttle}, version ${row.version})`);
+  log(
+    `SEED pair limits ${SYMBOL} (local-test: band ${row.collar}, cap ${row.throttle}, minimum ${row.minNotional}, version ${row.version})`,
+  );
 }
 
 /**
