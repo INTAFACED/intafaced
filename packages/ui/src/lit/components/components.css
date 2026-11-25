@@ -2872,8 +2872,7 @@ a.lit-button {
   inline-size: 0.5rem;
   block-size: 0.5rem;
   border-radius: 50%;
-  background: var(--lit-accent);
-  box-shadow: 0 0 0.75rem var(--lit-accent);
+  background: var(--lit-text-1);
 }
 .lt-wallet-card__label {
   grid-row: 3;
