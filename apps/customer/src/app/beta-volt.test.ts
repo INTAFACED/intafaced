@@ -159,6 +159,21 @@ describe("the beta's menus", () => {
     expect(isHiddenPath('/developers/status')).toBe(true);
   });
 
+  it('shows Official channels (/help/official-channels) on the beta while keeping Status, Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/help/official-channels')).toBe('volt');
+    expect(betaHides('/help/official-channels', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/help/official-channels')).toBeUndefined();
+    expect(isHiddenPath('/help/official-channels')).toBe(false);
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/help/official-channels');
+    expect(searchRooms('official channels', 'Personal').map((room) => room.path)).toContain('/help/official-channels');
+    for (const blockedPath of ['/status', '/rulebook', '/support/chat', '/help/mule-policy']) {
+      expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('owner-blank-pages');
+      expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
+    }
+  });
+
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
     expect(betaRooms()).toBeUndefined();
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);
