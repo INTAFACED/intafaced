@@ -7,7 +7,7 @@ import { parseAmount } from '@intafaced/ledger-client/money';
 import { VenueRefusalError, type PlaceUserOrderIntent, type PreparedVenueAction } from '@intafaced/venue-contracts';
 import { TEST_VENUE_MARKETS, TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
-import { SESSION_KEY_TTL_MS, SessionKeys } from './session-key.js';
+import { SESSION_KEY_NAME, SESSION_KEY_TTL_MS, SessionKeys } from './session-key.js';
 import { UserVenueDoor, UserVenueDoorError, type BuilderFeeValue } from './user-venue-door.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
@@ -144,7 +144,7 @@ async function refusal(promise: Promise<unknown>) {
 }
 
 describe('J-wallet-22 #8: one approval per trading session for a fresh key that trades and never withdraws', () => {
-  it('one owner approval, unnamed, with the session expiry; two orders signed by the session key with no second prompt', async () => {
+  it('one owner approval, under the session key name, with the session expiry; two orders signed by the session key with no second prompt', async () => {
     const w = world();
     await approveBuilderFee(w);
     const before = w.ownerPrompts();
@@ -153,7 +153,7 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     expect(started.prepared.intent).toEqual({
       kind: 'approve_agent',
       agentAddress: key.address.toLowerCase(),
-      agentName: '',
+      agentName: SESSION_KEY_NAME,
       validUntil: new Date(Date.parse('2026-11-09T10:00:00.000Z') + SESSION_KEY_TTL_MS),
     });
     expect(started.prepared.signer).toEqual({ role: 'owner', address: owner });
@@ -168,7 +168,7 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     expect((await w.sim.agents(w.account)).value).toEqual([
       {
         address: key.address.toLowerCase(),
-        name: '',
+        name: SESSION_KEY_NAME,
         validUntil: started.prepared.intent.kind === 'approve_agent' ? started.prepared.intent.validUntil : null,
       },
     ]);
@@ -358,7 +358,7 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     expect(listed).toEqual(
       expect.arrayContaining([
         [assistant.address.toLowerCase(), 'assistant'],
-        [second.key.address.toLowerCase(), ''],
+        [second.key.address.toLowerCase(), SESSION_KEY_NAME],
       ]),
     );
     expect(listed).toHaveLength(2);
