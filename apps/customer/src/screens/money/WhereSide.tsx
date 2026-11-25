@@ -87,7 +87,7 @@ function WithdrawTo({ owner, t }: { owner: string; t: T }) {
   return (
     <section className="lt-stack" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
       <PanelHead title={<span id="where-withdraw-title">{t('Withdraw to title')}</span>} />
-      <div className="lt-row lt-row-between lt-row-nowrap" data-testid="venue-wallet">
+      <div className="lt-row lt-row-between lt-row-nowrap" data-testid="assets-withdraw-to-wallet">
         <span className="lt-stack lt-stack-tight money-where__address">
           <span>{t('Withdraw to wallet')}</span>
           <span className="lt-hint" title={owner}>
