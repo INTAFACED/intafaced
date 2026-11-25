@@ -128,7 +128,7 @@ export function FeaturedMarket({ symbol, name, price, change, points, chartLabel
           <span className="lt-market-symbol">{symbol}</span>
           {name ? <span className="lt-market-full">{name}</span> : null}
         </span>
-        <Price className="lt-featured-price" value={price} />
+        <Price className="lt-featured-price" value={price} cents />
         <Pct value={change} />
       </span>
       <span className="lt-featured-chart">

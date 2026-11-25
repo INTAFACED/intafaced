@@ -184,3 +184,9 @@ table.preview-passes {
 .preview-passes :is(th, td):last-child {
   padding-inline-end: 0;
 }
+
+/* What follows a button sits clear of it, never on its edge: the save state, an engine's sample log (look gate, #10890). */
+.quant-save > p,
+.more-columns .button + * {
+  margin-block-start: var(--lit-gap-item);
+}
