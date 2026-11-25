@@ -185,10 +185,11 @@
       gap: 1.25rem;
     }
     .mkt-hero__chart {
-      min-block-size: 11rem;
+      min-block-size: 8rem;
     }
     .mkt-hero__chart .lt-chart svg {
-      min-block-size: 10rem;
+      min-block-size: 7rem;
+      max-block-size: 9rem;
     }
     .mkt-moving__list {
       grid-auto-flow: column;
@@ -323,4 +324,9 @@
       animation: none;
     }
   }
+}
+[data-testid='if-markets'] .mkt-board > section + section {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
 }
