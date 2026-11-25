@@ -45,6 +45,31 @@ describe('account parts', () => {
   });
 });
 
+describe('ActivityRow marks', () => {
+  it("puts a room's marks on the row link and on its title, time and amount", () => {
+    const out = html(
+      <ActivityRow
+        title="Sent"
+        time="Today"
+        amount="−$1.00"
+        direction="out"
+        href="/a"
+        hidden={false}
+        marks={{
+          row: { 'data-testid': 'home-activity__row' },
+          title: { 'data-testid': 'home-activity__kind' },
+          time: { 'data-testid': 'home-activity__when' },
+          amount: { 'data-testid': 'home-activity__amount' },
+        }}
+      />,
+    );
+    expect(out).toContain('<a data-testid="home-activity__row" href="/a">');
+    expect(out).toContain('data-testid="home-activity__kind" class="lt-activity-title">Sent');
+    expect(out).toContain('data-testid="home-activity__when" class="lt-activity-time">Today');
+    expect(out).toMatch(/data-testid="home-activity__amount" class="lt-num"[^>]*>−\$1\.00/);
+  });
+});
+
 describe('hero chart and parts', () => {
   const points = [
     { at: '2026-11-01', value: '10.00' },

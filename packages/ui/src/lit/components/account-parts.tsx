@@ -7,6 +7,7 @@ import * as React from 'react';
 import { clsx } from 'clsx';
 import { useHideBalances } from '../../components/numbers.js';
 import { HIDDEN_MASK } from './b2-values.js';
+import type { DataMarks } from './b2-table.js';
 
 /**
  * A row of equal action keys. From 37.5rem of the row's room they are wide bars (icon beside the word); on a phone
@@ -97,10 +98,12 @@ export type ActivityRowProps = {
   href?: string;
   /** Overrides the hide-balances switch. */
   hidden?: boolean;
+  /** Marks (`data-testid`, `data-*`) for the row's link or box and its title, time and amount, for a room's tests. */
+  marks?: { row?: DataMarks; title?: DataMarks; time?: DataMarks; amount?: DataMarks };
 };
 
 /** One line of activity: a circle, what happened and when, the signed amount at the end. Rows sit in an `ActivityList`. */
-export function ActivityRow({ icon, initials, title, time, amount, direction, detail, href, hidden }: ActivityRowProps) {
+export function ActivityRow({ icon, initials, title, time, amount, direction, detail, href, hidden, marks }: ActivityRowProps) {
   const fromSwitch = useHideBalances();
   const masked = hidden ?? fromSwitch;
   const body = (
@@ -109,18 +112,32 @@ export function ActivityRow({ icon, initials, title, time, amount, direction, de
         {icon ?? initials}
       </span>
       <span className="lt-activity-what">
-        <span className="lt-activity-title">{title}</span>
-        <span className="lt-activity-time">{time}</span>
+        <span {...marks?.title} className="lt-activity-title">
+          {title}
+        </span>
+        <span {...marks?.time} className="lt-activity-time">
+          {time}
+        </span>
       </span>
       <span className="lt-activity-amount">
-        <span className="lt-num" data-direction={direction} data-hidden={masked || undefined} dir="ltr">
+        <span {...marks?.amount} className="lt-num" data-direction={direction} data-hidden={masked || undefined} dir="ltr">
           {masked ? HIDDEN_MASK : (amount ?? '—')}
         </span>
         {detail !== undefined ? <span className="lt-activity-detail">{detail}</span> : null}
       </span>
     </>
   );
-  return <li className="lt-activity">{href ? <a href={href}>{body}</a> : <div>{body}</div>}</li>;
+  return (
+    <li className="lt-activity">
+      {href ? (
+        <a {...marks?.row} href={href}>
+          {body}
+        </a>
+      ) : (
+        <div {...marks?.row}>{body}</div>
+      )}
+    </li>
+  );
 }
 
 export function ActivityList({ label, children }: { label: string; children: React.ReactNode }) {
