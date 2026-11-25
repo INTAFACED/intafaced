@@ -100,10 +100,12 @@ export interface StatProps {
   now?: number;
   staleAfterMs?: number | null;
   refused?: boolean;
+  /** The label under the figure (412 / markets) instead of over it. */
+  labelBelow?: boolean;
 }
 
 /** One headline figure with its label, its hint and how fresh it is (Live, Stale, Unknown, Refused) in words. */
-export function Stat({ label, value, money, hint, asOf, now, staleAfterMs, refused }: StatProps) {
+export function Stat({ label, value, money, hint, asOf, now, staleAfterMs, refused, labelBelow }: StatProps) {
   const id = React.useId();
   const hasFreshness = asOf != null || refused === true;
   const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused, enabled: hasFreshness });
@@ -117,6 +119,7 @@ export function Stat({ label, value, money, hint, asOf, now, staleAfterMs, refus
       aria-describedby={hint ? `${id}-hint` : undefined}
       className="lt-stat"
       data-freshness={freshness}
+      data-label-below={labelBelow || undefined}
     >
       <span id={`${id}-label`} className="lt-hint">
         {label}

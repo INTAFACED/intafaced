@@ -61,6 +61,7 @@ import { readQueuePosition } from './spot/queue-position.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { orderableForListedMarket, registerPublicRest } from './public-rest.js';
+import { SqlHistoryDatasets } from './spot/history-datasets.js';
 import { readGatedList } from './futures/gated-list.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
@@ -968,9 +969,11 @@ async function serve(routes: Array<{ method: string; url: string; body: unknown 
     return { ready: true, engineSequences: { checked: sequences.checked, unjudged: sequences.unjudged } };
   });
   const listMarkets = () => matching.listMarkets();
+  const historyDatasets = new SqlHistoryDatasets(sql, { bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS });
   registerPublicRest(app, {
     markets: (limit) => trade.markets(limit),
     marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+    history: historyDatasets,
     publishedFeeRates: async (markets) => {
       const schedule = await feeScheduleAt(sql, feeSchedule, new Date());
       if (schedule.published !== true) return null;

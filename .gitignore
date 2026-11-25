@@ -118,3 +118,6 @@ apps/customer/public/developers/
 
 # Rust build output (cargo), one per worktree.
 /target/
+
+# pnpm shots: the key rooms on the demo world (tooling/shots/shots.mjs)
+/shots/
