@@ -7,6 +7,7 @@ import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
 import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
+import { ALGO_API_STATES } from '@intafaced/contracts/trade-call-schemas';
 import { deskCopy } from '../../screens/trade/desk/copy';
 import { acceptedCells, refusedName } from './trading/order-types-view';
 import { tradingApiCopy } from './trading/trading-api-copy';
@@ -374,6 +375,13 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           [trading('colType'), trading('colCode')],
           types.refused.map((row) => [refusedName(row, desk), code(row.code)]),
         ),
+        `## ${trading('algoTitle')}`,
+        trading('algoLead'),
+        table(
+          [trading('colState'), trading('colMeaning')],
+          ALGO_API_STATES.map((state) => [code(state), trading(`state_${state}`)]),
+        ),
+        trading('algoAmend'),
       ].join('\n\n');
     },
   },

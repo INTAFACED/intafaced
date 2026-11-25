@@ -451,6 +451,92 @@ export class TwapEngine {
   }
 
   /**
+   * Amend (SP-conditional-algo-04): a TWAP's quantity down, or its trigger price while it still waits for it. Nothing
+   * else changes. Slices already placed or missed stay as they were; the quantity left is planned again over the slices
+   * left, on the same interval, so the schedule's end does not move. A larger quantity refuses `trade.amend_qty_up`
+   * (the parent holds nothing that could cover it); a quantity at or under what is already scheduled refuses
+   * `trade.algo_amend_below_placed` (cancel stops it). The same values again change nothing.
+   */
+  amend(
+    userId: string,
+    parentId: string,
+    change: { readonly totalQty?: Amount; readonly triggerPrice?: Amount; readonly triggerAbove?: boolean },
+  ): TwapParent {
+    const parent = this.requireOwner(userId, parentId);
+    if (parent.haltReason === CANCEL_INCOMPLETE_HALT) {
+      throw new TradeError(
+        'cannot amend after a partial cancel — call cancel again until every child is cancelled',
+        'trade.algo_cancel_incomplete',
+      );
+    }
+    if (parent.status !== 'active' && parent.status !== 'paused') {
+      throw new TradeError(`cannot amend algo in status ${parent.status}`, 'trade.algo_bad_state');
+    }
+    if (parent.kind !== 'twap') {
+      throw new TradeError(`a ${parent.kind} order is not amended: cancel it and place a new one`, 'trade.algo_params_immutable');
+    }
+    if (change.totalQty === undefined && change.triggerPrice === undefined) {
+      throw new TradeError('an amend names a new totalQty, a new triggerPrice, or both', 'trade.algo_invalid_qty');
+    }
+    let next: TwapParent = parent;
+    let plan = this.plans.get(parentId);
+    if (!plan) throw new TradeError(`algo plan missing for ${parentId}`, 'trade.algo_not_found');
+
+    if (change.triggerPrice !== undefined && change.triggerPrice !== parent.triggerPrice) {
+      if (!awaitingTrigger(parent)) {
+        throw new TradeError(
+          parent.triggerPrice == null
+            ? 'this order has no trigger price to change'
+            : 'the trigger price was already reached; the schedule is running',
+          'trade.algo_bad_state',
+        );
+      }
+      if (change.triggerPrice <= 0n || change.triggerAbove === undefined) {
+        throw new TradeError('a trigger price must be strictly positive and read against the mark', 'trade.algo_invalid_schedule');
+      }
+      next = { ...next, triggerPrice: change.triggerPrice, triggerAbove: change.triggerAbove };
+    }
+
+    if (change.totalQty !== undefined && change.totalQty !== parent.totalQty) {
+      if (change.totalQty > parent.totalQty) {
+        throw new TradeError(
+          `an algo order's quantity only goes down: ${formatAmount(change.totalQty)} is over ${formatAmount(parent.totalQty)}`,
+          'trade.amend_qty_up',
+        );
+      }
+      const scheduled = plan.slice(0, parent.nextSliceIndex).reduce((sum, q) => sum + q, 0n);
+      const left = plan.length - parent.nextSliceIndex;
+      if (change.totalQty <= scheduled || left <= 0) {
+        throw new TradeError(
+          `${formatAmount(scheduled)} is already scheduled: the new quantity must be over it (cancel stops the order)`,
+          'trade.algo_amend_below_placed',
+        );
+      }
+      if (parent.lotSize == null) {
+        throw new TradeError('this order has no lot size recorded, so its slices cannot be planned again', 'trade.algo_bad_state');
+      }
+      const rest = planTwapSlices({
+        totalQty: change.totalQty - scheduled,
+        durationMs: left * parent.sliceIntervalMs,
+        sliceIntervalMs: parent.sliceIntervalMs,
+        lotSize: parent.lotSize,
+        randomSeed: parent.randomSeed ?? null,
+      }).slices;
+      plan = [...plan.slice(0, parent.nextSliceIndex), ...rest];
+      next = {
+        ...next,
+        totalQty: change.totalQty,
+        slicesPlanned: plan.length,
+        projectedEndsAt: projectTwapEndsAt(parent.nextDueAt.getTime(), rest.length, parent.sliceIntervalMs),
+      };
+    }
+
+    if (next === parent) return parent;
+    this.plans.set(parentId, plan);
+    return this.replace(parentId, next);
+  }
+
+  /**
    * Cancel: no further children. In-flight children are cancelled (one
    * disposition, every time). Status → cancelled ONLY after every child
    * cancel succeeds; a throw leaves the parent non-cancelled.
