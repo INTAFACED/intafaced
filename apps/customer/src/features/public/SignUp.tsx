@@ -51,6 +51,8 @@ export function SignUp() {
   const { t, requestedLocale } = signUpCopy.useCopy();
   const { api, commit, restoring } = useSession();
   const context = publicAuthContext(location.pathname, location.search);
+  // The landing's email field opens sign-up with the address filled in (`/register?email=`); the person can still change it.
+  const emailFromLink = new URLSearchParams(location.search).get('email')?.slice(0, 320) ?? undefined;
   const [accountType, setAccountType] = useState<AccountType>('individual');
   const [channel, setChannel] = useState<Channel>('email');
   const [country, setCountry] = useState('');
@@ -234,7 +236,16 @@ export function SignUp() {
               </fieldset>
               <div className="lt-tile-row">
                 {channel === 'email' ? (
-                  <Field label={t('emailField')} name="email" type="email" autoComplete="email" maxLength={320} required disabled={busy} />
+                  <Field
+                    label={t('emailField')}
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    maxLength={320}
+                    required
+                    disabled={busy}
+                    defaultValue={emailFromLink}
+                  />
                 ) : (
                   <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" maxLength={20} required disabled={busy} />
                 )}
