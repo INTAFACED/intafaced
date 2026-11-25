@@ -121,24 +121,34 @@ export function WhereAllocation({ standing, venueRows }: { standing: Standing; v
         ? t('Share of your total by kind')
         : t('Share of your total by place');
 
+  const control = (
+    <Segmented
+      label={t('Group by')}
+      value={grouping}
+      onChange={setGrouping}
+      options={GROUPINGS.map((option) => ({
+        value: option,
+        label: option === 'coin' ? t('Coin') : option === 'class' ? t('Kind') : t('Place'),
+      }))}
+    />
+  );
+
+  // Owner's pick A: one thin bar, its legend on one line, and the grouping control at the line's end. Coin is the face;
+  // Kind and Place stay one press away (J-portfolio-06 #1).
   return (
-    <section data-testid="money-alloc" data-total-usd={alloc.totalValueUsd} className="lt-stack" aria-label={t('Where your money is')}>
-      <Segmented
-        label={t('Group by')}
-        value={grouping}
-        onChange={setGrouping}
-        options={GROUPINGS.map((option) => ({
-          value: option,
-          label: option === 'coin' ? t('Coin') : option === 'class' ? t('Kind') : t('Place'),
-        }))}
-      />
+    <section
+      data-testid="money-alloc"
+      data-total-usd={alloc.totalValueUsd}
+      className="money-where__alloc"
+      aria-label={t('Where your money is')}
+    >
       {note !== null ? (
-        <p className="lt-hint" role="status">
+        <p className="lt-hint money-where__alloc-note" role="status">
           {note}
         </p>
       ) : (
         <>
-          <div data-testid="money-alloc__legend" aria-hidden="true">
+          <div data-testid="money-alloc__legend" className="money-where__alloc-legend" aria-hidden="true">
             <Shares
               label={caption}
               shares={shown.map((slice) => ({ key: slice.key, label: slice.label, share: slice.share, text: pctText(slice.share) }))}
@@ -165,18 +175,21 @@ export function WhereAllocation({ standing, venueRows }: { standing: Standing; v
               </tbody>
             </table>
           </div>
-          {unclassified.length > 0 ? (
-            <p className="lt-hint">
-              {t(unclassified.length === 1 ? 'Unclassified note' : 'Unclassified note many', { assets: unclassified.join(', ') })}
-            </p>
-          ) : null}
-          {alloc.unpriced.length > 0 ? (
-            <p className="lt-hint">
-              {alloc.unpriced.length === 1 ? t('Asset not counted') : t('Assets not counted', { count: alloc.unpriced.length })}
-            </p>
-          ) : null}
         </>
       )}
+      <div className="money-where__alloc-end">
+        {unclassified.length > 0 ? (
+          <p className="lt-hint">
+            {t(unclassified.length === 1 ? 'Unclassified note' : 'Unclassified note many', { assets: unclassified.join(', ') })}
+          </p>
+        ) : null}
+        {note === null && alloc.unpriced.length > 0 ? (
+          <p className="lt-hint">
+            {alloc.unpriced.length === 1 ? t('Asset not counted') : t('Assets not counted', { count: alloc.unpriced.length })}
+          </p>
+        ) : null}
+        {control}
+      </div>
     </section>
   );
 }
