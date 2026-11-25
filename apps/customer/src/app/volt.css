@@ -11,11 +11,19 @@
   font-family: var(--lit-font-ui);
 }
 
-/* The top bar: the page's own matte black, no rule under it. */
+/* An ultra-wide screen (2000px and up; media rem is the browser's 16px) draws everything 1.2 times larger, as every picked
+   page does (first-pages, 25 Nov), so a 2560 screen reads like a 2133 one instead of a strip of small type. */
+@media (min-width: 125rem) {
+  :root body {
+    zoom: 1.2;
+  }
+}
+
+/* The top bar, measured from Home A and Landing A (the owner's picks, 25 Nov; the root is 14px, so 1rem = 14px). */
 :root .tb {
-  block-size: 3.75rem;
-  gap: 1.5rem;
-  padding-inline: clamp(1rem, 2vw, 2.5rem);
+  block-size: 4.2857rem;
+  gap: 1.7143rem;
+  padding-inline: clamp(1.1429rem, 2vw, 2.8571rem);
   background: var(--lit-glass-bg);
   -webkit-backdrop-filter: var(--lit-glass-blur);
   backdrop-filter: var(--lit-glass-blur);
@@ -26,15 +34,15 @@
   align-self: center;
 }
 :root .tb-nav > ul {
-  gap: 0.25rem;
+  gap: 0.2857rem;
 }
 :root .tb-tab {
-  block-size: auto;
-  padding-block: 0.4375rem;
-  padding-inline: 0.75rem;
-  border-radius: var(--lit-radius-key);
+  block-size: 2.5714rem;
+  padding-inline: 0.8571rem;
+  border-radius: 50rem;
   color: var(--lit-text-2);
-  font-size: 0.875rem;
+  font-size: 1rem;
+  font-weight: 500;
   transition:
     background-color var(--lit-t-quick) var(--lit-ease),
     color var(--lit-t-quick) var(--lit-ease);
@@ -50,21 +58,42 @@
 :root .tb-tab[aria-current='page']::after {
   content: none;
 }
+:root .tb-right {
+  gap: 1.7143rem;
+}
 :root .tb-search {
-  block-size: 2.25rem;
+  block-size: 2.2857rem;
+  border-radius: 50rem;
   background: var(--lit-control-bg);
   box-shadow: inset 0 0 0 1px var(--lit-line);
-  border-radius: var(--lit-radius-key);
+}
+/* From 1000px the search is a field; narrower it stays shell.css's round button. */
+@media (min-width: 62.5rem) {
+  :root .tb-search {
+    inline-size: 18.2143rem;
+    padding-inline: 0.8571rem;
+    font-size: 0.9286rem;
+  }
+}
+@media (max-width: 62.4375rem) {
+  :root .tb-search {
+    inline-size: 2.2857rem;
+  }
+}
+@media (max-width: 47.9375rem) {
+  :root .tb-search-panel {
+    inset-block-start: calc(4.2857rem + var(--if-banner-offset, 0rem));
+  }
 }
 :root .tb-login,
 :root .tb-signup {
   display: inline-flex;
   align-items: center;
-  block-size: 2.25rem;
-  padding-inline: 1rem;
+  block-size: 2.2857rem;
+  padding-inline: 0.8571rem;
   border: 0;
-  border-radius: var(--lit-radius-key);
-  font-size: 0.875rem;
+  border-radius: 50rem;
+  font-size: 0.9286rem;
   font-weight: 600;
 }
 :root .tb-login {
@@ -74,25 +103,28 @@
   background: var(--lit-text-1);
   color: var(--lit-page);
 }
-/* Simple or Pro: a sunken pill, the chosen side raised. */
+/* Simple or Pro: a sunken track, the chosen side raised. */
 :root .tb-mode [data-slot='segmented-control'] {
-  block-size: 2.5rem;
-  padding: 0.25rem;
+  block-size: 3rem;
+  padding: 0.2143rem;
+  border-radius: 50rem;
   background: var(--lit-solid-bg-sunken);
 }
 :root .tb-mode [data-slot='segmented-control'] > span {
-  inset-block: 0.25rem;
+  inset-block: 0.2143rem;
+  border-radius: 50rem;
   background: var(--lit-solid-bg-raised);
   box-shadow: none;
 }
 :root .tb-mode [data-slot='segmented-control'] button {
   padding-inline: 1rem;
-  font-size: 0.875rem;
+  font-size: 0.9286rem;
+  font-weight: 600;
 }
 /* The account: a stone disc. */
 :root .tb-account > .tb-icon-button {
-  inline-size: 2.125rem;
-  block-size: 2.125rem;
+  inline-size: 2.4286rem;
+  block-size: 2.4286rem;
   background: var(--lit-text-1);
   color: var(--lit-page);
 }
