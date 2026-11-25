@@ -547,12 +547,12 @@ export class TradeOpsAdmin {
     const id = randomUUID();
     const at = nowOf(this.deps);
     await this.deps.sql`INSERT INTO trade.operator_risk_limits (
-      id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
+      id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, min_notional, oi_limit, oi_share_bps,
       price_range_max, price_range_trigger, price_range_cadence_seconds,
       operator_id, approver_id, reason, approval_id, created_at
     ) VALUES (
       ${id}, ${input.market}, ${next}::bigint, ${limits.collar}, ${limits.fatFinger}, ${limits.slippageCap},
-      ${limits.throttle}, ${limits.circuitBreaker}, ${carried.oiLimit}, ${carried.oiShareBps},
+      ${limits.throttle}, ${limits.circuitBreaker}, ${carried.minNotional}, ${carried.oiLimit}, ${carried.oiShareBps},
       ${carried.priceRangeMax}, ${carried.priceRangeTrigger}, ${carried.priceRangeCadenceSeconds},
       ${principal.userId}, ${consumed.approverId}, ${reason}, ${input.approvalId}, ${at.toISOString()}
     )`;
