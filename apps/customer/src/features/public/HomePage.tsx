@@ -33,7 +33,7 @@ import './landing.css';
 
 type T = ReturnType<typeof landingCopy.useCopy>['t'];
 type Tab = 'popular' | 'gainers' | 'losers';
-export interface Line {
+interface Line {
   market: MarketRow;
   ticker: TickerRow | undefined;
 }
@@ -50,7 +50,8 @@ const priceOf = (line: Line) => {
   if (price === '—' || !USD_QUOTES.has(line.market.quote)) return price;
   return `$${price}`;
 };
-const byVolume = (a: Line, b: Line) => compareDecimal(b.ticker?.quoteVolume24h ?? '0', a.ticker?.quoteVolume24h ?? '0') ?? 0;
+type Traded = { ticker?: { last?: string | null; quoteVolume24h?: string | null } };
+const byVolume = (a: Traded, b: Traded) => compareDecimal(b.ticker?.quoteVolume24h ?? '0', a.ticker?.quoteVolume24h ?? '0') ?? 0;
 const byChange = (a: Line, b: Line) => compareDecimal(b.ticker?.changePct24h ?? '0', a.ticker?.changePct24h ?? '0') ?? 0;
 
 /** Open markets joined to their tickers, the one list every part of the page reads. */
@@ -83,7 +84,7 @@ function useTakerBps(): number | null {
  * Popular: the markets with a last trade, by 24h volume. A market with no print yet stays out of it (a row of dashes
  * tells a visitor nothing); it stays in the market count and on All markets.
  */
-export function popularOf(lines: readonly Line[]): Line[] {
+export function popularOf<L extends Traded>(lines: readonly L[]): L[] {
   return lines.filter((l) => !!l.ticker?.last).sort(byVolume);
 }
 
