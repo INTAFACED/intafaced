@@ -1,8 +1,12 @@
 // volt-room: /
 import { useMemo, useState } from 'react';
+import { BrandLockup } from '@intafaced/ui';
 import {
+  Amount,
+  Button,
   ButtonLink,
   Display,
+  Field,
   FeaturedMarket,
   LiveDot,
   MarketTable,
@@ -10,6 +14,7 @@ import {
   PageColumn,
   PageGrid,
   PanelHead,
+  Price,
   SectionTitle,
   Stat,
   Surface,
@@ -18,7 +23,7 @@ import {
   type MarketRow as KitMarketRow,
 } from '@intafaced/ui/lit';
 import { AreaChart, Segmented, TestTag } from '@intafaced/ui/lit/templates';
-import { useCandles, useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
+import { useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
 import { compareDecimal, dec, ratio, str, sub, sumOf } from '../../data/decimal';
 import { fmtAmount, fmtPct, fmtPrice, fmtUsd } from '../../data/format';
 import type { Decimal, Loadable, MarketRow, TickerRow } from '../../data/types';
@@ -91,11 +96,24 @@ export function HomePage() {
         <PageColumn className="ld-pitch">
           <Display second={t('heroLine2')}>{t('heroLine1')}</Display>
           <p className="ld-lead">{t('heroLead')}</p>
+          {/* The email goes to sign-up, which opens with it filled in; sign-up asks for the rest. */}
+          <form className="ld-signup" action="/register" method="get">
+            <Field
+              label={t('emailLabel')}
+              name="email"
+              type="email"
+              autoComplete="email"
+              placeholder={t('emailPlaceholder')}
+              maxLength={320}
+              after={
+                <Button type="submit" tone="primary" size="lg">
+                  {t('createShort')}
+                </Button>
+              }
+            />
+          </form>
           <div className="ld-actions">
-            <ButtonLink tone="primary" size="lg" href="/register">
-              {t('createAccount')}
-            </ButtonLink>
-            <ButtonLink size="lg" href="/trade/markets">
+            <ButtonLink size="sm" href="/trade/markets">
               {t('seeMarkets')}
             </ButtonLink>
           </div>
@@ -119,7 +137,9 @@ export function HomePage() {
             label={t('trustFees')}
             cells={[
               { key: 'wallet', title: t('trustPasskeys'), body: t('trustPasskeysBody') },
+              { key: 'passkeys', title: t('trustSignIn'), body: t('trustSignInBody') },
               { key: 'fees', title: t('trustFees'), body: t('trustFeesBody') },
+              { key: 'agents', title: t('trustAgents'), body: t('trustAgentsBody') },
             ]}
           />
           <Slab t={t} />
@@ -128,8 +148,8 @@ export function HomePage() {
             <SectionTitle className="ld-closing-title">
               <span id="ld-closing-title">{t('closingTitle')}</span>
             </SectionTitle>
-            <ButtonLink tone="primary" size="lg" href="/register">
-              {t('openAccount')}
+            <ButtonLink tone="secondary" size="lg" href="/register">
+              {t('createAccount')}
             </ButtonLink>
           </section>
         </PageColumn>
@@ -215,10 +235,22 @@ function MarketBoard({
   );
 }
 
-/** The busiest market, large, with its last two days drawn from its hourly candles. */
+const HOUR_MS = 3_600_000;
+
+/**
+ * A market's last day as chart points: the same hourly closes its board row draws (useSparklines), the last one in the
+ * current hour. Fewer than two closes draw no line (the chart parts leave the area empty), never a line made of fill.
+ */
+function useTrendPoints(symbol: string | undefined): { at: string; value: Decimal }[] {
+  const sparks = useSparklines(symbol ? [symbol] : []);
+  const closes = symbol && sparks.status === 'ready' ? (sparks.data[symbol] ?? []) : [];
+  const lastHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+  return closes.map((value, i) => ({ at: new Date(lastHour - (closes.length - 1 - i) * HOUR_MS).toISOString(), value }));
+}
+
+/** The busiest market, large, with its last day drawn from the same hourly closes as its board row. */
 function Featured({ line, t }: { line: Line; t: T }) {
-  const candles = useCandles(line.market.symbol, '1h', 48);
-  const points = candles.status === 'ready' ? candles.data.map((c) => ({ at: new Date(c.t).toISOString(), value: c.c })) : [];
+  const points = useTrendPoints(line.market.symbol);
   return (
     <FeaturedMarket
       symbol={line.market.base}
@@ -282,7 +314,9 @@ function Slab({ t }: { t: T }) {
   return (
     <section className="ld-slab-section" aria-labelledby="ld-slab-title">
       <div className="ld-slab-copy">
-        <h2 id="ld-slab-title">{t('slabTitle')}</h2>
+        <SectionTitle className="ld-big-title">
+          <span id="ld-slab-title">{t('slabTitle')}</span>
+        </SectionTitle>
         <p>{t('slabLead')}</p>
         <ul className="ld-doors">
           {doors.map((door) => (
@@ -297,16 +331,14 @@ function Slab({ t }: { t: T }) {
       </div>
       <figure className="ld-slab" aria-label={t('slabExample')}>
         <div className="ld-slab-top">
-          <span className="ld-slab-brand">INTAFACED</span>
+          <BrandLockup size={24} title="INTAFACED" className="ld-slab-brand" />
           <span className="ld-slab-example">
             {t('slabExample')} <TestTag />
           </span>
         </div>
         <div className="ld-slab-figure">
           <span className="ld-slab-label">{t('slabTotal')}</span>
-          <span className="ld-slab-total">
-            $24,860<span className="ld-slab-cents">.40</span>
-          </span>
+          <Price className="ld-slab-total" value="$24,860.40" cents />
           <span className="ld-slab-today" data-tone="up">
             {t('slabToday')}
           </span>
@@ -331,12 +363,13 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
   const fee = takerBps === null ? null : (spend * BigInt(takerBps)) / 10_000n;
   const net = fee === null ? spend : sub(spend, fee);
   const amount = price && price > 0n ? ratio(net, price) : null;
-  const candles = useCandles(line?.market.symbol ?? 'BTC/USDT', '1h', 48);
-  const points = line && candles.status === 'ready' ? candles.data.map((c) => ({ at: new Date(c.t).toISOString(), value: c.c })) : [];
+  const points = useTrendPoints(line?.market.symbol);
   return (
     <section className="ld-fees" aria-labelledby="ld-fees-title">
       <header className="ld-section-head ld-fees-head">
-        <h2 id="ld-fees-title">{t('feesTitle')}</h2>
+        <SectionTitle className="ld-big-title">
+          <span id="ld-fees-title">{t('feesTitle')}</span>
+        </SectionTitle>
         <p>{t('feesLead')}</p>
       </header>
       <div className="ld-ticket">
@@ -345,14 +378,15 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
             {t('feesExample')} <TestTag />
           </span>
           <span className="ld-slab-label">{t('feesYouPay')}</span>
-          <span className="ld-ticket-big">{fmtUsd(EXAMPLE_SPEND)}</span>
+          <Price className="ld-ticket-big" value={fmtUsd(EXAMPLE_SPEND)} cents />
           <span className="ld-slab-label">{t('feesYouGet')}</span>
-          <span className="ld-ticket-get">
-            {amount === null ? '—' : `${fmtAmount(str(amount), { places: 6 })} ${line?.market.base ?? ''}`}
-          </span>
+          <Amount
+            className="ld-ticket-get"
+            value={amount === null ? null : `${fmtAmount(str(amount), { places: 6 })} ${line?.market.base ?? ''}`}
+          />
           <div className="ld-ticket-chart" hidden={points.length < 2}>
             {line ? (
-              <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} soft live fit />
+              <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} tone="ink" soft fit />
             ) : null}
           </div>
         </div>
@@ -375,7 +409,7 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
               <dd>{fmtUsd(EXAMPLE_SPEND)}</dd>
             </div>
           </dl>
-          <ButtonLink tone="primary" size="lg" block href="/register">
+          <ButtonLink tone="secondary" size="lg" block href="/register">
             {t('startTrading')}
           </ButtonLink>
           <a className="ld-link" href="/fees">
