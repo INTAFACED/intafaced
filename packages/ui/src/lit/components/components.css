@@ -765,7 +765,6 @@
 .lt-num {
   font-variant-numeric: tabular-nums;
   /* Volt's figure cut, so every column of prices across the beta's screens lines up the same way. */
-  font-stretch: 112%;
   white-space: nowrap;
   unicode-bidi: isolate;
 }
@@ -1304,7 +1303,6 @@ button.lt-menu-item:focus-visible {
 .lit-stack__card[data-card='back'] [data-part='peek'] {
   margin-inline-start: auto;
   font-family: var(--lit-font-figure);
-  font-stretch: 125%;
 }
 .lit-stack__card[data-card='front'] {
   position: relative;
@@ -1331,7 +1329,6 @@ button.lt-menu-item:focus-visible {
 }
 .lit-stack__card[data-card='front'] [data-part='figure'] {
   font-family: var(--lit-font-figure);
-  font-stretch: 125%;
   font-weight: 600;
   font-size: 2rem;
   line-height: 1;
@@ -1843,7 +1840,6 @@ a.lt-mover:hover {
   font-size: var(--lit-type-figure-size);
   line-height: var(--lit-type-figure-line);
   font-weight: 600;
-  font-stretch: 125%;
   letter-spacing: -0.02em;
 }
 .lt-mover .lt-spark[data-size='row'] {
@@ -2218,7 +2214,6 @@ a.lit-button {
   font-size: clamp(2.75rem, 5.4vw, 8.5rem);
   line-height: 0.95;
   font-weight: 700;
-  font-stretch: 125%;
   letter-spacing: -0.035em;
   color: var(--lit-text-1);
 }
@@ -2240,7 +2235,6 @@ a.lit-button {
   font-size: clamp(1.5rem, 2.4vw, 2.5rem);
   line-height: 1.1;
   font-weight: 600;
-  font-stretch: 118%;
   letter-spacing: -0.02em;
   color: var(--lit-text-1);
 }
@@ -2339,7 +2333,6 @@ a.lit-button {
   font-size: clamp(2rem, 2.6vw, 2.75rem);
   line-height: 1.05;
   font-weight: 600;
-  font-stretch: 125%;
   letter-spacing: -0.02em;
 }
 .lt-featured-chart {

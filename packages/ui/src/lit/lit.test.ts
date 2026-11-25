@@ -295,14 +295,14 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
     expect([...fonts.matchAll(/@import '([^']+)'/g)].map((m) => m[1])).toEqual([
       '@fontsource-variable/geist/index.css',
       '@fontsource-variable/geist-mono/index.css',
-      '@fontsource-variable/archivo/wdth.css',
+      '@fontsource-variable/manrope/index.css',
     ]);
   });
   it('the font roles lead with the families those packages declare', () => {
-    expect(lit['font-ui'].startsWith("'Archivo Variable'")).toBe(true);
-    expect(lit['font-figure'].startsWith("'Archivo Variable'")).toBe(true);
+    expect(lit['font-ui'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(lit['font-figure'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(readFileSync(require.resolve('@fontsource-variable/manrope/index.css'), 'utf8')).toContain("font-family: 'Manrope Variable'");
     expect(lit['font-mono'].startsWith("'Geist Mono Variable'")).toBe(true);
-    expect(readFileSync(require.resolve('@fontsource-variable/archivo/wdth.css'), 'utf8')).toContain("font-family: 'Archivo Variable'");
     for (const pkg of ['geist', 'geist-mono']) {
       const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");
@@ -310,7 +310,7 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
   });
   it('every Volt family draws arrows, shapes and check marks from its own symbol faces, not a system fallback', () => {
     const faces = [...fonts.matchAll(/@font-face\s*{([^}]*)}/g)].map((m) => m[1] ?? '');
-    for (const family of ['Archivo Variable', 'Geist Variable', 'Geist Mono Variable']) {
+    for (const family of ['Manrope Variable', 'Geist Variable', 'Geist Mono Variable']) {
       const own = faces.filter((f) => f.includes(`font-family: '${family}'`));
       const ranges = own.map((f) => /unicode-range:\s*([^;]+);/.exec(f)?.[1] ?? '').join(',');
       // → ↗ ← ↔ ↙ ↘ ↕ ↻ ▲ ▼ ▾ ▸ ○ ● ✓ ✕: every symbol the Customer app types today.
@@ -366,7 +366,7 @@ describe('one part per role', () => {
 });
 
 describe('the kit draws the arrows its faces lack', () => {
-  // Archivo and Geist carry no ▲ ▼ → ← ↗ (look gate run 45061471946: ▲ in WenQuanYi Zen Hei); fonts.css now gives each
+  // Manrope and Geist carry no ▲ ▼ → ← ↗ (look gate run 45061471946: ▲ in WenQuanYi Zen Hei); fonts.css now gives each
   // family symbol faces for typed text, and the kit's own parts still draw theirs: lt-arrow-up, lt-arrow-down,
   // lt-arrow-go, lt-arrow-back, lt-arrow-out.
   it('no kit component types one outside a comment', () => {

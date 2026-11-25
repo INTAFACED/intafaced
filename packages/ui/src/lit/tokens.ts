@@ -289,13 +289,14 @@ const litBaseLight: Partial<RoleMap> = {
  * on a fill its text is ink (14.3:1 at the fill's darkest point). As a ring it passes 3:1 on both pages (the kit page
  * shows the numbers), but the focus ring stays white (ink in light): never the spark, which it must stand out against
  * (contracts.ts). lit.test.ts holds every one of these floors. Today's lime everywhere (pills, ticks, progress) is drawn in ink instead, so the spark is the only
- * colour on a screen. Figures are Archivo at its widest (a wide grotesk).
+ * colour on a screen. Type and figures are Manrope: round, with light figures in tabular digits.
  */
 const voltDark: Partial<RoleMap> = {
   page: '#0A0A09',
   'page-2': '#0E0E0D',
+  // Light behind the panels: lime as light at the top start, a cool fill at the top end, a faint white wash above.
   field:
-    'radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.055), transparent 62%), radial-gradient(80% 50% at 100% 100%, rgba(255, 255, 255, 0.02), transparent 70%)',
+    'radial-gradient(55% 45% at 12% -8%, rgba(224, 248, 58, 0.085), transparent 70%), radial-gradient(50% 40% at 92% -4%, rgba(132, 150, 255, 0.07), transparent 70%), radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.05), transparent 62%), radial-gradient(80% 50% at 100% 100%, rgba(255, 255, 255, 0.02), transparent 70%)',
   'text-1': '#F3F2EC',
   'text-2': '#AAA9A1',
   'text-3': '#8F8E87',
@@ -319,12 +320,13 @@ const voltDark: Partial<RoleMap> = {
   'solid-bg': '#141413',
   'solid-bg-raised': '#1C1C1A',
   'solid-bg-sunken': '#080807',
-  'solid-lip': 'inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 0 rgba(0, 0, 0, 0.6)',
-  'solid-rim': 'rgba(255, 255, 255, 0.16)',
+  'solid-lip': 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.6)',
+  'solid-rim': 'rgba(255, 255, 255, 0.2)',
   'solid-rim-dim': 'rgba(255, 255, 255, 0.035)',
   'solid-wall': '#050505',
-  'solid-shadow': '0 2px 0 0 var(--lit-solid-wall), 0 30px 50px -28px rgba(0, 0, 0, 1)',
-  sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 60%)',
+  'solid-shadow': '0 2px 0 0 var(--lit-solid-wall), 0 30px 60px -24px rgba(0, 0, 0, 1)',
+  // Lit glass: a panel is lighter at its top and falls to its solid colour, so it reads as a lit plate, not flat paint.
+  sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.012) 45%, rgba(255, 255, 255, 0) 80%)',
   'fill-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 18px color-mix(in srgb, var(--lit-accent) 30%, transparent)',
   'corner-glow': 'color-mix(in srgb, var(--lit-accent) 22%, transparent)',
   'glass-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01) 70%), rgba(18, 18, 17, 0.88)',
@@ -364,8 +366,8 @@ const voltDark: Partial<RoleMap> = {
   'test-tag-fg': '#AAA9A1',
   'status-done': '#3DDC97',
   'status-unknown': '#AAA9A1',
-  'font-ui': "'Archivo Variable', Archivo, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  'font-figure': "'Archivo Variable', Archivo, ui-sans-serif, system-ui, sans-serif",
+  'font-ui': "'Manrope Variable', Manrope, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+  'font-figure': "'Manrope Variable', Manrope, ui-sans-serif, system-ui, sans-serif",
   'radius-panel': '28px',
   'radius-tile': '20px',
   'radius-key': '999px',
@@ -452,9 +454,9 @@ const volt = {
     '--if-font-mono': 'var(--lit-font-figure)',
   },
   type: {
-    hero: { size: '56px', line: '56px', weight: '600', tracking: '-0.04em' },
-    figure: { size: '26px', line: '30px', weight: '600', tracking: '-0.02em' },
-    title: { size: '30px', line: '34px', weight: '600', tracking: '-0.025em' },
+    hero: { size: '64px', line: '68px', weight: '300', tracking: '-0.035em' },
+    figure: { size: '28px', line: '32px', weight: '400', tracking: '-0.02em' },
+    title: { size: '30px', line: '36px', weight: '500', tracking: '-0.025em' },
     heading: { size: '17px', line: '24px', weight: '600', tracking: '-0.01em' },
   },
 };
