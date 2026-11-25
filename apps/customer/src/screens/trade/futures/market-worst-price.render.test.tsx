@@ -11,13 +11,14 @@ import { VenueFuturesDesk } from './VenueFuturesDesk';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { ASOF, mockState, preview } = vi.hoisted(() => ({
+const { ASOF, mockState, preview, bestPrices } = vi.hoisted(() => ({
   ASOF: '2026-11-25T00:00:00Z',
   mockState: { markets: [], best: { bid: '89990', ask: '90000' } } as {
     markets: VenueMarket[];
     best: { bid: string | null; ask: string | null };
   },
   preview: vi.fn(),
+  bestPrices: vi.fn(),
 }));
 
 vi.mock('../../../features/protocol/wallet/use-polled', () => ({
@@ -53,7 +54,7 @@ vi.mock('../../../features/trade/venue/VenueKit', async (original) => {
     useOwner: () => '0x1111111111111111111111111111111111111111',
     useVenueAccount: () => ({ balances: empty, positions: empty, openOrders: empty, fills: empty, reload: vi.fn() }),
     useVenueActions: () => ({ run: vi.fn(), resend: vi.fn() }),
-    useVenueApi: () => ({ preview }),
+    useVenueApi: () => ({ preview, bestPrices }),
   };
 });
 vi.mock('../../../features/trade', () => ({ ActionLimitWarning: () => null }));
@@ -107,6 +108,12 @@ beforeEach(() => {
   mockState.markets = [BTC];
   mockState.best = { bid: '89990', ask: '90000' };
   preview.mockReset();
+  // The review reads the best price fresh: here it answers as the poll does.
+  bestPrices.mockReset();
+  bestPrices.mockImplementation(async () => ({
+    ok: true,
+    data: { asOf: ASOF, value: { symbol: 'BTC-PERP', ...mockState.best }, slippageCapBps: { known: true, value: '50' } },
+  }));
   preview.mockResolvedValue({
     ok: true,
     data: {
@@ -181,7 +188,7 @@ describe('the futures ticket never sends a worst price left over from a limit or
     await press(button(ticket(), 'Review long'));
     const refusal = ticket().querySelector('[role="alert"][data-code="trade.venue.worst_price_wrong_side"]');
     expect(refusal?.textContent).toBe(
-      'A market buy’s worst price, 20000 USDC, is below the best ask of 90000 USDC, so it cannot fill. Raise it, or use a limit order. Nothing was sent.',
+      'A market buy’s worst price, 20,000 USDC, is below the best ask of 90,000 USDC, so it cannot fill. Raise it, or use a limit order. Nothing was sent.',
     );
     expect(preview).not.toHaveBeenCalled();
     expect(host.querySelector('[data-testid="venue-review"]')).toBeNull();
@@ -195,7 +202,23 @@ describe('the futures ticket never sends a worst price left over from a limit or
     expect(preview).toHaveBeenCalledTimes(1);
     expect(preview.mock.calls[0]![1]).toMatchObject({ type: 'market', price: '90450', timeInForce: 'IOC' });
     const review = document.querySelector<HTMLElement>('[data-testid="venue-review"]')!;
-    expect(review.querySelector('[data-line="worst-price"]')?.textContent).toBe('90450 USDC');
+    expect(review.querySelector('[data-line="worst-price"]')?.textContent).toBe('90,450 USDC');
     expect(review.querySelector('[data-line="slippage-cap"]')?.textContent).toBe('50 bps');
+  });
+
+  it('re-fills the worst price from the best bid less the cap when a market order turns to Short, and refuses one above the bid', async () => {
+    render();
+    await press(button(typesGroup(), 'Market'));
+    await press(button(ticket(), 'Short'));
+    // 89990 × (1 − 0.005) = 89540.05, down to the 1 tick: the bound on a market sell.
+    expect(field('Worst price (slippage limit)').value).toBe('89540');
+    type(field('Size (BTC)'), '0.001');
+    type(field('Worst price (slippage limit)'), '95000');
+    await press(button(ticket(), 'Review short'));
+    const refusal = ticket().querySelector('[role="alert"][data-code="trade.venue.worst_price_wrong_side"]');
+    expect(refusal?.textContent).toBe(
+      'A market sell’s worst price, 95,000 USDC, is above the best bid of 89,990 USDC, so it cannot fill. Lower it, or use a limit order. Nothing was sent.',
+    );
+    expect(preview).not.toHaveBeenCalled();
   });
 });
