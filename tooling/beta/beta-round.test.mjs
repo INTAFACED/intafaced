@@ -11,7 +11,8 @@ import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
 /** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
-const SETTINGS = 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test';
+const SETTINGS =
+  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 
@@ -333,6 +334,21 @@ test('a stack without TEST valuation prices is stopped and started whole with th
   assert.ok(
     seen.some((s) => s.step === 'stop'),
     'a marker without LOCAL_STACK_VALUATION_PRICES=test restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
+});
+
+test('a stack on localhost passkeys is stopped and started whole on the public name, so passkeys work there', async () => {
+  const paths = home();
+  // The marker the beta wrote before passkeys took its public name.
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker without LOCAL_STACK_PUBLIC_ORIGIN restarts the stack',
   );
   assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
 });
