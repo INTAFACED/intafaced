@@ -8,6 +8,10 @@
 
 .hm-hero {
   display: grid;
+  /* The panel takes its column's width, never its figure's: at 200% text the figure shrinks to fit, the page never
+     scrolls sideways. */
+  grid-template-columns: minmax(0, 1fr);
+  container-type: inline-size;
   gap: 1.25rem;
   padding: 1.5rem 1.5rem 1.5rem;
 }
@@ -46,7 +50,7 @@
 
 /* The big figure: Home A's size. */
 .hm-hero [data-slot='hero-number'] {
-  font-size: clamp(2.75rem, 4.6vw, 5.25rem);
+  font-size: min(clamp(2.75rem, 4.6vw, 5.25rem), 14cqi);
   line-height: 1;
   letter-spacing: -0.035em;
 }
