@@ -2663,7 +2663,8 @@ a.lit-button {
     max-inline-size: none;
   }
   .lt-page-grid[data-stage='start'] .lt-auth-stage {
-    position: static;
+    position: relative;
+    inset-block-start: 0;
   }
 }
 /* "or" between a form's own button and its other ways in: a hairline each side of the word. */
