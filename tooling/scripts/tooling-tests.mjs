@@ -178,8 +178,28 @@ function stopAllOnSignal() {
 }
 
 /**
+ * What says which run this is: its event, its branch, its commit and the journeys it targets. A tooling test gets the
+ * same answer on main, on any branch and on the Mac, so no test file sees these: a test that needs one sets it. On 25 Nov
+ * journey-verdict.test.mjs spawned the verdict with the run's GITHUB_HEAD_REF, so on every `beta/` pull request the beta
+ * lane (#10900) excused its planted red and the Doctrine gates job of six pull requests failed (CI run 45564726213).
+ */
+export const RUN_CONTEXT = [
+  'GITHUB_EVENT_NAME',
+  'GITHUB_EVENT_PATH',
+  'GITHUB_HEAD_REF',
+  'GITHUB_BASE_REF',
+  'GITHUB_REF',
+  'GITHUB_REF_NAME',
+  'GITHUB_REF_TYPE',
+  'GITHUB_REF_PROTECTED',
+  'GITHUB_SHA',
+  'JOURNEYS_TARGET',
+];
+const withoutRunContext = (env) => Object.fromEntries(Object.entries(env).filter(([k]) => !RUN_CONTEXT.includes(k)));
+
+/**
  * One test file in its own `node --test` process and process group, so a timeout stops the servers and child processes
- * it started too. Resolves `{ file, output, status, signal, ms, timedOut }`; never rejects.
+ * it started too; it never sees RUN_CONTEXT. Resolves `{ file, output, status, signal, ms, timedOut }`; never rejects.
  */
 function runFile(file, { cwd = ROOT, timeoutMs = FILE_TIMEOUT_MS, env = process.env } = {}) {
   const started = Date.now();
@@ -188,7 +208,7 @@ function runFile(file, { cwd = ROOT, timeoutMs = FILE_TIMEOUT_MS, env = process.
     let timedOut = false;
     const child = spawn(process.execPath, ['--test', '--test-reporter=tap', file], {
       cwd,
-      env,
+      env: withoutRunContext(env),
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
