@@ -388,7 +388,7 @@ function Frame({
 }) {
   const { t } = marketsCopy.useCopy();
   return (
-    <PageGrid layout="full" data-testid="if-markets">
+    <PageGrid layout="full" panels="tiles" data-testid="if-markets">
       <CatalogueTemplate
         title={t('Markets')}
         description={description}
