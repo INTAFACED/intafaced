@@ -83,6 +83,9 @@ import {
   judge,
   manifestsAt,
   moneyRule,
+  NO_LANE,
+  betaLane,
+  isBetaPull,
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
@@ -600,6 +603,13 @@ export async function judgeTouchedRun({
       read.push(
         `${where}: main's money rule disagrees with the baseline on ${v.moneyByHead.join(', ')}, and this head's own rule agrees with the baseline, so each is read under the baseline's flag and any red there counts as money`,
       );
+    if (v.offBeta?.length)
+      read.push(
+        `${where}: ${v.offBeta.length} red step(s) outside the beta's own journeys, money and sign-in hold no beta pull request (the beta lane; main's run after the merge judges them): ${v.offBeta
+          .slice(0, 10)
+          .map((x) => x.step)
+          .join(', ')}${v.offBeta.length > 10 ? `, ${v.offBeta.length - 10} more` : ''}`,
+      );
     // A red this head inherited from main outside this pull request's area stops no one.
     const split = await splitOrAll(inherited, v.red, r);
     read.push(...inheritedLines(split));
@@ -725,6 +735,25 @@ async function listWhole(path, key, token, what) {
   throw new Error(`${what}: more than 1,000 listed, not whole`);
 }
 
+/**
+ * The steps on a screen the hosted beta hides, as the run's own verdict wrote them beside its report (set-aside.json
+ * `notOnBeta`, `betaUnread`): { steps } or { unread }. No file, no list or an unreadable one is unread, so the beta gate
+ * (journey-verdict.mjs betaLane) sets nothing apart and every step gates.
+ */
+export function betaOfArtifact(zip, exec = execFileSync) {
+  let list;
+  try {
+    list = JSON.parse(
+      exec('unzip', ['-p', zip, 'set-aside.json'], { maxBuffer: 64 * 2 ** 20, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }),
+    );
+  } catch {
+    return { unread: 'the run kept no readable set-aside.json' };
+  }
+  if (list?.betaUnread) return { unread: String(list.betaUnread) };
+  if (!Array.isArray(list?.notOnBeta)) return { unread: 'its set-aside.json holds no notOnBeta list' };
+  return { steps: list.notOnBeta };
+}
+
 export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   // One report artifact, downloaded and read: { states, files, ran, artifact }.
@@ -735,7 +764,7 @@ export function makeIo(repo, token) {
       writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
       const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
       const { states, files, ran } = readReport(JSON.parse(text));
-      return { states, files, ran, artifact: art.id };
+      return { states, files, ran, artifact: art.id, beta: betaOfArtifact(zip) };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -939,6 +968,14 @@ export function journeyFilesAt(root) {
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
 export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
   const { baseline, money, reports, memo } = inputs;
+  // The beta lane (journey-verdict.mjs betaLane, project-state decision PRs #4060 and #4061): on a beta pull request's
+  // run (a `beta/` branch of this repository), a red outside the beta's own journeys, money and sign-in holds nothing.
+  // Every other run, main's runs read for inherited reds included, keeps every step.
+  const betaPull =
+    run?.event === 'pull_request' &&
+    !isMainRun(run, repo) &&
+    isBetaPull({ headRef: run?.head_branch, headRepo: run?.head_repository?.full_name, repo });
+  const offBeta = betaPull ? betaLane({ beta: report?.beta, guard: inputs.guard, modules: inputs.owners, orders: inputs.orders }) : NO_LANE;
   const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
@@ -968,6 +1005,7 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
     headMoney,
     // The baseline the merge would hold: the head's when the pull request changes it (sealPull), else main's.
     headBaseline: headMoney ? (headBaseline ?? baseline) : null,
+    offBeta,
   });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
@@ -981,7 +1019,7 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
           ? String(baseline?.run?.sha ?? '')
           : null;
   }
-  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [] };
+  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass, moneyByHead: v.moneyByHead ?? [], offBeta: v.offBeta ?? [] };
 }
 
 /**
@@ -2112,7 +2150,12 @@ export const isWaitingSeal = (j) =>
 
 /** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
 export const SEAL_INPUTS = [
-  { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
+  // Runs on every pull request (`always`), so none on the head is one still to come, never a finished input: GitHub starts
+  // no pull_request run while the pull request conflicts with its base, and may start one a minute or two after this
+  // asks. Before 25 Nov 2026 the seal read "nothing going" there and judged at once, red on "no CI ran" (ci-jobs-seal.mjs
+  // judgeCiJobs, whose own answer is `wait`): 42 of the 82 heads red on the seal alone in the 48 h to 25 Nov 00:43 UTC,
+  // 36 conflicting with main and 6 sealed before their CI run was created (INTAFACED/project-state#4047).
+  { workflow: 'ci.yml', event: 'pull_request', what: 'CI', always: true },
   { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
   // Runs only when the pull request touches its paths (#8708); with no run on the head nothing waits for it, and
@@ -2172,9 +2215,12 @@ export async function settleRuns(runs, jobsOf) {
   return out;
 }
 
+/** inputsGoing's words for an `always` input with no run on the head (waitStep reads them). */
+export const NO_RUN = 'no run on this head yet';
+
 /**
  * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
- * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
+ * input has finished. An `always` input with no run on the head counts as going (NO_RUN). Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
  * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
  * still going when `needJudge` (readGoing sets it when a pull request's change needs the review's verdict), so its seal waits for the judge exactly as for a review
@@ -2186,10 +2232,12 @@ export async function settleRuns(runs, jobsOf) {
  */
 export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unstarted = true }) {
   const out = [];
-  for (const { workflow, event, what, journeys, judge, down } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge, down, always } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
-    for (const r of runsOf?.[workflow] ?? []) {
-      if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+    const onHead = (runsOf?.[workflow] ?? []).filter((r) => r?.head_sha === sha && (!event || r?.event === event));
+    if (always && !onHead.length)
+      out.push(`${what}: ${NO_RUN} (GitHub starts none while the pull request conflicts with its base: merge main)`);
+    for (const r of onHead) {
       if (judge && !unstarted && UNSTARTED.includes(r?.status)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
       else if (journeys && r?.deferred === true)
@@ -2623,6 +2671,16 @@ async function sealNowStep({ repo, token }) {
 export function waitStep({ pull, sha, going }) {
   if (pull?.state !== 'open') return { act: 'judge', msg: `#${pull?.number} is no longer open` };
   if (pull?.head?.sha !== sha) return { act: 'judge', msg: `#${pull.number}'s head moved to ${String(pull?.head?.sha).slice(0, 10)}` };
+  // GitHub runs no CI on a pull request that conflicts with its base (inputsGoing `always`), so a seal that runs at once
+  // judges it now, as before, rather than waiting out WAIT_POLLS for a run that never starts.
+  // A draft: the CI review skips drafts, so this seal (one that runs at once: a change under .github/) waits as a running
+  // check, which blocks a merge as the seal must, and judges once `gh pr ready` has started the review. Before 25 Nov
+  // 2026 it judged at once, red on the missing review: 6 of the 82 heads red on the seal alone in the 48 h to 25 Nov
+  // 00:43 UTC (INTAFACED/project-state#4047). It never stops holding a check: a pull request's own job named `CI merge
+  // seal` could stand alone in the gap.
+  if (pull?.draft === true) return { act: 'wait', msg: `#${pull.number} is a draft, which the CI review skips: \`gh pr ready\` starts it` };
+  if (pull?.mergeable === false && going.some((g) => g.includes(NO_RUN)))
+    return { act: 'judge', msg: `#${pull.number} conflicts with its base, so no CI runs on it` };
   if (going.length) return { act: 'wait', msg: `waiting for ${going.join(', ')}` };
   return { act: 'judge', msg: 'every input on this head has finished' };
 }

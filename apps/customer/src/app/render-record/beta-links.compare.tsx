@@ -2,7 +2,7 @@
 /**
  * The beta's links: every room the look gate draws that the beta shows, drawn whole as the beta's build draws it
  * (the beta's list, and React's JSX runtime swapped for beta-links.ts as vite.config.ts swaps it), holds no link to a room
- * the beta hides (betaHidden: not in Volt, switched off, or not a personal account's without the venue door), so no link
+ * the beta hides (betaHidden: no Order 1 step shows it, switched off, or not a personal account's without the venue door), so no link
  * in the beta opens "Not in this beta" or a room that only says it is switched off.
  */
 import { execFileSync } from 'node:child_process';
@@ -11,7 +11,7 @@ import { appPath, type JsxRuntime } from '../beta-links';
 import { betaRoomList, type BetaRooms } from '../beta-volt';
 import { betaHidden } from '../feature-registry';
 import { rooms } from '../navigation';
-import { voltCount } from '../volt-count';
+import betaScreens from '../beta-screens.json';
 import { renderPart } from './harness';
 
 vi.mock('react/jsx-runtime', async (original) => (await import('../beta-links')).betaRuntime(await original<JsxRuntime>()));
@@ -20,7 +20,7 @@ vi.mock('react/jsx-dev-runtime', async (original) => (await import('../beta-link
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.useFakeTimers({ toFake: ['Date'] });
 
-const list: BetaRooms = betaRoomList(voltCount().rooms, rooms);
+const list: BetaRooms = betaRoomList(betaScreens.rooms, rooms);
 const routes: string[] = JSON.parse(
   execFileSync(
     process.execPath,

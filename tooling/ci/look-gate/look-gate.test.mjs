@@ -174,6 +174,16 @@ test('copy at 130%: a row that cuts its label fails; the same in a closed sectio
   assert.deepEqual(await cut(`<details open><summary>More</summary>${row}</details>`), [['span.label', 'is cut by div.row']], 'open');
   assert.deepEqual(await cut(`<details><summary>More</summary>${row}</details>`), [], 'in a closed <details>');
   assert.deepEqual(await cut(`<div style="display:none">${row}</div>`), [], 'under display: none');
+  // A screen-reader-only box around the text (the kit's .lt-sr, holding a chart's data table): nobody sees it cut.
+  const sr = (style) =>
+    `<div class="lt-sr" style="position:absolute;width:1px;height:1px;overflow:hidden;${style}"><table><caption data-look-gate-copy>A chart's data, for screen readers</caption></table></div>`;
+  assert.deepEqual(await cut(sr('clip-path:inset(50%)')), [], 'inside a box clipped to nothing');
+  assert.deepEqual(await cut(sr('')), [], 'inside a 1 px box that cuts what it holds');
+  assert.deepEqual(
+    await cut(`<div style="position:relative">${row}</div>`),
+    [['span.label', 'is cut by div.row']],
+    'a visible box around still cuts',
+  );
 });
 
 test('focus: a control a fixed bar paints over fails; one clear of it passes', { skip }, async () => {
