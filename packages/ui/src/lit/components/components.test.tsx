@@ -779,3 +779,15 @@ describe('a price alert handle on a drawn chart', () => {
     expect(css).toMatch(/\.lt-chart-mark\[data-mark='alert'\] \{[^}]*inset-inline-end: 4\.5rem;[^}]*pointer-events: auto;/);
   });
 });
+
+describe('a disabled main action', () => {
+  it('keeps its place with a lime rim and no fill, after the rule that darkens every other disabled tone', () => {
+    const all = css.indexOf('.lit-button[data-tone]:disabled {');
+    const at = css.indexOf(".lit-button[data-tone='primary']:disabled {");
+    expect(all).toBeGreaterThan(-1);
+    expect(at).toBeGreaterThan(all);
+    const body = css.slice(at, css.indexOf('}', at));
+    expect(body).toContain('background: none;');
+    expect(body).toContain('box-shadow: inset 0 0 0 1px var(--lit-accent);');
+  });
+});
