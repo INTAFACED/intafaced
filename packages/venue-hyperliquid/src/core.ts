@@ -44,6 +44,8 @@ const SLOW_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'meta', 
 export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000 } as const;
 /** How long to wait before the one retry of a read the venue answered 429, unless it says (Retry-After, capped at 5 s). */
 const READ_RETRY_MS = 1_000;
+/** A venue answer's text as JSON; `readOnce` has already checked that it parses. */
+const parseJson = (text: string): Json => JSON.parse(text);
 const freshFor = (type: string) =>
   LIGHT_READS.has(type) ? READ_FRESH_MS.light : SLOW_READS.has(type) ? READ_FRESH_MS.slow : READ_FRESH_MS.heavy;
 /** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
@@ -238,11 +240,11 @@ export abstract class HyperliquidCore {
 
   /** A read. Any failure to get a readable answer is `venue_down`: nothing was changed by a read. */
   protected async info(body: Record<string, Json>): Promise<Json> {
-    if (!this.shareReads) return JSON.parse(await this.readOnce(body)) as Json;
+    if (!this.shareReads) return parseJson(await this.readOnce(body));
     const key = JSON.stringify(body);
     const now = this.clock().getTime();
     const kept = this.kept.get(key);
-    if (kept && now - kept.atMs < freshFor(String(body.type))) return JSON.parse(kept.text) as Json;
+    if (kept && now - kept.atMs < freshFor(String(body.type))) return parseJson(kept.text);
     let inFlight = this.reading.get(key);
     if (!inFlight) {
       const epoch = this.readsEpoch;
@@ -254,7 +256,7 @@ export abstract class HyperliquidCore {
         .finally(() => this.reading.delete(key));
       this.reading.set(key, inFlight);
     }
-    return JSON.parse(await inFlight) as Json;
+    return parseJson(await inFlight);
   }
 
   /** A signed action may change any account's reads: nothing kept before it is served after it. */
