@@ -165,7 +165,11 @@
   min-block-size: 12rem;
 }
 .ld-card-levels {
+  /* The last row whether or not the plot draws, and each tag its own height: with no trend points the plot is hidden,
+     and the tags must not stretch into the row it leaves. */
+  grid-row: 3;
   display: flex;
+  align-items: start;
   justify-content: space-between;
   gap: 0.5714rem;
   flex-wrap: wrap;
