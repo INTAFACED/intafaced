@@ -1,12 +1,13 @@
 /**
  * Customer rooms in Volt, n of N, counted from where rooms are declared: `rooms` in navigation.ts (every row
  * that is not an alias), less the routes `room-templates.ts` marks as not a room, plus the merchant portal's
- * PORTAL_ROOMS. That is N. Print it with `node tooling/design/volt-count.mjs`; `volt-count.test.ts` is the ratchet.
+ * PORTAL_ROOMS. That is N. Print it with `node tooling/design/volt-count.mjs`. It is a report, not a gate: no test holds it;
+ * the hosted beta reads it to pick its rooms.
  *
  * A room's move onto its template is recorded in the screen file that draws it, by one line of its own per room:
  *     // volt-room: /bank/business/bill
  * (`// volt-room: portal:<page>` for a merchant portal page). Only that room's batch writes it, so two batches that move
- * different rooms change no common file. `room-templates.ts` keeps each room's template, which no batch edits.
+ * different rooms change no common file. `room-templates.ts` keeps each room's template.
  *
  * The rule, which a reviewer can check by reading one room's files: a room is **in Volt** when
  *  1. a screen file carries its `volt-room` line, and that file imports the kit
@@ -29,8 +30,8 @@
  * files it reaches inside its folder read nothing (call no hook but React's own, `useCopy` and `usePreferences`), list
  * nothing (no `.map(`) and draw an empty state (`kind: 'empty'` or the kit's `EmptyState`), so every visit shows the same
  * "nothing here" panel (/mining/workers/:workerId and /chain/validators/:validatorId are counted that way; so was
- * /token/governance/:proposalId on 22 Nov 2026, until it read its proposal). It is on the kit, so the ratchet doesn't hold it as off
- * the kit; it stays in a batch until it shows the room's own records.
+ * /token/governance/:proposalId on 22 Nov 2026, until it read its proposal). It is on the kit, but it doesn't count until it shows
+ * the room's own records.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -378,29 +379,4 @@ export function voltCount(source: VoltSource = APP_SOURCE): VoltCount {
     .map(([batch, keys]) => ({ batch, size: keys.length, rooms: keys }))
     .sort((a, b) => b.size - a.size || a.batch.localeCompare(b.batch));
   return { n: list.filter((r) => r.state === 'volt').length, N: list.length, rule: VOLT_RULE, rooms: list, batches, markErrors };
-}
-
-/** Whether a room is drawn on its template from the kit: in Volt, or a placeholder there. */
-const onKit = (room: VoltRoom) => room.state === 'volt' || room.state === 'placeholder';
-
-/**
- * What breaks the ratchet against `allowed` (the rooms volt-off-kit.json allows off the kit): a room off the kit that the
- * list does not allow (`off`) and a bad `volt-room` line (`mark`). A placeholder is on the kit: the list never names it, and
- * the count leaves it out. A listed room now on the kit, or gone, is stale and passes on every PR, so a batch into main
- * never edits the shared list; `pruned` drops it, run alone by `node tooling/design/volt-prune.mjs`.
- */
-export function ratchet(count: VoltCount, allowed: readonly string[]): string[] {
-  const allow = new Set(allowed);
-  return [
-    ...count.markErrors.map((e) => `mark: ${e}`),
-    ...count.rooms
-      .filter((r) => !onKit(r) && !allow.has(r.key))
-      .map((r) => `off: ${r.key}: ${r.reason}${r.findings.map((f) => `\n    ${f.kind} at ${f.at}: ${f.text}`).join('')}`),
-  ];
-}
-
-/** `allowed` less each room now on the kit or no longer a room: the list volt-prune.mjs writes. It never adds a room. */
-export function pruned(count: VoltCount, allowed: readonly string[]): string[] {
-  const off = new Set(count.rooms.filter((r) => !onKit(r)).map((r) => r.key));
-  return allowed.filter((key) => off.has(key));
 }

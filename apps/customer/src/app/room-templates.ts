@@ -1,9 +1,8 @@
 /**
  * Which of the eight Volt kit templates (`@intafaced/ui/lit/templates`) each customer room is built from. Stage C of
  * the redesign moves rooms one by one; a room that has moved says so in its own screen file, `// volt-room: <route>`
- * (volt-count.ts), never here, so no batch edits this shared table.
- * Seeded from the redesign's room inventory (26 Oct 2026) plus the routes it
- * missed. `room-templates.test.ts` keeps it in step with `rooms` in navigation.ts and the portal's PORTAL_ROOMS.
+ * (volt-count.ts). Any change may edit this table, and no test fails a room for leaving its template. Seeded from the redesign's room
+ * inventory (26 Oct 2026) plus the routes it missed.
  * A new room starts here through the room scaffold (`pnpm room:new`), on a template from birth.
  */
 import type { TemplateId } from '@intafaced/ui/lit';
