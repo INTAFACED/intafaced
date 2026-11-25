@@ -252,7 +252,7 @@ export function MarketsList({
         const perp = isPerp(entry);
         const pair = (
           <>
-            <span className="lt-cell-name">
+            <span className="lt-market-name">
               <span data-testid="mkt-name__ticker">
                 {market.base}
                 <span data-testid="mkt-name__quote" className="lt-muted">
