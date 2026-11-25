@@ -14,7 +14,7 @@ import {
 import { AreaChart } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../../features/session/session';
 import { assetName, marketsCopy } from './copy';
-import { direction, fmtPct, isHiddenPath, useSparklines, type Decimal } from './deps';
+import { fmtPct, isHiddenPath, useSparklines } from './deps';
 import { Pct } from './parts';
 import {
   byVolume,
