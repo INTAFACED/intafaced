@@ -2,19 +2,10 @@
    Measurements follow the picked prototype (project-state design/new-look/first-pages-2026-11-25/landing-A.html). */
 .ld {
   inline-size: 100%;
-  max-inline-size: 171.4286rem;
-  margin-inline: auto;
-  padding-inline: clamp(1.1429rem, 3vw, 4.5714rem);
   color: var(--lit-text-1);
   font-family: var(--lit-font-ui);
   font-size: 1.0714rem;
   line-height: 1.5714rem;
-}
-/* Ultra-wide: everything a step larger, so 2560 reads like 1440 does. */
-@media (min-width: 2000px) {
-  .ld {
-    zoom: 1.2;
-  }
 }
 .ld h1,
 .ld h2,
@@ -52,40 +43,8 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
-
-/* The first screen: the pitch on the left, the live board on the right. */
-.ld-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: clamp(1.7143rem, 3vw, 4rem);
-  padding-block: clamp(2.2857rem, 5vw, 6.2857rem) 3.4286rem;
-  align-items: center;
-}
-@media (max-width: 1100px) {
-  .ld-hero {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (max-width: 640px) {
-  .ld-hero {
-    padding-block-start: 2rem;
-  }
-}
 .ld-pitch {
   min-inline-size: 0;
-}
-.ld-title {
-  font-size: clamp(3.1429rem, 4.6vw, 6.5714rem);
-  line-height: 0.96;
-  font-weight: 700;
-  font-stretch: 125%;
-  letter-spacing: -0.035em;
-}
-.ld-title > span {
-  display: block;
-}
-.ld-title-dim {
-  color: var(--lit-text-3);
 }
 .ld-lead {
   max-inline-size: 34ch;
@@ -100,135 +59,15 @@
   gap: 0.5714rem;
   margin-block-start: 2.2857rem;
 }
-.ld-cta,
-.ld-cta-2 {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  block-size: 3.7143rem;
-  padding-inline: 1.8571rem;
-  border-radius: var(--lit-radius-control);
-  font-weight: 600;
-  font-size: 1.1429rem;
-  white-space: nowrap;
-  transition:
-    transform var(--lit-t-quick) var(--lit-ease),
-    filter var(--lit-t-quick) var(--lit-ease);
-}
-.ld-cta {
-  background: var(--lit-primary-bg);
-  color: var(--lit-on-accent);
-  box-shadow: var(--lit-primary-shadow);
-}
-.ld-cta-2 {
-  background: var(--lit-secondary-bg);
-  color: var(--lit-text-1);
-  box-shadow: var(--lit-secondary-shadow);
-}
-.ld-cta:hover,
-.ld-cta-2:hover {
-  filter: brightness(1.15);
-}
-.ld-cta:active,
-.ld-cta-2:active {
-  transform: scale(0.98);
-}
 .ld a:focus-visible {
   outline: 2px solid var(--lit-accent);
   outline-offset: 2px;
-}
-.ld-cta-block {
-  inline-size: 100%;
-  margin-block-start: auto;
 }
 .ld-note {
   margin-block-start: 0.8571rem;
   color: var(--lit-text-3);
   font-size: 0.9286rem;
   line-height: 1.2857rem;
-}
-.ld-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: clamp(1.4286rem, 2.5vw, 3.4286rem);
-  margin: 2.8571rem 0 0;
-}
-.ld-stats div {
-  display: flex;
-  flex-direction: column-reverse;
-}
-.ld-stats dt {
-  color: var(--lit-text-3);
-  font-size: 0.9286rem;
-}
-.ld-stats dd {
-  margin: 0;
-  font-size: clamp(1.5714rem, 1.7vw, 2.2857rem);
-  line-height: 1.1;
-  font-stretch: 125%;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
-
-/* The live board: a solid panel. */
-.ld-board {
-  padding: 1.2857rem 0.5714rem 0.5714rem;
-  border-radius: var(--lit-radius-panel);
-  background: var(--lit-solid-bg);
-  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
-  min-inline-size: 0;
-}
-.ld-board-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4286rem;
-  padding: 0 1rem 0.8571rem;
-}
-.ld-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5714rem;
-  color: var(--lit-text-3);
-  font-size: 0.8571rem;
-  line-height: 1.1429rem;
-}
-.ld-live-dot {
-  inline-size: 0.5rem;
-  block-size: 0.5rem;
-  border-radius: 50%;
-  background: var(--lit-up);
-}
-.ld-featured {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: end;
-  gap: 2rem;
-  margin: 0.2857rem 0.5714rem 0.7143rem;
-  padding: 1.2857rem;
-  border-radius: var(--lit-radius-tile);
-  background: var(--lit-solid-bg-sunken);
-  box-shadow: inset 0 0 0 1px var(--lit-line);
-}
-.ld-featured-figure {
-  display: grid;
-}
-.ld-featured-price {
-  margin-block-start: 0.5714rem;
-  font-size: 2.4286rem;
-  line-height: 1.2;
-  font-stretch: 125%;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
-.ld-featured .ld-num {
-  text-align: start;
-}
-.ld-featured-chart {
-  block-size: 6.8571rem;
-  min-inline-size: 0;
 }
 .ld-featured-chart,
 .ld-ticket-chart,
@@ -247,65 +86,13 @@
   inline-size: 100%;
   block-size: 100%;
 }
+.ld-board {
+  padding: 1.2857rem 0.5714rem 0.5714rem;
+}
 .ld-board-note {
   padding: 2.2857rem 1.1429rem;
   color: var(--lit-text-3);
   text-align: center;
-}
-.ld-table {
-  inline-size: 100%;
-  border-collapse: collapse;
-}
-.ld-table thead th {
-  padding: 0.5714rem 1rem;
-  color: var(--lit-text-3);
-  font-size: 0.8571rem;
-  font-weight: 500;
-  text-align: end;
-}
-.ld-table thead th:first-child,
-.ld-table tbody th {
-  text-align: start;
-}
-.ld-table tbody th,
-.ld-table tbody td {
-  block-size: 3.8571rem;
-  padding: 0 1rem;
-  border-block-start: 1px solid var(--lit-line);
-  font-weight: 400;
-  white-space: nowrap;
-}
-.ld-table tbody tr {
-  transition: background var(--lit-t-quick) var(--lit-ease);
-}
-.ld-table tbody tr:hover {
-  background: var(--lit-solid-bg-raised);
-}
-.ld-col-vol {
-  color: var(--lit-text-2);
-}
-.ld-col-trend .lt-spark {
-  display: inline-block;
-  inline-size: 6.8571rem;
-  block-size: 2rem;
-  margin: 0;
-  vertical-align: middle;
-}
-.ld-coin {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.8571rem;
-}
-.ld-coin .lt-coin {
-  inline-size: 2rem;
-  block-size: 2rem;
-}
-.ld-coin-sym {
-  font-weight: 600;
-}
-.ld-coin-quote {
-  color: var(--lit-text-3);
-  font-size: 0.9286rem;
 }
 .ld-board-foot {
   display: flex;
@@ -318,33 +105,6 @@
 .ld-board-foot a {
   color: var(--lit-text-1);
   font-weight: 600;
-}
-@media (min-width: 2000px) {
-  .ld-table tbody th,
-  .ld-table tbody td {
-    block-size: 4.2857rem;
-    font-size: 1.1429rem;
-  }
-  .ld-col-trend .lt-spark {
-    inline-size: 10rem;
-  }
-}
-@media (max-width: 640px) {
-  .ld-col-vol,
-  .ld-col-trend {
-    display: none;
-  }
-  .ld-table tbody th,
-  .ld-table tbody td {
-    padding: 0 0.7143rem;
-  }
-  .ld-board {
-    padding-inline: 0;
-  }
-  .ld-featured {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0.5714rem;
-  }
 }
 
 /* Section heads. */
@@ -373,99 +133,6 @@
   font-stretch: 120%;
   letter-spacing: -0.03em;
   font-weight: 650;
-}
-
-/* What's moving: five tiles. */
-.ld-moving {
-  margin-block-end: 2rem;
-}
-.ld-tiles {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.7143rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-@media (max-width: 640px) {
-  .ld-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .ld-tiles > li:nth-child(n + 5) {
-    display: none;
-  }
-}
-.ld-tile {
-  display: grid;
-  gap: 0.2857rem;
-  padding: 1rem 1.1429rem;
-  border-radius: 1.2857rem;
-  background: var(--lit-solid-bg);
-  box-shadow: var(--lit-solid-lip);
-}
-.ld-tile-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.ld-tile-top .ld-coin-sym {
-  font-size: 1.1429rem;
-}
-.ld-tile-top .ld-num {
-  font-size: 0.9286rem;
-}
-.ld-tile-price {
-  font-size: 1.7143rem;
-  font-stretch: 125%;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
-.ld-tile .lt-spark {
-  block-size: 2rem;
-  margin: 0;
-}
-
-/* The trust band: one solid panel, four cells. */
-.ld-trust {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-block: 0.5714rem 2.8571rem;
-  padding-block: 0.5714rem;
-  border-radius: 1.5714rem;
-  background: var(--lit-solid-bg);
-  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
-}
-@media (max-width: 1100px) {
-  .ld-trust {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 640px) {
-  .ld-trust {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-.ld-trust-item {
-  padding: 1.2857rem 1.7143rem;
-  border-inline-start: 1px solid var(--lit-line);
-}
-.ld-trust-item:first-child {
-  border: 0;
-}
-.ld-trust-item h3 {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.7143rem;
-  font-size: 1.0714rem;
-  font-weight: 600;
-}
-.ld-trust-item p {
-  margin-block-start: 0.4286rem;
-  color: var(--lit-text-2);
-  font-size: 0.9643rem;
-  line-height: 1.45;
 }
 
 /* B's balance slab beside the three doors. */
@@ -696,23 +363,7 @@
   padding-block: 4.5714rem 5.7143rem;
   text-align: center;
 }
-.ld-closing h2 {
-  font-size: clamp(2.1429rem, 3vw, 4rem);
-  font-stretch: 120%;
-  letter-spacing: -0.03em;
-  font-weight: 600;
-}
 .ld-slab-section,
 .ld-fees {
   margin-block-end: 1.7143rem;
-}
-.ld-tile .lt-spark svg,
-.ld-col-trend .lt-spark svg {
-  display: block;
-  inline-size: 100%;
-  block-size: 100%;
-}
-.ld-table tbody th .ld-coin-sym,
-.ld-table tbody th .ld-coin-quote {
-  font-size: 1.0714rem;
 }

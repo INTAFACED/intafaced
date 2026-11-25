@@ -1,7 +1,23 @@
 // volt-room: /
 import { useMemo, useState } from 'react';
-import { CoinIcon } from '@intafaced/ui/lit';
-import { AreaChart, Segmented, Sparkline, TestTag } from '@intafaced/ui/lit/templates';
+import {
+  ButtonLink,
+  Display,
+  FeaturedMarket,
+  LiveDot,
+  MarketTable,
+  MoverTile,
+  PageColumn,
+  PageGrid,
+  PanelHead,
+  SectionTitle,
+  Stat,
+  Surface,
+  TileRow,
+  TrustStrip,
+  type MarketRow as KitMarketRow,
+} from '@intafaced/ui/lit';
+import { AreaChart, Segmented, TestTag } from '@intafaced/ui/lit/templates';
 import { useCandles, useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
 import { compareDecimal, dec, ratio, str, sub, sumOf } from '../../data/decimal';
 import { fmtAmount, fmtPct, fmtPrice, fmtUsd } from '../../data/format';
@@ -28,10 +44,6 @@ const priceOf = (line: Line) => {
   const price = fmtPrice(line.ticker?.last, line.market.tickSize);
   if (price === '—' || !USD_QUOTES.has(line.market.quote)) return price;
   return `$${price}`;
-};
-const toneOf = (pct: Decimal | null | undefined) => {
-  const sign = compareDecimal(pct, '0');
-  return sign === 1 ? 'up' : sign === -1 ? 'down' : 'neutral';
 };
 const byVolume = (a: Line, b: Line) => compareDecimal(b.ticker?.quoteVolume24h ?? '0', a.ticker?.quoteVolume24h ?? '0') ?? 0;
 const byChange = (a: Line, b: Line) => compareDecimal(b.ticker?.changePct24h ?? '0', a.ticker?.changePct24h ?? '0') ?? 0;
@@ -75,62 +87,69 @@ export function HomePage() {
   const featured = popular[0];
   return (
     <div className="ld" data-room="landing">
-      <section className="ld-hero" aria-labelledby="ld-title">
-        <div className="ld-pitch">
-          <h1 id="ld-title" className="ld-title">
-            <span>{t('heroLine1')}</span>
-            <span className="ld-title-dim">{t('heroLine2')}</span>
-          </h1>
+      <PageGrid layout="hero">
+        <PageColumn className="ld-pitch">
+          <Display second={t('heroLine2')}>{t('heroLine1')}</Display>
           <p className="ld-lead">{t('heroLead')}</p>
           <div className="ld-actions">
-            <a className="ld-cta" href="/register">
+            <ButtonLink tone="primary" size="lg" href="/register">
               {t('createAccount')}
-            </a>
-            <a className="ld-cta-2" href="/trade/markets">
+            </ButtonLink>
+            <ButtonLink size="lg" href="/trade/markets">
               {t('seeMarkets')}
-            </a>
+            </ButtonLink>
           </div>
           <p className="ld-note">{t('heroNote')}</p>
-          <dl className="ld-stats">
-            <div>
-              <dt>{t('statMarkets')}</dt>
-              <dd>{state.status === 'ready' ? String(lines.length) : '—'}</dd>
-            </div>
-            <div>
-              <dt>{t('statVolume')}</dt>
-              <dd>{fmtUsd(volume, { compact: true })}</dd>
-            </div>
-            <div>
-              <dt>{takerBps === null ? t('statFeeBlank') : t('statFee')}</dt>
-              <dd>{takerBps === null ? '—' : bpsAsPercent(takerBps)}</dd>
-            </div>
-          </dl>
-        </div>
-        <MarketBoard lines={lines} popular={popular} featured={featured} state={state} t={t} />
-      </section>
-
-      <Moving lines={lines} t={t} />
-
-      <section className="ld-trust" aria-label={t('trustFees')}>
-        <TrustItem title={t('trustReserves')} body={t('trustReservesBody')} />
-        <TrustItem title={t('trustLicences')} body={t('trustLicencesBody')} />
-        <TrustItem title={t('trustPasskeys')} body={t('trustPasskeysBody')} />
-        <TrustItem title={t('trustFees')} body={t('trustFeesBody')} />
-      </section>
-
-      <Slab t={t} />
-
-      <FeesPreview line={featured} takerBps={takerBps} t={t} />
-
-      <section className="ld-closing" aria-labelledby="ld-closing-title">
-        <h2 id="ld-closing-title">{t('closingTitle')}</h2>
-        <a className="ld-cta" href="/register">
-          {t('openAccount')}
-        </a>
-      </section>
+          <TileRow min="narrow" className="ld-stats">
+            <Stat labelBelow label={t('statMarkets')} value={state.status === 'ready' ? String(lines.length) : null} />
+            <Stat labelBelow label={t('statVolume')} value={volume === null ? null : fmtUsd(volume, { compact: true })} />
+            <Stat
+              labelBelow
+              label={takerBps === null ? t('statFeeBlank') : t('statFee')}
+              value={takerBps === null ? null : bpsAsPercent(takerBps)}
+            />
+          </TileRow>
+        </PageColumn>
+        <PageColumn>
+          <MarketBoard lines={lines} popular={popular} featured={featured} state={state} t={t} />
+        </PageColumn>
+        <PageColumn span="all">
+          <Moving lines={lines} t={t} />
+          <TrustStrip
+            label={t('trustFees')}
+            cells={[
+              { key: 'reserves', title: t('trustReserves'), body: t('trustReservesBody') },
+              { key: 'licences', title: t('trustLicences'), body: t('trustLicencesBody') },
+              { key: 'wallet', title: t('trustPasskeys'), body: t('trustPasskeysBody') },
+              { key: 'fees', title: t('trustFees'), body: t('trustFeesBody') },
+            ]}
+          />
+          <Slab t={t} />
+          <FeesPreview line={featured} takerBps={takerBps} t={t} />
+          <section className="ld-closing" aria-labelledby="ld-closing-title">
+            <SectionTitle className="ld-closing-title">
+              <span id="ld-closing-title">{t('closingTitle')}</span>
+            </SectionTitle>
+            <ButtonLink tone="primary" size="lg" href="/register">
+              {t('openAccount')}
+            </ButtonLink>
+          </section>
+        </PageColumn>
+      </PageGrid>
     </div>
   );
 }
+
+const rowOf = (line: Line, trend: Record<string, Decimal[]>): KitMarketRow => ({
+  id: line.market.symbol,
+  symbol: line.market.base,
+  name: `/${line.market.quote}`,
+  price: line.ticker?.last ? priceOf(line) : null,
+  change: line.ticker?.changePct24h != null ? fmtPct(line.ticker.changePct24h) : null,
+  trend: trend[line.market.symbol] ?? [],
+  volume: line.ticker?.quoteVolume24h ? fmtUsd(line.ticker.quoteVolume24h, { compact: true }) : null,
+  href: pairPath(line.market),
+});
 
 function MarketBoard({
   lines,
@@ -153,116 +172,66 @@ function MarketBoard({
     return popular.slice(0, BOARD_ROWS);
   }, [lines, popular, tab]);
   const sparks = useSparklines(rows.map((r) => r.market.symbol));
-  const lines24 = sparks.status === 'ready' ? sparks.data : {};
+  const trend = sparks.status === 'ready' ? sparks.data : {};
   return (
-    <section className="ld-board" aria-label={t('boardLabel')}>
-      <header className="ld-board-head">
-        <Segmented
-          label={t('boardLabel')}
-          value={tab}
-          onChange={(value) => setTab(value as Tab)}
-          options={[
-            { value: 'popular', label: t('tabPopular') },
-            { value: 'gainers', label: t('tabGainers') },
-            { value: 'losers', label: t('tabLosers') },
-          ]}
-        />
-        <span className="ld-live">
-          <span className="ld-live-dot" aria-hidden="true" />
-          {t('boardLive')}
-        </span>
-      </header>
+    <Surface className="ld-board" aria-label={t('boardLabel')}>
+      <PanelHead
+        title={
+          <Segmented
+            label={t('boardLabel')}
+            value={tab}
+            onChange={(value) => setTab(value as Tab)}
+            options={[
+              { value: 'popular', label: t('tabPopular') },
+              { value: 'gainers', label: t('tabGainers') },
+              { value: 'losers', label: t('tabLosers') },
+            ]}
+          />
+        }
+        aside={<LiveDot>{t('boardLive')}</LiveDot>}
+      />
       {featured ? <Featured line={featured} t={t} /> : null}
-      {state.status === 'loading' ? (
-        <p className="ld-board-note">{t('boardLoading')}</p>
-      ) : state.status === 'error' ? (
+      {state.status === 'error' ? (
         <p className="ld-board-note">{t('boardFailed')}</p>
-      ) : rows.length === 0 ? (
-        <p className="ld-board-note">{t('boardEmpty')}</p>
       ) : (
-        <table className="ld-table">
-          <caption className="ld-sr">{t('boardLabel')}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t('colMarket')}</th>
-              <th scope="col">{t('colPrice')}</th>
-              <th scope="col">{t('colChange')}</th>
-              <th scope="col" className="ld-col-trend">
-                {t('colTrend')}
-              </th>
-              <th scope="col" className="ld-col-vol">
-                {t('colVolume')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((line) => {
-              const pct = line.ticker?.changePct24h;
-              return (
-                <tr key={line.market.symbol} data-symbol={line.market.symbol}>
-                  <th scope="row">
-                    <a href={pairPath(line.market)} className="ld-coin">
-                      <CoinIcon asset={line.market.base} size="sm" />
-                      <span className="ld-coin-sym">{line.market.base}</span>
-                      <span className="ld-coin-quote">/{line.market.quote}</span>
-                    </a>
-                  </th>
-                  <td className="ld-num">{priceOf(line)}</td>
-                  <td className="ld-num" data-tone={toneOf(pct)}>
-                    {fmtPct(pct)}
-                  </td>
-                  <td className="ld-col-trend">
-                    <Sparkline
-                      label={t('trendOf', { symbol: line.market.base })}
-                      values={lines24[line.market.symbol] ?? []}
-                      tone={toneOf(pct)}
-                      size="row"
-                    />
-                  </td>
-                  <td className="ld-num ld-col-vol">{fmtUsd(line.ticker?.quoteVolume24h, { compact: true })}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <MarketTable
+          labels={{
+            caption: t('boardLabel'),
+            market: t('colMarket'),
+            price: t('colPrice'),
+            change: t('colChange'),
+            trend: t('colTrend'),
+            volume: t('colVolume'),
+            trendLabel: (row) => t('trendOf', { symbol: row.symbol }),
+          }}
+          rows={rows.map((line) => rowOf(line, trend))}
+          loadingRows={state.status === 'loading' ? BOARD_ROWS : undefined}
+          empty={<p className="ld-board-note">{t('boardEmpty')}</p>}
+        />
       )}
       <footer className="ld-board-foot">
         <span>{t('boardFootNote')}</span>
         <a href="/trade/markets">{t('boardAll', { count: String(lines.length) })} →</a>
       </footer>
-    </section>
+    </Surface>
   );
 }
 
-/** The busiest market, large, with its last day drawn from its hourly candles. */
+/** The busiest market, large, with its last two days drawn from its hourly candles. */
 function Featured({ line, t }: { line: Line; t: T }) {
   const candles = useCandles(line.market.symbol, '1h', 48);
   const points = candles.status === 'ready' ? candles.data.map((c) => ({ at: new Date(c.t).toISOString(), value: c.c })) : [];
-  const pct = line.ticker?.changePct24h;
   return (
-    <a className="ld-featured" href={pairPath(line.market)}>
-      <div className="ld-featured-figure">
-        <span className="ld-coin">
-          <CoinIcon asset={line.market.base} size="sm" />
-          <span className="ld-coin-sym">{line.market.base}</span>
-          <span className="ld-coin-quote">/{line.market.quote}</span>
-        </span>
-        <span className="ld-featured-price">{priceOf(line)}</span>
-        <span className="ld-num" data-tone={toneOf(pct)}>
-          {fmtPct(pct)}
-        </span>
-      </div>
-      <div className="ld-featured-chart">
-        <AreaChart
-          label={t('trendOf', { symbol: line.market.base })}
-          points={points}
-          asset={line.market.quote}
-          tone={toneOf(pct)}
-          soft
-          live
-        />
-      </div>
-    </a>
+    <FeaturedMarket
+      symbol={line.market.base}
+      name={`/${line.market.quote}`}
+      price={line.ticker?.last ? priceOf(line) : null}
+      change={line.ticker?.changePct24h != null ? fmtPct(line.ticker.changePct24h) : null}
+      points={points}
+      chartLabel={t('trendOf', { symbol: line.market.base })}
+      asset={line.market.quote}
+      href={pairPath(line.market)}
+    />
   );
 }
 
@@ -275,7 +244,6 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
           const abs = (l: Line) => (dec(l.ticker!.changePct24h) ?? 0n) * ((dec(l.ticker!.changePct24h) ?? 0n) < 0n ? -1n : 1n);
           return abs(b) > abs(a) ? 1 : abs(b) < abs(a) ? -1 : 0;
         })
-        .filter((line, index, all) => all.findIndex((other) => other.market.base === line.market.base) === index)
         .slice(0, MOVERS),
     [lines],
   );
@@ -283,43 +251,21 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
   if (movers.length === 0) return null;
   return (
     <section className="ld-moving" aria-labelledby="ld-moving-title">
-      <header className="ld-section-head">
-        <h2 id="ld-moving-title">{t('movingTitle')}</h2>
-        <p>{t('movingNote')}</p>
-      </header>
-      <ul className="ld-tiles">
-        {movers.map((line) => {
-          const pct = line.ticker?.changePct24h;
-          return (
-            <li key={line.market.symbol}>
-              <a className="ld-tile" href={pairPath(line.market)}>
-                <span className="ld-tile-top">
-                  <span className="ld-coin-sym">{line.market.base}</span>
-                  <span className="ld-num" data-tone={toneOf(pct)}>
-                    {fmtPct(pct)}
-                  </span>
-                </span>
-                <span className="ld-tile-price">{priceOf(line)}</span>
-                <Sparkline
-                  label={t('trendOf', { symbol: line.market.base })}
-                  values={sparks.status === 'ready' ? (sparks.data[line.market.symbol] ?? []) : []}
-                  tone={toneOf(pct)}
-                />
-              </a>
-            </li>
-          );
-        })}
-      </ul>
+      <PanelHead title={<span id="ld-moving-title">{t('movingTitle')}</span>} aside={<span className="ld-aside">{t('movingNote')}</span>} />
+      <TileRow>
+        {movers.map((line) => (
+          <MoverTile
+            key={line.market.symbol}
+            symbol={`${line.market.base}/${line.market.quote}`}
+            price={line.ticker?.last ? priceOf(line) : null}
+            change={fmtPct(line.ticker?.changePct24h)}
+            trend={sparks.status === 'ready' ? (sparks.data[line.market.symbol] ?? []) : []}
+            trendLabel={t('trendOf', { symbol: line.market.base })}
+            href={pairPath(line.market)}
+          />
+        ))}
+      </TileRow>
     </section>
-  );
-}
-
-function TrustItem({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="ld-trust-item">
-      <h3>{title}</h3>
-      <p>{body}</p>
-    </div>
   );
 }
 
@@ -408,7 +354,7 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
           </span>
           <div className="ld-ticket-chart" hidden={points.length < 2}>
             {line ? (
-              <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} soft live />
+              <AreaChart label={t('trendOf', { symbol: line.market.base })} points={points} asset={line.market.quote} soft live fit />
             ) : null}
           </div>
         </div>
@@ -429,9 +375,9 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
             <dt>{t('feesTotal')}</dt>
             <dd>{fmtUsd(EXAMPLE_SPEND)}</dd>
           </div>
-          <a className="ld-cta ld-cta-block" href="/register">
+          <ButtonLink tone="primary" size="lg" block href="/register">
             {t('startTrading')}
-          </a>
+          </ButtonLink>
           <a className="ld-link" href="/fees">
             {t('feesSchedule')} →
           </a>
