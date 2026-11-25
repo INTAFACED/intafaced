@@ -49,6 +49,11 @@
   :root .public-header {
     gap: 0.5714rem;
   }
+  /* A phone's bar is the kit's top-bar height, which holds at 200% text: a bar that doubled with the text would leave a
+     tall panel no room between it and the phone dock (the look gate's obscured-focus check, /trade/terminal). */
+  :root :is(.tb, .public-header) {
+    block-size: var(--lit-topbar-h);
+  }
 }
 :root .public-header > nav a {
   display: inline-flex;
@@ -451,4 +456,11 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* The phone's search panel opens under the phone's bar (the kit's top-bar height, above). */
+@media (max-width: 50rem) {
+  :root .tb-search-panel {
+    inset-block-start: calc(var(--lit-topbar-h) + var(--if-banner-offset, 0rem));
+  }
 }
