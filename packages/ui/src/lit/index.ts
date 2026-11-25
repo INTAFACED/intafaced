@@ -51,6 +51,15 @@ export {
   type ActivityRowProps,
 } from './components/account-parts.js';
 export {
+  MarketBoard,
+  MarketHero,
+  MarketBoardSkeleton,
+  Dim,
+  ToolbarEnd,
+  FootNotes,
+  type MarketHeroProps,
+} from './components/board-parts.js';
+export {
   ButtonLink,
   Display,
   SectionTitle,

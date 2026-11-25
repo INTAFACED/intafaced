@@ -370,6 +370,13 @@ export const components = {
   TrustStrip: 'Equal cells in one panel divided by hairlines: a title, an optional badge, a short body',
   WarnBadge: 'A warn-toned pill for a value that is not real yet',
   FeaturedMarket: 'The busiest market in a sunken tile: mark and name, the price large, its change, its chart filling the end',
+  MarketBoard: "A markets screen's board: its panels in a column on the page, the region it fills drawing no panel",
+  MarketHero:
+    'One market large: chips to pick it, mark and name, the price at the big-figure size, its move, one action, six figures, its day as a soft chart beside them',
+  MarketBoardSkeleton: 'The board at its final size while the markets load: the hero and a row of mover tiles',
+  Dim: 'Quieter words inside a hero or a board head',
+  ToolbarEnd: "A toolbar's end slot (a search), a whole row on a phone",
+  FootNotes: 'Short quiet lines under a list, a bold lead on each',
 } as const;
 export type ComponentName = keyof typeof components;
 
