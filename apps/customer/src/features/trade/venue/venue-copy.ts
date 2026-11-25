@@ -87,6 +87,7 @@ export const venueCopy = defineCopy('trade.venue', {
   type_take_profit: 'Take profit',
   type_trailing_stop: 'Trailing stop',
   'Not offered': 'not offered by this venue',
+  'Not offered list': 'Not offered by this venue:',
   tif_GTC: 'Good till cancelled',
   tif_IOC: 'Immediate or cancel',
   tif_ALO: 'Post only',

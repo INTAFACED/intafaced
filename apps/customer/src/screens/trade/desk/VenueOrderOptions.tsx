@@ -1,7 +1,7 @@
 import type { VenueMarket, VenueSelfTradeMode } from '../../../features/trade/venue-api';
 import { word } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Segmented } from '@intafaced/ui/lit';
 import { Select } from '@intafaced/ui/lit/templates';
 import { spotVenueCopy } from './venue-copy';
 import {
@@ -23,7 +23,6 @@ import {
 /** The order types beside limit and market (plus market itself when limited) that the venue does not offer, disabled. */
 export function NotOfferedTypes({ market, marketDisabledReason = null }: { market: VenueMarket; marketDisabledReason?: string | null }) {
   const { t } = spotVenueCopy.useCopy();
-  const v = venueCopy.useCopy().t;
   const missing = OTHER_ORDER_TYPES.filter((x) => !market.orderTypes.includes(x));
   if (missing.length === 0 && !marketDisabledReason) return null;
   return (
@@ -33,12 +32,35 @@ export function NotOfferedTypes({ market, marketDisabledReason = null }: { marke
           {t('Market')}: {marketDisabledReason}
         </Button>
       ) : null}
-      {missing.map((x) => (
-        <Button key={x} tone="secondary" size="sm" disabled aria-disabled="true" data-not-offered={x}>
-          {word(v, 'type', x)}: {v('Not offered')}
+      <NotOfferedChips types={missing} />
+    </div>
+  );
+}
+
+/**
+ * The order types the venue does not offer, on one quiet line for both desks: "Not offered by this venue: Stop · Take
+ * profit". Each stays a disabled button whose name says it in full ("Stop: not offered by this venue").
+ */
+export function NotOfferedChips({ types }: { types: readonly string[] }) {
+  const v = venueCopy.useCopy().t;
+  if (types.length === 0) return null;
+  return (
+    <span className="xd-not-offered">
+      <span aria-hidden="true">{v('Not offered list')}</span>
+      {types.map((x) => (
+        <Button
+          key={x}
+          tone="quiet"
+          size="sm"
+          disabled
+          aria-disabled="true"
+          data-not-offered={x}
+          aria-label={`${word(v, 'type', x)}: ${v('Not offered')}`}
+        >
+          {word(v, 'type', x)}
         </Button>
       ))}
-    </div>
+    </span>
   );
 }
 
@@ -140,5 +162,21 @@ export function UnitFlag({
         </Button>
       ))}
     </div>
+  );
+}
+
+/** The ticket's side, as the perps ticket's Long and Short: one side's form shown at a time. */
+export function TicketSideSwitch({ side, onSide }: { side: 'buy' | 'sell'; onSide: (side: 'buy' | 'sell') => void }) {
+  const { t } = spotVenueCopy.useCopy();
+  return (
+    <Segmented
+      label={t('Ticket side')}
+      options={[
+        { value: 'buy', label: t('Buy') },
+        { value: 'sell', label: t('Sell') },
+      ]}
+      value={side}
+      onChange={(value) => onSide(value === 'sell' ? 'sell' : 'buy')}
+    />
   );
 }

@@ -542,11 +542,20 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   expect(wallet.address.toLowerCase()).toBe(owner);
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(1).fill(fromUnits(price));
+  // The ticket shows one side at a time: Sell first.
+  await page
+    .getByTestId('dk-order')
+    .getByRole('group', { name: 'Buy or sell', exact: true })
+    .getByRole('button', { name: 'Sell', exact: true })
+    .click();
+  await page
+    .locator('form[data-testid="dk-form"][data-side="sell"]')
+    .getByRole('textbox', { name: 'Price', exact: true })
+    .fill(fromUnits(price));
   const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await page.getByRole('textbox', { name: 'Amount', exact: true }).nth(1).fill(SOLD);
+  await page.locator('form[data-testid="dk-form"][data-side="sell"]').getByRole('textbox', { name: 'Amount', exact: true }).fill(SOLD);
   expect((await preview).status()).toBe(200);
-  await page.getByRole('button', { name: 'Sell BTC', exact: true }).click();
+  await page.locator('form[data-testid="dk-form"][data-side="sell"]').getByRole('button', { name: 'Sell BTC', exact: true }).click();
   const sheet = reviewSheet(page);
   await expect(sheet).toBeVisible();
   // A sell carries our builder fee: the wallet approves it first, then Confirm sell signs the order.

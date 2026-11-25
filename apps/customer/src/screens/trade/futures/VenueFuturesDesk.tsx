@@ -1,6 +1,9 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
-import { Button, Segmented, Switch } from '@intafaced/ui/lit';
+import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
+import { VenueMarketPanel } from '../desk/VenueMarketData';
+import '../desk/exchange-desk.css';
+import { Button, Field, Segmented, Switch } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -68,13 +71,17 @@ import { useResource } from '../../../shared/resource';
 import { useReveal } from '../../../shared/reveal';
 import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
-import { VenueMarketPanel } from '../desk/VenueMarketData';
 import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
 import { VenueCalculator } from './VenueCalculator';
+import { NotOfferedChips } from '../desk/VenueOrderOptions';
+import { ticketSummary } from './ticket-summary';
+import { RiskStrip } from './RiskStrip';
+import { positionLines, sizeFromRisk, type PositionLine } from './risk-strip';
+import type { ChartOrderLine } from '../chart/PriceChart';
 import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
 import { VenueTierConfirm } from './VenueTierConfirm';
 import { venueRiskCopy } from './venue-risk-copy';
@@ -118,13 +125,24 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   }
   const perps = (markets.data?.value ?? []).filter((m) => m.kind === 'perpetual');
   const down = markets.failure?.code === 'trade.venue.venue_down';
-  return (
-    <div data-testid="if-futures" className="lt-stack" data-venue="on">
+  const head = (
+    <>
       <VenueHeader status={status} title={t('Futures on venue')} />
       <ActionLimitWarning venueName={status.venue.displayName} />
+      {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
+    </>
+  );
+  if (markets.data && perps.length > 0)
+    return (
+      <div data-testid="if-futures" className="xd" data-venue="on">
+        <Contracts status={status} perps={perps} requested={requested} head={head} />
+      </div>
+    );
+  return (
+    <div data-testid="if-futures" className="lt-stack" data-venue="on">
+      {head}
       {/* The contracts band: its titles and lists keep the desk's inner margin. */}
       <div className="lt-stack">
-        {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
         {markets.data && perps.length === 0 ? (
           <section className="lt-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
             <h2 className="lt-panel-title">{t('Contracts')}</h2>
@@ -136,7 +154,6 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
         ) : null}
         <GatedList status={status} />
       </div>
-      {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
   );
 }
@@ -185,8 +202,23 @@ function GatedList({ status }: { status: VenueUp }) {
   );
 }
 
-/** A venue that is down is named above; its controls still answer, each with the venue's typed refusal and nothing sent. */
-function Contracts({ status, perps, requested }: { status: VenueUp; perps: VenueMarket[]; requested: string | null }) {
+/**
+ * The perps desk (desk A, the owner's pick): the contract and its figures across the
+ * top, the venue's chart beside its book and tape, the ticket down the right in its own scroll, the positions and orders
+ * under the chart. A venue that is down is named above; its controls still answer, each with the venue's typed refusal
+ * and nothing sent.
+ */
+function Contracts({
+  status,
+  perps,
+  requested,
+  head,
+}: {
+  status: VenueUp;
+  perps: VenueMarket[];
+  requested: string | null;
+  head: React.ReactNode;
+}) {
   const { t } = futuresVenueCopy.useCopy();
   const [chosen, setChosen] = useState<string>(perps.find((m) => m.symbol === requested)?.symbol ?? perps[0]!.symbol);
   const market = perps.find((m) => m.symbol === chosen) ?? perps[0]!;
@@ -196,65 +228,125 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const session = useDeskSession(owner, status);
   const { run, resend } = useVenueActions(owner, session.signing);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const ticketRef = useRef<HTMLDivElement>(null);
+  // A phone: the ticket is far below the chart, so Long and Short wait at the bottom and bring it into view.
+  const toTicket = (s: 'buy' | 'sell') => {
+    setSide(s);
+    ticketRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
   return (
     <>
-      {/* The desk's two columns, as on the venue spot desk: the contract and its ticket in the centre; the wallet, the
-          margin and the venue's own rules beside. */}
-      <div className="lt-grid lt-grid-main-side">
-        <div className="lt-col-main">
-          <ul className="lt-toolbar" aria-label={t('Contracts')} data-testid="venue-contract-list">
-            {perps.map((m) => (
-              <li key={m.symbol}>
-                <Button
-                  tone={m.symbol === market.symbol ? 'primary' : 'secondary'}
-                  aria-pressed={m.symbol === market.symbol}
-                  onClick={() => setChosen(m.symbol)}
-                >
-                  {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-                </Button>{' '}
-                <TestMark test={status.test} />
-              </li>
-            ))}
-          </ul>
-          <ContractStrip market={market} test={status.test} />
-          {/* The contract's own book, tape and chart, read from the venue (as on the venue spot desk). */}
-          <VenueMarketPanel key={`m:${market.symbol}`} market={market} test={status.test} venueName={status.venue.displayName} />
-          {owner ? (
-            <Ticket
-              key={`t:${market.symbol}`}
-              status={status}
-              market={market}
-              owner={owner}
-              account={account}
-              run={run}
-              resend={resend}
-              side={side}
-              setSide={setSide}
-              disabled={false}
-            />
-          ) : null}
-          {owner ? (
-            <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
-          ) : null}
-          <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
-        </div>
-        <div className="lt-col-side">
-          <WalletBar />
-          {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
-          <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-          {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
-          {owner && market.marginAccount?.known ? (
-            <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
-          ) : null}
-          {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
-          <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
-        </div>
-      </div>
-      {/* The wide tables keep the desk's whole width under the columns: the venues, the orders and the venue accounts. */}
-      <div className="lt-stack">
-        {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-        {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
-        {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      <DeskTemplate
+        title={t('Futures on venue')}
+        mode="pro"
+        state={{ kind: 'ready' }}
+        instrument={
+          <div className="lt-stack-tight">
+            {head}
+            <div className="xd-top">
+              <ul className="xd-contracts" aria-label={t('Contracts')} data-testid="venue-contract-list">
+                {perps.map((m) => (
+                  <li key={m.symbol}>
+                    <Button
+                      tone="secondary"
+                      aria-pressed={m.symbol === market.symbol}
+                      aria-label={t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
+                      onClick={() => setChosen(m.symbol)}
+                    >
+                      <span className="xd-tile-symbol">{m.symbol}</span>
+                      <span className="lt-num xd-tile-price">{m.mark.known ? displayAmount(m.mark.value) : '—'}</span>
+                    </Button>
+                  </li>
+                ))}
+                {/* One TEST mark for the whole list, not one per contract. */}
+                <li>
+                  <TestMark test={status.test} />
+                </li>
+              </ul>
+              <div className="xd-risk-row">
+                <RiskStrip
+                  positions={account.positions.data?.value ?? []}
+                  orders={account.openOrders.data?.value ?? []}
+                  quote={market.quoteAsset}
+                />
+                {owner ? <FlattenHold positions={account.positions.data?.value ?? []} markets={perps} owner={owner} run={run} /> : null}
+              </div>
+            </div>
+          </div>
+        }
+        chart={
+          <VenueMarketPanel
+            key={`m:${market.symbol}`}
+            market={market}
+            test={status.test}
+            venueName={status.venue.displayName}
+            chartLines={positionLines(
+              account.positions.data?.value.find((p) => p.symbol === market.symbol),
+              account.openOrders.data?.value ?? [],
+            ).map((line) =>
+              chartLineOf(
+                line,
+                t,
+                account.positions.data?.value.find((p) => p.symbol === market.symbol),
+              ),
+            )}
+          />
+        }
+        ticket={
+          <div className="lt-stack" ref={ticketRef}>
+            {/* No wallet yet: connecting it comes first. Connected: the ticket comes first, the wallet under it. */}
+            {owner ? null : <WalletBar />}
+            {owner ? (
+              <Ticket
+                key={`t:${market.symbol}`}
+                status={status}
+                market={market}
+                owner={owner}
+                account={account}
+                run={run}
+                resend={resend}
+                side={side}
+                setSide={setSide}
+                disabled={false}
+              />
+            ) : null}
+            {owner ? <WalletBar /> : null}
+            {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
+            {owner && market.marginAccount?.known ? (
+              <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
+            ) : null}
+            {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
+            <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+            {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+            {owner ? (
+              <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+            ) : null}
+          </div>
+        }
+        orders={
+          <div className="xd-under">
+            <div className="lt-stack">
+              {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+              {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+              {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+            </div>
+            <div className="lt-stack">
+              {/* The contract's fixed specs sit under the positions: the top of the desk is for prices and risk. */}
+              <ContractStrip market={market} test={status.test} />
+              <GatedList status={status} />
+              <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+              <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
+            </div>
+          </div>
+        }
+      />
+      <div className="xd-phone-bar" role="group" aria-label={t('Ticket')} data-testid="venue-phone-bar">
+        <Button tone="up" onClick={() => toTicket('buy')}>
+          {t('Long')}
+        </Button>
+        <Button tone="down" onClick={() => toTicket('sell')}>
+          {t('Short')}
+        </Button>
       </div>
     </>
   );
@@ -322,7 +414,7 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
                 </span>{' '}
                 {t('Funding next')}{' '}
                 <time dateTime={funding.nextFundingAt} data-testid="venue-funding-next">
-                  {funding.nextFundingAt}
+                  {new Date(funding.nextFundingAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}
                 </time>
               </>
             ) : (
@@ -674,7 +766,7 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
           onChange={(e) => setAmount(e.target.value)}
         />
       </label>
-      <Button tone="primary" onClick={() => void move('into_market')}>
+      <Button tone="secondary" onClick={() => void move('into_market')}>
         {t('Market margin in')}
       </Button>
       <Button tone="secondary" onClick={() => void move('out_of_market')}>
@@ -768,7 +860,7 @@ function MarginStep({
         <span>{t('Leverage x')}</span>
         <input inputMode="numeric" aria-label={t('Leverage x')} value={times} onChange={(e) => setTimes(e.target.value)} />
       </label>
-      <Button tone="primary" disabled={disabled} onClick={() => void sign()}>
+      <Button tone="secondary" disabled={disabled} onClick={() => void sign()}>
         {t('Sign leverage')}
       </Button>
       {problem ? (
@@ -807,7 +899,9 @@ function Ticket({
   const venue = useVenueApi();
   const [routed, setRouted] = useState<{ intent: OrderIntent; route: RoutePreview } | null>(null);
   const [type, setType] = useState<'limit' | 'market'>(market.orderTypes.includes('market') ? 'market' : 'limit');
-  const [size, setSize] = useState('');
+  const [typedSize, setSize] = useState('');
+  const [fromRisk, setFromRisk] = useState(false);
+  const [risk, setRisk] = useState('');
   const [price, setPrice] = useState('');
   const [adjustPrice, setAdjustPrice] = useState(false);
   const [marginAsset, setMarginAsset] = useState(market.quoteAsset);
@@ -859,6 +953,20 @@ function Ticket({
   const offered = market.orderTypes.filter((x): x is 'limit' | 'market' => x === 'limit' || x === 'market');
   const band = market.priceBand?.known ? market.priceBand.value : null;
   const slippageCap = best.data?.slippageCapBps ?? null;
+  // Size from my risk (desk A, from desk B): a limit enters at its price, a market order at the best price it meets.
+  const entry = type === 'limit' ? price.trim() || null : ((side === 'buy' ? best.data?.value.ask : best.data?.value.bid) ?? null);
+  const sized = fromRisk ? sizeFromRisk({ risk, entry, stop: stopLoss, lot: market.lotSize, side }) : null;
+  const size = sized ? (sized.ok ? sized.size : '') : typedSize;
+  // Desk A's ticket summary: what this order would be, before the venue's own review; an unknown figure waits for it.
+  const summary = ticketSummary({
+    market,
+    side,
+    size,
+    entry,
+    position: account.positions.data?.value.find((x) => x.symbol === market.symbol),
+    builderFeeBps: status.builder?.feeBps ?? null,
+  });
+  const quoted = (value: string | null) => (value === null ? t('At review') : `${displayAmount(value)} ${market.quoteAsset}`);
 
   function clearChecks() {
     setProblem(null);
@@ -1131,7 +1239,7 @@ function Ticket({
         {offered.map((x) => (
           <Button
             key={x}
-            tone={type === x ? 'primary' : 'secondary'}
+            tone={type === x ? 'secondary' : 'quiet'}
             aria-pressed={type === x}
             onClick={() => {
               setType(x);
@@ -1141,24 +1249,48 @@ function Ticket({
             {word(v, 'type', x)}
           </Button>
         ))}
-        {RESTING_TYPES.filter((x) => !market.orderTypes.includes(x)).map((x) => (
-          <Button key={x} tone="secondary" disabled aria-disabled="true" data-not-offered={x}>
-            {word(v, 'type', x)}: {v('Not offered')}
-          </Button>
-        ))}
+        <NotOfferedChips types={RESTING_TYPES.filter((x) => !market.orderTypes.includes(x))} />
       </div>
+      <div className="xd-switch-row">
+        <span aria-hidden="true">{t('Size from my risk')}</span>
+        <Switch
+          label={t('Size from my risk')}
+          checked={fromRisk}
+          onChange={(on) => {
+            setFromRisk(on);
+            clearChecks();
+          }}
+        />
+      </div>
+      {fromRisk ? (
+        <Field
+          label={t('Risk amount', { asset: market.quoteAsset })}
+          inputMode="decimal"
+          value={risk}
+          onChange={(e) => {
+            setRisk(e.target.value);
+            clearChecks();
+          }}
+        />
+      ) : null}
       <label className="lt-field">
         <span>{t('Size', { asset: market.baseAsset })}</span>
         <input
           inputMode="decimal"
           aria-label={t('Size', { asset: market.baseAsset })}
           value={size}
+          readOnly={fromRisk}
           onChange={(e) => {
             setSize(e.target.value);
             clearChecks();
           }}
         />
       </label>
+      {sized ? (
+        <p className="lt-note" data-testid="venue-risk-size">
+          {sized.ok ? t('Sized from risk', { risk, asset: market.quoteAsset }) : t(`risk_size_${sized.reason}`)}
+        </p>
+      ) : null}
       <label className="lt-field">
         <span>{type === 'market' ? t('Worst price') : t('Price')}</span>
         <input
@@ -1247,9 +1379,27 @@ function Ticket({
           ))}
         </select>
       </label>
-      <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
-        {side === 'buy' ? t('Review long') : t('Review short')}
-      </Button>
+      {/* The summary and the one primary button stay pinned at the ticket column's foot, so a long ticket never hides them. */}
+      <div className="xd-ticket-go">
+        {summary ? (
+          <div data-testid="venue-ticket-summary">
+            <KeyValue
+              rows={[
+                { label: t('Order value'), value: quoted(summary.value) },
+                {
+                  label: summary.leverage ? t('Margin at', { times: summary.leverage }) : t('Margin'),
+                  value: quoted(summary.margin),
+                },
+                { label: t('Opening fee'), value: summary.fee === null ? t('Not published') : quoted(summary.fee) },
+                { label: t('Line liquidation'), value: quoted(summary.liquidation) },
+              ]}
+            />
+          </div>
+        ) : null}
+        <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
+          {side === 'buy' ? t('Review long') : t('Review short')}
+        </Button>
+      </div>
       {priceCorrected ? (
         <p className="lt-note" role="status" data-testid="venue-price-moved">
           {r('Price moved')}:{' '}
@@ -1875,7 +2025,7 @@ function CloseControl({
           onChange={(e) => setPercent(e.target.value)}
         />
       </label>
-      <Button tone="primary" disabled={unknown !== null} onClick={() => void close()}>
+      <Button tone="secondary" disabled={unknown !== null} onClick={() => void close()}>
         {t('Close button', { percent })}
       </Button>
       {result ? (
@@ -2008,3 +2158,148 @@ function Settlements({ owner, test }: { owner: string; test: boolean }) {
 }
 
 const sumSigned = (values: string[]) => formatAmount(values.reduce((total, x) => total + parseAmount(x), 0n));
+
+/** How long Flatten is held before it sends: desk A's hold, long enough that a stray click never closes anything. */
+const FLATTEN_HOLD_MS = 650;
+
+/**
+ * Flatten (desk A): hold the button 0.65 s and every open position on this venue closes whole, each by one reduce-only
+ * IOC order at the market bounded by the owner's slippage cap, exactly as Close at 100% sends it. Letting go earlier
+ * sends nothing. One close id per position per flatten, held until the venue answers definitely, so a second hold after
+ * a lost answer re-sends the same closes, never new ones. The person's wallet still signs each close.
+ */
+export function FlattenHold({
+  positions,
+  markets,
+  owner,
+  run,
+}: {
+  positions: readonly VenuePosition[];
+  markets: readonly VenueMarket[];
+  owner: string;
+  run: RunAction;
+}) {
+  const { t } = futuresVenueCopy.useCopy();
+  const v = venueCopy.useCopy().t;
+  const venue = useVenueApi();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ids = useRef(new Map<string, string>());
+  const [holding, setHolding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [outcomes, setOutcomes] = useState<{ symbol: string; text: string }[]>([]);
+  const open = positions.filter((p) => markets.some((m) => m.symbol === p.symbol));
+  if (open.length === 0 && outcomes.length === 0) return null;
+
+  async function flatten() {
+    setBusy(true);
+    const done: { symbol: string; text: string }[] = [];
+    for (const position of open) {
+      const market = markets.find((m) => m.symbol === position.symbol)!;
+      const type = market.orderTypes.includes('market') ? 'market' : 'limit';
+      const key = `${position.symbol}:${position.size}`;
+      const id = ids.current.get(key) ?? draftId();
+      ids.current.set(key, id);
+      const price =
+        type === 'market'
+          ? await venue.bestPrices(position.symbol).then(
+              (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null),
+              () => closeMarketPrice(position, market.tickSize, null),
+            )
+          : closeWorstPrice(position, market.tickSize);
+      const answer = await run({
+        kind: 'place_order',
+        symbol: position.symbol,
+        side: position.side === 'long' ? 'sell' : 'buy',
+        type,
+        amount: position.size,
+        price,
+        timeInForce: 'IOC',
+        reduceOnly: true,
+        clientOrderKey: keys.close(owner, position.symbol, id),
+        builderFee: null,
+      });
+      if (!keepsDraft(answer)) ids.current.delete(key);
+      done.push({ symbol: position.symbol, text: outcomeText(v, answer) });
+    }
+    setOutcomes(done);
+    setBusy(false);
+  }
+  const start = () => {
+    if (busy || open.length === 0 || timer.current) return;
+    setHolding(true);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      setHolding(false);
+      void flatten();
+    }, FLATTEN_HOLD_MS);
+  };
+  const stop = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setHolding(false);
+  };
+  return (
+    <div className="xd-flatten" data-testid="venue-flatten">
+      <Button
+        tone="secondary"
+        className="xd-hold"
+        data-holding={holding || undefined}
+        disabled={busy || open.length === 0}
+        aria-describedby="venue-flatten-how"
+        onPointerDown={start}
+        onPointerUp={stop}
+        onPointerLeave={stop}
+        onPointerCancel={stop}
+        onKeyDown={(e) => {
+          if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+            e.preventDefault();
+            start();
+          }
+        }}
+        onKeyUp={stop}
+      >
+        {busy ? t('Flattening') : t('Flatten', { count: String(open.length) })}
+      </Button>
+      <span id="venue-flatten-how" className="xd-risk-note">
+        {t('Flatten how')}
+      </span>
+      {outcomes.length > 0 ? (
+        <ul role="status" className="xd-risk-note" data-testid="venue-flatten-outcome">
+          {outcomes.map((o) => (
+            <li key={o.symbol}>{t('Flatten outcome', { symbol: o.symbol, outcome: o.text })}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/** A position line in the chart's words: "Long 0.25 · +285.00", "Stop −260.00", "Target +890.00", "Liquidation, est.". */
+function chartLineOf(
+  line: PositionLine,
+  t: ReturnType<typeof futuresVenueCopy.useCopy>['t'],
+  position: VenuePosition | undefined,
+): ChartOrderLine {
+  const signed = (v: string | null) => (v === null ? '' : `${v.startsWith('-') ? '' : '+'}${displayAmount(v, 2)}`);
+  const side = position?.side === 'short' ? 'sell' : 'buy';
+  if (line.kind === 'entry')
+    return {
+      price: line.price,
+      side,
+      tone: 'neutral',
+      dashed: false,
+      title: t('Line entry', {
+        side: t(position?.side === 'short' ? 'side_short' : 'side_long'),
+        size: position?.size ?? '',
+        result: signed(line.result),
+      }),
+    };
+  if (line.kind === 'liquidation') return { price: line.price, side, tone: 'neutral', title: t('Line liquidation') };
+  return {
+    price: line.price,
+    side,
+    tone: line.kind === 'stop' ? 'down' : 'up',
+    dashed: false,
+    title: t(line.kind === 'stop' ? 'Line stop' : 'Line target', { result: signed(line.result) }),
+  };
+}

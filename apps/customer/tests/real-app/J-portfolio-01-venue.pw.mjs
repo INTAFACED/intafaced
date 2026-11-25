@@ -518,11 +518,20 @@ async function sellOnDesk(page, owner) {
     .locator('[role=tab]', { hasText: /^Limit$/ })
     .first()
     .click();
-  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(1).fill(SELL.price);
+  // The ticket shows one side at a time: Sell first.
+  await page
+    .getByTestId('dk-order')
+    .getByRole('group', { name: 'Buy or sell', exact: true })
+    .getByRole('button', { name: 'Sell', exact: true })
+    .click();
+  await page.locator('form[data-testid="dk-form"][data-side="sell"]').getByRole('textbox', { name: 'Price', exact: true }).fill(SELL.price);
   const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
-  await page.getByRole('textbox', { name: 'Amount', exact: true }).nth(1).fill(SELL.amount);
+  await page
+    .locator('form[data-testid="dk-form"][data-side="sell"]')
+    .getByRole('textbox', { name: 'Amount', exact: true })
+    .fill(SELL.amount);
   expect((await preview).status()).toBe(200);
-  await page.getByRole('button', { name: 'Sell BTC', exact: true }).click();
+  await page.locator('form[data-testid="dk-form"][data-side="sell"]').getByRole('button', { name: 'Sell BTC', exact: true }).click();
   // A sell carries the builder fee: the review asks the wallet to approve it first, and Confirm sell waits for that.
   const sheet = reviewSheet(page);
   await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet', exact: true }).click();
