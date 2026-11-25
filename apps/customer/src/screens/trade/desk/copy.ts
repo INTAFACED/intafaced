@@ -294,6 +294,7 @@ const messages = {
   'Move to band edge': 'Move my price to the band edge, {price} {asset}',
   'Price adjusted': 'Adjusted: your price {from} was moved to the band edge, {to} {asset}.',
   'Type reason trailing stop': 'Not offered: the exchange does not take trailing stops on any market.',
+  'Type reason region': 'Not available in your region.',
   'Type reason opening window': 'This market takes limit orders only until its opening window ends.',
   'Type reason zone': 'This market is in the higher-risk zone, which takes limit orders only.',
   'Type reason limit only': 'This market is taking limit orders only right now.',

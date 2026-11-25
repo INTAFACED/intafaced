@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, DataTable, StatusTag } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { StatusChip } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { displayAmount } from '../../../shared/money';
 import { payCopy, PayCopy } from '../copy';
-import { PayFailure, PaySection, PayState, PayTime } from '../components';
-import { Field } from '../ui-kit';
+import { Field, PayFailure, PaySection, PayState, PayTime } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { OrderExport, OrderPage, OrderTab } from '../schemas';
 import { downloadText } from '../portal/csv';
@@ -38,7 +38,7 @@ export function OrderHistory({ pay, userId }: { pay: PersonalPayApi; userId: str
         title={payCopy.t('yourOrders')}
         description={payCopy.t('terminalStatusAndLedgerSettlementTimeStay')}
         action={
-          <Button variant="secondary" onClick={first.reload}>
+          <Button tone="secondary" onClick={first.reload}>
             <PayCopy k="refreshOrders" />
           </Button>
         }
@@ -112,7 +112,7 @@ function OrderPages({
       </p>
       {failure ? <PayFailure result={failure} retry={older} /> : null}
       {cursor ? (
-        <Button variant="secondary" onClick={older} disabled={loading}>
+        <Button tone="secondary" onClick={older} disabled={loading}>
           {loading ? t('loadingOlder') : t('loadOlder')}
         </Button>
       ) : rows.length > 0 ? (
@@ -136,46 +136,59 @@ function PageUnread({
   return null;
 }
 
-const TONE = { in_progress: 'working', in_dispute: 'pending', completed: 'filled', cancelled: 'failed' } as const satisfies Record<
+const TONE = { in_progress: 'pending', in_dispute: 'pending', completed: 'done', cancelled: 'failed' } as const satisfies Record<
   OrderTab,
-  string
+  'pending' | 'done' | 'failed'
 >;
 
 function OrderRows({ userId, rows, unread }: { userId: string | null; rows: Row[]; unread: Record<string, UnreadCount> }) {
   const { t } = orderHistoryCopy.useCopy();
+  const headers = [payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), t('statusColumn'), ''];
   return (
-    <DataTable
-      headers={[payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), t('statusColumn'), '']}
-      label={payCopy.t('yourP2pOrders')}
-    >
-      {rows.map((trade) => (
-        <tr key={trade.id} data-order={trade.id}>
-          <td>
-            {trade.id.slice(0, 8)}
-            <small className="lt-hint">
-              <PayTime value={trade.createdAt} />
-            </small>
-          </td>
-          <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
-          <td className="lt-num">
-            {displayAmount(trade.amount)} {trade.asset}
-          </td>
-          <td className="lt-num">
-            {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
-          </td>
-          <td>
-            <StatusTag status={TONE[trade.tab]} label={t(trade.displayStatus)} />
-            <small className="lt-hint">{trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}</small>
-          </td>
-          <td>
-            <a className="lt-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
-              <PayCopy k="open2" />
-            </a>{' '}
-            <UnreadBadge count={unread[trade.id]} />
-          </td>
-        </tr>
-      ))}
-    </DataTable>
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={payCopy.t('yourP2pOrders')}>
+      <table className="lt-table">
+        <thead>
+          <tr>
+            {headers.map((header, index) => (
+              <th key={index} scope="col">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((trade) => (
+            <tr key={trade.id} data-order={trade.id}>
+              <td>
+                {trade.id.slice(0, 8)}
+                <small className="lt-hint">
+                  <PayTime value={trade.createdAt} />
+                </small>
+              </td>
+              <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
+              <td className="lt-num">
+                {displayAmount(trade.amount)} {trade.asset}
+              </td>
+              <td className="lt-num">
+                {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
+              </td>
+              <td>
+                <StatusChip status={TONE[trade.tab]} label={t(trade.displayStatus)} />
+                <small className="lt-hint">
+                  {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
+                </small>
+              </td>
+              <td>
+                <a className="lt-link" href={`/uc/order?tradeId=${encodeURIComponent(trade.id)}`}>
+                  <PayCopy k="open2" />
+                </a>{' '}
+                <UnreadBadge count={unread[trade.id]} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

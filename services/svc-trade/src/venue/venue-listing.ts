@@ -1,5 +1,6 @@
 import { compare, formatAmount, mul, type Amount } from '@intafaced/ledger-client/money';
 import type { EventBus } from '@intafaced/events';
+import type { UpcomingMaintenance } from '@intafaced/contracts/market-maintenance';
 import { isTestVenue, type PlaceUserOrderIntent, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
 import type { VenueLimitVersion, VenueListingStore, VenueListingVersion, VenueRoutingState } from './venue-listing-store.js';
 
@@ -49,7 +50,10 @@ export interface ShownListing {
   readonly maxOrderNotional: Amount | null;
 }
 
-export type ListedVenueMarket = UserVenueMarket & { readonly listing: ShownListing };
+export type ListedVenueMarket = UserVenueMarket & {
+  readonly listing: ShownListing;
+  readonly upcomingMaintenance?: UpcomingMaintenance;
+};
 
 export interface VenueRoutingGate {
   /** The venue markets we show, each with our listing; a market with no approved listing is not in the map. */

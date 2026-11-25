@@ -632,7 +632,7 @@ const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
   'XBIL-PERP',
   'XCRS-PERP',
 ]);
-const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
+const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'limit_only', 'halted', 'cancel_only', 'delisted']);
 
 /**
  * The ladder `seed` rests on each market, five levels a side, around the market's own price: BTC around 60000, 10 apart,
@@ -1347,7 +1347,8 @@ async function route(
     }
     case '/test/session': {
       const state = body.state;
-      if (state !== 'open' && state !== 'off_hours') throw new VenueWireError("state is required ('open' or 'off_hours')");
+      if (state !== 'open' && state !== 'off_hours' && state !== 'closed')
+        throw new VenueWireError("state is required ('open', 'off_hours' or 'closed')");
       const symbol = str(body, 'symbol');
       if (body.published !== undefined && typeof body.published !== 'boolean')
         throw new VenueWireError('published is true or false when given');
@@ -1375,7 +1376,7 @@ async function route(
     case '/test/market-status': {
       const status = body.status;
       if (status !== null && (typeof status !== 'string' || !MARKET_STATUSES.has(status)))
-        throw new VenueWireError('status is trading, halted, cancel_only, delisted or null');
+        throw new VenueWireError('status is trading, limit_only, halted, cancel_only, delisted or null');
       sim.setMarketStatus(str(body, 'symbol'), status as UserVenueMarketStatus | null);
       return { ok: true, label: 'TEST' };
     }
@@ -1494,6 +1495,42 @@ async function route(
         if (typeof v !== 'bigint' || v <= 0n) throw new VenueWireError(`${k} is a decimal string above zero`);
         return v;
       };
+      const openingWindowEndsAt =
+        body.openingWindowEndsAt === undefined || body.openingWindowEndsAt === null
+          ? null
+          : body.openingWindowEndsAt instanceof Date
+            ? body.openingWindowEndsAt
+            : (() => {
+                throw new VenueWireError('openingWindowEndsAt is an ISO time or null');
+              })();
+      const zone: 'higher_risk' | null =
+        body.zone === undefined || body.zone === null
+          ? null
+          : body.zone === 'higher_risk'
+            ? 'higher_risk'
+            : (() => {
+                throw new VenueWireError("zone is 'higher_risk' or null");
+              })();
+      const zoneOrderCap = 'zoneOrderCap' in body ? cap('zoneOrderCap') : null;
+      const rawSession =
+        typeof body.session === 'object' && body.session !== null && !Array.isArray(body.session)
+          ? Object.fromEntries(Object.entries(body.session))
+          : undefined;
+      const session = rawSession
+        ? {
+            homeMarket:
+              typeof rawSession.homeMarket === 'string' && rawSession.homeMarket.trim() ? rawSession.homeMarket.trim() : 'TEST Session',
+            reopensAfterMs:
+              typeof rawSession.reopensAfterMs === 'number' && Number.isFinite(rawSession.reopensAfterMs) && rawSession.reopensAfterMs > 0
+                ? rawSession.reopensAfterMs
+                : 3_600_000,
+            closedAtStart: rawSession.closed === true,
+            closedRule:
+              typeof rawSession.closedRule === 'string' && rawSession.closedRule.trim()
+                ? rawSession.closedRule.trim()
+                : 'This market is closed. Orders are not queued while it is closed.',
+          }
+        : undefined;
       sim.addMarket({
         symbol,
         kind: 'spot',
@@ -1516,6 +1553,9 @@ async function route(
         minOrderNotional: 'minOrderNotional' in body ? cap('minOrderNotional') : TEST_SPOT_RULES.minOrderNotional,
         priceBandBps: 'priceBandBps' in body ? cap('priceBandBps') : TEST_SPOT_RULES.priceBandBps,
         maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : TEST_SPOT_RULES.maxOpenOrders,
+        ...(openingWindowEndsAt ? { openingWindowEndsAt } : {}),
+        ...(zone ? { zone, zoneOrderCap } : {}),
+        ...(session ? { session } : {}),
       });
       return { ok: true, symbol, label: 'TEST' };
     }

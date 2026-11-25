@@ -715,8 +715,18 @@ export type VenueRefusalCode =
   | 'agent_cap_exceeded'
   /** The venue's market is halted: it takes no new order. */
   | 'market_halted'
+  /** The venue's market takes limit orders only (J-cex-spot-14 #3). */
+  | 'market_limit_only'
   /** The venue's market takes cancels only. */
   | 'market_cancel_only'
+  /** The venue's market session is closed; orders are not queued while it is closed (J-cex-spot-14 #6). */
+  | 'market_closed'
+  /** The venue's market is inside its opening window and takes limit orders only (J-cex-spot-14 #7). */
+  | 'opening_window'
+  /** The venue's market is in the higher-risk zone and takes limit orders only (J-cex-spot-14 #7). */
+  | 'higher_risk_zone'
+  /** An order on a higher-risk zone market exceeds the zone's per-order cap (J-cex-spot-14 #7). */
+  | 'zone_cap_exceeded'
   /** The venue delisted the market. */
   | 'market_delisted'
   /** The order is larger than the venue's own largest order size or notional for the market. */
@@ -1450,7 +1460,7 @@ export interface UserVenueFeed {
  * the venue's, `known: false` (or `null`) where it publishes none; never ours.
  */
 export interface UserVenueSession {
-  readonly state: 'open' | 'off_hours';
+  readonly state: 'open' | 'off_hours' | 'closed';
   /** The home market's name, as the venue publishes it. */
   readonly homeMarket: string;
   /** What the venue does with the market while its home market is closed, in its words. */
@@ -1734,6 +1744,14 @@ export interface UserVenueMarket {
    * list. Nothing else the account holds counts toward buying power. Optional on the wire for venues that report none.
    */
   readonly collateral?: MaybeKnown<readonly UserVenueCollateral[]>;
+  /**
+   * When a new listing's opening window ends (limit orders only until then, J-cex-spot-14 #7), or `null` when none is
+   * in force. Optional on the wire for venues that report none.
+   */
+  readonly openingWindowEndsAt?: Date | null;
+  /** Higher-risk zone flag (`'higher_risk'`) and its per-order quote cap (J-cex-spot-14 #7). Optional on the wire. */
+  readonly zone?: 'higher_risk' | null;
+  readonly zoneOrderCap?: Amount | null;
 }
 
 /** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
@@ -1759,12 +1777,12 @@ export interface VenueBestPrices {
 }
 
 /**
- * A venue market's own state: `trading` takes orders; `halted` takes no new order; `cancel_only` takes cancels only;
- * `delisted` is gone from the venue. The venue refuses an order its state does not admit (`market_halted`,
- * `market_cancel_only`, `market_delisted`).
+ * A venue market's own state: `trading` takes orders; `limit_only` takes limit orders only; `halted` takes no new order;
+ * `cancel_only` takes cancels only; `delisted` is gone from the venue. The venue refuses an order its state does not
+ * admit (`market_limit_only`, `market_halted`, `market_cancel_only`, `market_delisted`).
  */
-export type UserVenueMarketStatus = 'trading' | 'halted' | 'cancel_only' | 'delisted';
-export const USER_VENUE_MARKET_STATUSES: readonly UserVenueMarketStatus[] = ['trading', 'halted', 'cancel_only', 'delisted'];
+export type UserVenueMarketStatus = 'trading' | 'limit_only' | 'halted' | 'cancel_only' | 'delisted';
+export const USER_VENUE_MARKET_STATUSES: readonly UserVenueMarketStatus[] = ['trading', 'limit_only', 'halted', 'cancel_only', 'delisted'];
 
 /** One price level of a venue's book: the size resting there, in the base asset. */
 export interface VenueBookLevel {
@@ -1781,6 +1799,8 @@ export interface VenueBook {
   readonly symbol: string;
   readonly bids: readonly VenueBookLevel[];
   readonly asks: readonly VenueBookLevel[];
+  /** Monotonic book sequence incremented on every resting-book change, for delta/resume streams (J-cex-spot-14 #8). */
+  readonly sequence?: number;
 }
 
 /**
@@ -2020,6 +2040,20 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * (`move_position`, J-derivatives-05 #7). A venue that declares nothing moves none: the room refuses the move in words.
    */
   readonly positionMoves?: boolean;
+  /**
+   * Who signs this venue's trading actions (orders, cancels, changes, leverage): `owner_wallet` when the owner's wallet
+   * signs them on the network it is on; `session_key` when their EIP-712 domain names a chain no wallet signs on
+   * (Hyperliquid's L1 actions name chain 1337), so they are signed by an agent key the owner approved once (the trading
+   * session, svc-trade src/venue/session-key.ts). A venue that declares none is read as `owner_wallet` (`tradesSignedByOf`).
+   */
+  readonly tradesSignedBy?: VenueTradeSigner;
+}
+
+export type VenueTradeSigner = 'owner_wallet' | 'session_key';
+
+/** Who signs `venue`'s trading actions: what it declares, or the owner's wallet when it declares none. */
+export function tradesSignedByOf(venue: Pick<UserVenueDescriptor, 'tradesSignedBy'>): VenueTradeSigner {
+  return venue.tradesSignedBy === 'session_key' ? 'session_key' : 'owner_wallet';
 }
 
 /** How a venue holds positions on one contract: one net position, or a long and a short side by side. */

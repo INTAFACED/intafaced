@@ -229,7 +229,15 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
   it('prepare → sign (viem, fixed key) → submit → read, with our builder fee from the owner value', async () => {
     const { d } = door();
     const status = await d.status();
-    expect(status).toMatchObject({ enabled: true, available: true, test: true, label: 'TEST', chainId: 84532 });
+    // The simulator's orders name the wallet's own chain, so the owner's wallet signs them (no trading session needed).
+    expect(status).toMatchObject({
+      enabled: true,
+      available: true,
+      test: true,
+      label: 'TEST',
+      chainId: 84532,
+      tradesSignedBy: 'owner_wallet',
+    });
 
     // The builder fee approval first (owner-signed), keyed by the caller's own business key.
     const approve = await d.prepare(principal, {
@@ -467,6 +475,30 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     });
     await expect(unlisted(43)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
     expect(markets).toHaveBeenCalledTimes(2);
+  });
+
+  it('reading markets() never resets the 5s miss-reread window for a market added right afterwards', async () => {
+    let t = Date.UTC(2026, 10, 9, 12);
+    const { d } = door({ builder: null, now: () => new Date(t) });
+    const venue = await d.venue();
+    const listed = venue.markets.bind(venue);
+    const markets = vi.spyOn(venue, 'markets');
+    // Prime marketList at t, then advance past the 5s miss window and call d.markets() (e.g. svc-ws polling /tickers).
+    await d.preview(principal, owner, order(44, { price: a('50000') }));
+    expect(markets).toHaveBeenCalledTimes(1);
+    t += 10_000;
+    await d.markets();
+    expect(markets).toHaveBeenCalledTimes(2);
+    // 1s after d.markets(), a brand-new market appears on the venue; preview must still re-read and find it.
+    t += 1_000;
+    markets.mockImplementationOnce(async (account) => {
+      const list = await listed(account);
+      return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'FRESH-USDC' }] };
+    });
+    await expect(d.preview(principal, owner, order(45, { symbol: 'FRESH-USDC', side: 'sell' }))).rejects.toMatchObject({
+      refusal: { code: 'builder_fee_not_published' },
+    });
+    expect(markets).toHaveBeenCalledTimes(3);
   });
 
   it('blank builder fee: every order that would carry one refuses builder_fee_not_published, nothing stored; a spot buy carries none and goes ahead', async () => {

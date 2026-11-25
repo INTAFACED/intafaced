@@ -194,14 +194,6 @@ export function NotConfigured({ children }: { children?: ReactNode }) {
   const { t } = portalCopy.useCopy();
   return <span className="pp-notconf">{children ?? t('notConfigured')}</span>;
 }
-export function TestTag() {
-  const { t } = portalCopy.useCopy();
-  return (
-    <span className="pp-test" title={t('testValueTip')}>
-      {t('testValue')}
-    </span>
-  );
-}
 
 /** Operation pauses (B11): which operation is paused and since when. An unreadable pause store counts as paused. */
 export function HaltBanner({

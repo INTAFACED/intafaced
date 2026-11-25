@@ -15,8 +15,9 @@ const OK = { status: 'ok', response: { type: 'default' } };
 const UNIFIED = { status: 'err', response: 'Action disabled when unified account is active' };
 
 /** `exchangeAnswer` is the venue's answer to every transfer, or one per action type (unlisted types answer ok). */
-function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = OK) {
+function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = OK, mode: string = 'unifiedAccount') {
   const sent: Record<string, unknown>[] = [];
+  const perps = new Map<string, number>();
   const fetch: FetchLike = async (url, init) => {
     const body = JSON.parse(init.body) as Record<string, unknown>;
     const ok = (v: unknown) => ({ ok: true, status: 200, text: async () => JSON.stringify(v) });
@@ -26,11 +27,17 @@ function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = OK) {
       const byType = exchangeAnswer as Record<string, unknown>;
       const answer = 'status' in byType ? exchangeAnswer : (byType[action.type!] ?? OK);
       if ((answer as { status?: string }).status === 'ok') {
-        spot.set(action.destination!, (spot.get(action.destination!) ?? 0) + Number(action.amount));
+        // A unified destination has one balance (read here as spot). In the default mode, '' names the perps balance
+        // (sendAsset) and usdSend moves perps USDC; the rest land in spot.
+        const toPerps = mode === 'default' && (action.type === 'usdSend' || (action.type === 'sendAsset' && action.destinationDex === ''));
+        const book = toPerps ? perps : spot;
+        book.set(action.destination!, (book.get(action.destination!) ?? 0) + Number(action.amount));
         spot.set(FUNDER_ADDR, (spot.get(FUNDER_ADDR) ?? 0) - Number(action.amount));
       }
       return ok(answer);
     }
+    if (body.type === 'userAbstraction') return ok(mode);
+    if (body.type === 'clearinghouseState') return ok({ withdrawable: String(perps.get(String(body.user)) ?? 0) });
     if (body.type === 'spotMeta') return ok({ tokens: [{ name: 'USDC', tokenId: TOKEN_ID, index: 0 }] });
     if (body.type === 'spotClearinghouseState') {
       const have = spot.get(String(body.user));
@@ -38,7 +45,7 @@ function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = OK) {
     }
     throw new Error(`unexpected ${String(body.type)}`);
   };
-  return { fetch, sent };
+  return { fetch, sent, perps };
 }
 
 async function run(env: Record<string, string | undefined>, net = fakeNet(new Map([[FUNDER_ADDR, 999]]))) {
@@ -155,5 +162,28 @@ describe('testnet:send', () => {
     const r = await run({}, fakeNet(new Map([[FUNDER_ADDR, 999]]), { spotSend: UNIFIED, usdSend: UNIFIED, sendAsset: UNIFIED }));
     expect(r.code).toBe(1);
     expect(r.sent).toHaveLength(3);
+  });
+  it("sends to a default-mode destination's perps balance, never to spot, and sees it land there", async () => {
+    const net = fakeNet(new Map([[FUNDER_ADDR, 999]]), { usdSend: UNIFIED }, 'default');
+    const r = await run({ HL_SEND_AMOUNT: '110' }, net);
+    expect(r.code).toBe(0);
+    // spotSend is never tried: it would land in spot, which margins nothing in this mode.
+    expect(r.sent.map((b) => (b.action as { type: string }).type)).toEqual(['usdSend', 'sendAsset']);
+    expect((r.sent[1] as { action: Record<string, unknown> }).action).toMatchObject({
+      sourceDex: 'spot',
+      destinationDex: '',
+      destination: TO,
+      amount: '110',
+    });
+    expect(net.perps.get(TO)).toBe(110);
+    expect(r.text).toContain('after: funder 889 spot USDC free, destination 110 perps');
+  });
+
+  it('sends to a unified destination in spot, where its one balance margins orders', async () => {
+    const net = fakeNet(new Map([[FUNDER_ADDR, 999]]), { spotSend: UNIFIED, usdSend: UNIFIED });
+    const r = await run({ HL_SEND_AMOUNT: '100' }, net);
+    expect(r.code).toBe(0);
+    expect((r.sent.at(-1) as { action: Record<string, unknown> }).action).toMatchObject({ type: 'sendAsset', destinationDex: 'spot' });
+    expect(r.text).toContain('destination 100 spot');
   });
 });

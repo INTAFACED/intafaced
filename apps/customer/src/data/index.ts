@@ -12,6 +12,7 @@ export {
   useVenueMarketStates,
   venueDoorOff,
   venueListingOf,
+  venueListingStatuses,
   venueMarketRow,
   venueModeOf,
   VENUE_DOOR_OFF,

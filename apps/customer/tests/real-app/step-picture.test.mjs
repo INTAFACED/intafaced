@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fromTop } from './step-picture.mjs';
-import { BROWSER_HOOK_TIMEOUT, launchTestBrowser } from './test-browser.mjs';
+import { BROWSER_HOOK_TIMEOUT, BROWSER_TEST_TIMEOUT, launchTestBrowser } from './test-browser.mjs';
 
 // The step picture's readying (journey.mjs stepPicture) on planted pages in a real Chromium: a page left scrolled down
 // gets a whole-page picture with its bar at the top (J-agents-21 #11 read BROKEN for the bar drawn over the content), a
@@ -53,7 +53,7 @@ async function pixel(page, x, y) {
   }
 }
 
-describe('step picture from the top', () => {
+describe('step picture from the top', { timeout: BROWSER_TEST_TIMEOUT }, () => {
   it('a page left scrolled down gets its bar at the top of the picture, not over the content', async (t) => {
     if (!browser) return t.skip(`no Chromium to drive: ${why}`);
     const { page, close } = await pageOf();

@@ -174,4 +174,32 @@ export const venueCopy = defineCopy('trade.venue', {
   'Sub-account balances': 'Balances in {name}',
   'Enter name': 'Enter a name.',
   'Choose sub-account': 'Choose a sub-account.',
+
+  // The trading session, on a venue whose orders a session key signs (session-signer.ts)
+  'Session title': 'Trading session',
+  'Session why':
+    'On {venue}, your wallet cannot sign orders on its network. A trading session key made on this device signs your orders, cancels and closes, with no wallet prompt. Your wallet signs one approval for it; the key can trade and can never withdraw or approve.',
+  'Session start': 'Start trading session',
+  'Session starting': 'Approve in your wallet…',
+  'Session end': 'End trading session',
+  'Session ending': 'Ending…',
+  'Session line none': 'No trading session is on, so no order can be sent.',
+  'Session line live': 'Trading session on until {time}. Orders are signed on this device with no wallet prompt.',
+  'Session line live open': 'Trading session on. Orders are signed on this device with no wallet prompt.',
+  'Session line pending':
+    'Your approval for this session has no answer from the venue. Start trading session sends the same approval again.',
+  'Session line elsewhere':
+    'A trading session is on for this wallet, but its key is not in this tab (it was started in another tab or before a sign-in). Start one here to trade from this tab.',
+  'Session line expired': 'Your trading session ended at its expiry. Start a new one to trade.',
+  'Session line ended': 'Your trading session was ended. Start a new one to trade.',
+  'Session line replaced': 'A newer trading session, started in another tab or device, replaced this one. Start a new one here to trade.',
+  'Session line refused': 'The venue refused the trading session: {detail}',
+  'Session refused no detail': 'The venue refused the trading session.',
+  'Session rejected': 'You declined the approval in your wallet. No session was started.',
+  'Session wallet failed': 'Your wallet could not sign the approval: {detail}',
+  'Session unknown': 'The approval was sent and the venue gave no answer. It is read back from the venue.',
+  'Session start refused': 'The trading session could not be started: {detail}',
+  'Session start failed': 'The trading session could not be started. Nothing was signed or sent.',
+  'Session needed': 'Start a trading session first: your wallet cannot sign orders on this venue’s network. Nothing was signed or sent.',
+  'Session key gone': 'Your trading session ended before this was signed. Start a new one, then try again. Nothing was signed or sent.',
 });

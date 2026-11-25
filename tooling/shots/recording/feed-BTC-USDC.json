@@ -1,0 +1,335 @@
+{
+  "label": "TEST",
+  "at": "2026-11-25T02:41:11.845Z",
+  "source": "the venue's public feed for BTC-USDC (TEST venue: testnet)",
+  "calls": {
+    "GET /api/v1/venue/book?depth=10&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": {
+          "symbol": "BTC-USDC",
+          "bids": [],
+          "asks": [
+            { "price": "6100", "amount": "19" },
+            { "price": "6150", "amount": "2" },
+            { "price": "6200", "amount": "2" }
+          ]
+        },
+        "asOf": "2026-11-25T02:41:09.973Z",
+        "reportedAt": "2026-11-25T02:41:09.973Z",
+        "test": true
+      }
+    },
+    "GET /api/v1/venue/public-book?depth=10&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": {
+          "symbol": "BTC-USDC",
+          "bids": [],
+          "asks": [
+            { "price": "6100", "amount": "19" },
+            { "price": "6150", "amount": "2" },
+            { "price": "6200", "amount": "2" }
+          ]
+        },
+        "asOf": "2026-11-25T02:41:09.973Z",
+        "reportedAt": "2026-11-25T02:41:09.973Z",
+        "test": true
+      }
+    },
+    "GET /api/v1/venue/book?depth=20&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": {
+          "symbol": "BTC-USDC",
+          "bids": [],
+          "asks": [
+            { "price": "6100", "amount": "19" },
+            { "price": "6150", "amount": "2" },
+            { "price": "6200", "amount": "2" }
+          ]
+        },
+        "asOf": "2026-11-25T02:41:09.973Z",
+        "reportedAt": "2026-11-25T02:41:09.973Z",
+        "test": true
+      }
+    },
+    "GET /api/v1/venue/public-book?depth=20&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": {
+          "symbol": "BTC-USDC",
+          "bids": [],
+          "asks": [
+            { "price": "6100", "amount": "19" },
+            { "price": "6150", "amount": "2" },
+            { "price": "6200", "amount": "2" }
+          ]
+        },
+        "asOf": "2026-11-25T02:41:10.487Z",
+        "reportedAt": "2026-11-25T02:41:10.487Z",
+        "test": true
+      }
+    },
+    "GET /api/v1/venue/best-prices?symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": { "symbol": "BTC-USDC", "bid": null, "ask": "6100" },
+        "asOf": "2026-11-25T02:41:10.487Z",
+        "reportedAt": "2026-11-25T02:41:10.487Z",
+        "test": true,
+        "slippageCapBps": { "known": false },
+        "spreadLimitBps": { "known": false }
+      }
+    },
+    "GET /api/v1/venue/trades?limit=30&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": [
+          {
+            "tradeId": "464102201886039",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-10T09:37:26.098Z"
+          },
+          {
+            "tradeId": "878576395551846",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-06T17:24:56.897Z"
+          },
+          {
+            "tradeId": "644079360205127",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-02-16T21:31:15.331Z"
+          },
+          {
+            "tradeId": "777224046251500",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-02-16T21:30:55.295Z"
+          },
+          {
+            "tradeId": "506660416058090",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-09-16T01:48:03.230Z"
+          },
+          {
+            "tradeId": "671942516544828",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-05-22T00:06:39.467Z"
+          },
+          {
+            "tradeId": "885922368290676",
+            "symbol": "BTC-USDC",
+            "price": "6200",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-05-20T11:45:35.447Z"
+          },
+          {
+            "tradeId": "1088590544317842",
+            "symbol": "BTC-USDC",
+            "price": "6009.7",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-05-20T11:45:35.447Z"
+          },
+          {
+            "tradeId": "1072626442390703",
+            "symbol": "BTC-USDC",
+            "price": "5819.4",
+            "amount": "1",
+            "takerSide": "sell",
+            "tradedAt": "2025-05-13T14:53:12.786Z"
+          },
+          {
+            "tradeId": "981820781470061",
+            "symbol": "BTC-USDC",
+            "price": "5820.9",
+            "amount": "1",
+            "takerSide": "sell",
+            "tradedAt": "2025-05-13T14:53:12.786Z"
+          }
+        ],
+        "asOf": "2026-11-10T09:37:26.098Z",
+        "reportedAt": "2026-11-10T09:37:26.098Z",
+        "test": true
+      }
+    },
+    "GET /api/v1/venue/trades?limit=50&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": [
+          {
+            "tradeId": "464102201886039",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-10T09:37:26.098Z"
+          },
+          {
+            "tradeId": "878576395551846",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-11-06T17:24:56.897Z"
+          },
+          {
+            "tradeId": "644079360205127",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-02-16T21:31:15.331Z"
+          },
+          {
+            "tradeId": "777224046251500",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2026-02-16T21:30:55.295Z"
+          },
+          {
+            "tradeId": "506660416058090",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-09-16T01:48:03.230Z"
+          },
+          {
+            "tradeId": "671942516544828",
+            "symbol": "BTC-USDC",
+            "price": "6100",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-05-22T00:06:39.467Z"
+          },
+          {
+            "tradeId": "885922368290676",
+            "symbol": "BTC-USDC",
+            "price": "6200",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-05-20T11:45:35.447Z"
+          },
+          {
+            "tradeId": "1088590544317842",
+            "symbol": "BTC-USDC",
+            "price": "6009.7",
+            "amount": "1",
+            "takerSide": "buy",
+            "tradedAt": "2025-05-20T11:45:35.447Z"
+          },
+          {
+            "tradeId": "1072626442390703",
+            "symbol": "BTC-USDC",
+            "price": "5819.4",
+            "amount": "1",
+            "takerSide": "sell",
+            "tradedAt": "2025-05-13T14:53:12.786Z"
+          },
+          {
+            "tradeId": "981820781470061",
+            "symbol": "BTC-USDC",
+            "price": "5820.9",
+            "amount": "1",
+            "takerSide": "sell",
+            "tradedAt": "2025-05-13T14:53:12.786Z"
+          }
+        ],
+        "asOf": "2026-11-10T09:37:26.098Z",
+        "reportedAt": "2026-11-10T09:37:26.098Z",
+        "test": true
+      }
+    },
+    "GET /api/v1/venue/candles?interval=15m&limit=240&symbol=BTC-USDC": {
+      "status": 200,
+      "json": { "venueId": "hyperliquid-testnet", "value": [], "asOf": "2026-11-25T02:41:11.324Z", "reportedAt": null, "test": true }
+    },
+    "GET /api/v1/venue/candles?interval=1h&limit=240&symbol=BTC-USDC": {
+      "status": 200,
+      "json": { "venueId": "hyperliquid-testnet", "value": [], "asOf": "2026-11-25T02:41:11.441Z", "reportedAt": null, "test": true }
+    },
+    "GET /api/v1/venue/candles?interval=4h&limit=240&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": [
+          {
+            "openAt": "2026-11-06T16:00:00.000Z",
+            "openPrice": "6100",
+            "highPrice": "6100",
+            "lowPrice": "6100",
+            "closePrice": "6100",
+            "baseVolume": "1"
+          },
+          {
+            "openAt": "2026-11-10T08:00:00.000Z",
+            "openPrice": "6100",
+            "highPrice": "6100",
+            "lowPrice": "6100",
+            "closePrice": "6100",
+            "baseVolume": "1"
+          }
+        ],
+        "asOf": "2026-11-25T02:41:11.642Z",
+        "reportedAt": null,
+        "test": true
+      }
+    },
+    "GET /api/v1/venue/candles?interval=1d&limit=240&symbol=BTC-USDC": {
+      "status": 200,
+      "json": {
+        "venueId": "hyperliquid-testnet",
+        "value": [
+          {
+            "openAt": "2026-11-06T00:00:00.000Z",
+            "openPrice": "6100",
+            "highPrice": "6100",
+            "lowPrice": "6100",
+            "closePrice": "6100",
+            "baseVolume": "1"
+          },
+          {
+            "openAt": "2026-11-10T00:00:00.000Z",
+            "openPrice": "6100",
+            "highPrice": "6100",
+            "lowPrice": "6100",
+            "closePrice": "6100",
+            "baseVolume": "1"
+          }
+        ],
+        "asOf": "2026-11-25T02:41:11.845Z",
+        "reportedAt": null,
+        "test": true
+      }
+    }
+  }
+}
