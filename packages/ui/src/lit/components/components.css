@@ -2585,6 +2585,7 @@ a.lit-button {
 }
 .lt-tape-time {
   color: var(--lit-text-3);
+}
 
 /* Board parts (board-parts.tsx): a markets screen's board, a toolbar's end slot, footnote lines, and GridTable's
    phone one-line rows and hover-revealed cells. */
