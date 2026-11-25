@@ -2229,12 +2229,7 @@ export const needsJourneys = (pull, files) => namesSteps(pull?.title ?? '') || j
  * `files` are the change's paths; `headCi` the text of ci.yml at the head (null when it has none); `going` what
  * inputsGoing returns. Pure.
  */
-export function sealNow({ files, headCi, going, verdict = false, draft = false }) {
-  // GitHub merges no draft, so nothing a draft's own jobs pass can merge it; `gh pr ready` starts this workflow again
-  // (ready_for_review), and that run seals at once or waits as below. Before 25 Nov 2026 a draft that touched .github/
-  // sealed at once, red on the CI review, which skips drafts: 6 of the 82 heads red on the seal alone in the 48 h to
-  // 25 Nov 00:43 UTC (INTAFACED/project-state#4047).
-  if (draft) return { now: false, why: 'a draft, which GitHub never merges; `gh pr ready` starts the seal' };
+export function sealNow({ files, headCi, going, verdict = false }) {
   const gh = (files ?? []).filter((f) => f.startsWith('.github/'));
   if (gh.length)
     return {
@@ -2607,9 +2602,10 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
  * merge-seal.yml's first job: whether this attempt seals now or waits for its inputs (sealNow), written to
  * GITHUB_OUTPUT as `now=true|false`. Only a first attempt asks; any error fails this job, and the seal then runs at once.
  */
-export async function sealNowStep({ repo, token, get = (path) => api(path, token) }) {
+async function sealNowStep({ repo, token }) {
   const { HEAD_SHA, PR_NUMBER, GITHUB_OUTPUT } = process.env;
   if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(PR_NUMBER ?? '')) throw new Error('--seal-now needs HEAD_SHA and PR_NUMBER');
+  const get = (path) => api(path, token);
   const pull = await get(`/repos/${repo}/pulls/${PR_NUMBER}`);
   const files = await pullFiles(get, repo, Number(PR_NUMBER));
   let headCi = null;
@@ -2620,13 +2616,7 @@ export async function sealNowStep({ repo, token, get = (path) => api(path, token
     if (!/HTTP 404/.test(e.message)) throw e;
   }
   const going = await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull] });
-  const v = sealNow({
-    files,
-    headCi,
-    going,
-    verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false,
-    draft: pull?.draft === true,
-  });
+  const v = sealNow({ files, headCi, going, verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false });
   console.log(`${v.now ? 'seals now' : 'waits'}: ${v.why}`);
   if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `now=${v.now}\n`, { flag: 'a' });
 }
@@ -2645,6 +2635,12 @@ export function waitStep({ pull, sha, going }) {
   if (pull?.head?.sha !== sha) return { act: 'judge', msg: `#${pull.number}'s head moved to ${String(pull?.head?.sha).slice(0, 10)}` };
   // GitHub runs no CI on a pull request that conflicts with its base (inputsGoing `always`), so a seal that runs at once
   // judges it now, as before, rather than waiting out WAIT_POLLS for a run that never starts.
+  // A draft: the CI review skips drafts, so this seal (one that runs at once: a change under .github/) waits as a running
+  // check, which blocks a merge as the seal must, and judges once `gh pr ready` has started the review. Before 25 Nov
+  // 2026 it judged at once, red on the missing review: 6 of the 82 heads red on the seal alone in the 48 h to 25 Nov
+  // 00:43 UTC (INTAFACED/project-state#4047). It never stops holding a check: a pull request's own job named `CI merge
+  // seal` could stand alone in the gap.
+  if (pull?.draft === true) return { act: 'wait', msg: `#${pull.number} is a draft, which the CI review skips: \`gh pr ready\` starts it` };
   if (pull?.mergeable === false && going.some((g) => g.includes(NO_RUN)))
     return { act: 'judge', msg: `#${pull.number} conflicts with its base, so no CI runs on it` };
   if (going.length) return { act: 'wait', msg: `waiting for ${going.join(', ')}` };

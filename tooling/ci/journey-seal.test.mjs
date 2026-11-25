@@ -4,8 +4,7 @@
 // exemption fails closed. tooling-tests.mjs runs this file.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readReport, rootInputs } from './journey-verdict.mjs';
@@ -1970,7 +1969,7 @@ test('recheckTargets: only pull requests with auto-merge armed are re-sealed; ar
 
 test('merge-seal.yml: arming runs the seal afresh, in a group of its own, so one armed after its inputs finished is sealed', () => {
   const text = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
-  assert.match(text, /\n    types: \[opened, synchronize, reopened, edited, auto_merge_enabled, ready_for_review\]\n/);
+  assert.match(text, /\n    types: \[opened, synchronize, reopened, edited, auto_merge_enabled\]\n/);
   // Planted: in the pull request's group an arming could replace a waiting push's run and leave the new head with none.
   assert.match(
     text,
@@ -2079,7 +2078,7 @@ function sealJobSkipProblems(text) {
 
 test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (edited, base change only)', () => {
   const text = readFileSync(new URL('../../.github/workflows/merge-seal.yml', import.meta.url), 'utf8');
-  assert.match(text, /types: \[opened, synchronize, reopened, edited, auto_merge_enabled, ready_for_review\]/);
+  assert.match(text, /types: \[opened, synchronize, reopened, edited, auto_merge_enabled\]/);
   // Review 7552-R6: a skipped job counts as passing a required check, so a skipped seal job is never named `CI merge seal`.
   assert.deepEqual(sealJobSkipProblems(text), []);
   // Planted: a static name beside the `if:` would leave a skipped, passing `CI merge seal` on every waiting head.
@@ -2362,49 +2361,23 @@ test('project-state#4047: no CI run on the head is CI still to come, so the seal
   assert.equal(waitStep({ pull: { ...pull, mergeable: false }, sha: HEAD, going: ['Real-app journeys run 5 (in_progress)'] }).act, 'wait');
 });
 
-test('project-state#4047: a draft gets no seal verdict until it is ready; once ready, a .github/ change seals at once', async () => {
-  const { sealNow, CI_JOBS_NAME } = await import('./journey-seal.mjs');
+test('project-state#4047: a seal on a draft holds its check and waits for `gh pr ready`, never red on the skipped review', async () => {
+  const { sealNow, waitStep, CI_JOBS_NAME } = await import('./journey-seal.mjs');
   const headCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
-  // #9977 on 0055615f, 22 Nov 2026 (seal run 45064875860): a draft touching .github/workflows/ci.yml sealed at once and
-  // was red on the CI review, which skips drafts. GitHub merges no draft, so its own jobs can pass nothing.
+  // #10284 on 23 Nov 2026 (seal run 45130197219): a draft touching .github/ sealed at once at 07:19 UTC and was red on the
+  // CI review, which skips drafts; it was marked ready at 08:11.
   const files = ['.github/workflows/ci.yml'];
-  for (const going of [[], ['CI run 1 (in_progress)']])
-    for (const verdict of [false, true]) assert.equal(sealNow({ files, headCi, going, verdict, draft: true }).now, false);
-  // Planted: ready, the .github/ rule holds again, so a pull request's own `CI merge seal` can never stand in for it.
-  assert.equal(sealNow({ files, headCi, going: ['CI run 1 (in_progress)'], draft: false }).now, true);
-  // Marking it ready starts merge-seal.yml again.
-  const yml = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
-  assert.match(yml, /types: \[[^\]]*\bready_for_review\b[^\]]*\]/);
-  // The first job, through the API, as on #9977: the draft waits; the same pull request ready seals at once.
-  const { sealNowStep } = await import('./journey-seal.mjs');
-  const dir = mkdtempSync(join(tmpdir(), 'seal-now-'));
-  const answer = async (draft) => {
-    const get = async (path) => {
-      if (path === '/repos/o/r/pulls/9977') return { number: 9977, draft, title: 'ci(rust): a', head: { sha: HEAD } };
-      if (path.includes('/pulls/9977/files')) return [{ filename: '.github/workflows/ci.yml', status: 'modified' }];
-      if (path.includes('/contents/.github/workflows/ci.yml')) return { content: Buffer.from(headCi).toString('base64') };
-      if (path.includes('/workflows/ci-review.yml/runs'))
-        return { workflow_runs: [{ id: 2, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }] };
-      if (path.includes('/runs?head_sha=')) return { workflow_runs: [] };
-      if (path.includes('/jobs')) return { jobs: [{ name: 'CI review', status: 'completed', conclusion: 'skipped' }] };
-      throw new Error(`unread ${path}`);
-    };
-    const out = join(dir, `out-${draft}`);
-    writeFileSync(out, '');
-    const env = { ...process.env };
-    Object.assign(process.env, { HEAD_SHA: HEAD, PR_NUMBER: '9977', GITHUB_OUTPUT: out });
-    const log = console.log;
-    console.log = () => {};
-    try {
-      await sealNowStep({ repo: 'o/r', get });
-    } finally {
-      console.log = log;
-      process.env = env;
-    }
-    return readFileSync(out, 'utf8');
-  };
-  assert.equal(await answer(true), 'now=false\n');
-  assert.equal(await answer(false), 'now=true\n');
+  // Planted: a .github/ change still seals at once, draft or not, so a pull request's own `CI merge seal` never stands alone.
+  assert.equal(sealNow({ files, headCi, going: ['CI run 1 (in_progress)'] }).now, true);
+  const pull = { number: 10284, state: 'open', draft: true, head: { sha: HEAD }, mergeable: true };
+  const step = waitStep({ pull, sha: HEAD, going: [] });
+  assert.equal(step.act, 'wait', 'a running check: it blocks the merge and is not red');
+  assert.match(step.msg, /gh pr ready/);
+  // Ready: it judges once the review it then waits for has finished.
+  assert.equal(waitStep({ pull: { ...pull, draft: false }, sha: HEAD, going: ['the CI review run 2 (in_progress)'] }).act, 'wait');
+  assert.equal(waitStep({ pull: { ...pull, draft: false }, sha: HEAD, going: [] }).act, 'judge');
+  // A draft closed, or pushed past, stops the wait as before.
+  assert.equal(waitStep({ pull: { ...pull, state: 'closed' }, sha: HEAD, going: [] }).act, 'judge');
 });
 
 test('#1574 recheckStep: a waiting first attempt is started whole; a verdict, once given, is re-run in place', async () => {

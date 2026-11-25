@@ -28,9 +28,7 @@ on:
     # title or body (CI review on e1ba6699). Fails closed: a missing seal blocks, and a running one does too.
     # `auto_merge_enabled`: an input's `Start the seal` job touches only armed pull requests (journey-seal.mjs armed; the
     # CI review's, every ready one: sealedOnReview), so one armed after its inputs finished is sealed here, at once.
-    # `ready_for_review`: a draft's seal always waits (journey-seal.mjs sealNow), since GitHub merges no draft; marking it
-    # ready asks again here, so a change under .github/ holds its `CI merge seal` from that moment.
-    types: [opened, synchronize, reopened, edited, auto_merge_enabled, ready_for_review]
+    types: [opened, synchronize, reopened, edited, auto_merge_enabled]
 
 permissions: {}
 
@@ -38,7 +36,7 @@ permissions: {}
 # seal piled up 2 or 3 queued runs per pull request while its group was per run). In that group:
 #   - a push (`synchronize`) or an open (`opened`) cancels the run there, which is an older head's: every `synchronize`
 #     is a new head and `opened` the first run. That seal's verdict is on a head nobody can merge, so nobody reads it;
-#   - an edit, a reopen or a draft marked ready never cancels (cancel-in-progress false): it runs on the head being merged, and a running seal
+#   - an edit or a reopen never cancels (cancel-in-progress false): it runs on the head being merged, and a running seal
 #     cancelled there is a red check on the head being merged (pr-checks.yml dropped `edited` for this). GitHub keeps one waiting run per group, so a newer event
 #     replaces a waiting one; a replaced run never started a job, so it leaves no check run, red or green, on the head,
 #     and the run that replaced it seals the same head with the newer title and body.
