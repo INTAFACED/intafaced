@@ -169,6 +169,7 @@
 /* Signed out on a phone with text too large for the bar (200%), Sign up steps aside and Log in stays: the brand keeps its
    mark and wordmark at every width (Nino, 25 Nov), and the bar never runs past the screen (issue 10984). The bar needs
    the lockup, drawn 151px whatever the text size, and Log in and Sign up, which grow with it. */
+/* prettier-ignore */
 @container tb (width < calc(151px + 12.8571rem)) { /* look-drift-allow: the logo's drawn width, which text size never changes */
   :root .tb .tb-signup {
     display: none;
