@@ -214,10 +214,10 @@
   text-align: center;
 }
 /* A word longer than its share (a long translation) breaks inside the segment rather than spilling over the next. The
-   label may shrink below its longest word, while break-word keeps that word as the segment's least width, so a label
-   that fits today is never cut apart. */
+   cap is the segment's own width, which a percentage can't lower when the track is sized: the track still asks for the
+   longest word, so a label that fits today is never cut apart. */
 .lit-segmented-label {
-  min-inline-size: 0;
+  max-inline-size: 100%;
   overflow-wrap: break-word;
 }
 /* The chosen segment is lifted in the raised material, never lime: lime is only the screen's one main action. */
