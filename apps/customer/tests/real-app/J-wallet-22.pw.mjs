@@ -458,7 +458,10 @@ async function testVenue(path, body) {
 const venueAccount = async (owner) => ({ venueId: (await testVenue('/venue')).venue.id, owner: owner.toLowerCase(), subAccount: null });
 /** The venue's own list of agents on the person's main account. */
 const venueAgents = async (owner) => (await testVenue('/agents', { account: await venueAccount(owner) })).value;
-const unnamedAgents = async (owner) => (await venueAgents(owner)).filter((a) => a.name === '').map((a) => a.address);
+/** The name svc-trade approves every session key under (session-key.ts `SESSION_KEY_NAME`): the venue takes an expiry
+ * only on a named agent, and a new key under the same name replaces the last. */
+const SESSION_KEY_NAME = 'trading-session';
+const sessionAgents = async (owner) => (await venueAgents(owner)).filter((a) => a.name === SESSION_KEY_NAME).map((a) => a.address);
 
 const sessionPanel = (page) => page.locator('[data-panel="trading-session"]');
 /** Every wallet signature asked of the provider on this page: one passkey prompt each (the challenge is not one). */
@@ -550,9 +553,9 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   const expiresAt = Date.parse(await panel.getByTestId('session-expires').getAttribute('datetime'));
   expect(expiresAt).toBeGreaterThan(startedAt);
   expect(expiresAt).toBeLessThanOrEqual(Date.now() + 8 * 60 * 60 * 1000);
-  // The venue's own record: the key is approved on the person's account, unnamed, with that expiry.
+  // The venue's own record: the key is approved on the person's account, under the session key's name, with that expiry.
   const listed = (await venueAgents(address)).find((a) => a.address === first);
-  expect(listed).toEqual({ address: first, name: '', validUntil: new Date(expiresAt).toISOString() });
+  expect(listed).toEqual({ address: first, name: SESSION_KEY_NAME, validUntil: new Date(expiresAt).toISOString() });
   // INTAFACED holds the address and the venue's answer, never the key.
   const held = await heldInTab(page, client.userId);
   expect(held.address).toBe(first);
@@ -624,7 +627,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   // it on, with no second prompt.
   expect(answers.at(-1)?.outcome).toEqual({ definite: false, reason: 'timeout' });
   expect(prompts).toHaveLength(2);
-  expect(await unnamedAgents(address)).toEqual([second]);
+  expect(await sessionAgents(address)).toEqual([second]);
 
   // ── A second device's session replaces the first device's key; the first device says so in words ────────────────
   const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
@@ -637,7 +640,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     const third = await startSession(b);
     expect(bPrompts).toEqual(['/__test-wallet-provider/client/signtyped']);
     expect([first, second]).not.toContain(third);
-    expect(await unnamedAgents(address)).toEqual([third]);
+    expect(await sessionAgents(address)).toEqual([third]);
     await page.reload();
     await expect(
       sessionPanel(page).getByText(
@@ -654,7 +657,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
       sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
     ).toBeVisible({ timeout: 30_000 });
     expect(bPrompts).toHaveLength(2);
-    expect(await unnamedAgents(address)).toEqual([]);
+    expect(await sessionAgents(address)).toEqual([]);
     expect(await heldInTab(b, client.userId)).toBeNull();
     const after = await client.post('/api/v1/venue/prepare', {
       owner: address.toLowerCase(),
@@ -686,7 +689,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     await expect.poll(() => heldInTab(b, client.userId)).toBeNull();
     const fifth = await startSession(b);
     expect(bPrompts).toHaveLength(4);
-    expect(await unnamedAgents(address)).toEqual([fifth]);
+    expect(await sessionAgents(address)).toEqual([fifth]);
     const used = [first, second, third, fourth, fifth];
     expect(new Set(used).size).toBe(5);
 
@@ -696,7 +699,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
       expect(again.status, JSON.stringify(again.body)).toBe(409);
       expect(again.body.intafacedCode).toBe('trade.venue_session_key_reused');
     }
-    expect(await unnamedAgents(address)).toEqual([fifth]);
+    expect(await sessionAgents(address)).toEqual([fifth]);
     await sessionPanel(b).getByRole('button', { name: 'End trading session' }).click();
     await expect(
       sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
