@@ -26,5 +26,10 @@ if (!list.length) throw new Error('the beta room list is empty');
 // that has it.
 globalThis.__BETA_VOLT_ROOMS__ = list;
 const EVERY_NEED = { business: true, venue: true, staking: true, vaults: true };
-const hidden = paths.filter((path) => betaHides(path, list) || betaOffFeatureFor(path, EVERY_NEED) !== undefined);
-process.stdout.write(`${JSON.stringify({ hidden, rooms: list.length, hiddenRooms: list.filter(([, on]) => !on).length })}\n`);
+// The proof count stays as strict as it was: a room the kit lock kept off the beta (beta-proof-held.json, frozen from main
+// when the lock was deleted) still counts as hidden, though the beta's menus may now show it.
+const { rooms: held } = JSON.parse(readFileSync(new URL('./beta-proof-held.json', import.meta.url), 'utf8'));
+const heldSet = new Set(held);
+const heldList = list.map(([route, shown]) => [route, shown && !heldSet.has(route)]);
+const hidden = paths.filter((path) => betaHides(path, heldList) || betaOffFeatureFor(path, EVERY_NEED) !== undefined);
+process.stdout.write(`${JSON.stringify({ hidden, rooms: list.length, hiddenRooms: heldList.filter(([, on]) => !on).length })}\n`);
