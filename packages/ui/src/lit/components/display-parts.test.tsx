@@ -37,7 +37,7 @@ describe('front-page parts', () => {
     expect(out).toContain('Not yet.');
   });
 
-  it('draws the featured market as a link with its chart filling the tile, and no chart from one point', () => {
+  it('draws the featured market as a link with its chart in ink filling the tile, and no chart from one point', () => {
     const points = [
       { at: '2026-11-01', value: '1' },
       { at: '2026-11-02', value: '2' },
@@ -47,7 +47,9 @@ describe('front-page parts', () => {
     );
     expect(out).toContain('<a class="lt-featured" href="/m/BTC">');
     expect(out).toContain('data-fit="true"');
-    expect(out).toContain('data-tone="up"');
+    // The chart is drawn in ink whatever the move (the kit owner's rule, 25 Nov): the colour stays in the change figure.
+    expect(out).toContain('data-tone="ink"');
+    expect(out).not.toContain('data-tone="up"');
     expect(
       html(<FeaturedMarket symbol="BTC" price={null} change={null} points={points.slice(0, 1)} chartLabel="BTC" asset="USD" />),
     ).not.toContain('lt-chart');

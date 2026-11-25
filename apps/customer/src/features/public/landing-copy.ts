@@ -22,6 +22,7 @@ export const landingCopy = defineCopy('public-landing', {
   tabGainers: 'Gainers',
   tabLosers: 'Losers',
   tabPerps: 'Perps',
+  perpTag: 'Perp',
   colMarket: 'Market',
   colPrice: 'Price',
   colChange: '24h',

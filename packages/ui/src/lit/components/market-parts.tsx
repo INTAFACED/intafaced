@@ -138,6 +138,8 @@ function toneOf(change: string | null): 'up' | 'down' | 'neutral' {
 
 export interface MoverTileProps {
   symbol: string;
+  /** The coin whose mark is drawn, when `symbol` is a whole pair or a perpetual's name (BTC for "BTC/USDT"); default `symbol`. */
+  asset?: string;
   /** The quote side, drawn quieter after the symbol ("/USDT"), so two pairs of one coin never read as one market. */
   quote?: string;
   price: string | null;
@@ -149,14 +151,17 @@ export interface MoverTileProps {
   className?: string;
 }
 
-/** One market as a tile: symbol and change on top, the price large, its line under it. A link when `href` is given. */
-export function MoverTile({ symbol, quote, price, change, trend, trendLabel, href, className }: MoverTileProps) {
+/** One market as a tile: its mark, symbol and change on top, the price large, its line under it. A link when `href` is given. */
+export function MoverTile({ symbol, asset, quote, price, change, trend, trendLabel, href, className }: MoverTileProps) {
   const body = (
     <>
       <span className="lt-mover-top">
-        <span>
-          <span className="lt-market-symbol">{symbol}</span>
-          {quote ? <span className="lt-market-full">/{quote}</span> : null}
+        <span className="lt-mover-name">
+          <AssetIcon asset={asset ?? symbol} />
+          <span>
+            <span className="lt-market-symbol">{symbol}</span>
+            {quote ? <span className="lt-market-full">/{quote}</span> : null}
+          </span>
         </span>
         <Pct value={change} />
       </span>
