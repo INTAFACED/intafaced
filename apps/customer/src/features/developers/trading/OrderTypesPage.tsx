@@ -1,6 +1,7 @@
 import { DocPage } from '../DocPage';
 import { ReadFailed, ReadLoading } from '../ReadState';
 import { spotOrderTypesSchema } from '@intafaced/contracts/spot-order-types';
+import { ALGO_API_STATES } from '@intafaced/contracts/trade-call-schemas';
 import { useSession } from '../../session';
 import { venueCopy } from '../../trade';
 import { deskCopy } from '../../../screens/trade/desk/copy';
@@ -13,7 +14,8 @@ import { tradingApiCopy } from './trading-api-copy';
  * GET /api/v1/order-types (`SPOT_ORDER_TYPES_PATH`; the client adds the /api/v1 base) and named as the trading ticket
  * names its tabs. When the venue door is on, svc-trade derives the list from the venue's spot market capabilities so it
  * matches `VenueSpotDesk` and `VenueOrderOptions`. Each type shows one whole example body; a listed type refused by the
- * door is shown with its code.
+ * door is shown with its code. Below them, the algo order API's doors and its states (J-cex-spot-15 #6), from the one list
+ * svc-trade maps every algo order to (`ALGO_API_STATES`).
  */
 export function OrderTypesPage({ title }: { title: string }) {
   const { t } = tradingApiCopy.useCopy();
@@ -95,6 +97,29 @@ export function OrderTypesPage({ title }: { title: string }) {
           </section>
         </>
       )}
+      <section aria-labelledby="dev-algo-orders" data-testid="algo-order-states">
+        <h2 id="dev-algo-orders">{t('algoTitle')}</h2>
+        <p>{t('algoLead')}</p>
+        <table className="lt-table">
+          <thead>
+            <tr>
+              <th scope="col">{t('colState')}</th>
+              <th scope="col">{t('colMeaning')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ALGO_API_STATES.map((state) => (
+              <tr key={state} data-state={state}>
+                <th scope="row">
+                  <code>{state}</code>
+                </th>
+                <td>{t(`state_${state}`)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="lt-hint">{t('algoAmend')}</p>
+      </section>
     </DocPage>
   );
 }
