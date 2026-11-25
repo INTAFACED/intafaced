@@ -32,7 +32,7 @@ export function WalletBar() {
           {wallet.guard && !wallet.guard.ok ? (
             <p role="alert">
               {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button tone="primary" onClick={() => void wallet.switchNetwork()}>
+              <Button tone="secondary" onClick={() => void wallet.switchNetwork()}>
                 {t('Switch network')}
               </Button>
             </p>
@@ -50,7 +50,7 @@ export function WalletBar() {
           {wallet.wallets.map((entry) => (
             <Button
               key={entry.info.uuid}
-              tone="primary"
+              tone="secondary"
               disabled={wallet.status === 'connecting'}
               onClick={() => void wallet.connect(entry)}
             >

@@ -517,3 +517,10 @@
 .xd [data-testid='venue-wallet-address'] [data-part='address-end']::before {
   content: '…';
 }
+
+/* Under the chart and the orders: a tool is as wide as its words, never a full-width bar (the ref's quiet tools). */
+.xd [data-testid='chart-trading'] > .lit-button,
+.xd [data-testid='venue-bottom'] .lit-button:not([data-block]) {
+  align-self: start;
+  justify-self: start;
+}

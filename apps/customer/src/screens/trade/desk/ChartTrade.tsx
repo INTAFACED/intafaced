@@ -111,7 +111,8 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         {t('Chart buy', { price: ask === null ? t('Chart no price') : fmtPrice(ask, market.tickSize) })}
       </Button>
       <label className="lt-field">
-        <span>{t('Order type')}</span>
+        {/* One compact tools row under the chart: the field's name is read out, its value shows. */}
+        <span data-sr-only="">{t('Order type')}</span>
         <select
           value={type}
           onChange={(event) => {
@@ -129,9 +130,10 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         </select>
       </label>
       <label className="lt-field">
-        <span>{t('Click amount', { asset: market.base })}</span>
+        <span data-sr-only="">{t('Click amount', { asset: market.base })}</span>
         <input
           type="text"
+          placeholder={t('Click amount', { asset: market.base })}
           inputMode="decimal"
           autoComplete="off"
           value={amount}

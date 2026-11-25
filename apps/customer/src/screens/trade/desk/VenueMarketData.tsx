@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
-import { BookLadder, MarketHeader, StateBlock, TradeTape } from '@intafaced/ui/lit';
+import { BookLadder, MarketHeader, Segmented, StateBlock, TradeTape } from '@intafaced/ui/lit';
 import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { fractionDigits } from '../../../data/decimal';
@@ -198,13 +198,12 @@ export function VenueMarketPanel({
           {/* A flex column, as today's desk chart is (ChartPanel): the canvas takes the height the bar and Buy/Sell leave. */}
           <div className="lt-stack" data-testid="venue-chart">
             <div className="lt-row lt-row-between">
-              <div className="lt-chips" role="group" aria-label={d('Chart intervals')}>
-                {CHART_INTERVALS.map((id) => (
-                  <button key={id} type="button" aria-pressed={interval === id} onClick={() => setChartInterval(id)}>
-                    {intervalLabel(id)}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                label={d('Chart intervals')}
+                options={CHART_INTERVALS.map((id) => ({ value: id, label: intervalLabel(id) }))}
+                value={interval}
+                onChange={setChartInterval}
+              />
               {chartTools}
             </div>
             <div className="lt-canvas">

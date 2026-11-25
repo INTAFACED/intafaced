@@ -142,20 +142,16 @@ export function UnitFlag({
 }) {
   const { t } = spotVenueCopy.useCopy();
   return (
-    <div role="group" aria-label={t('Amount in')} className="lt-row" data-testid="venue-unit">
-      {(['base', 'quote'] as const).map((x) => (
-        <Button
-          key={x}
-          type="button"
-          size="sm"
-          tone={unit === x ? 'primary' : 'secondary'}
-          aria-pressed={unit === x}
-          onClick={() => onUnit(x)}
-        >
-          {x === 'base' ? base : quote}
-        </Button>
-      ))}
-    </div>
+    <Segmented
+      label={t('Amount in')}
+      marks={{ 'data-testid': 'venue-unit' }}
+      options={[
+        { value: 'base', label: base },
+        { value: 'quote', label: quote },
+      ]}
+      value={unit}
+      onChange={onUnit}
+    />
   );
 }
 

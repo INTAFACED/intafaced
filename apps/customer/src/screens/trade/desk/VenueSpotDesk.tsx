@@ -304,7 +304,7 @@ export function VenueSpotDesk({
           <div className="lt-row lt-row-end">
             {spotMarkets.length > 1 ? (
               <label className="lt-field">
-                <span>{f('Chart market')}</span>
+                <span data-sr-only="">{f('Chart market')}</span>
                 <select value={market.symbol} onChange={(event) => navigate(`/trade/spot/${event.target.value}`)}>
                   {spotMarkets.map((m) => (
                     <option key={m.symbol} value={m.symbol}>

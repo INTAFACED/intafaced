@@ -221,7 +221,7 @@ export function VenueWalletRow() {
           {wallet.guard && !wallet.guard.ok ? (
             <p role="alert">
               {v('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <Button tone="primary" onClick={() => void wallet.switchNetwork()}>
+              <Button tone="secondary" onClick={() => void wallet.switchNetwork()}>
                 {v('Switch network')}
               </Button>
             </p>
@@ -233,7 +233,7 @@ export function VenueWalletRow() {
         <p>
           {wallet.wallets.map((entry) => (
             <Button
-              tone="primary"
+              tone="secondary"
               key={entry.info.uuid}
               disabled={wallet.status === 'connecting'}
               onClick={() => void wallet.connect(entry)}
