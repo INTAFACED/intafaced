@@ -102,10 +102,10 @@
 <div class="lt-page-col hm-band" data-span="all">
 </div>
 <div class="lt-page-col hm-main">
-<div data-testid="home-hero" class="lit-surface hm-hero" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<section class="hm-hero" data-testid="home-hero" aria-label="Net worth">
 <div class="hm-hero-top">
-<div class="hm-hero-figure">
-<div data-testid="home-label" class="hm-label">
+<div class="hm-hero-figure" data-testid="home-label">
+<div class="hm-label">
 <span>Net worth</span>
 <button aria-label="Hide balances" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye" aria-hidden="true">
@@ -115,24 +115,24 @@
 </circle>
 </svg>
 </button>
-<a class="hm-link" href="/money">Assets<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true">
-<path d="m9 18 6-6-6-6">
-</path>
-</svg>
-</a>
 </div>
 <div data-testid="home-total" class="lt-actions">
 <span data-slot="hero-number" class="lt-figure lt-figure-hero" dir="ltr" data-ltr="">
 <span role="img" aria-label="$12,481.91">$12,481.91</span>
 </span>
 </div>
-<p data-testid="home-change">
+<p data-testid="home-change" class="hm-change">
 <span data-slot="change-text" data-direction="up">
 <span dir="ltr" data-ltr="" data-dir="up">
 <span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
 </span> +$206.26 (+1.68%)</span>
 <span class="lt-hint"> Today</span>
 </span>
+<a class="hm-link" href="/money">Assets<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true">
+<path d="m9 18 6-6-6-6">
+</path>
+</svg>
+</a>
 </p>
 <details data-testid="home-worked-out" class="lit-fold">
 <summary>
@@ -217,8 +217,8 @@
 </a>
 </div>
 </nav>
-</div>
-<div data-testid="hp-markets" aria-labelledby="home-markets-title" class="lit-surface hm-markets" data-layer="content" data-material="solid" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+</section>
+<section data-testid="hp-markets" class="hm-markets" aria-labelledby="home-markets-title">
 <div class="lt-panel-head" data-part="panel-head">
 <h2 class="lt-panel-title">
 <span id="home-markets-title" data-sr-only="">Markets</span>
@@ -515,7 +515,7 @@
 </tbody>
 </table>
 </div>
-</div>
+</section>
 </div>
 <div data-testid="home-side" class="lt-page-col hm-side">
 <section class="hm-rail-sec hm-next" data-testid="home-next" aria-label="Your next step">
