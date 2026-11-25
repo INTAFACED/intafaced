@@ -12,10 +12,9 @@ export {
   refusalCopy,
   useActivity,
   useFavorites,
-  useMarkets,
+  useMarketCatalogue,
   useMovers,
   useSparklines,
-  useTickers,
 } from '../../data';
 export type { ActivityFeed, ActivityItem, Decimal, Loadable, MarketRow, TickerRow } from '../../data';
 // One total: Home reads the same source as the Money screen (the bank's valuation, which counts named accounts).

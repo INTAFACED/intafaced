@@ -7,17 +7,14 @@ import { assetName, marketsCopy } from './copy';
 import {
   refusalCopy,
   useFavorites,
-  useMarkets,
-  useTickers,
+  useMarketCatalogue,
   useVenueMarketStates,
-  useVenueTickers,
   venueListingStatuses,
   venueMarketRow,
   type Loadable,
   type MarketData,
   type TickerRow,
 } from './deps';
-import { pickSource } from './source';
 import { KitState } from '../kit-parts';
 import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
@@ -53,16 +50,11 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   const { userId } = useSession();
   const { favorites, isFavorite, toggle } = useFavorites(userId);
   // Paused markets are the ones the service lists as not orderable, so the list asks for them too and filters here.
-  const ownMarkets = useMarkets({ includeClosed: true });
-  const ownTickers = useTickers();
-  // Where the venue door is on, the list is the venue's markets we show, each in the venue's own state with our listing
-  // beside it (J-cex-spot-14 #1), and never our own book's; where it is off, today's read stands.
+  // The one markets catalogue (data/market-catalogue): where the venue door is on, the venue's markets we show, each in
+  // the venue's own state with our listing beside it (J-cex-spot-14 #1), and never our own book's; where it is off,
+  // today's read stands.
+  const { markets, tickers } = useMarketCatalogue();
   const venueStates = useVenueMarketStates();
-  const venueTickers = useVenueTickers();
-  const { markets, tickers } = useMemo(
-    () => pickSource(venueStates, ownMarkets, ownTickers, venueTickers),
-    [venueStates, ownMarkets, ownTickers, venueTickers],
-  );
   // Which listed markets are their own group (FX) and which are shut for the session; null if that read fails.
   const ownStatuses = useListingStatus();
   const statuses = useMemo(

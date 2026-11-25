@@ -45,7 +45,12 @@ const order = (id) => ({
  * /orders/open). An override is a wire JSON body or a function returning one, `null` to hold the request until
  * `release()`, 'error' for a 500, or { status, json } for any other answer. No service is contacted.
  */
+/** The venue's market reads where its door is off: they refuse, and Home's markets are our own book's. */
+const VENUE_OFF = { status: 404, json: { code: 'NotFound', message: 'the user-venue door is off', intafacedCode: 'trade.user_venue_off' } };
 const defaults = {
+  // The venue door is off here, as on a deployment with no venue: the markets catalogue reads ours.
+  'venue/market-states': VENUE_OFF,
+  'venue/tickers': VENUE_OFF,
   markets: () => markets,
   tickers: () => tickers(),
   balance: () => balances(),
