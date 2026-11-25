@@ -1,6 +1,7 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { usePreferences } from '../../../shared/preferences';
+import { maintenanceOf } from '../../../shared/market-maintenance';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import { draftId, keys, type OrderIntent, type VenueMarket, type VenueOrder, type VenueUp } from '../../../features/trade/venue-api';
 import {
@@ -59,6 +60,7 @@ import { useTradeAccess } from './venue-access';
 import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
+import { VenueDeskTicker, venueMaintenanceLine } from './VenueDeskTicker';
 import { PendingCheck } from './VenuePending';
 import { useCancelledOrders, useFilledOrders } from './venue-order-reads';
 
@@ -137,7 +139,22 @@ export function VenueSpotDesk({
   const spreadSet = best.data?.spreadLimitBps?.known === true;
   const capSet = cap?.known === true && spreadSet;
 
-  const offeredTypes = market.orderTypes.filter((x): x is VenueOrderType => x === 'limit' || x === 'market');
+  const openingWindowEndsMs = market.openingWindowEndsAt ? Date.parse(market.openingWindowEndsAt) : Number.NaN;
+  const openingWindowActive = !Number.isNaN(openingWindowEndsMs) && openingWindowEndsMs > Date.now();
+  const higherRisk = market.zone === 'higher_risk';
+  const maintenance = maintenanceOf(market.upcomingMaintenance);
+  const marketDisabledReason =
+    market.status === 'limit_only'
+      ? t('Mode limit only reason')
+      : openingWindowActive
+        ? t('Opening window reason')
+        : higherRisk
+          ? t('Higher risk zone reason')
+          : null;
+  const offeredTypes = market.orderTypes.filter(
+    (x): x is VenueOrderType => (x === 'limit' || x === 'market') && !(x === 'market' && marketDisabledReason !== null),
+  );
+  const activeType: VenueOrderType = offeredTypes.includes(type) ? type : 'limit';
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
   const feeLine = v('Fee line spot', {
     symbol: market.symbol,
@@ -345,22 +362,29 @@ export function VenueSpotDesk({
       ) : null}
     </div>
   );
+  const maintenanceLine = venueMaintenanceLine(maintenance, t);
   const ticket = (
     <div className="lt-stack">
       <div data-testid="dk-order" className="lt-panel">
+        {maintenance && maintenanceLine ? (
+          <p className="lt-note" role="status" data-testid="dk-maintenance">
+            {maintenanceLine}
+            {maintenance.endsAt === null ? ` · ${t('End time not set')}` : ''}
+          </p>
+        ) : null}
         <div className="lt-panel-head">
           <Tabs
             id="venue-type"
             label={t('Order type')}
             items={offeredTypes.map((x) => ({ value: x, label: x === 'limit' ? d('Limit') : d('Market') }))}
-            value={type}
+            value={activeType}
             onChange={(value) => setType(value as VenueOrderType)}
           />
-          <NotOfferedTypes market={market} />
+          <NotOfferedTypes market={market} marketDisabledReason={marketDisabledReason} />
         </div>
         <div className="lt-row">
-          {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
-          {type === 'limit' && tif === 'GTD' ? (
+          {activeType === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
+          {activeType === 'limit' && tif === 'GTD' ? (
             <label className="lt-field">
               <span>{t('Expires')}</span>
               <DateInput
@@ -379,14 +403,14 @@ export function VenueSpotDesk({
           ) : null}
           <VenueSelfTradeSelect market={market} />
         </div>
-        <TabPanel id="venue-type" value={type} current={type}>
+        <TabPanel id="venue-type" value={activeType} current={activeType}>
           <div className="lt-stack">
             {(['buy', 'sell'] as const).map((side) => (
               <VenueSideForm
                 key={`${side}:${owner ?? ''}`}
                 side={side}
-                type={type}
-                tif={type === 'limit' ? tif : 'GTC'}
+                type={activeType}
+                tif={activeType === 'limit' ? tif : 'GTC'}
                 expireAt={expireAt}
                 protectionBps={cap?.known ? cap.value : null}
                 market={market}
@@ -394,7 +418,9 @@ export function VenueSpotDesk({
                 owner={owner}
                 access={access}
                 account={account}
-                worst={type === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null}
+                worst={
+                  activeType === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null
+                }
                 capSet={capSet}
                 run={run}
                 onPlaced={placed}
@@ -531,6 +557,7 @@ export function VenueSpotDesk({
         instrument={
           <>
             <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+            <VenueDeskTicker market={market} timeZone={timeZone} />
             <ActionLimitWarning venueName={status.venue.displayName} />
           </>
         }

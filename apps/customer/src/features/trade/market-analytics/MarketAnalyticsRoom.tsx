@@ -6,12 +6,14 @@ import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { marketAnalyticsCopy } from './market-analytics-copy';
 import { marketAnalyticsSchema } from '@intafaced/contracts/trade-market-analytics';
+import { venueAnalyticsReadSchema } from '@intafaced/contracts/trade-venue-door';
+import { VENUE_DOOR_OFF } from '../../../data/venue-market-states';
 
 /**
- * Market analytics, /trade/analytics/:pair (SP-markets-data-03 b; J-cex-spot-14 #9), on the monitor template. The
- * figures are svc-trade's `GET /api/v1/analytics/:symbol?window=`, computed on each read from the public trade tape:
- * the aggressor differential (taker buys minus taker sells) and the window's trades and range, with the window named.
- * A blank window is refused by the service; the room always names one, and a person picks another.
+ * Market analytics, /trade/analytics/:pair (SP-markets-data-03 b; J-cex-spot-14 #9), on the monitor template. When the
+ * user-venue door is on, figures come from `GET /api/v1/venue/analytics?symbol=&window=`, computed on read from the
+ * venue's public trade tape; only when the door refuses `trade.user_venue_off` does the room read our own engine's
+ * `GET /api/v1/analytics/:symbol?window=`. A blank window is refused by the service; the room always names one.
  */
 
 const analyticsSchema = marketAnalyticsSchema;
@@ -25,23 +27,28 @@ export function symbolOf(pair: string): string {
   return pair.toUpperCase().replace(/[-_]/, '/');
 }
 
+/** "BTC/USDC" or "BTC-USDC" as the venue symbol "BTC-USDC". */
+const venueSymbolOf = (pair: string): string => pair.toUpperCase().replace(/[/_]/g, '-');
+
 export function MarketAnalyticsRoom({ pair }: { pair: string }) {
   const { t } = marketAnalyticsCopy.useCopy();
   const { api } = useSession();
   const symbol = symbolOf(pair);
+  const venueSymbol = venueSymbolOf(pair);
   const base = symbol.split('/')[0] ?? symbol;
   const [window, setWindow] = useState<Window>('1h');
-  const read = useResource(
-    (signal) => api.rest(`/analytics/${encodeURIComponent(symbol)}`, analyticsSchema, { query: { window }, signal }),
-    `market-analytics:${symbol}:${window}`,
-  );
+  const read = useResource(async (signal) => {
+    const venue = await api.rest('/venue/analytics', venueAnalyticsReadSchema, { query: { symbol: venueSymbol, window }, signal });
+    if (venue.ok || venue.code !== VENUE_DOOR_OFF) return venue;
+    return api.rest(`/analytics/${encodeURIComponent(symbol)}`, analyticsSchema, { query: { window }, signal });
+  }, `market-analytics:${symbol}:${window}`);
 
   const state: RoomState = useMemo(() => {
     const r = read.resource;
     if (r.status === 'loading') return { kind: 'loading' };
     if (r.status === 'failed') {
       const code = r.failure.code ?? '';
-      if (code === 'trade.market_not_found' || code === 'BadSymbol')
+      if (code === 'trade.market_not_found' || code === 'BadSymbol' || code === 'trade.venue.not_offered')
         return {
           kind: 'refused',
           refusal: { variant: 'refused', title: t('pairUnknownTitle'), body: t('pairUnknownBody'), reference: code },

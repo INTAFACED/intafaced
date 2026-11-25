@@ -1,11 +1,8 @@
-import './money.css';
 import './refusals';
 import type { ReactNode } from 'react';
-import { Requires } from '../access/MerchantAccess';
-import { WithAccount } from '../access/WithAccount';
 import type { RoomDef, RoomTable } from '../rooms-model';
+import { LinkButton } from '../volt/parts';
 import { ApprovalsRoom } from './Approvals';
-import { LinkButton } from './common';
 import { mc } from './copy';
 import { ConversionNewRoom } from './Conversion';
 import { ConversionOrderRoom, ConversionRoom } from './ConversionOrders';
@@ -19,11 +16,11 @@ import { RefundNewRoom } from './RefundNew';
 import { RefundRoom, RefundsRoom } from './Refunds';
 import { SettlementRoom, SettlementsRoom } from './Settlements';
 import { StatementRoom } from './Statement';
-import { TopUp } from './TopUp';
+import { TopUpRoom } from './TopUp';
 
 const t = mc.t;
 const go = (href: string, label: string, primary = false): ReactNode => (
-  <LinkButton href={href} variant={primary ? 'primary' : 'secondary'}>
+  <LinkButton href={href} tone={primary ? 'primary' : 'secondary'}>
     {label}
   </LinkButton>
 );
@@ -90,15 +87,8 @@ export const moneyRooms: RoomTable = {
   'money-top-up': {
     header: () => ({ title: t('pageTopUp'), purpose: t('purposeTopUp'), action: go('/pay/money', t('pageMoney')) }),
     here: '/pay/money',
-    render: (_route, { portal }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="payments.read">
-            <TopUp portal={portal} merchantId={merchantId} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <TopUpRoom portal={portal} />,
   },
   refunds,
   'refund-new': refundNew,

@@ -55,7 +55,15 @@ function gate(): VenueRoutingGate {
   return { shown: async () => map, admitPlace: (venueId, intent, at) => real.admitPlace(venueId, intent, at) };
 }
 
-async function mount(on = true) {
+async function mount(
+  on = true,
+  opts: {
+    maintenanceBoard?: () => Promise<{
+      windows: { id: string; title: string; markets: string[]; startsAt: string | null; endsAt: string | null }[];
+    } | null>;
+    signedIn?: boolean;
+  } = {},
+) {
   app = Fastify();
   const door = new UserVenueDoor({
     connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
@@ -67,11 +75,13 @@ async function mount(on = true) {
     spreadLimitBps: 100,
     now: () => NOW,
     listings: gate(),
+    ...(opts.maintenanceBoard ? { maintenanceBoard: opts.maintenanceBoard } : {}),
   });
   const router = new UserVenueRouter({ doors: [door], store: new InMemoryPreparedActionStore(), now: () => NOW });
   attachUserVenueRoutes(app, on ? router : null, {
-    // Signed out: the read is public, so no principal is ever asked for.
+    // Signed out by default: public reads never ask for a principal.
     requirePrincipal: (_req, reply) => {
+      if (opts.signedIn) return { userId: 'u-test', kycLevel: 2, jurisdiction: 'US', scopes: ['trade:read', 'trade:write'] } as never;
       void reply.code(401).send({ code: 'AuthenticationError' });
       return null;
     },
@@ -126,8 +136,108 @@ describe('/api/v1/venue/market-states (J-cex-spot-14 #1 #2)', () => {
 
   it('refuses trade.user_venue_off where the door is off, so the app keeps its own reads', async () => {
     const a = await mount(false);
-    const res = await a.inject({ url: '/api/v1/venue/market-states' });
-    expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ intafacedCode: 'trade.user_venue_off' });
+    for (const path of [
+      '/api/v1/venue/market-states',
+      '/api/v1/venue/public-book?symbol=BTC-USDC',
+      '/api/v1/venue/tickers',
+      '/api/v1/venue/spreads',
+      '/api/v1/venue/analytics?symbol=BTC-USDC&window=1h',
+    ]) {
+      const res = await a.inject({ url: path });
+      expect(res.statusCode, path).toBe(404);
+      expect(res.json(), path).toMatchObject({ intafacedCode: 'trade.user_venue_off' });
+    }
+  });
+
+  it('attaches upcomingMaintenance and serves public-book, tickers, spreads, analytics (refusing blank window) and RPI refusal', async () => {
+    const startsAt = new Date(NOW.getTime() + HOUR).toISOString();
+    const a = await mount(true, {
+      signedIn: true,
+      maintenanceBoard: async () => ({
+        windows: [
+          {
+            id: '00000000-0000-4000-8000-000000000001',
+            title: 'TEST BTC maintenance',
+            startsAt,
+            endsAt: null,
+            markets: ['market-btc-usdc'],
+          },
+        ],
+      }),
+    });
+    const statesRes = await a.inject({ url: '/api/v1/venue/market-states' });
+    expect(statesRes.statusCode, statesRes.body).toBe(200);
+    const btcState = statesRes.json().value.markets.find((m: { symbol: string }) => m.symbol === 'BTC-USDC');
+    expect(btcState.upcomingMaintenance).toMatchObject({
+      status: 'scheduled',
+      noticeId: '00000000-0000-4000-8000-000000000001',
+      startsAt,
+      endsAt: null,
+    });
+
+    const bookRes = await a.inject({ url: '/api/v1/venue/public-book?symbol=BTC-USDC&depth=10' });
+    expect(bookRes.statusCode, bookRes.body).toBe(200);
+    expect(typeof bookRes.json().value.sequence).toBe('number');
+
+    const tickersRes = await a.inject({ url: '/api/v1/venue/tickers' });
+    expect(tickersRes.statusCode, tickersRes.body).toBe(200);
+    expect(tickersRes.json().value['BTC-USDC']).toMatchObject({ symbol: 'BTC-USDC' });
+
+    const spreadsRes = await a.inject({ url: '/api/v1/venue/spreads' });
+    expect(spreadsRes.statusCode, spreadsRes.body).toBe(200);
+    expect(spreadsRes.json().value.some((r: { symbol: string }) => r.symbol === 'BTC-USDC')).toBe(true);
+
+    const analyticsRes = await a.inject({ url: '/api/v1/venue/analytics?symbol=BTC-USDC&window=1h' });
+    expect(analyticsRes.statusCode, analyticsRes.body).toBe(200);
+    expect(analyticsRes.json()).toMatchObject({ symbol: 'BTC-USDC', window: '1h' });
+
+    const blankWindow = await a.inject({ url: '/api/v1/venue/analytics?symbol=BTC-USDC' });
+    expect(blankWindow.statusCode).toBe(400);
+    expect(blankWindow.json()).toMatchObject({ intafacedCode: 'trade.analytics_window_unset' });
+
+    const rpiPrepare = await a.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: {
+        owner: '0x1111111111111111111111111111111111111111',
+        signer: { role: 'owner', address: '0x1111111111111111111111111111111111111111' },
+        rpi: true,
+        intent: {
+          kind: 'place_order',
+          symbol: 'BTC-USDC',
+          side: 'buy',
+          type: 'limit',
+          amount: '0.01',
+          price: '50000',
+          timeInForce: 'GTC',
+          reduceOnly: false,
+          clientOrderKey: 'order:rpi:1',
+        },
+      },
+    });
+    expect(rpiPrepare.statusCode).toBe(400);
+    expect(rpiPrepare.json()).toMatchObject({ intafacedCode: 'trade.rpi_unavailable' });
+
+    const rpiPreview = await a.inject({
+      method: 'POST',
+      url: '/api/v1/venue/preview',
+      payload: {
+        owner: '0x1111111111111111111111111111111111111111',
+        intent: {
+          kind: 'place_order',
+          symbol: 'BTC-USDC',
+          side: 'buy',
+          type: 'limit',
+          amount: '0.01',
+          price: '50000',
+          timeInForce: 'GTC',
+          reduceOnly: false,
+          clientOrderKey: 'order:rpi:2',
+          rpi: true,
+        },
+      },
+    });
+    expect(rpiPreview.statusCode).toBe(400);
+    expect(rpiPreview.json()).toMatchObject({ intafacedCode: 'trade.rpi_unavailable' });
   });
 });

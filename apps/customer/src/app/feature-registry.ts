@@ -562,6 +562,16 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'developer-permissions',
+    label: 'API permissions reference',
+    paths: ['/developers/permissions'],
+    status: 'live',
+    reason: 'Published permission-to-endpoint table from the exchange contract, proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked: 'Real-app journeys run 11739, J-developer-03 #7',
+  },
+  {
     id: 'developer-idempotency',
     label: 'Idempotent order placement',
     paths: ['/developers/idempotency'],
@@ -591,21 +601,19 @@ export const features: readonly Feature[] = [
     tab: 'trade',
   },
   {
+    id: 'p2p-contract-escrow',
+    label: 'Person-to-person (contract escrow)',
+    paths: ['/p2p', '/ctc', '/uc/order', '/p2p/orders', '/p2p/orders/*'],
+    status: 'live',
+    reason: 'Browsing offers and trading with contract escrow on /p2p and /uc/order run on svc-p2p and svc-protocol, proven on main',
+    unlock: 'already live',
+    tab: 'pay',
+    checked: '2026-11-24, Real-app journeys run 11739 (J-p2p-21 #1 to #5 passed on the real stack with proof v2 FAITHFUL reads).',
+  },
+  {
     id: 'p2p',
     label: 'Person-to-person',
-    paths: [
-      '/p2p',
-      '/ctc',
-      '/uc/ad',
-      '/uc/ad/*',
-      '/uc/order',
-      '/p2p/orders',
-      '/p2p/orders/*',
-      '/p2p/access',
-      '/p2p/methods',
-      '/chat',
-      '/checkuser',
-    ],
+    paths: ['/uc/ad', '/uc/ad/*', '/p2p/access', '/p2p/methods', '/chat', '/checkuser'],
     status: 'blocked',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',
@@ -919,7 +927,7 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
  */
 export function betaOffFeatureFor(path: string, access = betaAccess()): Feature | undefined {
   if (!betaRooms()) return undefined;
-  // An exact live row (such as /developers/idempotency inside /developers/*) takes precedence over a broader blocked wildcard.
+  // An exact live row (such as /developers/permissions or /developers/idempotency inside /developers/*) takes precedence over a broader blocked wildcard.
   if (
     features.some(
       (feature) =>
