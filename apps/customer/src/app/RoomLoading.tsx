@@ -1,19 +1,21 @@
-import { Skeleton } from '@intafaced/ui';
+import { Skeleton } from '@intafaced/ui/lit/templates';
 
 /**
- * A room on its way: the page's shape in still blocks (a title, a wide panel beside a narrow one, a list), never a
- * spinner on empty black. The words stay for a screen reader and for the waits that read them.
+ * A room on its way: the page's shape in the kit's still placeholders (a figure and its chart beside a list, then a
+ * grid of tiles), never a spinner on empty black. The words stay for a screen reader and for the waits that read them.
  */
 export function RoomLoading({ label }: { label: string }) {
   return (
     <div className="lt-room room-loading" role="status">
       <span className="room-loading__words">{label}…</span>
-      <Skeleton width="12rem" height="2.25rem" />
       <div className="room-loading__panels">
-        <Skeleton height="18rem" />
-        <Skeleton height="18rem" />
+        <div className="room-loading__panel">
+          <Skeleton shape="figure" />
+          <Skeleton shape="chart" />
+        </div>
+        <Skeleton shape="rows" />
       </div>
-      <Skeleton height="14rem" />
+      <Skeleton shape="grid" />
     </div>
   );
 }

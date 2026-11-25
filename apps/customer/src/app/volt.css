@@ -438,6 +438,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+:root .room-loading__panel {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
 :root .room-loading__words {
   position: absolute;
   inline-size: 0.0625rem;
