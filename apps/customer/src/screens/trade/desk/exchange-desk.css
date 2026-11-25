@@ -4,10 +4,10 @@
  * beside them in its own scroll, the orders under the chart. Only `--lit-*` roles and rem.
  */
 
-/* The whole window: the desk keeps a slim gutter of its own instead of the page column. */
+/* The whole window: the kit's page grid draws the desk frame's edge (1.5rem at a computer), so the room adds none. */
 :root :is(.if-app, .public-shell) > main .xd .lt-room:not(.lt-room .lt-room) {
   max-inline-size: none;
-  padding-inline: 0.75rem;
+  padding-inline: 0;
   padding-block-start: 0.5rem;
 }
 .xd .lt-room > :is(h1, header) {
