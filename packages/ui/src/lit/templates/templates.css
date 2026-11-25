@@ -93,9 +93,10 @@
   flex: 1 1 12rem;
   min-inline-size: 0;
 }
-/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it. */
+/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it.
+   It is never wider than its row: a refusal shown in its place (a long title at 130% text on a phone) wraps instead. */
 .lt-title-row-wrap > .lt-unbroken {
-  min-inline-size: max-content;
+  min-inline-size: min(max-content, 100%);
 }
 
 /* A figure that stays on one line (an amount beside a name); the name beside it wraps instead. */
@@ -2712,7 +2713,6 @@ button.lt-tab:focus-visible {
   color: var(--lit-text-2);
   font-size: var(--lit-type-micro-size);
   letter-spacing: var(--lit-type-micro-tracking);
-  text-transform: uppercase;
 }
 .lt-strong {
   font-weight: 600;
