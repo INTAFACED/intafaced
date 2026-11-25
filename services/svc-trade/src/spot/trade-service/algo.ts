@@ -24,7 +24,13 @@ import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } fr
 import { gateAlgoCreate } from '../../algo/create-gate.js';
 import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../../algo/volume-plan.js';
 import type { TwapParentRecord } from '../../algo/parent-store.js';
-import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../../algo/hydrate-on-mutate.js';
+import {
+  hydrateAlgoFromStore,
+  hydrateAlgoIfMissing,
+  persistAlgoAmend,
+  persistAlgoCancelAttempt,
+  persistAlgoMutation,
+} from '../../algo/hydrate-on-mutate.js';
 import { TradeError, type OrderSide } from '../types.js';
 import type { TradeServiceInternal } from '../trade-service.js';
 
@@ -390,6 +396,45 @@ export async function resumeAlgo(svc: TradeServiceInternal, principal: Principal
     businessPayload({ parentId, nextSliceIndex: parent.nextSliceIndex, pausedAt: parent.pausedAt }),
   );
   return persistAlgoMutation(svc.algo, svc.algoStore, svc.algo.resume(principal.userId, parentId));
+}
+
+/**
+ * Amend a TWAP (SP-conditional-algo-04): its quantity down, or its trigger price while it waits. A new trigger is read
+ * against the same mid the scheduler reads, as at create, so its direction is fixed the same way. Writes the parent and
+ * its plan before answering. Posts nothing.
+ */
+export async function amendAlgo(
+  svc: TradeServiceInternal,
+  principal: Principal,
+  input: { parentId: string; change: { totalQty?: Amount; triggerPrice?: Amount } },
+): Promise<TwapParent> {
+  const { parentId, change } = input;
+  requireScope(principal, 'trade:write');
+  const parent = await hydrateAlgoIfMissing(svc.algo, svc.algoStore, principal.userId, parentId);
+  let triggerAbove: boolean | undefined;
+  if (change.triggerPrice !== undefined && change.triggerPrice !== parent.triggerPrice) {
+    let depth: EngineDepth;
+    try {
+      depth = await svc.matching.depth(parent.marketId, 1);
+    } catch (err) {
+      if (err instanceof MatchingNoBookError) {
+        throw new TradeError(`${parent.symbol}: matching holds no book — the new trigger cannot be read`, 'trade.no_book');
+      }
+      throw err;
+    }
+    const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
+    const ask = depth.asks[0] ? parseAmount(depth.asks[0][0]) : null;
+    if (bid === null || ask === null) {
+      throw new TradeError(`${parent.symbol}: no two-sided mark to read the new trigger against`, 'trade.algo_mark_missing');
+    }
+    const mid = (bid + ask) / 2n;
+    if (change.triggerPrice === mid) {
+      throw new TradeError(`${parent.symbol}: the trigger price equals the current mark`, 'trade.algo_invalid_schedule');
+    }
+    triggerAbove = change.triggerPrice > mid;
+  }
+  const amended = svc.algo.amend(principal.userId, parentId, { ...change, ...(triggerAbove === undefined ? {} : { triggerAbove }) });
+  return persistAlgoAmend(svc.algo, svc.algoStore, amended);
 }
 
 export async function cancelAlgo(svc: TradeServiceInternal, principal: Principal, parentId: string): Promise<TwapParent> {

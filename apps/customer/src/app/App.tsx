@@ -1,5 +1,6 @@
 import { Component, Suspense, lazy, useEffect, type MouseEvent, type ReactNode } from 'react';
-import { Page, EmptyState, Button, Loading } from '../shared/ui';
+import { Page, EmptyState, Button } from '../shared/ui';
+import { RoomLoading } from './RoomLoading';
 import { deskPairLabel, findRoom, resolveAlias, roomTitle, type Room } from './navigation';
 import { useLocation, navigate } from './location';
 import { Shell } from './Shell';
@@ -174,13 +175,17 @@ export function App() {
     if (isMerchantArea(path)) quiet(preloadMerchantChrome);
   }, [room, path, willRender]);
   const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
-  const fallback = (
-    <div className="legacy-room">
-      <div data-testid="page" className="page">
-        <Loading room label={t('Opening room')} />
-      </div>
-    </div>
-  );
+  const fallback = <RoomLoading label={t('Opening room')} />;
+  // While a room's code loads, the bar is drawn already: no page opens on bare black. A Web3 room keeps the bare
+  // fallback: the Exchange bar would put a second Exchange | Web3 switch on the page, whose Exchange link is this path.
+  const framedFallback =
+    room?.area === 'web3' ? (
+      fallback
+    ) : (
+      <Shell door={room?.door} path={path}>
+        {fallback}
+      </Shell>
+    );
   const area = room ? legacyArea(room) : undefined;
   let body: ReactNode;
   if (devFeatures)
@@ -232,7 +237,7 @@ export function App() {
   // No room renders until the boot refresh has answered (issue 8658): a room that opens signed in and signed out would
   // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
   const content = redirectTo ? null : restoring ? (
-    fallback
+    framedFallback
   ) : room?.area === 'public' && session && !room.publicFrame ? (
     // A signed-in person reading help, status, notices, fees or the developer pages keeps the app header.
     <Shell door={undefined} path={path}>
@@ -247,7 +252,7 @@ export function App() {
     <div className="legacy-room">
       {ribbon}
       <SessionNotice />
-      <Suspense fallback={fallback}>
+      <Suspense fallback={framedFallback}>
         <PublicRoutes path={path} SharedResult={SharedResultRoute} />
       </Suspense>
     </div>
@@ -260,7 +265,7 @@ export function App() {
   ) : room?.area === 'web3' ? (
     // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target. The
     // frame, and the wallet connection in it, outlast a move between Web3 rooms; only the room inside remounts.
-    <Suspense fallback={fallback}>
+    <Suspense fallback={framedFallback}>
       <Web3Shell path={path}>
         <RoomBoundary key={path}>
           {ribbon}
