@@ -10,7 +10,7 @@
  *   node tooling/beta/beta-host.mjs serve     the supervisor: a round now and every BETA_EVERY_MIN minutes (30), and the
  *                                             TEST mailbox page; after each round it restarts the public front when the
  *                                             checkout's beta-front.mjs changed (syncFront); it exits after a round that
- *                                             changed this file, so systemd starts the new copy
+ *                                             changed this file, asking systemd to start the new copy at once
  *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it when main has moved, launch
  *                                             or update the stack, run the TEST funds check, wait until it is readied,
  *                                             write status.json: `updating` from before the checkout moves until then,
@@ -767,13 +767,34 @@ async function serve(paths) {
     } catch (err) {
       log(paths, `front: ${err.message}`);
     }
-    // The checkout's copy of this file moved with main: exit, and systemd (Restart=always) starts the new one.
+    // The checkout's copy of this file moved with main: start the new one at once (selfRestart), else exit and let
+    // systemd (Restart=always) start it.
     if (SELF.startsWith(paths.checkout + path.sep) && fileHash(SELF) !== mine) {
-      log(paths, 'serve: beta-host.mjs changed on main; exiting so the new copy starts');
+      if (selfRestart() === 'restart') {
+        log(paths, 'serve: beta-host.mjs changed on main; systemd starts the new copy now');
+        // systemd stops this copy as its restart job runs; should it not, exit and Restart=always starts the new one.
+        await new Promise((r) => setTimeout(r, 30_000));
+      } else log(paths, 'serve: beta-host.mjs changed on main; exiting so the new copy starts');
       process.exit(0);
     }
     await new Promise((r) => setTimeout(r, everyMin * 60_000));
   }
+}
+
+const BETA_SERVICE = 'intafaced-beta.service';
+
+/**
+ * How the supervisor hands over to a new copy of itself (#10888): when it is its unit's main process, it asks systemd to
+ * restart the unit now ('restart'), so the TEST mailbox is down only while node starts, not for RestartSec; run by
+ * hand, or when systemd refuses, it exits ('exit').
+ */
+export function selfRestart({
+  pid = process.pid,
+  systemctl = (...args) => spawnSync('systemctl', ['--user', ...args], { encoding: 'utf8', timeout: 10_000 }),
+} = {}) {
+  const show = systemctl('show', BETA_SERVICE, '-p', 'MainPID');
+  if (show.status !== 0 || Number(/MainPID=(\d+)/.exec(show.stdout ?? '')?.[1]) !== pid) return 'exit';
+  return systemctl('restart', '--no-block', BETA_SERVICE).status === 0 ? 'restart' : 'exit';
 }
 
 /** The systemd user service that keeps `serve` running. KillMode=process: a restart of the supervisor leaves the stack up. */
