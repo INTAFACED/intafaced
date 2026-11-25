@@ -60,6 +60,9 @@ export function NotOfferedChips({ types }: { types: readonly string[] }) {
           data-not-offered={x}
         >
           {word(v, 'type', x)}
+          {/* The full words stay in the button's text for find-in-page and the tests that read it; aria-label gives the same
+              words as its name, without the space a hidden span's text puts before the colon. */}
+          <span data-sr-only>: {v('Not offered')}</span>
         </Button>
       ))}
     </span>
