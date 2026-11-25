@@ -2206,12 +2206,40 @@ async function pinOpsFounders() {
   await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
 }
 
-export async function startCustomer({ stop = stopForNewBuild } = {}) {
+/**
+ * What a start does with a banner site's own running process (pure): `ready` when its page answers 200 with today's
+ * BANNER_TEXT; `restart` when it answers but with another banner, so a process started before the banner's text changed
+ * keeps no stale page up (the status table would call it DOWN, #10863); `start` when it is not running or not answering.
+ */
+export function bannerSiteDecision({ owned, status, text }, banner = BANNER_TEXT) {
+  if (!owned || status !== 200) return 'start';
+  return text.includes(banner) ? 'ready' : 'restart';
+}
+
+/**
+ * True when the site's own process already serves today's page; stops it (and waits for its port) when it serves a stale
+ * banner. `io` stands in for the process checks, the page read and the stop in a test.
+ */
+export async function bannerSiteReady(name, rec, url, port, io = {}) {
+  const { alive = ownedAlive, get = httpGet, stop = stopProc, open = portOpen } = io;
+  const owned = alive(rec);
+  const res = owned ? await get(url, 2000) : { status: 0, text: '' };
+  const decision = bannerSiteDecision({ owned, ...res });
+  if (decision === 'ready') return true;
+  if (decision === 'restart') {
+    say(`  ${name}: restarting, its page lacks the current TEST banner`);
+    await stop(name, rec);
+    for (let i = 0; i < 50 && (await open(port)); i++) await sleep(200);
+  }
+  return false;
+}
+
+export async function startCustomer({ stop = stopForNewBuild, ready = bannerSiteReady } = {}) {
   const build = currentBuild('customerBuild');
   await stop('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
-  if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
+  if (await ready('customer', procs.customer, url, PORTS.customer)) return;
   if (await portOpen(PORTS.customer)) portTaken(PORTS.customer, 'customer');
   const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
@@ -2337,12 +2365,12 @@ export function venueAnswersFor(healthText, kind, hl) {
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
-export async function startInvitation({ stop = stopForNewBuild } = {}) {
+export async function startInvitation({ stop = stopForNewBuild, ready = bannerSiteReady } = {}) {
   const build = currentBuild('invitationBuild');
   await stop('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
-  if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
+  if (await ready('invitation', procs.invitation, url, PORTS.invitation)) return;
   if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
   if (await portOpen(PORTS.invitation)) portTaken(PORTS.invitation, 'invitation');
   const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO, { build });
@@ -2365,11 +2393,12 @@ function writeApexStandIn() {
   );
 }
 
-async function startApex() {
+export async function startApex({ ready = bannerSiteReady } = {}) {
   const procs = readProcs();
   const url = `${APEX_ORIGIN}/`;
+  const serving = await ready('apex', procs.apex, url, PORTS.apex);
   writeApexStandIn();
-  if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
+  if (serving) return;
   if (await portOpen(PORTS.apex)) portTaken(PORTS.apex, 'apex');
   const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
   await waitHealthy('apex', url, pid, 20_000);

@@ -394,11 +394,22 @@ describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
     expect(lit.page).toBe('#000000');
     expect(lit['primary-bg']).toBe('#E0F83A');
     expect(lit['solid-bg']).toBe('#000000');
+    // An unpainted panel keeps one even hairline, as the picked samples draw it, so a panel still has an edge on black.
+    expect(lit['solid-rim']).toBe(lit['solid-rim-dim']);
+    expect(lit['solid-rim']).not.toMatch(/,\s*0\)$/);
+  });
+  it("draws every big figure at the figure weight (the owner's pick: Manrope 300), never a fixed bold", () => {
+    const css = readFileSync(join(here, 'components/components.css'), 'utf8');
+    for (const sel of ['.lt-mover-price', '.lt-featured-price', ".lit-stack__card[data-card='front'] [data-part='figure']"]) {
+      const rule = css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+      expect(rule, sel).toContain('font-weight: var(--lit-type-figure-weight);');
+    }
   });
   it('draws flat tiles in Pro and on a board that asks for them', () => {
     const css = readFileSync(join(here, 'lit.css'), 'utf8');
     expect(css).toMatch(/\[data-panels='tiles'\] \{\n {2}--lit-solid-bg: #0d0e0e;/i);
     expect(pro['solid-bg']).toBe('#0D0E0E');
     expect(pro['radius-panel']).toBe('6px');
+    expect(pro['solid-rim']).toMatch(/,\s*0\)$/);
   });
 });

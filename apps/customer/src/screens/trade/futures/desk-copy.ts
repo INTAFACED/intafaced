@@ -61,6 +61,17 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Contract not found title': 'That contract is not listed',
   'Contract not found body': 'Choose a contract from the list.',
 
+  // Signed out, with the venue on: the venue's contracts, chart and book (PublicVenueDesk.tsx)
+  'Venue prices': 'Prices and book from {venue}',
+  'Sign in ticket reason': 'Sign in to open a position on {contract}.',
+  'Book error title': 'Couldn’t load the order book',
+  'Book not published': 'The venue publishes no order book for this contract.',
+  'Book empty': 'No orders on either side of the book right now.',
+  Asks: 'Asks',
+  Bids: 'Bids',
+  'Price in': 'Price ({asset})',
+  'Size in': 'Size ({asset})',
+
   // Chart
   Chart: 'Chart',
   'Chart intervals': 'Chart intervals',
