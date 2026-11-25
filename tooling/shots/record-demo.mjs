@@ -37,7 +37,7 @@ const OUT = resolve(ROOT, argOut > 0 ? process.argv[argOut + 1] : 'tooling/shots
 export const WALK = [
   '/',
   '/trade',
-  '/trade/spot/BTC-USDC',
+  '/trade/spot/PURR-USDC',
   '/trade/futures',
   '/trade/futures?symbol=ETH-PERP',
   '/trade/convert',
