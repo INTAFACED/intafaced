@@ -123,6 +123,8 @@
 /* Pill tabs on a sunken track (Home A's range and view switches), until the kit's own land. */
 .hm .lt-segmented {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-inline-size: 100%;
   gap: 0.125rem;
   padding: 0.1875rem;
   border: 0;
@@ -426,6 +428,7 @@
 }
 .hm-pinned-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
   padding: 1.25rem 1.25rem 0.75rem;
