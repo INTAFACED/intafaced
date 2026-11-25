@@ -39,6 +39,8 @@ function Arrow({ dir }: { dir: Direction }) {
 interface ValueProps extends Omit<React.ComponentProps<'span'>, 'children'> {
   /** Pre-formatted text, or null when unknown. */
   value: string | null | undefined;
+  /** A big figure: its cents (the decimal mark and the digits after it) drawn as the look sets them. Never in a table. */
+  cents?: boolean;
   /** Mask when "hide balances" is on. Default true for amounts, false for prices. */
   sensitive?: boolean;
   /** Overrides the hide-balances switch (tests). */
@@ -50,9 +52,23 @@ function useMasked(sensitive: boolean | undefined, hidden: boolean | undefined, 
   return (sensitive ?? fallback) && (hidden ?? fromContext);
 }
 
+/** "$64,827.55" as "$64,827" and ".55". Only two-place cents split: a coin price ("0.21840") stays whole. */
+function withCents(text: string): React.ReactNode {
+  const m = /^(.*\d)(\.\d\d)(\D*)$/.exec(text);
+  if (!m) return text;
+  return (
+    <>
+      {m[1]}
+      <span className="lt-cents">{m[2]}</span>
+      {m[3]}
+    </>
+  );
+}
+
 function NumberText({
   value,
   masked,
+  cents,
   className,
   slot,
   ...props
@@ -67,7 +83,7 @@ function NumberText({
       {...props}
       {...LTR}
     >
-      {masked ? HIDDEN_MASK : (value ?? UNKNOWN)}
+      {masked ? HIDDEN_MASK : value == null ? UNKNOWN : cents ? withCents(value) : value}
     </span>
   );
 }

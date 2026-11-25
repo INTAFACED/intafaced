@@ -6,7 +6,13 @@ import {
   type ProtocolEmbeddedWalletRefusal,
 } from '@intafaced/contracts/protocol-embedded-wallet';
 import { getAddress, type Address } from 'viem';
-import { ProviderRefusedError, ProviderUnavailableError, type EmbeddedWalletSetting } from './provider.js';
+import {
+  OWNER_PROVIDER_INFO,
+  ProviderRefusedError,
+  ProviderUnavailableError,
+  testProviderInfo,
+  type EmbeddedWalletSetting,
+} from './provider.js';
 
 /**
  * THE EMBEDDED SELF-CUSTODY WALLET (J-wallet-22, OWNER 237): one wallet per person, made with a passkey and no seed
@@ -85,8 +91,24 @@ export function providerInfo(setting: EmbeddedWalletSetting): ProtocolEmbeddedWa
   return setting.adapter.info;
 }
 
+/**
+ * Where a recorded wallet's key is kept: its own provider, whatever the setting names today. A wallet made at the TEST
+ * provider stays TEST and signs there after the setting moves to the owner's provider, so a stack switched to it keeps
+ * its testers' wallets; the room picks its signing client from this, so naming the setting's provider would send every signature to
+ * a provider that holds no key for the wallet.
+ */
+function keptAt(row: EmbeddedWalletRow, setting: EmbeddedWalletSetting): ProtocolEmbeddedWalletProvider | null {
+  if (setting.kind === 'ready' && setting.adapter.info.id === row.provider) return setting.adapter.info;
+  if (row.provider === 'test') return testProviderInfo();
+  if (row.provider === 'turnkey') return OWNER_PROVIDER_INFO;
+  return { id: row.provider, displayName: 'your wallet provider', test: row.test, capabilities: { export: false, recovery: false } };
+}
+
+/** The provider the room names: the one keeping the person's wallet, else the setting's (null while it is blank). */
 export async function embeddedWalletStatus(deps: EmbeddedWalletDeps, userId: string) {
-  return { provider: providerInfo(deps.setting()), wallet: await deps.store.find(userId) };
+  const setting = deps.setting();
+  const wallet = await deps.store.find(userId);
+  return { provider: wallet ? keptAt(wallet, setting) : providerInfo(setting), wallet };
 }
 
 function readyAdapter(setting: EmbeddedWalletSetting) {

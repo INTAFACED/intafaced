@@ -163,7 +163,13 @@ async function main() {
         await page.goto(`http://127.0.0.1:${PORT}${room.path}`);
         await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
         const connect = page.getByRole('button', { name: 'Connect TEST Wallet' }).first();
-        if (room.signedIn && (await connect.isVisible().catch(() => false))) {
+        if (
+          room.signedIn &&
+          (await connect.waitFor({ state: 'visible', timeout: 5_000 }).then(
+            () => true,
+            () => false,
+          ))
+        ) {
           await connect.click();
           const sheet = page.getByRole('button', { name: 'Continue in wallet' });
           if (await sheet.isVisible({ timeout: 1500 }).catch(() => false)) await sheet.click();
