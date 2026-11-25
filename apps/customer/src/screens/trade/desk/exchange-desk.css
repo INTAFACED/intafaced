@@ -548,6 +548,7 @@
   color: var(--lit-text-2);
 }
 .xd-blotter-head .lit-segmented > button {
+  flex: none;
   white-space: nowrap;
 }
 /* A phone: the six tabs scroll sideways in their own row, never past the panel's edge. */
