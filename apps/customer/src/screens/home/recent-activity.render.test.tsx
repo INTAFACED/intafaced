@@ -28,7 +28,7 @@ const ready = (items: ActivityItem[]): Loadable<ActivityFeed> => ({
 });
 
 const hrefs = (html: string) =>
-  [...html.matchAll(/data-testid="home-activity__row" class="lt-row-link" href="([^"]+)"/g)].map((match) => match[1] ?? '');
+  [...html.matchAll(/data-testid="home-activity__row"[^>]*href="([^"]+)"/g)].map((match) => match[1] ?? '');
 
 describe('Recent activity on Home (HM-dashboard-04)', () => {
   it('shows one row per movement as the Activity room does: a trade’s two legs are one row', () => {
