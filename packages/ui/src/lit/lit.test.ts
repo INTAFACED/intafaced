@@ -395,6 +395,13 @@ describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
     expect(lit['primary-bg']).toBe('#E0F83A');
     expect(lit['solid-bg']).toBe('#000000');
   });
+  it("draws every big figure at the figure weight (the owner's pick: Manrope 300), never a fixed bold", () => {
+    const css = readFileSync(join(here, 'components/components.css'), 'utf8');
+    for (const sel of ['.lt-mover-price', '.lt-featured-price', ".lit-stack__card[data-card='front'] [data-part='figure']"]) {
+      const rule = css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+      expect(rule, sel).toContain('font-weight: var(--lit-type-figure-weight);');
+    }
+  });
   it('draws flat tiles in Pro and on a board that asks for them', () => {
     const css = readFileSync(join(here, 'lit.css'), 'utf8');
     expect(css).toMatch(/\[data-panels='tiles'\] \{\n {2}--lit-solid-bg: #0d0e0e;/i);
