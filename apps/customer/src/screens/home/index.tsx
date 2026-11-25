@@ -312,7 +312,9 @@ function HomeSimple() {
   const shown = new Set<HomeTileId>([...main, ...side]);
 
   // The total, its label and the value over time, straight on the page (the family picture): the eye beside the label,
-  // the range chips on the label's line, Assets on the figure's line.
+  // the range chips on the label's line, Assets on the figure's line, the chart right under the figure's lines and the
+  // total's closed "How this is worked out" under the four keys (laid out in command.css; the fold stays in its place
+  // in the page, inside the total it explains).
   const hero = (
     <section className="hm-hero" data-testid="home-hero" aria-label={command.t(launch ? 'Net worth wallet venue' : 'Net worth')}>
       <div className="hm-hero-top">
@@ -334,7 +336,11 @@ function HomeSimple() {
             <Balance portfolio={portfolio} hidden={hideBalances} />
           )}
         </div>
-        {portfolio.status === 'refused' ? null : <ValueRanges range={range} onRange={setRange} />}
+        {portfolio.status === 'refused' ? null : (
+          <div className="hm-ranges">
+            <ValueRanges range={range} onRange={setRange} />
+          </div>
+        )}
       </div>
       {portfolio.status === 'refused' ? null : <ValueChart range={range} hidden={hideBalances} />}
       <ActionKeys loading={portfolio.status === 'loading'} mode={actionMode} mainElsewhere={startedOpen} />
