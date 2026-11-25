@@ -10,6 +10,7 @@ import { flowCopy } from './order-flow-copy';
 import { spreadOf, type FlowMarket } from './order-flow';
 import { scaled, type Reference } from './order-math';
 import { UNSUPPORTED_TYPES } from './tif';
+import { shownTick } from '../chart/chart-data';
 
 export type ChartOrderType = 'market' | 'limit' | string;
 
@@ -94,10 +95,10 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         disabled={!market.open || bid === null}
         onClick={() => press('sell')}
       >
-        {t('Chart sell', { price: bid === null ? t('Chart no price') : fmtPrice(bid, market.tickSize) })}
+        {t('Chart sell', { price: bid === null ? t('Chart no price') : fmtPrice(bid, shownTick(market.tickSize, bid)) })}
       </Button>
       <span id={spreadId} className="lt-num lt-note" data-testid="of-chart-spread" data-spread={spread ?? ''}>
-        {spread === null ? t('Spread none') : t('Spread', { spread: fmtPrice(spread, market.tickSize) })}
+        {spread === null ? t('Spread none') : t('Spread', { spread: fmtPrice(spread, shownTick(market.tickSize, bid)) })}
       </span>
       <Button
         tone="up"
@@ -108,7 +109,7 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         disabled={!market.open || ask === null}
         onClick={() => press('buy')}
       >
-        {t('Chart buy', { price: ask === null ? t('Chart no price') : fmtPrice(ask, market.tickSize) })}
+        {t('Chart buy', { price: ask === null ? t('Chart no price') : fmtPrice(ask, shownTick(market.tickSize, ask)) })}
       </Button>
       <label className="lt-field">
         {/* One compact tools row under the chart: the field's name is read out, its value shows. */}

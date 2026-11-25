@@ -524,3 +524,8 @@
   align-self: start;
   justify-self: start;
 }
+
+/* The ticket shows one side's form at a time: a hidden form stays hidden though the stack lays it out as a column. */
+.xd [data-testid='dk-form'][hidden] {
+  display: none;
+}
