@@ -51,7 +51,6 @@ function spreadText(
   return t('Spread value', { spread: formatAmount(diff), bps: `${tenths / 10n}.${tenths % 10n}` });
 }
 
-/** Each level with its depth bar: the running total from the best level over the deeper side's whole, in thousandths. */
 /** A column's formatter: the most decimals among `values`, at most the step's, applied to every row. */
 function columnFormat(values: readonly string[], step: string): (value: string) => string {
   const cap = fractionDigits(step) ?? 0;
@@ -59,6 +58,7 @@ function columnFormat(values: readonly string[], step: string): (value: string) 
   return (value) => displayAmount(value, places);
 }
 
+/** Each level with its depth bar: the running total from the best level over the deeper side's whole, in thousandths. */
 function withDepth(asks: readonly VenueLevel[], bids: readonly VenueLevel[]) {
   const total = (levels: readonly VenueLevel[]) => levels.reduce((sum, l) => sum + parseAmount(l.amount), 0n);
   const whole = [total(asks), total(bids)].reduce((a, b) => (a > b ? a : b));
