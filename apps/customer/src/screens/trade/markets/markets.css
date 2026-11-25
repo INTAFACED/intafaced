@@ -47,8 +47,9 @@
   .mkt-hero__price {
     margin: 0;
     font-family: var(--lit-font-figure);
-    font-size: clamp(2.5rem, 4vw, 3.5rem);
+    font-size: clamp(3rem, 4.6vw, 5.25rem);
     font-weight: 600;
+    font-stretch: 125%;
     letter-spacing: -0.02em;
     line-height: 1.05;
     color: var(--lit-text-1);
@@ -305,4 +306,11 @@
   margin-block-start: 0;
   padding-block-start: 0;
   border-block-start: 0;
+}
+
+/* A mover's price is the big figure: on a phone one and a half tiles show, so a six-figure price is never cut. */
+@container room (max-width: 599px) {
+  [data-testid='if-markets'] .lt-tile-row[data-min='card'] {
+    grid-auto-columns: 64%;
+  }
 }

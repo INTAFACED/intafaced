@@ -120,7 +120,7 @@ export function Board({ entries, mode }: { entries: readonly Entry[]; mode: Mode
             <h2 id="mkt-moving-title">{t('What’s moving')}</h2>
             <span className="mkt-dim">{t('Biggest 24h moves')}</span>
           </header>
-          <TileRow min="narrow">
+          <TileRow min="card">
             {movers.map(({ market: m, ticker: tk }) => (
               <MoverTile
                 key={m.symbol}
