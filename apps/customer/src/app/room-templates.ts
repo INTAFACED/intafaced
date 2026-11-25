@@ -53,6 +53,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/developers/changelog': { template: 'reading' },
   '/developers/changelog/upcoming': { template: 'reading' },
   '/developers/errors/auth': { template: 'reading' },
+  '/developers/permissions': { template: 'reading' },
   '/developers/idempotency': { template: 'reading' },
   '/developers/:section': { template: 'reading' },
   '/developers/sandbox/:sandboxId': { template: 'settings' },

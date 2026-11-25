@@ -562,6 +562,16 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'developer-permissions',
+    label: 'API permissions reference',
+    paths: ['/developers/permissions'],
+    status: 'live',
+    reason: 'Published permission-to-endpoint table from the exchange contract, proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked: 'Real-app journeys run 11739, J-developer-03 #7',
+  },
+  {
     id: 'developer-idempotency',
     label: 'Idempotent order placement',
     paths: ['/developers/idempotency'],
@@ -917,7 +927,7 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
  */
 export function betaOffFeatureFor(path: string, access = betaAccess()): Feature | undefined {
   if (!betaRooms()) return undefined;
-  // An exact live row (such as /developers/idempotency inside /developers/*) takes precedence over a broader blocked wildcard.
+  // An exact live row (such as /developers/permissions or /developers/idempotency inside /developers/*) takes precedence over a broader blocked wildcard.
   if (
     features.some(
       (feature) =>
