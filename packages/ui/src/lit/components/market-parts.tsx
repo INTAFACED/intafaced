@@ -160,7 +160,7 @@ export function MoverTile({ symbol, quote, price, change, trend, trendLabel, hre
         </span>
         <Pct value={change} />
       </span>
-      <Price className="lt-mover-price" value={price} />
+      <Price className="lt-mover-price" value={price} cents />
       {trend && trend.length > 1 ? <Sparkline values={trend} label={trendLabel ?? symbol} tone={toneOf(change)} size="row" /> : null}
     </>
   );
@@ -270,7 +270,7 @@ export function MarketHeader({
         {badges}
       </span>
       <span className="lt-market-header-price">
-        <Price className="lt-market-header-last" value={price} data-testid={priceTestId} />
+        <Price className="lt-market-header-last" value={price} cents={!dense} data-testid={priceTestId} />
         <Pct value={change} arrow />
       </span>
       {stats && stats.length > 0 ? <StatStrip cells={stats} dense /> : null}

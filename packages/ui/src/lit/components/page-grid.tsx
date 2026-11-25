@@ -23,14 +23,16 @@ export type PageLayout = 'split' | 'hero' | 'even' | 'full';
 
 export type PageGridProps = Div & {
   layout?: PageLayout;
+  /** `tiles`: the page's panels are flat near-black tiles (the markets board), not the Simple page's unpainted ones. */
+  panels?: 'tiles';
   /** `off` keeps the page 1:1 on an ultra-wide screen. */
   scale?: 'auto' | 'off';
 };
 
 /** The page: its width, gutter and columns. Its direct children are the columns (`PageColumn`) or full-width bands. */
-export function PageGrid({ layout = 'full', scale = 'auto', className, children, ...rest }: PageGridProps) {
+export function PageGrid({ layout = 'full', scale = 'auto', panels, className, children, ...rest }: PageGridProps) {
   return (
-    <div className="lt-page" data-scale={scale}>
+    <div className="lt-page" data-scale={scale} data-panels={panels}>
       <div {...rest} className={clsx('lt-page-grid', className)} data-layout={layout}>
         {children}
       </div>

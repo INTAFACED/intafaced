@@ -1450,6 +1450,10 @@ function cli({ ref, target, priorIncomplete = false, state = 'unexpected' }) {
   const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
   delete env.GITHUB_REF;
   delete env.JOURNEYS_TARGET;
+  // Run on a beta/ pull request, CI's own GITHUB_EVENT_NAME and GITHUB_HEAD_REF would put this CLI in the beta lane, and
+  // the red it must show would be excused (#10875's Doctrine gates, 25 Nov): the test sets the run it means.
+  delete env.GITHUB_EVENT_NAME;
+  delete env.GITHUB_HEAD_REF;
   if (ref) env.GITHUB_REF = ref;
   return spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8' }).status;
 }
