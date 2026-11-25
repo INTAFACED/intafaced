@@ -263,6 +263,8 @@ export const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.below_min_qty': 'belowMinimum',
 
   'trade.market_not_found': 'notFound',
+  'trade.history_dataset_not_found': 'notFound',
+  'trade.history_book_interval_unset': 'notSetUp',
   'bank.space_not_found': 'notFound',
   'pay.payment_not_found': 'notFound',
   'pay.link_not_found': 'notFound',

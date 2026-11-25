@@ -12,7 +12,6 @@ import {
   BETA_OWN_HOSTS,
   BETA_SLOT,
   MAILBOX_PORT,
-  UPDATE_EVERY_MS,
   anvilLauncher,
   betaPaths,
   decide,
@@ -279,20 +278,15 @@ test('decide: no screening file builds nothing; a moved main updates; the same c
   assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
 });
 
-test('decide: a moved main updates at most once every 2 hours; between, the round only launches', () => {
-  const now = Date.parse('2026-11-23T08:00:00Z');
-  const ago = (ms) => new Date(now - ms).toISOString();
-  assert.equal(UPDATE_EVERY_MS, 2 * 3600_000);
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(30 * 60_000), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS - 1), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS), now }), 'update');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: undefined, now }), 'update');
-  assert.equal(decide({ screening: false, head: 'a', target: 'b', updatedAt: ago(1), now }), 'blocked');
+test('decide: every round moves to a moved main; the same commit only launches', () => {
+  assert.equal(decide({ screening: true, head: 'a', target: 'b' }), 'update');
+  assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
+  assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');
 });
 
 test('the page names the commit served, and the newer main it waits for', () => {
   const html = mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'bbbbbbbbb222' } });
-  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta updates at most every 2 hours\)/);
+  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta moves to it in its next round\)/);
   assert.doesNotMatch(mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'aaaaaaaaa111' } }), /main is at/);
 });
 

@@ -412,6 +412,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/analytics/:pair': { template: 'monitor' },
   '/rulebook': { template: 'reading' },
   '/trade/screener': { template: 'record-list' },
+  '/trade/markets/downloads': { template: 'record-list' },
 };
 
 /** Merchant portal pages behind `/pay/:page` and `/pay/:page/:child`. */
