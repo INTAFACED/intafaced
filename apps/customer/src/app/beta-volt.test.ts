@@ -143,6 +143,40 @@ describe("the beta's menus", () => {
     }
   });
 
+  it('shows Person-to-person offers (/p2p) and orders (/uc/order) on the beta while keeping the remaining P2P rooms blocked (J-p2p-21)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/p2p', '/p2p'],
+      ['/uc/order', '/uc/order'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(betaOffFeatureFor(sample), sample).toBeUndefined();
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    for (const alias of ['/ctc', '/p2p/orders', '/p2p/orders/trade-1']) {
+      expect(betaHides(alias, betaList), alias).toBe(false);
+      expect(betaOffFeatureFor(alias), alias).toBeUndefined();
+      expect(isHiddenPath(alias), alias).toBe(false);
+    }
+    for (const mode of ['simple', 'pro'] as const) {
+      const pay = tabSpecs(mode, true).find((tab) => tab.door === 'Pay');
+      expect(
+        pay?.items.map((item) => item.href),
+        `Pay menu in ${mode} mode`,
+      ).toContain('/p2p');
+    }
+    expect(visibleSections().flatMap((group) => group.tiles.map((tile) => tile.href))).toContain('/p2p');
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/p2p');
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/uc/order');
+    expect(searchRooms('person-to-person', 'Personal').map((room) => room.path)).toContain('/p2p');
+    for (const blockedPath of ['/uc/ad', '/p2p/methods', '/p2p/access', '/chat', '/checkuser']) {
+      expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('p2p');
+      expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
+    }
+  });
+
   it('shows Idempotent order placement (/developers/idempotency) on the beta while keeping /developers blocked (J-developer-05 #5)', () => {
     const betaList = betaRoomList(count.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);

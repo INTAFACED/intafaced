@@ -97,19 +97,14 @@
 <main id="main" tabindex="-1">
 <div class="if-business">
 <div lang="en" style="display: contents;">
-<div data-slot="page" data-width="content" data-density="comfortable" class="w-full min-w-0 px-(--if-gutter) text-fg py-6 mx-auto max-w-(--if-container-max)">
-<header data-slot="page-header" data-density="comfortable" class="flex flex-col gap-3 pb-4">
-<div data-slot="page-header-breadcrumbs">
-<p class="m-0 text-sm font-medium text-fg-2">Personal Pay</p>
-</div>
-<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-<div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-<h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Person-to-person</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-base">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
-</div>
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Person-to-person</h1>
+<p class="lt-description">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
 </div>
 </header>
-<div data-slot="page-body" data-density="comfortable" class="flex min-w-0 flex-col gap-8 pt-4">
+<div class="lt-room-section">
 <div data-testid="p2p-rooms">
 <nav class="lt-tabs" aria-label="P2P rooms" data-region="section-tabs">
 <a href="/p2p" class="lt-tab">Offers</a>
@@ -119,6 +114,12 @@
 <a href="/p2p/access" class="lt-tab">Trading access</a>
 </nav>
 </div>
+</div>
+<div class="lt-body">
+<div class="lt-toolbar">
+</div>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
 <div class="lt-stack">
 <section class="lt-stack" aria-label="To do" data-testid="merchant-todos">
 <h3>
@@ -134,48 +135,40 @@
 </div>
 </div>
 </section>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>Your orders</h2>
-<p class="lt-muted">Your active, disputed, completed, and cancelled orders.</p>
-</div>
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">
+<p class="lt-hint">Your active, disputed, completed, and cancelled orders.</p>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="pay.surface.refreshOrders">Refresh orders</span>
 </button>
-</header>
+</div>
 <div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
+<div class="lt-refusal" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">
 <span>No services run in the look gate.</span>
 </p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
-</div>
-</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>Export order history</h2>
-<p class="lt-muted">Download a CSV file of the orders you opened between two dates. Amounts are exact.</p>
-</div>
-</header>
+<p class="lt-hint">Download a CSV file of the orders you opened between two dates. Amounts are exact.</p>
 <form class="lt-actions">
-<label data-slot="field" class="flex min-w-0 flex-col gap-1.5 text-sm font-medium text-fg-2 " for="field-_r_3_">
-<span id="field-_r_3_-label">From</span>
-<input inputmode="numeric" pattern="\d{4}-\d{2}-\d{2}" placeholder="YYYY-MM-DD" required="" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" class="h-10 w-full min-w-0 rounded-sm border border-transparent bg-field px-3 text-base font-normal text-fg placeholder:text-fg-2 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-40 aria-invalid:border-down-text" type="text" value="2026-09-22">
-</label>
-<label data-slot="field" class="flex min-w-0 flex-col gap-1.5 text-sm font-medium text-fg-2 " for="field-_r_4_">
-<span id="field-_r_4_-label">To</span>
-<input inputmode="numeric" pattern="\d{4}-\d{2}-\d{2}" placeholder="YYYY-MM-DD" required="" id="field-_r_4_" aria-labelledby="field-_r_4_-label" aria-invalid="false" class="h-10 w-full min-w-0 rounded-sm border border-transparent bg-field px-3 text-base font-normal text-fg placeholder:text-fg-2 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-40 aria-invalid:border-down-text" type="text" value="2026-10-21">
-</label>
-<button type="submit" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Export CSV</button>
+<div class="lit-field-control">
+<label for="_r_3_">From</label>
+<input inputmode="numeric" pattern="\d{4}-\d{2}-\d{2}" placeholder="YYYY-MM-DD" required="" id="_r_3_" type="text" value="2026-09-22">
+</div>
+<div class="lit-field-control">
+<label for="_r_4_">To</label>
+<input inputmode="numeric" pattern="\d{4}-\d{2}-\d{2}" placeholder="YYYY-MM-DD" required="" id="_r_4_" type="text" value="2026-10-21">
+</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Export CSV</button>
 </form>
+</section>
+</div>
 </section>
 </div>
 </div>
