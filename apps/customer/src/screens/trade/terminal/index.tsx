@@ -38,7 +38,8 @@ const TABS: readonly TabId[] = ['orders', 'history', 'positions', 'algo', 'dom']
  * it never leaves it partly under the top bar or the phone dock (seen at 200% text on a phone).
  */
 const PANEL_FITS = {
-  maxBlockSize: 'calc(100dvh - var(--a11y-obscured-top, 0rem) - var(--a11y-obscured-bottom, 0rem))',
+  // Less the room the focus scroll keeps clear above and below a focused part (a11y.css: 8px each side).
+  maxBlockSize: 'calc(100dvh - var(--a11y-obscured-top, 0rem) - var(--a11y-obscured-bottom, 0rem) - 1rem)',
   overflow: 'auto',
 } as const;
 

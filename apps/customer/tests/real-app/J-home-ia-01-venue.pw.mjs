@@ -368,7 +368,7 @@ test(`with no wallet connected, Home and Assets total the partner account and sa
     await page.goto('/');
     await balancesShown(page);
     const home = page.getByTestId('home-standing-before-wallet');
-    await openHow(page);
+    await openHow(page, home);
     await expect(partOf(home, 'partner')).toBeVisible({ timeout: 30_000 });
     await expect(home.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
     // Only the partner's part, valued at svc-ops' published TEST price: TEST 50 USDT at 1 is $50.00, and so is the total.
