@@ -85,7 +85,7 @@ jobs:
       # fails the job, as any unreadable input does.
       - name: Mint a project-state read token
         id: ps-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: Iv23lihKJK3UhiuiTgLa
           private-key: ${{ secrets.INTAFACED_APP_KEY }}
@@ -332,7 +332,7 @@ jobs:
         id: issues-token
         if: ${{ !cancelled() && env.APP_KEY_SET == 'true' && (steps.review.outputs.kind == 'down' || steps.review.outputs.called == 'true') }}
         continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: Iv23lihKJK3UhiuiTgLa
           private-key: ${{ secrets.INTAFACED_APP_KEY }}
@@ -427,7 +427,7 @@ jobs:
       - name: Mint a project-state read token
         id: ps-token
         continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: Iv23lihKJK3UhiuiTgLa
           private-key: ${{ secrets.INTAFACED_APP_KEY }}
@@ -563,7 +563,7 @@ jobs:
         id: issues-token
         if: ${{ !cancelled() && env.APP_KEY_SET == 'true' && steps.reads.outputs.kind == 'down' }}
         continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: Iv23lihKJK3UhiuiTgLa
           private-key: ${{ secrets.INTAFACED_APP_KEY }}
