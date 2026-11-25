@@ -76,6 +76,7 @@ export type ArtifactName =
   | 'ClaimLinkEscrow'
   | 'TestToken'
   | 'TestPlainToken'
+  | 'TestResetToken'
   | 'TestWrappedNative'
   | 'TestBridgeToken'
   | 'SovereignPermit'

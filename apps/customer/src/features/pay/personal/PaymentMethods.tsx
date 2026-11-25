@@ -59,7 +59,7 @@ export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: s
   const keyOn = health.resource.status === 'ready' && health.resource.data.instrumentKeyProvider === 'local-test';
   const keyOff = health.resource.status === 'ready' && !keyOn;
   return (
-    <div data-testid="payment-methods">
+    <>
       {keyOff ? (
         <div data-testid="methods-key-off">
           <MethodsNotice title={t('keyOffTitle')}>{t('keyOff')}</MethodsNotice>
@@ -123,7 +123,7 @@ export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: s
           )}
         </MethodsLoad>
       </MethodsSection>
-    </div>
+    </>
   );
 }
 
@@ -340,39 +340,38 @@ function Catalogue({ methods }: { methods: Method[] }) {
   const [country, setCountry] = useState(countries.find((code) => code !== EVERYWHERE) ?? countries[0] ?? '');
   const shown = country === EVERYWHERE ? methods.filter((method) => method.country === EVERYWHERE) : methodsIn(methods, country);
   return (
-    <div data-testid="methods-catalogue">
+    <div className="lt-stack" data-testid="methods-catalogue">
       <Select
         label={t('catalogueCountry')}
         value={country}
         onChange={setCountry}
         options={countries.map((code) => ({ value: code, label: countryName(code, t('catalogueEverywhere')) }))}
       />
-      {shown.map((method) => (
-        <article
-          key={`${method.methodId}:${method.country}`}
-          data-testid="catalogue-method"
-          data-method={method.methodId}
-          data-country={method.country}
-        >
-          <div>
-            <h3>{method.label}</h3>
-            <p className="lt-hint">{countryName(method.country, t('catalogueEverywhere'))}</p>
-            {method.settlement ? <p className="lt-hint">{settlementText(method.settlement, t)}</p> : null}
-            <p>{t('catalogueAsks')}:</p>
-            <ul>
-              {method.fields.map((field) => (
-                <li key={field.key}>
-                  {field.label} ({t(field.required ? 'catalogueRequired' : 'catalogueOptional')}){field.help ? `: ${field.help}` : ''}
-                </li>
-              ))}
-            </ul>
-            {method.fields.some((field) => field.holderName) ? <p data-testid="catalogue-own-name">{t('catalogueOwnName')}</p> : null}
-            {method.cashRules ? <CashRulesView rules={method.cashRules} /> : null}
-            {method.noteRules ? <NoteRulesView rules={method.noteRules} /> : null}
-          </div>
-          <MethodStatus value={method.enabled ? 'enabled' : 'disabled'} />
-        </article>
-      ))}
+      <ul className="lt-rows">
+        {shown.map((method) => (
+          <li key={`${method.methodId}:${method.country}`}>
+            <article className="lt-stack" data-testid="catalogue-method" data-method={method.methodId} data-country={method.country}>
+              <div className="lt-title-row">
+                <h3>{method.label}</h3>
+                <MethodStatus value={method.enabled ? 'enabled' : 'disabled'} />
+              </div>
+              <p className="lt-hint">{countryName(method.country, t('catalogueEverywhere'))}</p>
+              {method.settlement ? <p className="lt-hint">{settlementText(method.settlement, t)}</p> : null}
+              <p>{t('catalogueAsks')}:</p>
+              <ul>
+                {method.fields.map((field) => (
+                  <li key={field.key}>
+                    {field.label} ({t(field.required ? 'catalogueRequired' : 'catalogueOptional')}){field.help ? `: ${field.help}` : ''}
+                  </li>
+                ))}
+              </ul>
+              {method.fields.some((field) => field.holderName) ? <p data-testid="catalogue-own-name">{t('catalogueOwnName')}</p> : null}
+              {method.cashRules ? <CashRulesView rules={method.cashRules} /> : null}
+              {method.noteRules ? <NoteRulesView rules={method.noteRules} /> : null}
+            </article>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -570,6 +569,7 @@ function AddMethod({
   return (
     <>
       <form
+        className="lt-stack"
         data-testid="method-add-form"
         onSubmit={(event) => {
           event.preventDefault();

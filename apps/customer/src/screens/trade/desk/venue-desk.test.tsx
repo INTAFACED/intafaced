@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { OrdersTable } from '../../../features/trade/venue/VenueKit';
+import { builderApproved, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
 import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
 import { VenueReviewRows } from './VenueReviewRows';
 import { VenueVerifyDesk } from './VenueVerifyDesk';
@@ -228,6 +229,31 @@ describe('the review’s lines are the venue’s', () => {
       />,
     );
     expect(text(html)).toMatch(/Our builder fee 1\.2 USDC · Not signed/);
+  });
+
+  it('uses the versioned preview builderFeeBps for approval instead of the boot status rate', () => {
+    const status = {
+      enabled: true as const,
+      available: true as const,
+      venue: { id: 'test-venue-sim', displayName: 'TEST venue', proofLevel: 'simulator' as const },
+      test: true,
+      chainId: 84532,
+      builder: { address: '0x00000000000000000000000000000000000000bb', feeBps: '0.5' },
+    };
+    const v2Preview = preview({ builderFee: { known: true, value: { asset: 'USDC', amount: '1.8' } }, builderFeeBps: '3' });
+    expect(requiredBuilderFeeBps(status, v2Preview.value)).toBe('3');
+    const accountWith = (approvedBps: string) =>
+      ({ approval: { data: { value: approvedBps, venueId: 'test-venue-sim', asOf: '2026-11-24T00:00:00Z' } } }) as Parameters<
+        typeof builderApproved
+      >[0];
+    // Approved 2 bps under v1: not enough for v2's 3 bps, even though boot status is 0.5 bps.
+    expect(builderApproved(accountWith('2'), status, requiredBuilderFeeBps(status, v2Preview.value))).toBe(false);
+    expect(builderApproved(accountWith('3'), status, requiredBuilderFeeBps(status, v2Preview.value))).toBe(true);
+    const html = renderToStaticMarkup(
+      <VenueReviewRows intent={{ ...intent, side: 'sell' }} preview={v2Preview} status={status} approved={false} />,
+    );
+    expect(text(html)).toContain('3 bps');
+    expect(text(html)).not.toContain('0.5 bps');
   });
 });
 
@@ -477,7 +503,7 @@ describe('an order the desk placed that filled (J-cex-spot-01 #8)', () => {
     const rows = [...html.matchAll(row(''))].map((m) => ({ id: m[1], body: m[2] }));
     // The open order once (its open record wins), the filled one once; a non-filled read-back is never listed here.
     expect(rows.map((r) => r.id)).toEqual(['0xopen', '0xdone']);
-    expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*>Filled</);
+    expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*><bdi>Filled<\/bdi>/);
     expect(rows[1]!.body).not.toContain('<button');
     expect(rows[0]!.body).toContain('Cancel');
   });

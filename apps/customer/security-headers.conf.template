@@ -43,7 +43,10 @@ add_header Cross-Origin-Opener-Policy "same-origin" always;
 #    images.
 #  - connect-src: /api and /ws are same-origin ('self'). The LiveKit host is
 #    issued per session by the API, so the deployment names it with
-#    CUSTOMER_LIVEKIT_ORIGIN; unset, live sessions cannot connect.
+#    CUSTOMER_LIVEKIT_ORIGIN; unset, live sessions cannot connect. The embedded
+#    wallet's provider API (https://api.turnkey.com) is fixed: the page signs
+#    there itself with the person's passkey, and no INTAFACED service sees the
+#    request (J-wallet-22 #8).
 #  - media-src: recorded Academy video is a <video> on a presigned URL at the
 #    storage origin (CUSTOMER_STORAGE_ORIGIN); blob: for local media elements.
-add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${CUSTOMER_CSP_CONNECT_SRC}; media-src ${CUSTOMER_CSP_MEDIA_SRC}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${CUSTOMER_CSP_CONNECT_SRC} https://api.turnkey.com; media-src ${CUSTOMER_CSP_MEDIA_SRC}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;

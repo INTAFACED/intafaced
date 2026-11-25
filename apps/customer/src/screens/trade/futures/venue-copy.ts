@@ -131,6 +131,7 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   Positions: 'Positions',
   Orders: 'Open orders',
   History: 'History',
+  Calculator: 'Calculator',
   Entry: 'Entry',
   Mark: 'Mark',
   Unrealised: 'Unrealised result',

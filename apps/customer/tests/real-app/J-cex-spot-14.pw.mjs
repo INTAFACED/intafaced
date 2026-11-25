@@ -1,26 +1,54 @@
+// World: book, gates, restart
+import { randomBytes } from 'node:crypto';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { EDGE, ORIGIN, api, bestPrices, fund, journeyState, toUnits } from './stack.mjs';
-import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn } from './desk.mjs';
+import { EDGE, ORIGIN, api, journeyState, toUnits } from './stack.mjs';
+import { reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
+import {
+  continueInWallet,
+  openVenueDesk,
+  otherTraderKey,
+  otherTraderRun,
+  sameDecimal,
+  testDeposit,
+  testVenue,
+  tradePayloadHash,
+  venueBalance,
+  venueForThisFile,
+  venueInfo,
+  venueRecord,
+  venueWrites,
+  walletDoorAct,
+} from './venue.mjs';
+import { utcMinuteOf } from './clock.mjs';
+import { configureStatusPage, statusDefinition, statusRead } from './status-page.mjs';
 
 // J-cex-spot-14, in the running app (docs/roadmap/journeys.json): a pro trader knows whether a market is open, limited,
 // closing, new or risky before trading it, and never sends an order into a state that refuses it without being told
-// why first. One test per step, titled "J-cex-spot-14 #<n>", run in order on one TEST account funded with TEST USDC
-// through the real ledger. Operators set a market's trading mode through svc-trade's two-person door
-// (`setMarketMode`, two TEST operators), as TEST changes on books only this file holds in a restricted mode, each put
-// back to Open in the same step. Money: none moves; a refusal in any state leaves no hold, and cancels always work.
-// World: book, gates
-// (book: limit orders rest and cancel on BTC/USDC; gates: a market's trading mode is set and put back to Open.)
+// why first. One test per step, titled "J-cex-spot-14 #<n>", run on the stack's outside TEST venue (at launch our own
+// order book is off, docs/adr/2026-11-10-launch-money-model.md). Each step creates or uses its own fresh TEST venue
+// markets so no other journey's book is touched; every money/order/state claim is checked against the venue's own
+// record (`venueRecord` / `venueBalance`). Every figure is TEST.
 const J = 'J-cex-spot-14';
-/** The status component a maintenance notice names one market by (`market-btc-usdc`), as svc-notify reads it. */
-const marketComponent = (symbol) => `market-${symbol.toLowerCase().replace('/', '-')}`;
+const ZERO_OWNER = '0x0000000000000000000000000000000000000000';
+/** The status component a maintenance notice names one market by (`market-<base>-<quote>`), as svc-notify reads it. */
+const marketComponent = (symbol) => `market-${symbol.toLowerCase().replace(/[/_]/g, '-')}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-/** #3 holds this book limit-only for the step, #4 holds it cancel-only. */
-const LIMITED = 'BTC/USDC';
-/** A room or label a step needs that is not built answers within this, so an unbuilt step fails fast. */
-const UNBUILT_MS = 8_000;
+const UNBUILT_MS = 10_000;
+/** #2's one TEST platform-status component, and the labelled TEST owner values it runs with where the stack has none. */
+const STATUS_COMPONENT = { id: 'trading', name: 'TEST Trading', group: null, source: null };
+const TEST_STATUS_VALUES = { componentCap: 5, stalenessSeconds: 600, uptimeDays: 7 };
+
+const LISTING_SET = 'trade.venue_listing_set';
+const DELISTING = 'trade.venue_delisting_schedule';
+const POLICY = 'trade-venue-markets-v1';
+const DAY = 86_400_000;
+
+const trpcData = (res) => res.json?.result?.data?.json ?? res.json?.result?.data;
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
 
 let gates;
 let operators;
@@ -34,154 +62,262 @@ async function ops() {
   return operators;
 }
 
-/** Hold `symbol` in `mode` (two TEST operators) while `body` runs, then always put it back to Open. */
-async function inMode(symbol, mode, body) {
+/** A fresh TEST spot market on the TEST venue, optionally configured with session, opening window, zone, or quote. */
+async function freshMarket(tag, extra = {}) {
+  const base = `T14${tag}${randomBytes(2).toString('hex').toUpperCase()}`;
+  const quote = extra.quoteAsset ?? 'USDC';
+  const symbol = `${base}-${quote}`;
+  const added = await testVenue('/test/market-add', {
+    symbol,
+    baseAsset: base,
+    quoteAsset: quote,
+    maxOrderQty: '100',
+    maxOrderNotional: '100000',
+    ...extra,
+  });
+  expect(added.status, JSON.stringify(added.body)).toBe(200);
+  return { symbol, base, quote };
+}
+
+/** Setup, not a step: two operators write one change on `symbol`'s listing line through svc-trade's two-person door. */
+async function listingWrite(symbol, actionType, procedure, fields, expectedVersion) {
   const { ctx, sessions } = await ops();
-  let changed = false;
+  const venueId = (await venueInfo()).id;
+  const reason = `LOCAL TEST ${J}: ${actionType} on ${symbol} for this step`;
+  const ids = await gates.twoPerson(ctx, sessions, {
+    actionType,
+    targetService: 'svc-trade',
+    targetId: `venue-listing:${venueId}:${symbol}`,
+    expectedVersion,
+    payloadHash: tradePayloadHash({ actionType, venueId, symbol, ...fields, expectedVersion, reason }),
+    policyVersion: POLICY,
+  });
+  const res = await ctx.edge.mutate(
+    'trade',
+    procedure,
+    { symbol, ...fields, expectedVersion, reason, ...ids },
+    await sessions.a.tradeOpsToken(),
+  );
+  expect(trpcData(res)?.listing?.version, res.text.slice(0, 300)).toBe(Number(expectedVersion) + 1);
+}
+const list = async (symbol, opensAt) => {
+  await listingWrite(symbol, LISTING_SET, 'admin.venueMarkets.listingSet', { opensAt }, '0');
+  // Refresh svc-trade's market cache immediately so newly added TEST markets are visible to prepare without waiting 5s.
+  await marketStates();
+};
+const delist = (symbol, delistsAt) => listingWrite(symbol, DELISTING, 'admin.venueMarkets.delistingSchedule', { delistsAt }, '1');
+const minuteAgoIso = () => new Date(Date.now() - 60_000).toISOString();
+const orderKey = (actor, label) => `order:${actor.toLowerCase()}:${label}`;
+
+/** Verified TEST account + TEST venue wallet funded on the TEST venue with TEST USDC. */
+async function trader(page) {
+  const known = run.read();
+  if (known.account && known.walletKey) {
+    const key = privateKeyToAccount(known.walletKey);
+    return { who: known.account, walletKey: known.walletKey, key, owner: key.address.toLowerCase() };
+  }
+  const who = await signUp(page, 'j14');
+  await verify(page, who);
+  const walletKey = `0x${randomBytes(32).toString('hex')}`;
+  const key = privateKeyToAccount(walletKey);
+  const owner = key.address.toLowerCase();
+  const { chainId } = await venueInfo();
+  await testDeposit(owner, 'USDC', '100000', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+  run.write({ ...run.read(), account: who, walletKey });
+  return { who, walletKey, key, owner };
+}
+
+/** This attempt's four markets for #1 and #2, created once per attempt. */
+async function venueMarkets() {
+  const known = run.read().venueMarkets;
+  if (known) return known;
+  const now = Date.now();
+  const open = await freshMarket('O');
+  const upcoming = await freshMarket('U');
+  const delisting = await freshMarket('D');
+  const cancelOnly = await freshMarket('C');
+  const minuteAgo = new Date(now - 60_000).toISOString();
+  await list(open.symbol, minuteAgo);
+  await list(upcoming.symbol, new Date(now + DAY).toISOString());
+  await list(delisting.symbol, minuteAgo);
+  await delist(delisting.symbol, new Date(now + 2 * DAY).toISOString());
+  await list(cancelOnly.symbol, minuteAgo);
+  expect((await testVenue('/test/market-status', { symbol: cancelOnly.symbol, status: 'cancel_only' })).status).toBe(200);
+  const markets = { open, upcoming, delisting, cancelOnly };
+  run.write({ ...run.read(), venueMarkets: markets });
+  return markets;
+}
+
+/** svc-trade's public read of the venue's market states, signed out. */
+async function marketStates() {
+  const res = await fetch(`${EDGE}/api/v1/venue/market-states`);
+  const body = await res.json();
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
+}
+
+/** The trading mode a market is in now, from the read's own fields, the stricter first. */
+function modeOf(m) {
+  if (m.listing.delisted || m.status === 'delisted') return 'DELISTING';
+  if (m.listing.routing === 'stop') return 'HALTED';
+  if (!m.listing.open) return 'PRELAUNCH';
+  if (m.status === null) return 'none';
+  if (m.status === 'halted') return 'HALTED';
+  if (m.status === 'cancel_only') return 'CANCEL_ONLY';
+  if (m.session?.known && m.session.value.state === 'closed') return 'HALTED';
+  if (m.status === 'limit_only') return 'LIMIT_ONLY';
+  if (m.listing.routing === 'close_only') return 'REDUCE_ONLY';
+  return 'OPEN';
+}
+/** Only an open market with no delisting set, in mode Open, is a tradeable row. */
+const tradeable = (m) => modeOf(m) === 'OPEN' && m.listing.delistsAt === null;
+
+/** Hold a TEST venue market in `status` while `body` runs, then always restore `'trading'`. */
+async function inVenueStatus(symbol, status, body) {
   let failed = null;
   try {
-    const set = await gates.setMarketMode(ctx, symbol, mode, { sessions, reason: `${J}: TEST ${mode} for one step` });
-    changed = true;
-    expect(set.mode).toBe(mode);
+    const res = await testVenue('/test/market-status', { symbol, status });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     await body();
   } catch (err) {
     failed = err;
   }
-  // Always try to reopen: the change may have gone through even if the tool then failed. The step's own failure is
-  // the one reported; a failed reopen is added to it, never put in its place.
   try {
-    await gates.setMarketMode(ctx, symbol, 'OPEN', { sessions, reason: `${J}: TEST back to Open after the step` });
+    await testVenue('/test/market-status', { symbol, status: 'trading' });
   } catch (err) {
-    if (failed) throw new AggregateError([failed, err], `${J}: the step failed, and ${symbol} could not be put back to Open`);
-    if (changed) throw err;
+    if (failed) throw new AggregateError([failed, err], `${J}: step failed and ${symbol} could not be put back to trading`);
+    throw err;
   }
   if (failed) throw failed;
 }
 
-/** The journey's account, made on first use: verified, funded with TEST 2000 USDC through the real ledger. */
-async function account(page) {
-  const known = run.read().account;
-  if (known) return known;
-  const who = await fundedTrader(page, 'j14', '10');
-  expect(fund(who.email, 'USDC', '2000').tx).toBeTruthy();
-  run.write({ account: who });
-  return who;
-}
-
-/** The market's lifecycle state as the public read reports it. */
-async function publicState(symbol) {
-  const res = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(symbol)}`);
-  const body = await res.json();
-  return body?.state ?? body?.snapshot?.state ?? null;
-}
-
-/** A whole-unit USDC price `percent` of the best bid: inside the book's band, far enough under it to rest. */
-async function restingBid(symbol, percent) {
-  const { bid } = await bestPrices(symbol);
-  const one = toUnits('1');
-  const units = ((toUnits(bid) * BigInt(percent)) / 100n / one) * one;
-  return (units / one).toString();
-}
-
-const orderSends = (sent) => sent.filter((body) => body?.symbol === LIMITED || body?.symbol === undefined);
+/** #2 restores the founders' status definition after the step, whatever happens. */
+let restoreStatus = null;
+test.afterEach(async () => {
+  const restore = restoreStatus;
+  restoreStatus = null;
+  if (restore) await restore();
+});
 
 test(`${J} #1 the markets list shows open, upcoming and delisting markets with listing status and dated delisting; only open real markets are tradeable`, async ({
   page,
+  stepPicture,
 }) => {
-  // The service's own listing read: each market carries its listing status, and a delisting carries its date. Upcoming and
-  // delisting markets are TEST listings the stack seeds (`seed-spot-test-listing.mjs`), as operators would set them.
-  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const spot = markets.filter((m) => m.spot && !m.paper);
-  const upcoming = spot.find((m) => m.listing === 'upcoming');
-  const delisting = spot.find((m) => m.listing === 'delisting');
-  expect(upcoming, 'an upcoming spot listing on the read').toBeTruthy();
-  expect(delisting, 'a delisting spot listing on the read').toBeTruthy();
-  expect(Date.parse(delisting.delistsAt)).toBeGreaterThan(Date.now());
-  // Only an open market is orderable.
-  for (const m of [upcoming, delisting]) expect(m.orderable, `${m.symbol} is not orderable`).toBe(false);
-  expect(spot.filter((m) => m.orderable).every((m) => m.listing === 'open')).toBe(true);
+  const mine = await venueMarkets();
+  // Compare svc-trade's public read against the venue's own `/markets` record directly.
+  const venueOwn = (await venueRecord(ZERO_OWNER, '/markets')).value;
+  const ownBySymbol = new Map(venueOwn.map((m) => [m.symbol, m]));
+  expect(ownBySymbol.get(mine.open.symbol)?.status).toBe('trading');
+  expect(ownBySymbol.get(mine.cancelOnly.symbol)?.status).toBe('cancel_only');
 
+  const states = await marketStates();
+  expect(states.value.test, 'the TEST venue').toBe(true);
+  const bySymbol = new Map(states.value.markets.map((m) => [m.symbol, m]));
+  const read = (x) => bySymbol.get(x.symbol);
+  expect(read(mine.open), 'the open market on the venue read').toMatchObject({
+    status: ownBySymbol.get(mine.open.symbol).status,
+    listing: { open: true, delistsAt: null },
+  });
+  expect(read(mine.upcoming)?.listing.open, 'the upcoming market has not opened').toBe(false);
+  expect(Date.parse(read(mine.delisting)?.listing.delistsAt ?? ''), 'the delisting carries its date').toBeGreaterThan(Date.now());
+  expect(read(mine.cancelOnly)?.status, "the venue's own state").toBe(ownBySymbol.get(mine.cancelOnly.symbol).status);
+
+  // Signed out, as anyone opens it.
   await page.goto('/trade');
-  const list = page.getByRole('grid', { name: 'Markets', exact: true });
-  await expect(list).toBeVisible();
-  const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
-  const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
+  const grid = page.getByRole('grid', { name: 'Markets', exact: true });
+  await expect(grid).toBeVisible();
+  const more = page.getByRole('button', { name: /^Show \d+ more markets$/ });
+  const pair = (x) => new RegExp(`^${x.base}/${x.quote}$`);
+  const rowOf = (x) => grid.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(x) }) });
   const action = (row) => row.getByRole('button', { name: /^(Trade|Buy) / });
-  // An open market's row trades.
-  const btc = rowOf(spot.find((m) => m.symbol === 'BTC/USDT'));
-  await expect(action(btc)).toBeEnabled();
-  // The upcoming listing: named Upcoming, and not a tradeable row.
-  const upRow = rowOf(upcoming);
-  await expect(upRow.getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
-  await expect(action(upRow)).toBeDisabled();
-  // The delisting: named Delisting, with the day its own delistsAt falls on in the person's zone, and not a tradeable row.
-  const downRow = rowOf(delisting);
+  await expect(
+    grid
+      .getByRole('row')
+      .filter({ has: page.getByTestId('mkt-name__ticker') })
+      .first(),
+  ).toBeVisible();
+  while (await more.isVisible()) await more.click();
+  await expect(rowOf(mine.open)).toHaveCount(1);
+
+  await expect(action(rowOf(mine.open))).toBeEnabled();
+  await expect(action(rowOf(mine.open))).toHaveAttribute('href', /\/trade\/|\/coin\//);
+  await expect(rowOf(mine.open).getByTestId('mkt-listing')).toHaveCount(0);
+  await expect(rowOf(mine.upcoming).getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
+  await expect(action(rowOf(mine.upcoming))).toBeDisabled();
+
   const leaves = (iso) =>
     page.evaluate(
       (at) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(Date.parse(at)),
       iso,
     );
-  await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting', { timeout: UNBUILT_MS });
-  await expect(downRow.getByTestId('mkt-listing')).toContainText(`Leaves the board on ${await leaves(delisting.delistsAt)}`);
+  const downRow = rowOf(mine.delisting);
+  await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting');
+  await expect(downRow.getByTestId('mkt-listing')).toContainText(
+    `Leaves the board on ${await leaves(read(mine.delisting).listing.delistsAt)}`,
+  );
   await expect(action(downRow)).toBeDisabled();
+  await expect(rowOf(mine.cancelOnly)).toHaveCount(0);
 
-  // Every row the list draws, not a sample: the whole list, then each row against its own listing on the read. Only an
-  // open real market (orderable, its trading mode Open) is a tradeable row, a link to trade it; every other row's
-  // action is disabled and links nowhere. An upcoming row reads Upcoming, a delisting row reads Delisting with its own
-  // date, and an open row names no listing state. No paper market is drawn.
-  const more = page.getByRole('button', { name: /^Show \d+ more markets$/ });
-  while (await more.isVisible()) await more.click();
-  const rows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker') });
+  const spot = states.value.markets.filter((m) => m.kind === 'spot');
+  const rows = grid.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker') });
   const drawn = await rows.count();
   expect(drawn, 'the list draws rows').toBeGreaterThan(0);
-  // A market whose session is shut is not open now (#6): an order there is refused and not queued, so it is no tradeable row.
-  const tradeable = (m) =>
-    m.orderable && m.sessionOpen !== false && (m.lifecycle ? m.lifecycle.state === 'OPEN' : true) && (m.listing ?? 'open') === 'open';
   const seen = new Set();
   for (let i = 0; i < drawn; i++) {
     const row = rows.nth(i);
     const name = (await row.getByTestId('mkt-name__ticker').innerText()).trim();
-    const named = markets.filter((x) => x.spot && `${x.base}/${x.quote}` === name);
-    const m = named.find((x) => !x.paper) ?? named[0];
-    expect(m, `${name} is a spot market on the read`).toBeTruthy();
-    expect(m.paper, `${name} is a real market, not paper`).toBeFalsy();
+    const m = spot.find((x) => `${x.baseAsset}/${x.quoteAsset}` === name);
+    expect(m, `${name} is a venue spot market we list`).toBeTruthy();
     seen.add(m.symbol);
     const button = action(row);
     await expect(button, name).toHaveCount(1);
-    if (tradeable(m)) {
-      await expect(button, `${name} is open and trades`).toBeEnabled();
-      await expect(button, `${name} links to trading it`).toHaveAttribute('href', /\/trade\/|\/coin\//);
-      await expect(row.getByTestId('mkt-listing'), `${name} names no listing state`).toHaveCount(0);
-    } else {
-      await expect(button, `${name} is not a tradeable row`).toBeDisabled();
-      await expect(button, `${name} links nowhere`).not.toHaveAttribute('href', /./);
-    }
-    if (m.listing === 'upcoming') await expect(row.getByTestId('mkt-listing'), name).toHaveText('Upcoming');
-    if (m.listing === 'delisting') {
-      await expect(row.getByTestId('mkt-listing'), name).toContainText('Delisting');
-      expect(Date.parse(m.delistsAt), `${name} carries its delisting date`).toBeGreaterThan(Date.now());
-      await expect(row.getByTestId('mkt-listing'), name).toContainText(`Leaves the board on ${await leaves(m.delistsAt)}`);
-    }
+    const trades = tradeable(m);
+    await expect(button, `${name} ${trades ? 'trades' : 'is not a tradeable row'}`).toBeEnabled({ enabled: trades });
+    await expect
+      .poll(() => button.getAttribute('href'), { message: `${name}'s link` })
+      .toEqual(trades ? expect.stringMatching(/\/trade\/|\/coin\//) : null);
   }
-  // Open, upcoming and delisting markets are all on the list.
-  for (const m of [upcoming, delisting]) expect(seen.has(m.symbol), `${m.symbol} is drawn`).toBe(true);
-  expect(seen.has('BTC/USDT'), 'an open market is drawn').toBe(true);
-  // Activating a row that does not trade opens no desk.
-  await upRow.click();
+  for (const x of [mine.open, mine.upcoming, mine.delisting]) expect(seen.has(x.symbol), `${x.symbol} is drawn`).toBe(true);
+  await stepPicture();
+  await rowOf(mine.upcoming).click();
   await expect(page).toHaveURL(/\/trade(\?.*)?$/);
 });
 
-test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({ page }) => {
+test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({
+  page,
+  stepPicture,
+}) => {
+  const mine = await venueMarkets();
+  const venueOwn = new Map((await venueRecord(ZERO_OWNER, '/markets')).value.map((m) => [m.symbol, m]));
+  expect(venueOwn.get(mine.open.symbol)?.status).toBe('trading');
+  expect(venueOwn.get(mine.cancelOnly.symbol)?.status).toBe('cancel_only');
+
+  const definedBefore = await statusDefinition();
+  test.info().attach('status definition before', { body: JSON.stringify(definedBefore), contentType: 'application/json' });
+  await configureStatusPage(
+    {
+      components: [STATUS_COMPONENT],
+      componentCap: definedBefore.componentCap ?? TEST_STATUS_VALUES.componentCap,
+      stalenessSeconds: definedBefore.stalenessSeconds ?? TEST_STATUS_VALUES.stalenessSeconds,
+      uptimeDays: definedBefore.uptimeDays ?? TEST_STATUS_VALUES.uptimeDays,
+    },
+    `TEST journey ${J} #2`,
+  );
+  restoreStatus = () =>
+    configureStatusPage(
+      {
+        components: definedBefore.components,
+        componentCap: definedBefore.componentCap,
+        stalenessSeconds: definedBefore.stalenessSeconds,
+        uptimeDays: definedBefore.uptimeDays,
+      },
+      `TEST journey ${J} #2: definition put back`,
+    );
   await page.goto('/status');
   await expect(page.getByRole('heading', { name: 'Platform status', exact: true })).toBeVisible();
 
-  // Platform status: the page draws exactly the components svc-notify's status read publishes (statusPage.read, the read
-  // the page itself makes), each by its name and its state, and the overall state the read gives; or, with none defined,
-  // the honest line and no overall state. Read again on each poll: the page re-reads every 30 seconds.
-  const statusRead = async () => (await (await fetch(`${ORIGIN}/api/notify/trpc/statusPage.read`)).json()).result.data;
   const drawnStatus = async () => {
-    const none = await page.getByTestId('status-components-none').count();
-    const overall = none ? 'none_defined' : await page.getByTestId('status-overall').getAttribute('data-state');
+    const overall = await page.getByTestId('status-overall').getAttribute('data-state');
     const rows = await page.locator('[data-testid^="status-component-"]').evaluateAll((els) =>
       els
         .filter((el) => el.tagName === 'LI')
@@ -195,239 +331,327 @@ test(`${J} #2 /status shows each market's trading mode and the platform status, 
   };
   const publishedStatus = async () => {
     const read = await statusRead();
-    return {
-      overall: read.overall,
-      rows: read.overall === 'none_defined' ? [] : read.components.map((c) => ({ id: c.id, name: c.name, state: c.state })),
-    };
+    return { overall: read.overall, rows: read.components.map((c) => ({ id: c.id, name: c.name, state: c.state })) };
   };
-  await expect(page.getByTestId('status-components').first()).toBeVisible();
+  await expect(page.getByTestId('status-overall')).toBeVisible();
   await expect
     .poll(async () => JSON.stringify(await drawnStatus()) === JSON.stringify(await publishedStatus()), {
       timeout: 45_000,
       message: 'the page shows the components and overall state svc-notify publishes',
     })
     .toBe(true);
-  const published = await publishedStatus();
-  if (published.overall === 'none_defined') await expect(page.getByTestId('status-components-none')).toBeVisible();
-  else expect(published.rows.length, 'a defined status page has components').toBeGreaterThan(0);
+  expect((await publishedStatus()).rows.map((r) => r.id)).toEqual([STATUS_COMPONENT.id]);
+  await expect(page.getByTestId(`status-component-${STATUS_COMPONENT.id}`)).toContainText(STATUS_COMPONENT.name);
 
-  // Trading modes per market, each with its effect, from the same lifecycle read the desk uses: every real spot market
-  // the markets read lists has its row, in the state its own lifecycle reports.
-  await expect(page.getByRole('heading', { name: 'Trading modes', exact: true })).toBeVisible();
-  const btc = page.getByTestId('status-mode-BTC/USDT');
-  await expect(btc).toContainText('Open');
-  await expect(btc).toContainText('Orders are accepted and can be cancelled.');
-  expect(await publicState('BTC/USDT')).toBe('OPEN');
-  const realSpot = async () => (await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json()).filter((m) => m.spot && !m.paper);
-  const listed = await realSpot();
-  expect(listed.length, 'the markets read lists real spot markets').toBeGreaterThan(0);
-  for (const m of listed)
-    await expect(page.getByTestId(`status-mode-${m.symbol}`), `${m.symbol}'s mode row`).toHaveAttribute(
-      'data-state',
-      m.lifecycle?.state ?? 'none',
-    );
-
-  // The as-of time is the service's own observation time, in UTC: the oldest time svc-trade observed a listed mode
-  // (each market's lifecycle observedAt), so no row is shown fresher than it is. The service is read before and after the
-  // page, so the page's line is one of the two answers, never a time of its own.
-  const asOf = (markets) => {
-    const times = markets.map((m) => m.lifecycle?.observedAt).filter((at) => at && !Number.isNaN(Date.parse(at)));
-    if (!times.length) return 'No market reported a mode, so there is no time to show.';
-    const oldest = new Date(Math.min(...times.map((at) => Date.parse(at)))).toISOString();
-    return `As of ${oldest.slice(0, 16).replace('T', ' ')} UTC`;
-  };
-  const line = page.getByTestId('status-modes-asof');
-  await expect(line).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+  const statusAsOf = page.getByTestId('status-asof');
+  await expect(statusAsOf).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+  const minuteLine = (iso) => `As of ${utcMinuteOf(Date.parse(iso)).replace('T', ' ')} UTC`;
   await expect
     .poll(
       async () => {
-        const before = asOf(await realSpot());
-        const shown = (await line.textContent())?.trim();
-        const after = asOf(await realSpot());
+        const before = minuteLine((await statusRead()).asOf);
+        const shown = (await statusAsOf.textContent())?.trim();
+        const after = minuteLine((await statusRead()).asOf);
         return shown === before || shown === after;
       },
-      { timeout: 45_000, message: "the as-of line is the oldest lifecycle observedAt on svc-trade's markets read" },
+      { timeout: 75_000, message: "the platform status as-of line is svc-notify's status read's own asOf" },
     )
     .toBe(true);
+
+  await expect(page.getByRole('heading', { name: 'Trading modes', exact: true })).toBeVisible();
+  const open = page.getByTestId(`status-mode-${mine.open.symbol}`);
+  await expect(open).toContainText('Open');
+  await expect(open).toContainText('Orders are accepted and can be cancelled.');
+  const cancelOnly = page.getByTestId(`status-mode-${mine.cancelOnly.symbol}`);
+  await expect(cancelOnly).toContainText('Cancel-only');
+  await expect(cancelOnly).toContainText('New orders are refused. You can cancel resting orders.');
+  const upcoming = page.getByTestId(`status-mode-${mine.upcoming.symbol}`);
+  await expect(upcoming).toHaveAttribute('data-state', 'PRELAUNCH');
+  await expect(upcoming).toContainText('The market has not opened. New orders are refused; orders are not queued.');
+  const states = await marketStates();
+  expect(states.value.markets.length, 'the venue read lists markets').toBeGreaterThan(0);
+  for (const m of states.value.markets)
+    await expect(page.getByTestId(`status-mode-${m.symbol}`), `${m.symbol}'s mode row`).toHaveAttribute('data-state', modeOf(m));
+  await expect(page.locator('[data-testid^="status-mode-"][data-state]')).toHaveCount(states.value.markets.length);
+
+  const line = page.getByTestId('status-modes-asof');
+  await expect(line).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+  const asOfLine = (read) => minuteLine(read.asOf);
+  await expect
+    .poll(
+      async () => {
+        const before = asOfLine(await marketStates());
+        const shown = (await line.textContent())?.trim();
+        const after = asOfLine(await marketStates());
+        return shown === before || shown === after;
+      },
+      { timeout: 75_000, message: "the as-of line is the venue market-states read's own asOf" },
+    )
+    .toBe(true);
+  await stepPicture();
 });
 
 test(`${J} #3 a market order on a limit-only market is refused as limit-only, and a limit inside the band is accepted`, async ({
   page,
   stepPicture,
 }) => {
-  const who = await account(page);
+  const { who, walletKey, owner } = await trader(page);
   const client = await api(who);
-  const price = await restingBid(LIMITED, 98);
-  await inMode(LIMITED, 'LIMIT_ONLY', async () => {
-    expect(await publicState(LIMITED)).toBe('LIMIT_ONLY');
-    // /status names the mode and its effect.
+  const lim = await freshMarket('L3');
+  await list(lim.symbol, minuteAgoIso());
+  // Seed a resting bid + ask from another TEST trader so the book has a live two-sided spread inside protection limits.
+  const { chainId } = await venueInfo();
+  const maker = otherTraderKey(`j14-3-${lim.base}`);
+  await testDeposit(maker.address, lim.base, '20', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+  await testDeposit(maker.address, 'USDC', '5000', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+  await otherTraderRun(`j14-3-${lim.base}`, {
+    kind: 'place_order',
+    symbol: lim.symbol,
+    side: 'sell',
+    type: 'limit',
+    amount: '2',
+    price: '100',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: orderKey(maker.address, `j14-3-ask-${lim.base}`),
+  });
+  await otherTraderRun(`j14-3-${lim.base}`, {
+    kind: 'place_order',
+    symbol: lim.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '2',
+    price: '99.8',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: orderKey(maker.address, `j14-3-bid-${lim.base}`),
+  });
+
+  await inVenueStatus(lim.symbol, 'limit_only', async () => {
+    const venueMkt = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === lim.symbol);
+    expect(venueMkt?.status).toBe('limit_only');
+    // /status names Limit-only and its effect.
     await page.goto('/status');
-    const row = page.getByTestId(`status-mode-${LIMITED}`);
+    const row = page.getByTestId(`status-mode-${lim.symbol}`);
     await expect(row).toContainText('Limit-only');
     await expect(row).toContainText('Market orders are refused.');
 
-    await openDesk(page, who, LIMITED);
+    // Venue spot desk: ticker says Limit only, no Market tab, Market listed disabled with the limit-only reason.
+    await openVenueDesk(page, who, `/trade/spot/${lim.symbol}`, walletKey);
     await expect(page.getByTestId('dk-ticker')).toContainText('Limit only');
-    const before = held(await client.balances(), 'USDC');
-    const sent = placements(page);
-    // A market order: the ticket offers no Market tab here; it lists Market, disabled, with the limit-only reason (the
-    // desk's order-type list, J-cex-spot-04 #1), so nothing can be sent or held.
+    const lockedBefore = toUnits((await venueBalance(owner, 'USDC')).locked);
+    const writes = venueWrites(page);
     await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
     await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
-    await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
     const marketRow = page.getByTestId('dk-type-off-market');
     await expect(marketRow).toHaveAttribute('aria-disabled', 'true');
-    await expect(marketRow).toHaveText('MarketThis market is taking limit orders only right now.');
+    await expect(marketRow).toHaveText('Market: This market is taking limit orders only right now.');
     await stepPicture();
-    await page.keyboard.press('Escape');
     await page.waitForTimeout(1000);
-    expect(orderSends(sent)).toHaveLength(0);
-    // The door itself refuses the same order with the typed code, before any hold.
-    const market = await client.post('/api/v1/orders', {
-      symbol: LIMITED,
+    expect(writes).toHaveLength(0);
+
+    // Door refuses a market order on a limit-only market before signing or locking anything (venue refusals answer 422).
+    const marketIntent = {
+      kind: 'place_order',
+      symbol: lim.symbol,
       side: 'buy',
       type: 'market',
-      amount: '0.001',
-      clientOrderId: `${J}-3m-${who.handle}`,
+      amount: '0.5',
+      price: '100',
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-3-mkt-${lim.base}`),
+    };
+    const preview = await client.post('/api/v1/venue/preview', { owner, intent: marketIntent });
+    expect(preview.status).toBe(422);
+    expect(preview.body?.intafacedCode).toBe('trade.venue.market_limit_only');
+    const prepare = await client.post('/api/v1/venue/prepare', {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: marketIntent,
     });
-    expect(market.status).toBe(400);
-    expect(JSON.stringify(market.body)).toContain('trade.mode_limit_only');
-    expect(held(await client.balances(), 'USDC')).toBe(before);
+    expect(prepare.status).toBe(422);
+    expect(prepare.body?.intafacedCode).toBe('trade.venue.market_limit_only');
+    expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBefore);
 
-    // A limit buy inside the band is accepted and rests, holding exactly its price x amount.
-    const limit = await client.post('/api/v1/orders', {
-      symbol: LIMITED,
-      side: 'buy',
-      type: 'limit',
-      amount: '0.001',
-      price,
-      clientOrderId: `${J}-3-${who.handle}`,
-    });
-    expect(limit.status, JSON.stringify(limit.body).slice(0, 300)).toBeLessThan(300);
-    const resting = (await openOrders(who, LIMITED)).find((o) => o.id === limit.body.id);
+    // A limit buy inside the band is accepted on the desk, rests on the venue, and locks exactly price × amount (95 × 0.5 = 47.5).
+    const buyForm = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+    await buyForm.getByRole('textbox', { name: 'Price', exact: true }).fill('95');
+    await buyForm.getByRole('textbox', { name: 'Amount', exact: true }).fill('0.5');
+    await buyForm.getByRole('button', { name: `Buy ${lim.base}`, exact: true }).click();
+    await reviewSheet(page).getByRole('button', { name: 'Confirm buy', exact: true }).click();
+    await continueInWallet(page);
+
+    await expect
+      .poll(async () => (await venueRecord(owner, '/open-orders')).value.some((o) => o.symbol === lim.symbol && o.side === 'buy'), {
+        timeout: 20_000,
+        message: 'limit buy rests on the venue',
+      })
+      .toBe(true);
+    const resting = (await venueRecord(owner, '/open-orders')).value.find((o) => o.symbol === lim.symbol && o.side === 'buy');
     expect(resting).toBeTruthy();
-    expect(held(await client.balances(), 'USDC') - before).toBe((toUnits(price) * toUnits('0.001')) / toUnits('1'));
-    run.write({ ...run.read(), resting: limit.body.id, price });
+    expect(toUnits((await venueBalance(owner, 'USDC')).locked) - lockedBefore).toBe(toUnits('47.5'));
+    // Carry the browser's kept venue order keys (sessionStorage) into #4 so the same trader can cancel from its row.
+    const venueStorage = await page.evaluate(() => Object.fromEntries(Object.entries(sessionStorage).filter(([k]) => k.includes('venue'))));
+    run.write({ ...run.read(), limitedMarket: lim, restingOrderId: resting.venueClientOrderId, venueStorage });
   });
 });
 
-test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`, async ({ page }) => {
-  const who = await account(page);
+test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`, async ({ page, stepPicture }) => {
+  const { who, walletKey, owner } = await trader(page);
   const client = await api(who);
-  const restingId = run.read().resting;
-  if (!restingId) throw new Error(`${J} #3 left no resting order, so this step has nothing to cancel`);
-  const price = run.read().price;
-  await inMode(LIMITED, 'CANCEL_ONLY', async () => {
-    expect(await publicState(LIMITED)).toBe('CANCEL_ONLY');
+  const { limitedMarket: lim, restingOrderId, venueStorage } = run.read();
+  if (!lim || !restingOrderId) throw new Error(`${J} #3 left no resting order, so this step has nothing to cancel`);
+
+  await inVenueStatus(lim.symbol, 'cancel_only', async () => {
+    const venueMkt = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === lim.symbol);
+    expect(venueMkt?.status).toBe('cancel_only');
     await page.goto('/status');
-    await expect(page.getByTestId(`status-mode-${LIMITED}`)).toContainText('Cancel-only');
+    await expect(page.getByTestId(`status-mode-${lim.symbol}`)).toContainText('Cancel-only');
 
-    await openDesk(page, who, LIMITED);
+    if (venueStorage) {
+      await page.addInitScript((entries) => {
+        for (const [k, v] of Object.entries(entries)) sessionStorage.setItem(k, v);
+      }, venueStorage);
+    }
+    await openVenueDesk(page, who, `/trade/spot/${lim.symbol}`, walletKey);
     await expect(page.getByTestId('dk-ticker')).toContainText('Cancel only, no new orders on this desk');
-    const before = held(await client.balances(), 'USDC');
-    const sent = placements(page);
-    // A new limit buy: refused in words before Confirm; nothing is sent and nothing more is held.
-    await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-    await page.getByRole('textbox', { name: 'Price', exact: true }).first().fill(price);
-    await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('0.001');
-    const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
-    await expect(form).toContainText('This market is cancel-only');
-    await expect(form).toContainText('you can still cancel them');
-    await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/);
-    await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
-    await page.waitForTimeout(1000);
-    expect(orderSends(sent)).toHaveLength(0);
-    const refused = await client.post('/api/v1/orders', {
-      symbol: LIMITED,
-      side: 'buy',
-      type: 'limit',
-      amount: '0.001',
-      price,
-      clientOrderId: `${J}-4-${who.handle}`,
-    });
-    expect(refused.status).toBeGreaterThanOrEqual(400);
-    expect(JSON.stringify(refused.body)).toContain('trade.mode_cancel_only');
-    expect(held(await client.balances(), 'USDC')).toBe(before);
+    const lockedBefore = toUnits((await venueBalance(owner, 'USDC')).locked);
+    const writes = venueWrites(page);
 
-    // Cancel works: the resting order from #3 comes off the book and its hold is released once.
-    const cancel = await client.delete(`/api/v1/orders/${encodeURIComponent(restingId)}`);
-    expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeLessThan(300);
-    await expect.poll(async () => (await openOrders(who, LIMITED)).map((o) => o.id)).not.toContain(restingId);
-    expect(held(await client.balances(), 'USDC')).toBe(0n);
+    // New limit buy on the ticket: explained in plain words, no raw code, Buy button disabled, nothing sent.
+    const buyForm = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+    await buyForm.getByRole('textbox', { name: 'Price', exact: true }).fill('90');
+    await buyForm.getByRole('textbox', { name: 'Amount', exact: true }).fill('0.5');
+    await expect(buyForm).toContainText('This market is cancel-only');
+    await expect(buyForm).toContainText('you can still cancel them');
+    await expect(buyForm).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/);
+    await expect(buyForm.getByRole('button', { name: `Buy ${lim.base}`, exact: true })).toBeDisabled();
+    await page.waitForTimeout(1000);
+    expect(writes).toHaveLength(0);
+
+    // Door refuses a new limit buy with 422 trade.venue.market_cancel_only, leaving balance lock untouched.
+    const refused = await client.post('/api/v1/venue/prepare', {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: {
+        kind: 'place_order',
+        symbol: lim.symbol,
+        side: 'buy',
+        type: 'limit',
+        amount: '0.5',
+        price: '90',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: orderKey(owner, `j14-4-new-${lim.base}`),
+      },
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body?.intafacedCode).toBe('trade.venue.market_cancel_only');
+    expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBefore);
+    await stepPicture();
+
+    // Cancel works on the venue desk: the resting order from #3 comes off the venue book and releases its lock.
+    const openRow = page.getByTestId('venue-bottom').getByRole('row').filter({ hasText: lim.symbol }).first();
+    await expect(openRow).toBeVisible({ timeout: 15_000 });
+    await openRow.getByRole('button', { name: /^Cancel/ }).click();
+    await continueInWallet(page);
+
+    await expect
+      .poll(async () => (await venueRecord(owner, '/open-orders')).value.some((o) => o.venueClientOrderId === restingOrderId), {
+        timeout: 20_000,
+        message: 'resting order cancelled on the venue',
+      })
+      .toBe(false);
+    expect(lockedBefore - toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(toUnits('47.5'));
   });
 });
 
 test(`${J} #5 a market with scheduled maintenance an hour away says "Maintenance in 1 hour" on the ticket and flags it on the list; no end time reads "End time not set"`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(4 * 60_000);
-  // Two TEST operators publish a maintenance window on the limited market, starting an hour from now, with no end time
-  // (svc-notify's four-eyes publish). The window is cancelled at the end of the step, so it never opens on the stack.
+  const { who, walletKey, owner } = await trader(page);
+  const maint = await freshMarket('M5');
+  await list(maint.symbol, minuteAgoIso());
+  expect((await venueRecord(owner, '/markets')).value.some((m) => m.symbol === maint.symbol)).toBe(true);
+
   const key = `${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}:${Date.now()}:maintenance`;
   const startsAt = new Date(Date.now() + 61 * 60_000).toISOString();
   const draft = await draftNotice({
     kind: 'maintenance',
-    title: `TEST ${LIMITED} maintenance`,
+    title: `TEST ${maint.symbol} maintenance`,
     body: 'TEST: a journey maintenance window on the local stack.',
     startsAt,
     noEnd: true,
-    components: [marketComponent(LIMITED)],
+    components: [marketComponent(maint.symbol)],
     key,
   });
   const published = await publishNotice(draft, key);
   try {
-    // The lifecycle read carries it, from the notice's own start time, with no end.
     await expect
-      .poll(
-        async () => (await (await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`)).json()).upcomingMaintenance,
-        {
-          timeout: 30_000,
-        },
-      )
+      .poll(async () => (await marketStates()).value.markets.find((m) => m.symbol === maint.symbol)?.upcomingMaintenance, {
+        timeout: 30_000,
+        message: 'venue market-states carries upcoming maintenance',
+      })
       .toMatchObject({ status: 'scheduled', noticeId: published.id, startsAt, endsAt: null });
-    // The ticket says it.
-    const who = await account(page);
-    await openDesk(page, who, LIMITED);
+
+    // The venue desk ticket and ticker say it.
+    await openVenueDesk(page, who, `/trade/spot/${maint.symbol}`, walletKey);
     const ticket = page.getByTestId('dk-maintenance');
     await expect(ticket).toContainText('Maintenance in 1 hour');
-    await expect(page.getByTestId('dk-ticker')).toContainText('Maintenance in 1 hour');
     await expect(ticket).toContainText('End time not set');
+    await expect(page.getByTestId('dk-ticker')).toContainText('Maintenance in 1 hour');
+    await stepPicture();
+
     // The markets list flags it on that market's row.
     await page.goto('/trade');
-    const row = page.getByRole('grid', { name: 'Markets', exact: true }).getByRole('row').filter({ hasText: LIMITED });
+    await page.getByRole('textbox', { name: 'Search markets', exact: true }).fill(maint.base);
+    const row = page
+      .getByRole('grid', { name: 'Markets', exact: true })
+      .getByRole('row')
+      .filter({ hasText: `${maint.base}/${maint.quote}` });
     await expect(row.getByTestId('mkt-maintenance')).toHaveText('Maintenance in 1 hour');
+
     // /status lists it on the market's row, and its blank end reads "End time not set".
     await page.goto('/status');
-    await expect(page.getByTestId(`status-maintenance-${LIMITED}`)).toContainText('End time not set');
+    await expect(page.getByTestId(`status-maintenance-${maint.symbol}`)).toContainText('End time not set');
   } finally {
     await cancelMaintenance(published, `${J}: TEST window cancelled at the end of the step`);
   }
-  // Cancelled, it is gone from the market's read.
   await expect
-    .poll(
-      async () =>
-        (await (await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`)).json()).upcomingMaintenance?.status,
-      {
-        timeout: 30_000,
-      },
-    )
+    .poll(async () => (await marketStates()).value.markets.find((m) => m.symbol === maint.symbol)?.upcomingMaintenance?.status, {
+      timeout: 30_000,
+    })
     .toBe('none');
 });
 
-test(`${J} #6 an order while the market session is closed: the closed-market rule is applied and explained`, async ({ page }) => {
-  const who = await account(page);
+test(`${J} #6 an order while the market session is closed: the closed-market rule is applied and explained`, async ({
+  page,
+  stepPicture,
+}) => {
+  const { who, walletKey, owner } = await trader(page);
   const client = await api(who);
-  // A session market whose session is shut now: the stack lists one TEST commodity on hours open one minute a week
-  // (`seed-spot-test-listing.mjs`, TSES/USD). Its published lifecycle refuses placement with the closed-session reason,
-  // the list reads "Closed, opens at", and an order refuses `trade.market_closed` with no order stored and nothing held.
-  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const shut = markets.find((m) => m.spot && !m.paper && m.sessionOpen === false && m.lifecycle?.reasonCode === 'trade.market_closed');
-  expect(shut, 'a session market whose published lifecycle says its session is shut now').toBeTruthy();
-  expect(shut.nextSessionChange?.open, 'the read names when it next opens').toBe(true);
+  const shut = await freshMarket('S6', {
+    session: {
+      homeMarket: 'TEST Session',
+      reopensAfterMs: 3_600_000,
+      closed: true,
+      closedRule: 'Orders are not queued while this market is closed',
+    },
+  });
+  await list(shut.symbol, minuteAgoIso());
+
+  const venueMkt = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === shut.symbol);
+  expect(venueMkt?.session).toMatchObject({ known: true, value: { state: 'closed' } });
+  expect(venueMkt?.session?.value?.reopensAt).toBeTruthy();
+
+  // On /trade (with paused rows included): shows Closed + Opens, action disabled explaining orders are not queued.
   await signIn(page, who);
-  // A market that is not open now is listed among the paused rows, so the list is asked to include them (as in #10).
-  await page.goto(`/trade?q=${encodeURIComponent(shut.base)}`);
+  await page.goto('/trade');
   await expect(page.getByRole('grid', { name: 'Markets', exact: true })).toBeVisible({ timeout: UNBUILT_MS });
+  await page.getByRole('textbox', { name: 'Search markets', exact: true }).fill(shut.base);
   const includePaused = page
     .getByRole('group', { name: 'Filter by status', exact: true })
     .getByRole('button', { name: 'Include paused', exact: true });
@@ -438,311 +662,471 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
     .getByRole('row')
     .filter({ hasText: `${shut.base}/${shut.quote}` });
   await expect(row).toContainText(/Closed.*Opens/, { timeout: UNBUILT_MS });
-  // Not a tradeable row: its action is disabled, says why, and links nowhere.
-  const button = row.getByRole('button', { name: new RegExp(`^(Trade|Buy) `) });
+  const button = row.getByRole('button', { name: /^(Trade|Buy) / });
   await expect(button).toBeDisabled();
   await expect(button).toHaveAttribute('title', 'This market is closed. Orders are not queued while it is closed');
-  const before = await client.balances();
-  const clientOrderId = `${J}-6-${who.handle}`;
-  const res = await client.post('/api/v1/orders', {
-    symbol: shut.symbol,
-    side: 'buy',
-    type: 'limit',
-    amount: '1',
-    price: '1',
-    clientOrderId,
+
+  // Door refuses any order while closed, leaving balances and open orders unchanged.
+  const lockedBefore = toUnits((await venueBalance(owner, 'USDC')).locked);
+  const openBefore = (await venueRecord(owner, '/open-orders')).value.length;
+  const refused = await client.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: {
+      kind: 'place_order',
+      symbol: shut.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '1',
+      price: '10',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-6-closed-${shut.base}`),
+    },
   });
-  expect(res.status).toBeGreaterThanOrEqual(400);
-  expect(JSON.stringify(res.body)).toContain('trade.market_closed');
-  // Nothing held, and the order was not stored to wait for the open.
-  expect(await client.balances()).toEqual(before);
-  expect((await openOrders(who, shut.symbol)).filter((o) => o.clientOrderId === clientOrderId)).toHaveLength(0);
-  // The desk says so before any order: closed, when it opens, and that orders are not queued.
-  await page.goto(deskPath(shut.symbol));
+  expect(refused.status).toBe(422);
+  expect(refused.body?.intafacedCode).toBe('trade.venue.market_closed');
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBefore);
+  expect((await venueRecord(owner, '/open-orders')).value).toHaveLength(openBefore);
+
+  // Venue desk says Closed, when it opens, and that orders are not queued; Buy disabled.
+  await openVenueDesk(page, who, `/trade/spot/${shut.symbol}`, walletKey);
   await expect(page.getByTestId('dk-ticker')).toContainText('Closed, opens', { timeout: UNBUILT_MS });
-  await expect(page.getByText(/Orders are not queued while it is closed/)).toBeVisible({ timeout: UNBUILT_MS });
+  await expect(page.getByTestId('dk-ticker')).toContainText('Orders are not queued while it is closed');
+  await expect(
+    page.locator('form[data-testid="dk-form"][data-side="buy"]').getByRole('button', { name: `Buy ${shut.base}`, exact: true }),
+  ).toBeDisabled();
+  await stepPicture();
 });
 
 test(`${J} #7 a market inside its opening window or the higher-risk zone shows a badge; a market order is refused with the window reason and a limit is accepted`, async ({
   page,
   stepPicture,
 }) => {
-  // A new listing inside its opening window: the stack lists one TEST market whose window ends weeks after the seed
-  // (TWIN/USDC). The read names when the window ends.
-  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const windowed = markets.find(
-    (m) => m.spot && !m.paper && m.orderable && m.openingWindowEndsAt && Date.parse(m.openingWindowEndsAt) > Date.now(),
-  );
-  expect(windowed, 'a market inside its opening window').toBeTruthy();
-  const who = await account(page);
+  const { who, walletKey, key, owner } = await trader(page);
   const client = await api(who);
-  await openDesk(page, who, windowed.symbol);
-  // The badge on the desk names the window and what it allows.
+  const { chainId } = await venueInfo();
+  const seedBook = async (mkt) => {
+    const makerName = `j14-7-mk-${mkt.base}`;
+    const mk = otherTraderKey(makerName);
+    await testDeposit(mk.address, mkt.base, '20', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+    await testDeposit(mk.address, 'USDC', '500', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+    await otherTraderRun(makerName, {
+      kind: 'place_order',
+      symbol: mkt.symbol,
+      side: 'sell',
+      type: 'limit',
+      amount: '5',
+      price: '20',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(mk.address, `j14-7-ask-${mkt.base}`),
+    });
+    await otherTraderRun(makerName, {
+      kind: 'place_order',
+      symbol: mkt.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '5',
+      price: '19.9',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(mk.address, `j14-7-bid-${mkt.base}`),
+    });
+  };
+
+  // Create and list both markets up front so the desk's market switcher carries both in one session.
+  const winEnds = new Date(Date.now() + 7 * DAY).toISOString();
+  const windowed = await freshMarket('W7', { openingWindowEndsAt: winEnds });
+  await list(windowed.symbol, minuteAgoIso());
+  await seedBook(windowed);
+  const zoned = await freshMarket('Z7', { zone: 'higher_risk', zoneOrderCap: '100' });
+  await list(zoned.symbol, minuteAgoIso());
+  await seedBook(zoned);
+
+  // 1) Opening window market
+  const winRecord = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === windowed.symbol);
+  expect(winRecord?.openingWindowEndsAt).toBe(winEnds);
+
+  await openVenueDesk(page, who, `/trade/spot/${windowed.symbol}`, walletKey);
   await expect(page.getByTestId('dk-opening-window')).toContainText('Opening window', { timeout: UNBUILT_MS });
   await expect(page.getByTestId('dk-opening-window')).toContainText('Limit orders only until');
-  const quote = windowed.quote;
-  const before = held(await client.balances(), quote);
-  const sent = placements(page);
-  // A market order: the ticket offers no Market tab inside the window; it lists Market, disabled, with the window reason
-  // (the desk's order-type list, J-cex-spot-04 #1), so nothing can be sent or held.
+  const lockedBeforeWin = toUnits((await venueBalance(owner, 'USDC')).locked);
+  const writesWin = venueWrites(page);
   await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
   await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
-  await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
   await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByTestId('dk-type-off-market')).toHaveText(
-    'MarketThis market takes limit orders only until its opening window ends.',
+    'Market: This market takes limit orders only until its opening window ends.',
   );
-  await page.keyboard.press('Escape');
   // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens: no order request leaves the page
   await page.waitForTimeout(1000);
-  expect(sent.filter((body) => body?.symbol === windowed.symbol)).toHaveLength(0);
-  // The door refuses the same market order with the window reason, before any hold.
-  const market = await client.post('/api/v1/orders', {
-    symbol: windowed.symbol,
-    side: 'buy',
-    type: 'market',
-    amount: '1',
-    clientOrderId: `${J}-7m-${who.handle}`,
-  });
-  expect(market.status).toBe(400);
-  expect(JSON.stringify(market.body)).toContain('trade.opening_window');
-  expect(held(await client.balances(), quote)).toBe(before);
-  // A limit buy is accepted and rests, holding exactly its price x amount; it is then cancelled, so nothing stays held.
-  const price = '1';
-  const amount = '1';
-  const limit = await client.post('/api/v1/orders', {
-    symbol: windowed.symbol,
-    side: 'buy',
-    type: 'limit',
-    amount,
-    price,
-    clientOrderId: `${J}-7-${who.handle}`,
-  });
-  expect(limit.status, JSON.stringify(limit.body).slice(0, 300)).toBeLessThan(300);
-  const resting = (await openOrders(who, windowed.symbol)).find((o) => o.id === limit.body.id);
-  expect(resting, 'the limit order rests on the book').toBeTruthy();
-  expect(held(await client.balances(), quote) - before).toBe((toUnits(price) * toUnits(amount)) / toUnits('1'));
-  const cancel = await client.delete(`/api/v1/orders/${encodeURIComponent(limit.body.id)}`);
-  expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeLessThan(300);
-  await expect.poll(async () => (await openOrders(who, windowed.symbol)).map((o) => o.id)).not.toContain(limit.body.id);
-  await expect.poll(async () => held(await client.balances(), quote)).toBe(before);
+  expect(writesWin).toHaveLength(0);
 
-  // The higher-risk zone: the stack lists one TEST market in it (TRSK/USDC) with a TEST order cap. The read flags it and
-  // names its cap; the desk shows the zone badge with that cap.
-  const zoned = markets.find((m) => m.spot && !m.paper && m.orderable && m.zone === 'higher_risk' && m.zoneOrderCap);
-  expect(zoned, 'a market in the higher-risk zone, with its order cap').toBeTruthy();
-  const cap = zoned.zoneOrderCap;
-  await openDesk(page, who, zoned.symbol);
+  // Door refuses market order with 422 trade.venue.opening_window, accepts limit buy, then cancels cleanly.
+  const winMkt = await client.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: {
+      kind: 'place_order',
+      symbol: windowed.symbol,
+      side: 'buy',
+      type: 'market',
+      amount: '1',
+      price: '20',
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-7-wm-${windowed.base}`),
+    },
+  });
+  expect(winMkt.status).toBe(422);
+  expect(winMkt.body?.intafacedCode).toBe('trade.venue.opening_window');
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeWin);
+
+  const winKey = orderKey(owner, `j14-7-wl-${windowed.base}`);
+  await walletDoorAct(client, key, {
+    intent: {
+      kind: 'place_order',
+      symbol: windowed.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '1',
+      price: '19',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: winKey,
+    },
+  });
+  expect((await venueRecord(owner, '/open-orders')).value.some((o) => o.symbol === windowed.symbol)).toBe(true);
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked) - lockedBeforeWin).toBe(toUnits('19'));
+  await walletDoorAct(client, key, { intent: { kind: 'cancel_order', symbol: windowed.symbol, clientOrderKey: winKey } });
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeWin);
+
+  // 2) Higher-risk zone market with order cap (opened from /trade in Pro layout in the same browser session)
+  const zoneRecord = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === zoned.symbol);
+  expect(zoneRecord).toMatchObject({ zone: 'higher_risk', zoneOrderCap: '100' });
+
+  await page.goto('/trade');
+  await page.getByRole('button', { name: 'Pro', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Search markets', exact: true }).fill(zoned.base);
+  const zoneRow = page
+    .getByRole('grid', { name: 'Markets', exact: true })
+    .getByRole('row')
+    .filter({ hasText: `${zoned.base}/${zoned.quote}` });
+  const writesZone = venueWrites(page);
+  await zoneRow.getByRole('button', { name: /^Trade / }).click();
   await expect(page.getByTestId('dk-zone')).toContainText('Higher-risk zone', { timeout: UNBUILT_MS });
-  await expect(page.getByTestId('dk-zone')).toContainText(`Limit orders only, up to ${cap} ${zoned.quote} an order`);
-  const zoneQuote = zoned.quote;
-  const zoneBefore = held(await client.balances(), zoneQuote);
-  const zoneSent = placements(page);
-  // A market order: no Market tab in the zone; Market is listed, disabled, with the zone reason (J-cex-spot-04 #1).
+  await expect(page.getByTestId('dk-zone')).toContainText(`Limit orders only, up to 100 ${zoned.quote} an order`);
   await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
   await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
-  await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
   await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByTestId('dk-type-off-market')).toHaveText(
-    'MarketThis market is in the higher-risk zone, which takes limit orders only.',
+    'Market: This market is in the higher-risk zone, which takes limit orders only.',
   );
   await stepPicture();
-  await page.keyboard.press('Escape');
-  // The door refuses the same market order with the zone reason, before any hold.
-  const zoneMarket = await client.post('/api/v1/orders', {
-    symbol: zoned.symbol,
-    side: 'buy',
-    type: 'market',
-    amount: '1',
-    clientOrderId: `${J}-7zm-${who.handle}`,
+
+  const lockedBeforeZone = toUnits((await venueBalance(owner, 'USDC')).locked);
+  const zoneMkt = await client.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: {
+      kind: 'place_order',
+      symbol: zoned.symbol,
+      side: 'buy',
+      type: 'market',
+      amount: '1',
+      price: '20',
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-7-zm-${zoned.base}`),
+    },
   });
-  expect(zoneMarket.status).toBe(400);
-  expect(JSON.stringify(zoneMarket.body)).toContain('trade.higher_risk_zone');
-  expect(held(await client.balances(), zoneQuote)).toBe(zoneBefore);
+  expect(zoneMkt.status).toBe(422);
+  expect(zoneMkt.body?.intafacedCode).toBe('trade.venue.higher_risk_zone');
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeZone);
   // By now the page has had the door's round trip and more to send an order, and it sent none.
-  expect(zoneSent.filter((body) => body?.symbol === zoned.symbol)).toHaveLength(0);
-  // A limit worth more than the cap is refused by its cap, before any hold.
-  const over = await client.post('/api/v1/orders', {
-    symbol: zoned.symbol,
-    side: 'buy',
-    type: 'limit',
-    amount: '101',
-    price: '1',
-    clientOrderId: `${J}-7zo-${who.handle}`,
+  expect(writesZone).toHaveLength(0);
+
+  const overCap = await client.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: {
+      kind: 'place_order',
+      symbol: zoned.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '6',
+      price: '19',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-7-zo-${zoned.base}`),
+    },
   });
-  expect(toUnits('101'), 'the over-cap order is worth more than the cap').toBeGreaterThan(toUnits(cap));
-  expect(over.status).toBe(400);
-  expect(JSON.stringify(over.body)).toContain('trade.zone_cap_exceeded');
-  expect(held(await client.balances(), zoneQuote)).toBe(zoneBefore);
-  // A limit buy under the cap is accepted and rests, holding exactly its price x amount; it is then cancelled.
-  const zonePrice = '1';
-  const zoneAmount = '10';
-  const zoneLimit = await client.post('/api/v1/orders', {
-    symbol: zoned.symbol,
-    side: 'buy',
-    type: 'limit',
-    amount: zoneAmount,
-    price: zonePrice,
-    clientOrderId: `${J}-7z-${who.handle}`,
+  expect(overCap.status).toBe(422);
+  expect(overCap.body?.intafacedCode).toBe('trade.venue.zone_cap_exceeded');
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeZone);
+
+  const zoneKey = orderKey(owner, `j14-7-zl-${zoned.base}`);
+  await walletDoorAct(client, key, {
+    intent: {
+      kind: 'place_order',
+      symbol: zoned.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '2',
+      price: '19',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: zoneKey,
+    },
   });
-  expect(zoneLimit.status, JSON.stringify(zoneLimit.body).slice(0, 300)).toBeLessThan(300);
-  const zoneResting = (await openOrders(who, zoned.symbol)).find((o) => o.id === zoneLimit.body.id);
-  expect(zoneResting, 'the zone limit order rests on the book').toBeTruthy();
-  expect(held(await client.balances(), zoneQuote) - zoneBefore).toBe((toUnits(zonePrice) * toUnits(zoneAmount)) / toUnits('1'));
-  const zoneCancel = await client.delete(`/api/v1/orders/${encodeURIComponent(zoneLimit.body.id)}`);
-  expect(zoneCancel.status, JSON.stringify(zoneCancel.body).slice(0, 300)).toBeLessThan(300);
-  await expect.poll(async () => (await openOrders(who, zoned.symbol)).map((o) => o.id)).not.toContain(zoneLimit.body.id);
-  await expect.poll(async () => held(await client.balances(), zoneQuote)).toBe(zoneBefore);
+  expect((await venueRecord(owner, '/open-orders')).value.some((o) => o.symbol === zoned.symbol)).toBe(true);
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked) - lockedBeforeZone).toBe(toUnits('38'));
+  await walletDoorAct(client, key, { intent: { kind: 'cancel_order', symbol: zoned.symbol, clientOrderKey: zoneKey } });
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeZone);
 });
 
 test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
-  // The reads: a ticker's spread is its best ask minus its best bid, exactly; so is every row of the spreads read; and
-  // candles come oldest first, each [open time, open, high, low, close, volume] in decimal strings.
-  const tickers = await (await fetch(`${EDGE}/api/v1/tickers?limit=500`)).json();
-  const btc = Object.values(tickers).find((t) => t?.symbol === 'BTC/USDT');
-  expect(btc?.bid && btc?.ask, 'the BTC/USDT ticker carries both sides of its book').toBeTruthy();
-  expect(toUnits(btc.spread), 'the ticker spread is best ask minus best bid').toBe(toUnits(btc.ask) - toUnits(btc.bid));
-  const spreadsRes = await fetch(`${EDGE}/api/v1/spreads?limit=500`);
-  expect(spreadsRes.status).toBe(200);
-  const spreads = await spreadsRes.json();
-  expect(
-    spreads.some((r) => r.symbol === 'BTC/USDT' && r.spread !== null),
-    'the spreads read has BTC/USDT',
-  ).toBe(true);
-  for (const r of spreads)
-    if (r.bid !== null && r.ask !== null) expect(toUnits(r.spread), `${r.symbol}'s spread`).toBe(toUnits(r.ask) - toUnits(r.bid));
-    else expect(r.spread, `${r.symbol} has one side, so no spread`).toBeNull();
-  const candlesRes = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
-  expect(candlesRes.status).toBe(200);
-  const candleRows = await candlesRes.json();
-  for (const [i, row] of candleRows.entries()) {
-    expect(row).toHaveLength(6);
-    for (const v of row.slice(1)) expect(typeof v, 'a candle amount is a decimal string').toBe('string');
-    if (i > 0) expect(row[0], 'candles come oldest first').toBeGreaterThan(candleRows[i - 1][0]);
-  }
+  const { who, walletKey, key, owner } = await trader(page);
+  const client = await api(who);
+  const tape = await freshMarket('T8');
+  await list(tape.symbol, minuteAgoIso());
 
-  // The live tickers (spreads with them) and candles: the multiplexed stream a desk opens (/ws/stream, no market). Two
-  // TEST traders trade each other on TAPE, a book no market maker quotes and no other journey trades, so its ticker and
-  // candles move by real taker fills while the step watches. A subscriber gets a snapshot first (the ticker channel's
-  // `snapshot`, the candle channel's current candles), then updates in order: ticker frames in time order, every one
-  // after the snapshot an `update`; candle frames never going back to an earlier bucket, the open bucket's volume
-  // growing by each fill.
-  const TAPE = 'USDT/USDC';
-  const buyer = await account(page);
-  const buyerApi = await api(buyer);
-  const seller = await fundedTrader(page, 'j14t', '50');
-  const sellerApi = await api(seller);
-  const trade = async (n, amount) => {
-    const ask = await sellerApi.post('/api/v1/orders', {
-      symbol: TAPE,
+  const { chainId } = await venueInfo();
+  const sellerName = `j14-8-seller-${tape.base}`;
+  const seller = otherTraderKey(sellerName);
+  await testDeposit(seller.address, tape.base, '200', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+
+  // Seed resting bid + ask on the TEST venue so book/ticker/spread all carry two sides.
+  await otherTraderRun(sellerName, {
+    kind: 'place_order',
+    symbol: tape.symbol,
+    side: 'sell',
+    type: 'limit',
+    amount: '10',
+    price: '12',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: orderKey(seller.address, `j14-8-top-ask-${tape.base}`),
+  });
+  const topBidKey = orderKey(owner, `j14-8-top-bid-${tape.base}`);
+  await walletDoorAct(client, key, {
+    intent: {
+      kind: 'place_order',
+      symbol: tape.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '10',
+      price: '8',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: topBidKey,
+    },
+  });
+
+  const executeTrade = async (n, amount) => {
+    await otherTraderRun(sellerName, {
+      kind: 'place_order',
+      symbol: tape.symbol,
       side: 'sell',
       type: 'limit',
       amount,
-      price: '1',
-      clientOrderId: `${J}-8s${n}-${seller.handle}`,
+      price: '10',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(seller.address, `j14-8-s${n}-${tape.base}`),
     });
-    expect(ask.status, JSON.stringify(ask.body).slice(0, 300)).toBeLessThan(300);
-    const bid = await buyerApi.post('/api/v1/orders', {
-      symbol: TAPE,
-      side: 'buy',
-      type: 'limit',
-      amount,
-      price: '1',
-      clientOrderId: `${J}-8b${n}-${seller.handle}`,
+    await walletDoorAct(client, key, {
+      intent: {
+        kind: 'place_order',
+        symbol: tape.symbol,
+        side: 'buy',
+        type: 'limit',
+        amount,
+        price: '10',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: orderKey(owner, `j14-8-b${n}-${tape.base}`),
+      },
     });
-    expect(bid.status, JSON.stringify(bid.body).slice(0, 300)).toBeLessThan(300);
-    await expect.poll(async () => (await openOrders(seller, TAPE)).length, { message: `trade ${n} on ${TAPE} filled` }).toBe(0);
   };
-  await trade(1, '5');
+  await executeTrade(1, '5');
+
+  // Verify REST public-book, tickers, spreads, and chart-candles directly against the venue's own records.
+  const ownBook = (await venueRecord(ZERO_OWNER, '/book', { symbol: tape.symbol, depth: 20 })).value;
+  const bookRes = await fetch(`${EDGE}/api/v1/venue/public-book?symbol=${encodeURIComponent(tape.symbol)}&depth=20`);
+  expect(bookRes.status).toBe(200);
+  const pubBook = (await bookRes.json()).value;
+  expect(pubBook.sequence).toBe(ownBook.sequence);
+  expect(pubBook.bids).toEqual(ownBook.bids);
+  expect(pubBook.asks).toEqual(ownBook.asks);
+
+  const tickersRes = await fetch(`${EDGE}/api/v1/venue/tickers`);
+  expect(tickersRes.status).toBe(200);
+  const tickerRow = (await tickersRes.json()).value[tape.symbol];
+  expect(tickerRow?.bid && tickerRow?.ask, 'ticker carries both sides').toBeTruthy();
+  expect(toUnits(tickerRow.spread), 'ticker spread = ask - bid').toBe(toUnits(tickerRow.ask) - toUnits(tickerRow.bid));
+  expect(sameDecimal(tickerRow.bid, ownBook.bids[0].price)).toBe(true);
+  expect(sameDecimal(tickerRow.ask, ownBook.asks[0].price)).toBe(true);
+
+  // Also add one listed one-sided TEST market (ask only, no bid) so the every-row spreads check exercises both branches.
+  const oneSided = await freshMarket('O8');
+  await list(oneSided.symbol, minuteAgoIso());
+  await testDeposit(seller.address, oneSided.base, '20', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+  await otherTraderRun(sellerName, {
+    kind: 'place_order',
+    symbol: oneSided.symbol,
+    side: 'sell',
+    type: 'limit',
+    amount: '1',
+    price: '10',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: orderKey(seller.address, `j14-8-onesided-${oneSided.base}`),
+  });
+
+  const spreadsRes = await fetch(`${EDGE}/api/v1/venue/spreads`);
+  expect(spreadsRes.status).toBe(200);
+  const spreads = (await spreadsRes.json()).value;
+  const spreadRow = spreads.find((r) => r.symbol === tape.symbol);
+  expect(spreadRow?.spread).toBeTruthy();
+  expect(toUnits(spreadRow.spread)).toBe(toUnits(spreadRow.ask) - toUnits(spreadRow.bid));
+  const oneSidedRow = spreads.find((r) => r.symbol === oneSided.symbol);
+  expect(oneSidedRow, 'one-sided market appears in spreads with null bid and null spread').toMatchObject({
+    bid: null,
+    spread: null,
+  });
+  for (const r of spreads) {
+    const expected = r.bid !== null && r.ask !== null ? toUnits(r.ask) - toUnits(r.bid) : null;
+    expect(r.spread === null ? null : toUnits(r.spread), `${r.symbol}'s spread`).toBe(expected);
+  }
+
+  const ownCandles = (await venueRecord(ZERO_OWNER, '/candles', { symbol: tape.symbol, interval: '1m', limit: 5 })).value;
+  const candlesRes = await fetch(`${EDGE}/api/v1/venue/chart-candles?symbol=${encodeURIComponent(tape.symbol)}&interval=1m&limit=5`);
+  expect(candlesRes.status).toBe(200);
+  const pubCandles = (await candlesRes.json()).value;
+  expect(pubCandles).toEqual(ownCandles);
+  for (let i = 1; i < pubCandles.length; i++) {
+    expect(Date.parse(pubCandles[i].openAt)).toBeGreaterThan(Date.parse(pubCandles[i - 1].openAt));
+  }
+
+  // Multiplexed WS stream: ticker + candles snapshot followed by ordered updates on trade 2.
   const mux = await openMux(`${ORIGIN.replace(/^http/, 'ws')}/ws/stream`);
   try {
-    mux.send({ op: 'subscribe', id: 'j14-8', channels: [{ ch: 'ticker' }, { ch: 'candles', market: TAPE, interval: '1m' }] });
+    mux.send({ op: 'subscribe', id: 'j14-8', channels: [{ ch: 'ticker' }, { ch: 'candles', market: tape.symbol, interval: '1m' }] });
     await expect
-      .poll(() => mux.frames.find((f) => f.op === 'ack' && f.id === 'j14-8')?.results?.every((r) => r.ok), { timeout: 15_000 })
+      .poll(() => mux.frames.find((f) => f.op === 'ack' && f.id === 'j14-8')?.results?.every((r) => r.ok), { timeout: 20_000 })
       .toBe(true);
     const tickerFrames = () => mux.frames.filter((f) => f.ch === 'ticker').map((f) => f.data);
     const candleFrames = () => mux.frames.filter((f) => f.ch === 'candles').map((f) => f.data);
     await expect.poll(() => tickerFrames().length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
     await expect.poll(() => candleFrames().length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+
     const snapshot = tickerFrames()[0];
-    expect(snapshot.type, 'the ticker channel opens with a snapshot').toBe('snapshot');
-    const liveBtc = snapshot.tickers.find((r) => r.symbol === 'BTC/USDT');
-    expect(liveBtc?.bid && liveBtc?.ask, 'the live BTC/USDT row carries its book top').toBeTruthy();
-    expect(toUnits(liveBtc.spread), 'the live spread is best ask minus best bid').toBe(toUnits(liveBtc.ask) - toUnits(liveBtc.bid));
-    const tapeBefore = snapshot.tickers.find((r) => r.symbol === TAPE);
-    expect(tapeBefore?.last, `${TAPE}'s row has its last trade`).toBe('1');
+    expect(snapshot.type).toBe('snapshot');
+    const tapeBefore = snapshot.tickers.find((r) => r.symbol === tape.symbol);
+    expect(tapeBefore?.bid && tapeBefore?.ask).toBeTruthy();
+    expect(toUnits(tapeBefore.spread)).toBe(toUnits(tapeBefore.ask) - toUnits(tapeBefore.bid));
+    expect(sameDecimal(tapeBefore.last, '10')).toBe(true);
     const firstCandles = candleFrames().length;
     const openBucket = candleFrames().at(-1);
     expect(openBucket.type).toBe('candle');
-    expect(openBucket.c, `${TAPE}'s current candle closes at the trade`).toBe('1');
+    expect(sameDecimal(openBucket.c, '10')).toBe(true);
 
-    await trade(2, '3');
-    // The candles: an update after the current candles, for the open bucket (or a later one), with trade 2 in it.
+    await executeTrade(2, '3');
     await expect
       .poll(
         () =>
           candleFrames()
             .slice(firstCandles)
             .some((c) => c.t > openBucket.t || (c.t === openBucket.t && toUnits(c.v) - toUnits(openBucket.v) >= toUnits('3'))),
-        { timeout: 30_000, message: `${TAPE}'s candle grows by trade 2` },
+        { timeout: 30_000, message: `${tape.symbol} candle grows by trade 2` },
       )
       .toBe(true);
-    // The ticker: an update naming TAPE with trade 2 in its 24 h volume.
     await expect
       .poll(
         () =>
           tickerFrames()
             .slice(1)
-            .some((f) => f.tickers.some((r) => r.symbol === TAPE && toUnits(r.volume) - toUnits(tapeBefore.volume) >= toUnits('3'))),
-        { timeout: 30_000, message: `${TAPE}'s ticker updates with trade 2` },
+            .some((f) => f.tickers.some((r) => r.symbol === tape.symbol && toUnits(r.volume) - toUnits(tapeBefore.volume) >= toUnits('3'))),
+        { timeout: 30_000, message: `${tape.symbol} ticker updates with trade 2` },
       )
       .toBe(true);
-    // In order: the ticker frames in time order, a snapshot and then updates (a snapshot again only as a repair); the
-    // candle frames never back to an earlier bucket.
+
     const ticks = tickerFrames();
     for (let i = 1; i < ticks.length; i++) {
-      expect(ticks[i].ts, 'ticker frames come in time order').toBeGreaterThanOrEqual(ticks[i - 1].ts);
+      expect(ticks[i].ts).toBeGreaterThanOrEqual(ticks[i - 1].ts);
       expect(['update', 'snapshot']).toContain(ticks[i].type);
     }
-    expect(
-      ticks.slice(1).some((f) => f.type === 'update'),
-      'updates follow the snapshot',
-    ).toBe(true);
+    expect(ticks.slice(1).some((f) => f.type === 'update')).toBe(true);
     const bars = candleFrames();
-    for (let i = 1; i < bars.length; i++) expect(bars[i].t, 'candle frames never go back a bucket').toBeGreaterThanOrEqual(bars[i - 1].t);
+    for (let i = 1; i < bars.length; i++) expect(bars[i].t).toBeGreaterThanOrEqual(bars[i - 1].t);
   } finally {
     mux.close();
   }
 
-  // The stream: the public depth socket a desk opens (/ws/stream on the app's own origin). A snapshot first, then deltas
-  // in sequence order, each continuing the one before. Another screen keeps watching the book (`watcher`) while this one
-  // drops and reconnects naming the last sequence it holds: it is sent only the deltas it missed, the first continuing
-  // from that sequence, never a fresh snapshot.
-  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const listing = markets.find((m) => m.symbol === 'BTC/USDT' && m.spot && !m.paper);
-  expect(listing?.id, 'BTC/USDT is listed').toBeTruthy();
+  // Public depth WS stream: snapshot -> ordered deltas -> disconnect -> mutate -> reconnect with since=held resumes via delta.
   const streamUrl = (since) =>
-    `${ORIGIN.replace(/^http/, 'ws')}/ws/stream?market=${encodeURIComponent(listing.id)}${since === undefined ? '' : `&since=${since}`}`;
+    `${ORIGIN.replace(/^http/, 'ws')}/ws/stream?market=${encodeURIComponent(tape.symbol)}${since === undefined ? '' : `&since=${since}`}`;
   const watcher = openStream(streamUrl());
   const first = openStream(streamUrl());
   try {
-    await expect.poll(() => first.frames.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
-    expect(first.frames[0].type, 'the stream opens with a snapshot').toBe('snapshot');
-    const held = continues(first.frames);
+    await expect.poll(() => first.frames.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+    expect(first.frames[0].type).toBe('snapshot');
+
+    // Mutate book twice, waiting for each delta so first receives snapshot + 2 ordered deltas.
+    const k1 = orderKey(owner, `j14-8-d1-${tape.base}`);
+    await walletDoorAct(client, key, {
+      intent: {
+        kind: 'place_order',
+        symbol: tape.symbol,
+        side: 'buy',
+        type: 'limit',
+        amount: '1',
+        price: '7',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: k1,
+      },
+    });
+    await expect.poll(() => first.frames.length, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
+    await walletDoorAct(client, key, { intent: { kind: 'cancel_order', symbol: tape.symbol, clientOrderKey: k1 } });
+    await expect.poll(() => first.frames.length, { timeout: 20_000 }).toBeGreaterThanOrEqual(3);
+
+    const heldSeq = continues(first.frames);
     first.close();
-    await expect.poll(() => watcher.frames.at(-1)?.sequence ?? 0, { timeout: 30_000 }).toBeGreaterThan(held);
-    const again = openStream(streamUrl(held));
+
+    // Mutate while first is disconnected; watcher confirms sequence advances past heldSeq.
+    const k2 = orderKey(owner, `j14-8-d2-${tape.base}`);
+    await walletDoorAct(client, key, {
+      intent: {
+        kind: 'place_order',
+        symbol: tape.symbol,
+        side: 'buy',
+        type: 'limit',
+        amount: '1',
+        price: '6',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: k2,
+      },
+    });
+    await expect.poll(() => watcher.frames.at(-1)?.sequence ?? 0, { timeout: 20_000 }).toBeGreaterThan(heldSeq);
+
+    const again = openStream(streamUrl(heldSeq));
     try {
-      await expect.poll(() => again.frames.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
-      expect(again.frames[0], 'the reconnect resumes from the last sequence, not from a new snapshot').toMatchObject({
+      await expect.poll(() => again.frames.length, { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
+      expect(again.frames[0], 'reconnect resumes from held sequence via delta, never a fresh snapshot').toMatchObject({
         type: 'delta',
-        fromSequence: held,
+        fromSequence: heldSeq,
       });
-      await expect.poll(() => again.frames.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
-      continues(again.frames, held);
+      await walletDoorAct(client, key, { intent: { kind: 'cancel_order', symbol: tape.symbol, clientOrderKey: k2 } });
+      await expect.poll(() => again.frames.length, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
+      continues(again.frames, heldSeq);
     } finally {
       again.close();
     }
@@ -750,9 +1134,14 @@ test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordere
     first.close();
     watcher.close();
   }
+
+  // Clean up resting top-of-book bid so wallet lock returns to zero, and take the step picture on the venue desk.
+  await walletDoorAct(client, key, { intent: { kind: 'cancel_order', symbol: tape.symbol, clientOrderKey: topBidKey } });
+  await openVenueDesk(page, who, `/trade/spot/${tape.symbol}`, walletKey);
+  await expect(page.getByTestId('dk-pair')).toHaveText(`${tape.base}/${tape.quote}`);
+  await stepPicture();
 });
 
-/** A multiplexed public socket (/ws/stream with no market), once open: every frame it has received, parsed, and a sender. */
 async function openMux(url) {
   const socket = new WebSocket(url);
   const frames = [];
@@ -764,7 +1153,6 @@ async function openMux(url) {
   return { frames, send: (value) => socket.send(JSON.stringify(value)), close: () => socket.close() };
 }
 
-/** A public depth socket and every frame it has received, parsed. */
 function openStream(url) {
   const socket = new WebSocket(url);
   const frames = [];
@@ -772,10 +1160,6 @@ function openStream(url) {
   return { frames, close: () => socket.close() };
 }
 
-/**
- * The frames, read as a client does: from a snapshot (or from `from`, the sequence the client already holds), every
- * delta continues the sequence before it. Returns the last sequence held.
- */
 function continues(frames, from = null) {
   let cursor = from;
   for (const frame of frames) {
@@ -794,117 +1178,205 @@ function continues(frames, from = null) {
 
 test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window stats with the window named; a blank window refuses`, async ({
   page,
+  stepPicture,
 }) => {
-  const who = await account(page);
-  await signIn(page, who);
-  // Every analytics read the room makes, with the service's answer: the figures it shows are compared with these.
+  const { who, walletKey, key, owner } = await trader(page);
+  const client = await api(who);
+  const ana = await freshMarket('A9');
+  await list(ana.symbol, minuteAgoIso());
+
+  const { chainId } = await venueInfo();
+  const otherName = `j14-9-other-${ana.base}`;
+  const other = otherTraderKey(otherName);
+  await testDeposit(other.address, ana.base, '50', `${chainId}:0x${randomBytes(32).toString('hex')}:0`);
+
+  // Trade 1 (buy-initiated): other rests ask 4 @ 25, buyer crosses -> taker buy 4 @ 25.
+  await otherTraderRun(otherName, {
+    kind: 'place_order',
+    symbol: ana.symbol,
+    side: 'sell',
+    type: 'limit',
+    amount: '4',
+    price: '25',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: orderKey(other.address, `j14-9-t1s-${ana.base}`),
+  });
+  await walletDoorAct(client, key, {
+    intent: {
+      kind: 'place_order',
+      symbol: ana.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '4',
+      price: '25',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-9-t1b-${ana.base}`),
+    },
+  });
+  // Trade 2 (sell-initiated): buyer rests bid 1.5 @ 24, other crosses -> taker sell 1.5 @ 24.
+  await walletDoorAct(client, key, {
+    intent: {
+      kind: 'place_order',
+      symbol: ana.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '1.5',
+      price: '24',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-9-t2b-${ana.base}`),
+    },
+  });
+  await otherTraderRun(otherName, {
+    kind: 'place_order',
+    symbol: ana.symbol,
+    side: 'sell',
+    type: 'limit',
+    amount: '1.5',
+    price: '24',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: orderKey(other.address, `j14-9-t2s-${ana.base}`),
+  });
+
+  // Read the venue's own trade tape directly to independently verify the differential and stats.
+  const ownTrades = (await venueRecord(owner, '/trades', { symbol: ana.symbol, limit: 500 })).value;
+  expect(ownTrades).toHaveLength(2);
+  const ownBuyVol = ownTrades.filter((t) => t.takerSide === 'buy').reduce((s, t) => s + toUnits(t.amount), 0n);
+  const ownSellVol = ownTrades.filter((t) => t.takerSide === 'sell').reduce((s, t) => s + toUnits(t.amount), 0n);
+  expect(ownBuyVol).toBe(toUnits('4'));
+  expect(ownSellVol).toBe(toUnits('1.5'));
+
   const reads = [];
   page.on('response', async (r) => {
     const url = new URL(r.url());
-    if (r.request().method() !== 'GET' || url.pathname !== `/api/v1/analytics/${encodeURIComponent('BTC/USDT')}`) return;
+    if (r.request().method() !== 'GET' || url.pathname !== '/api/v1/venue/analytics') return;
     reads.push({ window: url.searchParams.get('window'), status: r.status(), body: await r.json().catch(() => null) });
   });
-  await page.goto('/trade/analytics/BTC-USDT');
+  await openVenueDesk(page, who, `/trade/spot/${ana.symbol}`, walletKey);
+  await page.getByTestId('dk-analytics-link').click();
+  await expect(page).toHaveURL(new RegExp(`/trade/analytics/${ana.symbol}$`));
   const utc = (iso) => iso.slice(0, 16).replace('T', ' ');
-  /** The room shows the service's latest read of `window`, figure for figure, with the window named. */
+
   const showsRead = async (window, named) => {
     let read;
     await expect(async () => {
       read = reads.filter((x) => x.window === window).at(-1);
       expect(read, `the room read the ${window} window`).toBeTruthy();
       expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
-      expect(read.body).toMatchObject({ symbol: 'BTC/USDT', window });
+      expect(read.body).toMatchObject({ symbol: ana.symbol, window, trades: 2, buyTrades: 1, sellTrades: 1, complete: true });
       const b = read.body;
-      // The service's own sum: the differential is taker buys minus taker sells, and the trades split adds up.
-      expect(toUnits(b.aggressorDifferential)).toBe(toUnits(b.buyVolume) - toUnits(b.sellVolume));
-      expect(b.buyTrades + b.sellTrades).toBe(b.trades);
+      expect(toUnits(b.buyVolume)).toBe(ownBuyVol);
+      expect(toUnits(b.sellVolume)).toBe(ownSellVol);
+      expect(toUnits(b.aggressorDifferential)).toBe(ownBuyVol - ownSellVol);
       await expect(page.getByTestId('analytics-differential').locator('strong')).toHaveText(b.aggressorDifferential, { timeout: 1_000 });
       await expect(page.getByTestId('analytics-differential')).toContainText('Aggressor differential');
-      await expect(page.getByTestId('analytics-differential')).toContainText('Bought by takers minus sold by takers, in BTC');
+      await expect(page.getByTestId('analytics-differential')).toContainText(`Bought by takers minus sold by takers, in ${ana.base}`);
       await expect(page.getByTestId('analytics-bought').locator('strong')).toHaveText(b.buyVolume, { timeout: 1_000 });
       await expect(page.getByTestId('analytics-sold').locator('strong')).toHaveText(b.sellVolume, { timeout: 1_000 });
-      await expect(page.getByTestId('analytics-trades').locator('strong')).toHaveText(String(b.trades), { timeout: 1_000 });
-      await expect(page.getByTestId('analytics-trades')).toContainText(`${b.buyTrades} buy-initiated, ${b.sellTrades} sell-initiated`, {
-        timeout: 1_000,
-      });
-      await expect(page.getByTestId('analytics-range')).toHaveText(
-        b.high !== null && b.low !== null ? `Range: ${b.low} – ${b.high}` : 'Range: No trades in this window',
-        { timeout: 1_000 },
-      );
+      await expect(page.getByTestId('analytics-trades').locator('strong')).toHaveText('2', { timeout: 1_000 });
+      await expect(page.getByTestId('analytics-trades')).toContainText('1 buy-initiated, 1 sell-initiated', { timeout: 1_000 });
+      await expect(page.getByTestId('analytics-range')).toHaveText(`Range: ${b.low} – ${b.high}`, { timeout: 1_000 });
       await expect(page.getByTestId('analytics-window')).toHaveText(`Window: ${named}, ${utc(b.from)} to ${utc(b.to)} UTC`, {
         timeout: 1_000,
       });
-      if (b.complete) await expect(page.getByTestId('analytics-partial')).toHaveCount(0);
-      else
-        await expect(page.getByTestId('analytics-partial')).toHaveText(
-          `More trades than one read holds: these figures cover ${utc(b.coveredFrom ?? b.from)} to ${utc(b.to)} UTC only.`,
-          { timeout: 1_000 },
-        );
+      await expect(page.getByTestId('analytics-partial')).toHaveCount(0);
     }).toPass({ timeout: 20_000 });
-    // The window it names is the window it read.
     const span = Date.parse(read.body.to) - Date.parse(read.body.from);
     expect(span).toBe({ '5m': 5 * 60_000, '1h': 3_600_000, '24h': 86_400_000 }[window]);
   };
+
   await showsRead('1h', 'Last 1 hour');
   await expect(page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 1 hour', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  // Another named window is read again and named, with its own figures.
   await page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 24 hours', exact: true }).click();
   await showsRead('24h', 'Last 24 hours');
-  // A blank window refuses with its typed code; it never falls back to a window of its own.
-  const blank = await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}`);
+  await stepPicture();
+
+  // A blank window refuses with its typed code; never defaults.
+  const blank = await fetch(`${EDGE}/api/v1/venue/analytics?symbol=${encodeURIComponent(ana.symbol)}`);
   expect(blank.status).toBe(400);
   expect(JSON.stringify(await blank.json())).toContain('trade.analytics_window_unset');
 });
 
-test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label reads USD`, async ({ page }) => {
-  const who = await account(page);
-  // A USD-quoted pair the service lists: its desk names the quote USD, from the listing, not from a stand-in.
-  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const usd = markets.find((m) => m.quote === 'USD' && m.spot && !m.paper);
-  expect(usd, 'a USD-quoted spot pair on the list').toBeTruthy();
-  await signIn(page, who);
-  await page.goto(deskPath(usd.symbol));
+test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label reads USD`, async ({ page, stepPicture }) => {
+  const { who, walletKey, owner } = await trader(page);
+  const usd = await freshMarket('USD', { quoteAsset: 'USD' });
+  await list(usd.symbol, minuteAgoIso());
+  const ownMkt = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === usd.symbol);
+  expect(ownMkt?.quoteAsset).toBe('USD');
+
+  // The equity class is parked until an equity licence is named (AGENTS.md floor 8: never fake an unlicensed equity
+  // listing): neither svc-trade's markets catalogue nor the venue read lists any equity-class row, and /trade surfaces
+  // `mkt-not-offered-equity` naming the real licence blocker.
+  const ownMarkets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  expect(ownMarkets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
+  const venueListed = (await marketStates()).value.markets;
+  expect(venueListed.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
+
+  // The venue desk names the quote USD from the venue listing.
+  await openVenueDesk(page, who, `/trade/spot/${usd.symbol}`, walletKey);
   await expect(page.getByTestId('dk-pair')).toHaveText(`${usd.base}/USD`);
-  // The equity class is not listed without a licence: the markets page names it, with its blocker, and lists no row.
-  expect(markets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
+
+  // The markets list labels that pair's quote /USD and names tokenized equities with their licence blocker.
   await page.goto('/trade');
-  // The markets list labels that pair's quote USD too. A USD pair whose session or settlement is not open is a paused
-  // row, so the list is asked to include paused markets first.
-  await page.getByRole('button', { name: 'Include paused', exact: true }).click();
-  const list = page.getByRole('grid', { name: 'Markets', exact: true });
-  const usdRows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
-  await expect(usdRows.first()).toBeVisible();
+  await page.getByRole('textbox', { name: 'Search markets', exact: true }).fill(usd.base);
+  const listGrid = page.getByRole('grid', { name: 'Markets', exact: true });
+  const usdRow = listGrid
+    .getByRole('row')
+    .filter({ hasText: usd.base })
+    .filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
+  await expect(usdRow.first()).toBeVisible();
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Tokenized equities');
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Not available: licence not named');
+  await stepPicture();
 });
 
 test(`${J} #11 the retail price improvement layer reads "Not available: priority class not specified", and no order accepts that flag`, async ({
   page,
+  stepPicture,
 }) => {
-  const who = await account(page);
+  const { who, walletKey, owner } = await trader(page);
   const client = await api(who);
+  const mine = await venueMarkets();
+
   await page.goto('/trade');
   await expect(page.getByTestId('mkt-not-offered-rpi')).toContainText('Not available: priority class not specified');
-  await openDesk(page, who, 'BTC/USDT');
+
+  await openVenueDesk(page, who, `/trade/spot/${mine.open.symbol}`, walletKey);
   await expect(page.getByTestId('dk-ticker')).toContainText('Retail price improvement');
   await expect(page.getByTestId('dk-ticker')).toContainText('Not available: priority class not specified');
-  // An order that asks for the layer is refused with its typed code, before any hold, and is not stored.
-  const before = await client.balances();
-  const clientOrderId = `${J}-11-${who.handle}`;
-  const res = await client.post('/api/v1/orders', {
-    symbol: 'BTC/USDT',
-    side: 'buy',
-    type: 'limit',
-    amount: '0.0001',
-    price: '1',
+  await stepPicture();
+
+  // An order requesting RPI is refused with trade.rpi_unavailable before any venue call or lock.
+  const lockedBefore = toUnits((await venueBalance(owner, 'USDC')).locked);
+  const openBefore = (await venueRecord(owner, '/open-orders')).value.length;
+  const rpiBody = {
+    owner,
+    signer: { role: 'owner', address: owner },
     rpi: true,
-    clientOrderId,
-  });
-  expect(res.status).toBe(400);
-  expect(JSON.stringify(res.body)).toContain('trade.rpi_unavailable');
-  expect(await client.balances()).toEqual(before);
-  expect((await openOrders(who)).filter((o) => o.clientOrderId === clientOrderId)).toHaveLength(0);
+    intent: {
+      kind: 'place_order',
+      symbol: mine.open.symbol,
+      side: 'buy',
+      type: 'limit',
+      amount: '1',
+      price: '10',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: orderKey(owner, `j14-11-rpi-${mine.open.base}`),
+    },
+  };
+  const prepareRes = await client.post('/api/v1/venue/prepare', rpiBody);
+  expect(prepareRes.status).toBe(400);
+  expect(JSON.stringify(prepareRes.body)).toContain('trade.rpi_unavailable');
+  const previewRes = await client.post('/api/v1/venue/preview', { owner, intent: { ...rpiBody.intent, rpi: true } });
+  expect(previewRes.status).toBe(400);
+  expect(JSON.stringify(previewRes.body)).toContain('trade.rpi_unavailable');
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBefore);
+  expect((await venueRecord(owner, '/open-orders')).value).toHaveLength(openBefore);
 });

@@ -1,7 +1,7 @@
 /**
  * EXACT REVERT: whether a pull request undoes one commit and does nothing else. No imports, so main's copy of the
- * test-diff guard can take it beside itself (ci.yml); lint-ratchet, look-drift and the kit-ceilings and volt-off-kit
- * tests (judgedCopy) read autoRevertOf below, and the CI
+ * test-diff guard can take it beside itself (ci.yml); lint-ratchet, look-drift and the kit-ceilings
+ * test (judgedCopy) read autoRevertOf below, and the CI
  * review (ci-review.mjs automaticRevert) reads the same rules. Two proofs, either enough:
  *   exactReverse        the diff alone: every hunk of the commit undone, context lines included, moved together.
  *   revertTreeMatches   git: the head is exactly `git revert <commit>` made on its own parent (same tree, no conflict),
@@ -169,7 +169,7 @@ function widest(a, b) {
 }
 
 /**
- * A committed JSON list or table that may only shrink or fall (kit-ceilings.json, volt-off-kit.json), as the change is
+ * A committed JSON list or table that may only shrink or fall (kit-ceilings.json, or a list), as the change is
  * judged against: its copy at `fork`, where the change left main, and for main-bisect's proven revert of X (autoRevertOf)
  * widest of that and X^'s copy, the tree the revert restores. So the revert may put back what X^ held, never more, and
  * every other change is judged against main alone (project-state#3697: 13 of 18 reverts in a week closed unmerged, most

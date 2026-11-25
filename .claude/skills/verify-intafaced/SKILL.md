@@ -1,13 +1,13 @@
 ---
 name: verify-intafaced
-description: Drive INTAFACED's Customer web app on this checkout's own local test stack the way a person does, and keep the proof. Launch the stack, check that it is worth driving, drive one journey step or look at one page, keep the screenshots and reports, and clean up, with one command each. Not for a builder's own change: its proof is the PR's CI and journeys run, and builders start no local stack (AGENTS.md, How work flows 4). Use it only when asked to look at the running app, instead of restarting the stack by hand or writing a one-off Playwright probe.
+description: Drive INTAFACED's Customer web app on this checkout's own local test stack the way a person does, and keep the proof. Launch the stack, check that it is worth driving, drive one journey step or look at one page, keep the screenshots and reports, and clean up, with one command each. On the box, a builder holding a slot drives its own change with it before the first push (AGENTS.md, How work flows 4). Use it instead of restarting the stack by hand or writing a one-off Playwright probe.
 ---
 
 # Verify INTAFACED in the running app
 
 Every command here is a word of the stack's own start, `pnpm local:stack verify <command>`, so the Mac's checks on a stack start (the disk floor, the heavy-job turn, the old-branch check) apply to it. Run them from the checkout's root. The code is `tooling/scripts/verify-app.mjs`. It wraps the stack (`tooling/scripts/local-test-stack.mjs`) and the journeys' own harness (`apps/customer/tests/real-app/`) and adds no harness of its own.
 
-A local pass never counts as proof. The proof is the Real-app journeys run on the pull request's exact head (AGENTS.md, How work flows 4). This skill is for looking at the running app when asked, and showing what you saw.
+A local pass never counts as proof. The proof is the Real-app journeys run on the pull request's exact head (AGENTS.md, How work flows 4). This skill is for seeing a change work from the menus, with what it should change (ledger, database, venue stand-in) and a reload, and showing what you saw.
 
 **What a person touches:** the Customer app, a React and Vite web app, served by the stack at `http://127.0.0.1:3210`. Slot n adds 1000 × n to every port; `launch` and `doctor` print the address. The stack also serves:
 

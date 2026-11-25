@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createPublicClient, erc20Abi, http, keccak256, toHex } from 'viem';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -6,6 +7,7 @@ import { restartWithSetting, stackUrl, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 import { connectWhenAsked } from './dex.mjs';
+import { HL_TRADER_KEY_ENV, HyperliquidFileError, hlLiveKey, hyperliquidFileRun } from './hl-file-run.mjs';
 
 // What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 had one until its own file covered its venue steps) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
@@ -57,32 +59,26 @@ export function venueForThisFile(test, value = 'on', { recording = null, trader 
   });
 }
 
-/** The GitHub secret (and env var) with the funded Hyperliquid test-network wallet's key: what an `hl-testnet` file signs with. */
-const HL_TRADER_KEY_ENV = 'HL_TESTNET_TRADER_KEY';
-
-/** A Hyperliquid file asked for what it lacks: `code` names it. */
-class HyperliquidFileError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-}
+/** The funded test-network wallet an `hl-testnet` file signs with (hl-file-run.mjs `hlLiveKey`). Never printed. */
+const hlLiveTrader = (env = process.env) => privateKeyToAccount(hlLiveKey(env));
 
 /**
- * The funded test-network wallet an `hl-testnet` file signs with, from HL_TESTNET_TRADER_KEY. MetaMask exports the key
- * without `0x`, so both forms are read. Unset refuses `hl_live_key_missing`, naming the secret. Never printed.
+ * A venue file that opts in to Hyperliquid's test network under its recording's name (hl-file-run.mjs
+ * `hyperliquidFileRun`): live on main's daily run (.github/workflows/hl-venue-daily.yml finds the files that call this),
+ * replayed strictly from its recording everywhere else, and on the TEST venue simulator until its first recording lands.
+ * Returns `{ kind, key, trader }`: the wallet key the file signs with, null on the simulator (the file keeps its own).
  */
-function hlLiveTrader(env = process.env) {
-  const text = (env[HL_TRADER_KEY_ENV] ?? '').trim();
-  if (text === '')
-    throw new HyperliquidFileError(
-      'hl_live_key_missing',
-      `LOCAL_STACK_USER_VENUE=hl-testnet needs ${HL_TRADER_KEY_ENV}, the funded test-network wallet's key: it is not set`,
-    );
-  const hex = /^0x/i.test(text) ? text.slice(2) : text;
-  if (!/^[0-9a-fA-F]{64}$/.test(hex))
-    throw new HyperliquidFileError('hl_live_key_malformed', `${HL_TRADER_KEY_ENV} must be 64 hex digits, with or without 0x`);
-  return privateKeyToAccount(`0x${hex.toLowerCase()}`);
+export function hyperliquidForThisFile(test, recording) {
+  const run = hyperliquidFileRun(recording);
+  if (run.kind === 'on') {
+    venueForThisFile(test, 'on');
+    test.beforeAll(() => {
+      console.warn(
+        `hl_recording_pending: no Hyperliquid recording "${recording}" yet, so this file runs on the TEST venue simulator until the daily run adds it`,
+      );
+    });
+  } else venueForThisFile(test, run.kind, { recording, trader: run.trader });
+  return run;
 }
 
 /**
@@ -345,3 +341,15 @@ export async function walletDoorAct(session, key, { subAccount = null, intent, a
   expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   return sent;
 }
+
+/** Keys sorted, no spaces: the canonical form svc-trade hashes (services/svc-trade/src/admin/common.ts payloadHash). */
+function canonical(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  const keys = Object.keys(value)
+    .filter((k) => value[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+}
+/** The payload hash svc-trade binds an operator's two-person change to (`sha256:` over the canonical body). */
+export const tradePayloadHash = (body) => `sha256:${createHash('sha256').update(canonical(body)).digest('hex')}`;

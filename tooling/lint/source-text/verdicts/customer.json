@@ -11,17 +11,6 @@
     "why": "Saves a Pro choice through savePreferences, runs the boot script on /home and asserts Home is left unmarked; a Simple choice marks it."
   },
   {
-    "file": "apps/customer/src/app/room-templates.test.ts",
-    "target": "..",
-    "verdict": "rewrite",
-    "asserts": "A room marked migrated in the registry really renders through its template.",
-    "guard": {
-      "kind": "test",
-      "ref": "apps/customer/src/app/room-templates.test.ts#a migrated room really renders through its template"
-    },
-    "why": "Renders the whole app at each migrated route (the render-record harness, the look gate's TEST account) and asserts the room draws data-template equal to its registry template; a migrated portal page with no route to open fails."
-  },
-  {
     "file": "apps/customer/src/app/rooms/rooms.test.ts",
     "target": "../navigation.ts",
     "verdict": "rewrite",

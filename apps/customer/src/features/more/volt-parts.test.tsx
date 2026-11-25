@@ -6,7 +6,8 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { EmptyNote, FailureNote, KitRead, ScrollTable, Section, Waiting } from './volt-parts';
+import { EmptyNote, FailureNote, KitLimit, KitRead, ScrollTable, Section, Waiting } from './volt-parts';
+import { formatBpsPercent, Limit } from './catalogue-parts';
 import type { ApiResult } from '../../shared/api';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -77,5 +78,19 @@ describe('the More rooms’ kit parts', () => {
         </KitRead>,
       ),
     ).toBe('<b>a</b>');
+  });
+  it('formats basis points as an exact percentage without float error', () => {
+    expect(formatBpsPercent(0)).toBe('0');
+    expect(formatBpsPercent(10)).toBe('0.1');
+    expect(formatBpsPercent(25)).toBe('0.25');
+    expect(formatBpsPercent(100)).toBe('1');
+    expect(formatBpsPercent(150)).toBe('1.5');
+    expect(formatBpsPercent(-25)).toBe('-0.25');
+  });
+  it('hides the window counter when fewer rows than the limit are shown', () => {
+    expect(renderToStaticMarkup(<Limit count={0} limit={50} cap={200} onChange={noop} />)).toBe('');
+    expect(renderToStaticMarkup(<KitLimit count={12} limit={50} cap={200} onChange={noop} />)).toBe('');
+    const full = renderToStaticMarkup(<Limit count={50} limit={50} cap={200} onChange={noop} />);
+    expect(full).toContain('Show more');
   });
 });

@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react';
-import { AmountInput, Button, CoinIcon, createToolApi, useSession } from '../buy/deps';
+import { AssetIcon, Button } from '@intafaced/ui/lit';
+import { DecimalInput } from '@intafaced/ui/lit/templates';
+import { useSession } from '../../../features/session/session';
+import { createToolApi } from '../../../features/trade/tool-api';
 import { convertCopy } from './copy';
 import { useConvertRoute } from './use-pairs';
 
@@ -16,58 +19,52 @@ export function RouteCard({ from, to }: { from: string; to: string }) {
   const [amount, setAmount] = useState('');
 
   return (
-    <section data-testid="cvt-card" className="cvt-card" aria-label={t('Convert')}>
-      <div data-testid="cvt-card__head" className="cvt-card__head">
+    <section data-testid="cvt-card" className="lt-stack" aria-label={t('Convert')}>
+      <div data-testid="cvt-card__head" className="lt-toolbar">
         <h2>{t('Convert')}</h2>
       </div>
-      <div className="cvt-fields">
-        <div className="cvt-field" data-testid="from-field">
+      <div className="lt-stack">
+        <div className="lt-stack" data-testid="from-field">
           <span className="lt-hint">{t('From')}</span>
-          <div className="cvt-field__main">
-            <span className="cvt-asset">
-              <CoinIcon asset={from} size={28} />
+          <div className="lt-toolbar">
+            <span className="lt-toolbar">
+              <AssetIcon asset={from} size="md" />
               <span>{from}</span>
             </span>
-            <AmountInput
-              size="hero"
-              aria-label={t('Amount to convert')}
-              value={amount}
-              onValueChange={setAmount}
-              precision={2}
-              placeholder="0"
-              className="cvt-amount"
-            />
+            <div className="lt-field">
+              <DecimalInput aria-label={t('Amount to convert')} value={amount} onValueChange={setAmount} precision={2} placeholder="0" />
+            </div>
           </div>
         </div>
-        <div className="cvt-field" data-testid="to-field">
+        <div className="lt-stack" data-testid="to-field">
           <span className="lt-hint">{t('To')}</span>
-          <div className="cvt-field__main">
-            <span className="cvt-asset">
-              <CoinIcon asset={to} size={28} />
+          <div className="lt-toolbar">
+            <span className="lt-toolbar">
+              <AssetIcon asset={to} size="md" />
               <span>{to}</span>
             </span>
           </div>
         </div>
       </div>
       {route.status === 'loading' ? (
-        <p className="cvt-rate cvt-rate--wait" role="status">
+        <p className="lt-hint" role="status">
           {t('Route checking', { from, to })}
         </p>
       ) : null}
       {route.status === 'refused' ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-route-refused" data-code={route.code}>
-          <p>
+        <div className="lt-refusal" data-refusal="refused" role="alert" data-testid="cvt-route-refused" data-code={route.code}>
+          <p className="lt-refusal-body">
             <strong>{route.code === 'trade.convert_two_leg_unbuilt' ? t('Two leg title') : t('Route unlisted title')}.</strong>{' '}
             {route.code === 'trade.convert_two_leg_unbuilt' ? t('Two leg body', { from, to }) : t('Route unlisted body', { from, to })}
           </p>
         </div>
       ) : null}
       {route.status === 'unread' ? (
-        <p className="cvt-note" role="alert">
+        <p className="lt-refusal" data-refusal="unreachable" role="alert">
           {t('Route unread', { from, to })}
         </p>
       ) : null}
-      <Button variant="primary" size={56} fullWidth disabled>
+      <Button tone="primary" size="lg" block disabled>
         {t('Preview conversion')}
       </Button>
       <a className="lt-link" href="/trade/convert" data-testid="cvt-route-other">

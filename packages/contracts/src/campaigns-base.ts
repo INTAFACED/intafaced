@@ -18,6 +18,7 @@ export const CAMPAIGN_TYPES = [
   'gift_card',
   'points',
   'welcome',
+  'drop',
 ] as const;
 export type CampaignType = (typeof CAMPAIGN_TYPES)[number];
 export const PARKED_CAMPAIGN_TYPES = ['gift_card', 'points'] as const satisfies readonly CampaignType[];

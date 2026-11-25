@@ -20,8 +20,32 @@ export type SpotTicketOrderType = (typeof SPOT_TICKET_ORDER_TYPES)[number];
 export const SPOT_REFUSED_ORDER_TYPES = ['trailing_stop'] as const;
 export type SpotRefusedOrderType = (typeof SPOT_REFUSED_ORDER_TYPES)[number];
 
+/**
+ * The venue spot ticket's offered order types (J-cex-spot-15 #4, launch money model): the same two kinds
+ * `VenueSpotDesk.tsx` draws as tabs when listed in the venue market's `orderTypes`.
+ */
+export const VENUE_SPOT_ORDER_TYPES = ['limit', 'market'] as const;
+export type VenueSpotOrderType = (typeof VENUE_SPOT_ORDER_TYPES)[number];
+
+/**
+ * Order types the venue spot ticket lists beside limit and market (`VenueOrderOptions.tsx` `NotOfferedTypes`): any type
+ * the venue market omits from `orderTypes` is shown disabled on the ticket and listed in `refused` here.
+ */
+export const VENUE_SPOT_OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
+export type VenueSpotOtherOrderType = (typeof VENUE_SPOT_OTHER_ORDER_TYPES)[number];
+
+export const VENUE_SPOT_TIME_IN_FORCE = ['GTC', 'IOC', 'FOK', 'ALO', 'GTD'] as const;
+export type VenueSpotTimeInForce = (typeof VENUE_SPOT_TIME_IN_FORCE)[number];
+
+/** The code the user-venue door answers for an order type the venue does not offer on that market. */
+export const VENUE_SPOT_ORDER_TYPE_NOT_OFFERED = 'trade.venue.not_offered' as const;
+
 export const SPOT_TIME_IN_FORCE = ['GTC', 'GTD', 'PO', 'IOC', 'FOK'] as const;
 export type SpotTimeInForce = (typeof SPOT_TIME_IN_FORCE)[number];
+
+const ALL_SPOT_TIME_IN_FORCE = ['GTC', 'GTD', 'PO', 'IOC', 'FOK', 'ALO'] as const;
+export const ALL_SPOT_REFUSED_ORDER_TYPES = ['trailing_stop', 'stop_limit', 'stop', 'take_profit'] as const;
+export type AnySpotRefusedOrderType = (typeof ALL_SPOT_REFUSED_ORDER_TYPES)[number];
 
 /** The code the create door answers for a kind it does not take. */
 export const SPOT_ORDER_TYPE_UNSUPPORTED = 'trade.order_type_unsupported' as const;
@@ -126,18 +150,20 @@ const sendSchema = z.object({
 
 /** The `GET /api/v1/order-types` answer: every ticket type the API accepts, then every listed type it refuses. */
 export const spotOrderTypesSchema = z.object({
+  source: z.enum(['book', 'venue']).optional(),
+  symbol: z.string().min(1).optional(),
   accepted: z.array(
     z.object({
       id: z.enum(SPOT_TICKET_ORDER_TYPES),
       send: sendSchema,
-      timeInForce: z.array(z.enum(SPOT_TIME_IN_FORCE)).min(1),
+      timeInForce: z.array(z.enum(ALL_SPOT_TIME_IN_FORCE)).min(1),
     }),
   ),
-  refused: z.array(z.object({ id: z.enum(SPOT_REFUSED_ORDER_TYPES), code: z.string().min(1) })),
+  refused: z.array(z.object({ id: z.enum(ALL_SPOT_REFUSED_ORDER_TYPES), code: z.string().min(1) })),
 });
 export type SpotOrderTypes = z.infer<typeof spotOrderTypesSchema>;
 
-/** The answer svc-trade serves, built from the lists above in the ticket's order. */
+/** The answer svc-trade serves when the own book is mounted, built from the lists above in the ticket's order. */
 export function spotOrderTypes(): SpotOrderTypes {
   return {
     accepted: SPOT_TICKET_ORDER_TYPES.map((id) => ({
@@ -150,5 +176,72 @@ export function spotOrderTypes(): SpotOrderTypes {
       timeInForce: [...SPOT_ORDER_TYPE_SEND[id].timeInForce],
     })),
     refused: SPOT_REFUSED_ORDER_TYPES.map((id) => ({ id, code: SPOT_ORDER_TYPE_UNSUPPORTED })),
+  };
+}
+
+/** The market capabilities `venueSpotOrderTypes` reads from a listed venue spot market (`UserVenueMarket`). */
+export interface VenueSpotMarketOrderCapabilities {
+  readonly symbol: string;
+  readonly kind: 'spot' | 'perpetual';
+  readonly orderTypes: readonly string[];
+  readonly timeInForce: readonly string[];
+}
+
+/**
+ * The answer `GET /api/v1/order-types` serves when the user-venue door is on (J-cex-spot-15 #4): derived from the
+ * venue's own spot market declaration, in the exact order `VenueSpotDesk.tsx` draws its ticket tabs (`limit`, `market`),
+ * with the remaining types from `VENUE_SPOT_OTHER_ORDER_TYPES` listed as refused (`trade.venue.not_offered`) just as
+ * `VenueOrderOptions.tsx` disables them.
+ */
+export function venueSpotOrderTypes(
+  market: Pick<VenueSpotMarketOrderCapabilities, 'symbol' | 'orderTypes' | 'timeInForce'>,
+): SpotOrderTypes {
+  const offeredTypes = market.orderTypes.filter((id): id is VenueSpotOrderType => id === 'limit' || id === 'market');
+  const venueTifs: readonly string[] = VENUE_SPOT_TIME_IN_FORCE;
+  const offeredTifs = market.timeInForce.filter((t): t is VenueSpotTimeInForce => venueTifs.includes(t));
+  const limitTifs: VenueSpotTimeInForce[] = offeredTifs.length > 0 ? offeredTifs : ['GTC'];
+  const marketTif: VenueSpotTimeInForce = offeredTifs.includes('IOC') ? 'IOC' : (limitTifs[0] ?? 'IOC');
+
+  const venueBase = (id: VenueSpotOrderType, timeInForce: VenueSpotTimeInForce) => ({
+    kind: 'place_order',
+    symbol: market.symbol,
+    side: 'buy',
+    type: id,
+    amount: '0.001',
+    price: '100',
+    timeInForce,
+    reduceOnly: false,
+    builderFee: null,
+    clientOrderKey: `TEST-example-${id}`,
+  });
+
+  return {
+    source: 'venue',
+    symbol: market.symbol,
+    accepted: offeredTypes.map((id) =>
+      id === 'limit'
+        ? {
+            id,
+            send: {
+              type: ['limit'],
+              fields: ['price', 'timeInForce'],
+              example: venueBase('limit', limitTifs[0] ?? 'GTC'),
+            },
+            timeInForce: [...limitTifs],
+          }
+        : {
+            id,
+            send: {
+              type: ['market'],
+              fields: ['price'],
+              example: venueBase('market', marketTif),
+            },
+            timeInForce: [marketTif],
+          },
+    ),
+    refused: VENUE_SPOT_OTHER_ORDER_TYPES.filter((id) => !market.orderTypes.includes(id)).map((id) => ({
+      id,
+      code: VENUE_SPOT_ORDER_TYPE_NOT_OFFERED,
+    })),
   };
 }

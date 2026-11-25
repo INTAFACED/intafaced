@@ -11,10 +11,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ohlcvSchema, TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
+import { venueChartCandlesReadSchema } from '@intafaced/contracts/trade-venue-door';
 import { forwardFill, type OhlcvRow } from '../../data/derive';
 import { useDataEnv } from '../../data/hooks';
 import type { Candle } from '../../data/types';
-import type { ChartInterval } from '../trade/chart/candles';
+import { venueRowsOf, type ChartInterval } from '../trade/chart/candles';
+import { useChartSource } from '../trade/chart/chart-source';
 
 /** The service's published cap on one candle read (svc-trade `OHLC_RECENT_ROW_CAP`). */
 export const HISTORY_DEPTH = 720;
@@ -84,6 +86,8 @@ export function locateDate(bars: readonly Candle[], targetMs: number, oldestReac
 /** One deep read per market and interval, on demand (scrolling to the oldest bar, or a date before it). */
 export function useChartHistory(symbol: string, interval: ChartInterval, oldestLoadedMs: number | null) {
   const env = useDataEnv();
+  const source = useChartSource();
+  const isVenue = source.kind === 'venue';
   const [state, setState] = useState<HistoryState>({ status: 'idle' });
   const asked = useRef<Promise<HistoryState> | null>(null);
   // Bumped when the market or interval changes: a read started for the old one is dropped when it returns.
@@ -94,7 +98,7 @@ export function useChartHistory(symbol: string, interval: ChartInterval, oldestL
     generation.current += 1;
     asked.current = null;
     setState({ status: 'idle' });
-  }, [symbol, interval]);
+  }, [symbol, interval, isVenue]);
 
   const load = useCallback((): Promise<HistoryState> => {
     if (asked.current) return asked.current;
@@ -102,11 +106,16 @@ export function useChartHistory(symbol: string, interval: ChartInterval, oldestL
     const nowMs = (env.now ?? Date.now)();
     const since = deepSince(interval, nowMs);
     setState({ status: 'loading' });
-    const run = (
-      env.api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, z.array(ohlcvSchema), {
-        query: { timeframe: interval, since, limit: HISTORY_DEPTH },
-      }) as Promise<{ ok: true; data: OhlcvRow[] } | { ok: false; code?: string }>
-    )
+    const fetched: Promise<{ ok: true; data: OhlcvRow[] } | { ok: false; code?: string }> = isVenue
+      ? env.api
+          .rest('/venue/chart-candles', venueChartCandlesReadSchema, {
+            query: { symbol, interval, since: new Date(since).toISOString(), limit: HISTORY_DEPTH },
+          })
+          .then((result) => (result.ok ? { ok: true as const, data: venueRowsOf(result.data.value) } : result))
+      : (env.api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, z.array(ohlcvSchema), {
+          query: { timeframe: interval, since, limit: HISTORY_DEPTH },
+        }) as Promise<{ ok: true; data: OhlcvRow[] } | { ok: false; code?: string }>);
+    const run = fetched
       .then((result): HistoryState => {
         if (!result.ok) return { status: 'error', code: result.code };
         const rows = [...result.data].sort((a, b) => a[0] - b[0]);
@@ -122,7 +131,7 @@ export function useChartHistory(symbol: string, interval: ChartInterval, oldestL
       });
     asked.current = run;
     return run;
-  }, [env, symbol, interval]);
+  }, [env, isVenue, symbol, interval]);
 
   const oldestReachable = useMemo(() => deepSince(interval, (env.now ?? Date.now)()), [env, interval]);
   return { state, load, oldestReachable };

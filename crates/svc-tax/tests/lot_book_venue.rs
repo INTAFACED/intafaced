@@ -14,12 +14,14 @@ use std::sync::{Arc, Mutex};
 use common::fake::{self, FakeLedger};
 use common::{assert_json, assert_match, date, door, list, some, text};
 use svc_tax::basis::MemoryBasisStore;
-use svc_tax::inputs::{BasisSetInput, PnlInput};
+use svc_tax::choices::MemoryChoiceStore;
+use svc_tax::inputs::{BasisSetInput, DayMethodInput, LotMethodInput, PickInput, PnlInput};
 use svc_tax::json::Json;
 use svc_tax::ports::{
-    VenueAccountActivity, VenueActivity, VenueActivitySource, VenueArrival, VenueBalance, VenueFill,
+    PriceAt, PriceAtTime, VenueAccountActivity, VenueActivity, VenueActivitySource, VenueArrival,
+    VenueBalance, VenueFill,
 };
-use svc_tax::tax::{DepositBasisPolicy, TaxDeps, TaxService};
+use svc_tax::tax::{DepositBasisPolicy, Failure, TAX_LOT_PICK_INVALID, TaxDeps, TaxService};
 use svc_tax::time;
 
 const USER: &str = "11111111-1111-4111-8111-111111111111";
@@ -259,4 +261,161 @@ fn a_coin_credited_from_outside_has_no_cost_until_the_person_enters_one() {
         text(&tax.lot_book(USER, None).unwrap().json(), "realizedUsd"),
         None
     );
+}
+
+#[test]
+fn picking_a_lot_and_overriding_a_day_work_on_venue_sales() {
+    let mut a = account();
+    // Two buys (older at 80, newer at 50) and two sales of 2 each, so FIFO, LIFO, HIFO and a picked lot all differ.
+    a.balances = vec![balance("SOL", "6")];
+    a.fills = vec![
+        venue_fill(
+            "b1",
+            "SOL",
+            true,
+            "80",
+            "5",
+            "0",
+            "SOL",
+            "2026-11-10T01:00:00.000Z",
+        ),
+        venue_fill(
+            "b2",
+            "SOL",
+            true,
+            "50",
+            "5",
+            "0",
+            "SOL",
+            "2026-11-10T02:00:00.000Z",
+        ),
+        venue_fill(
+            "s1",
+            "SOL",
+            false,
+            "100",
+            "2",
+            "0",
+            "USDC",
+            "2026-11-10T03:00:00.000Z",
+        ),
+        venue_fill(
+            "s2",
+            "SOL",
+            false,
+            "110",
+            "2",
+            "0",
+            "USDC",
+            "2026-11-10T04:00:00.000Z",
+        ),
+    ];
+    let (mut d, _) = deps(Some(VenueActivity::Read {
+        test: true,
+        accounts: vec![a],
+    }));
+    d.choices = Some(Arc::new(MemoryChoiceStore::new()));
+    let tax = fake::service(d);
+
+    let key = format!("venue:test-venue:{OWNER}");
+    let lot1 = format!("lot:{key}:b1:SOL");
+    let sale2 = format!("{key}:s2");
+
+    tax.set_lot_method(
+        USER,
+        &LotMethodInput {
+            asset_id: None,
+            method: Some("LIFO".to_owned()),
+        },
+    )
+    .unwrap();
+    tax.pick_sale_lot(
+        USER,
+        &PickInput {
+            sale_tx_id: sale2.clone(),
+            asset_id: "SOL".to_owned(),
+            lot_id: Some(lot1.clone()),
+        },
+    )
+    .unwrap();
+    // A lot that does not exist in the venue account is still refused.
+    let bad = tax.pick_sale_lot(
+        USER,
+        &PickInput {
+            sale_tx_id: sale2.clone(),
+            asset_id: "SOL".to_owned(),
+            lot_id: Some("lot:nope:SOL".to_owned()),
+        },
+    );
+    assert!(matches!(bad, Err(Failure::Refused(e)) if e.code == TAX_LOT_PICK_INVALID));
+
+    tax.set_day_method(
+        USER,
+        &DayMethodInput {
+            day: "2026-11-10".to_owned(),
+            asset_id: None,
+            method: Some("HIFO".to_owned()),
+        },
+    )
+    .unwrap();
+    let j = tax.lot_book(USER, None).unwrap().json();
+    let sales = list(&j, "sales");
+    assert_eq!(sales.len(), 2);
+    // Newest first in the lot book? Check by txId so order is explicit.
+    let s1 = sales
+        .iter()
+        .find(|s| text(s, "txId") == some(&format!("{key}:s1")))
+        .unwrap();
+    let s2 = sales
+        .iter()
+        .find(|s| text(s, "txId") == some(&sale2))
+        .unwrap();
+    assert_eq!(text(s1, "method"), some("HIFO"));
+    assert_eq!(text(s1, "methodSource"), some("day"));
+    assert_eq!(text(s1, "costUsd"), some("160"));
+    assert_eq!(text(s2, "pickedLotId"), some(&lot1));
+    assert_eq!(text(s2, "costUsd"), some("160"));
+}
+
+#[test]
+fn venue_staking_reward_is_valued_by_venue_prices_and_reconciles() {
+    struct VenueOnlyPrice;
+    impl PriceAtTime for VenueOnlyPrice {
+        fn price_at(&self, asset_id: &str, at: time::Instant) -> Result<Option<PriceAt>, Failure> {
+            if asset_id != "HYPE" {
+                return Ok(None);
+            }
+            Ok(Some(PriceAt {
+                price: svc_tax::money::parse_amount("25").unwrap(),
+                market: "HYPE-USDC".to_owned(),
+                timeframe: "1m",
+                candle_at: at,
+            }))
+        }
+    }
+
+    let mut a = account();
+    a.balances = vec![balance("HYPE", "0.2")];
+    a.fills = vec![];
+    a.arrivals = Some(vec![VenueArrival {
+        arrival_id: "staking-reward:0xval:2026-11-10T02:00:00.000Z:0".to_owned(),
+        kind: "reward".to_owned(),
+        asset: "HYPE".to_owned(),
+        amount: "0.2".to_owned(),
+        arrived_at: "2026-11-10T02:00:00.000Z".to_owned(),
+    }]);
+    let (mut d, _) = deps(Some(VenueActivity::Read {
+        test: true,
+        accounts: vec![a],
+    }));
+    d.deposit_basis = Some(DepositBasisPolicy::Customer);
+    d.venue_prices = Some(Arc::new(VenueOnlyPrice));
+    let j = fake::service(d).lot_book(USER, None).unwrap().json();
+    let lots = list(&j, "lots");
+    assert_eq!(lots.len(), 1);
+    assert_match(
+        &lots[0],
+        r#"{"source":"reward","assetId":"HYPE","qty":"0.2","costUsd":null,"valuedAt":{"usd":"5","market":"HYPE-USDC","timeframe":"1m"}}"#,
+    );
+    assert!(!has(&j, "tax.lot_book_unreconciled"));
 }

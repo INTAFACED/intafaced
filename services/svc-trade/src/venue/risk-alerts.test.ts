@@ -71,6 +71,7 @@ describe('venue risk alerts (J-derivatives-06 #6 #7)', { timeout: 60_000 }, () =
       stepUp: { check: async () => ({ ok: true }) } as never,
       builder: { address: BUILDER, feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore([ETH])),
+      slippageCapBps: 50,
       ordersPageMax: 100,
       now: () => new Date(),
     } as never);

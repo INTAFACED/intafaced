@@ -1,21 +1,23 @@
+// volt-room: /pay/refunds/new
+// volt-room: portal:refund-new
 import { useMemo, useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
-import { EmptyState, Field } from '../../ui-kit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../../session';
 import { useResource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import { MerchantRefund } from '../../MerchantRefund';
-import { Facts, Gate, PortalFailure, PortalLoading } from '../components';
 import type { PortalApi } from '../api';
 import { useUrlParam } from '../hooks';
 import { isUuid } from '../model';
 import type { paymentSchema } from '../schemas';
 import { DateTime } from '../ui/DateTime';
 import { ExactMoneyScope } from '../ui/ExactMoneyScope';
-import { MoneyText } from '../ui/MoneyText';
 import { uiCopy } from '../ui/copy';
-import { LinkButton, shortDay, TestBanner, useTestMode } from './common';
+import { FlowRoom } from '../volt/FlowRoom';
+import { Empty, Facts, Failure, Gate, LinkButton, Loading, MoneyText, Section } from '../volt/parts';
+import { TestBanner } from './kit-parts';
+import { shortDay } from './money-words';
+import { useTestMode } from './test-mode';
 import { mc } from './copy';
 import { useMoneyReason } from '../access/MoneyAction';
 import { refundableAmount } from './model';
@@ -24,16 +26,15 @@ import { leaveTo } from '../../../../app/location';
 
 type Payment = z.infer<typeof paymentSchema>;
 
+/** `/pay/refunds/new` on the flow template: the owner alone issues refunds. */
+export function RefundNewRoom({ portal, authority }: { portal: PortalApi; authority: PayBusinessAuthority | null }) {
+  return (
+    <FlowRoom need="owner">{({ merchantId }) => <RefundNew portal={portal} merchantId={merchantId} authority={authority} />}</FlowRoom>
+  );
+}
+
 /** `/pay/refunds/new`: choose the payment, see what can still go back, then refund it. `?payment=` starts at step two. */
-export function RefundNew({
-  portal,
-  merchantId,
-  authority,
-}: {
-  portal: PortalApi;
-  merchantId: string;
-  authority: PayBusinessAuthority | null;
-}) {
+function RefundNew({ portal, merchantId, authority }: { portal: PortalApi; merchantId: string; authority: PayBusinessAuthority | null }) {
   const { t } = mc.useCopy();
   const [paymentId, setPaymentId] = useUrlParam('payment', '');
   return (
@@ -62,9 +63,9 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
   const refundable = (p: Payment) =>
     ['captured', 'settled', 'refunded'].includes(p.status) && refundableAmount(p.capturedAmount, p.refundedAmount) !== '0';
   return (
-    <PaySection title={t('rnStep1')} description={t('rnStep1Body')}>
+    <Section title={t('rnStep1')} description={t('rnStep1Body')}>
       <form
-        className="pp-filter-row"
+        className="lt-field-row"
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
@@ -77,23 +78,23 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
         </Button>
       </form>
       {off && (
-        <p className="pp-callout pp-callout--warn" role="note">
+        <p className="lt-callout lt-callout-warn" role="note">
           {off}
         </p>
       )}
       {found.resource.status === 'loading' ? (
-        <PortalLoading rows={3} />
+        <Loading rows={3} />
       ) : found.resource.status === 'failed' ? (
-        <PortalFailure result={found.resource.failure} retry={found.reload} />
+        <Failure result={found.resource.failure} retry={found.reload} />
       ) : found.resource.data.items.filter(refundable).length === 0 ? (
-        <EmptyState title={t('rnNoneTitle')} action={<LinkButton href="/pay/payments">{t('rnNoneAction')}</LinkButton>}>
+        <Empty title={t('rnNoneTitle')} action={<LinkButton href="/pay/payments">{t('rnNoneAction')}</LinkButton>}>
           {t('rnNoneBody')}
-        </EmptyState>
+        </Empty>
       ) : (
-        <ul className="pp-approvals" aria-label={t('rnStep1')}>
+        <ul className="lt-list" aria-label={t('rnStep1')}>
           {found.resource.data.items.filter(refundable).map((p) => (
-            <li key={p.id} className="pp-approval">
-              <div className="pp-approval-head">
+            <li key={p.id} className="lt-row lt-row-between">
+              <div className="lt-stack-tight">
                 <strong>
                   {p.customerRef?.trim() || p.description?.trim() || t('paymentName', { when: shortDay(p.createdAt, locale) })}
                 </strong>
@@ -111,7 +112,7 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
           ))}
         </ul>
       )}
-    </PaySection>
+    </Section>
   );
 }
 
@@ -133,7 +134,7 @@ function RefundStep({
   const payment = useResource((s) => portal.payment(paymentId, s), `money:refund-payment:${paymentId}`);
   return (
     <>
-      <PaySection title={t('rnStep2')} description={t('rnStep2Body')}>
+      <Section title={t('rnStep2')} description={t('rnStep2Body')}>
         <Gate resource={payment.resource} retry={payment.reload} rows={3}>
           {(p) => {
             const left = refundableAmount(p.capturedAmount, p.refundedAmount);
@@ -154,7 +155,7 @@ function RefundStep({
                     [t('rfFrom'), source],
                   ]}
                 />
-                <p className="muted pp-note">{t('rnReasonNote')}</p>
+                <p className="lt-hint">{t('rnReasonNote')}</p>
                 <Button tone="quiet" onClick={onChange}>
                   {t('rnChangePayment')}
                 </Button>
@@ -162,8 +163,8 @@ function RefundStep({
             );
           }}
         </Gate>
-      </PaySection>
-      <PaySection title={t('rnStep3')} description={t('rnStep3Body')}>
+      </Section>
+      <Section title={t('rnStep3')} description={t('rnStep3Body')}>
         {authority ? (
           <ExactMoneyScope>
             <MerchantRefund
@@ -176,11 +177,11 @@ function RefundStep({
             />
           </ExactMoneyScope>
         ) : (
-          <p className="pp-callout" role="note">
+          <p className="lt-callout" role="note">
             {t('rnOwnerOnly')}
           </p>
         )}
-      </PaySection>
+      </Section>
     </>
   );
 }

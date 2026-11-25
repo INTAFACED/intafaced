@@ -81,6 +81,11 @@
       "value": "100000000000",
       "note": "TEST fee cap (100 gwei per gas) on the local TEST chain: the most any fee level or custom fee may offer. Blank in production refuses protocol.swap_fee_cap_unset."
     },
+    "PROTOCOL_SWAP_PAYMASTER_ADDRESS": {
+      "service": "protocol",
+      "value": "TEST:seeded-swap-paymaster",
+      "note": "LOCAL TEST ONLY, served only with LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER=on: the seeded funded ScopedPaymaster on the local TEST chain (J-dex-protocol-02 #7). Off by default and blank in production, where `amm.feeLevels` reports `sponsored: false`."
+    },
     "PROTOCOL_PRICE_USD_TOKENS": {
       "service": "protocol",
       "value": "0x000000000000000000000000000000000000d011",

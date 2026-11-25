@@ -407,6 +407,12 @@
 .lit-tag[data-tone='neutral'] {
   --lit-tag-c: var(--lit-text-2);
 }
+.lit-tag[data-tone='warn'] {
+  --lit-tag-c: var(--lit-warn-text);
+}
+.lit-tag[data-tone='error'] {
+  --lit-tag-c: var(--lit-error-text);
+}
 .lit-test {
   display: inline-flex;
   align-items: center;
@@ -715,6 +721,398 @@
   color: var(--lit-text-2);
 }
 
+/* ---- Overlays (b2-controls.tsx): popover and tooltip. Base UI places them; these draw them. ---- */
+.lt-layer {
+  isolation: isolate;
+  z-index: 50;
+  outline: none;
+}
+.lt-pop {
+  min-inline-size: 12rem;
+  max-inline-size: min(22rem, calc(100vw - 2rem));
+  max-block-size: var(--available-height, 70vh);
+  overflow-y: auto;
+  padding: var(--lit-gap-item);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: var(--lit-type-body-size);
+  box-shadow: var(--lit-solid-shadow);
+  outline: none;
+}
+.lt-pop[data-size='wide'] {
+  inline-size: min(26rem, calc(100vw - 2rem));
+  max-inline-size: none;
+}
+.lt-pop-title {
+  margin: 0 0 0.5rem;
+  font-size: var(--lit-type-heading-size);
+  font-weight: 600;
+}
+.lt-tip {
+  max-inline-size: 18rem;
+  padding: 6px 10px;
+  border-radius: calc(var(--lit-radius-control) - 4px);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  box-shadow: var(--lit-solid-shadow);
+}
+
+/* ---- Values (b2-values.tsx): figures in rows, coin marks, status words, panel states ---- */
+.lt-num {
+  font-variant-numeric: tabular-nums;
+  /* Volt's figure cut, so every column of prices across the beta's screens lines up the same way. */
+  font-stretch: 112%;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+.lt-num[data-unknown] {
+  color: var(--lit-text-2);
+}
+.lt-signed[data-direction='up'] {
+  color: var(--lit-up-text);
+}
+.lt-signed[data-direction='down'] {
+  color: var(--lit-down-text);
+}
+.lt-signed[data-direction='flat'] {
+  color: var(--lit-text-2);
+}
+.lt-change-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.lt-coin {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 24px;
+  block-size: 24px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: 10px;
+  font-weight: 600;
+}
+.lt-coin[data-size='sm'] {
+  inline-size: 18px;
+  block-size: 18px;
+}
+.lt-coin[data-size='lg'] {
+  inline-size: 32px;
+  block-size: 32px;
+  font-size: 13px;
+}
+.lt-coin > span,
+.lt-coin svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+.lt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 20px;
+  padding-inline: 6px;
+  border-radius: 4px;
+  font-size: var(--lit-type-micro-size);
+  line-height: var(--lit-type-micro-line);
+  white-space: nowrap;
+  border: 1px solid currentColor;
+  color: var(--lit-text-2);
+}
+.lt-status[data-status='filled'] {
+  color: var(--lit-accent-text);
+}
+.lt-status[data-status='pending'] {
+  color: var(--lit-warn-text);
+}
+.lt-status[data-status='cancelled'],
+.lt-status[data-status='failed'] {
+  color: var(--lit-down-text);
+}
+.lt-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: var(--lit-gap-section) var(--lit-gap-item);
+  text-align: center;
+}
+.lt-state[data-kind='loading'] {
+  align-items: stretch;
+  padding: 0;
+}
+.lt-state-title {
+  margin: 0;
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-heading-size);
+  font-weight: 500;
+}
+.lt-state-body {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+.lt-bone {
+  display: block;
+  inline-size: 100%;
+  block-size: var(--lit-row-h);
+  border-radius: 4px;
+  background: var(--lit-solid-bg-raised);
+}
+.lt-bone[data-size='word'] {
+  display: inline-block;
+  inline-size: 6rem;
+  block-size: 1.25rem;
+}
+.lt-bone[data-size='block'] {
+  block-size: 12rem;
+}
+.lt-bone[data-size='panel'] {
+  block-size: 28rem;
+}
+.lt-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+.lt-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--lit-text-2);
+}
+.lt-loading-dot {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 999px;
+  background: var(--lit-accent);
+}
+
+/* Buttons for a desk: Buy and Sell in the market's colours, and the dense size. */
+.lit-button[data-tone='up'] {
+  background: var(--lit-up);
+  color: var(--lit-page);
+}
+.lit-button[data-tone='down'] {
+  background: var(--lit-down);
+  color: var(--lit-text-1);
+}
+.lit-button[data-size='sm'] {
+  min-block-size: 32px;
+  min-inline-size: 32px;
+  padding-inline: 12px;
+  font-size: var(--lit-type-label-size);
+}
+.lit-button[data-tone='up']:disabled,
+.lit-button[data-tone='down']:disabled {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-2);
+}
+.lit-button[aria-disabled='true'] {
+  cursor: progress;
+}
+
+/* Chart overlay (b2-controls.tsx): order lines, the axis plus key and a point menu over a drawn chart. */
+.lt-chart-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.lt-chart-mark {
+  position: absolute;
+  padding: 2px 8px;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: calc(var(--lit-radius-control) - 4px);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font: inherit;
+  font-size: var(--lit-type-micro-size);
+  transform: translateY(-50%);
+}
+.lt-chart-mark[data-mark='line'],
+.lt-chart-mark[data-mark='preview'] {
+  inset-inline-start: 8px;
+}
+.lt-chart-mark[data-mark='preview'] {
+  border-style: dashed;
+}
+.lt-chart-mark[data-mark='line'] {
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.lt-chart-mark[data-side='buy'] {
+  border-color: var(--lit-up);
+}
+.lt-chart-mark[data-side='sell'] {
+  border-color: var(--lit-down);
+}
+.lt-chart-mark[data-mark='plus'] {
+  inset-inline-end: 4px;
+  inline-size: 20px;
+  block-size: 20px;
+  padding: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.lt-chart-mark[data-mark='menu'] {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  transform: none;
+  pointer-events: auto;
+}
+.lt-chart-mark[data-mark='menu'] > button {
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* ---- charts grid: the split grid (SplitGrid, SplitCell, SplitBorder) ---- */
+.lt-split {
+  display: grid;
+  gap: 0;
+  min-inline-size: 0;
+}
+.lt-split-cell {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  min-inline-size: 0;
+}
+.lt-split-border {
+  touch-action: none;
+}
+.lt-split-border[data-axis='cols'] {
+  cursor: col-resize;
+}
+.lt-split-border[data-axis='rows'] {
+  cursor: row-resize;
+}
+.lt-split-border:hover,
+.lt-split-border:focus-visible {
+  background: var(--lit-line-strong);
+}
+
+/* A table whose columns the person resizes (ColumnWidths): fixed layout, a grip at each header's inline end. */
+.lt-table[data-resizable] {
+  table-layout: fixed;
+}
+.lt-table[data-resizable] thead th {
+  position: relative;
+}
+.lt-col-grip {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 0.375rem;
+  cursor: col-resize;
+  touch-action: none;
+}
+.lt-col-grip:hover,
+.lt-col-grip:focus-visible {
+  background: var(--lit-line-strong);
+}
+
+/* ---- charts drawings: a price alert's handle on the chart, by the price axis, dotted, dragged to a new level ---- */
+.lt-chart-mark[data-mark='alert'] {
+  inset-inline-end: 4.5rem;
+  border-style: dotted;
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+/* ---- charts widget: a drawn chart's stage (ChartStack, its plot host and the legend over it) ---- */
+/* The stack fills its cell: the stage takes the room its add-ons (a studies bar, a drawings dock) leave below it. */
+.lt-chart-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  block-size: 100%;
+}
+/* Inside a canvas region, the stack keeps the canvas's own floor, so the stage grows to fill it. */
+.lt-canvas > .lt-chart-stack {
+  min-block-size: inherit;
+}
+/* A floor, so add-ons below can never crush the plot to a few pixels. */
+.lt-chart-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-block-size: 16.25rem;
+}
+.lt-chart-host {
+  position: absolute;
+  inset: 0;
+}
+.lt-chart-host:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: -2px;
+}
+/* The hovered bar's values, over the plot's start corner, on the panel's own colour so a candle under it never takes
+   its contrast; the pointer goes through to the chart. */
+.lt-chart-legend {
+  position: absolute;
+  inset-block-start: 0.375rem;
+  inset-inline-start: 0.5rem;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-block: 0.125rem;
+  padding-inline: 0.375rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+  pointer-events: none;
+  color: var(--lit-text-2);
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-chart-legend b {
+  font-weight: 500;
+  color: var(--lit-text-1);
+}
+/* The chart's attribution: a link on its own line under the plot, outside the plot's image, always shown. */
+.lt-link.lt-chart-attribution {
+  flex: none;
+  align-self: flex-start;
+  margin-block-start: 0.25rem;
+  font-size: var(--lit-type-micro-size);
+}
+
+/* ---- charts widget: a menu item drawn as a plain button (a list of choices inside a popover, role menuitem) ---- */
+button.lt-menu-item {
+  appearance: none;
+  inline-size: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: start;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+button.lt-menu-item:hover {
+  background: var(--lit-solid-bg-raised);
+}
+button.lt-menu-item:focus-visible {
+  background: var(--lit-solid-bg-raised);
+  outline: 2px solid var(--lit-focus);
+  outline-offset: -2px;
+}
 /* AssetIcon: the kit's artwork on a raised disc, or the ticker's first letter on one. */
 .lit-asset {
   display: inline-flex;
@@ -1289,4 +1687,757 @@
 .lit-field-control [data-part='before'] {
   flex: none;
   color: var(--lit-text-2);
+}
+
+/* Page layout (page-grid.tsx): one width, gutter and rhythm for every beta screen, from the owner's landing A and
+   home A. One column under 64rem of the page's own width; the layout's columns from there; a step larger on an
+   ultra-wide screen so 2560 reads like 1440. */
+.lt-page {
+  /* Also the kit's `room` container, so tables and templates inside take their phone form by the page's width. */
+  container: lt-page room / inline-size;
+  inline-size: 100%;
+  max-inline-size: 150rem;
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 2vw, 2.5rem);
+  padding-block: 1.25rem 3.75rem;
+  box-sizing: border-box;
+}
+@media (min-width: 125rem) {
+  .lt-page[data-scale='auto'] {
+    zoom: 1.2;
+  }
+}
+.lt-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.lt-page-col {
+  display: grid;
+  /* One track that may shrink below its content, so a wide figure never widens the page past a phone's screen. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-inline-size: 0;
+  align-content: start;
+}
+@container lt-page (min-width: 64rem) {
+  .lt-page-grid[data-layout='split'] {
+    grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  }
+  .lt-page-grid[data-layout='hero'] {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: clamp(1.5rem, 3vw, 3.5rem);
+    align-items: center;
+  }
+  .lt-page-grid[data-layout='even'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lt-page-col[data-span='all'] {
+    grid-column: 1 / -1;
+  }
+}
+
+.lt-tile-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.75rem;
+}
+.lt-tile-row[data-min='narrow'] {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+}
+.lt-tile-row[data-min='wide'] {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
+
+/* PanelHead keeps the templates' panel head and title (templates.css) and adds only its spacing to what follows. */
+.lt-panel-head[data-part='panel-head'] {
+  margin-block-end: 0.75rem;
+}
+.lt-panel-aside {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+
+/* Market parts (market-parts.tsx): one market drawn the same way on landing, home, markets and the movers row. */
+.lt-market-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-inline-size: 0;
+}
+.lt-market-symbol {
+  font-weight: 600;
+  color: var(--lit-text-1);
+}
+.lt-market-full {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lt-market-bone,
+.lt-market-table[data-loading] td:not(:first-child) bdi::before {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
+}
+.lt-market-bone {
+  inline-size: 7rem;
+  block-size: 1.75rem;
+}
+.lt-market-table[data-loading] td:not(:first-child) bdi::before {
+  content: '';
+  inline-size: 4rem;
+  block-size: 0.75rem;
+}
+.lt-market-table .lt-table th {
+  color: var(--lit-text-3);
+  border-block-end-color: var(--lit-line);
+}
+.lt-market-table .lt-table tbody tr {
+  transition: background var(--lit-t-quick) var(--lit-ease);
+}
+.lt-market-table .lt-table tbody tr:hover {
+  background: var(--lit-solid-bg-raised);
+}
+.lt-market-table .lt-table tbody tr:last-child td {
+  border-block-end: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .lt-market-action {
+    opacity: 0;
+    transition: opacity var(--lit-t-quick) var(--lit-ease);
+  }
+  .lt-market-table tr:is(:hover, :focus-within) .lt-market-action {
+    opacity: 1;
+  }
+}
+
+.lt-mover {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.875rem 1rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-sheen), var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip);
+  color: var(--lit-text-1);
+  text-decoration: none;
+  min-inline-size: 0;
+}
+a.lt-mover:hover {
+  background: var(--lit-sheen), var(--lit-solid-bg-raised);
+}
+.lt-mover-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: var(--lit-type-label-size);
+}
+.lt-mover-price {
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  font-weight: 600;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+}
+.lt-mover .lt-spark[data-size='row'] {
+  inline-size: 100%;
+}
+
+/* On a phone a market stays one row, the way exchanges list them: its name at the start, the price over its 24h change
+   at the end; the line, volume and row action step aside (the row itself opens the market). The name gives way (its
+   words end in an ellipsis) and the figures keep their width, so even at 200% text nothing draws over anything. */
+@container room (max-width: 599px) {
+  .lt-market-table .lt-table thead {
+    display: none;
+  }
+  .lt-market-table .lt-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 0.75rem;
+    min-block-size: 3.5rem;
+    padding-block: 0.5rem;
+  }
+  .lt-market-table .lt-table td {
+    display: block;
+    min-block-size: 0;
+    min-inline-size: 0;
+  }
+  .lt-market-table .lt-table td::before {
+    content: none;
+  }
+  .lt-market-table .lt-table td:nth-child(1) {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    overflow: hidden;
+  }
+  .lt-market-table .lt-table td:nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: end;
+  }
+  .lt-market-table .lt-table td:nth-child(3) {
+    grid-column: 2;
+    grid-row: 2;
+    text-align: end;
+    font-size: var(--lit-type-label-size);
+  }
+  .lt-market-table .lt-table td:nth-child(n + 4) {
+    display: none;
+  }
+  .lt-market-table .lt-market-name {
+    display: flex;
+    max-inline-size: 100%;
+  }
+  .lt-market-table .lt-market-name > :not(.lit-asset) {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lt-market-table .lt-market-name > .lit-asset {
+    flex: none;
+  }
+  .lt-market-table .lt-table tr[data-empty] {
+    display: block;
+  }
+}
+/* With room for it (22rem, so at 200% text it keeps the two-line row), a phone row is one line: name, price, change. */
+@container room (min-width: 22rem) and (max-width: 599px) {
+  .lt-market-table .lt-table tr {
+    grid-template-columns: minmax(0, 1fr) auto 4.5rem;
+    grid-template-rows: auto;
+    min-block-size: 3.25rem;
+  }
+  .lt-market-table .lt-table td:nth-child(1) {
+    grid-row: 1;
+  }
+  .lt-market-table .lt-table td:nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+/* On a phone a row of market tiles swipes sideways (two and a bit in view) instead of stacking into a tall column. */
+@container room (max-width: 599px) {
+  .lt-tile-row[data-min='card'] {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 42%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .lt-tile-row[data-min='card'] > * {
+    scroll-snap-align: start;
+  }
+  /* A phone tile is 42% of the row: its price a step smaller, so "$64,827.55" stays inside it. */
+  .lt-mover-price {
+    font-size: var(--lit-type-heading-size);
+    line-height: var(--lit-type-heading-line);
+  }
+  .lt-mover-top {
+    flex-wrap: wrap;
+  }
+}
+
+/* Hero chart extras (b2-charts.tsx): guide lines, and the last point's value in a pill over a dot with a dashed drop. */
+.lt-chart[data-marked] {
+  position: relative;
+}
+.lt-chart-grid {
+  stroke: var(--lit-line);
+  stroke-width: 1;
+}
+.lt-chart-drop {
+  stroke: var(--lit-line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.lt-chart-marker {
+  position: absolute;
+  inline-size: 0;
+  block-size: 0;
+  pointer-events: none;
+}
+.lt-chart-marker-dot {
+  position: absolute;
+  inset-inline-start: -0.3125rem;
+  inset-block-start: -0.3125rem;
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: 999px;
+  background: var(--lit-text-1);
+  box-shadow: 0 0 0 0.25rem var(--lit-page);
+}
+.lt-chart-marker-pill {
+  position: absolute;
+  inset-inline-end: 0.75rem;
+  inset-block-end: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  font-size: var(--lit-type-micro-size);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Account parts (account-parts.tsx). */
+.lt-action-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: 0.625rem;
+}
+.lt-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  block-size: 4rem;
+  padding-inline: 1rem;
+  border: 0;
+  border-radius: calc(var(--lit-radius-tile) - 0.125rem);
+  background: var(--lit-secondary-bg);
+  box-shadow: var(--lit-secondary-shadow);
+  color: var(--lit-secondary-fg);
+  font: 600 var(--lit-type-body-size) / 1 var(--lit-font-ui);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform var(--lit-t-quick) var(--lit-ease),
+    filter var(--lit-t-quick) var(--lit-ease);
+}
+.lt-action:hover {
+  filter: brightness(1.15);
+}
+.lt-action:active {
+  transform: scale(0.98);
+}
+.lt-action:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+.lt-action[data-primary] {
+  background: var(--lit-primary-bg);
+  box-shadow: var(--lit-primary-shadow);
+  color: var(--lit-primary-fg);
+}
+.lt-action-icon {
+  display: inline-flex;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+.lt-action-icon svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+@container room (max-width: 599px) {
+  .lt-action {
+    flex-direction: column;
+    gap: 0.5rem;
+    block-size: auto;
+    padding-block: 0.875rem;
+    padding-inline: 0.25rem;
+    font-size: var(--lit-type-label-size);
+  }
+}
+
+.lt-panel-section {
+  display: grid;
+  gap: 0.625rem;
+  padding-block: 1rem;
+  padding-inline: 1.25rem;
+  border-block-start: 1px solid var(--lit-line);
+}
+.lt-panel-section:first-child {
+  border-block-start: 0;
+}
+.lt-panel-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--lit-text-3);
+}
+.lt-panel-section-title {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  font-weight: 600;
+  color: var(--lit-text-1);
+}
+
+.lt-progress-segments {
+  display: flex;
+  gap: 0.25rem;
+}
+.lt-progress-segments > span {
+  flex: 1;
+  block-size: 0.25rem;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
+}
+.lt-progress-segments > span[data-done] {
+  background: var(--lit-text-1);
+}
+
+.lt-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lt-activity > :is(a, div) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-block-size: 3.75rem;
+  padding-block: 0.5rem;
+  border-block-end: 1px solid var(--lit-line);
+  color: inherit;
+  text-decoration: none;
+}
+.lt-activity:last-child > :is(a, div) {
+  border-block-end: 0;
+}
+.lt-activity-face {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  font-weight: 600;
+}
+.lt-activity-what,
+.lt-activity-amount {
+  display: grid;
+  gap: 0.125rem;
+  min-inline-size: 0;
+}
+.lt-activity-amount {
+  justify-items: end;
+}
+.lt-activity-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lt-activity-time,
+.lt-activity-detail {
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-3);
+}
+.lt-activity-amount .lt-num[data-direction='in'] {
+  color: var(--lit-up-text);
+}
+
+/* A balance's hero line in the text colour, its fill fading from it (home's net worth). */
+.lt-chart[data-tone='ink'] .lt-chart-line {
+  stroke: var(--lit-text-1);
+}
+.lt-chart[data-tone='ink'] {
+  --lt-chart-soft: var(--lit-text-1);
+}
+.lt-chart[data-tone='ink'] .lt-chart-soft-top {
+  stop-opacity: 0.14;
+}
+
+/* Parts with the legend on one wrapping line: swatch, word, amount. */
+.lt-parts[data-legend='row'] .lt-parts-bar {
+  block-size: 0.5rem;
+}
+.lt-parts[data-legend='row'] .lt-parts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1.375rem;
+}
+.lt-parts[data-legend='row'] .lt-parts-list li {
+  display: inline-flex;
+  gap: 0.5rem;
+  min-block-size: 0;
+  border: 0;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+}
+.lt-parts[data-legend='row'] .lt-parts-value {
+  color: var(--lit-text-1);
+  font-weight: 600;
+}
+
+/* A link drawn as a button: never underlined. */
+a.lit-button {
+  text-decoration: none;
+}
+
+/* A chart or line that fills its container's height (inside a tile). */
+.lt-chart[data-fit] {
+  block-size: 100%;
+}
+.lt-chart[data-fit] svg {
+  block-size: 100%;
+}
+
+/* A stat whose label sits under its figure. */
+.lt-stat[data-label-below] > .lt-hint:first-child {
+  order: 1;
+}
+
+/* A market row opens its market from anywhere on the row, not only its name. */
+.lt-market-table .lt-table tbody tr {
+  position: relative;
+}
+.lt-market-table .lt-row-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.lt-market-table .lt-market-action {
+  position: relative;
+  z-index: 1;
+}
+
+/* Front pages' type: the wide face, large and tight. */
+.lt-display {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-size: clamp(2.75rem, 5.4vw, 8.5rem);
+  line-height: 0.95;
+  font-weight: 700;
+  font-stretch: 125%;
+  letter-spacing: -0.035em;
+  color: var(--lit-text-1);
+}
+/* Beside a live panel (the hero layout) the headline follows the page's width, so each line stays one line in its 5/12 column. */
+@container lt-page (min-width: 64rem) {
+  .lt-page-grid[data-layout='hero'] .lt-display {
+    font-size: clamp(2.75rem, 4.2cqi, 8.5rem);
+  }
+}
+.lt-display-line {
+  display: block;
+}
+.lt-display-second {
+  color: var(--lit-text-3);
+}
+.lt-section-title {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-size: clamp(1.5rem, 2.4vw, 2.5rem);
+  line-height: 1.1;
+  font-weight: 600;
+  font-stretch: 118%;
+  letter-spacing: -0.02em;
+  color: var(--lit-text-1);
+}
+
+.lt-live-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-3);
+}
+.lt-live-mark-dot {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 999px;
+  background: var(--lit-up);
+  box-shadow: 0 0 0.5rem var(--lit-up);
+}
+.lt-live-mark[data-off] .lt-live-mark-dot {
+  background: var(--lit-text-disabled);
+  box-shadow: none;
+}
+
+.lt-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-sheen), var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip);
+  overflow: hidden;
+}
+.lt-strip > li {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  padding-block: 1.25rem;
+  padding-inline: 1.375rem;
+  /* Hairlines between cells: each cell draws its start and top edge, pulled under its neighbour's; the panel clips the outer ones. */
+  border-inline-start: 1px solid var(--lit-line);
+  border-block-start: 1px solid var(--lit-line);
+  margin-inline-start: -1px;
+  margin-block-start: -1px;
+}
+.lt-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+.lt-strip-title {
+  font-weight: 600;
+}
+.lt-strip-body {
+  font-size: var(--lit-type-label-size);
+  line-height: 1.45;
+  color: var(--lit-text-2);
+}
+.lt-warn-badge {
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px currentColor;
+  color: var(--lit-warn-text);
+  font-size: var(--lit-type-micro-size);
+  white-space: nowrap;
+}
+
+.lt-featured {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 1.5rem;
+  min-block-size: 7.5rem;
+  padding-block: 1rem;
+  padding-inline: 1.25rem 1rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--lit-line);
+  color: inherit;
+  text-decoration: none;
+}
+.lt-featured-figure {
+  display: grid;
+  align-content: center;
+  gap: 0.25rem;
+}
+.lt-featured-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--lit-type-label-size);
+}
+.lt-featured-price {
+  font-size: clamp(2rem, 2.6vw, 2.75rem);
+  line-height: 1.05;
+  font-weight: 600;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+}
+.lt-featured-chart {
+  min-inline-size: 0;
+  min-block-size: 5rem;
+}
+@container room (max-width: 599px) {
+  .lt-featured {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* An up or down filled chart fades in its own direction's colour, not the accent. */
+.lt-chart[data-tone='up'] {
+  --lt-chart-soft: var(--lit-up);
+}
+.lt-chart[data-tone='down'] {
+  --lt-chart-soft: var(--lit-down);
+}
+
+/* ---- Stat strip and market header (market-parts.tsx) ---- */
+.lt-stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  row-gap: var(--lit-gap-item);
+}
+.lt-stat-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-inline: var(--lit-gap-section);
+  border-inline-start: 1px solid var(--lit-line);
+  min-inline-size: 0;
+}
+.lt-stat-strip > div:first-child {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+.lt-stat-strip dt {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+  white-space: nowrap;
+}
+.lt-stat-strip dd {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+  white-space: nowrap;
+}
+.lt-stat-strip dd[data-direction='up'] {
+  color: var(--lit-up-text);
+}
+.lt-stat-strip dd[data-direction='down'] {
+  color: var(--lit-down-text);
+}
+.lt-stat-strip[data-dense] > div {
+  padding-inline: var(--lit-gap-item);
+}
+.lt-stat-strip[data-dense] dt {
+  font-size: var(--lit-type-micro-size);
+  line-height: var(--lit-type-micro-line);
+}
+.lt-stat-strip[data-dense] dd {
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+}
+.lt-market-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lit-gap-item) var(--lit-gap-section);
+  min-inline-size: 0;
+}
+.lt-market-header-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.lt-market-header-price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+.lt-market-header-last {
+  font-family: var(--lit-font-figure);
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+}
+.lt-market-header:not([data-dense]) .lt-market-header-last {
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  font-weight: var(--lit-type-figure-weight);
+}
+.lt-market-header-aside {
+  margin-inline-start: auto;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
 }

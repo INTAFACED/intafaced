@@ -47,7 +47,7 @@ export function HomePage() {
               </a>
             </div>
             <p>
-              <small>{t('Product availability depends on your account, region and connected services.')}</small>
+              <small>{t('Product availability depends on your account and region.')}</small>
             </p>
             <div className="lt-reading-main" aria-label={t('Four connected experiences')}>
               {doors.map((door) => (

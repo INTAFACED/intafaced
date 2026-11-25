@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx scripts/migrate.ts",
+    "live-check:wallet-provider": "tsx scripts/turnkey-live-check.ts",
     "founder:invites": "tsx scripts/founder-invites.ts",
     "clean": "rimraf dist .turbo"
   },

@@ -12,8 +12,13 @@ import {
   type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueWithdrawal,
+  VENUE_CANDLE_INTERVALS,
+  type VenueBestPrices,
   type VenueBook,
   type VenueBookLevel,
+  type VenueCandle,
+  type VenueCandleInterval,
+  type VenuePrint,
   type VenueFeeStatus,
   type VenueFeeTier,
   type VenueOrderStatus,
@@ -36,8 +41,29 @@ import {
   type HyperliquidTestnetOptions,
   type Json,
 } from './core.js';
-import { unreadMarketTerms, type ReadMarketTerms } from './market-terms.js';
+import {
+  BUILDER_FEE_CAP_BPS,
+  DEFAULT_MAX_OPEN_ORDERS,
+  MIN_ORDER_NOTIONAL,
+  unreadMarketTerms,
+  type ReadMarketTerms,
+} from './market-terms.js';
 import { rateToBps, tenthsToBps, unit, PERP_MAX_DECIMALS, SPOT_MAX_DECIMALS } from './wire.js';
+
+/** The candle intervals `candleSnapshot` takes among ours: it has no 6h. */
+const HL_CANDLE_INTERVALS: ReadonlySet<VenueCandleInterval> = new Set([
+  '1m',
+  '3m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '2h',
+  '4h',
+  '12h',
+  '1d',
+  '1w',
+]);
 
 /**
  * Every read the Hyperliquid testnet adapter answers from `POST /info`: the listing as `UserVenueMarket`s, the book and
@@ -68,8 +94,15 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         // The finest price step a non-integer price may use; the venue also caps prices at 5 significant figures.
         tickSize: unit((m.kind === 'spot' ? SPOT_MAX_DECIMALS : PERP_MAX_DECIMALS) - m.szDecimals),
         lotSize: unit(m.szDecimals),
+        minOrderNotional: MIN_ORDER_NOTIONAL,
+        maxOpenOrders: DEFAULT_MAX_OPEN_ORDERS,
         makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
         takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
+        builderFeeCapBps: { known: true, value: BUILDER_FEE_CAP_BPS[m.kind] },
+        // The venue's own word on it: `meta` and `spotMeta` list the markets Hyperliquid trades and flag a delisted perp
+        // (`isDelisted`, dropped by `loadMarkets`); it publishes no halt, limit-only or cancel-only state, so a listed
+        // market is trading. Never null here, which a reader takes as not known (and the markets list as not open).
+        status: 'trading',
       };
       // What this adapter does not read from the venue: `market-terms.ts`, never here.
       return { ...read, ...unreadMarketTerms() };
@@ -118,6 +151,79 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       if (m) out.set(m.symbol, amt(px, `mid of ${coin}`));
     }
     return this.asOf(out);
+  }
+
+  /**
+   * `UserVenue.bestPrices`: the best bid and ask of the venue's public book (`l2Book`), no account. A side with no
+   * level is `null`. `unknown_market` for a symbol it does not list.
+   */
+  async bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
+    const read = await this.l2Book(symbol);
+    return {
+      ...read,
+      value: { symbol: read.value.symbol, bid: read.value.bids[0]?.price ?? null, ask: read.value.asks[0]?.price ?? null },
+    };
+  }
+
+  /**
+   * `UserVenue.trades`: the venue's newest public prints on `symbol` (`recentTrades`), newest first, at most `limit`.
+   * The venue's `side` is the taker's: `B` a buy, `A` a sell. Its trade id is `tid`, or the trade's hash when the id is
+   * past what a JSON number holds exactly. `unknown_market` for a symbol it does not list.
+   */
+  async trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
+    if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError(`trades limit must be a whole number above 0, not ${limit}`);
+    const m = await this.market(symbol);
+    const rows = arr(await this.info({ type: 'recentTrades', coin: m.coin }), 'recentTrades').map((raw) => {
+      const t = obj(raw, 'recentTrades[]');
+      const side = str(t.side, 'side');
+      return {
+        tradeId: typeof t.tid === 'number' && Number.isSafeInteger(t.tid) ? String(t.tid) : str(t.hash, 'hash'),
+        symbol: m.symbol,
+        price: amt(t.px, 'px'),
+        amount: amt(t.sz, 'sz'),
+        takerSide: side === 'B' ? ('buy' as const) : side === 'A' ? ('sell' as const) : null,
+        tradedAt: new Date(int(t.time, 'time')),
+      };
+    });
+    rows.sort((x, y) => y.tradedAt.getTime() - x.tradedAt.getTime());
+    return this.asOf(rows.slice(0, limit), rows[0]?.tradedAt.getTime());
+  }
+
+  /**
+   * `UserVenue.candles`: the venue's own candles on `symbol` (`candleSnapshot`), oldest first, the newest `limit` of them
+   * (from `since` when given). An interval the venue does not publish (6h) is refused `not_offered`; `unknown_market`
+   * for a symbol it does not list.
+   */
+  async candles(
+    symbol: string,
+    interval: VenueCandleInterval,
+    query: number | { readonly limit: number; readonly since?: Date },
+  ): Promise<AsOf<readonly VenueCandle[]>> {
+    const { limit, since } = typeof query === 'number' ? { limit: query, since: undefined } : query;
+    if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError(`candle limit must be a whole number above 0, not ${limit}`);
+    if (!HL_CANDLE_INTERVALS.has(interval)) throw refusal(this.venue.id, 'not_offered', `this venue publishes no ${interval} candles`);
+    const m = await this.market(symbol);
+    const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
+    const endTime = this.clock().getTime();
+    const startTime = since ? since.getTime() : endTime - limit * stepMs;
+    const rows = arr(
+      await this.info({ type: 'candleSnapshot', req: { coin: m.coin, interval, startTime, endTime } }),
+      'candleSnapshot',
+    ).flatMap((raw) => {
+      const c = obj(raw, 'candleSnapshot[]');
+      // An interval with no print is not a candle (`VenueCandle`): the venue sends one with n 0, which the chart carries over.
+      if (c.n === 0) return [];
+      return {
+        openAt: new Date(int(c.t, 't')),
+        openPrice: amt(c.o, 'o'),
+        highPrice: amt(c.h, 'h'),
+        lowPrice: amt(c.l, 'l'),
+        closePrice: amt(c.c, 'c'),
+        baseVolume: amt(c.v, 'v'),
+      };
+    });
+    rows.sort((x, y) => x.openAt.getTime() - y.openAt.getTime());
+    return this.asOf(rows.slice(-limit));
   }
 
   // ── account reads ──────────────────────────────────────────────────────
@@ -181,6 +287,14 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         if (lev !== null) locked = div(mul(price, remaining, 'ceil'), parseAmount(String(lev)), 'ceil');
       }
     }
+    const origin =
+      raw.isLiquidation === true || /liquidat/i.test(orderType)
+        ? ('liquidation' as const)
+        : raw.isTrigger === true
+          ? /take\s*profit/i.test(orderType)
+            ? ('take_profit' as const)
+            : ('stop' as const)
+          : ('user' as const);
     return {
       venueOrderId: raw.oid !== undefined ? String(int(raw.oid, 'oid')) : null,
       venueClientOrderId: typeof raw.cloid === 'string' ? raw.cloid.toLowerCase() : null,
@@ -197,6 +311,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       locked,
       lockedAsset,
       reduceOnly: raw.reduceOnly === true,
+      origin,
+      originRef: null,
     };
   }
 

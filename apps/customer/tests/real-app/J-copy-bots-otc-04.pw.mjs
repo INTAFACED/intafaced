@@ -185,9 +185,9 @@ test(`${J} #1 applies to lead while following another master: refused naming the
       400,
       'trade.copy_lead_balance_threshold_unset',
     ]);
-    await expect(page.getByText('The least venue balance to lead is not set by the platform')).toBeVisible();
+    await expect(page.getByText('The minimum trading balance to lead is not set')).toBeVisible();
     await expect(terms(page)).toContainText('No leader');
-    await expect(terms(page)).toContainText(/Least venue balance\s*Not set/);
+    await expect(terms(page)).toContainText(/Minimum trading balance\s*Not set/);
     expect(await mineOf(applicant), 'a refused application writes nothing').toBeNull();
   } finally {
     leadBalance('test');

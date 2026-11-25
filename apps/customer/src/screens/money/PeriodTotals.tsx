@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../features/session/session';
 import { type LineTotal } from '../../features/money/contracts';
-import { LineTotals } from '../../features/money/StatementExtras';
+import { LineTotals } from '../../features/money/LineTotals';
 import { dayStart, rangeProblem, type ActivityFilters } from './activity-filter';
 import { usePreferences } from '../../shared/preferences';
 import { BANK_STATEMENTS_TOTALS } from '@intafaced/contracts/bank-statements-procedures';
@@ -42,7 +42,7 @@ export function PeriodTotals({ filters }: { filters: ActivityFilters }) {
   // A refusal (too many lines, the read unavailable) is shown with its code, never dropped.
   if (refused)
     return (
-      <p role="alert" className="error-text" data-testid="money-period-totals" data-code={refused.code ?? ''}>
+      <p role="alert" className="lt-error" data-testid="money-period-totals" data-code={refused.code ?? ''}>
         {refused.message}
       </p>
     );

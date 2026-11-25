@@ -17,7 +17,9 @@ const FAVORITES_KEY = 'trade-favorites:00000000-0000-4000-8000-000000000001';
  * An override is a wire JSON body or a function returning one, `null` to hold the request until `release()`,
  * 'error' for a 500, or { status, json } for any other answer. No service is contacted.
  */
-const defaults = { markets: () => markets, tickers: () => tickers(), ohlcv: () => [] };
+// The venue door is off here, as on a deployment with no venue: its market-states read refuses, and the list reads ours.
+const VENUE_OFF = { status: 404, json: { code: 'NotFound', message: 'the user-venue door is off', intafacedCode: 'trade.user_venue_off' } };
+const defaults = { markets: () => markets, tickers: () => tickers(), ohlcv: () => [], 'venue/market-states': VENUE_OFF };
 async function mock(page, overrides = {}) {
   const served = { ...defaults, ...overrides };
   const held = [];
