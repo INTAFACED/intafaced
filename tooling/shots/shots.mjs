@@ -117,7 +117,8 @@ const EMPTY_PROBE = () => {
 async function main() {
   const o = args(process.argv.slice(2));
   if (o.build || !existsSync(join(DIST, 'index.html')))
-    execFileSync('pnpm', ['--filter', '@intafaced/customer', 'build'], { cwd: ROOT, stdio: 'inherit' });
+    // Through turbo, so the packages the app imports are built first (a fresh checkout has none built).
+    execFileSync('pnpm', ['exec', 'turbo', 'run', 'build', '--filter', '@intafaced/customer'], { cwd: ROOT, stdio: 'inherit' });
   mkdirSync(o.out, { recursive: true });
   const require = createRequire(join(ROOT, 'apps/customer/package.json'));
   const { chromium } = require('@playwright/test');

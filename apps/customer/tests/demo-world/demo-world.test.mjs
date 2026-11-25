@@ -8,6 +8,7 @@ import {
   venueBestPricesReadSchema,
   venueBookReadSchema,
   venueCandlesReadSchema,
+  venueConvertHistorySchema,
   venueFeeTierSchema,
   venuePublicFeesSchema,
   venueFillSchema,
@@ -84,6 +85,10 @@ describe('the demo world', () => {
       venuePublicFeesSchema.parse(recordedAnswer(`/api/v1/venue/fees?venueId=${venueId}`, 'GET', { signedIn: true }).json),
     ).toBeTruthy();
     expect(recordedAnswer('/api/v1/venue/fees?venueId=another-venue', 'GET', { signedIn: true })).toBeNull();
+  });
+
+  it('answers the Convert room with no conversions yet, never a failed read', () => {
+    expect(venueConvertHistorySchema.parse(read('/api/v1/venue/convert/history?owner=0xabc').json).conversions).toEqual([]);
   });
 
   it('keeps nothing about the tester the recording was made with', () => {
