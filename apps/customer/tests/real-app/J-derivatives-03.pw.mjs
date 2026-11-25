@@ -1,5 +1,5 @@
 // World: book, gates, restart
-import { marketDetails, rowAction } from './futures-desk.mjs';
+import { openFuturesDesk, rowAction } from './futures-desk.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, tool, toUnits, fromUnits } from './stack.mjs';
@@ -64,14 +64,7 @@ function state() {
   return s;
 }
 
-const desk = async (page) => {
-  const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, {
-    timeout: 20_000,
-  });
-  return { ...s, wallet, owner: wallet.address };
-};
+const desk = (page) => openFuturesDesk(page, state(), DESK, SYMBOL);
 
 const market = async () => (await testVenue('/markets', {})).body.value.find((m) => m.symbol === SYMBOL);
 const positionOf = async (owner) => (await venueRecord(owner, '/positions')).value.find((p) => p.symbol === SYMBOL) ?? null;

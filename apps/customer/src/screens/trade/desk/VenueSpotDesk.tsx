@@ -1,7 +1,6 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import './exchange-desk.css';
-import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { maintenanceOf } from '../../../shared/market-maintenance';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -14,7 +13,6 @@ import {
   VENUE_POLL_MS,
   VenueHeader,
   VenueLines,
-  TestMark,
   heldKeys,
   heldTags,
   useOwner,
@@ -28,7 +26,7 @@ import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueOrdersCopy } from '../../../features/trade/orders/venue-orders-copy';
 import { deskCopy } from './copy';
-import { Button, DateInput, Fold, PageGrid, StatStrip } from '@intafaced/ui/lit';
+import { Button, Fold, PageGrid } from '@intafaced/ui/lit';
 import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useDeviceSetting } from '../../../features/trade/hooks';
@@ -43,7 +41,7 @@ import { flowMarketOf } from './venue-flow';
 import { spotVenueCopy } from './venue-copy';
 import { VenueMarketPanel } from './VenueMarketData';
 import { VenueChartOrders } from './VenueChartOrders';
-import { NotOfferedTypes, TicketSideSwitch, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
+import { TicketSideSwitch } from './VenueOrderOptions';
 import { VenueConditionalOrders } from './VenueConditionalOrders';
 import { VenueMarketRules } from './VenueMarketRules';
 import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
@@ -65,6 +63,7 @@ import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
 import { VenueDeskTicker, VenueRpiLine, venueMaintenanceLine } from './VenueDeskTicker';
+import { SpotTicketOptions, SpotTopStrip } from './SpotDeskParts';
 import { PendingCheck } from './VenuePending';
 import { useCancelledOrders, useFilledOrders } from './venue-order-reads';
 
@@ -392,36 +391,16 @@ export function VenueSpotDesk({
           value={activeType}
           onChange={(value) => setType(value as VenueOrderType)}
         />
-        {/* The order's finer terms (time in force, what the venue does when it meets your own order) and the kinds this
-            venue doesn't offer: there when asked for, off the ticket's face. */}
-        <Fold title={t('Order options')} data-testid="venue-ticket-options">
-          <div className="lt-stack">
-            <NotOfferedTypes market={market} marketDisabledReason={marketDisabledReason} />
-            {activeType === 'limit' ? (
-              <div className="lt-row">
-                <VenueTifSelect market={market} tif={tif} onTif={setTif} />
-                {tif === 'GTD' ? (
-                  <label className="lt-field">
-                    <span>{t('Expires')}</span>
-                    <DateInput
-                      type="datetime-local"
-                      value={expiry}
-                      onChange={(event) => setExpiry(event.target.value)}
-                      aria-label={t('Expires')}
-                      aria-invalid={expiry !== '' && expireAt === null}
-                    />
-                    {expiry !== '' && expireAt === null ? (
-                      <span className="lt-note lt-note-bad" role="note">
-                        {t('Expiry past')}
-                      </span>
-                    ) : null}
-                  </label>
-                ) : null}
-              </div>
-            ) : null}
-            <VenueSelfTradeSelect market={market} />
-          </div>
-        </Fold>
+        <SpotTicketOptions
+          market={market}
+          activeType={activeType}
+          tif={tif}
+          onTif={setTif}
+          expiry={expiry}
+          onExpiry={setExpiry}
+          expireAt={expireAt}
+          marketDisabledReason={marketDisabledReason}
+        />
         <TabPanel id="venue-type" value={activeType} current={activeType}>
           <div className="lt-stack">
             {(['buy', 'sell'] as const).map((side) => (
@@ -592,49 +571,7 @@ export function VenueSpotDesk({
               {/* The header is the top strip itself: the pairs as tiles and what the person can trade with; the venue's
                   lines are in Market details. */}
               <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine}>
-                <div className="xd-top">
-                  <ul className="xd-contracts" aria-label={t('Pairs')} data-testid="dk-pair-tiles">
-                    {(spotMarkets.length > 0 ? spotMarkets : [market]).slice(0, 6).map((m) => (
-                      <li key={m.symbol}>
-                        <Button
-                          tone="secondary"
-                          aria-pressed={m.symbol === market.symbol}
-                          onClick={() => m.symbol !== market.symbol && navigate(`/trade/spot/${m.symbol}`)}
-                        >
-                          <span className="xd-tile-symbol">
-                            {m.baseAsset}/{m.quoteAsset}
-                          </span>
-                          {/* A spot pair has no published mark: the tile shows its name only, never a dash for a price. */}
-                          {m.mark.known ? <span className="lt-num xd-tile-price">{displayAmount(m.mark.value)}</span> : null}
-                        </Button>
-                      </li>
-                    ))}
-                    <li>
-                      <TestMark test={status.test} />
-                    </li>
-                  </ul>
-                  <div className="xd-risk-row">
-                    <StatStrip
-                      dense
-                      cells={[
-                        {
-                          key: 'spend',
-                          label: t('To spend', { asset: market.quoteAsset }),
-                          value: freeQuote === null ? t('Connect to see') : `${displayAmount(freeQuote)} ${market.quoteAsset}`,
-                          num: freeQuote !== null,
-                          'data-testid': 'dk-to-spend',
-                        },
-                        {
-                          key: 'held',
-                          label: t('Held', { asset: market.baseAsset }),
-                          value: freeBase === null ? t('Connect to see') : `${displayAmount(freeBase)} ${market.baseAsset}`,
-                          num: freeBase !== null,
-                          'data-testid': 'dk-held',
-                        },
-                      ]}
-                    />
-                  </div>
-                </div>
+                <SpotTopStrip markets={spotMarkets} market={market} test={status.test} freeQuote={freeQuote} freeBase={freeBase} />
               </VenueHeader>
               <VenueDeskTicker market={market} timeZone={timeZone} />
               <ActionLimitWarning venueName={status.venue.displayName} />

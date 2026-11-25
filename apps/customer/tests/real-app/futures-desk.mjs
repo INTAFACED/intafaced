@@ -1,5 +1,6 @@
 import { expect } from './journey.mjs';
 import { UNBUILT } from './dex.mjs';
+import { openVenueDesk } from './venue.mjs';
 
 // The futures desk (/trade/futures) as the Web3 futures journeys (J-dex-protocol-18, -19) drive it: the ticket, the
 // open sheet and the contract chooser, located the way J-derivatives-01 locates them.
@@ -55,4 +56,16 @@ export const ticketOptions = (ticket) => openFold(ticket, 'venue-ticket-options'
 export async function rowAction(row, name, exact = true) {
   await row.getByTestId('venue-position-more').click();
   await row.page().getByRole('menuitem', { name, exact }).click();
+}
+
+/**
+ * Opens the perps desk at `path` as the person in `s` (its account and wallet key), waits for `symbol`'s contract in
+ * Market details, and returns the state with the wallet and its owner address.
+ */
+export async function openFuturesDesk(page, s, path, symbol) {
+  const wallet = await openVenueDesk(page, s.account, path, s.walletKey);
+  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(symbol, {
+    timeout: 20_000,
+  });
+  return { ...s, wallet, owner: wallet.address };
 }

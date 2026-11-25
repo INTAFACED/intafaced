@@ -132,7 +132,6 @@ export function VenueAccountPanel({
   withdrawal: ReactNode;
 }) {
   const { t } = spotVenueCopy.useCopy();
-  const v = venueCopy.useCopy().t;
   const owner = useOwner();
   const clock = useClock();
   return (

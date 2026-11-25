@@ -1,5 +1,5 @@
 // World: gates, restart
-import { marketDetails, ticketOptions } from './futures-desk.mjs';
+import { marketDetails, openFuturesDesk, ticketOptions } from './futures-desk.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
@@ -58,14 +58,7 @@ function opened() {
   if (!s.opened) throw new Error(`${J} #2 opened no position, so this step has none to act on`);
   return s;
 }
-const desk = async (page) => {
-  const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
-  await expect((await marketDetails(page)).getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, {
-    timeout: 20_000,
-  });
-  return { ...s, wallet, owner: wallet.address };
-};
+const desk = (page) => openFuturesDesk(page, state(), DESK, SYMBOL);
 const since = () => new Date(Date.now() - 3_600_000).toISOString();
 const market = async () => (await testVenue('/markets', {})).body.value.find((m) => m.symbol === SYMBOL);
 const submitsOf = (page) => {
