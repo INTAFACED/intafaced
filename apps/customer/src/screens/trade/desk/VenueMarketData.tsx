@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
-import { BookLadder, StateBlock, TradeTape } from '@intafaced/ui/lit';
+import { BookLadder, MarketHeader, StateBlock, TradeTape } from '@intafaced/ui/lit';
 import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { fractionDigits } from '../../../data/decimal';
@@ -165,34 +165,30 @@ export function VenueMarketPanel({
   return (
     <section className="lt-panel" aria-label={t('Venue market')} data-testid="venue-market" data-market={market.symbol}>
       {/* One head line: the market's name, then its live figures, so the chart starts right under it. */}
-      <div className="xd-market-head">
-        <h2 className="lt-panel-title">
-          {market.symbol} <TestMark test={test} />
-        </h2>
-        <dl className="lt-stats" data-testid="venue-ticker">
-          <div>
-            <dt>{t('Last price')}</dt>
-            <dd className="lt-num" data-testid="venue-last" data-trade-id={last?.tradeId}>
-              {last ? `${price(last.price)} ${market.quoteAsset}` : t('No print')}
-            </dd>
-          </div>
-          <div>
-            <dt>{t('Best bid')}</dt>
-            <dd className="lt-num" data-testid="venue-best-bid">
-              {bid ? price(bid.price) : t('Side empty')}
-            </dd>
-          </div>
-          <div>
-            <dt>{t('Best ask')}</dt>
-            <dd className="lt-num" data-testid="venue-best-ask">
-              {ask ? price(ask.price) : t('Side empty')}
-            </dd>
-          </div>
-          <div>
-            <dt>{t('Market data as of')}</dt>
-            <dd data-testid="venue-market-as-of">{book.data ? asOfText(book.data.asOf) : '…'}</dd>
-          </div>
-        </dl>
+      {/* The kit's market line: the pair, its last print large, then best bid and ask and the venue's as-of time. The
+          newest print's trade id rides on the line, so a reader can match the figure to the venue's print. */}
+      <div className="xd-market-head" data-testid="venue-ticker" data-trade-id={last?.tradeId}>
+        <MarketHeader
+          label={market.symbol}
+          asset={market.baseAsset}
+          symbol={market.symbol}
+          badges={<TestMark test={test} />}
+          price={last ? price(last.price) : null}
+          priceTestId="venue-last"
+          change={null}
+          stats={[
+            { key: 'bid', label: t('Best bid'), value: bid ? price(bid.price) : t('Side empty'), 'data-testid': 'venue-best-bid' },
+            { key: 'ask', label: t('Best ask'), value: ask ? price(ask.price) : t('Side empty'), 'data-testid': 'venue-best-ask' },
+            {
+              key: 'asof',
+              label: t('Market data as of'),
+              value: book.data ? asOfText(book.data.asOf) : '…',
+              num: false,
+              'data-testid': 'venue-market-as-of',
+            },
+          ]}
+          aside={last ? null : <span className="lt-note">{t('No print')}</span>}
+        />
       </div>
       <ReadProblem failure={failure} venueName={venueName} />
 

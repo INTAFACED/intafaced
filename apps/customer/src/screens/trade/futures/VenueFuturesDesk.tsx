@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import { VenueMarketPanel } from '../desk/VenueMarketData';
 import '../desk/exchange-desk.css';
-import { Button, Field, Fold, Segmented, Switch } from '@intafaced/ui/lit';
+import { Button, Field, Fold, PageGrid, Segmented, Switch } from '@intafaced/ui/lit';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -257,127 +257,132 @@ function Contracts({
   };
   return (
     <>
-      <DeskTemplate
-        title={t('Futures on venue')}
-        mode="pro"
-        state={{ kind: 'ready' }}
-        instrument={
-          <div className="lt-stack-tight">
-            {head}
-            {/* The header is the top strip itself: contracts, figures and Flatten; the venue's lines are in Market details. */}
-            <VenueHeader status={status} title={t('Futures on venue')}>
-              <div className="xd-top">
-                <ul className="xd-contracts" aria-label={t('Contracts')} data-testid="venue-contract-list">
-                  {perps.map((m) => (
-                    <li key={m.symbol}>
-                      <Button
-                        tone="secondary"
-                        aria-pressed={m.symbol === market.symbol}
-                        aria-label={t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-                        onClick={() => setChosen(m.symbol)}
-                      >
-                        <span className="xd-tile-symbol">{m.symbol}</span>
-                        <span className="lt-num xd-tile-price">{m.mark.known ? displayAmount(m.mark.value) : '—'}</span>
-                      </Button>
+      {/* The kit's page grid with flat tiles: every desk panel is a near-black 6px tile, as the owner picked for Pro. */}
+      <PageGrid panels="tiles" scale="off">
+        <DeskTemplate
+          title={t('Futures on venue')}
+          mode="pro"
+          state={{ kind: 'ready' }}
+          instrument={
+            <div className="lt-stack-tight">
+              {head}
+              {/* The header is the top strip itself: contracts, figures and Flatten; the venue's lines are in Market details. */}
+              <VenueHeader status={status} title={t('Futures on venue')}>
+                <div className="xd-top">
+                  <ul className="xd-contracts" aria-label={t('Contracts')} data-testid="venue-contract-list">
+                    {perps.map((m) => (
+                      <li key={m.symbol}>
+                        <Button
+                          tone="secondary"
+                          aria-pressed={m.symbol === market.symbol}
+                          aria-label={t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
+                          onClick={() => setChosen(m.symbol)}
+                        >
+                          <span className="xd-tile-symbol">{m.symbol}</span>
+                          {m.mark.known ? <span className="lt-num xd-tile-price">{displayAmount(m.mark.value)}</span> : null}
+                        </Button>
+                      </li>
+                    ))}
+                    {/* One TEST mark for the whole list, not one per contract. */}
+                    <li>
+                      <TestMark test={status.test} />
                     </li>
-                  ))}
-                  {/* One TEST mark for the whole list, not one per contract. */}
-                  <li>
-                    <TestMark test={status.test} />
-                  </li>
-                </ul>
-                <div className="xd-risk-row">
-                  <RiskStrip
-                    positions={account.positions.data?.value ?? []}
-                    orders={account.openOrders.data?.value ?? []}
-                    quote={market.quoteAsset}
-                    funding={
-                      market.funding.known
-                        ? t('Funding rate value', {
-                            percent: percentOf(market.funding.value.rate),
-                            every: intervalText(market.funding.value.intervalSeconds),
-                          })
-                        : null
-                    }
-                  />
-                  {owner ? <FlattenHold positions={account.positions.data?.value ?? []} markets={perps} owner={owner} run={run} /> : null}
+                  </ul>
+                  <div className="xd-risk-row">
+                    <RiskStrip
+                      positions={account.positions.data?.value ?? []}
+                      orders={account.openOrders.data?.value ?? []}
+                      quote={market.quoteAsset}
+                      funding={
+                        market.funding.known
+                          ? t('Funding rate value', {
+                              percent: percentOf(market.funding.value.rate),
+                              every: intervalText(market.funding.value.intervalSeconds),
+                            })
+                          : null
+                      }
+                    />
+                    {owner ? <FlattenHold positions={account.positions.data?.value ?? []} markets={perps} owner={owner} run={run} /> : null}
+                  </div>
                 </div>
-              </div>
-            </VenueHeader>
-          </div>
-        }
-        chart={
-          <VenueMarketPanel
-            key={`m:${market.symbol}`}
-            market={market}
-            test={status.test}
-            venueName={status.venue.displayName}
-            chartLines={positionLines(
-              account.positions.data?.value.find((p) => p.symbol === market.symbol),
-              account.openOrders.data?.value ?? [],
-            ).map((line) =>
-              chartLineOf(
-                line,
-                t,
+              </VenueHeader>
+            </div>
+          }
+          chart={
+            <VenueMarketPanel
+              key={`m:${market.symbol}`}
+              market={market}
+              test={status.test}
+              venueName={status.venue.displayName}
+              chartLines={positionLines(
                 account.positions.data?.value.find((p) => p.symbol === market.symbol),
-              ),
-            )}
-          />
-        }
-        ticket={
-          <div className="lt-stack" ref={ticketRef}>
-            {/* No wallet yet: connecting it comes first. Connected: the ticket comes first, the wallet under it. */}
-            {owner ? null : <WalletBar />}
-            {owner ? (
-              <Ticket
-                key={`t:${market.symbol}`}
-                status={status}
-                market={market}
-                owner={owner}
-                account={account}
-                run={run}
-                resend={resend}
-                side={side}
-                setSide={setSide}
-                disabled={false}
-              />
-            ) : null}
-            {owner ? <WalletBar /> : null}
-            {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
-            {owner && market.marginAccount?.known ? (
-              <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
-            ) : null}
-            {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
-            <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-            {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
-            {owner ? (
-              <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
-            ) : null}
-          </div>
-        }
-        orders={
-          <div className="lt-stack">
-            {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
-            {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-            {owner ? (
-              // The venue's fees, tiers, account and bills: one fold under the positions, never on the desk's face.
-              <Fold title={t('Venue account fold')} data-testid="venue-account-fold">
-                <VenueAccountPanel status={status} owner={owner} />
+                account.openOrders.data?.value ?? [],
+              ).map((line) =>
+                chartLineOf(
+                  line,
+                  t,
+                  account.positions.data?.value.find((p) => p.symbol === market.symbol),
+                ),
+              )}
+            />
+          }
+          ticket={
+            <div className="lt-stack" ref={ticketRef}>
+              {/* No wallet yet: connecting it comes first. Connected: the ticket comes first, the wallet under it. */}
+              {owner ? null : <WalletBar />}
+              {owner ? (
+                <Ticket
+                  key={`t:${market.symbol}`}
+                  status={status}
+                  market={market}
+                  owner={owner}
+                  account={account}
+                  run={run}
+                  resend={resend}
+                  side={side}
+                  setSide={setSide}
+                  disabled={false}
+                />
+              ) : null}
+              {owner ? <WalletBar /> : null}
+              {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
+              {owner && market.marginAccount?.known ? (
+                <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
+              ) : null}
+              {owner ? (
+                <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} />
+              ) : null}
+              <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+              {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+              {owner ? (
+                <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+              ) : null}
+            </div>
+          }
+          orders={
+            <div className="lt-stack">
+              {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+              {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+              {owner ? (
+                // The venue's fees, tiers, account and bills: one fold under the positions, never on the desk's face.
+                <Fold title={t('Venue account fold')} data-testid="venue-account-fold">
+                  <VenueAccountPanel status={status} owner={owner} />
+                </Fold>
+              ) : null}
+              {/* The contract's fixed specs, who may open it, its rules and tiers: there when asked for, never on the desk's face. */}
+              <Fold title={t('Market details')} data-testid="venue-market-details">
+                <div className="lt-stack">
+                  <VenueLines status={status} />
+                  <ContractStrip market={market} test={status.test} />
+                  <GatedList status={status} />
+                  <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+                  <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
+                </div>
               </Fold>
-            ) : null}
-            {/* The contract's fixed specs, who may open it, its rules and tiers: there when asked for, never on the desk's face. */}
-            <Fold title={t('Market details')} data-testid="venue-market-details">
-              <div className="lt-stack">
-                <VenueLines status={status} />
-                <ContractStrip market={market} test={status.test} />
-                <GatedList status={status} />
-                <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
-                <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
-              </div>
-            </Fold>
-          </div>
-        }
-      />
+            </div>
+          }
+        />
+      </PageGrid>
       <div className="xd-phone-bar" role="group" aria-label={t('Ticket')} data-testid="venue-phone-bar">
         <Button tone="up" onClick={() => toTicket('buy')}>
           {t('Long')}

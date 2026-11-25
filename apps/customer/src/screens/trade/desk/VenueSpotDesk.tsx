@@ -28,7 +28,7 @@ import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueOrdersCopy } from '../../../features/trade/orders/venue-orders-copy';
 import { deskCopy } from './copy';
-import { Button, DateInput, Fold, StatStrip } from '@intafaced/ui/lit';
+import { Button, DateInput, Fold, PageGrid, StatStrip } from '@intafaced/ui/lit';
 import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useDeviceSetting } from '../../../features/trade/hooks';
@@ -576,72 +576,75 @@ export function VenueSpotDesk({
   // No market list or book column: the market panel holds ticker, chart, book and tape; the ticket and account beside it.
   return (
     <div className="xd" data-testid="if-desk" data-market={market.symbol} data-venue="on">
-      <DeskTemplate
-        title={d('Spot desk')}
-        mode="pro"
-        state={{ kind: 'ready' }}
-        instrument={
-          <>
-            {/* The header is the top strip itself: the pairs as tiles and what the person can trade with; the venue's
-                lines are in Market details. */}
-            <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine}>
-              <div className="xd-top">
-                <ul className="xd-contracts" aria-label={t('Pairs')} data-testid="dk-pair-tiles">
-                  {(spotMarkets.length > 0 ? spotMarkets : [market]).slice(0, 6).map((m) => (
-                    <li key={m.symbol}>
-                      <Button
-                        tone="secondary"
-                        aria-pressed={m.symbol === market.symbol}
-                        onClick={() => m.symbol !== market.symbol && navigate(`/trade/spot/${m.symbol}`)}
-                      >
-                        <span className="xd-tile-symbol">
-                          {m.baseAsset}/{m.quoteAsset}
-                        </span>
-                        {/* A spot pair has no published mark: the tile shows its name only, never a dash for a price. */}
-                        {m.mark.known ? <span className="lt-num xd-tile-price">{displayAmount(m.mark.value)}</span> : null}
-                      </Button>
+      {/* The kit's page grid with flat tiles: every desk panel is a near-black 6px tile, as the owner picked for Pro. */}
+      <PageGrid panels="tiles" scale="off">
+        <DeskTemplate
+          title={d('Spot desk')}
+          mode="pro"
+          state={{ kind: 'ready' }}
+          instrument={
+            <>
+              {/* The header is the top strip itself: the pairs as tiles and what the person can trade with; the venue's
+                  lines are in Market details. */}
+              <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine}>
+                <div className="xd-top">
+                  <ul className="xd-contracts" aria-label={t('Pairs')} data-testid="dk-pair-tiles">
+                    {(spotMarkets.length > 0 ? spotMarkets : [market]).slice(0, 6).map((m) => (
+                      <li key={m.symbol}>
+                        <Button
+                          tone="secondary"
+                          aria-pressed={m.symbol === market.symbol}
+                          onClick={() => m.symbol !== market.symbol && navigate(`/trade/spot/${m.symbol}`)}
+                        >
+                          <span className="xd-tile-symbol">
+                            {m.baseAsset}/{m.quoteAsset}
+                          </span>
+                          {/* A spot pair has no published mark: the tile shows its name only, never a dash for a price. */}
+                          {m.mark.known ? <span className="lt-num xd-tile-price">{displayAmount(m.mark.value)}</span> : null}
+                        </Button>
+                      </li>
+                    ))}
+                    <li>
+                      <TestMark test={status.test} />
                     </li>
-                  ))}
-                  <li>
-                    <TestMark test={status.test} />
-                  </li>
-                </ul>
-                <div className="xd-risk-row">
-                  <StatStrip
-                    dense
-                    cells={[
-                      {
-                        key: 'spend',
-                        label: t('To spend', { asset: market.quoteAsset }),
-                        value: freeQuote === null ? t('Connect to see') : `${displayAmount(freeQuote)} ${market.quoteAsset}`,
-                        num: freeQuote !== null,
-                        'data-testid': 'dk-to-spend',
-                      },
-                      {
-                        key: 'held',
-                        label: t('Held', { asset: market.baseAsset }),
-                        value: freeBase === null ? t('Connect to see') : `${displayAmount(freeBase)} ${market.baseAsset}`,
-                        num: freeBase !== null,
-                        'data-testid': 'dk-held',
-                      },
-                    ]}
-                  />
+                  </ul>
+                  <div className="xd-risk-row">
+                    <StatStrip
+                      dense
+                      cells={[
+                        {
+                          key: 'spend',
+                          label: t('To spend', { asset: market.quoteAsset }),
+                          value: freeQuote === null ? t('Connect to see') : `${displayAmount(freeQuote)} ${market.quoteAsset}`,
+                          num: freeQuote !== null,
+                          'data-testid': 'dk-to-spend',
+                        },
+                        {
+                          key: 'held',
+                          label: t('Held', { asset: market.baseAsset }),
+                          value: freeBase === null ? t('Connect to see') : `${displayAmount(freeBase)} ${market.baseAsset}`,
+                          num: freeBase !== null,
+                          'data-testid': 'dk-held',
+                        },
+                      ]}
+                    />
+                  </div>
                 </div>
-              </div>
-            </VenueHeader>
-            <VenueDeskTicker market={market} timeZone={timeZone} />
-            <ActionLimitWarning venueName={status.venue.displayName} />
-          </>
-        }
-        chart={chartColumn}
-        ticket={ticket}
-        orders={
-          <div className="xd-under">
-            {accountSide}
-            {bottom}
-          </div>
-        }
-      />
+              </VenueHeader>
+              <VenueDeskTicker market={market} timeZone={timeZone} />
+              <ActionLimitWarning venueName={status.venue.displayName} />
+            </>
+          }
+          chart={chartColumn}
+          ticket={ticket}
+          orders={
+            <div className="xd-under">
+              {accountSide}
+              {bottom}
+            </div>
+          }
+        />
+      </PageGrid>
       {dialog === 'deposit' && owner ? <DepositDialog route={route} test={status.test} onClose={() => setDialog(null)} /> : null}
       {dialog === 'withdraw' && owner ? (
         <WithdrawDialog

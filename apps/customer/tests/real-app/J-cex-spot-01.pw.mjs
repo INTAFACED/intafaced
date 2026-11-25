@@ -587,7 +587,7 @@ test(`${J} #5 opens /trade/spot/BTC-USDC: ticker, book, chart, tape, the fee lin
     const [newest] = await prints(1);
     expect(newest, 'the venue has a print').toBeTruthy();
     const last = market.getByTestId('venue-last');
-    await expect(last).toHaveAttribute('data-trade-id', newest.tradeId, { timeout: 1_000 });
+    await expect(market.getByTestId('venue-ticker')).toHaveAttribute('data-trade-id', newest.tradeId, { timeout: 1_000 });
     expect(shownUnits(await last.innerText())).toBe(wireUnits(newest.price));
     const { bid, ask } = await venueBook(VENUE_SPOT);
     expect(shownUnits(await market.getByTestId('venue-best-bid').innerText()), 'best bid').toBe(bid);
