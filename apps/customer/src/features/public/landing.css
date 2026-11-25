@@ -1,0 +1,649 @@
+/* The signed-out landing page (/): Landing A, "Markets first", with B's balance slab and C's real ticket. Volt tokens only. */
+.ld {
+  --ld-gutter: clamp(1rem, 3vw, 3rem);
+  --ld-max: 92rem;
+  display: grid;
+  gap: clamp(3rem, 6vw, 6.5rem);
+  inline-size: 100%;
+  max-inline-size: var(--ld-max);
+  margin-inline: auto;
+  padding-inline: var(--ld-gutter);
+  padding-block: clamp(2rem, 5vw, 5rem) clamp(3rem, 6vw, 6rem);
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 2200px) {
+  .ld {
+    --ld-max: 120rem;
+  }
+}
+.ld h2,
+.ld h3,
+.ld p {
+  margin: 0;
+}
+.ld :where(a) {
+  color: inherit;
+  text-decoration: none;
+}
+.ld-sr {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ld [data-tone='up'] {
+  color: var(--lit-up-text);
+}
+.ld [data-tone='down'] {
+  color: var(--lit-down-text);
+}
+.ld-num {
+  font-family: var(--lit-font-figure);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  white-space: nowrap;
+}
+
+/* The first screen: the pitch on the left, the live board on the right. */
+.ld-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  align-items: center;
+}
+@media (min-width: 1100px) {
+  .ld-hero {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    min-block-size: min(46rem, calc(100vh - 8rem));
+  }
+}
+.ld-pitch {
+  container-type: inline-size;
+  min-inline-size: 0;
+}
+.ld-title {
+  display: grid;
+  white-space: nowrap;
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 700;
+  font-size: clamp(2.5rem, 12cqi, 8.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+.ld-title-dim {
+  color: var(--lit-text-3);
+}
+.ld-lead {
+  max-inline-size: 34rem;
+  margin-block-start: 1.75rem;
+  color: var(--lit-text-2);
+  font-size: clamp(1.0625rem, 1.2vw, 1.3125rem);
+  line-height: 1.5;
+}
+.ld-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block-start: 2.25rem;
+}
+.ld-cta,
+.ld-cta-2 {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 3.5rem;
+  padding-inline: 1.75rem;
+  border-radius: var(--lit-radius-control);
+  font-weight: 600;
+  font-size: 1.0625rem;
+  transition: transform var(--lit-t-quick) var(--lit-ease);
+}
+.ld-cta {
+  background: var(--lit-primary-bg);
+  color: var(--lit-primary-fg);
+  box-shadow: var(--lit-primary-shadow);
+}
+.ld-cta-2 {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-secondary-fg);
+  box-shadow: var(--lit-secondary-shadow);
+}
+.ld-cta:hover,
+.ld-cta-2:hover {
+  transform: translateY(-1px);
+}
+.ld-cta:focus-visible,
+.ld-cta-2:focus-visible,
+.ld a:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 3px;
+}
+.ld-cta-block {
+  inline-size: 100%;
+  margin-block-start: 1.25rem;
+}
+.ld-note {
+  margin-block-start: 1rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem 3rem;
+  margin: 2.75rem 0 0;
+}
+.ld-stats div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.25rem;
+}
+.ld-stats dt {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-stats dd {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+  font-weight: 600;
+  font-size: clamp(1.5rem, 2vw, 2.125rem);
+  letter-spacing: -0.03em;
+}
+
+/* The live board. */
+.ld-board {
+  display: grid;
+  gap: 0.75rem;
+  padding: clamp(0.75rem, 1.2vw, 1.25rem);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-shadow);
+  border: 1px solid var(--lit-line);
+  min-inline-size: 0;
+}
+.ld-board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.ld-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-live-dot {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: var(--lit-up);
+  box-shadow: 0 0 0.75rem var(--lit-up);
+}
+.ld-featured {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  gap: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+  border: 1px solid var(--lit-line);
+}
+.ld-featured-figure {
+  display: grid;
+  gap: 0.375rem;
+}
+.ld-featured-price {
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+  font-weight: 600;
+  font-size: clamp(1.75rem, 2.6vw, 2.75rem);
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.ld-featured .ld-num {
+  text-align: start;
+}
+.ld-featured-chart {
+  block-size: 6rem;
+  min-inline-size: 0;
+}
+.ld-featured-chart,
+.ld-ticket-chart,
+.ld-tile,
+.ld-col-trend {
+  position: relative;
+  overflow: hidden;
+}
+.ld-featured-chart .lt-chart,
+.ld-ticket-chart .lt-chart {
+  block-size: 100%;
+  margin: 0;
+}
+.ld-featured-chart svg,
+.ld-ticket-chart svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+.ld-board-note {
+  padding: 2rem 1rem;
+  color: var(--lit-text-3);
+  text-align: center;
+}
+.ld-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+.ld-table th,
+.ld-table td {
+  padding-block: 0.8rem;
+  padding-inline: 0.75rem;
+  border-block-end: 1px solid var(--lit-line);
+  font-weight: 400;
+}
+.ld-table thead th {
+  padding-block: 0.5rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+  text-align: end;
+}
+.ld-table thead th:first-child,
+.ld-table tbody th {
+  text-align: start;
+}
+.ld-table tbody tr:last-child > * {
+  border-block-end: 0;
+}
+.ld-table tbody tr {
+  transition: background var(--lit-t-quick) var(--lit-ease);
+}
+.ld-table tbody tr:hover {
+  background: var(--lit-solid-bg-raised);
+}
+.ld-table td {
+  font-size: 1rem;
+}
+.ld-col-trend {
+  inline-size: 8rem;
+}
+.ld-col-trend .lt-spark {
+  inline-size: 7rem;
+  block-size: 1.75rem;
+  margin: 0 0 0 auto;
+}
+.ld-coin {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.ld-coin-sym {
+  font-weight: 600;
+}
+.ld-coin-quote {
+  color: var(--lit-text-3);
+}
+.ld-board-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-inline: 0.75rem;
+  padding-block-end: 0.25rem;
+  font-weight: 600;
+  font-size: var(--lit-type-micro-size);
+}
+@media (max-width: 640px) {
+  .ld-title {
+    white-space: normal;
+  }
+  .ld-col-vol,
+  .ld-col-trend {
+    display: none;
+  }
+  .ld-featured {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ld-table th,
+  .ld-table td {
+    padding-inline: 0.375rem;
+  }
+}
+
+/* Section heads. */
+.ld-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 2rem;
+  margin-block-end: 1.25rem;
+}
+.ld-section-head h2,
+.ld-slab-copy h2,
+.ld-closing h2 {
+  font-family: var(--lit-font-figure);
+  font-stretch: 118%;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 2.4vw, 2.5rem);
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+.ld-section-head p {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+
+/* What's moving: five tiles. */
+.ld-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ld-tile {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1.125rem 1.25rem 0.75rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+  border: 1px solid var(--lit-line);
+  transition: border-color var(--lit-t-quick) var(--lit-ease);
+}
+.ld-tile:hover {
+  border-color: var(--lit-line-strong);
+}
+.ld-tile-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.ld-tile-price {
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+  font-weight: 600;
+  font-size: 1.625rem;
+  letter-spacing: -0.03em;
+}
+.ld-tile .lt-spark {
+  block-size: 2.25rem;
+  margin: 0;
+}
+
+/* Trust strip. */
+.ld-trust {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+  border: 1px solid var(--lit-line);
+  overflow: hidden;
+}
+.ld-trust-item {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  padding: 1.5rem 1.5rem 1.75rem;
+  border-inline-end: 1px solid var(--lit-line);
+}
+.ld-trust-item h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.ld-trust-item p {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+  line-height: 1.55;
+}
+.ld-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--lit-radius-key);
+  border: 1px solid var(--lit-warn-text);
+  color: var(--lit-warn-text);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* B's balance slab beside the three doors. */
+.ld-slab-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(2rem, 4vw, 5rem);
+  align-items: center;
+  padding: clamp(1.5rem, 3.5vw, 3.5rem);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  border: 1px solid var(--lit-line);
+}
+@media (min-width: 1000px) {
+  .ld-slab-section {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+}
+.ld-slab-copy {
+  display: grid;
+  gap: 1rem;
+}
+.ld-slab-copy > p {
+  max-inline-size: 30rem;
+  color: var(--lit-text-2);
+  line-height: 1.5;
+}
+.ld-doors {
+  display: grid;
+  gap: 0.25rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ld-doors a {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--lit-radius-tile);
+  transition: background var(--lit-t-quick) var(--lit-ease);
+}
+.ld-doors a:hover {
+  background: var(--lit-solid-bg-raised);
+}
+.ld-doors strong {
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.ld-doors span {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab {
+  display: grid;
+  gap: 2.5rem;
+  margin: 0;
+  padding: clamp(1.5rem, 2.5vw, 2.5rem);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-object-bg);
+  color: var(--lit-object-fg);
+  box-shadow: var(--lit-object-shadow);
+  border: 1px solid var(--lit-line-strong);
+  transform: perspective(80rem) rotateX(4deg) rotateY(-7deg);
+  transform-origin: center;
+}
+.ld-slab-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.ld-slab-brand {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.ld-slab-example {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-figure {
+  display: grid;
+  gap: 0.5rem;
+}
+.ld-slab-label {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-total {
+  font-family: var(--lit-font-figure);
+  font-stretch: 118%;
+  font-weight: 700;
+  font-size: clamp(2.5rem, 5vw, 5rem);
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+.ld-slab-cents {
+  color: var(--lit-text-3);
+}
+.ld-slab-today {
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-parts {
+  display: flex;
+  gap: 0.375rem;
+}
+.ld-slab-part {
+  display: grid;
+  gap: 0.5rem;
+  min-inline-size: 0;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-slab-bar {
+  block-size: 0.375rem;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-line-strong);
+}
+.ld-slab-part:first-child .ld-slab-bar {
+  background: var(--lit-accent);
+}
+
+/* C's ticket with its fees. */
+.ld-fees-head p {
+  max-inline-size: 36rem;
+  color: var(--lit-text-2);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.ld-ticket {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  border: 1px solid var(--lit-line);
+}
+@media (min-width: 900px) {
+  .ld-ticket {
+    grid-template-columns: minmax(0, 1.5fr) minmax(20rem, 1fr);
+  }
+}
+.ld-ticket-main {
+  display: grid;
+  align-content: start;
+  gap: 0.375rem;
+  padding: 1.75rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+}
+.ld-ticket-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+}
+.ld-ticket-big {
+  margin-block-end: 1rem;
+  font-family: var(--lit-font-figure);
+  font-stretch: 118%;
+  font-weight: 700;
+  font-size: clamp(2.5rem, 4vw, 4rem);
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+.ld-ticket-get {
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+  font-weight: 600;
+  font-size: clamp(1.5rem, 2.2vw, 2.25rem);
+  letter-spacing: -0.03em;
+}
+.ld-ticket-chart {
+  block-size: 12rem;
+  margin-block-start: 1.5rem;
+}
+.ld-ticket-lines {
+  display: grid;
+  align-content: start;
+  margin: 0;
+  padding: 1.5rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+}
+.ld-ticket-lines > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.9rem;
+  border-block-end: 1px solid var(--lit-line);
+}
+.ld-ticket-lines dt {
+  color: var(--lit-text-2);
+}
+.ld-ticket-lines dd {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  text-align: end;
+}
+.ld-ticket-total dt,
+.ld-ticket-total dd {
+  color: var(--lit-text-1);
+  font-weight: 700;
+}
+.ld-link {
+  margin-block-start: 1rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+  text-align: center;
+}
+
+/* Closing call. */
+.ld-closing {
+  display: grid;
+  justify-items: center;
+  gap: 1.75rem;
+  padding-block: clamp(1rem, 3vw, 3rem);
+  text-align: center;
+}
+.ld-closing h2 {
+  font-size: clamp(2rem, 4.4vw, 4.5rem);
+}
