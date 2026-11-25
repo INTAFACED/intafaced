@@ -17,6 +17,7 @@ import {
   venueForThisFile,
   venueInfo,
   venueRecord,
+  openAccountTab,
 } from './venue.mjs';
 
 // J-cex-spot-05, in the running app (docs/roadmap/journeys.json; project-state operation-zero/modules/cex-spot/acceptance/
@@ -636,6 +637,7 @@ test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of
   const door = doorCalls(page);
   const btcBefore = await venueBalance(owner, 'BTC');
   expect(sameDecimal(btcBefore.free, START_BTC)).toBe(true);
+  await openAccountTab(page);
   const account = page.getByTestId('venue-account');
   const flatten = account.getByRole('button', { name: 'Flatten BTC' });
   await expect(flatten).toBeVisible({ timeout: 20_000 });

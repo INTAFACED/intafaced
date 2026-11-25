@@ -424,13 +424,14 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
       await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
       'the pending list widens the page',
     ).toBe(true);
-    // The venue account card's address and controls fit inside its own box too, whatever hex characters the address holds.
-    const accountPanel = page.getByTestId('venue-account');
+    // The band under the chart keeps the wallet's address and controls inside its own box too, whatever hex characters
+    // the address holds.
+    const accountPanel = page.getByTestId('venue-bottom');
     const accountBox = await accountPanel.boundingBox();
     const addrBox = await accountPanel.getByTestId('venue-wallet-address').boundingBox();
     expect(
       addrBox && accountBox && addrBox.x >= accountBox.x && addrBox.x + addrBox.width <= accountBox.x + accountBox.width + 1,
-      'the connected wallet address overflows the venue account panel',
+      'the connected wallet address overflows the band under the chart',
     ).toBe(true);
     for (const button of await accountPanel.getByRole('button').all()) {
       const b = await button.boundingBox();

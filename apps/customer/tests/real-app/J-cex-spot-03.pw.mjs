@@ -28,6 +28,7 @@ import {
   venueBalance,
   venueForThisFile,
   venueRecord,
+  openAccountTab,
 } from './venue.mjs';
 import { otherVenueTrader, venueBook, VENUE_SPOT } from './venue-reads.mjs';
 import { minuteStart } from './clock.mjs';
@@ -104,6 +105,7 @@ function state() {
 async function desk(page) {
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await openAccountTab(page);
   await expect(page.getByTestId('venue-account')).toBeVisible();
   return { ...s, wallet, owner: wallet.address.toLowerCase() };
 }

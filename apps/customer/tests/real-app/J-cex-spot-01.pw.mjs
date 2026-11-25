@@ -1,5 +1,6 @@
 // World: book, restart, gates, stack
 import { keyName } from './key-name.mjs';
+import { openAccountTab } from './venue.mjs';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import path from 'node:path';
@@ -418,13 +419,14 @@ async function venueDesk(page, { signedIn = false } = {}) {
   return { wallet, owner: wallet.address.toLowerCase(), panel };
 }
 
-/** Connects `wallet` on the open venue desk's venue-account panel, and waits for the panel to show its address. */
+/** Connects `wallet` on the open venue desk, waits for its address at the tabs' end, and opens the Balances tab. */
 async function connectWallet(page, wallet) {
   const panel = venuePanel(page);
   await expect(panel).toBeVisible();
   const shown = wallet.address.toLowerCase();
   await connectWhenAsked(page, panel.getByText(shown), panel);
   await expect(panel).toContainText(shown);
+  await openAccountTab(page);
   return panel;
 }
 
@@ -462,14 +464,15 @@ async function continueInWallet(page) {
   await expect(sheet).toHaveCount(0);
 }
 
-/** The desk's venue-account panel: the person's own venue balances, as the venue reports them. */
-const venuePanel = (page) => page.getByRole('region', { name: /venue account/i });
+/** The desk's band under the chart: the wallet at its tabs' end, and on its Balances tab the venue's own balances. */
+const venuePanel = (page) => page.getByTestId('venue-bottom');
 
 /** The figure the panel lists next to `label` (its dt/dd pair). */
 const listed = (scope, label) => scope.locator('dt', { hasText: label }).first().locator('xpath=following-sibling::dd[1]');
 
 /** Waits until the panel shows the venue's own USDC figures for `owner`, unit for unit; returns the venue's read. */
 async function panelEqualsVenue(page, who, owner) {
+  await openAccountTab(page);
   const panel = venuePanel(page);
   let venue;
   await expect(async () => {

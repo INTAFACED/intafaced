@@ -60,10 +60,10 @@ import {
 } from './venue-desk';
 import { useTradeAccess } from './venue-access';
 import { FeeCurrencyRow } from './VenueReviewRows';
-import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
+import { DepositDialog, VenueAccountPanel, VenueWalletRow, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
 import { VenueDeskTicker, VenueRpiLine, venueMaintenanceLine } from './VenueDeskTicker';
-import { SpotTicketOptions, SpotTopStrip, useMarketOrderRefusal } from './SpotDeskParts';
+import { SpotTicketOptions, SpotTopStrip, useMarketOrderRefusal, useSpotFeeLine } from './SpotDeskParts';
 import { PendingCheck } from './VenuePending';
 import { useCancelledOrders, useFilledOrders } from './venue-order-reads';
 
@@ -92,7 +92,7 @@ export function VenueSpotDesk({
   // Good till date (J-cex-spot-03 #7): the expiry the person picks, as the field holds it; a past time places nothing.
   const [expiry, setExpiry] = useState('');
   const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
-  const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
+  const [tab, setTab] = useState<'balances' | 'open' | 'history' | 'positions'>('open');
   const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
   // Orders placed elsewhere that this page cancelled by their client id: listed as the venue reads them, Cancelled, as
@@ -149,13 +149,7 @@ export function VenueSpotDesk({
     (x): x is VenueOrderType => (x === 'limit' || x === 'market') && !(x === 'market' && marketDisabledReason !== null),
   );
   const activeType: VenueOrderType = offeredTypes.includes(type) ? type : 'limit';
-  const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
-  const feeLine = v('Fee line spot', {
-    symbol: market.symbol,
-    maker: fee(market.makerFeeBps),
-    taker: fee(market.takerFeeBps),
-    builder: status.builder ? v('Fee bps', { bps: status.builder.feeBps }) : v('Builder fee blank spot'),
-  });
+  const feeLine = useSpotFeeLine(market, status);
 
   async function cancel(order: VenueOrder): Promise<CancelOutcome> {
     if (!order.venueClientOrderId) return 'refused';
@@ -427,22 +421,6 @@ export function VenueSpotDesk({
   const accountSide = (
     <div className="lt-stack" data-testid="venue-side">
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-      <VenueAccountPanel
-        status={status}
-        market={market}
-        balances={account.balances.data}
-        onDeposit={() => setDialog('deposit')}
-        onWithdraw={() => setDialog('withdraw')}
-        onFlatten={(amount) => {
-          setType('market');
-          setTicketSide('sell');
-          flattenHandle.current?.flatten(
-            amount,
-            cap?.known ? slippageLimit('sell', best.data?.value ?? null, cap.value, market.tickSize) : null,
-          );
-        }}
-        withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
-      />
       {owner && pending.length > 0 ? (
         <section className="lt-panel" data-testid="venue-pending" aria-label={t('Pending title')}>
           <h2 className="lt-panel-title">{t('Pending title')}</h2>
@@ -474,17 +452,43 @@ export function VenueSpotDesk({
   );
   const bottom = (
     <div className="lt-panel" data-testid="venue-bottom">
-      <Tabs
-        id="venue-bottom"
-        label={v('Open orders')}
-        items={[
-          { value: 'open', label: v('Open orders') },
-          { value: 'history', label: v('Trade history') },
-          { value: 'positions', label: v('Positions') },
-        ]}
-        value={tab}
-        onChange={(x) => setTab(x as typeof tab)}
-      />
+      {/* The tabs, and the wallet kept in sight at their end (Connect until connected, then its address). */}
+      <div className="xd-blotter-head">
+        <Tabs
+          id="venue-bottom"
+          label={v('Open orders')}
+          items={[
+            { value: 'balances', label: t('Balances') },
+            { value: 'open', label: v('Open orders') },
+            { value: 'history', label: v('Trade history') },
+            { value: 'positions', label: v('Positions') },
+          ]}
+          value={tab}
+          onChange={(x) => setTab(x as typeof tab)}
+        />
+        <div className="lt-row" data-compact="true">
+          <VenueWalletRow />
+        </div>
+      </div>
+      <TabPanel id="venue-bottom" value="balances" current={tab}>
+        <VenueAccountPanel
+          walletRow={false}
+          status={status}
+          market={market}
+          balances={account.balances.data}
+          onDeposit={() => setDialog('deposit')}
+          onWithdraw={() => setDialog('withdraw')}
+          onFlatten={(amount) => {
+            setType('market');
+            setTicketSide('sell');
+            flattenHandle.current?.flatten(
+              amount,
+              cap?.known ? slippageLimit('sell', best.data?.value ?? null, cap.value, market.tickSize) : null,
+            );
+          }}
+          withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
+        />
+      </TabPanel>
       <OutcomeLine result={lastResult} owner={owner} />
       <a className="lt-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
         {orders('historyTitle')}
@@ -571,8 +575,8 @@ export function VenueSpotDesk({
           ticket={ticket}
           orders={
             <div className="xd-under">
-              {accountSide}
               {bottom}
+              {accountSide}
             </div>
           }
         />

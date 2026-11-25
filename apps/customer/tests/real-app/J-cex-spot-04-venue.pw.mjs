@@ -22,6 +22,7 @@ import {
   venueRecord,
   venueWrites,
   walletDoorAct,
+  openAccountTab,
 } from './venue.mjs';
 
 // J-cex-spot-04 #2, #3, #5, #6 and #7, in the running app (docs/roadmap/journeys.json), on the stack's outside TEST
@@ -676,6 +677,7 @@ test(`${J} #7 sends an order whose request deadline has passed: refused as expir
 
   // On the desk, the venue account shows zero locked USDC matching the venue's own record.
   await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
+  await openAccountTab(page);
   const usedCell = page.getByTestId('venue-account').locator('tr[data-asset="USDC"] [data-cell="used"]');
   await expect(usedCell).toBeVisible();
   await expect.poll(async () => sameDecimal((await usedCell.innerText()).replace(/\s*USDC\s*$/, ''), finalOwn.locked)).toBe(true);

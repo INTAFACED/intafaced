@@ -1,7 +1,8 @@
 import { Button, DateInput, Fold, StatStrip } from '@intafaced/ui/lit';
 import { navigate } from '../../../app/location';
 import { displayAmount } from '../../../shared/money';
-import type { VenueMarket } from '../../../features/trade/venue-api';
+import type { VenueMarket, VenueUp } from '../../../features/trade/venue-api';
+import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { TestMark } from '../../../features/trade/venue/VenueKit';
 import { spotVenueCopy } from './venue-copy';
 import { NotOfferedTypes, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
@@ -139,4 +140,16 @@ export function useMarketOrderRefusal(market: VenueMarket): string | null {
       : higherRisk
         ? t('Higher risk zone reason')
         : null;
+}
+
+/** The pair's fee line: the venue's maker and taker fees and the builder fee, each "not known" when unpublished. */
+export function useSpotFeeLine(market: VenueMarket, status: VenueUp): string {
+  const v = venueCopy.useCopy().t;
+  const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
+  return v('Fee line spot', {
+    symbol: market.symbol,
+    maker: fee(market.makerFeeBps),
+    taker: fee(market.takerFeeBps),
+    builder: status.builder ? v('Fee bps', { bps: status.builder.feeBps }) : v('Builder fee blank spot'),
+  });
 }

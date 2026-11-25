@@ -121,6 +121,7 @@ export function VenueAccountPanel({
   onWithdraw,
   onFlatten,
   withdrawal,
+  walletRow = true,
 }: {
   status: VenueUp;
   market: VenueMarket;
@@ -130,6 +131,8 @@ export function VenueAccountPanel({
   /** Sell all of the free base asset in one reviewed market sell (J-cex-spot-05 #8), on the lot. */
   onFlatten: (amount: string) => void;
   withdrawal: ReactNode;
+  /** The wallet's row inside the panel; a desk that keeps the wallet in sight elsewhere leaves it out. */
+  walletRow?: boolean;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const owner = useOwner();
@@ -151,7 +154,7 @@ export function VenueAccountPanel({
         </span>
       </div>
       <p className="lt-note">{t('Venue account note')}</p>
-      <VenueWalletRow />
+      {walletRow ? <VenueWalletRow /> : null}
       {owner && balances ? (
         <>
           <p className="lt-note" data-testid="venue-balances-as-of">

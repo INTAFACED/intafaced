@@ -24,6 +24,7 @@ import {
   venueForThisFile,
   venueInfo,
   venueRecord,
+  openAccountTab,
 } from './venue.mjs';
 
 // J-ops-console-27, in the running app (docs/roadmap/journeys.json): the money loop reconciles to the cent, on the launch
@@ -168,7 +169,7 @@ async function personWallet(page) {
   return installTestWallet(page, { chainId: CHAIN_ID, privateKey: state().walletKey, rpcUrl: testChain().gateUrl });
 }
 
-const venuePanel = (page) => page.getByRole('region', { name: /venue account/i });
+const venuePanel = (page) => page.getByTestId('venue-bottom');
 const listed = (scope, label) => scope.locator('dt', { hasText: label }).first().locator('xpath=following-sibling::dd[1]');
 
 /** The desk for BTC/USDC, signed in, with the customer's TEST wallet connected on its venue-account panel. */
@@ -188,12 +189,14 @@ async function venueDesk(page, { signedIn = false, wallet: installed } = {}) {
   const shown = wallet.address.toLowerCase();
   await connectWhenAsked(page, panel.getByText(shown), panel);
   await expect(panel).toContainText(shown);
+  await openAccountTab(page);
   return { wallet, panel };
 }
 
 /** Waits until the panel shows the venue's own USDC figures, unit for unit, and keeps them for #8; returns the venue's read. */
 async function panelEqualsVenue(page, step) {
   const { owner } = state();
+  await openAccountTab(page);
   const panel = venuePanel(page);
   let venue;
   let shown;
