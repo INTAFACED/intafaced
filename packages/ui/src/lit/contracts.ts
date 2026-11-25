@@ -134,6 +134,9 @@ export const roles = {
   'font-ui': 'Interface face',
   'font-mono': 'Fine print, codes, tick scales',
   'font-figure': 'Money figures (tabular numerals)',
+  'cents-size': "A big figure's cents, as a share of the figure's size",
+  'cents-shift': "How far a big figure's cents sit above its baseline",
+  'cents-tone': "The colour of a big figure's cents",
 
   // Shape
   'radius-panel': 'Panels and cards',

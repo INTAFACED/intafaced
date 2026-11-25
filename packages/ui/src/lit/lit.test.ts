@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
 import { formattedLitCss } from './format.js';
 import { looks } from '../theme/tokens.js';
-import { flat, flatTypeMap, lit, litLight } from './tokens.js';
+import { flat, flatTypeMap, lit, litLight, pro } from './tokens.js';
 import { contrastRatio, deltaE2000, hue, toHex } from './colour.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -296,6 +296,7 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
       '@fontsource-variable/geist/index.css',
       '@fontsource-variable/geist-mono/index.css',
       '@fontsource-variable/manrope/index.css',
+      '@fontsource-variable/inter/index.css',
     ]);
   });
   it('the font roles lead with the families those packages declare', () => {
@@ -310,7 +311,7 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
   });
   it('every Volt family draws arrows, shapes and check marks from its own symbol faces, not a system fallback', () => {
     const faces = [...fonts.matchAll(/@font-face\s*{([^}]*)}/g)].map((m) => m[1] ?? '');
-    for (const family of ['Manrope Variable', 'Geist Variable', 'Geist Mono Variable']) {
+    for (const family of ['Manrope Variable', 'Inter Variable', 'Geist Variable', 'Geist Mono Variable']) {
       const own = faces.filter((f) => f.includes(`font-family: '${family}'`));
       const ranges = own.map((f) => /unicode-range:\s*([^;]+);/.exec(f)?.[1] ?? '').join(',');
       // → ↗ ← ↔ ↙ ↘ ↕ ↻ ▲ ▼ ▾ ▸ ○ ● ✓ ✕: every symbol the Customer app types today.
@@ -381,5 +382,23 @@ describe('the kit draws the arrows its faces lack', () => {
           .map(({ at }) => at),
       );
     expect(typed).toEqual([]);
+  });
+});
+
+describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
+  it('sets type and figures in Manrope, cents dimmed on the line, a black page, a flat lime primary and unpainted panels', () => {
+    expect(lit['font-figure'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(lit['cents-size']).toBe('0.6em');
+    expect(lit['cents-shift']).toBe('0');
+    expect(lit['cents-tone']).toBe('var(--lit-text-3)');
+    expect(lit.page).toBe('#000000');
+    expect(lit['primary-bg']).toBe('#E0F83A');
+    expect(lit['solid-bg']).toBe('#000000');
+  });
+  it('draws flat tiles in Pro and on a board that asks for them', () => {
+    const css = readFileSync(join(here, 'lit.css'), 'utf8');
+    expect(css).toMatch(/\[data-panels='tiles'\] \{\n {2}--lit-solid-bg: #0d0e0e;/i);
+    expect(pro['solid-bg']).toBe('#0D0E0E');
+    expect(pro['radius-panel']).toBe('6px');
   });
 });

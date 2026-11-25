@@ -355,6 +355,15 @@
 .lit-figure__minor {
   color: var(--lit-text-3);
 }
+/* A big figure's cents, as the look sets them (smaller and dimmed on the line, or raised and small); tables keep full
+   cents. Both the decimal mark and the digits after it take them. */
+.lit-figure:not([data-size='body']) .lit-figure__minor,
+.lt-cents {
+  font-size: var(--lit-cents-size);
+  color: var(--lit-cents-tone);
+  transform: translateY(calc(-1 * var(--lit-cents-shift)));
+  display: inline-block;
+}
 .lit-figure__marks {
   display: inline-flex;
   gap: 6px;
