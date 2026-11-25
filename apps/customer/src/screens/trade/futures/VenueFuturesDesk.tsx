@@ -67,6 +67,7 @@ import { useResource } from '../../../shared/resource';
 import { useReveal } from '../../../shared/reveal';
 import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
+import { VenueMarketPanel } from '../desk/VenueMarketData';
 import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
@@ -213,6 +214,8 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
             ))}
           </ul>
           <ContractStrip market={market} test={status.test} />
+          {/* The contract's own book, tape and chart, read from the venue (as on the venue spot desk). */}
+          <VenueMarketPanel key={`m:${market.symbol}`} market={market} test={status.test} venueName={status.venue.displayName} />
           {owner ? (
             <Ticket
               key={`t:${market.symbol}`}

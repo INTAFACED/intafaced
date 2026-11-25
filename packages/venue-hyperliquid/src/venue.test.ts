@@ -1383,3 +1383,107 @@ describe('feeStatus reads userFees and sends nothing (J-cex-spot-10 #2 #6)', () 
     expect(s).toEqual({ schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
   });
 });
+
+describe("public market data: best prices, prints and candles, no account (the desks' book, tape and chart)", () => {
+  const book = (bids: [string, string][], asks: [string, string][]) => () => ({
+    coin: 'BTC',
+    time: NOW,
+    levels: [bids.map(([px, sz]) => ({ px, sz, n: 1 })), asks.map(([px, sz]) => ({ px, sz, n: 1 }))],
+  });
+
+  it('best prices are the top of the public book; an empty side is null', async () => {
+    const fake = fakeVenue();
+    fake.info.l2Book = book(
+      [
+        ['58737', '0.1'],
+        ['58730', '1'],
+      ],
+      [],
+    );
+    const read = await venueWith(fake).bestPrices('BTC-PERP');
+    expect(read.value).toEqual({ symbol: 'BTC-PERP', bid: a('58737'), ask: null });
+    expect(read.reportedAt?.getTime()).toBe(NOW);
+  });
+
+  it('prints: newest first, at most limit, the taker side named, the id kept exact (a hash past a safe number)', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    fake.info.recentTrades = (b) => {
+      asked = b;
+      return [
+        { coin: 'BTC', side: 'A', px: '58731.0', sz: '0.00002', time: NOW - 2000, hash: '0xaa', tid: 614600037758557 },
+        { coin: 'BTC', side: 'B', px: '58740.5', sz: '0.5', time: NOW - 1000, hash: '0xbb', tid: 2 ** 60 },
+        { coin: 'BTC', side: 'B', px: '58700', sz: '1', time: NOW - 3000, hash: '0xcc', tid: 7 },
+      ];
+    };
+    const read = await venueWith(fake).trades('BTC-PERP', 2);
+    expect(asked).toEqual({ type: 'recentTrades', coin: 'BTC' });
+    expect(read.value).toEqual([
+      { tradeId: '0xbb', symbol: 'BTC-PERP', price: a('58740.5'), amount: a('0.5'), takerSide: 'buy', tradedAt: new Date(NOW - 1000) },
+      {
+        tradeId: '614600037758557',
+        symbol: 'BTC-PERP',
+        price: a('58731'),
+        amount: a('0.00002'),
+        takerSide: 'sell',
+        tradedAt: new Date(NOW - 2000),
+      },
+    ]);
+    expect(read.reportedAt?.getTime()).toBe(NOW - 1000);
+  });
+
+  it('a price sent as a JSON number is refused, never read as a float', async () => {
+    const fake = fakeVenue();
+    fake.info.recentTrades = () => [{ coin: 'BTC', side: 'B', px: 58740.5, sz: '0.5', time: NOW, hash: '0xbb', tid: 1 }];
+    await expect(venueWith(fake).trades('BTC-PERP', 5)).rejects.toThrow(/not a string/);
+  });
+
+  it('candles: the window asked is limit intervals back from now, oldest first, the newest limit kept', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    const c = (t: number, o: string, cl: string) => ({
+      t,
+      T: t + 3_599_999,
+      s: 'BTC',
+      i: '1h',
+      o,
+      c: cl,
+      h: '59953',
+      l: '58856',
+      v: '1.13873',
+      n: 3,
+    });
+    fake.info.candleSnapshot = (b) => {
+      asked = b;
+      return [
+        c(NOW - 3_600_000, '58959', '58731'),
+        c(NOW - 3 * 3_600_000, '59216', '59312'),
+        c(NOW - 2 * 3_600_000, '59365', '59146'),
+        { ...c(NOW, '58731', '58731'), v: '0.0', n: 0 }, // no print in this interval: not a candle
+      ];
+    };
+    const read = await venueWith(fake).candles('BTC-PERP', '1h', 2);
+    expect(asked).toEqual({ type: 'candleSnapshot', req: { coin: 'BTC', interval: '1h', startTime: NOW - 2 * 3_600_000, endTime: NOW } });
+    expect(read.value.map((x) => [x.openAt.getTime(), x.openPrice, x.closePrice])).toEqual([
+      [NOW - 2 * 3_600_000, a('59365'), a('59146')],
+      [NOW - 3_600_000, a('58959'), a('58731')],
+    ]);
+    expect(read.value[0]).toMatchObject({ highPrice: a('59953'), lowPrice: a('58856'), baseVolume: a('1.13873') });
+  });
+
+  it('candles from a time start there; an interval the venue does not publish and an unlisted market are refused', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    fake.info.candleSnapshot = (b) => ((asked = b), []);
+    await venueWith(fake).candles('ETH-PERP', '15m', { limit: 10, since: new Date(NOW - 60_000) });
+    expect(asked).toEqual({ type: 'candleSnapshot', req: { coin: 'ETH', interval: '15m', startTime: NOW - 60_000, endTime: NOW } });
+    await refusedWith(venueWith(fake).candles('BTC-PERP', '6h', 10), 'not_offered');
+    await refusedWith(venueWith(fake).candles('DOGE-PERP', '1h', 10), 'unknown_market');
+    await refusedWith(venueWith(fake).trades('DOGE-PERP', 10), 'unknown_market');
+  });
+
+  it('a failed read is venue_down: nothing changed', async () => {
+    const fake = fakeVenue();
+    await refusedWith(venueWith(fake).trades('BTC-PERP', 10), 'venue_down'); // no recentTrades handler: HTTP 400
+  });
+});
