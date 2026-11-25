@@ -201,3 +201,15 @@
     justify-content: flex-start;
   }
 }
+/* The three tiles' bar (the owner's Money target): the tiles above are its legend, so the bar draws alone. */
+:root .money-where__tiles-bar .lt-parts-list {
+  display: none;
+}
+:root .money-where__tiles-bar .lt-parts-bar {
+  block-size: 0.25rem;
+}
+/* The sections in each column stand apart by the kit's section gap, with no panel round them (the Money target). */
+:root .money-where__side,
+:root .money-where__sections {
+  gap: var(--lit-gap-section);
+}

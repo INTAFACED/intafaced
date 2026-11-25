@@ -85,6 +85,8 @@ export function StandingTotal({
   face = 'full',
   foldLead,
   foldMore,
+  lineStart,
+  lineEnd,
 }: {
   standing: Standing;
   pricesFailed: boolean;
@@ -102,6 +104,10 @@ export function StandingTotal({
   foldLead?: ReactNode;
   /** `headline` only: what follows the total's own lines in the fold (Assets: the valuation note and the movers). */
   foldMore?: ReactNode;
+  /** `headline` only: what the line under the figure starts with, before the parts (Assets: today's change). */
+  lineStart?: ReactNode;
+  /** `headline` only: what the line under the figure ends with, after the parts (Assets: what is moving, not in the total). */
+  lineEnd?: ReactNode;
 }) {
   const { t } = standingCopy.useCopy();
   const asOfText = useAsOfText();
@@ -167,7 +173,7 @@ export function StandingTotal({
     return (
       <section data-testid={testId} data-standing="" data-face="headline" className="lt-stack lt-stack-tight" aria-label={t('Title')}>
         {figure}
-        <PartsLine standing={standing} hidden={hidden} t={t} />
+        <PartsLine standing={standing} hidden={hidden} t={t} start={lineStart} end={lineEnd} />
         <Fold title={t('Worked out')} data-testid="standing-worked-out">
           <div className="lt-stack">
             <div className="lt-stack lt-stack-tight">
@@ -193,10 +199,11 @@ const LINE_NAME = { wallet: 'Line wallet', venue: 'Line venue', partner: 'Line p
  * The headline's one line under the figure: each part by its short name and its value ("Wallet $1,388.40 · Venue
  * $20,098.12"), or in words why it has none (not known, not valued, holds nothing), never a zero.
  */
-function PartsLine({ standing, hidden, t }: { standing: Standing; hidden: boolean; t: T }) {
+function PartsLine({ standing, hidden, t, start, end }: { standing: Standing; hidden: boolean; t: T; start?: ReactNode; end?: ReactNode }) {
   if (standing.parts.length === 0) return null;
   return (
     <p className="lt-hint" data-testid="standing-line">
+      {start ? <>{start} </> : null}
       {standing.parts.map((part, index) => {
         const name = t(LINE_NAME[part.id]);
         return (
@@ -218,6 +225,7 @@ function PartsLine({ standing, hidden, t }: { standing: Standing; hidden: boolea
           </span>
         );
       })}
+      {end ? <> {end}</> : null}
     </p>
   );
 }
