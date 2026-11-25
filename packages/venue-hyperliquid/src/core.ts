@@ -36,7 +36,7 @@ const MARKETS_TTL_MS = 5 * 60_000;
 const MARKETS_MISS_REFRESH_MS = 10_000;
 /**
  * How long a shared read's answer is kept (`shareReads`). The venue weighs most info reads at 20 and a few at 2, against
- * 1200 a minute per address (its rate-limit docs); the account's fee rates and builder approval change only by its own
+ * 1200 a minute per IP, shared by every process on the machine (its rate-limit docs); the account's fee rates and builder approval change only by its own
  * signed action, which drops every kept answer. Each is well inside a figure's 60-second staleness limit.
  */
 const LIGHT_READS = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
@@ -112,8 +112,8 @@ export interface HyperliquidTestnetOptions {
    */
   readonly walletChainId?: number;
   /**
-   * Share reads across callers (the live venue server): every tester's desk is read through this one process, so one
-   * address, and the venue limits each address by the weight of its requests a minute. On, an answer is kept for a few
+   * Share reads across callers (the live venue server): every tester's desk is read through this one process, on the
+   * machine's one IP, and the venue limits each IP by the weight of its requests a minute. On, an answer is kept for a few
    * seconds by its weight (`READ_FRESH_MS`), one read is in flight per request, any signed action drops what was kept,
    * and a read the venue answers 429 is tried once more. Off (the default), every read goes to the venue.
    */

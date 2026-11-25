@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
-import type { UserVenueAccount, VenueIntent } from '@intafaced/venue-contracts';
+import { VenueRefusalError, type UserVenue, type UserVenueAccount, type VenueIntent } from '@intafaced/venue-contracts';
 import { TEST_VENUE_MARKETS, TestVenueSimulator, seedTestVenue, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { InMemoryBalanceWatchStore } from './balance-watch-store.js';
 import { VenueBalanceWatch, type VenueBalanceChange } from './balance-watch.js';
@@ -14,7 +14,7 @@ const a = parseAmount;
 const USER = '11111111-1111-4111-8111-1111111111c9';
 const OTHER_USER = '11111111-1111-4111-8111-1111111111ca';
 
-async function world() {
+async function world(opts: { refuseArrivals?: boolean } = {}) {
   let now = Date.UTC(2026, 10, 24, 3, 0, 0);
   const clock = () => new Date((now += 1000));
   const sim = new TestVenueSimulator({ clock, markets: TEST_VENUE_MARKETS, chainId: 84532 });
@@ -31,8 +31,26 @@ async function world() {
   const published: { userId: string; change: VenueBalanceChange }[] = [];
   const store = new InMemoryBalanceWatchStore();
   let users = [USER];
+  // The venue the watch reads: the simulator, counting its fills reads; `refuseArrivals` answers arrivals as Hyperliquid's
+  // test network does (`not_offered`).
+  const reads = { fills: 0 };
+  const venue = new Proxy(sim, {
+    get(target, key) {
+      if (key === 'fills')
+        return (...args: Parameters<UserVenue['fills']>) => {
+          reads.fills++;
+          return target.fills(...args);
+        };
+      if (key === 'arrivals' && opts.refuseArrivals)
+        return async () => {
+          throw new VenueRefusalError({ venueId: target.venue.id, code: 'not_offered', detail: 'TEST venue does not offer arrivals' });
+        };
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
   const watch = new VenueBalanceWatch({
-    venue: async () => sim,
+    venue: async () => venue,
     accounts: async () => users.map((userId) => ({ userId, owner, subAccount: null })),
     store,
     publish: async (userId, change) => {
@@ -41,7 +59,7 @@ async function world() {
     now: () => new Date(now),
   });
   const total = async (asset: string) => formatAmount((await sim.balances(account)).value.find((b) => b.asset === asset)?.total ?? 0n);
-  return { sim, account, run, watch, published, store, total, setUsers: (u: string[]) => (users = u) };
+  return { sim, account, run, watch, published, store, total, reads, setUsers: (u: string[]) => (users = u) };
 }
 
 describe('the venue balance watch (J-cex-spot-15 #9)', () => {
@@ -126,6 +144,31 @@ describe('the venue balance watch (J-cex-spot-15 #9)', () => {
     await w.watch.tick();
     expect(w.published).toHaveLength(2);
     expect(w.published[0]!.change).toEqual(w.published[1]!.change);
+  });
+
+  it('reads no fills while the totals stand still, and reads them once when a total moves', async () => {
+    const w = await world();
+    w.sim.deposit(w.account, 'USDC', a('1000'), '84532:0xaa:0');
+    await w.watch.tick();
+    expect(w.reads.fills).toBe(1);
+    for (let i = 0; i < 5; i++) await w.watch.tick();
+    expect(w.reads.fills).toBe(1);
+    w.sim.deposit(w.account, 'USDC', a('25'), '84532:0xbb:0');
+    await w.watch.tick();
+    expect(w.reads.fills).toBe(2);
+    expect(w.published.map((p) => [p.change.source, p.change.change])).toEqual([['deposit', '25']]);
+  });
+
+  it('watches a venue that does not offer arrivals: its change is published as other and its cursor is kept', async () => {
+    const w = await world({ refuseArrivals: true });
+    w.sim.deposit(w.account, 'USDC', a('1000'), '84532:0xaa:0');
+    expect(await w.watch.tick()).toMatchObject({ accounts: 1, published: 0, failed: 0 });
+    w.sim.deposit(w.account, 'USDC', a('25'), '84532:0xbb:0');
+    expect(await w.watch.tick()).toMatchObject({ published: 1, failed: 0 });
+    expect(w.published[0]!.change).toMatchObject({ source: 'other', change: '25', total: await w.total('USDC') });
+    await w.watch.tick();
+    expect(w.published).toHaveLength(1);
+    expect(w.reads.fills).toBe(2);
   });
 
   it('tells each person whose wallet signed for the account, and no one else', async () => {
