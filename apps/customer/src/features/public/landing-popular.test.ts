@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { dec, str } from '../../data/decimal';
-import { exampleLong, popularOf } from './HomePage';
+import { exampleLong, popularOf, venueLines } from './HomePage';
 
 const line = (symbol: string, last: string | undefined, volume: string) => ({
   symbol,
@@ -37,5 +37,39 @@ describe('the landing’s example long', () => {
     expect(ex.fee).toBeNull();
     expect(ex.ifStopped).toBeNull();
     expect(ex.ifTarget).toBeNull();
+  });
+});
+
+describe('the landing board on the venue’s list', () => {
+  type VenueMarket = Parameters<typeof venueLines>[0][number];
+  const market = (symbol: string, kind: VenueMarket['kind']): VenueMarket => ({
+    symbol,
+    kind,
+    baseAsset: symbol.split(/[-/]/)[0] ?? symbol,
+    quoteAsset: 'USDC',
+    tickSize: '0.01',
+    lotSize: '0.001',
+    status: 'trading',
+    session: { known: false },
+    listing: { opensAt: '2026-01-01T00:00:00.000Z', delistsAt: null, routing: 'show', open: true, delisted: false },
+  });
+  const ticker = (symbol: string, last: string | null) => ({
+    symbol,
+    last,
+    high: null,
+    low: null,
+    baseVolume: '1',
+    quoteVolume: '100',
+    bid: null,
+    ask: null,
+    spread: null,
+  });
+
+  it('lists the venue’s spot and perpetual markets, each priced only by its own ticker, and marks the perpetuals', () => {
+    const lines = venueLines([market('BTC/USDC', 'spot'), market('XAU-PERP', 'perpetual')], [ticker('XAU-PERP', '2400.5')]);
+    expect(lines.map((l) => [l.market.symbol, l.ticker?.last ?? null, !!l.perp])).toEqual([
+      ['BTC/USDC', null, false],
+      ['XAU-PERP', '2400.5', true],
+    ]);
   });
 });
