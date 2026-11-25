@@ -128,6 +128,7 @@
 }
 .ld-slab-copy {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.1429rem;
 }
 .ld-slab-copy > p {
@@ -303,7 +304,10 @@
   border-radius: var(--lit-radius-tile);
   background: var(--lit-solid-bg-raised);
 }
-.ld-ticket-lines > div {
+.ld-ticket-lines dl {
+  margin: 0;
+}
+.ld-ticket-lines dl > div {
   display: flex;
   justify-content: space-between;
   gap: 1.1429rem;
@@ -341,4 +345,31 @@
 .ld-slab-section,
 .ld-fees {
   margin-block-end: 1.7143rem;
+}
+
+/* At 200% text on a phone every part wraps inside the screen: no track grows past it, and the big figures shrink with
+   the screen before they spill. */
+.ld-slab-section > *,
+.ld-slab-copy > *,
+.ld-ticket > *,
+.ld-slab > * {
+  min-inline-size: 0;
+}
+.ld-slab-top,
+.ld-slab-parts,
+.ld-ticket-lines dl > div {
+  flex-wrap: wrap;
+}
+.ld-slab-copy h2,
+.ld-slab-brand,
+.ld-slab-total,
+.ld-ticket-big,
+.ld-ticket-get {
+  overflow-wrap: anywhere;
+}
+.ld-slab-total {
+  font-size: clamp(min(2.8571rem, 11vw), 5vw, 5.7143rem);
+}
+.ld-ticket-big {
+  font-size: clamp(min(2.8571rem, 11vw), 4vw, 4.5714rem);
 }

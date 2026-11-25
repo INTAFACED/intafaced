@@ -356,30 +356,32 @@ function FeesPreview({ line, takerBps, t }: { line: Line | undefined; takerBps: 
             ) : null}
           </div>
         </div>
-        <dl className="ld-ticket-lines">
-          <div>
-            <dt>{line ? t('feesBuy', { asset: line.market.base }) : t('feesPrice')}</dt>
-            <dd>{line ? priceOf(line) : t('feesNoPrice')}</dd>
-          </div>
-          <div>
-            <dt>{takerBps === null ? t('feesOurFee', { pct: '—' }) : t('feesOurFee', { pct: bpsAsPercent(takerBps) })}</dt>
-            <dd>{fee === null ? t('feesNotSet') : fmtUsd(str(fee))}</dd>
-          </div>
-          <div>
-            <dt>{t('feesVenue')}</dt>
-            <dd>{t('feesVenueLine')}</dd>
-          </div>
-          <div className="ld-ticket-total">
-            <dt>{t('feesTotal')}</dt>
-            <dd>{fmtUsd(EXAMPLE_SPEND)}</dd>
-          </div>
+        <div className="ld-ticket-lines">
+          <dl>
+            <div>
+              <dt>{line ? t('feesBuy', { asset: line.market.base }) : t('feesPrice')}</dt>
+              <dd>{line ? priceOf(line) : t('feesNoPrice')}</dd>
+            </div>
+            <div>
+              <dt>{takerBps === null ? t('feesOurFee', { pct: '—' }) : t('feesOurFee', { pct: bpsAsPercent(takerBps) })}</dt>
+              <dd>{fee === null ? t('feesNotSet') : fmtUsd(str(fee))}</dd>
+            </div>
+            <div>
+              <dt>{t('feesVenue')}</dt>
+              <dd>{t('feesVenueLine')}</dd>
+            </div>
+            <div className="ld-ticket-total">
+              <dt>{t('feesTotal')}</dt>
+              <dd>{fmtUsd(EXAMPLE_SPEND)}</dd>
+            </div>
+          </dl>
           <ButtonLink tone="primary" size="lg" block href="/register">
             {t('startTrading')}
           </ButtonLink>
           <a className="ld-link" href="/fees">
             {t('feesSchedule')} →
           </a>
-        </dl>
+        </div>
       </div>
     </section>
   );
