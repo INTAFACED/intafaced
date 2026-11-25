@@ -6,7 +6,7 @@ import { Skeleton } from '@intafaced/ui/lit/templates';
 import { commandCopy } from './command-copy';
 import { ValueChart, ValueRanges, useValueRange } from './ValueChart';
 import { SplitBar, ledgerSplit, standingSplit } from './SplitBar';
-import { PinAWidget, PinnedHead, RoomWidgets, SendTo, Widget } from './Pinned';
+import { PinAWidget, PinnedHead, RoomWidgets, Widget } from './Pinned';
 import { HomeMarkets } from './HomeMarkets';
 import { clockTime } from './clock';
 import { homeCopy } from './copy';
@@ -48,6 +48,8 @@ import { TestBuildTag } from './TestBuildTag';
 import { useSession } from '../../features/session/session';
 
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
+// Send to reads the payee book through the money feature, kept out of Home's first load.
+const SendTo = lazy(() => import('./SendTo'));
 const HomePro = lazy(() => import('./HomePro').then((module) => ({ default: module.HomePro })));
 
 /**
@@ -391,7 +393,9 @@ function HomeSimple() {
                   <RecentActivity activity={activity} limit={activityLimit} hidden={hideBalances} />
                 </Widget>
               ) : null}
-              <SendTo userId={userId} />
+              <Suspense fallback={null}>
+                <SendTo userId={userId} />
+              </Suspense>
               <RoomWidgets />
               {/* Learn is offered in Pin a widget, as the Academy (Home A). */}
             </div>
