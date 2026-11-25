@@ -516,12 +516,51 @@ const sectionPath = (s) => {
 };
 
 /**
+ * A hunk over `cap` that only adds lines (a new file's one hunk is one: `@@ -0,0 +1,N @@`) as several hunks between its
+ * lines, each under `header` and at most `cap` bytes, each a valid hunk at the same old position: `@@ -O,0 +n,k @@`. Its
+ * lines, joined, are the hunk's byte for byte. Null for any other hunk (a removed or context line, a line alone over
+ * `cap`): it stays too large. (Failure it prevents: #10910, a venue recording's new file of 931,787 bytes in one hunk.)
+ */
+function splitAddedHunk(header, hunk, cap) {
+  const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,\d+)? @@[^\n]*\n/.exec(hunk);
+  if (!m || m[2] !== '0') return null;
+  const body = hunk.slice(m[0].length).match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  // `\ No newline at end of file` belongs to the line before it, so it stays with that line.
+  const rows = [];
+  for (const l of body) {
+    if (l.startsWith('+')) rows.push(l);
+    else if (l.startsWith('\\') && rows.length) rows[rows.length - 1] += l;
+    else return null;
+  }
+  const out = [];
+  let start = Number(m[3]);
+  let cur = [];
+  const close = () => {
+    out.push(`${header}@@ -${m[1]},0 +${start},${cur.length} @@\n${cur.join('')}`);
+    start += cur.length;
+    cur = [];
+  };
+  for (const r of rows) {
+    const next = Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},${cur.length + 1} @@\n${cur.join('')}${r}`);
+    if (next > cap) {
+      if (!cur.length) return null;
+      close();
+      if (Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},1 @@\n${r}`) > cap) return null;
+    }
+    cur.push(r);
+  }
+  if (cur.length) close();
+  return out;
+}
+
+/**
  * A diff over MAX_DIFF_BYTES in parts of at most `cap` bytes, in the diff's own order (so a service's files stay
  * together): whole files where they fit, a larger file between its hunks, each piece under its own file header. Nothing
  * is cut or left out. The sections `first` picks (the test part's own files) come first and close their own parts, so
  * when they fit one call, the first part is exactly the diff the test part judges and the one combined call carries it
- * once. Returns { parts }, or { tooLarge } when one hunk alone is over the cap, a file over it has no hunk
- * to split at, or it would take more than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
+ * once. A hunk over the cap that only adds lines splits between its lines (splitAddedHunk). Returns { parts }, or
+ * { tooLarge } when any other hunk alone is over the cap, a file over it has no hunk to split at, or it would take more
+ * than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
  * were the cap alone, 21 on intafaced #7728, a PR of about 420 to 560 KB; project-state #2065.)
  */
 export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, first = () => false) {
@@ -535,9 +574,16 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
       .slice(at)
       .split(/^(?=@@ )/m)
       .map((h) => header + h);
-    const big = units.find((u) => Buffer.byteLength(u) > cap);
-    if (big) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(big)} bytes, over ${cap}` };
-    return { units };
+    const out = [];
+    for (const u of units) {
+      if (Buffer.byteLength(u) <= cap) out.push(u);
+      else {
+        const lines = splitAddedHunk(header, u.slice(header.length), cap);
+        if (!lines) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(u)} bytes, over ${cap}` };
+        out.push(...lines);
+      }
+    }
+    return { units: out };
   };
   const sections = diffSections(diff);
   const parts = [];
@@ -564,7 +610,7 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
 export function partNote(parts, k, bytes) {
   const files = parts.map((p, i) => `part ${i + 1}: ${[...new Set(diffSections(p).map(sectionPath))].join(', ')}`);
   return [
-    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
+    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, and a hunk that only adds lines between its lines, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
     ...files,
   ].join('\n');
 }
