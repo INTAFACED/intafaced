@@ -222,6 +222,10 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, s
     timeout: 30_000,
   });
 
+  // The allocation sits in its own fold under the three tiles (the owner's Money target, 25 Nov): open it to read it.
+  const allocation = page.getByTestId('assets-allocation-fold');
+  await expect(allocation).toBeAttached({ timeout: 30_000 });
+  if ((await allocation.getAttribute('open')) === null) await allocation.locator('summary').click();
   const card = page.getByRole('region', { name: 'Where your money is', exact: true });
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card).toHaveAttribute('data-total-usd', fromUnits(total));

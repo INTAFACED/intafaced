@@ -20,7 +20,8 @@ import {
   type MarketRow as KitMarketRow,
 } from '@intafaced/ui/lit';
 import { AreaChart, Segmented, TestTag } from '@intafaced/ui/lit/templates';
-import { useDataEnv, useMarkets, useSource, useSparklines, useTickers } from '../../data/hooks';
+import { useDataEnv, useSource, useSparklines } from '../../data/hooks';
+import { useMarketCatalogue, type MarketCatalogue } from '../../data';
 import { compareDecimal, dec, str, sumOf, type Scaled } from '../../data/decimal';
 import { fmtPct, fmtPrice, fmtUsd } from '../../data/format';
 import type { Decimal, Loadable, MarketRow, TickerRow } from '../../data/types';
@@ -29,10 +30,12 @@ import { landingCopy } from './landing-copy';
 import './landing.css';
 
 type T = ReturnType<typeof landingCopy.useCopy>['t'];
-type Tab = 'popular' | 'gainers' | 'losers';
-interface Line {
+type Tab = 'popular' | 'gainers' | 'losers' | 'perps';
+export interface Line {
   market: MarketRow;
   ticker: TickerRow | undefined;
+  /** A perpetual from the venue's list (gold and stocks are listed only as perpetuals). */
+  perp?: boolean;
 }
 
 const USD_QUOTES = new Set(['USD', 'USDT', 'USDC']);
@@ -40,6 +43,7 @@ const BOARD_ROWS = 6;
 const MOVERS = 5;
 
 const pairPath = (market: MarketRow) => `/trade/spot/${encodeURIComponent(`${market.base}-${market.quote}`)}`;
+const lineHref = (line: Line) => (line.perp ? `/trade/futures/${encodeURIComponent(line.market.symbol)}` : pairPath(line.market));
 const priceOf = (line: Line) => {
   const price = fmtPrice(line.ticker?.last, line.market.tickSize);
   if (price === '—' || !USD_QUOTES.has(line.market.quote)) return price;
@@ -49,16 +53,22 @@ type Traded = { ticker?: { last?: string | null; quoteVolume24h?: string | null 
 const byVolume = (a: Traded, b: Traded) => compareDecimal(b.ticker?.quoteVolume24h ?? '0', a.ticker?.quoteVolume24h ?? '0') ?? 0;
 const byChange = (a: Line, b: Line) => compareDecimal(b.ticker?.changePct24h ?? '0', a.ticker?.changePct24h ?? '0') ?? 0;
 
-/** Open markets joined to their tickers, the one list every part of the page reads. */
+/** The catalogue's open markets, then its open perpetuals, each joined to its price under its own symbol. */
+export function linesOf({ markets, perpetuals, tickers }: Pick<MarketCatalogue, 'markets' | 'perpetuals' | 'tickers'>): Line[] {
+  const prices = tickers.status === 'ready' ? tickers.data : {};
+  const open = (load: Loadable<MarketRow[]>, perp: boolean): Line[] =>
+    load.status === 'ready' ? load.data.filter((m) => m.orderable).map((market) => ({ market, ticker: prices[market.symbol], perp })) : [];
+  return [...open(markets, false), ...open(perpetuals, true)];
+}
+
+/**
+ * Open markets joined to their prices, the one list every part of the page reads: the one markets catalogue, as on
+ * Markets and Home, with the venue's perpetuals too, so gold and stocks reach the board.
+ */
 function useLines(): { lines: Line[]; state: Loadable<unknown> } {
-  const markets = useMarkets();
-  const tickers = useTickers();
-  const lines = useMemo(() => {
-    if (markets.status !== 'ready') return [];
-    const rows = tickers.status === 'ready' ? tickers.data : {};
-    return markets.data.filter((m) => m.orderable).map((market) => ({ market, ticker: rows[market.symbol] }));
-  }, [markets, tickers]);
-  return { lines, state: markets };
+  const catalogue = useMarketCatalogue();
+  const lines = useMemo(() => linesOf(catalogue), [catalogue]);
+  return { lines, state: catalogue.markets };
 }
 
 /** The published fee schedule's default taker rate in basis points, or null when nothing is published. */
@@ -169,7 +179,7 @@ const rowOf = (line: Line, trend: Record<string, Decimal[]>): KitMarketRow => ({
   change: line.ticker?.changePct24h != null ? fmtPct(line.ticker.changePct24h) : null,
   trend: trend[line.market.symbol] ?? [],
   volume: line.ticker?.quoteVolume24h ? fmtUsd(line.ticker.quoteVolume24h, { compact: true }) : null,
-  href: pairPath(line.market),
+  href: lineHref(line),
 });
 
 function MarketBoard({
@@ -190,8 +200,10 @@ function MarketBoard({
     const priced = lines.filter((l) => l.ticker?.changePct24h != null);
     if (tab === 'gainers') return [...priced].sort(byChange).slice(0, BOARD_ROWS);
     if (tab === 'losers') return [...priced].sort(byChange).reverse().slice(0, BOARD_ROWS);
+    if (tab === 'perps') return popularOf(lines.filter((l) => l.perp)).slice(0, BOARD_ROWS);
     return popular.slice(0, BOARD_ROWS);
   }, [lines, popular, tab]);
+  const hasMoves = lines.some((l) => l.ticker?.changePct24h != null);
   const sparks = useSparklines(rows.map((r) => r.market.symbol));
   const trend = sparks.status === 'ready' ? sparks.data : {};
   return (
@@ -204,8 +216,14 @@ function MarketBoard({
             onChange={(value) => setTab(value as Tab)}
             options={[
               { value: 'popular', label: t('tabPopular') },
-              { value: 'gainers', label: t('tabGainers') },
-              { value: 'losers', label: t('tabLosers') },
+              // The venue's tickers carry no 24h move; with none, there is nothing to rank.
+              ...(hasMoves
+                ? [
+                    { value: 'gainers', label: t('tabGainers') },
+                    { value: 'losers', label: t('tabLosers') },
+                  ]
+                : []),
+              ...(lines.some((l) => l.perp) ? [{ value: 'perps', label: t('tabPerps') }] : []),
             ]}
           />
         }
@@ -263,7 +281,7 @@ function Featured({ line, t }: { line: Line; t: T }) {
       points={points}
       chartLabel={t('trendOf', { symbol: line.market.base })}
       asset={line.market.quote}
-      href={pairPath(line.market)}
+      href={lineHref(line)}
     />
   );
 }
@@ -294,7 +312,7 @@ function Moving({ lines, t }: { lines: Line[]; t: T }) {
             change={fmtPct(line.ticker?.changePct24h)}
             trend={sparks.status === 'ready' ? (sparks.data[line.market.symbol] ?? []) : []}
             trendLabel={t('trendOf', { symbol: line.market.base })}
-            href={pairPath(line.market)}
+            href={lineHref(line)}
           />
         ))}
       </TileRow>

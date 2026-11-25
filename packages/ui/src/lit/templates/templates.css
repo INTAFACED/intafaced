@@ -2249,8 +2249,14 @@ button.lt-tab:focus-visible {
 
 /* ---- segmented switch (Buy or Sell) ---- */
 
+/* A segmented control sets its own type, so it reads the same in a panel's title slot as anywhere else (the landing's
+   board tabs grew to the 20px heading when headings did). */
 .lt-segmented {
   display: flex;
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+  font-weight: var(--lit-type-body-weight);
+  letter-spacing: normal;
   padding: 0.25rem;
   gap: 0.25rem;
   border: 1px solid var(--lit-line);

@@ -2502,6 +2502,92 @@ a.lit-button {
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
 }
+/* ---- Exchange parts (exchange.tsx): the order-book ladder and the trades tape ---- */
+.lt-book,
+.lt-tape {
+  inline-size: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-label-size);
+  line-height: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.lt-book th,
+.lt-tape th {
+  padding-block: 0 0.25rem;
+  color: var(--lit-text-3);
+  font-family: var(--lit-font-ui);
+  font-size: var(--lit-type-micro-size);
+  font-weight: 500;
+  text-align: end;
+}
+.lt-book th:first-child,
+.lt-tape th:first-child {
+  text-align: start;
+}
+.lt-book td,
+.lt-tape td {
+  padding: 0;
+  text-align: end;
+  white-space: nowrap;
+}
+.lt-book td:first-child,
+.lt-tape td:first-child {
+  text-align: start;
+}
+.lt-book-row {
+  background-repeat: no-repeat;
+  background-position: 100% 50%;
+  background-size: calc(var(--lt-depth, 0) * 100%) 100%;
+}
+.lt-book-row[data-book-side='ask'] {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--lit-down) 16%, transparent),
+    color-mix(in srgb, var(--lit-down) 16%, transparent)
+  );
+}
+.lt-book-row[data-book-side='bid'] {
+  background-image: linear-gradient(color-mix(in srgb, var(--lit-up) 16%, transparent), color-mix(in srgb, var(--lit-up) 16%, transparent));
+}
+.lt-book-row[data-book-side='ask'] .lt-book-price {
+  color: var(--lit-down-text);
+}
+.lt-book-row[data-book-side='bid'] .lt-book-price {
+  color: var(--lit-up-text);
+}
+.lt-book-row:hover {
+  outline: 1px solid var(--lit-line-strong);
+  outline-offset: -1px;
+}
+.lt-book-pick {
+  all: unset;
+  cursor: pointer;
+  display: block;
+  inline-size: 100%;
+}
+.lt-book-pick:focus-visible {
+  outline: 2px solid var(--lit-focus);
+}
+.lt-book-mid th,
+.lt-book-mid td {
+  padding-block: 0.375rem;
+  border-block: 1px solid var(--lit-line);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+}
+.lt-book-mid th {
+  text-align: start;
+}
+.lt-tape-row[data-taker='buy'] .lt-tape-price {
+  color: var(--lit-up-text);
+}
+.lt-tape-row[data-taker='sell'] .lt-tape-price {
+  color: var(--lit-down-text);
+}
+.lt-tape-time {
+  color: var(--lit-text-3);
+}
 
 /* Board parts (board-parts.tsx): a markets screen's board, a toolbar's end slot, footnote lines, and GridTable's
    phone one-line rows and hover-revealed cells. */

@@ -74,4 +74,13 @@ export {
   type StripCell,
   type FeaturedMarketProps,
 } from './components/display-parts.js';
+export {
+  BookLadder,
+  TradeTape,
+  type BookLadderProps,
+  type BookLevel,
+  type BookSide,
+  type TapePrint,
+  type TradeTapeProps,
+} from './components/exchange.js';
 export { ChoiceTile, RadioTrack, WalletCard, type RadioTrackOption } from './components/auth-parts.js';

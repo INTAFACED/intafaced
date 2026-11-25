@@ -171,7 +171,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
           <Button
             key={k}
             size="sm"
-            tone={kind === k ? 'primary' : 'secondary'}
+            tone={kind === k ? 'secondary' : 'quiet'}
             aria-pressed={kind === k}
             onClick={() => {
               setKind(k);
@@ -188,7 +188,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
           <Button
             key={x}
             size="sm"
-            tone={side === x ? 'primary' : 'secondary'}
+            tone={side === x ? 'secondary' : 'quiet'}
             aria-pressed={side === x}
             onClick={() => {
               setSide(x);
@@ -226,7 +226,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
       {kind === 'bracket' || kind === 'oto' ? (
         <div role="group" aria-label={t('Entry tif')} className="lt-row">
           {(['GTC', 'IOC'] as const).map((x) => (
-            <Button key={x} size="sm" tone={tif === x ? 'primary' : 'secondary'} aria-pressed={tif === x} onClick={() => setTif(x)}>
+            <Button key={x} size="sm" tone={tif === x ? 'secondary' : 'quiet'} aria-pressed={tif === x} onClick={() => setTif(x)}>
               {t(`tif_${x}`)}
             </Button>
           ))}
@@ -236,7 +236,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
         <Button tone="secondary" onClick={() => void doReview()}>
           {t('Review')}
         </Button>
-        <Button tone="primary" onClick={() => void place()}>
+        <Button tone="secondary" onClick={() => void place()}>
           {t('Place')}
         </Button>
       </div>

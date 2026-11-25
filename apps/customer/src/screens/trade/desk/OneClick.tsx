@@ -13,6 +13,7 @@
  */
 import { useRef, useState } from 'react';
 import type { Order } from '../../../features/trade/trade-api';
+import type { ActionResult } from '../../../features/trade/venue/VenueKit';
 import { fitsPlaces } from '../../../features/account/trading-settings';
 import { useDataEnv } from '../../../data/hooks';
 import { useDeskApi } from './data';
@@ -210,6 +211,12 @@ export function OneClickBar({
 type CancelState = 'idle' | 'busy' | 'done' | 'uncertain' | 'refused';
 /** What one cancel request came to: done, refused, or an answer we couldn't read (never retried). */
 export type CancelOutcome = 'done' | 'uncertain' | 'refused';
+
+/** What one signed venue cancel came to, as one-click cancel reports it: a doubtful answer is never retried. */
+export function cancelOutcome(answer: ActionResult): CancelOutcome {
+  if (answer.kind === 'outcome') return answer.outcome.accepted ? 'done' : 'refused';
+  return answer.kind === 'unknown' ? 'uncertain' : 'refused';
+}
 
 /** One of my working orders on a ladder row, as the cancel review names it. */
 export interface CancelRow {

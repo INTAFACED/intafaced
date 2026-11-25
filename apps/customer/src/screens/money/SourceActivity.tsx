@@ -11,7 +11,7 @@ import { venueConvertApi } from '../../features/trade/venue-convert-api';
 import { WalletBar, readAllVenueOrders, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
-import { Amount, Button, StateBlock, Tag } from '@intafaced/ui/lit';
+import { ActivityList, ActivityRow, Amount, AssetIcon, Button, StateBlock, Tag } from '@intafaced/ui/lit';
 import { coinHref, fmtAmount, useActivity } from './deps';
 import { stamp } from './time';
 import type { ActivityFilters } from './activity-filter';
@@ -208,33 +208,14 @@ function Sources({
   if (recent !== undefined) {
     const newest = shown.slice(0, recent);
     if (newest.length === 0) return <p className="lt-hint">{anyReading ? t('Venue reading') : t('Nothing yet body')}</p>;
+    // Assets' activity (the owner's Money target, 25 Nov): one row each, what and when, the amount and its state as a pill.
     return (
-      <div className="lt-table-scroll">
-        <table data-testid="assets-recent-table" className="lt-table">
-          <thead>
-            <tr>
-              <th scope="col">{t('Activity')}</th>
-              <th scope="col">{t('Date')}</th>
-              <th scope="col" className="lt-end">
-                {t('Amount')}
-              </th>
-              <th scope="col">{t('Status')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {newest.map((line) => (
-              <LineRow
-                key={line.id}
-                line={line}
-                group={orderLines(all, line)}
-                t={t}
-                hidden={hidden}
-                zone={timeZone}
-                test={line.source === 'venue' && status.test}
-              />
-            ))}
-          </tbody>
-        </table>
+      <div data-testid="assets-recent-list">
+        <ActivityList label={t('Activity')}>
+          {newest.map((line) => (
+            <RecentRow key={line.id} line={line} t={t} hidden={hidden} zone={timeZone} test={line.source === 'venue' && status.test} />
+          ))}
+        </ActivityList>
       </div>
     );
   }
@@ -422,6 +403,75 @@ function sourceLabel(line: SourceLine, t: T): string {
   if (line.source === 'wallet') return t('From wallet', { name: line.sourceName });
   if (line.source === 'venue') return t('From venue', { name: line.sourceName });
   return t('From partner', { name: line.sourceName });
+}
+
+const STATE_TONE = {
+  completed: 'up',
+  confirming: 'warn',
+  not_credited: 'warn',
+  failed: 'down',
+  set_aside: 'neutral',
+  cancelled: 'neutral',
+} as const satisfies Record<SourceLine['state'], 'up' | 'warn' | 'down' | 'neutral'>;
+
+/** A line's state in words, as the full list's status column says it. */
+function stateWord(line: SourceLine, t: T): string {
+  switch (line.state) {
+    case 'completed':
+      return t('Completed');
+    case 'set_aside':
+      return t('Set aside');
+    case 'cancelled':
+      return t('Cancelled');
+    case 'failed':
+      return t('Failed');
+    case 'confirming':
+      return line.detail?.kind === 'confirming'
+        ? t('Confirming {count} of {required}', { count: String(line.detail.confirmations), required: String(line.detail.required) })
+        : t('Not credited');
+    default:
+      return t('Not credited');
+  }
+}
+
+/** One line of Assets' activity: the kit's activity row, its state as a pill under the amount; the full row is on /money/activity. */
+function RecentRow({
+  line,
+  t,
+  hidden,
+  zone,
+  test,
+}: {
+  line: SourceLine;
+  t: T;
+  hidden: boolean;
+  zone: ReturnType<typeof usePreferences>['timeZone'];
+  test: boolean;
+}) {
+  const signed = line.state === 'completed' || line.state === 'set_aside';
+  const amount = `${signed ? (line.direction === 'in' ? '+' : '−') : ''}${exact(line.amount)} ${line.asset}`;
+  return (
+    <ActivityRow
+      icon={<AssetIcon asset={line.asset} />}
+      title={titleOf(line, t)}
+      time={
+        <>
+          <time dateTime={line.at}>{stamp(line.at, zone)}</time> · {sourceLabel(line, t)}
+          {test ? (
+            <>
+              {' '}
+              <Tag tone="warn">{t('TEST')}</Tag>
+            </>
+          ) : null}
+        </>
+      }
+      amount={amount}
+      direction={line.direction}
+      hidden={hidden}
+      detail={<Tag tone={STATE_TONE[line.state]}>{stateWord(line, t)}</Tag>}
+      marks={{ row: { 'data-testid': 'assets-recent-row', 'data-source': line.source, 'data-ref': line.ref, 'data-state': line.state } }}
+    />
+  );
 }
 
 function LineRow({

@@ -1,26 +1,33 @@
-import { useMemo } from 'react';
-import { Button, PanelHead, Tag } from '@intafaced/ui/lit';
-import { KeyValue, Stepper } from '@intafaced/ui/lit/templates';
+import { Button, ButtonLink, PanelHead, Tag } from '@intafaced/ui/lit';
 import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
-import type { VenueDeposit } from '@intafaced/contracts/protocol-venue-account';
 import { useSession } from '../../features/session';
-import { useWallet } from '../../features/protocol';
-import { createVenueAccountApi } from '../../features/protocol/venue-wallet/venue-account-api';
 import { useResource } from '../../shared/resource';
+import { KeyValue, Stepper } from '@intafaced/ui/lit/templates';
+import type { VenueDeposit } from '@intafaced/contracts/protocol-venue-account';
+import { useWallet } from '../../features/protocol';
+import { shortAddress } from '../../features/protocol/wallet/eip1193';
+import type { Resource } from '../../shared/resource';
 import { isHiddenPath } from './deps';
 import { whereCopy } from './where-it-sits-copy';
 
 type T = ReturnType<typeof whereCopy.useCopy>['t'];
 
+/** The venue's deposits as Assets reads them once (the Moving tile and Moving now share the one read). */
+export type DepositsRead = Resource<{ value: readonly VenueDeposit[] }>;
+
 /**
- * Assets' side column (owner's pick, 25 Nov: direction A, "Ledger"): what is on its way into the venue account, step by
- * step; where a withdrawal goes; and the person's verification level. Each reads its own source and says so when it can't.
+ * Assets' side column (the owner's Money target, 25 Nov): what is on its way into the venue account, step by step; where
+ * a withdrawal goes; the wallet the person connected; the emergency freeze, kept in the Security room; and, at the foot,
+ * the person's verification level. Each reads its own source and says so when it can't; nothing here is an address book
+ * or a control the app does not have.
  */
-export function WhereSide({ owner, t }: { owner: string; t: T }) {
+export function WhereSide({ owner, deposits, t }: { owner: string; deposits: DepositsRead; t: T }) {
   return (
     <>
-      <MovingNow owner={owner} t={t} />
+      <MovingNow deposits={deposits} t={t} />
       <WithdrawTo owner={owner} t={t} />
+      <OwnWallet owner={owner} t={t} />
+      <Emergency t={t} />
       <YourLevel t={t} />
     </>
   );
@@ -31,22 +38,19 @@ function depositStep(deposit: VenueDeposit): number {
   return deposit.status === 'credited' ? 3 : 1;
 }
 
-function MovingNow({ owner, t }: { owner: string; t: T }) {
-  const { api } = useSession();
-  const account = useMemo(() => createVenueAccountApi(api), [api]);
-  const { resource } = useResource((signal) => account.deposits(owner, signal), `where-moving:${owner}`);
-  const moving = resource.status === 'ready' ? resource.data.value.filter((d) => d.status === 'confirming') : [];
-  const recent = resource.status === 'ready' ? resource.data.value.filter((d) => d.status !== 'confirming').slice(0, 2) : [];
+function MovingNow({ deposits, t }: { deposits: DepositsRead; t: T }) {
+  const moving = deposits.status === 'ready' ? deposits.data.value.filter((d) => d.status === 'confirming') : [];
+  const recent = deposits.status === 'ready' ? deposits.data.value.filter((d) => d.status !== 'confirming').slice(0, 2) : [];
   const steps = [t('Moving signed'), t('Moving on chain'), t('Moving credited')];
   return (
-    <section className="lt-panel" aria-labelledby="where-moving-title" data-testid="assets-moving">
+    <section className="lt-stack" aria-labelledby="where-moving-title" data-testid="assets-moving">
       <PanelHead
         title={<span id="where-moving-title">{t('Moving title')}</span>}
-        aside={moving.length > 0 ? String(moving.length) : undefined}
+        aside={moving.length > 0 ? <Tag tone="warn">{t('Moving pending')}</Tag> : undefined}
       />
-      {resource.status === 'loading' ? <p className="lt-hint">{t('Moving reading')}</p> : null}
-      {resource.status === 'failed' ? <p className="lt-hint">{t('Moving unread')}</p> : null}
-      {resource.status === 'ready' && moving.length === 0 ? <p className="lt-hint">{t('Moving none')}</p> : null}
+      {deposits.status === 'loading' ? <p className="lt-hint">{t('Moving reading')}</p> : null}
+      {deposits.status === 'failed' ? <p className="lt-hint">{t('Moving unread')}</p> : null}
+      {deposits.status === 'ready' && moving.length === 0 ? <p className="lt-hint">{t('Moving none')}</p> : null}
       {moving.map((deposit) => (
         <div key={deposit.depositRef} className="lt-stack" data-deposit-status={deposit.status}>
           <KeyValue
@@ -75,27 +79,55 @@ function MovingNow({ owner, t }: { owner: string; t: T }) {
 }
 
 /**
- * Where a withdrawal from the venue account goes: the connected wallet, unless the person edits it at the withdrawal.
- * The face shows the whole address, in mono, wrapping where it must.
+ * Where a withdrawal from the venue account goes: the connected wallet, unless the person changes it at the withdrawal.
+ * The launch model keeps no address book of its own, so there is no Add here. The supported assets and networks are linked
+ * here, beside where money goes out (J-wallet-01 #5).
  */
 function WithdrawTo({ owner, t }: { owner: string; t: T }) {
-  const wallet = useWallet();
   return (
-    <section className="lt-panel" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
+    <section className="lt-stack" aria-labelledby="where-withdraw-title" data-testid="assets-withdraw-to">
       <PanelHead title={<span id="where-withdraw-title">{t('Withdraw to title')}</span>} />
-      <div className="lt-row lt-row-between lt-row-nowrap" data-testid="venue-wallet">
+      <div className="lt-row lt-row-between lt-row-nowrap" data-testid="assets-withdraw-to-wallet">
         <span className="lt-stack lt-stack-tight money-where__address">
           <span>{t('Withdraw to wallet')}</span>
-          {/* The connected wallet's full address, as the venue rooms name it (venue-wallet-address): the journeys that
-              open /money connect through it and match it exactly, so it is the whole address, wrapping in mono. */}
-          <span className="lt-mono lt-hint" data-testid="venue-wallet-address" data-address={owner}>
-            {owner}
+          <span className="lt-hint" title={owner}>
+            {shortAddress(owner)}
           </span>
         </span>
         <Tag tone="up">{t('Withdraw to ready')}</Tag>
       </div>
       <p className="lt-hint">{t('Withdraw to note')}</p>
-      {/* The wallet's one control on Assets: the connected address and network are above and in the wallet panel's fold. */}
+      {isHiddenPath('/uc/assets') ? null : (
+        <a className="lt-hint" href="/uc/assets" aria-label={t('Supported assets')}>
+          {t('Supported assets short')}
+        </a>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The wallet the person connected: its name as it announces itself, its whole address (the venue rooms name it
+ * venue-wallet-address, and the journeys that open /money connect through it and match it exactly), and the one control.
+ */
+function OwnWallet({ owner, t }: { owner: string; t: T }) {
+  const wallet = useWallet();
+  return (
+    <section className="lt-stack" aria-labelledby="where-own-wallet-title" data-testid="venue-wallet">
+      <PanelHead title={<span id="where-own-wallet-title">{t('Own wallet title')}</span>} />
+      <div className="lt-row lt-row-between lt-row-nowrap">
+        <span className="lt-stack lt-stack-tight money-where__address">
+          <span>{wallet.connected?.info.name ?? t('Own wallet unnamed')}</span>
+          <span className="lt-hint">{shortAddress(owner)}</span>
+          {/* The whole address once, small (the venue rooms name it venue-wallet-address; the journeys that open /money
+              connect through it and match it exactly). */}
+          <small className="lt-hint lt-wrap" data-testid="venue-wallet-address" data-address={owner}>
+            {owner}
+          </small>
+        </span>
+        <Tag tone="up">{t('Own wallet connected')}</Tag>
+      </div>
+      <p className="lt-hint">{t('Own wallet note')}</p>
       <div className="lt-actions">
         <Button tone="secondary" size="sm" onClick={wallet.disconnect} data-testid="assets-disconnect">
           {t('Disconnect')}
@@ -110,6 +142,27 @@ function WithdrawTo({ owner, t }: { owner: string; t: T }) {
   );
 }
 
+/**
+ * The emergency freeze, as the Security room holds it: freezing needs the person's password and a reason, so the key here
+ * opens that room rather than freezing from Assets. With the room not in this build, the words say where it is not.
+ */
+function Emergency({ t }: { t: T }) {
+  const room = isHiddenPath('/uc/safe') ? null : '/uc/safe';
+  return (
+    <section className="lt-stack" aria-labelledby="where-emergency-title" data-testid="assets-emergency">
+      <PanelHead title={<span id="where-emergency-title">{t('Emergency title')}</span>} />
+      <p className="lt-hint">{t('Emergency note')}</p>
+      {room ? (
+        <ButtonLink tone="secondary" block href={room} data-testid="assets-freeze">
+          {t('Freeze everything')}
+        </ButtonLink>
+      ) : (
+        <p className="lt-refusal">{t('Freeze not here')}</p>
+      )}
+    </section>
+  );
+}
+
 const LEVEL_WORD = { none: 'Level none', basic: 'Level basic', full: 'Level full', institutional: 'Level institutional' } as const;
 const LEVEL_SENTENCE = {
   none: 'Level none sentence',
@@ -118,14 +171,14 @@ const LEVEL_SENTENCE = {
   institutional: 'Level institutional sentence',
 } as const;
 
-/** The person's level as a chip beside the title, one sentence under it, and the way to Verification. */
+/** The person's level as a chip beside the title, one sentence under it, and the way to Verification; at the rail's foot. */
 function YourLevel({ t }: { t: T }) {
   const { api, userId } = useSession();
   const { resource } = useResource((signal) => api.call(IDENTITY_KYC_STATUS, { limit: 1 }, { signal }), `where-level:${userId ?? ''}`);
   const room = isHiddenPath('/verification') ? null : '/verification';
   const level = resource.status === 'ready' ? resource.data : null;
   return (
-    <section className="lt-panel" aria-labelledby="where-level-title" data-testid="assets-level">
+    <section className="lt-stack" aria-labelledby="where-level-title" data-testid="assets-level">
       <PanelHead
         title={<span id="where-level-title">{t('Level title')}</span>}
         aside={
