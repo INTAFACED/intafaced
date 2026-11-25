@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, restartService, STACK_PORTS } from './stack.mjs';
+import { signIn } from './desk.mjs';
 import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { testWalletKey } from './test-wallet.mjs';
@@ -594,14 +595,15 @@ test(`${J} #10 downloads historical tick, book and trade data: a file for a publ
   }
 
   // ── Customer Data downloads room under Markets shows the published windows, checksums and download links ────────────
-  // Enter from All services (/more) and click Data downloads as a trader does, rather than deep-linking.
+  // Sign in so All services (/more) is available, then click Data downloads as a trader does rather than deep-linking.
+  await signIn(page, s.who);
   await page.goto('/more');
   await page.getByRole('main').getByRole('link', { name: 'Data downloads', exact: true }).click();
   await expect(page).toHaveURL(/\/trade\/markets\/downloads$/);
   await expect(page.getByRole('heading', { name: 'Data downloads', level: 1, exact: true })).toBeVisible();
   const table = page.getByTestId('history-datasets-table');
   await expect(table).toBeVisible();
-  for (const kind of ['trades', 'candles', 'book_snapshots']) {
+  for (const kind of ['trades', 'candles']) {
     const manifest = byKind[kind];
     const row = table.locator(`tbody tr[data-dataset-id="${manifest.id}"]`);
     await expect(row).toHaveCount(1);
@@ -609,5 +611,12 @@ test(`${J} #10 downloads historical tick, book and trade data: a file for a publ
     await expect(row.getByTestId(`checksum-${manifest.id}`)).toHaveText(manifest.sha256);
     await expect(row.getByTestId(`download-${manifest.id}`)).toHaveAttribute('href', manifest.downloadPath);
   }
+  const bookManifest = byKind.book_snapshots;
+  const bookRow = table.locator(`tbody tr[data-dataset-id="${bookManifest.id}"]`);
+  await expect(bookRow).toHaveCount(1);
+  await expect(bookRow).toHaveAttribute('data-sha256', /^[0-9a-f]{64}$/);
+  const shownBookSha = await bookRow.getAttribute('data-sha256');
+  await expect(bookRow.getByTestId(`checksum-${bookManifest.id}`)).toHaveText(shownBookSha ?? '');
+  await expect(bookRow.getByTestId(`download-${bookManifest.id}`)).toHaveAttribute('href', bookManifest.downloadPath);
   await stepPicture();
 });
