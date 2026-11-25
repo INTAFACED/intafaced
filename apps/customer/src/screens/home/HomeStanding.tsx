@@ -1,5 +1,4 @@
 import { Suspense, createContext, lazy, useContext, type ReactNode } from 'react';
-import { Surface } from '@intafaced/ui/lit';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
@@ -109,7 +108,7 @@ export function StandingFigure({
   if (!read.owner || !read.standing)
     return (
       <>
-        <PartnerBeforeWallet hidden={hidden} pro={pro} headline={headline} foldLead={foldLead} />
+        <PartnerBeforeWallet hidden={hidden} pro={pro} headline={headline} change={change} foldLead={foldLead} />
         <div data-testid="home-standing-connect" className="lt-stack">
           <p className="lt-hint">{t('Connect first')}</p>
           <WalletBar />
@@ -141,7 +140,8 @@ export function StandingSpendable({ hidden, panel, fold = false }: { hidden: boo
       <PayYourself owner={read.owner} status={read.status} partner={partner} venue={venue} wallet={wallet} fold={fold} />
     </Suspense>
   );
-  return panel ? <Surface className={panel}>{body}</Surface> : body;
+  // On Home's rail a plain section under a hairline, like the rail's other sections.
+  return panel ? <section className={panel}>{body}</section> : body;
 }
 
 /** Home Pro's total: the figure and Spendable now together, as one block. */
@@ -164,11 +164,13 @@ function PartnerBeforeWallet({
   hidden,
   pro,
   headline,
+  change,
   foldLead,
 }: {
   hidden: boolean;
   pro: boolean;
   headline: boolean;
+  change?: ReactNode;
   foldLead?: ReactNode;
 }) {
   const { displayCurrency } = usePreferences();
@@ -183,6 +185,7 @@ function PartnerBeforeWallet({
       pro={pro}
       testId="home-standing-before-wallet"
       face={headline ? 'headline' : 'full'}
+      change={change}
       foldLead={foldLead}
     />
   );

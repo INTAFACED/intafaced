@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ButtonLink, MarketTable, PanelHead, Surface, type MarketRow } from '@intafaced/ui/lit';
+import { ButtonLink, MarketTable, PanelHead, type MarketRow } from '@intafaced/ui/lit';
 import { Segmented } from '@intafaced/ui/lit/templates';
 import { assetName, homeCopy } from './copy';
 import { commandCopy } from './command-copy';
@@ -59,7 +59,7 @@ export function HomeMarkets({
   );
   const all = isHiddenPath('/trade') ? null : '/trade';
   return (
-    <Surface data-testid="hp-markets" className="hm-markets" aria-labelledby="home-markets-title">
+    <section data-testid="hp-markets" className="hm-markets" aria-labelledby="home-markets-title">
       <PanelHead
         title={
           <span id="home-markets-title" data-sr-only="">
@@ -108,6 +108,6 @@ export function HomeMarkets({
           actionLabel={t('Trade')}
         />
       )}
-    </Surface>
+    </section>
   );
 }

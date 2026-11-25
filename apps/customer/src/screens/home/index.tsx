@@ -1,7 +1,7 @@
 // volt-room: /home
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ChevronRight, Eye, EyeOff, QrCode, Send, TrendingUp } from 'lucide-react';
-import { ActionButton, ActionRow, Button, Fold, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
+import { ActionButton, ActionRow, Button, Fold, PageColumn, PageGrid } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { commandCopy } from './command-copy';
 import { standingCopy } from '../money/standing-copy';
@@ -112,21 +112,40 @@ function HowLead() {
   return <p className="lt-hint">{t('Total value rule')}</p>;
 }
 
-/** Today's change in the launch model: the same valuation as the total, from price moves. Nothing when it isn't known. */
+/** The door to Assets, on the figure's line (the family picture keeps the label row to the label and the eye). */
+function AssetsLink() {
+  const { t } = homeCopy.useCopy();
+  if (isHiddenPath('/money')) return null;
+  return (
+    <a className="hm-link" href="/money">
+      {t('Assets')}
+      <ChevronRight size={14} aria-hidden="true" />
+    </a>
+  );
+}
+
+/**
+ * Today's change in the launch model, the same valuation as the total, from price moves, with the door to Assets at
+ * the line's end. With no total there is no change to tell: the line keeps only the door.
+ */
 function StandingChange({ hidden }: { hidden: boolean }) {
   const { t } = commandCopy.useCopy();
   const standing = useHomeStanding();
   const valuation = standing?.valuation ?? null;
-  if (!standing || standing.totalUsd === null) return null;
-  if (!valuation || valuation.change24hUsd === null)
+  if (!standing || standing.totalUsd === null)
     return (
-      <p data-testid="home-change" className="hm-change">
-        <span className="lt-hint">{t('Change not known')}</span>
+      <p className="hm-change">
+        <AssetsLink />
       </p>
     );
   return (
     <p data-testid="home-change" className="hm-change">
-      <ChangeText value={fmtChangeLine(valuation.change24hUsd, valuation.change24hPct)} hidden={hidden} suffix={t('today')} />
+      {!valuation || valuation.change24hUsd === null ? (
+        <span className="lt-hint">{t('Change not known')}</span>
+      ) : (
+        <ChangeText value={fmtChangeLine(valuation.change24hUsd, valuation.change24hPct)} hidden={hidden} suffix={t('today')} />
+      )}
+      <AssetsLink />
     </p>
   );
 }
@@ -168,6 +187,9 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
         <p data-testid="home-note" className="lt-hint">
           {t('No crypto yet')}
         </p>
+        <p className="hm-change">
+          <AssetsLink />
+        </p>
         <Fold title={standing.t('Worked out')} data-testid="home-worked-out">
           <HowLead />
         </Fold>
@@ -192,10 +214,15 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
         <TestBuildTag />
       </div>
       {data.change24hUsd !== null && hasCrypto ? (
-        <p data-testid="home-change">
+        <p data-testid="home-change" className="hm-change">
           <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
+          <AssetsLink />
         </p>
-      ) : null}
+      ) : (
+        <p className="hm-change">
+          <AssetsLink />
+        </p>
+      )}
       <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="lt-hint" testId="home-note" />
       <Fold title={standing.t('Worked out')} data-testid="home-worked-out">
         <HowLead />
@@ -284,13 +311,14 @@ function HomeSimple() {
   const [range, setRange] = useValueRange();
   const shown = new Set<HomeTileId>([...main, ...side]);
 
-  // The total, its label and the value over time: the panel Home A leads with. The eye, the key to "How this is worked
-  // out" and Assets stay beside the label (J-home-ia-01).
+  // The total, its label and the value over time, straight on the page (the family picture): the eye beside the label,
+  // the range chips on the label's line, Assets on the figure's line.
   const hero = (
-    <Surface className="hm-hero" data-testid="home-hero">
+    <section className="hm-hero" data-testid="home-hero" aria-label={command.t(launch ? 'Net worth wallet venue' : 'Net worth')}>
       <div className="hm-hero-top">
-        <div className="hm-hero-figure">
-          <div data-testid="home-label" className="hm-label">
+        {/* "home-label": the label, the figure and its line with Assets (J-home-ia-01's Assets link is read inside it). */}
+        <div className="hm-hero-figure" data-testid="home-label">
+          <div className="hm-label">
             <span>{command.t(launch ? 'Net worth wallet venue' : 'Net worth')}</span>
             <Button
               tone="quiet"
@@ -299,12 +327,6 @@ function HomeSimple() {
             >
               {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
             </Button>
-            {isHiddenPath('/money') ? null : (
-              <a className="hm-link" href="/money">
-                {t('Assets')}
-                <ChevronRight size={14} aria-hidden="true" />
-              </a>
-            )}
           </div>
           {launch ? (
             <StandingFigure hidden={hideBalances} headline change={<StandingChange hidden={hideBalances} />} foldLead={<HowLead />} />
@@ -316,7 +338,7 @@ function HomeSimple() {
       </div>
       {portfolio.status === 'refused' ? null : <ValueChart range={range} hidden={hideBalances} />}
       <ActionKeys loading={portfolio.status === 'loading'} mode={actionMode} mainElsewhere={startedOpen} />
-    </Surface>
+    </section>
   );
 
   const marketsPanel = showMarkets ? (

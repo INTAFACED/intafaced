@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { HIDDEN_MASK } from '@intafaced/ui/lit';
+import { AssetIcon, HIDDEN_MASK } from '@intafaced/ui/lit';
 import { AGENTS_OWN_LIST } from '@intafaced/contracts/agents-own-procedures';
 import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 import { PROTOCOL_VENUE_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
@@ -97,6 +97,8 @@ const valueOf = (position: VenuePosition) => {
   const mark = dec(position.markPrice);
   return size === null || mark === null ? null : str((size * mark) / 10n ** 18n);
 };
+/** The coin a market trades: "BTC-PERP", "BTC/USDC" and "BTC-USDT" all show Bitcoin's mark. */
+const baseOf = (symbol: string) => symbol.split(/[-/:]/)[0] ?? symbol;
 const times = (bps: number) => `${(bps / 10_000).toLocaleString('en-US', { maximumFractionDigits: 2 })}x`;
 /** Basis points as a percent, in decimals: 4.5 bps reads 0.045. */
 const percentOfBps = (bps: string) => {
@@ -128,6 +130,7 @@ export function OpenPositions({ hidden }: { hidden: boolean }) {
         <ul className="hm-rail-rows">
           {open.data.positions.map((position) => (
             <li key={`p:${position.symbol}:${position.side}`} data-row="position">
+              <AssetIcon asset={baseOf(position.symbol)} />
               <span className="hm-rail-lines">
                 <span>{position.symbol}</span>
                 <span className="lt-hint">
@@ -143,6 +146,7 @@ export function OpenPositions({ hidden }: { hidden: boolean }) {
           ))}
           {open.data.orders.map((order, index) => (
             <li key={`o:${order.venueOrderId ?? order.venueClientOrderId ?? index}`} data-row="order">
+              <AssetIcon asset={baseOf(order.symbol)} />
               <span className="hm-rail-lines">
                 <span>{order.symbol}</span>
                 <span className="lt-hint">
