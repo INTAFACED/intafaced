@@ -1450,6 +1450,10 @@ function cli({ ref, target, priorIncomplete = false, state = 'unexpected' }) {
   const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
   delete env.GITHUB_REF;
   delete env.JOURNEYS_TARGET;
+  // The runner's own pull request must not leak in: on a beta/ pull request its head ref and event name would put this
+  // planted run in the beta lane, which lists the red apart instead of failing it.
+  delete env.GITHUB_HEAD_REF;
+  delete env.GITHUB_EVENT_NAME;
   if (ref) env.GITHUB_REF = ref;
   return spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8' }).status;
 }
