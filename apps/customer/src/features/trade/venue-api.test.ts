@@ -131,8 +131,12 @@ describe('venue client', () => {
       leverageBps: 100000,
       liquidationPrice: { known: false as const },
     };
-    expect(closeWorstPrice(position, '1')).toBe('57000');
-    expect(closeWorstPrice({ ...position, side: 'short' }, '1')).toBe('63000');
+    // The owner's 10% from the mark on a stop-loss or reduce-only close: a long's close at mark × 0.90, a short's at mark × 1.10.
+    expect(closeWorstPrice(position, '1')).toBe('54000');
+    expect(closeWorstPrice({ ...position, side: 'short' }, '1')).toBe('66000');
+    // On the tick, against the position: a long rounds down, a short up.
+    expect(closeWorstPrice({ ...position, markPrice: '60007' }, '5')).toBe('54005');
+    expect(closeWorstPrice({ ...position, side: 'short', markPrice: '60007' }, '5')).toBe('66010');
   });
 
   it('bounds a market close by the owner’s price protection from the venue’s best price, as svc-trade does', () => {
@@ -155,9 +159,9 @@ describe('venue client', () => {
     // A short closes with a buy against the best ask: at most 60010 plus 50 bps, up to the tick.
     expect(closeMarketPrice({ ...position, side: 'short' }, '1', cap)).toBe('60311');
     // No cap, no best price on that side, or no read: the mark-based price goes, and svc-trade refuses it by name.
-    expect(closeMarketPrice(position, '1', { value: best, slippageCapBps: { known: false } })).toBe('57000');
-    expect(closeMarketPrice(position, '1', { ...cap, value: { ...best, bid: null } })).toBe('57000');
-    expect(closeMarketPrice(position, '1', null)).toBe('57000');
+    expect(closeMarketPrice(position, '1', { value: best, slippageCapBps: { known: false } })).toBe('54000');
+    expect(closeMarketPrice(position, '1', { ...cap, value: { ...best, bid: null } })).toBe('54000');
+    expect(closeMarketPrice(position, '1', null)).toBe('54000');
   });
 
   it('reads the door’s answers: status off, a prepared action, and an answer that is not definite', () => {
