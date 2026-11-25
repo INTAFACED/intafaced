@@ -779,3 +779,15 @@ describe('a price alert handle on a drawn chart', () => {
     expect(css).toMatch(/\.lt-chart-mark\[data-mark='alert'\] \{[^}]*inset-inline-end: 4\.5rem;[^}]*pointer-events: auto;/);
   });
 });
+
+describe('a tag', () => {
+  it("is the pick's soft pill: sentence case in the page's type, quiet grey unless toned, never lime by default", () => {
+    const at = css.indexOf('.lit-tag {');
+    const body = css.slice(at, css.indexOf('}', at));
+    expect(body).not.toContain('text-transform');
+    expect(body).not.toContain('font-family');
+    expect(body).not.toContain('clip-path');
+    expect(body).not.toContain('--lit-accent');
+    expect(body).toContain('border-radius: var(--lit-radius-key);');
+  });
+});
