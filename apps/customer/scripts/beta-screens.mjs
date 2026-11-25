@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// The beta's rooms: every room of the route table an Order 1 journey step showed (owner decision, 25 Nov 2026: "The beta
-// shows only Order 1's screens"). Each journey test records the customer-app paths its steps showed (`beta screens`,
+// The beta's rooms: every room of the route table an Order 1 journey step showed. Each journey test records the customer-app paths its steps showed (`beta screens`,
 // tooling/scripts/journey-screens.mjs); this reads one Real-app journeys report, keeps the steps of the `order: 1`
 // journeys in docs/roadmap/journeys.json, maps each path to its room (navigation.ts findRoom) and writes the sorted rooms
 // to src/app/beta-screens.json, which the beta's build reads (vite.config.ts betaVoltDefine). A step that shows a room this
