@@ -5,7 +5,7 @@
  * (`trade.operator_risk_limits`). A blank value is the literal "not set", never
  * a guessed number, so a screen can say so instead of showing a default.
  */
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { RiskVersion } from '../admin/risk.js';
 import type { Market } from './types.js';
 
@@ -61,12 +61,25 @@ export function effectiveSlippageCapBps(risk: RiskVersion | null, envCapBps: num
   return envCapBps == null || !honouredCapBps(envCapBps) ? PAIR_RULE_NOT_SET : String(envCapBps);
 }
 
+/**
+ * Effective minimum order value: the market's structural floor when no operator
+ * risk row exists yet; "not set" when a risk row exists with a blank owner
+ * minimum (the order path then refuses `trade.min_notional_unset`); otherwise
+ * the stricter of the market floor and the published owner minimum.
+ */
+function effectiveMinNotional(market: Market, risk: RiskVersion | null): PairRuleValue {
+  if (risk === null) return formatAmount(market.minNotional);
+  if (risk.minNotional == null) return PAIR_RULE_NOT_SET;
+  const published = parseAmount(risk.minNotional);
+  return formatAmount(published > market.minNotional ? published : market.minNotional);
+}
+
 export function presentPairRules(market: Market, risk: RiskVersion | null, envSlippageCapBps: number | null = null): PairRules {
   return {
     tick: formatAmount(market.tickSize),
     lot: formatAmount(market.lotSize),
     minQty: formatAmount(market.minQty),
-    minNotional: formatAmount(market.minNotional),
+    minNotional: effectiveMinNotional(market, risk),
     maxQty: market.maxQty === null ? PAIR_RULE_NOT_SET : formatAmount(market.maxQty),
     protection: {
       collar: orNotSet(risk?.collar ?? null),
