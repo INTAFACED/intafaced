@@ -182,6 +182,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/pay/merchant': { template: 'overview' },
   '/pay/money': { template: 'overview' },
   '/pay/money/activity': { template: 'record-list' },
+  '/pay/money/top-up': { template: 'flow' },
   '/pay/links': { template: 'record-list' },
   '/pay/links/new': { template: 'flow' },
   '/pay/checkout': { template: 'settings' },
