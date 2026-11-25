@@ -221,4 +221,17 @@ describe('the futures ticket never sends a worst price left over from a limit or
     );
     expect(preview).not.toHaveBeenCalled();
   });
+
+  it('with no fresh best price, refuses nothing it cannot check and still names the worst price it sends', async () => {
+    render();
+    bestPrices.mockResolvedValue({ ok: false, message: 'TEST Venue did not answer', code: 'trade.venue.unavailable' });
+    await press(button(typesGroup(), 'Market'));
+    type(field('Size (BTC)'), '0.001');
+    type(field('Worst price (slippage limit)'), '91000');
+    await press(button(ticket(), 'Review long'));
+    expect(ticket().querySelector('[data-code="trade.venue.worst_price_wrong_side"]')).toBeNull();
+    expect(preview.mock.calls[0]![1]).toMatchObject({ type: 'market', price: '91000' });
+    const review = document.querySelector<HTMLElement>('[data-testid="venue-review"]')!;
+    expect(review.querySelector('[data-line="worst-price"]')?.textContent).toBe('91,000 USDC');
+  });
 });
