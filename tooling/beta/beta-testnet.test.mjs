@@ -12,6 +12,7 @@ import {
   UNKNOWN_AFTER_MS,
   liveDeps,
   readTestnet,
+  info,
   judgeAccount,
   testnetCandidates,
   testnetKey,
@@ -275,4 +276,27 @@ test('amounts are compared as scaled integers, and the live reads sum perps and 
   const deps = liveDeps({ fetchImpl });
   assert.equal(await deps.usdcAt(addr(1)), '306.5');
   assert.equal(await deps.spotFree(FUNDER), '284.5');
+});
+
+test('a testnet read the shared address answers 429 is tried again after 2, 4 and 8 s; a fourth 429 stops the pass', async () => {
+  const run = async (codes) => {
+    const waits = [];
+    let calls = 0;
+    const fetchImpl = async () => {
+      const status = codes[calls++] ?? 200;
+      return { ok: status === 200, status, json: async () => ({ calls }) };
+    };
+    try {
+      return { out: await info({ type: 'spotClearinghouseState', user: '0xa' }, fetchImpl, async (ms) => waits.push(ms)), waits, calls };
+    } catch (e) {
+      return { error: e.message, waits, calls };
+    }
+  };
+  assert.deepEqual(await run([429, 429, 200]), { out: { calls: 3 }, waits: [2000, 4000], calls: 3 });
+  assert.deepEqual(await run([429, 429, 429, 429]), {
+    error: 'testnet info spotClearinghouseState: HTTP 429',
+    waits: [2000, 4000, 8000],
+    calls: 4,
+  });
+  assert.deepEqual(await run([500]), { error: 'testnet info spotClearinghouseState: HTTP 500', waits: [], calls: 1 });
 });
