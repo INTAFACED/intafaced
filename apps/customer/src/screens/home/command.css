@@ -103,10 +103,103 @@
 }
 
 /* The side column's panels. */
-.hm-side-panel {
-  padding: 1.375rem 1.5rem;
+/* The rail (the family picture): plain sections under a hairline each, no panels. */
+.hm-rail-sec {
+  display: grid;
+  gap: 0.75rem;
+  padding-block: 1.25rem;
 }
-.hm-side-panel > section {
+.hm-rail-sec + .hm-rail-sec {
+  border-block-start: 1px solid var(--lit-line);
+}
+.hm-rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.hm-rail-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-rail-rows > li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-block: 0.625rem;
+}
+.hm-rail-rows > li + li {
+  border-block-start: 1px solid var(--lit-line);
+}
+.hm-rail-lines {
+  display: grid;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+.hm-rail-lines .lt-hint {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-rail-figure {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hm-rail-figure[data-sign='up'] {
+  color: var(--lit-up-text);
+}
+.hm-rail-figure[data-sign='down'] {
+  color: var(--lit-down-text);
+}
+.hm-rail-kv {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+.hm-rail-kv > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.hm-rail-kv dt {
+  color: var(--lit-text-2);
+}
+.hm-rail-kv dd {
+  margin: 0;
+}
+.hm-rail-sec.hm-spendable {
+  padding-inline: 1.25rem;
+}
+.hm-rail-foot {
+  padding-block: 1rem;
+}
+.hm-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+.hm-started-progress {
+  display: grid;
+  gap: 0.5rem;
+}
+.hm-step-labels {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-step-labels > [data-done='true'] {
+  color: var(--lit-text-2);
+}
+.hm-rail-sec > section {
   margin: 0;
 }
 
@@ -115,8 +208,8 @@
   .hm-hero {
     padding: 1.25rem 1rem;
   }
-  .hm-side-panel {
-    padding: 1.125rem 1rem;
+  .hm-rail-sec {
+    padding-inline: 0.25rem;
   }
 }
 
@@ -257,25 +350,25 @@
 }
 
 /* Side panels' titles: Home A's quiet panel heads, not page headings. */
-.hm-side-panel h2 {
+.hm-rail-sec h2 {
   font-size: 1.0625rem;
   line-height: 1.4;
   font-weight: 600;
   letter-spacing: 0;
 }
-.hm-side-panel .lt-title-row {
+.hm-rail-sec .lt-title-row {
   margin-block-end: 0.25rem;
 }
-.hm-side-panel [data-slot='state-block'] {
+.hm-rail-sec [data-slot='state-block'] {
   padding: 0.5rem 0 0;
   border: 0;
   background: none;
 }
-.hm-side-panel [data-slot='state-block'] > :first-child {
+.hm-rail-sec [data-slot='state-block'] > :first-child {
   font-size: var(--lit-type-body-size);
   font-weight: 600;
 }
-.hm-side-panel [data-slot='state-block'] p {
+.hm-rail-sec [data-slot='state-block'] p {
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
 }
@@ -309,42 +402,42 @@
   .hm .hm-markets {
     order: 3;
   }
-  .hm .hm-pinned {
+  .hm .hm-rail-sec:not(.hm-next) {
     order: 4;
   }
-  .hm .hm-pin {
+  .hm .hm-rail-foot {
     order: 5;
   }
 }
 
 /* Record rows in the side panels (Recent activity, Your crypto): a mark, the words taking the room, the figure at the
    end (Home B's Recent). */
-.hm-side-panel .lt-rows > li {
+.hm-rail-sec .lt-rows > li {
   padding-block: 0.625rem;
 }
-.hm-side-panel .lt-rows > li:last-child {
+.hm-rail-sec .lt-rows > li:last-child {
   border-block-end: 0;
 }
-.hm-side-panel .lt-rows .lt-row-link {
+.hm-rail-sec .lt-rows .lt-row-link {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   inline-size: 100%;
 }
-.hm-side-panel .lt-rows .lt-row-link > .lt-lines {
+.hm-rail-sec .lt-rows .lt-row-link > .lt-lines {
   flex: 1 1 auto;
 }
-.hm-side-panel .lt-rows .lt-row-link > :last-child:not(.lt-lines) {
+.hm-rail-sec .lt-rows .lt-row-link > :last-child:not(.lt-lines) {
   flex: none;
   white-space: nowrap;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: end;
 }
-.hm-side-panel .lt-rows .lt-row-link[data-dir='in'] > :last-child {
+.hm-rail-sec .lt-rows .lt-row-link[data-dir='in'] > :last-child {
   color: var(--lit-up-text);
 }
-.hm-side-panel .lt-lines .lt-hint {
+.hm-rail-sec .lt-lines .lt-hint {
   color: var(--lit-text-3);
   font-size: var(--lit-type-label-size);
 }
@@ -387,25 +480,6 @@
   color: var(--lit-text-1);
 }
 
-/* The split bar: the kit's parts bar, and the parts Home doesn't read on the legend's line. */
-.hm-split {
-  display: grid;
-  gap: 0.625rem;
-}
-.hm-split-rest {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem 1.25rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--lit-text-3);
-  font-size: var(--lit-type-label-size);
-}
-.hm-split-rest .hm-split-value {
-  color: var(--lit-text-2);
-}
-
 /* The markets table: Trade on every row, not only on hover (Home A). */
 .hm-markets .lt-market-table .lt-market-action {
   opacity: 1;
@@ -416,92 +490,6 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-.hm-next .hm-started + section {
-  padding-block-start: 1rem;
-  border-block-start: 1px solid var(--lit-line);
-}
-
-/* Pinned: a quiet head, then one widget after another, ruled between. */
-.hm-pinned {
-  display: grid;
-}
-.hm-pinned-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.25rem 1.25rem 0.75rem;
-  color: var(--lit-text-3);
-  font-size: var(--lit-type-label-size);
-}
-.hm-pinned-head > :first-child {
-  color: var(--lit-text-2);
-}
-.hm-widget {
-  position: relative;
-  display: grid;
-  gap: 0.75rem;
-  padding: 1.125rem 1.25rem;
-  border-block-start: 1px solid var(--lit-line);
-}
-.hm-widget-body {
-  display: grid;
-  gap: 0.5rem;
-  justify-items: start;
-}
-.hm-widget .lt-hint {
-  color: var(--lit-text-3);
-  font-size: var(--lit-type-label-size);
-}
-.hm-people {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.hm-person {
-  display: inline-grid;
-  place-items: center;
-  inline-size: 2.625rem;
-  block-size: 2.625rem;
-  border-radius: 50%;
-  background: var(--lit-solid-bg-raised);
-  color: var(--lit-text-1);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-/* Pin a widget: a dashed box of chips. */
-.hm-pin {
-  display: grid;
-  gap: 0.75rem;
-  margin-block-start: 1rem;
-  padding: 1rem 1.25rem 1.125rem;
-  border: 1px dashed var(--lit-line-strong);
-  border-radius: var(--lit-radius-panel);
-}
-.hm-pin h2 {
-  margin: 0;
-  color: var(--lit-text-2);
-  font-size: var(--lit-type-label-size);
-  font-weight: 500;
-}
-.hm-pin-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-/* Pinned widgets' own headings: quiet panel heads, one size. */
-.hm-pinned :is(h2, h3) {
-  margin: 0;
-  font-size: 1.0625rem;
-  line-height: 1.4;
-  font-weight: 600;
-  letter-spacing: 0;
 }
 
 /* The markets head: the view tabs at the start, Open the desk at the end. */
@@ -517,42 +505,9 @@
   gap: 0.75rem;
 }
 
-/* The split bar runs white to grey, as the owner's pick draws it: the kit's first three parts are all bone, one colour. */
-.hm-split .lt-parts-bar {
-  block-size: 0.375rem;
-}
-.hm-split :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='0'] {
-  background: var(--lit-text-1);
-}
-.hm-split :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='1'] {
-  background: var(--lit-text-2);
-}
-.hm-split :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='2'] {
-  background: var(--lit-text-3);
-}
-.hm-split :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='3'] {
-  background: var(--lit-line-strong);
-}
-.hm-split :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='4'] {
-  background: var(--lit-line);
-}
-
 /* Spendable now's own "How this is worked out": closed, each source line and note stays in the page, unseen. */
 .hm [data-how='closed'] :is([data-how-line], [data-part-source]) {
   display: none;
-}
-
-/* A widget Home doesn't read: one row, its name, the status and Open, the height of a filled widget's head. */
-.hm-widget-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  padding-block: 0.875rem;
-}
-.hm-widget-row h2 {
-  flex: 1 1 auto;
-  min-inline-size: 0;
 }
 
 /* Inside Your next step, what needs the person reads as the step itself. */

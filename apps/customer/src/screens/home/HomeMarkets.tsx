@@ -6,20 +6,19 @@ import { commandCopy } from './command-copy';
 import { priceText, type Tickers } from './MarketsSection';
 import { coinHref, fmtPct, isHiddenPath, type Decimal, type Loadable } from './deps';
 import type { Listing } from './select';
-import { tradeTabHref } from '../../app/navigation';
 import { StateBlock } from './volt-parts';
 
-type View = 'positions' | 'watch' | 'movers';
+type View = 'watch' | 'movers';
 
 /**
- * Home's markets panel (Home A): what the person holds, the watchlist, or the biggest movers, as one table of the kit's market rows, each
- * opening its coin, with Trade at the end. Prices are the venue's TEST prices.
+ * Home's markets panel: the watchlist or the biggest movers, as one table of the kit's market rows, each opening its
+ * coin, with Trade at the end, and the door to every market. Prices are the venue's TEST prices.
  */
 export function HomeMarkets({
   watch,
   popular,
   movers,
-  positions,
+  count,
   tickers,
   sparklines,
   loading,
@@ -29,8 +28,8 @@ export function HomeMarkets({
   watch: Listing[];
   popular: boolean;
   movers: Listing[];
-  /** The coins the person holds that have a market: Positions. Null while what they hold is not read. */
-  positions: Listing[] | null;
+  /** How many markets there are to trade. */
+  count: number;
   tickers: Tickers;
   sparklines: Loadable<Record<string, Decimal[]>>;
   loading: boolean;
@@ -40,10 +39,7 @@ export function HomeMarkets({
   const { t } = commandCopy.useCopy();
   const home = homeCopy.useCopy();
   const [view, setView] = useState<View>('watch');
-  const shown = useMemo(
-    () => (view === 'movers' && movers.length > 0 ? movers : view === 'positions' ? (positions ?? []) : watch),
-    [view, movers, positions, watch],
-  );
+  const shown = useMemo(() => (view === 'movers' && movers.length > 0 ? movers : watch), [view, movers, watch]);
   const points = useMemo(() => (sparklines.status === 'ready' ? sparklines.data : {}), [sparklines]);
   const rows = useMemo<MarketRow[]>(
     () =>
@@ -61,7 +57,7 @@ export function HomeMarkets({
       }),
     [shown, tickers, points, home],
   );
-  const desk = isHiddenPath('/trade') ? null : tradeTabHref('pro');
+  const all = isHiddenPath('/trade') ? null : '/trade';
   return (
     <Surface data-testid="hp-markets" className="hm-markets" aria-labelledby="home-markets-title">
       <PanelHead
@@ -75,19 +71,15 @@ export function HomeMarkets({
             <Segmented
               label={t('Markets view')}
               options={[
-                {
-                  value: 'positions',
-                  label: positions === null ? t('Positions') : `${t('Positions')} ${positions.length}`,
-                },
                 { value: 'watch', label: popular ? t('Popular') : t('Watchlist') },
                 ...(movers.length > 0 ? [{ value: 'movers', label: t('Movers') }] : []),
               ]}
               value={view}
               onChange={(value) => setView(value as View)}
             />
-            {desk ? (
-              <a className="hm-link" href={desk}>
-                {t('Open the desk')}
+            {all && count > 0 ? (
+              <a className="hm-link" href={all}>
+                {t('All {count} markets', { count: String(count) })}
               </a>
             ) : null}
           </>
@@ -107,7 +99,7 @@ export function HomeMarkets({
           }}
           rows={rows}
           loadingRows={loading ? 6 : undefined}
-          empty={<p className="lt-hint">{t(view === 'positions' ? 'Positions none' : 'No markets yet')}</p>}
+          empty={<p className="lt-hint">{t('No markets yet')}</p>}
           action={(row) => (
             <ButtonLink size="sm" tone="secondary" href={row.href}>
               {t('Trade')}

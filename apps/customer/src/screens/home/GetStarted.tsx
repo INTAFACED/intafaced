@@ -13,6 +13,15 @@ const TITLE = {
   trade: 'Step trade',
   alert: 'Step alert',
 } as const satisfies Record<StepId, string>;
+/** Each step's short name under its progress segment (the family picture). */
+const LABEL = {
+  register: 'Step label register',
+  verify: 'Step label verify',
+  secure: 'Step label secure',
+  deposit: 'Step label deposit',
+  trade: 'Step label trade',
+  alert: 'Step label alert',
+} as const satisfies Record<StepId, string>;
 const HINT = {
   register: 'Step register hint',
   verify: 'Step verify hint',
@@ -83,7 +92,16 @@ function Row({ step }: { step: Step }) {
  * "Get started" (ROADMAP M8, HM-widgets-02): six steps, from creating the account to a first price alert. Each shows done or not from the real answers; a step
  * whose answer has not come, or could not be read, never claims to be done. The person can hide the list.
  */
-export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => void }) {
+export function GetStarted({
+  steps,
+  onHide,
+  main = false,
+}: {
+  steps: Step[];
+  onHide: () => void;
+  /** The step's action is the page's one main action (the family picture's first days): Home's Deposit key steps back. */
+  main?: boolean;
+}) {
   const { t } = homeCopy.useCopy();
   const command = commandCopy.useCopy();
   const count = progress(steps);
@@ -98,15 +116,24 @@ export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => voi
         </span>
       </div>
       {next ? (
-        <p className="hm-started-headline">
-          {t(TITLE[next.id])}
-          <span className="hm-started-hint"> {t(next.status === 'review' ? 'Step verify review' : HINT[next.id])}</span>
-        </p>
+        <>
+          <p className="hm-started-headline">{t(TITLE[next.id])}</p>
+          <p className="hm-started-hint">{t(next.status === 'review' ? 'Step verify review' : HINT[next.id])}</p>
+        </>
       ) : null}
-      <ProgressSegments total={count.total} done={count.done} label={t('Steps done', { done: count.done, total: count.total })} />
+      <div className="hm-started-progress">
+        <ProgressSegments total={count.total} done={count.done} label={t('Steps done', { done: count.done, total: count.total })} />
+        <ol className="hm-step-labels" aria-hidden="true">
+          {steps.map((step) => (
+            <li key={step.id} data-done={step.status === 'done'}>
+              {command.t(LABEL[step.id])}
+            </li>
+          ))}
+        </ol>
+      </div>
       <div className="hm-started-actions">
         {next && next.status === 'todo' ? (
-          <ButtonLink tone="secondary" href={next.href} data-testid="home-started__go">
+          <ButtonLink tone={main ? 'primary' : 'secondary'} href={next.href} data-testid="home-started__go">
             {command.t(next.id === 'verify' ? 'Step go verify' : 'Step go')}
           </ButtonLink>
         ) : null}

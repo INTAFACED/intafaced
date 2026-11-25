@@ -1,18 +1,19 @@
 // volt-room: /home
 import { Suspense, lazy, useId, useMemo, useState, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ChevronRight, Eye, EyeOff, Info, QrCode, Send, TrendingUp } from 'lucide-react';
-import { ActionButton, ActionRow, Button, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
+import { ActionButton, ActionRow, Button, HIDDEN_MASK, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { commandCopy } from './command-copy';
 import { ValueChart, ValueRanges, useValueRange } from './ValueChart';
-import { SplitBar, ledgerSplit, standingSplit } from './SplitBar';
-import { PinAWidget, PinnedHead, RoomWidgets, Widget } from './Pinned';
+import { standingSplit } from './SplitBar';
+import { AgentSection, LevelsSection, OpenPositions } from './HomeRail';
 import { HomeMarkets } from './HomeMarkets';
 import { clockTime } from './clock';
 import { homeCopy } from './copy';
 import {
   dec,
   fmtChangeLine,
+  fmtUsd,
   isHiddenPath,
   useActivity,
   useFavorites,
@@ -28,7 +29,7 @@ import {
 } from './deps';
 import { balanceRefusal } from './balance-refusal';
 import { ChangeText, HeroFigure, StateBlock } from './volt-parts';
-import { listings, topCards, topMovers, type Listing } from './select';
+import { listings, topCards, topMovers } from './select';
 import { GetStarted, NextStepHead } from './GetStarted';
 import { RecentActivity } from './RecentActivity';
 import { useRecentActivityLimit } from './recent-activity-limit';
@@ -42,10 +43,9 @@ import { CustomiseHome } from './CustomiseHome';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
-import { HOME_TILE_IDS, shownTiles, type HomeTileId } from './tiles';
+import { shownTiles, type HomeTileId } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { TestBuildTag } from './TestBuildTag';
-import { SendTo } from './SendTo';
 import { useSession } from '../../features/session/session';
 
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
@@ -76,7 +76,7 @@ const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[]> = {
   refused: ['Receive'],
 };
 
-function ActionKeys({ loading, mode }: { loading: boolean; mode: ActionMode }) {
+function ActionKeys({ loading, mode, mainElsewhere = false }: { loading: boolean; mode: ActionMode; mainElsewhere?: boolean }) {
   const { t } = commandCopy.useCopy();
   const live = ACTIONS_FOR[mode]
     .map((label) => ACTIONS.find((action) => action.label === label)!)
@@ -94,7 +94,7 @@ function ActionKeys({ loading, mode }: { loading: boolean; mode: ActionMode }) {
                 key={action.label}
                 icon={<Icon />}
                 label={t(action.label)}
-                primary={index === 0 && mode !== 'refused'}
+                primary={index === 0 && mode !== 'refused' && !mainElsewhere}
                 href={action.href}
               />
             );
@@ -122,14 +122,35 @@ function StandingChange({ hidden }: { hidden: boolean }) {
   if (!standing || standing.totalUsd === null) return null;
   if (!valuation || valuation.change24hUsd === null)
     return (
-      <p data-testid="home-change" className="lt-hint">
-        {t('Change not known')}
+      <p data-testid="home-change" className="hm-change">
+        <span className="lt-hint">{t('Change not known')}</span>
+        <HeroParts hidden={hidden} />
       </p>
     );
   return (
-    <p data-testid="home-change">
+    <p data-testid="home-change" className="hm-change">
       <ChangeText value={fmtChangeLine(valuation.change24hUsd, valuation.change24hPct)} hidden={hidden} suffix={t('today')} />
+      <HeroParts hidden={hidden} />
     </p>
+  );
+}
+
+/** Beside today's change: where the total sits, the wallet and the venue account, each as the total adds it. */
+function HeroParts({ hidden }: { hidden: boolean }) {
+  const { t } = commandCopy.useCopy();
+  const standing = useHomeStanding();
+  if (!standing || standing.totalUsd === null) return null;
+  const split = standingSplit(standing);
+  const money = (value: string) => (hidden ? HIDDEN_MASK : fmtUsd(value));
+  const parts = [
+    split.crypto === null ? t('Wallet unread') : t('Wallet {value}', { value: money(split.crypto) }),
+    split.trading === null ? t('Venue unread') : t('Venue {value}', { value: money(split.trading) }),
+  ];
+  if (split.cash !== null && split.cash !== '0') parts.unshift(t('Cash {value}', { value: money(split.cash) }));
+  return (
+    <span className="lt-hint" data-testid="home-parts">
+      {parts.join(' · ')}
+    </span>
   );
 }
 
@@ -279,6 +300,7 @@ function HomeSimple() {
   const main = shownTiles(home.layout, 'simple', 'main');
   const side = shownTiles(home.layout, 'simple', 'side');
   const started = useStartedTile(side.includes('started'));
+  const startedOpen = side.includes('started') && started.show;
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
   const [range, setRange] = useValueRange();
@@ -294,7 +316,7 @@ function HomeSimple() {
       <div className="hm-hero-top">
         <div className="hm-hero-figure">
           <div data-testid="home-label" className="hm-label">
-            <span>{command.t('Net worth')}</span>
+            <span>{command.t(launch ? 'Net worth wallet venue' : 'Net worth')}</span>
             <Button
               tone="quiet"
               onClick={() => savePreferences({ hideBalances: !hideBalances })}
@@ -328,8 +350,7 @@ function HomeSimple() {
         {portfolio.status === 'refused' ? null : <ValueRanges range={range} onRange={setRange} />}
       </div>
       {portfolio.status === 'refused' ? null : <ValueChart range={range} hidden={hideBalances} />}
-      <HeroSplit launch={launch !== null} portfolio={portfolio} hidden={hideBalances} />
-      <ActionKeys loading={portfolio.status === 'loading'} mode={actionMode} />
+      <ActionKeys loading={portfolio.status === 'loading'} mode={actionMode} mainElsewhere={startedOpen} />
     </Surface>
   );
 
@@ -338,9 +359,7 @@ function HomeSimple() {
       watch={popular ? popularRows : favoriteItems}
       popular={popular}
       movers={moverListings}
-      launch={launch !== null}
-      portfolio={portfolio}
-      all={all}
+      count={all.length}
       tickers={tickers}
       loading={marketsLoading}
       broken={marketsBroken}
@@ -348,24 +367,19 @@ function HomeSimple() {
     />
   ) : null;
 
-  // The next step (Home A): Get started's next step, with what needs the person under it, as one card.
-  // Your next step (Home A), at the top of the rail: Get started's next open step with its progress, then what needs the
-  // person, in one card. With no open step the card keeps its heading and progress, and the list says what it says.
+  // Your next step heads the rail (the family picture): Get started's next open step, or, with none, its progress and
+  // what needs the person.
   const nextStep =
-    (shown.has('started') && started.show) || shown.has('work') ? (
-      <Surface className="hm-side-panel hm-next" data-testid="home-next">
-        {shown.has('started') && started.show ? (
-          <GetStarted steps={started.steps} onHide={started.hide} />
+    startedOpen || shown.has('work') ? (
+      <section className="hm-rail-sec hm-next" data-testid="home-next" aria-label={command.t('Your next step')}>
+        {startedOpen ? (
+          <GetStarted steps={started.steps} onHide={started.hide} main />
         ) : (
           <NextStepHead steps={shown.has('started') ? started.steps : []} />
         )}
         {shown.has('work') ? <WorkList hidden={hideBalances} onShown={setNeedsYou} quietTitle /> : null}
-      </Surface>
+      </section>
     ) : null;
-
-  const hiddenTiles = HOME_TILE_IDS.filter(
-    (id) => !shown.has(id) && (id === 'activity' || id === 'work' || id === 'started' || id === 'markets'),
-  );
 
   return (
     <StandingScope status={launch}>
@@ -383,20 +397,19 @@ function HomeSimple() {
           </PageColumn>
           <PageColumn className="hm-side" data-testid="home-side">
             {nextStep}
-            <div className="hm-pinned" data-testid="home-pinned">
-              <PinnedHead />
-              {/* Spendable now and Locked in trades, as one widget (J-bank-31). */}
-              <StandingSpendable hidden={hideBalances} panel="hm-widget" fold />
-              {shown.has('activity') ? (
-                <Widget id="activity">
-                  <RecentActivity activity={activity} limit={activityLimit} hidden={hideBalances} />
-                </Widget>
-              ) : null}
-              <SendTo userId={userId} />
-              <RoomWidgets />
-              {/* Learn is offered in Pin a widget, as the Academy (Home A). */}
+            <OpenPositions hidden={hideBalances} />
+            <AgentSection />
+            <LevelsSection hidden={hideBalances} />
+            {shown.has('activity') ? (
+              <div className="hm-rail-sec">
+                <RecentActivity activity={activity} limit={activityLimit} hidden={hideBalances} />
+              </div>
+            ) : null}
+            {/* Spendable now, Locked in trades and Pay yourself (J-bank-31). */}
+            <StandingSpendable hidden={hideBalances} panel="hm-rail-sec hm-spendable" fold />
+            <div className="hm-rail-foot">
+              <CustomiseHome home={home} mode="simple" />
             </div>
-            <PinAWidget home={home} hidden={hiddenTiles} customise={<CustomiseHome home={home} mode="simple" />} />
           </PageColumn>
         </PageGrid>
       </div>
@@ -404,47 +417,11 @@ function HomeSimple() {
   );
 }
 
-/**
- * The markets panel inside the standing's scope: Positions are the coins the person holds that have a market, from the
- * same read as the total; null while that read has not answered.
- */
-function MarketsPanel({
-  launch,
-  portfolio,
-  all,
-  watch,
-  movers,
-  ...rest
-}: Omit<Parameters<typeof HomeMarkets>[0], 'positions' | 'sparklines'> & {
-  launch: boolean;
-  portfolio: Loadable<HomePortfolio>;
-  all: Listing[];
-}) {
-  const standing = useHomeStanding();
-  const held = useMemo<string[] | null>(() => {
-    if (launch) return standing ? [...new Set(standing.parts.flatMap((part) => part.rows.map((row) => row.asset.toUpperCase())))] : null;
-    if (portfolio.status === 'ready') return portfolio.data.holdings.map((holding) => holding.asset.toUpperCase());
-    return portfolio.status === 'empty' ? [] : null;
-  }, [launch, standing, portfolio]);
-  const positions = useMemo(
-    () => (held === null ? null : held.flatMap((asset) => all.filter((item) => item.base.toUpperCase() === asset).slice(0, 1))),
-    [held, all],
-  );
-  const symbols = useMemo(
-    () => [...new Set([...watch, ...movers, ...(positions ?? [])].map((item) => item.symbol))],
-    [watch, movers, positions],
-  );
+/** The markets panel: the watchlist (or the busiest markets) and the biggest movers, each with its last day's line. */
+function MarketsPanel({ watch, movers, ...rest }: Omit<Parameters<typeof HomeMarkets>[0], 'sparklines'>) {
+  const symbols = useMemo(() => [...new Set([...watch, ...movers].map((item) => item.symbol))], [watch, movers]);
   const sparklines = useSparklines(symbols);
-  return <HomeMarkets {...rest} watch={watch} movers={movers} positions={positions} sparklines={sparklines} />;
-}
-
-/** The split bar under the chart, from the same reads as the total. */
-function HeroSplit({ launch, portfolio, hidden }: { launch: boolean; portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
-  const standing = useHomeStanding();
-  if (launch) return standing && standing.totalUsd !== null ? <SplitBar split={standingSplit(standing)} hidden={hidden} launch /> : null;
-  return portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-    <SplitBar split={ledgerSplit(portfolio.data)} hidden={hidden} launch={false} />
-  ) : null;
+  return <HomeMarkets {...rest} watch={watch} movers={movers} sparklines={sparklines} />;
 }
 
 /** The layout preference decides which Home is drawn (UI-SPEC 3.3); a switch in the top bar flips it at once. */
