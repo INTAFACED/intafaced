@@ -128,6 +128,7 @@ export function Board({
               <MoverTile
                 key={entry.market.symbol}
                 symbol={displayName(entry)}
+                asset={entry.market.base}
                 price={priceText(entry.market, entry.ticker?.last)}
                 change={fmtPct(entry.ticker?.changePct24h)}
                 trend={lines[entry.market.symbol] ?? []}

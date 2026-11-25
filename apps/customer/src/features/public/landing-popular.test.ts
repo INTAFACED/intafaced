@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dec, str } from '../../data/decimal';
 import { venueMarketRow, venueTickerRow } from '../../data';
-import { exampleLong, linesOf, popularOf } from './HomePage';
+import { coinName, exampleLong, linesOf, popularOf, sharedBases, type Line } from './HomePage';
 
 const line = (symbol: string, last: string | undefined, volume: string) => ({
   symbol,
@@ -83,5 +83,29 @@ describe('the landing board on the one markets catalogue', () => {
   it('lists no perpetuals where the catalogue has none (the venue door off)', () => {
     const lines = linesOf({ markets: { status: 'empty' }, perpetuals: { status: 'empty' }, tickers: { status: 'empty' } });
     expect(lines).toEqual([]);
+  });
+});
+
+describe('the landing board’s names', () => {
+  const at = (symbol: string, base: string, quote: string, perp = false): Line => ({
+    market: { symbol, base, quote, orderable: true, tickSize: '0.01', lotSize: '0.01', minAmount: null, listedAt: null },
+    ticker: undefined,
+    perp,
+  });
+
+  it('marks only a coin the board lists more than once, so two markets of one coin never read as one', () => {
+    const lines = [
+      at('BTC/USDT', 'BTC', 'USDT'),
+      at('BTC/USDC', 'BTC', 'USDC'),
+      at('ETH/USDT', 'ETH', 'USDT'),
+      at('BTC-PERP', 'BTC', 'USDC', true),
+    ];
+    expect([...sharedBases(lines)]).toEqual(['BTC']);
+    expect([...sharedBases([at('ETH/USDT', 'ETH', 'USDT'), at('SOL/USDT', 'SOL', 'USDT')])]).toEqual([]);
+  });
+
+  it('names a coin from our launch catalogue, and leaves a coin it does not list unnamed', () => {
+    expect(coinName('BTC')).toBe('Bitcoin');
+    expect(coinName('ZZZ')).toBeUndefined();
   });
 });
