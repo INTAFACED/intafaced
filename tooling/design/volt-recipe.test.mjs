@@ -305,7 +305,7 @@ test('reads the classes a test selects by, and not a property access or a select
   assert.deepEqual(classesIn("dialog.locator(':is(.form-stack, .lt-stack) > button');"), []);
   // Over the app's own tests: a class the journeys find by is held, on the real files.
   const found = classesTestsFind();
-  for (const name of ['pp-detail-head', 'st-fact', 'p2p-order-identity']) assert.ok(found.has(name), name);
+  for (const name of ['lt-refusal', 'st-fact', 'p2p-order-identity']) assert.ok(found.has(name), name);
 });
 
 /** The selector of every rule in the customer app's and the kit's stylesheets. */
