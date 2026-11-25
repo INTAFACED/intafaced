@@ -81,14 +81,15 @@ test('only an invited account holding Full, with no send yet and under the per-p
     ['u1'],
   );
   assert.deepEqual(testnetCandidates({ users, approved, tokens, accounts: { k: { userId: 'u1', token: alice } } }), []);
-  // The cap counts every record the person's accounts hold, sent or not.
+  // The cap counts every record the person's accounts hold, sent or not; accounts with no record take no place under it,
+  // so a person's earlier accounts that never made a wallet don't shut out a later one.
   const many = Array.from({ length: 6 }, (_, i) => ({ id: `m${i}`, email: `${alice}.${i}@local-test.invalid` }));
   const all = full(...many.map((u) => u.id));
-  assert.equal(testnetCandidates({ users: many, approved: all, tokens, accounts: {} }).length, MAX_FUNDED_PER_PERSON);
+  assert.equal(testnetCandidates({ users: many, approved: all, tokens, accounts: {} }).length, many.length);
   const two = { a: { userId: 'm0', token: alice, state: 'sent' }, b: { userId: 'm1', token: alice, state: 'failed' } };
   assert.deepEqual(
     testnetCandidates({ users: many, approved: all, tokens, accounts: two }).map((c) => c.userId),
-    ['m2'],
+    ['m2', 'm3', 'm4', 'm5'],
   );
   const three = { ...two, c: { userId: 'm2', token: alice, state: 'dispatched' } };
   assert.deepEqual(testnetCandidates({ users: many, approved: all, tokens, accounts: three }), []);
@@ -197,6 +198,27 @@ test('a crash between the record and the dispatch never sends twice: it waits, t
   assert.deepEqual(n.dispatches, [{ to: addr(1), amount: '25' }]);
   assert.equal(n.records()[0].tries, 2);
   n.done();
+});
+
+test('a person whose earlier accounts made no wallet still gets their later one sent; never more than the cap', async () => {
+  // Six accounts of one person, all Full; only the last four made wallets. The first two take no place under the cap.
+  const wallets = Object.fromEntries([2, 3, 4, 5].map((i) => [`m${i}`, addr(10 + i)]));
+  const w = world({ wallets });
+  const all = Array.from({ length: 6 }, (_, i) => cand(`m${i}`));
+  for (let pass = 0; pass < 8; pass++) {
+    const sent = new Set(w.records().map((r) => r.userId));
+    await w.step(all.filter((c) => !sent.has(c.userId)));
+    w.finishRuns();
+  }
+  assert.deepEqual(
+    w
+      .records()
+      .map((r) => r.userId)
+      .sort(),
+    ['m2', 'm3', 'm4'],
+  );
+  assert.equal(w.dispatches.length, MAX_FUNDED_PER_PERSON);
+  w.done();
 });
 
 test('a funder under the grant sends nothing and says so once in round.log', async () => {
