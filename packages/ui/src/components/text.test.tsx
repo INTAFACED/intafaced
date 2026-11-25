@@ -13,11 +13,12 @@ describe('Text', () => {
       for (const part of ['size', 'line', 'weight', 'tracking']) expect(out).toContain(`var(--lit-type-${role}-${part})`);
     }
   });
-  it('takes the figure face for figures and the mono face, in capitals, for micro', () => {
+  it('takes the figure face for figures and the mono face, in sentence case, for micro', () => {
     expect(html(<Text variant="figure">$1.00</Text>)).toContain('var(--lit-font-figure)');
     const micro = html(<Text variant="micro">Code</Text>);
     expect(micro).toContain('var(--lit-font-mono)');
-    expect(micro).toContain('uppercase');
+    // The smallest text is sentence case, as the kit's `.lit-fine` and `.lt-label` draw it: tracked caps read as filler.
+    expect(micro).not.toContain('uppercase');
     expect(html(<Text variant="body">Words</Text>)).not.toContain('font-family');
   });
   it('draws the element asked for, a paragraph by default', () => {
