@@ -33,7 +33,7 @@ import './landing.css';
 
 type T = ReturnType<typeof landingCopy.useCopy>['t'];
 type Tab = 'popular' | 'gainers' | 'losers';
-interface Line {
+export interface Line {
   market: MarketRow;
   ticker: TickerRow | undefined;
 }
@@ -79,6 +79,14 @@ function useTakerBps(): number | null {
   return rates.length ? Math.min(...rates) : null;
 }
 
+/**
+ * Popular: the markets with a last trade, by 24h volume. A market with no print yet stays out of it (a row of dashes
+ * tells a visitor nothing); it stays in the market count and on All markets.
+ */
+export function popularOf(lines: readonly Line[]): Line[] {
+  return lines.filter((l) => !!l.ticker?.last).sort(byVolume);
+}
+
 /** The public landing page (/): the markets first, one balance behind them, and the real ticket with its fees. */
 export function HomePage() {
   const { t } = landingCopy.useCopy();
@@ -88,7 +96,7 @@ export function HomePage() {
     const usd = lines.filter((l) => USD_QUOTES.has(l.market.quote) && l.ticker?.quoteVolume24h);
     return usd.length ? str(sumOf(usd.map((l) => dec(l.ticker!.quoteVolume24h) ?? 0n))) : null;
   }, [lines]);
-  const popular = useMemo(() => [...lines].sort(byVolume), [lines]);
+  const popular = useMemo(() => popularOf(lines), [lines]);
   const featured = popular[0];
   return (
     <div className="ld" data-room="landing">

@@ -27,7 +27,7 @@
   min-inline-size: 0;
 }
 .ld-lead {
-  max-inline-size: 34ch;
+  max-inline-size: 40ch;
   margin-block-start: 1.5714rem;
   color: var(--lit-text-2);
   font-size: clamp(1.2143rem, 1.25vw, 1.5714rem);
