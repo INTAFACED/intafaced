@@ -331,3 +331,15 @@
     gap: 0.75rem;
   }
 }
+
+/* On a computer the row's action shows on the row you point at or move to, as landing's markets panel does; a phone
+   row opens on a tap. */
+@media (hover: hover) {
+  [data-testid='if-markets'] .lt-table tr[data-row] td[data-col='action'] > * {
+    opacity: 0;
+    transition: opacity var(--lit-t-quick) var(--lit-ease);
+  }
+  [data-testid='if-markets'] .lt-table tr[data-row]:is(:hover, :focus-within) td[data-col='action'] > * {
+    opacity: 1;
+  }
+}
