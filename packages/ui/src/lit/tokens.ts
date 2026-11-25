@@ -489,7 +489,7 @@ const volt = {
     '--if-font-mono': 'var(--lit-font-figure)',
   },
   type: {
-    hero: { size: '64px', line: '68px', weight: '300', tracking: '-0.035em' },
+    hero: { size: '56px', line: '56px', weight: '300', tracking: '-0.035em' },
     figure: { size: '28px', line: '32px', weight: '300', tracking: '-0.02em' },
     title: { size: '30px', line: '36px', weight: '500', tracking: '-0.025em' },
     heading: { size: '17px', line: '24px', weight: '600', tracking: '-0.01em' },
